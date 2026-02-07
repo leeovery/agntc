@@ -66,3 +66,32 @@ Skills are either single SKILL.md files or directories with SKILL.md + reference
 - `allowed-tools` unsupported in many agents
 
 **Key insight**: Vercel's own research shows passive context (AGENTS.md) outperforms on-demand skills. Our tool handles both paradigms — skills for task-specific workflows, but also agents/hooks/scripts that modify behavior more deeply.
+
+## Design Decisions
+
+### Asset Discovery: Manifest-Driven (not convention)
+
+Decision: Plugin repos declare their own manifest — full control for plugin authors. No convention to follow. The manifest tells the tool exactly what to install and where.
+
+Rationale: Convention works when you control all plugins and they follow the same structure. But a general-purpose tool needs flexibility — plugin authors should install whatever they like without conforming to a fixed directory layout.
+
+### No Symlinks — Copy Only
+
+Decision: Always copy files to the target directory. No symlink option.
+
+Rationale: Vercel offers symlinks but notes they make updates harder. Copies are simpler — files are committed to git, versioned with the project, and work identically across environments (including Claude Code for web).
+
+### Multi-Agent as First-Class Concern
+
+Decision: Support multiple AI agents (Claude, Cursor, Codex, Cline, etc.) from the start.
+
+Each agent has different target directories:
+- Claude: `.claude/skills/`, `.claude/agents/`, etc.
+- Cursor: `.cursor/rules/`, `.cursor/skills/`
+- Others: TBD
+
+Open questions:
+- Auto-detect which agents are in use? (check for `.claude/`, `.cursor/`, etc.)
+- Let user choose at install time?
+- Allow plugin manifest to specify agent compatibility?
+- Could a plugin provide different assets for different agents?
