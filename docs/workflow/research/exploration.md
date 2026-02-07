@@ -315,9 +315,48 @@ Modern, minimal. Box-drawing characters for framing. Symbols: ◆/✕/▲/◇ fo
 
 `@clack/core` = unstyled headless primitives for full control. `@clack/prompts` = pre-styled wrapper. Use prompts for apps, core for building frameworks. For this tool, `@clack/prompts` is the right choice — we want the opinionated style, not custom rendering.
 
-### Non-Interactive Mode Consideration
+### Non-Interactive Mode
 
-Since the tool runs via npx, it needs to work in CI/CD or scripted environments where TTY isn't available. @clack/prompts requires an interactive terminal. Options:
-- Detect non-TTY and fall back to defaults / `--yes` flag
-- Error with clear message asking user to run interactively
-- Separate concerns: interactive mode for `add`, non-interactive for `update --all`
+Not required. Tool is interactive-only — no CI/CD or non-TTY use case to worry about.
+
+---
+
+## Agent Skills Open Standard (agentskills.io)
+
+### Adoption
+
+Much broader than expected — 27+ tools have adopted it: Claude Code, Codex CLI, Cursor, Gemini CLI, GitHub, VS Code, Roo Code, Goose, Amp, and many more. Becoming the de facto standard for agent capabilities.
+
+### Specification Summary
+
+A skill = a directory containing `SKILL.md` (required):
+
+```
+skill-name/
+├── SKILL.md          # Required entrypoint
+├── scripts/          # Optional executables
+├── references/       # Optional docs loaded on demand
+└── assets/           # Optional static resources
+```
+
+Required frontmatter: `name` (must match dir name, lowercase+hyphens, max 64 chars), `description` (max 1024 chars).
+Optional: `license`, `compatibility`, `allowed-tools` (experimental), `metadata` (arbitrary key-value).
+
+Progressive disclosure: metadata loaded at startup for all skills, full body on activation, resources on demand. Keep SKILL.md under 500 lines.
+
+### What the standard covers — and doesn't
+
+The standard **only defines skills**. It says nothing about agents, hooks, commands, or scripts as separate asset types. Those are tool-specific concepts (agents/hooks are Claude Code-specific).
+
+### Implications explored
+
+- Commands are deprecated in Claude Code — rolled into skills. Support `commands/` dir for backwards compat only.
+- `agents/` and `hooks/` being Claude-only is fine for now. Everything is early and standards will converge.
+- `scripts/` outside of skills is valid — shared scripts across skills, agent can browse up a directory.
+- Plugin-level agent compatibility: a plugin could declare what agents it works with. Inclusive by default (works with all), opt into limiting (e.g., "claude only" because it uses agents/hooks).
+- If a plugin limits to certain agents, the tool only offers those agents during install.
+- Compatibility could potentially be inferred from directory presence (has `agents/` → needs Claude) or declared explicitly via minimal config.
+
+**Open questions:**
+- How to declare compatibility — infer from dirs? Minimal config file? Field in existing plugin metadata?
+- If inferred, what about skills that technically work everywhere but are _designed_ for a specific agent?
