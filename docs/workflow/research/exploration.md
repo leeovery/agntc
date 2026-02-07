@@ -166,12 +166,25 @@ Enables: `list` (show installed), `remove` (clean up files), `update` (compare s
 {
   "leeovery/claude-technical-workflows": {
     "ref": "v2.1.6",
+    "commit": "abc123f",
     "files": ["skills/technical-planning/", "agents/task-executor.md"],
     "agents": ["claude"]
   }
 }
 ```
 
+- `ref`: the tag/branch specified at install time, or `null` if installed from default HEAD
+- `commit`: always the resolved SHA at time of install
+
 Flat structure — no wrapping key. Nest later if needed (YAGNI).
 
 Location rationale: Can't live inside `.claude/` since we're multi-agent. `.agentic/` is tool-specific and agent-neutral.
+
+### Update Semantics
+
+Decision: Smart comparison via `git ls-remote`, avoid unnecessary cloning.
+
+Behavior:
+- **No ref pinned** (`ref: null`) → `git ls-remote` for HEAD. Compare SHA to stored `commit`. If different → re-clone, delete old files, re-copy, update manifest. If same → "already up to date."
+- **Branch pinned** (`ref: "dev"`) → `git ls-remote` for branch tip. Same comparison.
+- **Tag pinned** (`ref: "v2.0"`) → tag resolves to same commit, so always "already up to date." To upgrade: `npx agentic add owner/repo@v3.0` (explicit re-add with new tag).
