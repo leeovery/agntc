@@ -150,3 +150,28 @@ Version resolution:
 3. `owner/repo` → `git clone --depth 1` (default HEAD — no assumption about `main` vs `master`)
 
 Supports GitHub shorthand (`owner/repo`) and full URLs. Tags enable proper release management for plugin authors; default HEAD keeps it simple for casual use.
+
+### Local Tracking Manifest
+
+Decision: `.agentic/manifest.json` at project root. Committed to git so the whole team sees what's installed.
+
+Tracks:
+- Which repos are installed (and at what ref/commit)
+- Which files were copied and where
+- Which agents they were installed for
+
+Enables: `list` (show installed), `remove` (clean up files), `update` (compare stored ref vs remote latest).
+
+```json
+{
+  "installed": {
+    "leeovery/claude-technical-workflows": {
+      "ref": "v2.1.6",
+      "files": ["skills/technical-planning/", "agents/task-executor.md"],
+      "agents": ["claude"]
+    }
+  }
+}
+```
+
+Location rationale: Can't live inside `.claude/` since we're multi-agent. `.agentic/` is tool-specific and agent-neutral.
