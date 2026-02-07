@@ -357,6 +357,18 @@ The standard **only defines skills**. It says nothing about agents, hooks, comma
 - If a plugin limits to certain agents, the tool only offers those agents during install.
 - Compatibility could potentially be inferred from directory presence (has `agents/` → needs Claude) or declared explicitly via minimal config.
 
-**Open questions:**
-- How to declare compatibility — infer from dirs? Minimal config file? Field in existing plugin metadata?
-- If inferred, what about skills that technically work everywhere but are _designed_ for a specific agent?
+### Agent Detection and Plugin Compatibility
+
+**How Vercel does it**: Auto-detect by checking for agent config directories (`.claude/`, `.cursor/`, etc.) in project and home dir. If none found, prompt user to pick. Supports 35+ agents.
+
+**Explored flow for this tool:**
+
+1. Tool clones the repo
+2. Reads `agentic.json` (if present) — e.g., `{ "agents": ["claude"] }`
+3. Auto-detects what agents the user has installed (check for config dirs)
+4. Intersects: plugin's allowed agents ∩ user's installed agents → offer those
+5. No `agentic.json` = compatible with all agents
+
+**Compatibility mismatch handling**: If plugin limits to agents the user doesn't have installed, warn but don't block. e.g., "This plugin is only compatible with Claude Code. It doesn't look like you have it installed — install anyway?" User always gets the final say.
+
+**`agentic.json`**: Minimal config file in plugin repo root. Currently just `agents` field. Could grow to hold other metadata as needed. No config = works with everything.
