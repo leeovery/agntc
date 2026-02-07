@@ -188,3 +188,13 @@ Behavior:
 - **No ref pinned** (`ref: null`) → `git ls-remote` for HEAD. Compare SHA to stored `commit`. If different → re-clone, delete old files, re-copy, update manifest. If same → "already up to date."
 - **Branch pinned** (`ref: "dev"`) → `git ls-remote` for branch tip. Same comparison.
 - **Tag pinned** (`ref: "v2.0"`) → tag resolves to same commit, so always "already up to date." To upgrade: `npx agentic add owner/repo@v3.0` (explicit re-add with new tag).
+
+### Conflict Handling
+
+Decision: Always ask. Interactive prompt with two options: **overwrite** or **skip**.
+
+Applies uniformly to:
+- **Plugin clash** — two plugins provide the same file. Ask: overwrite or skip.
+- **Local edits on update** — user modified an installed file, update brings a new version. Ask: overwrite or skip.
+
+Same UX for both scenarios. Simple, predictable, no surprises.
