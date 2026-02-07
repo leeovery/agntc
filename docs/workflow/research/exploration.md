@@ -407,3 +407,30 @@ The tool injects knowledge into agents — giving them context, skills, expertis
 `agntc` — developer shorthand for "agentic." Compressed, no vowels, dev-friendly (like `pnpm`, `tmux`, `rg`). Copy-pasteable. `npx agntc add owner/repo` reads clean.
 
 Other strong candidates for further thought: `noesis` (pure knowledge concept), `imbuo` (Latin root of imbue), `skillpak` (practical/clear).
+
+---
+
+## Pending Research Topics
+
+- **The `remove` flow** — delete files listed in manifest, remove manifest entry. Straightforward or are there edge cases?
+- **Other tools in the space** — anything beyond Vercel skill library we haven't looked at?
+- **Full CLI UX walkthrough** — mock up the complete `add` flow with @clack/prompts from start to finish
+- **GitHub shorthand parsing** — `owner/repo`, `owner/repo@tag`, full URLs, GitLab support?
+- **Error handling UX** — what does the user see when clone fails, no assets found, etc.?
+- **Existing plugin migration** — how do current Claude Manager users migrate to this tool?
+- **The `list` command** — what info to show, formatting
+- **`agentic.json` schema** — what else might go in the plugin config beyond `agents`?
+
+## Discussion-Ready Topics
+
+These threads have converged enough for decision-making in the discussion phase:
+
+- **Multi-agent target mapping** — asymmetric landscape understood, tradeoffs clear
+- **Convention vs manifest for asset discovery** — explored both, leaning convention
+- **Unit vs collection repo modes** — model is clear, auto-detect approach explored
+- **Git sourcing mechanics** — shallow clone, tag/branch/HEAD
+- **Update semantics** — smart SHA comparison via git ls-remote
+- **Conflict handling** — always ask, overwrite or skip
+- **Local manifest structure** — `.agentic/manifest.json` (needs rename discussion for agntc)
+- **Agent detection + plugin compatibility** — Vercel pattern explored, agentic.json config
+- **Naming** — agntc frontrunner, npm available
