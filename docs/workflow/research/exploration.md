@@ -69,11 +69,11 @@ Skills are either single SKILL.md files or directories with SKILL.md + reference
 
 ## Design Decisions
 
-### Asset Discovery: Manifest-Driven (not convention)
+### Asset Discovery: Convention-Based
 
-Decision: Plugin repos declare their own manifest — full control for plugin authors. No convention to follow. The manifest tells the tool exactly what to install and where.
+Decision: Use convention — scan for known asset directories (`skills/`, `agents/`, `scripts/`, `hooks/`, `commands/`). No plugin manifest needed.
 
-Rationale: Convention works when you control all plugins and they follow the same structure. But a general-purpose tool needs flexibility — plugin authors should install whatever they like without conforming to a fixed directory layout.
+Rationale: Simpler for plugin authors. Just organize files in standard dirs. The tool knows what to look for and where to put it per agent. Initially considered manifest-driven but the complexity isn't justified — convention covers the real use cases.
 
 ### No Symlinks — Copy Only
 
@@ -93,5 +93,45 @@ Each agent has different target directories:
 Open questions:
 - Auto-detect which agents are in use? (check for `.claude/`, `.cursor/`, etc.)
 - Let user choose at install time?
-- Allow plugin manifest to specify agent compatibility?
 - Could a plugin provide different assets for different agents?
+
+### Two Repo Modes: Unit vs Collection
+
+Repos can work in two ways, same convention at both levels:
+
+**Unit mode** — repo root IS the package. Everything installs together as a cohesive unit:
+```
+repo/
+├── skills/
+│   ├── technical-planning/
+│   └── technical-review/
+├── agents/
+│   └── task-executor.md
+└── scripts/
+    └── migrate.sh
+```
+Example: `claude-technical-workflows` — all skills/agents/scripts are interdependent, install as one.
+
+**Collection mode** — each top-level directory is an independent unit. User interactively selects which to install:
+```
+repo/
+├── laravel-actions/
+│   ├── skills/
+│   └── agents/
+├── laravel-testing/
+│   └── skills/
+└── nuxt-components/
+    └── skills/
+```
+Each subdirectory follows the same convention — has its own `skills/`, `agents/`, etc. User picks which directories to install.
+
+Benefits:
+- Same convention everywhere — a "unit" always looks the same
+- Solves skill+agent dependency — co-located in the same unit, installed together
+- Unit mode = simple, no choices. Collection mode = interactive selection
+- A single repo can serve as a curated library of independent toolsets
+
+Open question: How does the tool know which mode? Options:
+- Auto-detect: if root has `skills/` or `agents/` → unit mode. If root has dirs containing `skills/` → collection mode
+- Explicit flag: `npx agentic add owner/repo` (unit) vs `npx agentic add owner/repo --pick` (collection)
+- Config in repo: minimal config just to declare mode
