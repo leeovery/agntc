@@ -254,3 +254,70 @@ Same UX for both scenarios. Simple, predictable, no surprises.
 - Or just one set of assets that gets routed to the right place per agent?
 
 > **Discussion-ready**: Multi-agent target mapping is well understood. The landscape is deeply asymmetric — Claude Code is richest, Codex shares the skills standard, everyone else is rules-only. Key tradeoffs: translation vs copy-what-maps, per-agent dirs in plugin repos vs single set routed by the tool, and how deep multi-agent support really needs to be for non-Claude agents.
+
+---
+
+## @clack/prompts Research
+
+### Overview
+
+@clack/prompts is a pre-styled CLI prompt library by bombshell-dev. v1.0.0 released Jan 28, 2026. 7.4k GitHub stars, 2.5M weekly downloads, 3,600+ dependents. 100% TypeScript. Production-ready.
+
+### Available Primitives
+
+**Input**: `text()`, `password()`, `path()` (file autocomplete), `confirm()`
+**Selection**: `select()`, `multiselect()`, `autocomplete()`, `autocompleteMultiselect()`, `groupMultiselect()` (hierarchical)
+**Progress**: `spinner()` (indeterminate), `progress()` (bar with 3 styles), `tasks()` (async sequencing), `taskLog()` (streaming output)
+**Output**: `intro()`/`outro()`, `note()` (boxed), `box()`, `log.info/warn/error/success/step/message`
+**Flow**: `group()` (compose multi-step flows with result passing between steps)
+
+### Visual Style
+
+Modern, minimal. Box-drawing characters for framing. Symbols: ◆/✕/▲/◇ for states, ◉/◯ for radio, ◻/◼ for checkboxes. Consistent vertical guide line connecting prompts:
+
+```
+┌  Plugin Installer
+│
+◆  Choose repo
+│  ● leeovery/claude-laravel
+│  ○ leeovery/claude-nuxt
+│
+◆  Select packages to install
+│  ◼ laravel-actions
+│  ◼ laravel-testing
+│  ◻ laravel-models
+│
+◇  Installed 2 packages
+│
+└  Done!
+```
+
+### Key Capabilities for This Tool
+
+- **`group()`** — compose the full install flow (repo selection → mode detection → package pick → agent selection → copy → summary) as a single grouped flow with cancellation handling
+- **`multiselect()`** — perfect for collection mode package picking
+- **`select()`** — agent selection, conflict resolution (overwrite/skip)
+- **`spinner()`** — clone progress, file copying
+- **`tasks()`** — sequential operations (clone → detect → copy → manifest)
+- **`note()`** — post-install summary of what was installed
+- **`isCancel()`** — clean exit handling at any step
+- **`groupMultiselect()`** — could group assets by type (skills, agents, etc.)
+
+### Limitations
+
+- Opinionated styling — limited theme control (use @clack/core for full customization)
+- Linear flows — `group()` doesn't branch/conditional well
+- No nested menus or tree views
+- TTY only — won't work in non-interactive environments (CI/CD would need a `--yes` flag or similar)
+- No built-in table rendering
+
+### @clack/core vs @clack/prompts
+
+`@clack/core` = unstyled headless primitives for full control. `@clack/prompts` = pre-styled wrapper. Use prompts for apps, core for building frameworks. For this tool, `@clack/prompts` is the right choice — we want the opinionated style, not custom rendering.
+
+### Non-Interactive Mode Consideration
+
+Since the tool runs via npx, it needs to work in CI/CD or scripted environments where TTY isn't available. @clack/prompts requires an interactive terminal. Options:
+- Detect non-TTY and fall back to defaults / `--yes` flag
+- Error with clear message asking user to run interactively
+- Separate concerns: interactive mode for `add`, non-interactive for `update --all`
