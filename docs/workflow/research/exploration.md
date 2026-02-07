@@ -198,3 +198,57 @@ Applies uniformly to:
 - **Local edits on update** — user modified an installed file, update brings a new version. Ask: overwrite or skip.
 
 Same UX for both scenarios. Simple, predictable, no surprises.
+
+---
+
+## Multi-Agent Landscape Research
+
+### Asset type support across agents
+
+| Asset Type | Claude Code | Codex CLI | Cursor | Cline | Windsurf |
+|------------|-------------|-----------|--------|-------|----------|
+| **Rules/Instructions** | `CLAUDE.md` + `.claude/rules/` | `AGENTS.md` hierarchy | `.cursor/rules/*.mdc` | `.clinerules/*.md` | `.windsurf/rules/*.md` |
+| **Skills** | `.claude/skills/*/SKILL.md` | `.agents/skills/*/SKILL.md` | — | — | — |
+| **Agents/Subagents** | `.claude/agents/*.md` | — | — | — | — |
+| **Hooks/Lifecycle** | `.claude/settings.json` + scripts | — | — | — | — |
+| **Commands** | `.claude/commands/*.md` (legacy) | — | — | — | — |
+| **Plugins** | `.claude-plugin/plugin.json` | — | — | — | — |
+| **MCP config** | `.mcp.json` | `config.toml [mcp_servers]` | `.cursor/mcp.json` | — | — |
+
+### Key observations
+
+**Massive asymmetry in richness.** Claude Code has by far the most asset types: skills, agents, hooks, commands, plugins, rules, memory, MCP, LSP. Codex CLI is second with skills and AGENTS.md layering. Cursor, Cline, and Windsurf are primarily rules-only.
+
+**Skills standard convergence.** Claude Code and Codex CLI both follow the Agent Skills open standard (agentskills.io) — `SKILL.md` entrypoints, `references/`, `scripts/` directories. Shared convention.
+
+**AGENTS.md as lingua franca.** Codex uses it as primary instruction mechanism. Cursor supports it as alternative. Cline reads it as fallback. Closest thing to a cross-tool standard, but inconsistent support.
+
+**Cline reads from other agents.** Cline falls back to `.cursor/rules/` and `.windsurf/rules/` when `.clinerules/` is absent. Cross-tool awareness already exists.
+
+**Windsurf is the most constrained.** 6K per file, 12K total combined rules. Rules only — no skills, agents, hooks.
+
+### Target directory mapping per agent
+
+| Asset Type | Claude Code | Codex CLI | Cursor | Cline | Windsurf |
+|------------|-------------|-----------|--------|-------|----------|
+| skills | `.claude/skills/` | `.agents/skills/` | — | — | — |
+| agents | `.claude/agents/` | — | — | — | — |
+| rules | `.claude/rules/` | — | `.cursor/rules/` | `.clinerules/` | `.windsurf/rules/` |
+| hooks | `.claude/hooks/` | — | — | — | — |
+| scripts | `.claude/scripts/` | — | — | — | — |
+| commands | `.claude/commands/` | — | — | — | — |
+
+### Implications for the tool
+
+**Not all asset types map across agents.** Skills only make sense for Claude and Codex. Agents and hooks are Claude-only. Rules are the broadest — every agent supports them. This means:
+
+- A plugin repo targeting Claude can use all asset types
+- A plugin repo targeting multiple agents may need to think about what maps where
+- Rules are the universal currency — if you want cross-agent reach, write rules
+- Skills have a shared standard between Claude and Codex but nobody else
+
+**Open questions surfaced:**
+- Should the tool attempt to "translate" assets? e.g., convert a skill to a rule for Cursor?
+- Or just copy what maps and skip what doesn't? (simpler, more honest)
+- Should plugin repos have per-agent directories? e.g., `claude/skills/`, `codex/skills/`, `cursor/rules/`?
+- Or just one set of assets that gets routed to the right place per agent?
