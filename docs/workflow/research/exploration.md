@@ -164,14 +164,14 @@ Enables: `list` (show installed), `remove` (clean up files), `update` (compare s
 
 ```json
 {
-  "installed": {
-    "leeovery/claude-technical-workflows": {
-      "ref": "v2.1.6",
-      "files": ["skills/technical-planning/", "agents/task-executor.md"],
-      "agents": ["claude"]
-    }
+  "leeovery/claude-technical-workflows": {
+    "ref": "v2.1.6",
+    "files": ["skills/technical-planning/", "agents/task-executor.md"],
+    "agents": ["claude"]
   }
 }
 ```
+
+Flat structure — no wrapping key. Nest later if needed (YAGNI).
 
 Location rationale: Can't live inside `.claude/` since we're multi-agent. `.agentic/` is tool-specific and agent-neutral.
