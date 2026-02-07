@@ -376,3 +376,34 @@ The standard **only defines skills**. It says nothing about agents, hooks, comma
 ### Private Repos
 
 Not a concern for the tool. `git clone` defers to the user's local git auth (SSH keys, credential helpers, `gh auth`, PATs, etc.). If they have access, it works. If not, surface the git error clearly. The tool doesn't need to handle auth at all.
+
+---
+
+## Naming Exploration
+
+Current placeholder: "agentic" — taken on npm (squatted, 0.0.2).
+
+### Concept
+
+The tool injects knowledge into agents — giving them context, skills, expertise they don't have from training. Like teaching, like growing neurons, like expanding what the agent knows for a session.
+
+### Themes explored
+
+- Knowledge insertion: instill, imbue, impart, endow, infuse
+- Brain/neuroscience: synapse, cortex, dendrite, engram, neurons
+- Education/growth: primer, syllabus, curriculum, upskill, edify
+- Expansion: augment, horizon, frontier
+- Greek/Latin roots: noesis (act of knowing), imbuo (to saturate/instill), gnosis (deep knowledge)
+
+### Available on npm (checked Feb 2026)
+
+**Knowledge-themed**: `noesis`, `noetic`, `imbuo`, `instilo`, `endue`, `akumen`, `studium`, `imbued`
+**Neuroscience**: `synapt`, `neurode`, `engrm`
+**Practical**: `agntc`, `skillpak`, `upskil`
+**Other**: `tutela`, `daimonic`, `entelic`, `praxys`, `uplore`, `knoledge`, `brainpak`, `mindpak`
+
+### Current frontrunner
+
+`agntc` — developer shorthand for "agentic." Compressed, no vowels, dev-friendly (like `pnpm`, `tmux`, `rg`). Copy-pasteable. `npx agntc add owner/repo` reads clean.
+
+Other strong candidates for further thought: `noesis` (pure knowledge concept), `imbuo` (Latin root of imbue), `skillpak` (practical/clear).
