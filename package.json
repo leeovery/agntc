@@ -1,0 +1,20 @@
+{
+  "name": "agntc",
+  "version": "0.0.1",
+  "description": "Agent skills and knowledge installer for AI coding agents",
+  "keywords": [
+    "agent",
+    "skills",
+    "cli",
+    "ai",
+    "claude",
+    "codex",
+    "cursor"
+  ],
+  "license": "MIT",
+  "author": "Lee Overy",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leeovery/agntc.git"
+  }
+}
