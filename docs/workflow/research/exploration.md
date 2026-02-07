@@ -252,3 +252,5 @@ Same UX for both scenarios. Simple, predictable, no surprises.
 - Or just copy what maps and skip what doesn't? (simpler, more honest)
 - Should plugin repos have per-agent directories? e.g., `claude/skills/`, `codex/skills/`, `cursor/rules/`?
 - Or just one set of assets that gets routed to the right place per agent?
+
+> **Discussion-ready**: Multi-agent target mapping is well understood. The landscape is deeply asymmetric — Claude Code is richest, Codex shares the skills standard, everyone else is rules-only. Key tradeoffs: translation vs copy-what-maps, per-agent dirs in plugin repos vs single set routed by the tool, and how deep multi-agent support really needs to be for non-Claude agents.
