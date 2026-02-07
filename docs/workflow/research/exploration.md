@@ -153,7 +153,7 @@ Supports GitHub shorthand (`owner/repo`) and full URLs. Tags enable proper relea
 
 ### Local Tracking Manifest
 
-Decision: `.agentic/manifest.json` at project root. Committed to git so the whole team sees what's installed.
+Decision: `.agntc/manifest.json` at project root. Committed to git so the whole team sees what's installed.
 
 Tracks:
 - Which repos are installed (and at what ref/commit)
@@ -178,7 +178,7 @@ Enables: `list` (show installed), `remove` (clean up files), `update` (compare s
 
 Flat structure — no wrapping key. Nest later if needed (YAGNI).
 
-Location rationale: Can't live inside `.claude/` since we're multi-agent. `.agentic/` is tool-specific and agent-neutral.
+Location rationale: Can't live inside `.claude/` since we're multi-agent. `.agntc/` is tool-specific and agent-neutral.
 
 ### Update Semantics
 
@@ -364,14 +364,14 @@ The standard **only defines skills**. It says nothing about agents, hooks, comma
 **Explored flow for this tool:**
 
 1. Tool clones the repo
-2. Reads `agentic.json` (if present) — e.g., `{ "agents": ["claude"] }`
+2. Reads `agntc.json` (if present) — e.g., `{ "agents": ["claude"] }`
 3. Auto-detects what agents the user has installed (check for config dirs)
 4. Intersects: plugin's allowed agents ∩ user's installed agents → offer those
-5. No `agentic.json` = compatible with all agents
+5. No `agntc.json` = compatible with all agents
 
 **Compatibility mismatch handling**: If plugin limits to agents the user doesn't have installed, warn but don't block. e.g., "This plugin is only compatible with Claude Code. It doesn't look like you have it installed — install anyway?" User always gets the final say.
 
-**`agentic.json`**: Minimal config file in plugin repo root. Currently just `agents` field. Could grow to hold other metadata as needed. No config = works with everything.
+**`agntc.json`**: Minimal config file in plugin repo root. Currently just `agents` field. Could grow to hold other metadata as needed. No config = works with everything.
 
 ### Private Repos
 
@@ -419,7 +419,7 @@ Other strong candidates for further thought: `noesis` (pure knowledge concept), 
 - **Error handling UX** — what does the user see when clone fails, no assets found, etc.?
 - **Existing plugin migration** — how do current Claude Manager users migrate to this tool?
 - **The `list` command** — what info to show, formatting
-- **`agentic.json` schema** — what else might go in the plugin config beyond `agents`?
+- **`agntc.json` schema** — what else might go in the plugin config beyond `agents`?
 
 ## Discussion-Ready Topics
 
@@ -431,6 +431,6 @@ These threads have converged enough for decision-making in the discussion phase:
 - **Git sourcing mechanics** — shallow clone, tag/branch/HEAD
 - **Update semantics** — smart SHA comparison via git ls-remote
 - **Conflict handling** — always ask, overwrite or skip
-- **Local manifest structure** — `.agentic/manifest.json` (needs rename discussion for agntc)
-- **Agent detection + plugin compatibility** — Vercel pattern explored, agentic.json config
+- **Local manifest structure** — `.agntc/manifest.json`
+- **Agent detection + plugin compatibility** — Vercel pattern explored, agntc.json config
 - **Naming** — agntc frontrunner, npm available
