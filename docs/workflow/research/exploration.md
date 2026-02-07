@@ -137,3 +137,16 @@ Rules:
 1. Root has `skills/` or `agents/` directly → **unit mode** (install everything)
 2. Root has subdirs containing `skills/` or `agents/` → **collection mode** (interactive pick)
 3. Both patterns detected → **ask user**: "Install everything, or pick individual packages?"
+
+### Git Sourcing
+
+Decision: Shallow clone, copy, discard. No history needed.
+
+Mechanism: `git clone --depth 1` into a temp directory, detect mode, copy assets, delete clone.
+
+Version resolution:
+1. `owner/repo@v2.0` → `git clone --depth 1 --branch v2.0` (tag)
+2. `owner/repo@some-branch` → `git clone --depth 1 --branch some-branch` (branch)
+3. `owner/repo` → `git clone --depth 1` (default HEAD — no assumption about `main` vs `master`)
+
+Supports GitHub shorthand (`owner/repo`) and full URLs. Tags enable proper release management for plugin authors; default HEAD keeps it simple for casual use.
