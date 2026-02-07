@@ -131,7 +131,9 @@ Benefits:
 - Unit mode = simple, no choices. Collection mode = interactive selection
 - A single repo can serve as a curated library of independent toolsets
 
-Open question: How does the tool know which mode? Options:
-- Auto-detect: if root has `skills/` or `agents/` → unit mode. If root has dirs containing `skills/` → collection mode
-- Explicit flag: `npx agentic add owner/repo` (unit) vs `npx agentic add owner/repo --pick` (collection)
-- Config in repo: minimal config just to declare mode
+Decision: Auto-detect which mode, prompt when ambiguous.
+
+Rules:
+1. Root has `skills/` or `agents/` directly → **unit mode** (install everything)
+2. Root has subdirs containing `skills/` or `agents/` → **collection mode** (interactive pick)
+3. Both patterns detected → **ask user**: "Install everything, or pick individual packages?"
