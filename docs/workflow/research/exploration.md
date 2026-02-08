@@ -410,9 +410,50 @@ Other strong candidates for further thought: `noesis` (pure knowledge concept), 
 
 ---
 
+## Remove Flow
+
+Manifest-driven: delete files listed in manifest, remove the entry.
+
+- **Units** are all-or-nothing — installed together, removed together
+- **Collections** are granular — user picks which plugins to remove
+- `npx agntc remove` (no args) → scan manifest, present installed repos/plugins, let user pick
+- Manifest needs to track unit vs collection mode and which plugins are installed per collection — structural shape is a discussion-phase decision
+- Re-adding to a collection already partially installed → show available plugins, grey out already-installed ones
+- Parameterized remove (e.g., `npx agntc remove owner/repo` or `owner/repo/plugin-name`) — unexplored, needs discussion
+
+> **Discussion-ready**: Core mechanics are clear. Manifest needs unit/collection distinction with per-plugin tracking. Interactive UX for removal understood. Exact manifest shape and parameterized remove syntax are discussion decisions.
+
+---
+
+## Update Automation
+
+### Manual update is already an improvement
+
+`npx agntc update` is better than current `npm update` approach — scoped to plugins only, no risk of updating unrelated project dependencies. Can update all at once or cherry-pick (`npx agntc update owner/repo`).
+
+### How others do it
+
+- **Claude Marketplace**: Checks at session startup when auto-update enabled. Git-based SHA comparison. Notifies user to restart. Has a known caching bug where cache never refreshes (issue #17361).
+- **Vercel Skills**: No auto-update. Manual only (`npx skills check` / `npx skills update`). GitHub tree SHA comparison.
+
+### Automated checking approaches explored
+
+**SessionStart hook (rejected for now)**: Claude Code has a `SessionStart` hook that can run commands, but (a) can't add latency to startup, and (b) don't want to inject context into Claude's session. Not viable as a synchronous check.
+
+**Two viable approaches identified:**
+
+1. **Check-on-next-command** — any `npx agntc` invocation does a quick background SHA check and surfaces a banner if updates exist. Like Homebrew's "these packages are outdated" on next `brew` command. Zero overhead when you're not using the tool. Surfaces naturally when you're thinking about plugins.
+
+2. **Agent hooks (async, background)** — SessionStart with `"async": true` runs without blocking. Writes a flag file (e.g., `.agntc/.updates-available`) that the next `npx agntc` command picks up and displays. Hook does the check silently in the background; CLI surfaces the result later. Complementary to approach 1.
+
+Non-Claude agents (Cursor, Cline, Codex) have no equivalent lifecycle hooks — so agent hooks approach is Claude-only for now.
+
+> **Discussion-ready**: Manual update is a clear improvement. Two complementary automation approaches identified: check-on-next-command (universal) and async agent hooks (Claude-only, writes flag file for CLI to pick up). Tradeoffs and implementation details are discussion decisions.
+
+---
+
 ## Pending Research Topics
 
-- **The `remove` flow** — delete files listed in manifest, remove manifest entry. Straightforward or are there edge cases?
 - **Other tools in the space** — anything beyond Vercel skill library we haven't looked at?
 - **Full CLI UX walkthrough** — mock up the complete `add` flow with @clack/prompts from start to finish
 - **GitHub shorthand parsing** — `owner/repo`, `owner/repo@tag`, full URLs, GitLab support?
@@ -431,6 +472,8 @@ These threads have converged enough for decision-making in the discussion phase:
 - **Git sourcing mechanics** — shallow clone, tag/branch/HEAD
 - **Update semantics** — smart SHA comparison via git ls-remote
 - **Conflict handling** — always ask, overwrite or skip
-- **Local manifest structure** — `.agntc/manifest.json`
+- **Local manifest structure** — `.agntc/manifest.json`, needs unit/collection distinction
 - **Agent detection + plugin compatibility** — Vercel pattern explored, agntc.json config
 - **Naming** — agntc frontrunner, npm available
+- **Remove flow** — manifest-driven, unit vs collection granularity, interactive picker
+- **Update automation** — check-on-next-command + async agent hooks, manual update as baseline
