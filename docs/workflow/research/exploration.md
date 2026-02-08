@@ -475,14 +475,18 @@ Key observations:
 
 ---
 
-## Pending Research Topics
+## Deferred to Discussion/Spec
 
-- **Other tools in the space** — anything beyond Vercel skill library we haven't looked at?
-- **GitHub shorthand parsing** — `owner/repo`, `owner/repo@tag`, full URLs, GitLab support?
-- **Error handling UX** — what does the user see when clone fails, no assets found, etc.?
-- **Existing plugin migration** — how do current Claude Manager users migrate to this tool?
-- **The `list` command** — what info to show, formatting
-- **`agntc.json` schema** — what else might go in the plugin config beyond `agents`?
+These don't need research — they'll be resolved in later phases:
+
+- GitHub shorthand parsing — implementation detail
+- Error handling UX — spec-level
+- Existing plugin migration — likely just "re-add via agntc, drop npm deps"
+- The `list` command — discussion/spec
+- `agntc.json` schema — discussion/spec
+- File path collisions across plugins — manifest doesn't track skipped files, could matter on remove
+- Plugin author renames/deletes assets between versions — user's agent config may reference old names
+- Partial failure during add/update — atomicity/rollback concern
 
 ## Discussion-Ready Topics
 
