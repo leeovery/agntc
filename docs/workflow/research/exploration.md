@@ -452,10 +452,32 @@ Non-Claude agents (Cursor, Cline, Codex) have no equivalent lifecycle hooks — 
 
 ---
 
+## CLI UX Walkthrough
+
+Mocked the `add` flow using @clack/prompts visual style. Three scenarios explored:
+
+**Unit install** (`npx agntc add owner/repo@v2.1.8`):
+Clone → agent selection → copy → summary with asset counts (17 skills, 8 agents, 5 scripts).
+
+**Collection install** (`npx agntc add owner/repo`):
+Clone → detect collection → multiselect plugins → agent selection → copy → summary per plugin.
+
+**Re-add to existing collection**:
+Clone → detect already-installed plugins → show them greyed out ("installed") → let user pick additional ones.
+
+Key observations:
+- `add` requires a source argument (no interactive "what do you want to install?" prompt) — it'll be copy-pasted from a README anyway
+- Single detected agent → auto-select but still show it
+- Summary shows asset counts for units, per-plugin paths for collections
+- @clack/prompts primitives map cleanly: `multiselect()` for plugin picking, `spinner()` for clone/copy, `note()` for summary
+
+> **Discussion-ready**: UX flow mocked for unit, collection, and re-add scenarios. Core flow shape is clear. Details (exact prompts, edge cases, error states) are discussion/spec decisions.
+
+---
+
 ## Pending Research Topics
 
 - **Other tools in the space** — anything beyond Vercel skill library we haven't looked at?
-- **Full CLI UX walkthrough** — mock up the complete `add` flow with @clack/prompts from start to finish
 - **GitHub shorthand parsing** — `owner/repo`, `owner/repo@tag`, full URLs, GitLab support?
 - **Error handling UX** — what does the user see when clone fails, no assets found, etc.?
 - **Existing plugin migration** — how do current Claude Manager users migrate to this tool?
@@ -477,3 +499,4 @@ These threads have converged enough for decision-making in the discussion phase:
 - **Naming** — agntc frontrunner, npm available
 - **Remove flow** — manifest-driven, unit vs collection granularity, interactive picker
 - **Update automation** — check-on-next-command + async agent hooks, manual update as baseline
+- **CLI UX** — add flow mocked for unit, collection, and re-add scenarios
