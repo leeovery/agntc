@@ -1,6 +1,6 @@
 ---
 topic: cli-commands-ux
-status: in-progress
+status: concluded
 date: 2026-02-09
 ---
 
@@ -28,8 +28,8 @@ Research mocked the `add` flow for unit/collection/re-add scenarios. `remove` me
 - [x] How should `remove` work — interactive, parameterized, or both?
 - [x] What are the `update` semantics — per-plugin, per-repo, all-at-once?
 - [x] What should `list` show and how?
-- [ ] How should conflicts be handled across commands?
-- [ ] What does error handling look like — partial failures, network errors, git errors?
+- [x] How should conflicts be handled across commands? *(covered in `add` flow — only command where conflicts arise)*
+- [x] What does error handling look like — partial failures, network errors, git errors?
 
 ---
 
@@ -234,3 +234,55 @@ The idea evolved into `list` as an interactive management dashboard rather than 
 **Update check approach**: parallel `git ls-remote` calls behind a single spinner. @clack/prompts `spinner()` covers this. Responsive for typical install sizes (2-10 plugins). If latency becomes a problem at scale, can add caching later.
 
 Actual output styling deferred to implementation — will use @clack/prompts primitives. The above describes information shape and interaction model.
+
+---
+
+## What does error handling look like — partial failures, network errors, git errors?
+
+### Context
+
+Errors can occur at multiple points: network/git failures during clone, permission errors during copy, partial failures during multi-plugin installs. Need a consistent strategy.
+
+### Decision
+
+**Retry transient failures, rollback on hard failure, write what succeeded for multi-plugin installs.**
+
+**Network/git errors (clone failures):**
+- Retry up to 3 times on transient failures (network timeout, temporary git errors)
+- After retries exhausted: surface the git error clearly, abort. Nothing to clean up — no files copied yet.
+- Auth failures (private repo, bad credentials): no retry — surface the error immediately. The tool doesn't handle auth; it defers to the user's git configuration.
+
+**Partial failure during copy (single plugin):**
+- Rollback to clean state. Delete everything copied so far for this plugin, write no manifest entry.
+- A half-installed plugin is worse than no plugin. Better to fail cleanly and let the user retry.
+- The manifest `files` list (tracked in memory during copy) tells us exactly what to delete.
+
+**Multi-plugin install (collection with multiple selections):**
+- Each plugin is independent. If plugin 1 succeeds and plugin 2 fails (after retries), plugin 1 keeps its manifest entry. Plugin 2 is rolled back.
+- Summary shows per-plugin outcome: installed, failed (with error), skipped (user choice from conflicts).
+
+**Edge case acknowledged**: if a copy fails after overwriting a file owned by another plugin, rollback deletes the new copy but the previous plugin's asset is already gone. Accepted as a narrow edge case — user can `update` the previous plugin to restore its files. Not worth adding save/restore complexity for overwritten files during rollback.
+
+---
+
+## Summary
+
+### Key Insights
+1. The four commands follow a consistent pattern — manifest-driven, @clack/prompts for interaction, same source argument format where applicable (owner/repo, owner/repo/plugin-name).
+2. `add` is the most complex flow and establishes patterns the others build on — source parsing, mode detection, agent selection, conflict handling.
+3. Agent selection always shows all supported agents. Pre-selection based on detection ∩ compatibility. Never block, never skip the prompt.
+4. Conflict handling at asset level (not file level) with manifest ownership transfer keeps prompts manageable and state consistent.
+5. `list` evolved from a simple dump to an interactive management dashboard — view, update, remove all in one session.
+6. `update` follows npm/brew convention — no-arg updates everything, parameterized for selective. Tag-pinned plugins get informed about newer versions but aren't auto-upgraded.
+7. Error strategy: retry transient failures, rollback single-plugin failures to clean state, independent success/failure per plugin in multi-plugin installs.
+
+### Current State
+- Resolved: `add` — full flow from source parsing through manifest write
+- Resolved: `remove` — interactive + parameterized, always confirm, no modification detection
+- Resolved: `update` — update-all default, nuke-and-reinstall, tag-pinned inform-only
+- Resolved: `list` — interactive dashboard with inline actions
+- Resolved: conflicts — asset-level detection in `add`, ownership transfer via manifest
+- Resolved: error handling — retry, rollback, per-plugin independence
+
+### Next Steps
+- [ ] Discuss remaining research topics (naming, deferred items, plugin init scaffolding)
