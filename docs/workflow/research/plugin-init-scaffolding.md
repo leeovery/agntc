@@ -64,3 +64,18 @@ Always ask — no inference. Multiselect from supported agents (claude, codex, c
 For collections: ask at root level (applies to all plugins), with optional per-plugin override. This matches the existing `agntc.json` inheritance model — root-level agents field applies to all, subdir `agntc.json` can override.
 
 Simpler than trying to infer from asset types. Just ask.
+
+---
+
+## Scaffolding Depth: Keep It Simple
+
+Rather than asking about every asset type (do you want skills? agents? hooks? scripts?), just scaffold all convention dirs and let the author delete what they don't need. Fewer questions > more questions.
+
+Minimal question set:
+1. Auto-detect or ask: plugin, collection, or bare skill?
+2. Which agents? (multiselect)
+3. Generate: `agntc.json`, all asset dirs, starter `SKILL.md` if applicable
+
+The value is in getting the `agntc.json` right and laying out the correct convention structure — not in being a comprehensive project generator.
+
+> **Discussion-ready**: Core shape of the init command is clear. Author-facing tool, supports greenfield and brownfield (auto-detect + confirm), asks minimal questions (type + agents), scaffolds all convention dirs rather than asking about each one. Key decisions for discussion: exact question flow, what starter files to include, how collection per-plugin scaffolding works, and whether bare skill gets a shortcut flag.
