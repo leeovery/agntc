@@ -26,7 +26,7 @@ Research mocked the `add` flow for unit/collection/re-add scenarios. `remove` me
 
 - [x] What's the full `add` flow — from argument parsing through to manifest write?
 - [x] How should `remove` work — interactive, parameterized, or both?
-- [ ] What are the `update` semantics — per-plugin, per-repo, all-at-once?
+- [x] What are the `update` semantics — per-plugin, per-repo, all-at-once?
 - [ ] What should `list` show and how?
 - [ ] How should conflicts be handled across commands?
 - [ ] What does error handling look like — partial failures, network errors, git errors?
@@ -155,4 +155,42 @@ Remove is manifest-driven — read what's installed, delete those files, update 
 
 **Collection removal via `owner/repo`**: when the user specifies a repo key that has multiple collection plugins installed, remove all of them. This is the "nuke the whole collection" path. The confirmation step shows everything that will go.
 
-**Empty directories**: after deleting files, if parent directories are now empty (e.g., `.claude/skills/` has nothing left), should the tool clean those up? Or leave them? Leaving them is simpler and harmless — the agent config dirs (`.claude/`, `.agents/`) should persist regardless.
+**Empty directories**: leave them. Agent config dirs (`.claude/`, `.agents/`) should persist regardless. Cleaning up empty dirs adds logic for marginal benefit.
+
+---
+
+## What are the `update` semantics — per-plugin, per-repo, all-at-once?
+
+### Context
+
+Update needs to check remote state, compare to stored state, and re-install when newer versions exist. Research proposed smart SHA comparison via `git ls-remote`. Key decisions: invocation granularity, how tag-pinned plugins are handled, and whether agent selection is re-prompted.
+
+### Decision
+
+**No-arg updates everything. Parameterized for selective updates.** Like npm/brew — no interactive picker.
+
+**Invocation:**
+- `npx agntc update` → update all installed plugins that can be updated
+- `npx agntc update owner/repo` → update specific plugin (or all from a collection)
+- `npx agntc update owner/repo/plugin-name` → update specific collection plugin
+
+**Update check per plugin (based on manifest `ref` and `commit`):**
+- **`ref: null`** (installed from default HEAD) → `git ls-remote` for HEAD SHA, compare to stored `commit`. Different → update available.
+- **`ref: "dev"`** (branch) → `git ls-remote` for branch tip SHA, compare. Different → update available.
+- **`ref: "v2.0"`** (tag) → tag resolves to same commit forever. Always "up to date." But: check for newer tags (`git ls-remote --tags`) and inform the user. Don't auto-upgrade — user re-adds with the new tag explicitly.
+
+Initially considered semver range support (`^2.0`, `~2.0`) like npm. Rejected — plugins are independent (no transitive dependencies), so the primary use case for ranges doesn't exist. Semver resolution is complex and we don't need it. Can revisit later if demand materialises.
+
+**Update mechanics (nuke-and-reinstall):**
+1. Delete all files listed in the plugin's manifest `files` array
+2. Re-clone at the same ref (or HEAD for null ref)
+3. Re-copy using the same agents from the manifest entry
+4. Update manifest with new commit SHA
+5. No re-prompt for agent selection — update means "latest version of what I already have." Changing agents is a re-add.
+
+**No confirmation prompt.** Unlike `remove`, update is non-destructive in intent — user is asking for newer versions of things they already want. The nuke-and-reinstall is an implementation detail, not a user-facing concern.
+
+**Output** shows per-plugin status (actual styling via @clack/prompts):
+- Updated plugins: old ref/SHA → new, asset counts per agent
+- Already up to date: brief acknowledgment
+- Tag-pinned with newer versions: list available tags, show re-add command
