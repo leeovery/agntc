@@ -1,6 +1,6 @@
 ---
 topic: multi-agent-support
-status: in-progress
+status: concluded
 date: 2026-02-09
 ---
 
@@ -24,8 +24,8 @@ Key tension: how much effort to invest in non-Claude agents when the capability 
 - [x] How should agent detection work?
 - [x] What's the right model for plugin ↔ agent compatibility?
 - [x] How does asset routing work — what gets copied where per agent?
-- [ ] Should the tool translate assets across agents, or just copy what maps?
-- [ ] What does `agntc.json` look like for multi-agent?
+- [x] Should the tool translate assets across agents, or just copy what maps?
+- [x] What does `agntc.json` look like for multi-agent?
 
 ---
 
@@ -166,3 +166,69 @@ Note: this also affects core-architecture's asset discovery. Recognized asset di
 Confidence: High.
 
 ---
+
+## Should the tool translate assets across agents, or just copy what maps?
+
+### Context
+
+Research raised the question of whether the tool should translate assets — e.g., convert a Claude skill into a Cursor rule, or adapt content for agents that don't support the source asset type.
+
+### Decision
+
+**No translation. Copy what maps, skip what doesn't.**
+
+This question was effectively answered by the routing discussion. With the simplified asset types (skills, agents, hooks) and only two agents (Claude, Codex), there's nothing to translate. Skills follow the same Agent Skills standard for both Claude and Codex — same `SKILL.md` entrypoint, same directory structure. Agents and hooks are Claude-only with no equivalent elsewhere.
+
+The original translation concern was about things like converting skills to rules for Cursor. With Cursor dropped and rules dropped, the entire concern evaporates. If translation becomes relevant when adding new agents or asset types in the future, it can be revisited then.
+
+Confidence: High.
+
+---
+
+## What does `agntc.json` look like for multi-agent?
+
+### Context
+
+`agntc.json` was established in core-architecture as the boundary marker and metadata carrier for plugins. This question resolves the multi-agent additions to its schema.
+
+### Decision
+
+**Minimal schema — `type` + `agents`.**
+
+```json
+{
+  "type": "plugin",
+  "agents": ["claude", "codex"]
+}
+```
+
+- `type`: `"plugin"` (default if omitted) or `"collection"`. From core-architecture.
+- `agents`: array of supported agent identifiers. Optional — omit for "compatible with all agents."
+
+Both fields are optional. An empty `{}` is valid and means: single plugin, all agents. This keeps the barrier to entry low for casual plugin authors while giving power users explicit control.
+
+Can grow later as needed (YAGNI).
+
+Confidence: High.
+
+---
+
+## Summary
+
+### Key Insights
+1. The driver/strategy pattern unifies detection, compatibility, and routing — each agent is a self-contained driver implementing a shared contract. Adding agents = adding drivers, no core logic changes.
+2. Aggressive simplification was the theme: five asset types → three (skills, agents, hooks), five agents → two (Claude, Codex). Removed everything that didn't have a concrete use case today.
+3. Plugin authors are in control of compatibility. The tool respects their declarations, warns on mismatches, but never blocks. "We're not the dad."
+4. No translation between agents — copy what maps natively, skip what doesn't. The shared Agent Skills standard between Claude and Codex means skills just work in both without conversion.
+5. Asset type changes ripple back to core-architecture: recognized asset dirs are now `skills/`, `agents/`, `hooks/` (dropped `scripts/` and `rules/`).
+
+### Current State
+- Resolved: agent detection — driver pattern, project-level first with system fallback
+- Resolved: plugin compatibility — author declares via `agents` field, default to all, warn-don't-block on mismatch
+- Resolved: asset routing — three types, two agents, driver config maps asset type → target dir
+- Resolved: no translation — copy what maps
+- Resolved: `agntc.json` schema — `type` + `agents`, both optional
+
+### Next Steps
+- [ ] Update core-architecture to reflect reduced asset types (skills, agents, hooks — dropped scripts, rules)
+- [ ] Discuss remaining research topics (CLI commands/UX, naming, deferred items)
