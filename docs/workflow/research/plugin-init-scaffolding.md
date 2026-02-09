@@ -54,3 +54,13 @@ In brownfield mode, the tool scans what's already there and infers the type:
 - `SKILL.md` at root with no asset dirs → looks like a bare skill
 
 Then confirms with the author: "This looks like a plugin — correct?" rather than asking from scratch. Author can override if the detection is wrong.
+
+---
+
+## Agent Targeting
+
+Always ask — no inference. Multiselect from supported agents (claude, codex, cursor, cline, windsurf, etc.).
+
+For collections: ask at root level (applies to all plugins), with optional per-plugin override. This matches the existing `agntc.json` inheritance model — root-level agents field applies to all, subdir `agntc.json` can override.
+
+Simpler than trying to infer from asset types. Just ask.
