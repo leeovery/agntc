@@ -26,10 +26,10 @@ Prior decisions this builds on:
 ## Questions
 
 - [x] What's the exact question flow for `npx agntc init`?
-- [ ] How does brownfield auto-detection work, and what does it infer vs ask?
+- [x] How does brownfield auto-detection work, and what does it infer vs ask?
 - [ ] What gets scaffolded — which dirs, which starter files, what content?
-- [ ] How does collection scaffolding work — per-plugin subdirs, adding plugins later?
-- [ ] Should bare skill get a shortcut (e.g., `--bare` flag or auto-detected)?
+- [x] How does collection scaffolding work — per-plugin subdirs, adding plugins later?
+- [x] Should bare skill get a shortcut (e.g., `--bare` flag or auto-detected)?
 
 ---
 
@@ -84,5 +84,105 @@ Also confirmed asset types: `scripts/` and `rules/` have been removed. Current s
 **No name or description questions.** Dir name is identity. No registry yet.
 
 **Collection example plugin**: scaffolds `my-plugin/` with full structure (`skills/SKILL.md`, `agents/`, `hooks/`, `agntc.json`) as a template. Author renames/edits/duplicates. No interactive loop for adding multiple plugins.
+
+---
+
+## How does brownfield auto-detection work, and what does it infer vs ask?
+
+### Context
+
+Research proposed scanning existing directory structure to infer plugin type (asset dirs at root → plugin, subdirs with assets → collection, etc.) and confirming with the author. Needed to decide how smart detection should be.
+
+### Options Considered
+
+**Option A: Full structural detection — scan dirs, infer type, confirm**
+- Scan for asset dirs, `SKILL.md`, subdirs with assets
+- Present best guess: "This looks like a {type} — correct?"
+- Pros: feels smart, less work for experienced authors
+- Cons: detection heuristics are fragile, ambiguous cases (e.g., root asset dirs AND subdirs with assets), false confidence
+
+**Option B: No type detection — always ask, explain the options**
+- Skip structural scanning entirely
+- Present type options with clear descriptions
+- Pros: simple, no edge cases, author knows their intent better than heuristics
+- Cons: one question the author has to answer even when obvious
+
+### Journey
+
+Initially proposed full structural detection with confirmation. Pushed back — trying to infer type from directory layout is fragile. Edge cases abound (mixed structures, non-asset dirs that happen to match names). The confirmation step papers over bad guesses but doesn't eliminate them.
+
+Key insight: **the author knows what they're building**. They wrote the plugin. They're technical enough to be authoring AI skills. They don't need hand-holding on "is this a plugin or a collection?" — they just need the terms explained.
+
+### Decision
+
+**Option B — no type detection, always ask.** Present the three options with brief descriptions so the author can self-select:
+
+```
+What are you creating?
+
+  ● Skill — a single skill (SKILL.md)
+  ○ Plugin — skills, agents, and/or hooks that install together as one package
+  ○ Collection — a repo of individually selectable plugins
+```
+
+**One exception: `agntc.json` existence check.** If `agntc.json` already exists at root, warn "already initialized" and offer to reconfigure. This isn't type detection — it's a safety guard against double-init.
+
+**Greenfield vs brownfield still matters for scaffolding**, but determined by a simple check: does the directory have existing content? If yes, only write `agntc.json` (don't scaffold dirs or starter files). If no, scaffold the full structure for the chosen type. This is not type detection — it's just deciding whether to create files.
+
+Confidence: High. Simpler, no edge cases, respects the author's knowledge.
+
+---
+
+## How does collection scaffolding work — per-plugin subdirs, adding plugins later?
+
+### Context
+
+For collections, `init` needs to set up the root config. But should it also scaffold individual plugin subdirectories? How deep does the wizard go?
+
+### Options Considered
+
+**Option A: Interactive loop — ask about each plugin in the collection**
+- Prompt for name, asset types, etc. for each plugin
+- "Add another?" loop
+- Pros: comprehensive setup
+- Cons: heavy, slow for 10+ plugin collections, over-engineering
+
+**Option B: Scaffold one example plugin + message**
+- Create `my-plugin/` with full structure as a template
+- "Duplicate and rename for each plugin"
+- Pros: shows the pattern, low friction
+- Cons: example dir might feel like noise
+
+**Option C: Root config only + documentation**
+- Just create root `agntc.json`
+- "Add agntc.json to each plugin subdirectory as needed"
+- Pros: minimal, respects existing structure
+- Cons: author doesn't see the convention structure
+
+### Journey
+
+Initially explored option A (interactive loop). Rejected — turns init into a project management wizard. For a collection with many plugins, answering questions per plugin is tedious.
+
+Option B felt right for greenfield — gives the author something concrete to work from. But for brownfield (existing subdirs with actual plugins), scaffolding `my-plugin/` alongside real work is awkward and confusing.
+
+This led to the split: greenfield vs brownfield determines what gets created beyond root `agntc.json`.
+
+### Decision
+
+**Greenfield collection**: Root `agntc.json` + scaffold `my-plugin/` example with full structure (`skills/my-skill/SKILL.md`, `agents/`, `hooks/`, `agntc.json`). Message: "Created collection root and example plugin. Rename and duplicate for your plugins."
+
+**Brownfield collection**: Root `agntc.json` only. Message: "Created collection config. Add `agntc.json` to each plugin subdirectory as needed."
+
+Good documentation explains the convention structure for authors who need to set up manually.
+
+Confidence: High.
+
+---
+
+## Should bare skill get a shortcut (e.g., `--bare` flag or auto-detected)?
+
+### Decision
+
+**No shortcut needed.** "Skill" is a first-class option in the type selection — it's already one click/enter away. A `--bare` flag or auto-detection would be a second path to the same outcome. YAGNI.
 
 ---
