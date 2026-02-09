@@ -1,0 +1,33 @@
+---
+topic: plugin-init-scaffolding
+date: 2026-02-09
+---
+
+# Research: Plugin/Collection Init Scaffolding Command
+
+Exploring the idea of an `npx agntc init` command that scaffolds new plugin or collection repos. Rather than requiring authors to know all the conventions (agntc.json, asset dirs, bare skills, collection structure), the tool would ask questions and generate the right structure.
+
+## Starting Point
+
+What we know so far:
+- Conventions for plugins/collections are well-defined (core-architecture discussion, concluded)
+- Plugin = atomic unit, collection = repo of selectable plugins
+- `agntc.json` marks boundaries and carries metadata
+- Asset dirs: `skills/`, `agents/`, `scripts/`, `hooks/`, `rules/`
+- Bare skill fallback: `SKILL.md` at plugin root
+- No existing init/scaffolding code in the project
+- @clack/prompts already chosen as the CLI prompt library
+- `commander` already a dependency
+
+---
+
+## The Core Idea
+
+An `npx agntc init` command that:
+
+1. Asks: plugin or collection?
+2. Asks about target agents (claude, codex, cursor, etc.)
+3. Asks what asset types you'll include
+4. Generates the directory structure, `agntc.json`, and starter files
+
+Removes the need for plugin authors to read docs about conventions — the tool teaches through interaction.
