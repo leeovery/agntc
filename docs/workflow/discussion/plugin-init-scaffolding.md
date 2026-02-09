@@ -1,6 +1,6 @@
 ---
 topic: plugin-init-scaffolding
-status: in-progress
+status: concluded
 date: 2026-02-09
 ---
 
@@ -27,7 +27,7 @@ Prior decisions this builds on:
 
 - [x] What's the exact question flow for `npx agntc init`?
 - [x] How does brownfield auto-detection work, and what does it infer vs ask?
-- [ ] What gets scaffolded — which dirs, which starter files, what content?
+- [x] What gets scaffolded — which dirs, which starter files, what content?
 - [x] How does collection scaffolding work — per-plugin subdirs, adding plugins later?
 - [x] Should bare skill get a shortcut (e.g., `--bare` flag or auto-detected)?
 
@@ -186,3 +186,38 @@ Confidence: High.
 **No shortcut needed.** "Skill" is a first-class option in the type selection — it's already one click/enter away. A `--bare` flag or auto-detection would be a second path to the same outcome. YAGNI.
 
 ---
+
+## What gets scaffolded — which dirs, which starter files, what content?
+
+### Decision
+
+Directory structure per type is resolved across the other questions. Exact starter file content (`agntc.json` fields, `SKILL.md` template text) deferred to specification phase — the discussion established the shape, spec will nail down the details.
+
+**What's decided:**
+
+| Type | Greenfield scaffolds | Brownfield scaffolds |
+|------|---------------------|---------------------|
+| **Skill** | `agntc.json` + `SKILL.md` | `agntc.json` only |
+| **Plugin** | `agntc.json` + selected asset dirs (skills default) + starter `SKILL.md` | `agntc.json` only |
+| **Collection** | Root `agntc.json` + `my-plugin/` example with full structure | Root `agntc.json` only |
+
+**Deferred to spec:** exact `agntc.json` field values per type, `SKILL.md` template content, collection example plugin's starter content.
+
+---
+
+## Summary
+
+### Key Insights
+1. `init` is a starting point, not a comprehensive configurator. Get conventions right, get out of the way.
+2. No brownfield type detection — the author knows what they're building. Just ask with clear descriptions.
+3. Greenfield vs brownfield is a simple check (existing content?) that determines scaffolding depth, not type inference.
+4. Asset type multiselect (plugin only) with skills pre-selected solves the "scaffold everything vs ask about everything" tension — common case is one-enter, power users can opt in.
+5. Collections scaffold one example plugin in greenfield, root config only in brownfield.
+6. Current asset types: `skills/`, `agents/`, `hooks/` (scripts and rules removed).
+
+### Current State
+- All questions resolved at discussion level
+- Starter file content deferred to spec
+
+### Next Steps
+- [ ] Specification: full init command spec with exact flows, file content, error cases
