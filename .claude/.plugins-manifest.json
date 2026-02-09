@@ -1,7 +1,7 @@
 {
   "plugins": {
     "@leeovery/claude-technical-workflows": {
-      "version": "2.1.11",
+      "version": "2.1.13",
       "files": [
         "skills/link-dependencies",
         "skills/migrate",
@@ -20,7 +20,11 @@
         "skills/technical-review",
         "skills/technical-specification",
         "skills/view-plan",
-        "agents/implementation-polish.md",
+        "agents/implementation-analysis-architecture.md",
+        "agents/implementation-analysis-duplication.md",
+        "agents/implementation-analysis-standards.md",
+        "agents/implementation-analysis-synthesizer.md",
+        "agents/implementation-analysis-task-writer.md",
         "agents/implementation-task-executor.md",
         "agents/implementation-task-reviewer.md",
         "agents/planning-dependency-grapher.md",

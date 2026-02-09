@@ -1,0 +1,10 @@
+node_modules/
+.env
+.env.*
+*.log
+.DS_Store
+dist/
+coverage/
+.idea/
+*.swp
+*.swo

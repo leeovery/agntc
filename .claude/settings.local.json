@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Skill(migrate)",
-      "Skill(claude-technical-workflows:migrate)"
+      "Skill(claude-technical-workflows:migrate)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\ndiscussion: core-architecture — plugin/collection model decided\n\nResolved detection model: agntc.json as boundary marker with type\ndeclaration \\(plugin default, collection explicit\\). Convention-based\nasset discovery within plugin boundaries. Agent compatibility\ninheritance from root with per-plugin overrides.\n\nCo-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(ls:*)"
     ]
   }
 }
