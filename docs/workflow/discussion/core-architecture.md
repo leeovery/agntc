@@ -19,7 +19,7 @@ Research explored convention-based discovery, two repo modes (unit/collection), 
 ## Questions
 
 - [x] What's the installable unit, and how is it detected?
-- [ ] What's the manifest shape that supports both modes cleanly?
+- [x] What's the manifest shape that supports both modes cleanly?
 - [ ] How should convention-based asset discovery handle edge cases?
 
 ---
@@ -115,7 +115,77 @@ Confidence: High. Covers all identified use cases cleanly.
 
 ## What's the manifest shape that supports both modes cleanly?
 
-*(To be discussed)*
+### Context
+
+The manifest (`.agntc/manifest.json` in user's project) tracks what's installed so `remove`, `update`, and `list` can work. Needs to handle both standalone plugin installs and individual plugins from collections. Research proposed a flat structure keyed by repo, but collections complicate that — one repo can produce multiple independent installs.
+
+### Options Considered
+
+**Option A: Key by repo, nest plugins inside**
+- Standalone plugins: flat entry with files list
+- Collections: entry with `"type": "collection"` and nested `"plugins"` object
+- Pros: grouped by source repo, easy to find all installs from one repo
+- Cons: two different shapes depending on type, more complex iteration
+
+**Option B: Key by install path — `repo` for plugins, `repo/plugin` for collection items**
+- Every entry is a plugin regardless of source
+- Collection plugins keyed as `owner/repo/plugin-name`
+- Pros: uniform shape, every entry is a plugin, simple iteration
+- Cons: collection relationship is implicit (derived from key prefix)
+
+### Journey
+
+Initially considered option A for its grouping — seemed natural for `update` (one repo = one check). But realized the collection is just a convenience wrapper for the source repo. What you're actually installing is the plugin. The collection doesn't have independent identity in the user's project.
+
+Option B aligns with this: every manifest entry is a plugin. Whether it came from a standalone repo or a collection doesn't change how it's tracked. For `update`, you derive the repo from the key prefix and deduplicate — trivial. For `remove`, you can offer "remove all from this repo" or individual plugins using the same prefix grouping.
+
+Also discussed what each entry needs:
+- **`ref`**: what the user asked for — tag, branch, or `null` (default HEAD). Drives update semantics: pinned tag = don't auto-update, branch/null = check for newer.
+- **`commit`**: resolved SHA at install time. For comparison against remote.
+- **`installedAt`**: timestamp. Informational.
+- **`agents`**: which agents this was installed for.
+- **`files`**: exact paths of copied files/dirs. Critical for clean removal and update (nuke-and-reinstall approach — delete everything listed, copy fresh from new version).
+
+Discussed update strategy: nuke-and-reinstall is simpler than diffing. Handles all edge cases (removed files, renamed dirs, moved assets) without complexity. The manifest's file list tells you exactly what to delete before re-copying.
+
+### Decision
+
+**Option B — key by install path, uniform plugin entries.**
+
+```json
+{
+  "leeovery/claude-technical-workflows": {
+    "ref": "v2.1.6",
+    "commit": "abc123f",
+    "installedAt": "2026-02-09T14:30:00Z",
+    "agents": ["claude"],
+    "files": [
+      ".claude/skills/technical-planning/",
+      ".claude/skills/technical-review/",
+      ".claude/agents/task-executor.md",
+      ".claude/scripts/migrate.sh"
+    ]
+  },
+  "leeovery/agent-skills/go": {
+    "ref": null,
+    "commit": "def456a",
+    "installedAt": "2026-02-09T14:30:00Z",
+    "agents": ["claude", "codex"],
+    "files": [
+      ".claude/skills/go-development/",
+      ".agents/skills/go-development/"
+    ]
+  }
+}
+```
+
+- Every entry is a plugin. Uniform shape.
+- Collection membership implicit from key (e.g., `leeovery/agent-skills/go` → repo is `leeovery/agent-skills`).
+- `ref` + `commit` together answer "what did you ask for?" and "what did you get?"
+- `files` lists destination paths — what was actually copied into the project. Enables clean nuke-and-reinstall on update.
+- Update approach: delete all `files`, re-clone, re-copy, update manifest entry.
+
+Confidence: High.
 
 ---
 
@@ -129,8 +199,8 @@ Confidence: High. Covers all identified use cases cleanly.
 
 ### Current State
 - Resolved: plugin/collection model with `agntc.json` as boundary marker and type declaration
-- Pending: manifest shape, asset discovery edge cases
+- Resolved: manifest shape — flat, keyed by install path, uniform plugin entries
+- Pending: asset discovery edge cases
 
 ### Next Steps
-- [ ] Define manifest structure for tracking plugin and collection installs
 - [ ] Work through asset discovery edge cases within a plugin
