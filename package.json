@@ -11,10 +11,25 @@
     "codex",
     "cursor"
   ],
-  "license": "MIT",
-  "author": "Lee Overy",
+  "homepage": "https://github.com/leeovery/agntc#readme",
+  "bugs": {
+    "url": "https://github.com/leeovery/agntc/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/leeovery/agntc.git"
+  },
+  "license": "MIT",
+  "author": "Lee Overy",
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "@leeovery/claude-technical-workflows": "^2.1.11"
   }
 }

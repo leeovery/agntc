@@ -1,0 +1,34 @@
+{
+  "plugins": {
+    "@leeovery/claude-technical-workflows": {
+      "version": "2.1.11",
+      "files": [
+        "skills/link-dependencies",
+        "skills/migrate",
+        "skills/start-discussion",
+        "skills/start-feature",
+        "skills/start-implementation",
+        "skills/start-planning",
+        "skills/start-research",
+        "skills/start-review",
+        "skills/start-specification",
+        "skills/status",
+        "skills/technical-discussion",
+        "skills/technical-implementation",
+        "skills/technical-planning",
+        "skills/technical-research",
+        "skills/technical-review",
+        "skills/technical-specification",
+        "skills/view-plan",
+        "agents/implementation-polish.md",
+        "agents/implementation-task-executor.md",
+        "agents/implementation-task-reviewer.md",
+        "agents/planning-dependency-grapher.md",
+        "agents/planning-phase-designer.md",
+        "agents/planning-task-author.md",
+        "agents/planning-task-designer.md",
+        "agents/review-task-verifier.md"
+      ]
+    }
+  }
+}
