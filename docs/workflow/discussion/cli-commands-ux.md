@@ -27,7 +27,7 @@ Research mocked the `add` flow for unit/collection/re-add scenarios. `remove` me
 - [x] What's the full `add` flow — from argument parsing through to manifest write?
 - [x] How should `remove` work — interactive, parameterized, or both?
 - [x] What are the `update` semantics — per-plugin, per-repo, all-at-once?
-- [ ] What should `list` show and how?
+- [x] What should `list` show and how?
 - [ ] How should conflicts be handled across commands?
 - [ ] What does error handling look like — partial failures, network errors, git errors?
 
@@ -194,3 +194,43 @@ Initially considered semver range support (`^2.0`, `~2.0`) like npm. Rejected �
 - Updated plugins: old ref/SHA → new, asset counts per agent
 - Already up to date: brief acknowledgment
 - Tag-pinned with newer versions: list available tags, show re-add command
+
+---
+
+## What should `list` show and how?
+
+### Context
+
+`list` was completely unexplored in research. The manifest has all the data — plugin keys, refs, commits, agents, file paths. Question is what to show and how interactive to make it.
+
+### Journey
+
+Initially considered a simple read-only dump of manifest state. But the manifest already has everything needed to build a richer experience — update availability, per-agent breakdowns, file listings. And with @clack/prompts providing `select()` and `spinner()`, an interactive approach is achievable without custom TUI work.
+
+The idea evolved into `list` as an interactive management dashboard rather than a passive display. View everything, drill into details, take actions — all in one session.
+
+### Decision
+
+**Interactive management dashboard. View, update, remove — all inline.**
+
+**Entry point**: `npx agntc list` — no args.
+
+**Initial view**:
+1. Spinner: "Checking for updates..." — parallel `git ls-remote` checks for all installed plugins
+2. Show all plugins with status indicators:
+   - Plugin key + ref
+   - Agents installed for
+   - Asset counts
+   - Update status: up to date, update available (with new ref/SHA), pinned (newer tags exist)
+
+**Interaction flow**:
+1. User selects a plugin → detail view (full file list, agents, ref, commit, install date)
+2. From detail view, actions offered: **Update** (if available), **Remove**, **Back**
+3. After executing an action, loop back to the list with updated state — don't exit
+4. User exits explicitly (cancel / ctrl+c / "Done" option)
+
+**Actions execute inline** — `list` has side effects. Update and remove run the same mechanics as their standalone commands. Remove still shows confirmation prompt (consistency — remove always confirms regardless of entry point).
+
+**Update check approach**: parallel `git ls-remote` calls behind a single spinner. @clack/prompts `spinner()` covers this. Responsive for typical install sizes (2-10 plugins). If latency becomes a problem at scale, can add caching later.
+
+Actual output styling deferred to implementation — will use @clack/prompts primitives. The above describes information shape and interaction model.
