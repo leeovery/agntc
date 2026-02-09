@@ -25,7 +25,7 @@ Research mocked the `add` flow for unit/collection/re-add scenarios. `remove` me
 ## Questions
 
 - [x] What's the full `add` flow — from argument parsing through to manifest write?
-- [ ] How should `remove` work — interactive, parameterized, or both?
+- [x] How should `remove` work — interactive, parameterized, or both?
 - [ ] What are the `update` semantics — per-plugin, per-repo, all-at-once?
 - [ ] What should `list` show and how?
 - [ ] How should conflicts be handled across commands?
@@ -121,3 +121,38 @@ For collections, repeat per plugin. Only shows asset types that were actually in
 7. Write manifest (new entries + ownership transfers)
 8. Show summary (per-agent asset counts)
 9. Clean up temp clone dir
+
+---
+
+## How should `remove` work — interactive, parameterized, or both?
+
+### Context
+
+Remove is manifest-driven — read what's installed, delete those files, update the manifest. Research outlined the basics but left invocation modes and edge cases unresolved.
+
+### Decision
+
+**Both interactive and parameterized.**
+
+**Parameterized** (power-user / scriptable):
+- `npx agntc remove owner/repo` → remove a standalone plugin, or all plugins from a collection
+- `npx agntc remove owner/repo/plugin-name` → remove a specific plugin from a collection
+
+**No-arg interactive** (friendly path):
+- `npx agntc remove` → read manifest, present all installed plugins, let user pick which to remove
+
+**Always confirm before deleting.** Show the file paths that will be removed, require explicit yes. Deletion is destructive — the confirmation step is the safety gate.
+
+**No modification detection.** The tool doesn't track file checksums. If the user modified installed files and then removes the plugin, those modifications are gone. Git is the safety net — if they committed their changes, they can recover. Considered detecting modifications but rejected: adds complexity (need to store checksums at install time, compare on remove) for a scenario that git already handles. The confirmation prompt is sufficient.
+
+**Mechanics:**
+1. Read manifest, identify target plugin(s) based on argument (or user selection)
+2. Show files that will be deleted, ask for confirmation
+3. Delete all files listed in the plugin's manifest `files` array
+4. Remove the plugin entry from manifest
+5. Write manifest
+6. Show summary of what was removed
+
+**Collection removal via `owner/repo`**: when the user specifies a repo key that has multiple collection plugins installed, remove all of them. This is the "nuke the whole collection" path. The confirmation step shows everything that will go.
+
+**Empty directories**: after deleting files, if parent directories are now empty (e.g., `.claude/skills/` has nothing left), should the tool clean those up? Or leave them? Leaving them is simpler and harmless — the agent config dirs (`.claude/`, `.agents/`) should persist regardless.
