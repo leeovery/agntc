@@ -24,7 +24,7 @@ Research mocked the `add` flow for unit/collection/re-add scenarios. `remove` me
 
 ## Questions
 
-- [ ] What's the full `add` flow — from argument parsing through to manifest write?
+- [x] What's the full `add` flow — from argument parsing through to manifest write?
 - [ ] How should `remove` work — interactive, parameterized, or both?
 - [ ] What are the `update` semantics — per-plugin, per-repo, all-at-once?
 - [ ] What should `list` show and how?
@@ -70,3 +70,54 @@ For collections, show a multiselect of all plugins in the collection. Already-in
 - **No auto-select shortcut**: even if only one agent would be pre-selected, still show the multiselect. With multiple supported agents, the user should always see the full picture.
 
 Initially considered auto-selecting when exactly one agent was detected + compatible. Rejected because it hides the option to install for other agents. Simpler rule: always show the multiselect, one code path.
+
+### Conflict handling during copy
+
+**Decision**: Detect conflicts at the **asset level**, not file level. Prompt as encountered during copy.
+
+- **Skill directory**: `skills/go-development/` exists → one prompt ("This skill already exists. Overwrite or skip?"), not 20 prompts for individual reference files
+- **Agent file**: `agents/task-executor.md` exists → one prompt
+- **Hook file**: same pattern
+
+Overwrite = nuke the existing asset entirely and replace. No merging, no diffing.
+
+Initially considered scanning all target paths upfront and presenting conflicts as a batch before copying. Rejected — the "as we go" approach is simpler and the asset-level granularity keeps prompt count manageable.
+
+**Manifest ownership transfer**: when overwriting an asset, check if the existing path is tracked in the manifest by another plugin. If so, remove that path from the previous owner's `files` list. If the previous owner's `files` becomes empty, clean up their manifest entry entirely. If the asset wasn't managed by agntc (manually placed), just overwrite — no manifest cleanup needed.
+
+Ownership changes tracked in memory during the operation, manifest written once at the end.
+
+### Manifest write
+
+Single atomic write at the end of the `add` operation:
+- Add new plugin entry (or entries for multiple collection plugins)
+- Apply any ownership transfers from conflict resolution
+- Write `.agntc/manifest.json` once
+
+### Summary
+
+Show what was installed, broken down per agent:
+
+```
+Installed leeovery/claude-technical-workflows@v2.1.6
+
+  Claude:
+    12 skills, 3 agents, 2 hooks
+
+  Codex:
+    12 skills
+```
+
+For collections, repeat per plugin. Only shows asset types that were actually installed (no "0 hooks" for Codex).
+
+### Full flow summary
+
+1. Parse source argument (shorthand / URL / local path)
+2. Clone repo (shallow) or resolve local path
+3. Read `agntc.json` → determine plugin vs collection
+4. **If collection**: multiselect plugins (installed ones marked, re-selectable for reinstall)
+5. Multiselect agents (pre-select detected ∩ compatible, all agents always available)
+6. For each plugin × each agent: route assets via driver config, copy with asset-level conflict prompts
+7. Write manifest (new entries + ownership transfers)
+8. Show summary (per-agent asset counts)
+9. Clean up temp clone dir
