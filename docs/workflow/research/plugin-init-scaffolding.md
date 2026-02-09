@@ -37,3 +37,20 @@ Removes the need for plugin authors to read docs about conventions — the tool 
 ## Audience and Context
 
 This is a **plugin author tool**, not a consumer tool. The author has already created their repo — maybe they've got skills, agents, scripts in some structure. `npx agntc init` helps them package it correctly so it's installable via `npx agntc add`. It runs in the author's plugin repo, not in a consumer's project.
+
+---
+
+## Two Modes: Greenfield vs Brownfield
+
+Supports both:
+- **Greenfield** — empty repo, scaffold everything from scratch (dirs, `agntc.json`, starter files)
+- **Brownfield** — existing code already present, detect the structure and fill in gaps (generate `agntc.json`, confirm conventions are right)
+
+### Auto-detection with confirmation
+
+In brownfield mode, the tool scans what's already there and infers the type:
+- Asset dirs at root (`skills/`, `agents/`, etc.) → looks like a plugin
+- Subdirs containing asset dirs → looks like a collection
+- `SKILL.md` at root with no asset dirs → looks like a bare skill
+
+Then confirms with the author: "This looks like a plugin — correct?" rather than asking from scratch. Author can override if the detection is wrong.
