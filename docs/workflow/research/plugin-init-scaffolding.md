@@ -31,3 +31,9 @@ An `npx agntc init` command that:
 4. Generates the directory structure, `agntc.json`, and starter files
 
 Removes the need for plugin authors to read docs about conventions — the tool teaches through interaction.
+
+---
+
+## Audience and Context
+
+This is a **plugin author tool**, not a consumer tool. The author has already created their repo — maybe they've got skills, agents, scripts in some structure. `npx agntc init` helps them package it correctly so it's installable via `npx agntc add`. It runs in the author's plugin repo, not in a consumer's project.
