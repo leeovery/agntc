@@ -1,8 +1,9 @@
 ---
-checksum: a4db0abc7cf8bc4980e923bd6e8f2a3c
-generated: 2026-02-09T14:30:00
+checksum: 241a89c2bf4430a93480bc48ada54c67
+generated: 2026-02-09T19:45:00
 research_files:
   - exploration.md
+  - plugin-init-scaffolding.md
 ---
 
 # Research Analysis Cache
@@ -33,3 +34,8 @@ research_files:
 - **Source**: exploration.md (lines 478-490)
 - **Summary**: Several topics explicitly deferred: GitHub shorthand parsing, error handling UX, existing plugin migration, `agntc.json` schema, file path collisions across plugins, asset rename/delete between versions, partial failure atomicity.
 - **Key questions**: Which to pull into discussion now vs leave for spec phase?
+
+### 6. Plugin Init Scaffolding
+- **Source**: plugin-init-scaffolding.md (lines 1-81)
+- **Summary**: `npx agntc init` command for plugin authors. Greenfield + brownfield modes with auto-detect and confirm. Minimal questions (type + agents), scaffolds all convention dirs. Author-facing, not consumer-facing.
+- **Key questions**: Exact question flow, starter files content, collection per-plugin scaffolding, bare skill shortcut flag.
