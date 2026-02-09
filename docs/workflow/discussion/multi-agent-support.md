@@ -22,7 +22,7 @@ Key tension: how much effort to invest in non-Claude agents when the capability 
 ## Questions
 
 - [x] How should agent detection work?
-- [ ] What's the right model for plugin ↔ agent compatibility?
+- [x] What's the right model for plugin ↔ agent compatibility?
 - [ ] How does asset routing work — what gets copied where per agent?
 - [ ] Should the tool translate assets across agents, or just copy what maps?
 - [ ] What does `agntc.json` look like for multi-agent?
@@ -79,6 +79,50 @@ Starting with three drivers:
 | Cursor | `.cursor/` in project | `~/.cursor/` |
 
 Adding more agents later = write a new driver, register it. No changes to core logic.
+
+Confidence: High.
+
+---
+
+## What's the right model for plugin ↔ agent compatibility?
+
+### Context
+
+Plugins contain different asset types (skills, agents, hooks, rules) with varying relevance across agents. Need a model for how plugin authors declare which agents their plugin supports, and what happens when the user's agents don't match.
+
+### Options Considered
+
+**Option A: Plugin-level compatibility (author declares)**
+- `agntc.json` has an `agents` field: `["claude"]`, `["claude", "codex"]`, etc.
+- Author explicitly states what agents the plugin was built and tested for.
+- Pros: author knows best, no guessing, clear intent
+- Cons: requires authors to think about it
+
+**Option B: Asset-level compatibility (tool infers)**
+- No `agents` field. Tool infers from asset types: has `skills/`? Claude + Codex. Has `rules/`? Everyone.
+- Pros: zero config, automatic
+- Cons: misleading — a skill tuned for Claude's sub-agents won't work in Codex even though Codex supports skills. The tool can't know that.
+
+### Journey
+
+The core tension: should the tool be smart about compatibility, or should the author be explicit? Asset-level inference (B) seems elegant but breaks down on real examples. Technical-workflows uses Claude sub-agents that Codex doesn't support — the skill format is compatible but the runtime isn't. The tool can't know that from directory structure alone.
+
+The author knows their plugin best. They know if they've tested it with Codex, if it relies on Claude-specific features, if the rules are generic enough for Cursor. This is domain knowledge the tool can't infer.
+
+For the default when no `agents` field is present: considered requiring the field (safer but adds friction) vs defaulting to all agents (optimistic). Default-to-all is self-correcting — the routing layer only copies assets that map to each agent. A skills-only plugin with no `agents` field would only install to Claude and Codex anyway because Cursor has no skills target. The mismatch is handled downstream.
+
+**Mismatch handling**: plugin declares `["claude"]` but user only has Cursor. Principle: "we're not the dad." Warn the user ("This plugin targets Claude, which wasn't detected") but don't block. User might be about to install Claude, installing for a teammate, or just wants to inspect the plugin. Always advise, never gate.
+
+### Decision
+
+**Option A — plugin-level compatibility, author declares via `agents` field.**
+
+- `"agents": ["claude"]` → only offer Claude as install target
+- `"agents": ["claude", "codex"]` → offer both
+- No `agents` field → compatible with all detected agents (default)
+- Mismatch → warn but don't block. User has final say.
+
+The author is in control. The tool respects their declaration. The routing layer (next question) handles what actually gets copied per agent.
 
 Confidence: High.
 
