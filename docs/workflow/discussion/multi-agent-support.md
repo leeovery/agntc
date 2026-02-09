@@ -23,7 +23,7 @@ Key tension: how much effort to invest in non-Claude agents when the capability 
 
 - [x] How should agent detection work?
 - [x] What's the right model for plugin ↔ agent compatibility?
-- [ ] How does asset routing work — what gets copied where per agent?
+- [x] How does asset routing work — what gets copied where per agent?
 - [ ] Should the tool translate assets across agents, or just copy what maps?
 - [ ] What does `agntc.json` look like for multi-agent?
 
@@ -70,13 +70,12 @@ Architecture:
 - Each driver encapsulates its own detection heuristics — the tool just loops through registered drivers and calls `detect()`.
 - Detection uses early returns: cheapest check first (project dir), then system-level if needed.
 
-Starting with three drivers:
+Starting with two drivers (Cursor dropped — no supported asset types after simplification, see routing question):
 
 | Agent | Project check | System fallback |
 |-------|--------------|-----------------|
 | Claude | `.claude/` in project | `which claude` or `~/.claude/` |
 | Codex | `.agents/` in project | `which codex` |
-| Cursor | `.cursor/` in project | `~/.cursor/` |
 
 Adding more agents later = write a new driver, register it. No changes to core logic.
 
@@ -123,6 +122,46 @@ For the default when no `agents` field is present: considered requiring the fiel
 - Mismatch → warn but don't block. User has final say.
 
 The author is in control. The tool respects their declaration. The routing layer (next question) handles what actually gets copied per agent.
+
+Confidence: High.
+
+---
+
+## How does asset routing work — what gets copied where per agent?
+
+### Context
+
+Once the tool knows which agents to install for (from detection + compatibility), it needs to copy assets to the right target directories per agent. Need to define: what asset types exist, where they go for each agent, and how the driver carries this knowledge.
+
+### Journey
+
+**Asset type simplification**: Research listed five asset types: skills, agents, scripts, hooks, rules. Went through each:
+
+- **Scripts**: dropped. Scripts are always part of a skill (referenced from `SKILL.md`, live in the skill's `scripts/` dir). They're not a standalone asset type — they get copied as part of the skill directory. No agent has a concept of standalone installable scripts.
+
+- **Rules**: dropped. Claude has `.claude/rules/` for scoped instruction files, but in practice they're more of a project-level concern (how the user wants their agent to behave) than a plugin-distributable asset. Codex's `AGENTS.md` is equivalent to `CLAUDE.md` — project-managed, not plugin-installed. No current need for rules as a plugin asset type.
+
+- **Skills, agents, hooks**: kept. These are the asset types that plugins actually ship.
+
+**Cursor dropped**: with rules removed, Cursor has zero supported asset types. Skills and agents don't map to Cursor, hooks don't map. No point keeping it as a supported agent with nothing to install. Can add it back later if we support an asset type it can use.
+
+**Driver routing config**: each driver carries a config object mapping asset type → target directory. Only keys present are supported — missing key means that asset type doesn't apply. The routing logic is a simple lookup: check the driver's config for the asset type, if there's a target dir → copy, if not → skip. No routing logic to change when adding agents — it's all in driver config.
+
+### Decision
+
+**Three asset types: skills, agents, hooks. Two agents: Claude, Codex.**
+
+Each driver specifies its target directories as config:
+
+| Asset Type | Claude | Codex |
+|-----------|--------|-------|
+| skills | `.claude/skills/` | `.agents/skills/` |
+| agents | `.claude/agents/` | — |
+| hooks | `.claude/hooks/` | — |
+
+Routing is a config lookup per driver — asset type in, target dir out (or null = skip). Adding new agents or updating target dirs is config-only, no routing logic changes.
+
+Note: this also affects core-architecture's asset discovery. Recognized asset dirs within a plugin are now: `skills/`, `agents/`, `hooks/` (was: skills, agents, scripts, hooks, rules).
 
 Confidence: High.
 
