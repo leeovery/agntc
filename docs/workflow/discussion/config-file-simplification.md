@@ -1,6 +1,6 @@
 ---
 topic: config-file-simplification
-status: in-progress
+status: concluded
 date: 2026-02-09
 ---
 
@@ -26,7 +26,7 @@ The original design also had a convention fallback (no `agntc.json` → scan for
 - [x] Should collection-level agent config be dropped (no inheritance)?
 - [x] Does collection need to be a type at all?
 - [x] Can `type` be inferred from structure, eliminating it as a field?
-- [ ] What ripple effects does this have on other concluded discussions?
+- [x] What ripple effects does this have on other concluded discussions?
 
 ---
 
