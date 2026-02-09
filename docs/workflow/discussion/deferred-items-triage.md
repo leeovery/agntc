@@ -1,6 +1,6 @@
 ---
 topic: deferred-items-triage
-status: in-progress
+status: concluded
 date: 2026-02-09
 ---
 
@@ -37,7 +37,7 @@ These need triage here:
 
 - [x] Existing plugin migration — is it just "re-add, drop npm"?
 - [x] File path collisions across plugins — is this a real risk?
-- [ ] Asset rename/delete between versions — how does nuke-and-reinstall handle this?
+- [x] Asset rename/delete between versions — how does nuke-and-reinstall handle this?
 
 ---
 
@@ -96,3 +96,41 @@ No third option. Overwriting is destructive with no upside.
 Confidence: High.
 
 ---
+
+## Asset rename/delete between versions — how does nuke-and-reinstall handle this?
+
+### Context
+
+Research flagged: a plugin author renames `agents/review.md` to `agents/code-review.md` or deletes an asset entirely between versions. User's agent config or custom files may still reference the old name.
+
+### Decision
+
+**Nuke-and-reinstall handles this completely. No additional tooling needed.**
+
+The update flow:
+1. Read manifest's `files` list → delete every file/dir listed (nukes old version)
+2. Re-clone new version → copy fresh assets (installs new version)
+3. Rewrite manifest entry with new file list
+
+Renames: old file deleted in step 1, new file created in step 2. Deletions: old file deleted in step 1, never re-created. The manifest always reflects what's actually on disk after the update.
+
+**Stale references in user-authored files are not agntc's problem.** If a user's `CLAUDE.md` or custom skill references `agents/review.md` by name, and the plugin author renames it to `agents/code-review.md`, that reference breaks. But those are user files outside agntc's control. The plugin author is responsible for documenting breaking changes. agntc's job is to faithfully install what the author ships.
+
+Confidence: High.
+
+---
+
+## Summary
+
+### Key Insights
+1. Most deferred items were already resolved or queued in other discussions — only three needed new decisions here.
+2. File path collisions are the most consequential item. Hard block (not soft warning) because overwriting one asset from an atomic plugin breaks the whole plugin. No "install anyway" option — remove conflicting plugin or cancel.
+3. Nuke-and-reinstall is the gift that keeps giving — it cleanly handles asset renames, deletions, and version changes without any special logic.
+4. Migration from Claude Manager needs no tooling — agntc's normal overwrite behaviour covers it.
+
+### Current State
+- All deferred items from research are now either resolved here, resolved in other discussions, or queued as open questions in cli-commands-ux.
+- No items remain unaccounted for.
+
+### Next Steps
+- [ ] Complete cli-commands-ux discussion (covers: list command, error handling/partial failures, conflict handling)
