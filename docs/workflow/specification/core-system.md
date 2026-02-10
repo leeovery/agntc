@@ -44,6 +44,12 @@ Single required field:
 |-------|------|----------|-------------|
 | `agents` | `string[]` | Yes | Agent identifiers this plugin was built and tested for. Valid values: `"claude"`, `"codex"`. |
 
+**Validation:**
+- Invalid JSON → error and abort: "Invalid agntc.json: {parse error}"
+- Missing `agents` field → error and abort: "Invalid agntc.json: agents field is required"
+- Empty `agents` array → error and abort: "Invalid agntc.json: agents must not be empty"
+- Unknown agent identifier → warn, continue. Ignore the unknown value during routing. Future-proofs against plugins declaring agents the tool doesn't support yet.
+
 - No `type` field — skill vs plugin vs collection is inferred from directory structure (see Type Detection)
 - No default-to-all — author explicitly declares which agents they support
 - No inheritance — every installable unit declares its own `agents`, even within collections
@@ -61,6 +67,8 @@ The tool infers what it's looking at from structure, not declarations:
 2. **Root has no `agntc.json`** → scan immediate subdirs for `agntc.json` → those are selectable installables (**collection**)
 
 3. **Nothing** → not an agntc repo
+
+If rule 2 scans subdirs and finds no `agntc.json` in any of them, this falls through to rule 3 — not an agntc repo.
 
 Collections are a structural observation, not a declared type. A collection is just a repo where the root has no config but subdirectories do.
 
@@ -121,7 +129,7 @@ Once a plugin boundary is identified (via `agntc.json`), the tool scans inside i
 1. Scan for recognized asset dirs: `skills/`, `agents/`, `hooks/`
 2. If found → copy contents of each to the appropriate target dir per agent
 3. If no asset dirs found → check for `SKILL.md` at plugin root
-4. If `SKILL.md` found → bare skill — copy the entire plugin directory as a skill, named after the source directory (e.g., `go-development/` → `.claude/skills/go-development/`)
+4. If `SKILL.md` found → bare skill — copy the entire plugin directory as a skill, named after the source directory (e.g., `go-development/` → `.claude/skills/go-development/`). Exclude `agntc.json` from the copy.
 5. If neither → nothing to install, warn
 
 Everything else in the plugin (README, CLAUDE.md, package.json, agntc.json, etc.) is ignored. Only recognized asset dirs and bare skills get copied.
@@ -185,6 +193,8 @@ The user can always select any agent regardless of detection or compatibility. W
 ### Location and Purpose
 
 `.agntc/manifest.json` in the consumer's project root. Tracks all installed plugins for `remove`, `update`, and `list` operations.
+
+The `.agntc/` directory and `manifest.json` file are created automatically on first install if they don't exist.
 
 ### Shape
 
@@ -250,7 +260,7 @@ All commands use @clack/prompts for interactive UI. All are invoked via `npx agn
 
 ### `add`
 
-Installs plugins from a git repo or local path. One source per invocation.
+Installs plugins from a git repo. One source per invocation.
 
 #### Source Argument
 
@@ -263,11 +273,14 @@ Always required (no no-arg mode). Two formats:
 
 #### Full Flow
 
-1. **Parse source argument** (shorthand / URL / local path)
+1. **Parse source argument** (shorthand / URL)
 2. **Clone repo** (shallow)
 3. **Read `agntc.json`** → determine skill vs plugin vs collection via type detection rules
 4. **If collection**: multiselect plugins. Already-installed plugins are marked but still selectable — selecting one triggers a reinstall (nuke-and-reinstall, consistent with update strategy). No separate `--force` flag.
 5. **Agent multiselect**: always shown, all supported agents listed. Pre-select detected ∩ compatible. Unsupported agents shown with warning.
+
+**Empty selections**: If the user selects zero plugins (collection multiselect) or zero agents (agent multiselect), treat as cancel — display a brief message and exit cleanly. No error.
+
 6. **File path collision check**: diff incoming file list against all existing manifest entries. Hard block if any path overlaps with another plugin (see File Path Collisions).
 7. **For each plugin × each agent**: route assets via driver config, copy with asset-level conflict handling (see Conflict Handling)
 8. **Write manifest**: new entries + any ownership transfers from conflict resolution. Single atomic write.
@@ -325,6 +338,8 @@ Deletes installed plugins and their manifest entries. Both interactive and param
 | All from collection | `npx agntc remove owner/repo` | If key has multiple collection plugins, remove all |
 | Specific collection plugin | `npx agntc remove owner/repo/plugin-name` | Remove that specific plugin |
 
+**Empty manifest**: If no plugins are installed, display "No plugins installed." and exit.
+
 #### Flow
 
 1. Read manifest, identify target plugin(s) based on argument (or user selection)
@@ -351,6 +366,8 @@ Checks remote state and re-installs plugins when newer versions exist. No intera
 | Update all | `npx agntc update` | Update all installed plugins that can be updated |
 | Specific plugin | `npx agntc update owner/repo` | Update specific plugin (or all from a collection) |
 | Specific collection plugin | `npx agntc update owner/repo/plugin-name` | Update that specific plugin |
+
+**Empty manifest**: If no plugins are installed, display "No plugins installed." and exit.
 
 #### Update Check Per Plugin
 
