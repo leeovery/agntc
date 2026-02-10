@@ -450,3 +450,44 @@ User selects a plugin → detail view showing:
 #### Update Check
 
 Parallel `git ls-remote` calls behind a single spinner. Responsive for typical install sizes (2-10 plugins).
+
+## Error Handling
+
+### Network/Git Errors (Clone Failures)
+
+- Retry up to 3 times on transient failures (network timeout, temporary git errors)
+- After retries exhausted: surface the git error clearly, abort. Nothing to clean up — no files copied yet.
+- Auth failures (private repo, bad credentials): no retry — surface the error immediately. The tool doesn't handle auth; it defers to the user's git configuration.
+
+### Partial Failure During Copy (Single Plugin)
+
+Rollback to clean state. Delete everything copied so far for this plugin, write no manifest entry. A half-installed plugin is worse than no plugin.
+
+The manifest `files` list (tracked in memory during copy) tells the tool exactly what to delete during rollback.
+
+### Multi-Plugin Install (Collection With Multiple Selections)
+
+Each plugin is independent. If plugin 1 succeeds and plugin 2 fails (after retries), plugin 1 keeps its manifest entry. Plugin 2 is rolled back.
+
+Summary shows per-plugin outcome: installed, failed (with error), skipped (user choice from conflicts).
+
+### Rollback Edge Case
+
+If a copy fails after overwriting a file owned by another plugin, rollback deletes the new copy but the previous plugin's asset is already gone. Accepted as a narrow edge case — user can `update` the previous plugin to restore its files.
+
+## Existing Plugin Migration
+
+No special migration tooling needed. agntc's overwrite-on-conflict behaviour handles it:
+
+1. User runs `npx agntc add owner/repo` — agntc installs files, overwrites any existing copies from the previous tool, creates manifest entry
+2. User manually removes the previous tool (e.g., `npm uninstall claude-manager`)
+
+Cleaning up another tool's artifacts is the user's responsibility and out of scope for agntc.
+
+## Dependencies
+
+No internal system dependencies. agntc is a standalone CLI tool.
+
+**Runtime prerequisites** (not build dependencies):
+- Git — required for clone, ls-remote operations. Expected to be available on the user's system.
+- npm — distribution channel (`npx agntc`). Standard Node.js toolchain.
