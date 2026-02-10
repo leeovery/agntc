@@ -22,21 +22,25 @@ F. Create tasks in plan → invoke-task-writer.md
 
 Increment `analysis_cycle` in the implementation tracking file.
 
+→ If `analysis_cycle <= 3`, proceed directly to **B. Git Checkpoint**.
+
 If `analysis_cycle > 3`:
 
-> **Analysis cycle {N} — this is beyond the standard 3 cycles.**
+**Do NOT skip analysis autonomously.** This gate is an escape hatch for the user — not a signal to stop. The expected default is to continue running analysis until no issues are found. Present the choice and let the user decide.
+
+> **Analysis cycle {N}**
 >
-> · · ·
+> Analysis has run {N-1} times so far. You can continue (recommended if issues were still found last cycle) or skip to completion.
 >
+> · · · · · · · · · · · ·
+> - **`p`/`proceed`** — Continue analysis *(default)*
 > - **`s`/`skip`** — Skip analysis, proceed to completion
-> - **`p`/`proceed`** — Run analysis anyway
+> · · · · · · · · · · · ·
 
-**STOP.** Wait for user choice.
+**STOP.** Wait for user choice. You MUST NOT choose on the user's behalf.
 
-- **`skip`**: → Return to the skill for **Step 8**.
 - **`proceed`**: → Continue to **B. Git Checkpoint**.
-
-→ If `analysis_cycle <= 3`, proceed to **B. Git Checkpoint**.
+- **`skip`**: → Return to the skill for **Step 8**.
 
 ---
 
@@ -55,11 +59,11 @@ If there are unstaged changes or untracked files, categorize them:
 > - `{file}` ({status: modified/untracked})
 > - ...
 >
-> · · ·
->
+> · · · · · · · · · · · ·
 > - **`y`/`yes`** — Include all in the checkpoint commit
 > - **`s`/`skip`** — Exclude unexpected files, commit only implementation files
 > - **Comment** — Specify which to include
+> · · · · · · · · · · · ·
 
 **STOP.** Wait for user choice.
 
@@ -79,6 +83,12 @@ Load **[invoke-analysis.md](invoke-analysis.md)** and follow its instructions.
 
 **STOP.** Do not proceed until all agents have returned.
 
+Commit the analysis findings:
+
+```
+impl({topic}): analysis cycle {N} — findings
+```
+
 → Proceed to **D. Dispatch Synthesis Agent**.
 
 ---
@@ -89,6 +99,12 @@ Load **[invoke-synthesizer.md](invoke-synthesizer.md)** and follow its instructi
 
 **STOP.** Do not proceed until the synthesizer has returned.
 
+Commit the synthesis output:
+
+```
+impl({topic}): analysis cycle {N} — synthesis
+```
+
 → If `STATUS: clean`, return to the skill for **Step 8**.
 
 → If `STATUS: tasks_proposed`, proceed to **E. Approval Gate**.
@@ -97,7 +113,7 @@ Load **[invoke-synthesizer.md](invoke-synthesizer.md)** and follow its instructi
 
 ## E. Approval Gate
 
-Read the staging file from `docs/workflow/implementation/{topic}/analysis-tasks.md`.
+Read the staging file from `docs/workflow/implementation/{topic}/analysis-tasks-c{cycle-number}.md`.
 
 Present an overview:
 
@@ -125,11 +141,11 @@ Then present each task with `status: pending` individually:
 > **Tests**:
 > {tests}
 >
-> · · ·
->
+> · · · · · · · · · · · ·
 > - **`a`/`approve`** — Approve this task
 > - **`s`/`skip`** — Skip this task
 > - **Comment** — Revise based on feedback
+> · · · · · · · · · · · ·
 
 **STOP.** Wait for user input.
 
@@ -155,7 +171,15 @@ After all tasks processed:
 
 → If any tasks have `status: approved`, proceed to **F. Create Tasks in Plan**.
 
-→ If all tasks were skipped, return to the skill for **Step 8**.
+→ If all tasks were skipped:
+
+Commit the staging file updates:
+
+```
+impl({topic}): analysis cycle {N} — tasks skipped
+```
+
+Return to the skill for **Step 8**.
 
 ---
 
@@ -165,7 +189,7 @@ Load **[invoke-task-writer.md](invoke-task-writer.md)** and follow its instructi
 
 **STOP.** Do not proceed until the task writer has returned.
 
-Commit:
+Commit all analysis and plan changes (staging file, plan tasks, Plan Index File):
 
 ```
 impl({topic}): add analysis phase {N} ({K} tasks)

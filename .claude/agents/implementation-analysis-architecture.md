@@ -18,6 +18,7 @@ You receive via the orchestrator's prompt:
 3. **Project skill paths** — relevant `.claude/skills/` paths for framework conventions
 4. **code-quality.md path** — quality standards
 5. **Topic name** — the implementation topic
+6. **Cycle number** — which analysis cycle this is (used in output file naming)
 
 ## Your Focus
 
@@ -26,6 +27,8 @@ You receive via the orchestrator's prompt:
 - Integration test gaps — are cross-task workflows tested end-to-end?
 - Seam quality between task boundaries — do the pieces fit together cleanly?
 - Over/under-engineering — are abstractions justified by usage? Is raw code crying out for structure?
+- Missed composition opportunities — are new abstractions independently implemented when they could be derived from existing ones? If two queries are logical inverses, one should be defined in terms of the other.
+- Type safety at boundaries — are interfaces or function signatures using untyped parameters when the concrete types are known? Runtime type checks inside implementations signal the signature should be more specific.
 
 ## Your Process
 
@@ -34,7 +37,7 @@ You receive via the orchestrator's prompt:
 3. **Read specification** — understand design intent and boundaries
 4. **Read all implementation files** — understand the full picture
 5. **Analyze architecture** — evaluate how the pieces compose as a whole
-6. **Write findings** to `docs/workflow/implementation/{topic}/analysis-architecture.md`
+6. **Write findings** to `docs/workflow/implementation/{topic}/analysis-architecture-c{cycle-number}.md`
 
 ## Hard Rules
 
@@ -48,7 +51,7 @@ You receive via the orchestrator's prompt:
 
 ## Output File Format
 
-Write to `docs/workflow/implementation/{topic}/analysis-architecture.md`:
+Write to `docs/workflow/implementation/{topic}/analysis-architecture-c{cycle-number}.md`:
 
 ```
 AGENT: architecture
