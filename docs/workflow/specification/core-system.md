@@ -5,15 +5,15 @@ type: feature
 date: 2026-02-09
 sources:
   - name: core-architecture
-    status: pending
+    status: incorporated
   - name: multi-agent-support
-    status: pending
+    status: incorporated
   - name: config-file-simplification
-    status: pending
+    status: incorporated
   - name: cli-commands-ux
-    status: pending
+    status: incorporated
   - name: deferred-items-triage
-    status: pending
+    status: incorporated
 ---
 
 # Specification: Core System
@@ -121,7 +121,7 @@ Once a plugin boundary is identified (via `agntc.json`), the tool scans inside i
 1. Scan for recognized asset dirs: `skills/`, `agents/`, `hooks/`
 2. If found → copy contents of each to the appropriate target dir per agent
 3. If no asset dirs found → check for `SKILL.md` at plugin root
-4. If `SKILL.md` found → bare skill — copy the entire plugin directory as a skill
+4. If `SKILL.md` found → bare skill — copy the entire plugin directory as a skill, named after the source directory (e.g., `go-development/` → `.claude/skills/go-development/`)
 5. If neither → nothing to install, warn
 
 Everything else in the plugin (README, CLAUDE.md, package.json, agntc.json, etc.) is ignored. Only recognized asset dirs and bare skills get copied.
@@ -254,25 +254,25 @@ Installs plugins from a git repo or local path. One source per invocation.
 
 #### Source Argument
 
-Always required (no no-arg mode). Three formats:
+Always required (no no-arg mode). Two formats:
 
 | Format | Example |
 |--------|---------|
 | GitHub shorthand | `owner/repo`, `owner/repo@v2.0`, `owner/repo@branch-name` |
 | Full git URL | `https://github.com/owner/repo.git`, `git@github.com:owner/repo.git` |
-| Local path | `/absolute/path` or `./relative/path` — for development/testing without pushing to git |
 
 #### Full Flow
 
 1. **Parse source argument** (shorthand / URL / local path)
-2. **Clone repo** (shallow) or resolve local path
+2. **Clone repo** (shallow)
 3. **Read `agntc.json`** → determine skill vs plugin vs collection via type detection rules
 4. **If collection**: multiselect plugins. Already-installed plugins are marked but still selectable — selecting one triggers a reinstall (nuke-and-reinstall, consistent with update strategy). No separate `--force` flag.
 5. **Agent multiselect**: always shown, all supported agents listed. Pre-select detected ∩ compatible. Unsupported agents shown with warning.
-6. **For each plugin × each agent**: route assets via driver config, copy with conflict handling (see below)
-7. **Write manifest**: new entries + any ownership transfers from conflict resolution. Single atomic write.
-8. **Show summary**: per-agent asset counts
-9. **Clean up** temp clone dir
+6. **File path collision check**: diff incoming file list against all existing manifest entries. Hard block if any path overlaps with another plugin (see File Path Collisions).
+7. **For each plugin × each agent**: route assets via driver config, copy with asset-level conflict handling (see Conflict Handling)
+8. **Write manifest**: new entries + any ownership transfers from conflict resolution. Single atomic write.
+9. **Show summary**: per-agent asset counts
+10. **Clean up** temp clone dir
 
 #### Conflict Handling
 
@@ -450,6 +450,19 @@ User selects a plugin → detail view showing:
 #### Update Check
 
 Parallel `git ls-remote` calls behind a single spinner. Responsive for typical install sizes (2-10 plugins).
+
+### Command Argument Validation
+
+When `remove` or `update` is called with a plugin key that doesn't match any manifest entry:
+
+- Display error: "Plugin {key} is not installed."
+- Exit with non-zero status code
+- No suggestions, no retry
+
+When `add` is called with a source that can't be resolved (invalid shorthand, unreachable URL):
+
+- Display the git error clearly
+- Exit with non-zero status code
 
 ## Error Handling
 
