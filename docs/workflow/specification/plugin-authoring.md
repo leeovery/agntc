@@ -53,7 +53,9 @@ The selected type determines the rest of the flow:
 |------|-------------------|-------------|
 | **Skill** | Agents multiselect | `agntc.json` + `SKILL.md` |
 | **Plugin** | Asset multiselect → Agents multiselect | `agntc.json` + selected asset dirs + starter `SKILL.md` |
-| **Collection** | Agents multiselect | Root `agntc.json` + example `my-plugin/` subdir |
+| **Collection** | Agents multiselect | Example `my-plugin/` subdir (no root config) |
+
+No `name` or `description` prompts. The directory name is the plugin's identity — `agntc.json` has no name field and the manifest keys by `owner/repo` path. Description is unnecessary without a registry.
 
 ## Asset Multiselect
 
@@ -139,7 +141,6 @@ my-plugin/
 **Greenfield:**
 ```
 my-collection/
-  agntc.json       ← {"agents": ["claude"]}
   my-plugin/
     agntc.json     ← {"agents": ["claude"]}
     skills/
@@ -149,16 +150,12 @@ my-collection/
     hooks/
 ```
 
+No root `agntc.json` — collections are identified by the absence of a root config. The `add` command detects a collection by scanning immediate subdirectories for `agntc.json`.
+
 The example `my-plugin/` subdir has full structure (all asset dirs + starter skill) so the author sees the complete pattern. The author renames, edits, and duplicates this template. No interactive loop for adding multiple plugins.
 
 **Brownfield:**
-```
-my-collection/
-  agntc.json       ← {"agents": ["claude"]}
-  (existing subdirectories untouched)
-```
-
-Message: "Created collection config. Add `agntc.json` to each plugin subdirectory as needed."
+No files created — existing subdirectories are untouched.
 
 ## Starter File Content
 
@@ -174,7 +171,7 @@ Generated with the author's agent selections:
 
 The `agents` array reflects exactly what was selected in the agent multiselect. No other fields — the schema is intentionally minimal.
 
-For collections, both the root `agntc.json` and the example plugin's `agntc.json` use the same agent selections.
+For collections, the agent selections are written to each plugin's `agntc.json` — there is no root `agntc.json`.
 
 ### `SKILL.md` Template
 
@@ -194,6 +191,25 @@ description: Brief description of what this skill does and when to use it.
 ```
 
 The frontmatter follows the [Agent Skills](https://agentskills.io) open standard used by Claude Code. The `name` field becomes the `/slash-command` (lowercase, numbers, hyphens only, max 64 chars). The `description` field tells the agent when to use the skill — it's the only recommended field. All other frontmatter fields (`allowed-tools`, `model`, `context`, etc.) are optional and omitted from the template.
+
+## Success Messages
+
+After scaffolding completes, show a brief summary:
+
+### Skill
+
+- **Greenfield**: "Created skill with `agntc.json` and `SKILL.md`. Edit `SKILL.md` to define your skill."
+- **Brownfield**: "Created `agntc.json`. Your existing files are untouched."
+
+### Plugin
+
+- **Greenfield**: "Created plugin with `agntc.json` and asset directories. Add your skills, agents, and hooks."
+- **Brownfield**: "Created `agntc.json`. Your existing files are untouched."
+
+### Collection
+
+- **Greenfield**: "Created example plugin in `my-plugin/`. Rename and duplicate for your plugins."
+- **Brownfield**: "Add `agntc.json` to each plugin subdirectory as needed."
 
 ## Complete Question Flow
 
