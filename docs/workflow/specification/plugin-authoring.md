@@ -28,7 +28,7 @@ No arguments. No flags. All configuration happens through interactive prompts us
 
 ### Step 1: Pre-check
 
-If `agntc.json` already exists at the current root (or for collections, in any immediate subdirectory), warn "This directory is already initialized." Offer to reconfigure or cancel. Reconfigure re-runs the flow and overwrites existing generated files.
+If `agntc.json` already exists at the current root, warn "This directory is already initialized." Offer to reconfigure or cancel. Reconfigure re-runs the flow and overwrites `agntc.json` with new selections.
 
 ### Step 2: Type Selection
 
@@ -104,7 +104,10 @@ Plugins scaffold all three asset directories (`skills/`, `agents/`, `hooks/`). I
 
 ### Step 5: Scaffold
 
-Write the previewed files. If a file or directory already exists, skip it — don't overwrite. Report what was created and what was skipped.
+Write the previewed files.
+
+- **Fresh run**: If a file or directory already exists, skip it — don't overwrite. Report what was created and what was skipped.
+- **Reconfigure** (from pre-check): Overwrite `agntc.json` with new selections. All other files follow fresh-run behaviour (skip if exists).
 
 ### Step 6: Done
 
