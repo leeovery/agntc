@@ -7,6 +7,8 @@ allowed-tools: Bash(.claude/skills/start-implementation/scripts/discovery.sh)
 
 Invoke the **technical-implementation** skill for this conversation.
 
+> **⚠️ ZERO OUTPUT RULE**: Do not narrate your processing. Produce no output until a step or reference file explicitly specifies display content. No "proceeding with...", no discovery summaries, no routing decisions, no transition text. Your first output must be content explicitly called for by the instructions.
+
 ## Workflow Context
 
 This is **Phase 5** of the six-phase workflow:
@@ -156,6 +158,8 @@ Not implementable:
   · advanced-features [blocked: core-features task core-2-3 not completed]
   · reporting [planning]
 ```
+
+**Output in a fenced code block exactly as shown above.**
 
 **Formatting rules:**
 

@@ -7,6 +7,8 @@ allowed-tools: Bash(.claude/skills/start-planning/scripts/discovery.sh)
 
 Invoke the **technical-planning** skill for this conversation.
 
+> **⚠️ ZERO OUTPUT RULE**: Do not narrate your processing. Produce no output until a step or reference file explicitly specifies display content. No "proceeding with...", no discovery summaries, no routing decisions, no transition text. Your first output must be content explicitly called for by the instructions.
+
 ## Workflow Context
 
 This is **Phase 4** of the six-phase workflow:
@@ -136,6 +138,8 @@ Not plannable specifications:
   · {caching-strategy} [cross-cutting, concluded]
   · {rate-limiting} [cross-cutting, in-progress]
 ```
+
+**Output in a fenced code block exactly as shown above.**
 
 **Formatting rules:**
 

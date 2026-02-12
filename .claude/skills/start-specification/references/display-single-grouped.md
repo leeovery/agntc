@@ -27,10 +27,11 @@ Single concluded discussion found with existing multi-source specification.
       └─ {source-name} (extracted, reopened)
 ```
 
+**Output in a fenced code block exactly as shown above.**
+
 ### If in-progress discussions exist
 
 ```
----
 Discussions not ready for specification:
 These discussions are still in progress and must be concluded
 before they can be included in a specification.
@@ -39,10 +40,9 @@ before they can be included in a specification.
 
 ### Key/Legend
 
-Show only the statuses that appear in the current display.
+Show only the statuses that appear in the current display. No `---` separator before this section.
 
 ```
----
 Key:
 
   Discussion status:
@@ -58,7 +58,6 @@ Key:
 ## After Display
 
 ```
----
 Automatically proceeding with "{Spec Title Case Name}".
 ```
 

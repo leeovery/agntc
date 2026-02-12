@@ -19,10 +19,11 @@ Single concluded discussion found.
       └─ {discussion-name} (ready)
 ```
 
+**Output in a fenced code block exactly as shown above.**
+
 ### If in-progress discussions exist
 
 ```
----
 Discussions not ready for specification:
 These discussions are still in progress and must be concluded
 before they can be included in a specification.
@@ -31,8 +32,9 @@ before they can be included in a specification.
 
 ### Key/Legend
 
+No `---` separator before this section.
+
 ```
----
 Key:
 
   Discussion status:
@@ -45,7 +47,6 @@ Key:
 ## After Display
 
 ```
----
 Automatically proceeding with "{Title Case Name}".
 ```
 

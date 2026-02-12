@@ -25,18 +25,20 @@ Invoke `planning-task-author` with these file paths:
 
 ### Present the Output
 
-The agent returns complete task detail following the task template from task-design.md. Present it to the user **exactly as it will be written** — what the user sees is what gets logged.
+The agent returns complete task detail following the task template from task-design.md. Present it to the user as rendered markdown (not in a code block) **exactly as it will be written** — what the user sees is what gets logged.
 
 After presenting, ask:
 
-> **Task {M} of {total}: {Task Name}**
->
-> · · · · · · · · · · · ·
-> **To proceed:**
-> - **`y`/`yes`** — Approved. I'll log it to the plan.
-> - **Or tell me what to change.**
-> - **Or navigate** — a different phase or task, or the leading edge.
-> · · · · · · · · · · · ·
+**Task {M} of {total}: {Task Name}**
+
+· · · · · · · · · · · ·
+**To proceed:**
+- **`y`/`yes`** — Approved. I'll log it to the plan.
+- **Or tell me what to change.**
+- **Or navigate** — a different phase or task, or the leading edge.
+· · · · · · · · · · · ·
+
+**Do not wrap the above in a code block** — output as raw markdown so bold styling renders.
 
 **STOP.** Wait for the user's response.
 
@@ -63,6 +65,6 @@ Present the revised task in full. Ask the same choice again. Repeat until approv
 
 Confirm:
 
-> "Task {M} of {total}: {Task Name} — authored."
+"Task {M} of {total}: {Task Name} — authored."
 
 → Return to **Plan Construction**.

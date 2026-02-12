@@ -1,7 +1,7 @@
 {
   "plugins": {
     "@leeovery/claude-technical-workflows": {
-      "version": "2.1.19",
+      "version": "2.1.24",
       "files": [
         "skills/link-dependencies",
         "skills/migrate",
@@ -31,6 +31,7 @@
         "agents/planning-phase-designer.md",
         "agents/planning-task-author.md",
         "agents/planning-task-designer.md",
+        "agents/review-product-assessor.md",
         "agents/review-task-verifier.md"
       ]
     }

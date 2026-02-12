@@ -70,21 +70,21 @@ For each topic or subtopic, perform exhaustive extraction:
 **Why this matters:** The specification is the single source of truth for planning. Planning will not reference prior source material - only this document. Missing a detail here means that detail doesn't get implemented.
 
 ### 2. Synthesize and Present
-Present your understanding to the user **in the format it would appear in the specification**:
+Present your understanding to the user **in the format it would appear in the specification**. Output the content as rendered markdown (not in a code block) — the user needs to read it naturally, not inspect raw formatting:
 
-> "Here's what I understand about [topic] based on the reference material. This is exactly what I'll write into the specification:
->
-> [content as it would appear]
+"Here's what I understand about [topic] based on the reference material. This is exactly what I'll write into the specification:
 
-Then present two explicit choices:
+[content as rendered markdown]
 
-> · · · · · · · · · · · ·
-> **To proceed:**
-> - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim** (exactly as shown, no modifications).
-> - **Or tell me what to change.**
-> · · · · · · · · · · · ·
+Then, **separately from the content above** (clear visual break), present the choices as raw markdown:
 
-**Do not paraphrase these choices.** Present them exactly as written so users always know what to expect.
+· · · · · · · · · · · ·
+**To proceed:**
+- **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim** (exactly as shown, no modifications).
+- **Or tell me what to change.**
+· · · · · · · · · · · ·
+
+**Do not wrap content or choices in a code block** — both must render as styled markdown. The content and choices must be visually distinct (not run together).
 
 > **CHECKPOINT**: After presenting, you MUST STOP and wait for the user's response. Do NOT proceed to logging. Do NOT present the next topic. WAIT.
 
@@ -491,18 +491,18 @@ After completing your review (steps 1-7):
 
 Present a numbered summary of everything you found (from your tracking file):
 
-> "I've completed my final review against all source material. I found [N] items:
->
-> 1. **[Brief title]**
->    [2-4 line explanation: what was missed, where it came from, what it affects]
->
-> 2. **[Brief title]**
->    [2-4 line explanation]
->
-> 3. **[Brief title]**
->    [2-4 line explanation]
->
-> Let's work through these one at a time, starting with #1."
+"I've completed my final review against all source material. I found [N] items:
+
+1. **[Brief title]**
+   [2-4 line explanation: what was missed, where it came from, what it affects]
+
+2. **[Brief title]**
+   [2-4 line explanation]
+
+3. **[Brief title]**
+   [2-4 line explanation]
+
+Let's work through these one at a time, starting with #1."
 
 Each item should have enough context that the user understands what they're about to discuss - not just a label, but clarity on what was missed and why it matters.
 
@@ -512,17 +512,19 @@ For each item, follow the **same workflow as the main specification process**:
 
 1. **Present** the item in detail - what you found, where it came from (source reference), and what you propose to add
 2. **Discuss** if needed - clarify ambiguities, answer questions, refine the content
-3. **Present for approval** - show exactly what will be written to the specification:
+3. **Present for approval** - show as rendered markdown (not a code block) exactly what will be written to the specification. Then, separately, show the choices:
 
-   > "Here's what I'll add to the specification:
-   >
-   > [content exactly as it would appear]
-   >
-   > · · · · · · · · · · · ·
-   > **To proceed:**
-   > - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim**.
-   > - **Or tell me what to change.**
-   > · · · · · · · · · · · ·
+   "Here's what I'll add to the specification:
+
+   [content as rendered markdown]
+
+   · · · · · · · · · · · ·
+   **To proceed:**
+   - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim**.
+   - **Or tell me what to change.**
+   · · · · · · · · · · · ·
+
+   **Do not wrap content or choices in a code block.** Content and choices must be visually distinct.
 
 4. **Wait for explicit approval** - same rules as always: `y`/`yes` or equivalent before writing
 5. **Log verbatim** when approved
@@ -628,15 +630,15 @@ Follow the same two-stage presentation as Phase 1:
 
 **Stage 1: Summary**
 
-> "I've completed the gap analysis of the specification. I found [N] items:
->
-> 1. **[Brief title]** (Critical/Important/Minor)
->    [2-4 line explanation: what the gap is, why it matters for implementation]
->
-> 2. **[Brief title]** (Critical/Important/Minor)
->    [2-4 line explanation]
->
-> Let's work through these one at a time, starting with #1."
+"I've completed the gap analysis of the specification. I found [N] items:
+
+1. **[Brief title]** (Critical/Important/Minor)
+   [2-4 line explanation: what the gap is, why it matters for implementation]
+
+2. **[Brief title]** (Critical/Important/Minor)
+   [2-4 line explanation]
+
+Let's work through these one at a time, starting with #1."
 
 **Stage 2: Process One Item at a Time**
 
@@ -644,17 +646,19 @@ For each item:
 
 1. **Present** the gap in detail - what's missing or unclear, what questions an implementer would have
 2. **Discuss** - work with the user to determine the correct specification content
-3. **Present for approval** - show exactly what will be written:
+3. **Present for approval** - show as rendered markdown (not a code block) exactly what will be written. Then, separately, show the choices:
 
-   > "Here's what I'll add to the specification:
-   >
-   > [content exactly as it would appear]
-   >
-   > · · · · · · · · · · · ·
-   > **To proceed:**
-   > - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim**.
-   > - **Or tell me what to change.**
-   > · · · · · · · · · · · ·
+   "Here's what I'll add to the specification:
+
+   [content as rendered markdown]
+
+   · · · · · · · · · · · ·
+   **To proceed:**
+   - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim**.
+   - **Or tell me what to change.**
+   · · · · · · · · · · · ·
+
+   **Do not wrap content or choices in a code block.** Content and choices must be visually distinct.
 
 4. **Wait for explicit approval**
 5. **Log verbatim** when approved
@@ -699,14 +703,14 @@ Before asking for sign-off, assess whether this is a **feature** or **cross-cutt
 
 Present your assessment to the user:
 
-> "This specification appears to be a **[feature/cross-cutting]** specification.
->
-> [Brief rationale - e.g., "It defines a caching strategy that will inform how multiple features handle data retrieval, rather than being a standalone piece of functionality to build."]
->
-> - **Feature specs** proceed to planning and implementation
-> - **Cross-cutting specs** are referenced by feature plans but don't have their own implementation plan
->
-> Does this assessment seem correct?"
+"This specification appears to be a **[feature/cross-cutting]** specification.
+
+[Brief rationale - e.g., "It defines a caching strategy that will inform how multiple features handle data retrieval, rather than being a standalone piece of functionality to build."]
+
+- **Feature specs** proceed to planning and implementation
+- **Cross-cutting specs** are referenced by feature plans but don't have their own implementation plan
+
+Does this assessment seem correct?"
 
 Wait for user confirmation before proceeding.
 
@@ -725,14 +729,14 @@ If either file still exists, delete it now. These are temporary working files th
 
 Once the type is confirmed and tracking files are removed, ask for final sign-off:
 
-> "The specification is ready for sign-off:
-> - **Type**: [feature/cross-cutting]
-> - **Status**: Complete
->
-> [If feature]: This specification can proceed to planning
-> [If cross-cutting]: This specification will be surfaced as reference context when planning features
->
-> Ready to mark as complete?"
+"The specification is ready for sign-off:
+- **Type**: [feature/cross-cutting]
+- **Status**: Complete
+
+[If feature]: This specification can proceed to planning
+[If cross-cutting]: This specification will be surfaced as reference context when planning features
+
+Ready to mark as complete?"
 
 ### Step 4: Update Frontmatter
 
