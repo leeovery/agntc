@@ -1,11 +1,11 @@
 ---
 topic: naming-and-identity
-status: in-progress
+status: concluded
 type: cross-cutting
 date: 2026-02-12
 sources:
   - name: naming-and-identity
-    status: pending
+    status: incorporated
 ---
 
 # Specification: Naming and Identity
