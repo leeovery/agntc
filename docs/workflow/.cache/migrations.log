@@ -5,3 +5,7 @@ docs/workflow/discussion/naming-and-identity.md: 001
 docs/workflow/discussion/deferred-items-triage.md: 001
 docs/workflow/discussion/plugin-init-scaffolding.md: 001
 docs/workflow/discussion/config-file-simplification.md: 001
+docs/workflow/specification/core-system.md: 002
+docs/workflow/specification/core-system.md: 004
+docs/workflow/specification/plugin-authoring.md: 002
+docs/workflow/specification/plugin-authoring.md: 004
