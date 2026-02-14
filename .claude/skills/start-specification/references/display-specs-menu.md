@@ -8,6 +8,8 @@ Shows when multiple concluded discussions exist, specifications exist, and cache
 
 ## A. Display
 
+> *Output the next fenced block as a code block:*
+
 ```
 Specification Overview
 
@@ -18,15 +20,15 @@ Existing specifications:
 
 For each non-superseded specification from discovery output, display as nested tree:
 
+> *Output the next fenced block as a code block:*
+
 ```
-1. {Spec Title Case Name}
-   └─ Spec: {status} ({X} of {Y} sources extracted)
+1. {topic:(titlecase)}
+   └─ Spec: {spec_status:[in-progress|concluded]} ({X} of {Y} sources extracted)
    └─ Discussions:
       ├─ {source-name} (extracted)
       └─ {source-name} (extracted)
 ```
-
-**Output in a fenced code block exactly as shown above.**
 
 Determine discussion status from the spec's `sources` array:
 - `incorporated` + `discussion_status: concluded` or `not-found` → `extracted`
@@ -39,6 +41,8 @@ Extraction count: X = sources with `status: incorporated`, Y = total source coun
 
 List concluded discussions that are not in any specification's `sources` array:
 
+> *Output the next fenced block as a code block:*
+
 ```
 Concluded discussions not in a specification:
   • {discussion-name}
@@ -47,16 +51,21 @@ Concluded discussions not in a specification:
 
 ### If in-progress discussions exist
 
+> *Output the next fenced block as a code block:*
+
 ```
 Discussions not ready for specification:
 These discussions are still in progress and must be concluded
 before they can be included in a specification.
-  · {discussion-name} (in-progress)
+
+  • {discussion-name}
 ```
 
 ### Key/Legend
 
 Show only the statuses that appear in the current display. No `---` separator before this section.
+
+> *Output the next fenced block as a code block:*
 
 ```
 Key:
@@ -76,11 +85,15 @@ No `---` separator before these messages.
 
 #### If cache status is "none"
 
+> *Output the next fenced block as a code block:*
+
 ```
 No grouping analysis exists.
 ```
 
 #### If cache status is "stale"
+
+> *Output the next fenced block as a code block:*
 
 ```
 A previous grouping analysis exists but is outdated — discussions
@@ -101,6 +114,8 @@ List "Analyze for groupings (recommended)" first, then one entry per existing no
 
 **Example assembled menu** (2 specs exist):
 
+> *Output the next fenced block as markdown (not a code block):*
+
 ```
 · · · · · · · · · · · ·
 1. Analyze for groupings (recommended)
@@ -114,7 +129,7 @@ Select an option (enter number):
 · · · · · · · · · · · ·
 ```
 
-**Output in a fenced code block exactly as shown above.**
+Recreate with actual topics and states from discovery.
 
 Menu descriptions are wrapped in backticks to visually distinguish them from the choice labels.
 

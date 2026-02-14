@@ -97,13 +97,18 @@ Use `state.scenario` from the discovery output to determine the path:
 
 No specifications exist yet.
 
+> *Output the next fenced block as a code block:*
+
 ```
+Planning Overview
+
 No specifications found in docs/workflow/specification/
 
-The planning phase requires a concluded specification. Please run /start-specification first.
+The planning phase requires a concluded specification.
+Run /start-specification first.
 ```
 
-**STOP.** Wait for user to acknowledge before ending.
+**STOP.** Do not proceed — terminal condition.
 
 #### If scenario is "nothing_actionable"
 
@@ -121,71 +126,9 @@ At least one specification is ready for planning, or an existing plan can be con
 
 ## Step 3: Present Workflow State and Options
 
-Present everything discovered to help the user make an informed choice.
+Load **[display-state.md](references/display-state.md)** and follow its instructions as written.
 
-**Present the full state:**
-
-```
-Planning Phase
-
-Available:
-  1. + {topic-2} - create new plan
-  2. ▶ {topic-3} - continue in-progress plan
-  3. > {topic-4} - review concluded plan
-
-Not plannable specifications:
-  · {topic-1} [feature, in-progress]
-  · {caching-strategy} [cross-cutting, concluded]
-  · {rate-limiting} [cross-cutting, in-progress]
-```
-
-**Output in a fenced code block exactly as shown above.**
-
-**Formatting rules:**
-
-Available (numbered, selectable):
-- **`+`** — concluded spec with no plan yet
-- **`▶`** — has a plan with `plan_status: planning`
-- **`>`** — has a plan with `plan_status: concluded`
-
-Not plannable specifications (no number, not selectable — `[type, status]` format):
-- **`·`** — feature specs still in-progress, or cross-cutting specifications
-- Feature specs: `[feature, in-progress]`
-- Cross-cutting specs: `[cross-cutting, {status}]`
-
-Omit either section entirely if it has no entries.
-
-**Then prompt based on what's actionable:**
-
-**If multiple actionable items:**
-```
-· · · · · · · · · · · ·
-Select a specification (enter number):
-```
-
-**STOP.** Wait for user response.
-
-**If single actionable item (auto-select):**
-```
-Auto-selecting: {topic} (only actionable specification)
-```
-
-→ Proceed directly to **Step 4**.
-
-**If nothing actionable:**
-```
-No plannable specifications.
-
-Before you can start planning:
-- Complete any in-progress specifications with /start-specification, or
-- Create a new specification first
-
-Then re-run /start-planning.
-```
-
-**STOP.** This workflow cannot continue — do not proceed.
-
-→ Based on user choice, proceed to **Step 4**.
+→ Proceed to **Step 4**.
 
 ---
 
@@ -207,9 +150,16 @@ The plan already has its context from when it was created. Skip context gatherin
 
 ## Step 5: Gather Additional Context
 
-Ask:
-- Any additional context or priorities to consider?
-- Any constraints since the specification was concluded?
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+· · · · · · · · · · · ·
+Any additional context since the specification was concluded?
+
+- **`c`/`continue`** — Continue with the specification as-is
+- Or provide additional context (priorities, constraints, new considerations)
+· · · · · · · · · · · ·
+```
 
 **STOP.** Wait for user response.
 
@@ -219,42 +169,7 @@ Ask:
 
 ## Step 6: Surface Cross-Cutting Context
 
-**If no cross-cutting specifications exist**: Skip this step. → Proceed to **Step 7**.
-
-Read each cross-cutting specification from `specifications.crosscutting` in the discovery output.
-
-### 6a: Warn about in-progress cross-cutting specs
-
-If any **in-progress** cross-cutting specifications exist, check whether they could be relevant to the feature being planned (by topic overlap — e.g., a caching strategy is relevant if the feature involves data retrieval or API calls).
-
-If any are relevant:
-
-```
-Note: The following cross-cutting specifications are still in-progress:
-  · {rate-limiting} - in-progress
-
-These may contain architectural decisions relevant to this plan.
-
-· · · · · · · · · · · ·
-- **`c`/`continue`** — Plan without them
-- **`s`/`stop`** — Complete them first (/start-specification)
-· · · · · · · · · · · ·
-```
-
-**STOP.** Wait for user response.
-
-If the user chooses to stop, end here. If they choose to continue, proceed.
-
-### 6b: Summarize concluded cross-cutting specs
-
-If any **concluded** cross-cutting specifications exist, identify which are relevant to the feature being planned and summarize for handoff:
-
-```
-Cross-cutting specifications to reference:
-- caching-strategy.md: [brief summary of key decisions]
-```
-
-These specifications contain validated architectural decisions that should inform the plan. The planning skill will incorporate these as a "Cross-Cutting References" section in the plan.
+Load **[cross-cutting-context.md](references/cross-cutting-context.md)** and follow its instructions as written.
 
 → Proceed to **Step 7**.
 
@@ -262,33 +177,4 @@ These specifications contain validated architectural decisions that should infor
 
 ## Step 7: Invoke the Skill
 
-After completing the steps above, this skill's purpose is fulfilled.
-
-Invoke the [technical-planning](../technical-planning/SKILL.md) skill for your next instructions. Do not act on the gathered information until the skill is loaded - it contains the instructions for how to proceed.
-
-**Example handoff (fresh plan):**
-```
-Planning session for: {topic}
-Specification: docs/workflow/specification/{topic}.md
-Additional context: {summary of user's answers from Step 5}
-Cross-cutting references: {list of applicable cross-cutting specs with brief summaries, or "none"}
-Recommended output format: {common_format from discovery if non-empty, otherwise "none"}
-
-Invoke the technical-planning skill.
-```
-
-**Example handoff (continue/review existing plan):**
-```
-Planning session for: {topic}
-Specification: docs/workflow/specification/{topic}.md
-Existing plan: docs/workflow/planning/{topic}.md
-
-Invoke the technical-planning skill.
-```
-
-## Notes
-
-- Ask questions clearly and wait for responses before proceeding
-- The feature specification is the primary source of truth for planning
-- Cross-cutting specifications provide supplementary context for architectural decisions
-- Do not reference discussions - only specifications
+Load **[invoke-skill.md](references/invoke-skill.md)** and follow its instructions as written.

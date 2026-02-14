@@ -50,37 +50,39 @@ For each discussion: status is `ready`. Spec status: `none`.
 
 All items are first-class — every grouping (including single-discussion entries) is a numbered item.
 
+> *Output the next fenced block as a code block:*
+
 ```
 Specification Overview
 
 Recommended breakdown for specifications with their source discussions.
 
-1. {Grouping Name}
-   └─ Spec: {status} {(X of Y sources extracted) if applicable}
+1. {grouping_name:(titlecase)}
+   └─ Spec: @if(has_spec) {spec_status:[in-progress|concluded]} ({extraction_summary}) @else (no spec) @endif
    └─ Discussions:
-      ├─ {discussion-name} ({status})
-      └─ {discussion-name} ({status})
+      ├─ {discussion} ({status:[extracted|pending|ready|reopened]})
+      └─ ...
 
-2. {Grouping Name}
-   └─ Spec: none
-   └─ Discussions:
-      └─ {discussion-name} (ready)
+2. ...
 ```
 
-**Output in a fenced code block exactly as shown above.**
-
 ### If in-progress discussions exist
+
+> *Output the next fenced block as a code block:*
 
 ```
 Discussions not ready for specification:
 These discussions are still in progress and must be concluded
 before they can be included in a specification.
-  · {discussion-name} (in-progress)
+
+  • {discussion-name}
 ```
 
 ### Key/Legend
 
 Show only the statuses that appear in the current display. No `---` separator before this section.
+
+> *Output the next fenced block as a code block:*
 
 ```
 Key:
@@ -92,7 +94,6 @@ Key:
     reopened  — was extracted but discussion has regressed to in-progress
 
   Spec status:
-    none        — no specification file exists yet
     in-progress — specification work is ongoing
     concluded   — specification is complete
 ```
@@ -100,6 +101,8 @@ Key:
 ### Tip (show when 2+ groupings)
 
 No `---` separator before this section.
+
+> *Output the next fenced block as a code block:*
 
 ```
 Tip: To restructure groupings or pull a discussion into its own
@@ -127,6 +130,8 @@ After all grouping entries, append meta options:
 
 **Example assembled menu** (2 groupings, specs exist):
 
+> *Output the next fenced block as markdown (not a code block):*
+
 ```
 · · · · · · · · · · · ·
 1. Start "Auth Flow" — 2 ready discussions
@@ -143,7 +148,9 @@ Select an option (enter number):
 · · · · · · · · · · · ·
 ```
 
-**Output in a fenced code block exactly as shown above.** Every meta option (Unify, Re-analyze) MUST include its description lines.
+Recreate with actual topics and states from discovery.
+
+Every meta option (Unify, Re-analyze) MUST include its description lines.
 
 **STOP.** Wait for user response.
 

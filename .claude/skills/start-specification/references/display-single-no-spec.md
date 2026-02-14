@@ -8,46 +8,50 @@ No specification exists for this discussion.
 
 ## Display
 
+> *Output the next fenced block as a code block:*
+
 ```
 Specification Overview
 
 Single concluded discussion found.
 
-1. {Title Case Name}
-   └─ Spec: none
+1. {topic:(titlecase)}
+   └─ Spec: (no spec)
    └─ Discussions:
       └─ {discussion-name} (ready)
 ```
 
-**Output in a fenced code block exactly as shown above.**
-
 ### If in-progress discussions exist
+
+> *Output the next fenced block as a code block:*
 
 ```
 Discussions not ready for specification:
 These discussions are still in progress and must be concluded
 before they can be included in a specification.
-  · {discussion-name} (in-progress)
+
+  • {discussion-name}
 ```
 
 ### Key/Legend
 
 No `---` separator before this section.
 
+> *Output the next fenced block as a code block:*
+
 ```
 Key:
 
   Discussion status:
     ready — concluded and available to be specified
-
-  Spec status:
-    none — no specification file exists yet
 ```
 
 ## After Display
 
+> *Output the next fenced block as a code block:*
+
 ```
-Automatically proceeding with "{Title Case Name}".
+Automatically proceeding with "{topic:(titlecase)}".
 ```
 
 Auto-proceed with verb **"Creating"**.

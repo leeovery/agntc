@@ -8,34 +8,54 @@ Present everything discovered to help the user make an informed choice.
 
 **Present the full state:**
 
+> *Output the next fenced block as a code block:*
+
 ```
-Workflow Status: Discussion Phase
+Discussion Overview
+
+{N} research topics found. {M} existing discussions.
 
 Research topics:
-  1. · {Theme name} - undiscussed
-       Source: {filename}.md (lines {start}-{end})
-       "{Brief summary}"
 
-  2. ✓ {Theme name} → {topic}.md
-       Source: {filename}.md (lines {start}-{end})
-       "{Brief summary}"
+1. {theme_name}
+   └─ Source: {filename}.md (lines {start}-{end})
+   └─ Discussion: @if(has_discussion) {topic}.md ({status:[in-progress|concluded]}) @else (no discussion) @endif
+   └─ "{summary}"
 
-Discussions:
-  - {topic}.md (in-progress)
-  - {topic}.md (concluded)
-
----
-Key:
-  · = undiscussed topic (potential new discussion)
-  ✓ = already has a corresponding discussion
+2. ...
 ```
 
-**Output in a fenced code block exactly as shown above.**
+If discussions exist that are NOT linked to a research topic, list them separately:
+
+> *Output the next fenced block as a code block:*
+
+```
+Existing discussions:
+
+  • {topic}.md ({status:[in-progress|concluded]})
+```
+
+### Key/Legend
+
+No `---` separator before this section.
+
+> *Output the next fenced block as a code block:*
+
+```
+Key:
+
+  Discussion status:
+    in-progress — discussion is ongoing
+    concluded   — discussion is complete
+```
 
 **Then present the options based on what exists:**
 
 #### If research and discussions exist
 
+> *Output the next fenced block as markdown (not a code block):*
+
+```
 · · · · · · · · · · · ·
 How would you like to proceed?
 
@@ -44,9 +64,13 @@ How would you like to proceed?
 - Continue discussion — name one above (e.g., "continue {topic}")
 - Fresh topic — describe what you want to discuss
 · · · · · · · · · · · ·
+```
 
 #### If only research exists
 
+> *Output the next fenced block as markdown (not a code block):*
+
+```
 · · · · · · · · · · · ·
 How would you like to proceed?
 
@@ -54,14 +78,19 @@ How would you like to proceed?
 - From research — pick a topic number above (e.g., "1" or "research 1")
 - Fresh topic — describe what you want to discuss
 · · · · · · · · · · · ·
+```
 
 #### If only discussions exist
 
+> *Output the next fenced block as markdown (not a code block):*
+
+```
 · · · · · · · · · · · ·
 How would you like to proceed?
 
 - Continue discussion — name one above (e.g., "continue {topic}")
 - Fresh topic — describe what you want to discuss
 · · · · · · · · · · · ·
+```
 
 **STOP.** Wait for user response before proceeding.

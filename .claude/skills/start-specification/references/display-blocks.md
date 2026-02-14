@@ -8,8 +8,10 @@ Two terminal paths — the command stops and cannot proceed.
 
 ## If no discussions exist
 
+> *Output the next fenced block as a code block:*
+
 ```
-Specification Phase
+Specification Overview
 
 No discussions found.
 
@@ -20,18 +22,21 @@ that specifications are built upon.
 Run /start-discussion to begin documenting technical decisions.
 ```
 
-**STOP.** Wait for user acknowledgment. Command ends here.
+**STOP.** Do not proceed — terminal condition.
 
 ## If discussions exist but none concluded
 
+> *Output the next fenced block as a code block:*
+
 ```
-Specification Phase
+Specification Overview
 
 No concluded discussions found.
 
 The following discussions are still in progress:
-  · {discussion-name} (in-progress)
-  · {discussion-name} (in-progress)
+
+  • {discussion-name}
+  • {discussion-name}
 
 Specifications can only be created from concluded discussions.
 Run /start-discussion to continue working on a discussion.
@@ -39,4 +44,4 @@ Run /start-discussion to continue working on a discussion.
 
 List all in-progress discussions from discovery output.
 
-**STOP.** Wait for user acknowledgment. Command ends here.
+**STOP.** Do not proceed — terminal condition.

@@ -4,6 +4,8 @@
 
 ---
 
+> *Output the next fenced block as a code block:*
+
 ```
 Refining specification: {Title Case Name}
 
@@ -13,11 +15,15 @@ All sources extracted:
   • {discussion-name}
 ```
 
+> *Output the next fenced block as markdown (not a code block):*
+
+```
 · · · · · · · · · · · ·
 Proceed?
 - **`y`/`yes`**
 - **`n`/`no`**
 · · · · · · · · · · · ·
+```
 
 **STOP.** Wait for user response.
 
@@ -29,12 +35,14 @@ Proceed?
 
 #### If single discussion (no menu to return to)
 
+> *Output the next fenced block as a code block:*
+
 ```
 Understood. You can run /start-discussion to continue working on
 discussions, or re-run this command when ready.
 ```
 
-Command ends.
+**STOP.** Do not proceed — terminal condition.
 
 #### If groupings or specs menu
 

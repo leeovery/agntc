@@ -15,32 +15,37 @@ Extraction count: X = sources with `status: incorporated`, Y = total source coun
 
 ## Display
 
+> *Output the next fenced block as a code block:*
+
 ```
 Specification Overview
 
 Single concluded discussion found with existing multi-source specification.
 
-1. {Spec Title Case Name}
-   └─ Spec: {spec_status} ({X} of {Y} sources extracted)
+1. {topic:(titlecase)}
+   └─ Spec: {spec_status:[in-progress|concluded]} ({X} of {Y} sources extracted)
    └─ Discussions:
       ├─ {source-name} (extracted)
       └─ {source-name} (extracted, reopened)
 ```
 
-**Output in a fenced code block exactly as shown above.**
-
 ### If in-progress discussions exist
+
+> *Output the next fenced block as a code block:*
 
 ```
 Discussions not ready for specification:
 These discussions are still in progress and must be concluded
 before they can be included in a specification.
-  · {discussion-name} (in-progress)
+
+  • {discussion-name}
 ```
 
 ### Key/Legend
 
 Show only the statuses that appear in the current display. No `---` separator before this section.
+
+> *Output the next fenced block as a code block:*
 
 ```
 Key:
@@ -57,8 +62,10 @@ Key:
 
 ## After Display
 
+> *Output the next fenced block as a code block:*
+
 ```
-Automatically proceeding with "{Spec Title Case Name}".
+Automatically proceeding with "{topic:(titlecase)}".
 ```
 
 Auto-proceed uses the spec name. Verb rule:
