@@ -215,6 +215,8 @@ Collection membership is implicit from the key prefix (e.g., `leeovery/agent-ski
 | `agents` | `string[]` | Which agents this was installed for. |
 | `files` | `string[]` | Exact destination paths of copied files/dirs. Used for clean removal and nuke-and-reinstall updates. |
 
+For local path installs, `ref` and `commit` are both `null`. The manifest key format (absolute path vs `owner/repo`) distinguishes local installs from git HEAD installs.
+
 ### Example
 
 ```json
@@ -273,18 +275,19 @@ Always required (no no-arg mode). One source per invocation.
 | GitHub shorthand | `owner/repo`, `owner/repo@v2.0` | Primary format. `@ref` for tag or branch. |
 | HTTPS URL | `https://github.com/owner/repo`, `https://gitlab.com/org/repo` | Any git host. |
 | SSH URL | `git@github.com:owner/repo.git` | For SSH auth setups. |
+| Local path | `./my-plugin`, `/absolute/path`, `~/my-plugin` | For local development/testing. No git clone — files copied directly. |
 | Direct path to plugin | `https://github.com/owner/repo/tree/main/plugin-name` | Collection shortcut — skips plugin multiselect, installs the specified plugin directly. Ref is embedded in the URL path. |
 
-**Version pinning:** All formats except direct path support `@ref` suffix (e.g., `owner/repo@v2.0`, `https://gitlab.com/org/repo@v2.0`). Direct path URLs carry the ref in the URL structure (`/tree/{ref}/...`). When no ref is specified, HEAD is used.
+**Version pinning:** All formats except direct path and local path support `@ref` suffix (e.g., `owner/repo@v2.0`, `https://gitlab.com/org/repo@v2.0`). Direct path URLs carry the ref in the URL structure (`/tree/{ref}/...`). Local paths have no ref concept. When no ref is specified, HEAD is used.
 
 **Direct path behavior:** When a source points to a specific plugin within a collection (via tree URL path), the tool skips the collection multiselect and installs that plugin directly. The remainder of the flow (agent selection, collision check, copy) proceeds as normal.
 
-**Manifest key derivation:** Owner and repo are extracted from any format and used as the manifest key (`owner/repo` for standalone, `owner/repo/plugin-name` for collection plugins) regardless of source format.
+**Manifest key derivation:** Owner and repo are extracted from any format and used as the manifest key (`owner/repo` for standalone, `owner/repo/plugin-name` for collection plugins) regardless of source format. For local paths, the resolved absolute path is the manifest key (e.g., `/Users/lee/Code/my-plugin`). Collection plugins from local paths use `{absolute-path}/{plugin-name}`. `~` is expanded before storing.
 
 #### Full Flow
 
-1. **Parse source argument** (shorthand / URL / direct path)
-2. **Clone repo** (shallow)
+1. **Parse source argument** (shorthand / URL / local path / direct path)
+2. **Clone repo** (shallow) or copy from local path
 3. **Read `agntc.json`** → determine skill vs plugin vs collection via type detection rules
 4. **If collection**: multiselect plugins. Already-installed plugins are marked but still selectable — selecting one triggers a reinstall. No separate `--force` flag.
 5. **Agent multiselect**: always shown, all supported agents listed. Pre-select detected ∩ compatible. Unsupported agents shown with warning.
@@ -402,6 +405,10 @@ Tag-pinned plugins are never auto-upgraded. User re-adds with the new tag explic
 
 **No confirmation prompt.** Unlike `remove`, update is non-destructive in intent — user is asking for newer versions of things they already want.
 
+#### Local Path Updates
+
+Local path plugins always re-copy from the stored path. No change detection — the tool cannot determine if local files have changed, so update always performs the copy. This makes `update` useful during local plugin development as a quick "refresh from source."
+
 #### Agent Compatibility Changes
 
 During update, the tool re-reads the new version's `agntc.json` and compares its `agents` field against the manifest entry's `agents` list.
@@ -458,6 +465,9 @@ Each row shows: plugin key + ref (tag/branch if pinned, nothing if HEAD), status
 | Branch/HEAD with newer commit | `↑ Update available` | Green |
 | Tag-pinned, newer tags on remote | `⚑ Newer tags available` | Yellow |
 | Couldn't reach remote | `✗ Check failed` | Red |
+| Local install | `● Local` | Default |
+
+No remote check performed for local installs.
 
 Always show the list regardless of how many plugins are installed.
 
@@ -480,6 +490,7 @@ User selects a plugin → detail view showing:
 | Up to date | Remove, Back |
 | Newer tags available | Change version, Remove, Back |
 | Check failed | Remove, Back |
+| Local | Update, Remove, Back |
 
 **Change version**: presents a selectable list of available tags. User picks one → nuke-and-reinstall at the new tag. Manifest updated with new ref + commit. Same mechanics as update but with a new ref.
 
