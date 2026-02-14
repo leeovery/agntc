@@ -2,7 +2,7 @@
 topic: core-system
 status: concluded
 type: feature
-date: 2026-02-09
+date: 2026-02-12
 sources:
   - name: core-architecture
     status: incorporated
