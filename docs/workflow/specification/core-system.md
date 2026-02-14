@@ -210,7 +210,7 @@ Collection membership is implicit from the key prefix (e.g., `leeovery/agent-ski
 | Field | Type | Description |
 |-------|------|-------------|
 | `ref` | `string \| null` | What the user asked for — tag, branch, or `null` (default HEAD). Drives update semantics. |
-| `commit` | `string` | Resolved SHA at install time. For comparison against remote. |
+| `commit` | `string \| null` | Resolved SHA at install time. For comparison against remote. `null` for local path installs. |
 | `installedAt` | `string` | ISO 8601 timestamp. Informational. |
 | `agents` | `string[]` | Which agents this was installed for. |
 | `files` | `string[]` | Exact destination paths of copied files/dirs. Used for clean removal and nuke-and-reinstall updates. |
@@ -250,7 +250,7 @@ For local path installs, `ref` and `commit` are both `null`. The manifest key fo
 Updates use nuke-and-reinstall rather than diffing:
 
 1. Delete all files listed in the plugin's manifest `files` array
-2. Re-clone at the same ref (or HEAD for null ref)
+2. Re-clone at the same ref (or HEAD for null ref), or re-copy from local path
 3. Re-copy using the same agents from the manifest entry
 4. Update manifest with new commit SHA and file list
 
@@ -262,7 +262,7 @@ All commands use @clack/prompts for interactive UI. All are invoked via `npx agn
 
 ### `add`
 
-Installs plugins from a git repo. One source per invocation.
+Installs plugins from a git repo or local path. One source per invocation.
 
 #### Source Argument
 
@@ -399,13 +399,14 @@ Based on manifest `ref` and `commit`:
 | `null` | Installed from default HEAD | `git ls-remote` for HEAD SHA, compare to stored `commit` | Different → update available |
 | `"dev"` (branch) | Installed from branch | `git ls-remote` for branch tip SHA, compare | Different → update available |
 | `"v2.0"` (tag) | Pinned to tag | Tag resolves to same commit forever → always "up to date" | Check for newer tags via `git ls-remote --tags`, inform user |
+| `null` (local path) | Installed from local path | No remote check | Always re-copy (see Local Path Updates) |
 
 Tag-pinned plugins are never auto-upgraded. User re-adds with the new tag explicitly.
 
 #### Update Mechanics (Nuke-and-Reinstall)
 
 1. Delete all files listed in the plugin's manifest `files` array
-2. Re-clone at the same ref (or HEAD for null ref)
+2. Re-clone at the same ref (or HEAD for null ref), or re-copy from local path
 3. Re-copy using the same agents from the manifest entry
 4. Update manifest with new commit SHA
 5. No re-prompt for agent selection — update means "latest version of what I already have." Changing agents is a re-add.
@@ -524,6 +525,11 @@ When `add` is called with a source that can't be resolved (invalid shorthand, un
 - Display the git error clearly
 - Exit with non-zero status code
 
+When `add` is called with a local path that doesn't exist or isn't a directory:
+
+- Display error: "Path {path} does not exist or is not a directory."
+- Exit with non-zero status code
+
 ## Error Handling
 
 ### Network/Git Errors (Clone Failures)
@@ -531,6 +537,10 @@ When `add` is called with a source that can't be resolved (invalid shorthand, un
 - Retry up to 3 times on transient failures (network timeout, temporary git errors)
 - After retries exhausted: surface the git error clearly, abort. Nothing to clean up — no files copied yet.
 - Auth failures (private repo, bad credentials): no retry — surface the error immediately. The tool doesn't handle auth; it defers to the user's git configuration.
+
+### Local Path Errors
+
+If the local path doesn't exist, isn't readable, or contains no `agntc.json`: surface the error clearly and abort. Same principle as git errors — fail fast with a clear message.
 
 ### Partial Failure During Copy (Single Plugin)
 
