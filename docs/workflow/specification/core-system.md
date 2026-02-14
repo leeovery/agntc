@@ -296,23 +296,30 @@ Always required (no no-arg mode). One source per invocation.
 
 6. **Reinstall handling**: for any selected plugin that is already installed, delete all files listed in its manifest `files` array before proceeding. This ensures a clean slate — no orphaned files from the previous version and no conflict prompts against the plugin's own existing assets. Same mechanics as update's nuke step.
 7. **File path collision check**: diff incoming file list against all existing manifest entries. Hard block if any path overlaps with another plugin (see File Path Collisions).
-8. **For each plugin × each agent**: route assets via driver config, copy with asset-level conflict handling (see Conflict Handling)
-9. **Write manifest**: new entries (replacing any reinstalled entries) + any ownership transfers from conflict resolution. Single atomic write.
-10. **Show summary**: per-agent asset counts
-11. **Clean up** temp clone dir
+8. **Unmanaged file conflict check**: scan destination paths against disk for unmanaged files. Per-plugin prompt: overwrite all or cancel plugin (see Conflict Handling).
+9. **For each plugin × each agent**: route assets via driver config, copy to target directories.
+10. **Write manifest**: new entries (replacing any reinstalled entries). Single atomic write.
+11. **Show summary**: per-agent asset counts. Note any plugins skipped due to conflicts.
+12. **Clean up** temp clone dir (git sources only)
 
 #### Conflict Handling
 
+After the file path collision check (step 7) and before any copying, scan each plugin's destination paths against disk for unmanaged files (files that exist but aren't tracked in any plugin's manifest — e.g., manually placed by the user). Conflicts with other plugins' managed files are caught earlier by the file path collision check.
+
 Conflicts are detected at the **asset level**, not file level:
-- Skill directory exists → one prompt ("This skill already exists. Overwrite or skip?")
-- Agent file exists → one prompt
-- Hook file exists → one prompt
+- Skill directory exists → one conflict
+- Agent file exists → one conflict
+- Hook file exists → one conflict
 
-Overwrite = nuke the existing asset entirely and replace. No merging, no diffing.
+If conflicts are found for a plugin, show all conflicting assets and offer two options:
+- **Overwrite all** — nuke the conflicting assets entirely and replace. No merging, no diffing. Requires a second confirmation ("Are you sure? These files will be permanently replaced.") before proceeding.
+- **Cancel this plugin's install**
 
-**Manifest ownership transfer**: when overwriting an asset, check if the existing path is tracked in the manifest by another plugin. If so, remove that path from the previous owner's `files` list. If the previous owner's `files` becomes empty, clean up their manifest entry entirely. If the asset wasn't managed by agntc (manually placed), just overwrite — no manifest cleanup needed.
+Plugins are atomic — overwrite everything or install nothing. No partial installs.
 
-Ownership changes tracked in memory during the operation, manifest written once at the end.
+For **collections with multiple selected plugins**, each plugin is checked independently. Plugins with no conflicts proceed normally. Plugins the user cancels are excluded. Summary notes which plugins were skipped due to conflicts.
+
+All conflict resolution happens before copying begins, so no rollback is needed.
 
 #### File Path Collisions Across Plugins
 
