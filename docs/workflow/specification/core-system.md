@@ -60,8 +60,8 @@ Single required field:
 The tool infers what it's looking at from structure, not declarations:
 
 1. **Root has `agntc.json`** → standalone installable
-   - Has `SKILL.md` at root → **skill** (copy directory as a skill)
-   - Has asset dirs (`skills/`, `agents/`, `hooks/`) → **plugin** (scan and route)
+   - Has asset dirs (`skills/`, `agents/`, `hooks/`) → **plugin** (scan and route). If `SKILL.md` also exists at root, warn: root `SKILL.md` is ignored when asset directories are present — this is likely a misconfigured plugin.
+   - Has `SKILL.md` at root (no asset dirs) → **skill** (copy directory as a skill)
    - Neither → warn (config exists but nothing to install)
 
 2. **Root has no `agntc.json`** → scan immediate subdirs for `agntc.json` → those are selectable installables (**collection**)
@@ -264,28 +264,39 @@ Installs plugins from a git repo. One source per invocation.
 
 #### Source Argument
 
-Always required (no no-arg mode). Two formats:
+Always required (no no-arg mode). One source per invocation.
 
-| Format | Example |
-|--------|---------|
-| GitHub shorthand | `owner/repo`, `owner/repo@v2.0`, `owner/repo@branch-name` |
-| Full git URL | `https://github.com/owner/repo.git`, `git@github.com:owner/repo.git` |
+**Supported formats:**
+
+| Format | Example | Notes |
+|--------|---------|-------|
+| GitHub shorthand | `owner/repo`, `owner/repo@v2.0` | Primary format. `@ref` for tag or branch. |
+| HTTPS URL | `https://github.com/owner/repo`, `https://gitlab.com/org/repo` | Any git host. |
+| SSH URL | `git@github.com:owner/repo.git` | For SSH auth setups. |
+| Direct path to plugin | `https://github.com/owner/repo/tree/main/plugin-name` | Collection shortcut — skips plugin multiselect, installs the specified plugin directly. Ref is embedded in the URL path. |
+
+**Version pinning:** All formats except direct path support `@ref` suffix (e.g., `owner/repo@v2.0`, `https://gitlab.com/org/repo@v2.0`). Direct path URLs carry the ref in the URL structure (`/tree/{ref}/...`). When no ref is specified, HEAD is used.
+
+**Direct path behavior:** When a source points to a specific plugin within a collection (via tree URL path), the tool skips the collection multiselect and installs that plugin directly. The remainder of the flow (agent selection, collision check, copy) proceeds as normal.
+
+**Manifest key derivation:** Owner and repo are extracted from any format and used as the manifest key (`owner/repo` for standalone, `owner/repo/plugin-name` for collection plugins) regardless of source format.
 
 #### Full Flow
 
-1. **Parse source argument** (shorthand / URL)
+1. **Parse source argument** (shorthand / URL / direct path)
 2. **Clone repo** (shallow)
 3. **Read `agntc.json`** → determine skill vs plugin vs collection via type detection rules
-4. **If collection**: multiselect plugins. Already-installed plugins are marked but still selectable — selecting one triggers a reinstall (nuke-and-reinstall, consistent with update strategy). No separate `--force` flag.
+4. **If collection**: multiselect plugins. Already-installed plugins are marked but still selectable — selecting one triggers a reinstall. No separate `--force` flag.
 5. **Agent multiselect**: always shown, all supported agents listed. Pre-select detected ∩ compatible. Unsupported agents shown with warning.
 
 **Empty selections**: If the user selects zero plugins (collection multiselect) or zero agents (agent multiselect), treat as cancel — display a brief message and exit cleanly. No error.
 
-6. **File path collision check**: diff incoming file list against all existing manifest entries. Hard block if any path overlaps with another plugin (see File Path Collisions).
-7. **For each plugin × each agent**: route assets via driver config, copy with asset-level conflict handling (see Conflict Handling)
-8. **Write manifest**: new entries + any ownership transfers from conflict resolution. Single atomic write.
-9. **Show summary**: per-agent asset counts
-10. **Clean up** temp clone dir
+6. **Reinstall handling**: for any selected plugin that is already installed, delete all files listed in its manifest `files` array before proceeding. This ensures a clean slate — no orphaned files from the previous version and no conflict prompts against the plugin's own existing assets. Same mechanics as update's nuke step.
+7. **File path collision check**: diff incoming file list against all existing manifest entries. Hard block if any path overlaps with another plugin (see File Path Collisions).
+8. **For each plugin × each agent**: route assets via driver config, copy with asset-level conflict handling (see Conflict Handling)
+9. **Write manifest**: new entries (replacing any reinstalled entries) + any ownership transfers from conflict resolution. Single atomic write.
+10. **Show summary**: per-agent asset counts
+11. **Clean up** temp clone dir
 
 #### Conflict Handling
 
@@ -390,6 +401,20 @@ Tag-pinned plugins are never auto-upgraded. User re-adds with the new tag explic
 5. No re-prompt for agent selection — update means "latest version of what I already have." Changing agents is a re-add.
 
 **No confirmation prompt.** Unlike `remove`, update is non-destructive in intent — user is asking for newer versions of things they already want.
+
+#### Agent Compatibility Changes
+
+During update, the tool re-reads the new version's `agntc.json` and compares its `agents` field against the manifest entry's `agents` list.
+
+**If agents were dropped by the author:**
+
+1. Warn: "Plugin `{key}` no longer declares support for `{dropped_agent}`. Currently installed for: `{manifest agents}`. New version supports: `{new agents}`."
+2. Proceed with update but only install for agents still in the new `agents` list
+3. Dropped agent's files are removed as part of the nuke and not re-created
+4. Manifest entry's `agents` field is updated to reflect what was actually installed
+5. Summary shows: "Updated for Claude. Codex support removed by plugin author — Codex files removed."
+
+**If all installed agents were dropped:** the update effectively becomes a removal. Warn and skip: "Plugin `{key}` no longer supports any of your installed agents. No update performed. Run `npx agntc remove {key}` to clean up." Existing files are left in place — the user decides when to remove.
 
 #### Output
 
