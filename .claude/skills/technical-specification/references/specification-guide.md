@@ -70,19 +70,27 @@ For each topic or subtopic, perform exhaustive extraction:
 **Why this matters:** The specification is the single source of truth for planning. Planning will not reference prior source material - only this document. Missing a detail here means that detail doesn't get implemented.
 
 ### 2. Synthesize and Present
-Present your understanding to the user **in the format it would appear in the specification**. Output the content as rendered markdown (not in a code block) — the user needs to read it naturally, not inspect raw formatting:
+Present your understanding to the user **in the format it would appear in the specification**:
 
-"Here's what I understand about [topic] based on the reference material. This is exactly what I'll write into the specification:
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+Here's what I understand about [topic] based on the reference material. This is exactly what I'll write into the specification:
 
 [content as rendered markdown]
+```
 
-Then, **separately from the content above** (clear visual break), present the choices as raw markdown:
+Then, **separately from the content above** (clear visual break):
 
+> *Output the next fenced block as markdown (not a code block):*
+
+```
 · · · · · · · · · · · ·
 **To proceed:**
 - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim** (exactly as shown, no modifications).
 - **Or tell me what to change.**
 · · · · · · · · · · · ·
+```
 
 Content and choices must be visually distinct (not run together).
 
@@ -138,7 +146,7 @@ This is encouraged. Better to resurface and confirm "already covered" than let s
 
 > **CHECKPOINT**: You should NOT be creating or writing to this file unless you have explicit user approval for specific content. If you're about to create this file with content you haven't presented and had approved, **STOP**. That violates the workflow.
 
-Create `docs/workflow/specification/{topic}.md`
+Create `docs/workflow/specification/{topic}/specification.md`
 
 This is a single file per topic. Structure is **flexible** - organize around phases and subject matter, not rigid sections. This is a working document.
 
@@ -150,6 +158,8 @@ topic: {topic-name}
 status: in-progress
 type: feature
 date: YYYY-MM-DD  # Use today's actual date
+review_cycle: 0
+finding_gate_mode: gated
 sources:
   - name: discussion-one
     status: incorporated
@@ -172,10 +182,11 @@ sources:
 
 ### Frontmatter Fields
 
-- **topic**: Kebab-case identifier matching the filename
+- **topic**: Kebab-case identifier matching the directory name
 - **status**: `in-progress` (building) or `concluded` (complete)
 - **type**: `feature` (something to build) or `cross-cutting` (patterns/policies)
 - **date**: Last updated date
+- **review_cycle**: Current review cycle number (starts at 0, incremented each review cycle). Missing field treated as 0.
 - **sources**: Array of source discussions with incorporation status (see below)
 
 ### Sources and Incorporation Status
@@ -382,15 +393,18 @@ After documenting dependencies, perform a **final comprehensive review** in two 
 
 To ensure analysis isn't lost during context refresh, create tracking files that capture your findings. These files persist your analysis so work can continue across sessions.
 
-**Location**: Store tracking files alongside the specification:
-- `docs/workflow/specification/{topic}-review-input-tracking.md` - Phase 1 findings
-- `docs/workflow/specification/{topic}-review-gap-analysis-tracking.md` - Phase 2 findings
+**Location**: Store tracking files in the specification topic directory (`docs/workflow/specification/{topic}/`), cycle-numbered:
+- `review-input-tracking-c{N}.md` — Phase 1 findings for cycle N
+- `review-gap-analysis-tracking-c{N}.md` — Phase 2 findings for cycle N
+
+Tracking files are **never deleted**. After all findings are processed, mark `status: complete`. Previous cycles' files persist as analysis history.
 
 **Format**:
 ```markdown
 ---
 status: in-progress | complete
 created: YYYY-MM-DD
+cycle: {N}
 phase: Input Review | Gap Analysis
 topic: [Topic Name]
 ---
@@ -429,10 +443,42 @@ topic: [Topic Name]
    - Get approval
    - Log to specification
    - Update the tracking file: mark resolution, add notes
-4. After all items resolved, delete the tracking file
-5. Proceed to the next phase (or completion)
+4. After all items resolved, mark tracking file `status: complete`
+5. Proceed to the next phase (or re-loop prompt)
 
 **Why tracking files**: If context refreshes mid-review, you can read the tracking file and continue where you left off. The tracking file shows which items are resolved and which remain. This is especially important when reviews surface 10-20 items that need individual discussion.
+
+---
+
+### Review Cycle Gate
+
+Each review cycle runs Phase 1 (Input Review) + Phase 2 (Gap Analysis) as a pair. Always start here.
+
+Increment `review_cycle` in the specification frontmatter and commit.
+
+→ If `review_cycle <= 3`, proceed directly to **Phase 1: Input Review**.
+
+If `review_cycle > 3`:
+
+**Do NOT skip review autonomously.** This gate is an escape hatch for the user — not a signal to stop. The expected default is to continue running review until no issues are found. Present the choice and let the user decide.
+
+**Review cycle {N}**
+
+Review has run {N-1} times so far. You can continue (recommended if issues were still found last cycle) or skip to completion.
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+· · · · · · · · · · · ·
+- **`p`/`proceed`** — Continue review *(default)*
+- **`s`/`skip`** — Skip review, proceed to completion
+· · · · · · · · · · · ·
+```
+
+**STOP.** Wait for user choice. You MUST NOT choose on the user's behalf.
+
+- **`proceed`**: → Continue to **Phase 1: Input Review**.
+- **`skip`**: → Jump to **Completion**.
 
 ---
 
@@ -483,7 +529,7 @@ Compare the specification against all source material to catch anything that was
 
 After completing your review (steps 1-7):
 
-1. **Create the tracking file** - Write all findings to `{topic}-review-input-tracking.md` using the format above
+1. **Create the tracking file** - Write all findings to `review-input-tracking-c{N}.md` in the specification topic directory (where N is the current review cycle)
 2. **Commit the tracking file** - This ensures it survives context refresh
 3. **Present findings** to the user in two stages:
 
@@ -491,7 +537,10 @@ After completing your review (steps 1-7):
 
 Present a numbered summary of everything you found (from your tracking file):
 
-"I've completed my final review against all source material. I found [N] items:
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+I've completed my final review against all source material. I found [N] items:
 
 1. **[Brief title]**
    [2-4 line explanation: what was missed, where it came from, what it affects]
@@ -502,21 +551,39 @@ Present a numbered summary of everything you found (from your tracking file):
 3. **[Brief title]**
    [2-4 line explanation]
 
-Let's work through these one at a time, starting with #1."
+Let's work through these one at a time, starting with #1.
+```
 
 Each item should have enough context that the user understands what they're about to discuss - not just a label, but clarity on what was missed and why it matters.
 
 **Stage 2: Process One Item at a Time**
 
-For each item, follow the **same workflow as the main specification process**:
+For each item, present what you found, where it came from (source reference), and what you propose to add.
 
-1. **Present** the item in detail - what you found, where it came from (source reference), and what you propose to add
-2. **Discuss** if needed - clarify ambiguities, answer questions, refine the content
-3. **Present for approval** - show as rendered markdown (not a code block) exactly what will be written to the specification. Then, separately, show the choices:
+> *Output the next fenced block as markdown (not a code block):*
 
-   "Here's what I'll add to the specification:
+```
+{proposed content for this review item}
+```
 
-   [content as rendered markdown]
+Check `finding_gate_mode` in the specification frontmatter.
+
+#### If `finding_gate_mode: auto`
+
+Auto-approve: log verbatim, update tracking file (Resolution: Approved), commit.
+
+> *Output the next fenced block as a code block:*
+
+```
+Item {N} of {total}: {Brief Title} — approved. Added to specification.
+```
+
+→ Proceed to the next item. After all items processed, continue to **Completing Phase 1**.
+
+#### If `finding_gate_mode: gated`
+
+1. **Discuss** if needed - clarify ambiguities, answer questions, refine the content
+2. **Present for approval** - show as rendered markdown (not a code block) exactly what will be written to the specification. Then, separately, show the choices:
 
    > *Output the next fenced block as markdown (not a code block):*
 
@@ -524,18 +591,20 @@ For each item, follow the **same workflow as the main specification process**:
    · · · · · · · · · · · ·
    **To proceed:**
    - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim**.
+   - **`a`/`auto`** — Approve this and all remaining findings automatically
    - **Or tell me what to change.**
    · · · · · · · · · · · ·
    ```
 
    Content and choices must be visually distinct.
 
-4. **Wait for explicit approval** - same rules as always: `y`/`yes` or equivalent before writing
-5. **Log verbatim** when approved
-6. **Update tracking file** - Mark the item's resolution (Approved/Adjusted/Skipped) and add any notes
+3. **Wait for explicit approval** - same rules as always: `y`/`yes` or equivalent before writing
+4. **Log verbatim** when approved
+5. **Update tracking file** - Mark the item's resolution (Approved/Adjusted/Skipped) and add any notes
+6. **If user chose `auto`**: update `finding_gate_mode: auto` in the spec frontmatter, then process all remaining items using the auto-mode flow above → After all processed, continue to **Completing Phase 1**.
 7. **Move to the next item**: "Moving to #2: [Brief title]..."
 
-> **CHECKPOINT**: Each review item requires the full present → approve → log cycle. Do not batch multiple items together. Do not proceed to the next item until the current one is resolved (approved, adjusted, or explicitly skipped by the user).
+> **CHECKPOINT**: Each review item requires the full present → approve → log cycle (unless `finding_gate_mode: auto`). Do not batch multiple items together. Do not proceed to the next item until the current one is resolved (approved, adjusted, or explicitly skipped by the user).
 
 For potential gaps (items not in source material), you're asking questions rather than proposing content. If the user wants to address a gap, discuss it, then present what you'd add for approval.
 
@@ -554,7 +623,7 @@ When you've:
 - Surfaced any potential gaps not covered by sources (and resolved them)
 - Updated the tracking file with all resolutions
 
-**Delete the Phase 1 tracking file** (`{topic}-review-input-tracking.md`) - it has served its purpose.
+**Mark the Phase 1 tracking file as complete** — Set `status: complete` in `review-input-tracking-c{N}.md`. Do not delete it; it persists as analysis history.
 
 Inform the user Phase 1 is complete and proceed to Phase 2: Gap Analysis.
 
@@ -624,7 +693,7 @@ Review the specification systematically for gaps *within what's specified*:
    - **Important**: Would require implementer to guess or make design decisions
    - **Minor**: Polish or clarification that improves understanding
 
-5. **Create the tracking file** - Write findings to `{topic}-review-gap-analysis-tracking.md`
+5. **Create the tracking file** - Write findings to `review-gap-analysis-tracking-c{N}.md` in the specification topic directory (where N is the current review cycle)
 
 6. **Commit the tracking file** - Ensures it survives context refresh
 
@@ -634,7 +703,10 @@ Follow the same two-stage presentation as Phase 1:
 
 **Stage 1: Summary**
 
-"I've completed the gap analysis of the specification. I found [N] items:
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+I've completed the gap analysis of the specification. I found [N] items:
 
 1. **[Brief title]** (Critical/Important/Minor)
    [2-4 line explanation: what the gap is, why it matters for implementation]
@@ -642,19 +714,37 @@ Follow the same two-stage presentation as Phase 1:
 2. **[Brief title]** (Critical/Important/Minor)
    [2-4 line explanation]
 
-Let's work through these one at a time, starting with #1."
+Let's work through these one at a time, starting with #1.
+```
 
 **Stage 2: Process One Item at a Time**
 
-For each item:
+For each item, present what's missing or unclear, what questions an implementer would have, and what you propose to add.
 
-1. **Present** the gap in detail - what's missing or unclear, what questions an implementer would have
-2. **Discuss** - work with the user to determine the correct specification content
-3. **Present for approval** - show as rendered markdown (not a code block) exactly what will be written. Then, separately, show the choices:
+> *Output the next fenced block as markdown (not a code block):*
 
-   "Here's what I'll add to the specification:
+```
+{proposed content for this review item}
+```
 
-   [content as rendered markdown]
+Check `finding_gate_mode` in the specification frontmatter.
+
+#### If `finding_gate_mode: auto`
+
+Auto-approve: log verbatim, update tracking file (Resolution: Approved), commit.
+
+> *Output the next fenced block as a code block:*
+
+```
+Item {N} of {total}: {Brief Title} — approved. Added to specification.
+```
+
+→ Proceed to the next item. After all items processed, continue to **Completing Phase 2**.
+
+#### If `finding_gate_mode: gated`
+
+1. **Discuss** - work with the user to determine the correct specification content
+2. **Present for approval** - show as rendered markdown (not a code block) exactly what will be written. Then, separately, show the choices:
 
    > *Output the next fenced block as markdown (not a code block):*
 
@@ -662,18 +752,20 @@ For each item:
    · · · · · · · · · · · ·
    **To proceed:**
    - **`y`/`yes`** — Approved. I'll add the above to the specification **verbatim**.
+   - **`a`/`auto`** — Approve this and all remaining findings automatically
    - **Or tell me what to change.**
    · · · · · · · · · · · ·
    ```
 
    Content and choices must be visually distinct.
 
-4. **Wait for explicit approval**
-5. **Log verbatim** when approved
-6. **Update tracking file** - Mark resolution and add notes
+3. **Wait for explicit approval**
+4. **Log verbatim** when approved
+5. **Update tracking file** - Mark resolution and add notes
+6. **If user chose `auto`**: update `finding_gate_mode: auto` in the spec frontmatter, then process all remaining items using the auto-mode flow above → After all processed, continue to **Completing Phase 2**.
 7. **Move to next item**
 
-> **CHECKPOINT**: Same rules apply - each item requires explicit approval before logging. No batching.
+> **CHECKPOINT**: Same rules apply - each item requires explicit approval before logging (unless `finding_gate_mode: auto`). No batching.
 
 #### What You're NOT Doing in Phase 2
 
@@ -689,9 +781,73 @@ When you've:
 - Addressed all critical and important gaps with the user
 - Updated the tracking file with all resolutions
 
-**Delete the Phase 2 tracking file** (`{topic}-review-gap-analysis-tracking.md`).
+**Mark the Phase 2 tracking file as complete** — Set `status: complete` in `review-gap-analysis-tracking-c{N}.md`. Do not delete it; it persists as analysis history.
 
-Both review phases are now complete. Proceed to Completion.
+Both review phases for this cycle are now complete.
+
+---
+
+### Re-Loop Prompt
+
+After Phase 2 completes, check whether either phase surfaced findings in this cycle.
+
+#### If no findings were surfaced in either phase of this cycle
+
+→ Skip the re-loop prompt and proceed directly to **Completion** (nothing to re-analyse).
+
+#### If findings were surfaced
+
+Do not skip review autonomously — present the choice and let the user decide.
+
+> *Output the next fenced block as a code block:*
+
+```
+Review cycle {N}
+
+Review has run {N-1} times so far.
+@if(finding_gate_mode = auto and review_cycle >= 5)
+Auto-review has not converged after 5 cycles — escalating for human review.
+@endif
+```
+
+Check `finding_gate_mode` and `review_cycle` in the specification frontmatter.
+
+#### If `finding_gate_mode: auto` and `review_cycle < 5`
+
+> *Output the next fenced block as a code block:*
+
+```
+Review cycle {N} complete — findings applied. Running follow-up cycle.
+```
+
+→ Return to the **Review Cycle Gate**.
+
+#### If `finding_gate_mode: auto` and `review_cycle >= 5`
+
+→ Present the re-loop prompt below.
+
+#### If `finding_gate_mode: gated`
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+· · · · · · · · · · · ·
+- **`r`/`reanalyse`** — Run another review cycle (Phase 1 + Phase 2)
+- **`p`/`proceed`** — Proceed to completion
+· · · · · · · · · · · ·
+```
+
+**STOP.** Wait for user response.
+
+#### If reanalyse
+
+→ Return to the **Review Cycle Gate** to begin a fresh cycle.
+
+#### If proceed
+
+→ Continue to **Completion**.
+
+---
 
 ## Completion
 
@@ -711,40 +867,54 @@ Before asking for sign-off, assess whether this is a **feature** or **cross-cutt
 
 Present your assessment to the user:
 
-"This specification appears to be a **[feature/cross-cutting]** specification.
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+This specification appears to be a **[feature/cross-cutting]** specification.
 
 [Brief rationale - e.g., "It defines a caching strategy that will inform how multiple features handle data retrieval, rather than being a standalone piece of functionality to build."]
 
 - **Feature specs** proceed to planning and implementation
 - **Cross-cutting specs** are referenced by feature plans but don't have their own implementation plan
 
-Does this assessment seem correct?"
+Does this assessment seem correct?
+```
 
 Wait for user confirmation before proceeding.
 
-### Step 2: Verify Tracking Files Removed
+### Step 2: Verify Tracking Files Complete
 
-Before proceeding to sign-off, confirm that all review tracking files have been deleted:
+Before proceeding to sign-off, confirm that all review tracking files across all cycles have `status: complete`:
 
-- `{topic}-review-input-tracking.md` - should have been deleted after Phase 1
-- `{topic}-review-gap-analysis-tracking.md` - should have been deleted after Phase 2
+- `review-input-tracking-c{N}.md` — should be marked complete after each Phase 1
+- `review-gap-analysis-tracking-c{N}.md` — should be marked complete after each Phase 2
 
-If either file still exists, delete it now. These are temporary working files that should not persist after the review is complete.
+If any tracking file still shows `status: in-progress`, mark it complete now.
 
-> **CHECKPOINT**: Do not proceed to sign-off if tracking files still exist. They indicate incomplete review work.
+> **CHECKPOINT**: Do not proceed to sign-off if any tracking files still show `status: in-progress`. They indicate incomplete review work.
 
 ### Step 3: Sign-Off
 
-Once the type is confirmed and tracking files are removed, ask for final sign-off:
+Once the type is confirmed and tracking files are complete:
 
-"The specification is ready for sign-off:
-- **Type**: [feature/cross-cutting]
-- **Status**: Complete
+> *Output the next fenced block as markdown (not a code block):*
 
-[If feature]: This specification can proceed to planning
-[If cross-cutting]: This specification will be surfaced as reference context when planning features
+```
+· · · · · · · · · · · ·
+- **`y`/`yes`** — Conclude specification and mark as concluded
+- **Comment** — Add context before concluding
+· · · · · · · · · · · ·
+```
 
-Ready to mark as complete?"
+**STOP.** Wait for user response.
+
+#### If comment
+
+Discuss the user's context, apply any changes, then re-present the sign-off prompt above.
+
+#### If yes
+
+→ Proceed to **Step 4**.
 
 ### Step 4: Update Frontmatter
 
@@ -756,13 +926,15 @@ topic: {topic-name}
 status: concluded
 type: feature  # or cross-cutting
 date: YYYY-MM-DD  # Use today's actual date
+review_cycle: {N}
+finding_gate_mode: gated
 ---
 ```
 
 Specification is complete when:
 - All topics/phases have validated content
-- Both review phases (Input Review and Gap Analysis) completed
-- All review tracking files have been deleted
+- At least one review cycle completed with no findings, OR user explicitly chose to proceed past the re-loop prompt
+- All review tracking files marked `status: complete`
 - Type has been determined and confirmed
 - User confirms the specification is complete
 - No blocking gaps remain

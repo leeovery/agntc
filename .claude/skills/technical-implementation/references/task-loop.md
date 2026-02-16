@@ -1,6 +1,6 @@
 # Task Loop
 
-*Reference for **[technical-implementation](../../SKILL.md)***
+*Reference for **[technical-implementation](../SKILL.md)***
 
 ---
 
@@ -23,7 +23,7 @@ E. Update progress + commit
 
 1. Follow the format's **reading.md** instructions to determine the next available task.
 2. If no available tasks remain → skip to **When All Tasks Are Complete**.
-3. Normalise the task content following **[task-normalisation.md](../task-normalisation.md)**.
+3. Normalise the task content following **[task-normalisation.md](task-normalisation.md)**.
 4. Reset `fix_attempts` to `0` in the implementation tracking file.
 
 ---
@@ -38,11 +38,13 @@ E. Update progress + commit
 
 ### Executor Blocked
 
-Present the executor's ISSUES to the user:
+> *Output the next fenced block as a code block:*
 
-**Task {id}: {Task Name} — {blocked/failed}**
+```
+Task {id}: {Task Name} — {blocked/failed}
 
 {executor's ISSUES content}
+```
 
 > *Output the next fenced block as markdown (not a code block):*
 
@@ -82,28 +84,25 @@ Present the executor's ISSUES to the user:
 
 Increment `fix_attempts` in the implementation tracking file.
 
-#### If `fix_gate_mode: auto` and `fix_attempts < 3`
+> *Output the next fenced block as a code block:*
 
-Announce the fix round (one line, no stop):
-
-**Review for Task {id}: {Task Name} — needs changes** (attempt {N}/{max 3}, fix analysis included). Re-invoking executor.
-
-→ Return to the top of **B. Execute Task** and re-invoke the executor with the full task content and the reviewer's notes (including fix analysis).
-
-#### If `fix_gate_mode: gated`, or `fix_attempts >= 3`
-
-If `fix_attempts >= 3`, the executor and reviewer have failed to converge. Prepend:
-
-The executor and reviewer have not converged after {N} attempts. Escalating for human review.
-
-Present the reviewer's findings and fix analysis to the user:
-
-**Review for Task {id}: {Task Name} — needs changes** (attempt {N})
+```
+@if(fix_attempts >= 3)
+  The executor and reviewer have not converged after {N} attempts. Escalating for human review.
+@endif
+Review for Task {id}: {Task Name} — needs changes (attempt {N})
 
 {ISSUES from reviewer, including FIX, ALTERNATIVE, and CONFIDENCE for each}
 
 Notes (non-blocking):
 {NOTES from reviewer}
+```
+
+#### If `fix_gate_mode: auto` and `fix_attempts < 3`
+
+→ Return to the top of **B. Execute Task** and re-invoke the executor with the full task content and the reviewer's notes (including fix analysis).
+
+#### If `fix_gate_mode: gated`, or `fix_attempts >= 3`
 
 > *Output the next fenced block as markdown (not a code block):*
 
@@ -112,7 +111,8 @@ Notes (non-blocking):
 - **`y`/`yes`** — Accept the review and fix analysis, pass to executor
 - **`a`/`auto`** — Accept and auto-approve future fix analyses
 - **`s`/`skip`** — Override the reviewer and proceed as-is
-- **Comment** — Any commentary, adjustments, alternative approaches, or questions before passing to executor
+- **Ask** — Ask questions about the review (doesn't accept or reject)
+- **Comment** — Accept with adjustments — pass your own direction to the executor alongside the review
 · · · · · · · · · · · ·
 ```
 
@@ -121,22 +121,31 @@ Notes (non-blocking):
 - **`y`/`yes`**: → Return to the top of **B. Execute Task** and re-invoke the executor with the full task content and the reviewer's notes (including fix analysis).
 - **`auto`**: Note that `fix_gate_mode` should be updated to `auto` during the next commit step. → Return to the top of **B. Execute Task** and re-invoke the executor with the full task content and the reviewer's notes (including fix analysis).
 - **`skip`**: → Proceed to **D. Task Gate**.
+- **Ask**: Answer the user's questions about the review. When complete, re-present the Review Changes options above. Repeat until the user selects a terminal option (`yes`, `auto`, `skip`, or Comment).
 - **Comment**: → Return to the top of **B. Execute Task** and re-invoke the executor with the full task content, the reviewer's notes, and the user's commentary.
 
 ---
 
 ## D. Task Gate
 
-After the reviewer approves a task, check the `task_gate_mode` field in the implementation tracking file.
+After the reviewer approves a task, present the result:
 
-### If `task_gate_mode: gated`
+> *Output the next fenced block as a code block:*
 
-Present a summary and wait for user input:
-
-**Task {id}: {Task Name} — approved**
+```
+Task {id}: {Task Name} — approved
 
 Phase: {phase number} — {phase name}
 {executor's SUMMARY — brief commentary, decisions, implementation notes}
+```
+
+Check the `task_gate_mode` field in the implementation tracking file.
+
+#### If `task_gate_mode: auto`
+
+→ Proceed to **E. Update Progress and Commit**.
+
+#### If `task_gate_mode: gated`
 
 > *Output the next fenced block as markdown (not a code block):*
 
@@ -144,8 +153,9 @@ Phase: {phase number} — {phase name}
 · · · · · · · · · · · ·
 **Options:**
 - **`y`/`yes`** — Approve, commit, continue to next task
-- **`a`/`auto`** — Approve this and all future reviewer-approved tasks automatically
-- **Comment** — Feedback the reviewer missed (triggers a fix round)
+- **`a`/`auto`** — Approve this and all future tasks automatically (skips review prompts and questions)
+- **Ask** — Ask questions about the implementation (doesn't approve or reject)
+- **Comment** — Request changes — pass feedback or commentary (triggers a fix round)
 · · · · · · · · · · · ·
 ```
 
@@ -153,15 +163,8 @@ Phase: {phase number} — {phase name}
 
 - **`y`/`yes`**: → Proceed to **E. Update Progress and Commit**.
 - **`auto`**: Note that `task_gate_mode` should be updated to `auto` during the commit step. → Proceed to **E. Update Progress and Commit**.
-- **Comment**: → Return to the top of **B. Execute Task** and re-invoke the executor with the full task content and the user's notes.
-
-### If `task_gate_mode: auto`
-
-Announce the result (one line, no stop):
-
-**Task {id}: {Task Name} — approved** (phase {N}: {phase name}, {brief summary}). Committing.
-
-→ Proceed to **E. Update Progress and Commit**.
+- **Ask**: Answer the user's questions about the implementation. When complete, re-present the Task Gate options above. Repeat until the user selects a terminal option (`yes`, `auto`, or Comment).
+- **Comment**: → Return to the top of **B. Execute Task** and re-invoke the executor with the full task content and the user's feedback.
 
 ---
 
@@ -195,6 +198,10 @@ This is the end of this iteration.
 
 ## When All Tasks Are Complete
 
-"All tasks complete. {M} tasks implemented."
+> *Output the next fenced block as a code block:*
+
+```
+All tasks complete. {M} tasks implemented.
+```
 
 → Return to the skill for **Step 7**.
