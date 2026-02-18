@@ -40,6 +40,21 @@ approved_at: 2026-02-18
 - [ ] `.agntc/` directory and `manifest.json` created automatically on first install
 - [ ] Temp clone directory cleaned up after install
 
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-1-1 | Project Scaffolding and CLI Entry Point | none | pending | |
+| cs-1-2 | Source Argument Parsing (GitHub Shorthand) | missing owner or repo segment, @ref with empty string, extra slashes | pending | |
+| cs-1-3 | Git Shallow Clone | clone failure (nonexistent repo), temp dir cleanup on error | pending | |
+| cs-1-4 | agntc.json Validation | missing file, invalid JSON, missing agents field, empty agents array, unknown agent identifiers | pending | |
+| cs-1-5 | Type Detection (Bare Skill) | agntc.json but no SKILL.md and no asset dirs, SKILL.md with asset dirs (warning) | pending | |
+| cs-1-6 | Agent Driver Interface and Claude Driver | no .claude/ dir and no system claude | pending | |
+| cs-1-7 | Agent Multiselect UI | zero selection (cancel), unsupported agent warning | pending | |
+| cs-1-8 | Bare Skill File Copy | destination directory already exists, empty skill directory | pending | |
+| cs-1-9 | Manifest Creation and Write | .agntc/ already exists, manifest.json already exists with other entries | pending | |
+| cs-1-10 | Add Command End-to-End Integration | none | pending | |
+| cs-1-11 | List Command (Minimal) | no manifest file, empty manifest, malformed manifest | pending | |
+
 ### Phase 2: Multi-Asset Plugins and Collection Support
 status: approved
 ext_id:
