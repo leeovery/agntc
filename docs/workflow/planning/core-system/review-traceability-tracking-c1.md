@@ -84,7 +84,7 @@ The spec has an "Existing Plugin Migration" section describing how agntc's overw
 **Context**: Spec step 8: scan for unmanaged files. Asset-level. Overwrite-all with second confirmation or cancel-plugin. After collision check passes. Note: overwrite-on-conflict also serves as the migration path from other tools (e.g., previous plugin managers) — no special migration tooling needed per spec.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Minor informational addition. The behavior itself is already covered.
 
 ---
