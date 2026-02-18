@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 1
-  task: 10
+  task: 11
 ---
 
 # Plan: Core System
@@ -52,7 +52,7 @@ approved_at: 2026-02-18
 | cs-1-7 | Agent Multiselect UI | zero selection (cancel), unsupported agent warning | authored | tick-e86117 |
 | cs-1-8 | Bare Skill File Copy | destination directory already exists, empty skill directory | authored | tick-601f31 |
 | cs-1-9 | Manifest Creation and Write | .agntc/ already exists, manifest.json already exists with other entries | authored | tick-aaa446 |
-| cs-1-10 | Add Command End-to-End Integration | none | pending | |
+| cs-1-10 | Add Command End-to-End Integration | none | authored | tick-d7ffd9 |
 | cs-1-11 | List Command (Minimal) | no manifest file, empty manifest, malformed manifest | pending | |
 
 ### Phase 2: Multi-Asset Plugins and Collection Support
