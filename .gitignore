@@ -8,3 +8,5 @@ coverage/
 .idea/
 *.swp
 *.swo
+.tick/.store
+.tick/lock
