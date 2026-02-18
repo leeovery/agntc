@@ -11,11 +11,11 @@ created: 2026-02-18
 updated: 2026-02-18
 external_dependencies: []
 task_list_gate_mode: gated
-author_gate_mode: gated
+author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 1
-  task: 2
+  task: 3
 ---
 
 # Plan: Core System
@@ -44,7 +44,7 @@ approved_at: 2026-02-18
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
 | cs-1-1 | Project Scaffolding and CLI Entry Point | none | authored | tick-0ba43c |
-| cs-1-2 | Source Argument Parsing (GitHub Shorthand) | missing owner or repo segment, @ref with empty string, extra slashes | pending | |
+| cs-1-2 | Source Argument Parsing (GitHub Shorthand) | missing owner or repo segment, @ref with empty string, extra slashes | authored | tick-be4c96 |
 | cs-1-3 | Git Shallow Clone | clone failure (nonexistent repo), temp dir cleanup on error | pending | |
 | cs-1-4 | agntc.json Validation | missing file, invalid JSON, missing agents field, empty agents array, unknown agent identifiers | pending | |
 | cs-1-5 | Type Detection (Bare Skill) | agntc.json but no SKILL.md and no asset dirs, SKILL.md with asset dirs (warning) | pending | |
