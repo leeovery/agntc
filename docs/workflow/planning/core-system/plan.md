@@ -10,12 +10,12 @@ spec_commit: fbcc1fda1d7e7d0c45b13fb9a88019b5e1b1cb48
 created: 2026-02-18
 updated: 2026-02-18
 external_dependencies: []
-task_list_gate_mode: gated
+task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 2
-  task: ~
+  task: 1
 ---
 
 # Plan: Core System
