@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 3
-  task: 5
+  task: 9
 ---
 
 # Plan: Core System
@@ -113,10 +113,10 @@ approved_at: 2026-02-18
 | cs-3-2 | Agent Detection System | project dir exists but empty, which command not found, both project and system absent | authored | tick-947bd2 |
 | cs-3-3 | Agent Multiselect with Pre-Selection and Warnings | plugin declares no known agents (all unknown), no agents detected, user selects unsupported agent | authored | tick-1abe95 |
 | cs-3-4 | Source Parsing: HTTPS URL | URL with trailing slash, URL with .git suffix, non-GitHub hosts | authored | tick-d63c08 |
-| cs-3-5 | Source Parsing: SSH URL | missing .git suffix, non-standard SSH port syntax | pending | |
-| cs-3-6 | Source Parsing: Local Path | path does not exist, path is a file not directory, tilde expansion | pending | |
-| cs-3-7 | Source Parsing: Direct Collection Path | nested plugin path, ref containing slashes, tree URL with @ref suffix (invalid) | pending | |
-| cs-3-8 | Local Path Source Integration | local collection plugins (key as absolute-path/plugin-name), local path with no agntc.json | pending | |
+| cs-3-5 | Source Parsing: SSH URL | missing .git suffix, non-standard SSH port syntax | authored | tick-448957 |
+| cs-3-6 | Source Parsing: Local Path | path does not exist, path is a file not directory, tilde expansion | authored | tick-db20a7 |
+| cs-3-7 | Source Parsing: Direct Collection Path | nested plugin path, ref containing slashes, tree URL with @ref suffix (invalid) | authored | tick-0b36b0 |
+| cs-3-8 | Local Path Source Integration | local collection plugins (key as absolute-path/plugin-name), local path with no agntc.json | authored | tick-d24318 |
 | cs-3-9 | File Path Collision Check | collision with multiple plugins, reinstall case (own files excluded) | pending | |
 | cs-3-10 | Unmanaged File Conflict Check | directory exists but empty, collections with mixed conflict/no-conflict plugins, all plugins cancelled | pending | |
 | cs-3-11 | Add Command: Full Conflict Flow Integration | conflict resolution then successful installs in same batch, plugin cancelled after collision resolution removed another plugin | pending | |
