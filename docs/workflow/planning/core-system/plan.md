@@ -14,8 +14,8 @@ task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: gated
 planning:
-  phase: 2
-  task: 4
+  phase: 3
+  task: ~
 ---
 
 # Plan: Core System
@@ -80,8 +80,8 @@ approved_at: 2026-02-18
 | cs-2-1 | Multi-Asset Plugin Asset Copier | empty asset dir, subset of asset types present, nested subdirectories within asset dirs | authored | tick-a4cc6d |
 | cs-2-2 | Add Command: Multi-Asset Plugin Integration | misconfiguration warning (root SKILL.md ignored), empty plugin warning (no assets) | authored | tick-456e1a |
 | cs-2-3 | Collection Plugin Multiselect UI | no subdirs have agntc.json (not-an-agntc-repo fallthrough), all plugins already installed, single plugin in collection | authored | tick-46b8a2 |
-| cs-2-4 | Add Command: Collection Integration | mixed plugin types within collection, plugin-level agntc.json validation failure | pending | |
-| cs-2-5 | Reinstall on Reselect | manifest files no longer on disk, reinstalling with different agent selection | pending | |
+| cs-2-4 | Add Command: Collection Integration | mixed plugin types within collection, plugin-level agntc.json validation failure | authored | tick-f68023 |
+| cs-2-5 | Reinstall on Reselect | manifest files no longer on disk, reinstalling with different agent selection | authored | tick-5820dd |
 
 ### Phase 3: Multi-Agent Support and Source Formats
 status: approved
