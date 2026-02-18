@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 5
-  task: ~
+  task: 1
 ---
 
 # Plan: Core System
@@ -189,3 +189,17 @@ approved_at: 2026-02-18
 - [ ] Multi-plugin install (collection): each plugin independent; successful plugins keep manifest entries, failed plugins rolled back
 - [ ] Summary output shows per-plugin outcome: installed, failed (with error), skipped (user cancelled from conflicts)
 - [ ] No remote check performed for local installs in list view
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-5-1 | Parallel Update Check for All Plugins | network timeout on one plugin while others succeed, local installs skipped, empty manifest | pending | |
+| cs-5-2 | List View: Plugin List with Status Indicators | all plugins local (no spinner needed), single plugin installed, very long plugin keys | pending | |
+| cs-5-3 | Detail View: Plugin Information Display | plugin with null ref and null commit (local), plugin with many files | pending | |
+| cs-5-4 | Detail View: Update Action | update check previously failed but user triggers update, network failure during update | pending | |
+| cs-5-5 | Detail View: Remove Action | last plugin removed (return to empty state), files already deleted from disk | pending | |
+| cs-5-6 | Detail View: Change Version Action | no tags available, selected tag same as current, hundreds of tags | pending | |
+| cs-5-7 | List Navigation Loop | remove last plugin then return to list, rapid successive actions | pending | |
+| cs-5-8 | Partial Copy Failure Rollback | rollback failure (file locked), overwritten file from another plugin cannot be restored | pending | |
+| cs-5-9 | Multi-Plugin Independent Failure Handling | all plugins fail, first succeeds but second fails, conflict-skipped alongside failed | pending | |
+| cs-5-10 | Comprehensive Summary Output | mix of installed/failed/skipped outcomes, single plugin operations | pending | |
