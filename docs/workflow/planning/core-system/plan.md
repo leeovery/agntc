@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 4
-  task: ~
+  task: 1
 ---
 
 # Plan: Core System
@@ -149,6 +149,20 @@ approved_at: 2026-02-18
 - [ ] `update`: empty manifest displays "No plugins installed." and exits
 - [ ] Network/git errors: retry up to 3 times on transient failures; auth failures fail immediately with clear error
 - [ ] `update` output: shows old ref/SHA to new, asset counts per agent; already up-to-date gets brief acknowledgment
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-4-1 | Remove Command: Parameterized Mode | non-existent plugin key (error + non-zero exit), empty manifest, collection prefix removing all matching plugins | pending | |
+| cs-4-2 | Remove Command: Interactive Mode | empty manifest, single plugin installed | pending | |
+| cs-4-3 | Update Check Logic | git ls-remote network failure, tag with no newer tags, branch no longer exists on remote | pending | |
+| cs-4-4 | Update Command: Single Plugin Nuke-and-Reinstall | plugin files already deleted from disk, non-existent plugin key (error + non-zero exit), empty manifest | pending | |
+| cs-4-5 | Update Command: Local Path Re-Copy | stored path no longer exists, stored path no longer has agntc.json | pending | |
+| cs-4-6 | Update Command: Tag-Pinned Behavior | no tags on remote, hundreds of tags | pending | |
+| cs-4-7 | Update Command: Agent Compatibility Changes | all installed agents dropped (warn + skip), new agents added by author (ignored) | pending | |
+| cs-4-8 | Update Command: All-Plugins Mode | mix of HEAD/branch/tag/local plugins, some fail while others succeed, all already up-to-date | pending | |
+| cs-4-9 | Update Command: Network Retry | intermittent failure succeeds on retry, auth failure no retry | pending | |
+| cs-4-10 | Update and Remove Output Formatting | tag-pinned newer versions output, already up-to-date acknowledgment, agent compatibility change summary | pending | |
 
 ### Phase 5: List Dashboard and Error Hardening
 status: approved
