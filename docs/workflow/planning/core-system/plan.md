@@ -2,7 +2,7 @@
 topic: core-system
 status: planning
 format: tick
-ext_id:
+ext_id: tick-20aa13
 specification: ../../specification/core-system/specification.md
 cross_cutting_specs:
   - ../../specification/naming-and-identity.md
@@ -15,14 +15,14 @@ author_gate_mode: gated
 finding_gate_mode: gated
 planning:
   phase: 1
-  task: 1
+  task: 2
 ---
 
 # Plan: Core System
 
 ### Phase 1: Walking Skeleton - Add a Bare Skill from Git
 status: approved
-ext_id:
+ext_id: tick-dea5ee
 approved_at: 2026-02-18
 
 **Goal**: Prove the end-to-end architecture by installing a single bare skill from a GitHub shorthand source for one agent (Claude), writing a manifest entry, and confirming via list output. This establishes the CLI entry point (commander + @clack/prompts), source parsing, git shallow clone, `agntc.json` validation, type detection, the agent driver interface with the Claude driver, file copy with `agntc.json` exclusion, manifest creation, and a minimal `list` output.
@@ -43,7 +43,7 @@ approved_at: 2026-02-18
 #### Tasks
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
-| cs-1-1 | Project Scaffolding and CLI Entry Point | none | pending | |
+| cs-1-1 | Project Scaffolding and CLI Entry Point | none | authored | tick-0ba43c |
 | cs-1-2 | Source Argument Parsing (GitHub Shorthand) | missing owner or repo segment, @ref with empty string, extra slashes | pending | |
 | cs-1-3 | Git Shallow Clone | clone failure (nonexistent repo), temp dir cleanup on error | pending | |
 | cs-1-4 | agntc.json Validation | missing file, invalid JSON, missing agents field, empty agents array, unknown agent identifiers | pending | |
