@@ -59,7 +59,7 @@ The spec explicitly notes the tool does not track file checksums and modified fi
 **Context**: Spec: confirm -> delete -> remove entry -> write. nukeManifestFiles from cs-2-5. Error: "Plugin {key} is not installed." No modification detection — the tool does not track checksums. If user modified installed files, those changes are lost on remove. Git is the safety net.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
