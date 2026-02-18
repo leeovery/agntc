@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 5
-  task: 1
+  task: ~
 ---
 
 # Plan: Core System
@@ -166,7 +166,7 @@ approved_at: 2026-02-18
 
 ### Phase 5: List Dashboard and Error Hardening
 status: approved
-ext_id:
+ext_id: tick-71886c
 approved_at: 2026-02-18
 
 **Goal**: Build the full interactive `list` dashboard with parallel update checks, status indicators, detail view, inline actions (update, remove, change version), and post-action navigation. Harden error handling across all commands: partial copy failure rollback, multi-plugin independent failure handling, and comprehensive summary output.
@@ -193,13 +193,13 @@ approved_at: 2026-02-18
 #### Tasks
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
-| cs-5-1 | Parallel Update Check for All Plugins | network timeout on one plugin while others succeed, local installs skipped, empty manifest | pending | |
-| cs-5-2 | List View: Plugin List with Status Indicators | all plugins local (no spinner needed), single plugin installed, very long plugin keys | pending | |
-| cs-5-3 | Detail View: Plugin Information Display | plugin with null ref and null commit (local), plugin with many files | pending | |
-| cs-5-4 | Detail View: Update Action | update check previously failed but user triggers update, network failure during update | pending | |
-| cs-5-5 | Detail View: Remove Action | last plugin removed (return to empty state), files already deleted from disk | pending | |
-| cs-5-6 | Detail View: Change Version Action | no tags available, selected tag same as current, hundreds of tags | pending | |
-| cs-5-7 | List Navigation Loop | remove last plugin then return to list, rapid successive actions | pending | |
-| cs-5-8 | Partial Copy Failure Rollback | rollback failure (file locked), overwritten file from another plugin cannot be restored | pending | |
-| cs-5-9 | Multi-Plugin Independent Failure Handling | all plugins fail, first succeeds but second fails, conflict-skipped alongside failed | pending | |
-| cs-5-10 | Comprehensive Summary Output | mix of installed/failed/skipped outcomes, single plugin operations | pending | |
+| cs-5-1 | Parallel Update Check for All Plugins | network timeout on one plugin while others succeed, local installs skipped, empty manifest | authored | tick-0f3e21 |
+| cs-5-2 | List View: Plugin List with Status Indicators | all plugins local (no spinner needed), single plugin installed, very long plugin keys | authored | tick-b0cb9a |
+| cs-5-3 | Detail View: Plugin Information Display | plugin with null ref and null commit (local), plugin with many files | authored | tick-d19707 |
+| cs-5-4 | Detail View: Update Action | update check previously failed but user triggers update, network failure during update | authored | tick-9d07b8 |
+| cs-5-5 | Detail View: Remove Action | last plugin removed (return to empty state), files already deleted from disk | authored | tick-ba9807 |
+| cs-5-6 | Detail View: Change Version Action | no tags available, selected tag same as current, hundreds of tags | authored | tick-39a172 |
+| cs-5-7 | List Navigation Loop | remove last plugin then return to list, rapid successive actions | authored | tick-bb6c3b |
+| cs-5-8 | Partial Copy Failure Rollback | rollback failure (file locked), overwritten file from another plugin cannot be restored | authored | tick-95a48e |
+| cs-5-9 | Multi-Plugin Independent Failure Handling | all plugins fail, first succeeds but second fails, conflict-skipped alongside failed | authored | tick-e908a4 |
+| cs-5-10 | Comprehensive Summary Output | mix of installed/failed/skipped outcomes, single plugin operations | authored | tick-1028ba |
