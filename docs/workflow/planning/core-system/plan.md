@@ -14,8 +14,8 @@ task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: gated
 planning:
-  phase: 3
-  task: 9
+  phase: 4
+  task: ~
 ---
 
 # Plan: Core System
@@ -117,9 +117,9 @@ approved_at: 2026-02-18
 | cs-3-6 | Source Parsing: Local Path | path does not exist, path is a file not directory, tilde expansion | authored | tick-db20a7 |
 | cs-3-7 | Source Parsing: Direct Collection Path | nested plugin path, ref containing slashes, tree URL with @ref suffix (invalid) | authored | tick-0b36b0 |
 | cs-3-8 | Local Path Source Integration | local collection plugins (key as absolute-path/plugin-name), local path with no agntc.json | authored | tick-d24318 |
-| cs-3-9 | File Path Collision Check | collision with multiple plugins, reinstall case (own files excluded) | pending | |
-| cs-3-10 | Unmanaged File Conflict Check | directory exists but empty, collections with mixed conflict/no-conflict plugins, all plugins cancelled | pending | |
-| cs-3-11 | Add Command: Full Conflict Flow Integration | conflict resolution then successful installs in same batch, plugin cancelled after collision resolution removed another plugin | pending | |
+| cs-3-9 | File Path Collision Check | collision with multiple plugins, reinstall case (own files excluded) | authored | tick-400db7 |
+| cs-3-10 | Unmanaged File Conflict Check | directory exists but empty, collections with mixed conflict/no-conflict plugins, all plugins cancelled | authored | tick-081566 |
+| cs-3-11 | Add Command: Full Conflict Flow Integration | conflict resolution then successful installs in same batch, plugin cancelled after collision resolution removed another plugin | authored | tick-f5b1ac |
 
 ### Phase 4: Remove and Update Commands
 status: approved
