@@ -14,8 +14,8 @@ task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: gated
 planning:
-  phase: 4
-  task: 1
+  phase: 5
+  task: ~
 ---
 
 # Plan: Core System
@@ -123,7 +123,7 @@ approved_at: 2026-02-18
 
 ### Phase 4: Remove and Update Commands
 status: approved
-ext_id:
+ext_id: tick-d85f8a
 approved_at: 2026-02-18
 
 **Goal**: Implement the `remove` command (interactive and parameterized modes) and the `update` command (all-plugins and specific-plugin modes) with nuke-and-reinstall mechanics, local path re-copy, tag-pinned behavior, agent compatibility change handling, and network retry logic.
@@ -153,16 +153,16 @@ approved_at: 2026-02-18
 #### Tasks
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
-| cs-4-1 | Remove Command: Parameterized Mode | non-existent plugin key (error + non-zero exit), empty manifest, collection prefix removing all matching plugins | pending | |
-| cs-4-2 | Remove Command: Interactive Mode | empty manifest, single plugin installed | pending | |
-| cs-4-3 | Update Check Logic | git ls-remote network failure, tag with no newer tags, branch no longer exists on remote | pending | |
-| cs-4-4 | Update Command: Single Plugin Nuke-and-Reinstall | plugin files already deleted from disk, non-existent plugin key (error + non-zero exit), empty manifest | pending | |
-| cs-4-5 | Update Command: Local Path Re-Copy | stored path no longer exists, stored path no longer has agntc.json | pending | |
-| cs-4-6 | Update Command: Tag-Pinned Behavior | no tags on remote, hundreds of tags | pending | |
-| cs-4-7 | Update Command: Agent Compatibility Changes | all installed agents dropped (warn + skip), new agents added by author (ignored) | pending | |
-| cs-4-8 | Update Command: All-Plugins Mode | mix of HEAD/branch/tag/local plugins, some fail while others succeed, all already up-to-date | pending | |
-| cs-4-9 | Update Command: Network Retry | intermittent failure succeeds on retry, auth failure no retry | pending | |
-| cs-4-10 | Update and Remove Output Formatting | tag-pinned newer versions output, already up-to-date acknowledgment, agent compatibility change summary | pending | |
+| cs-4-1 | Remove Command: Parameterized Mode | non-existent plugin key (error + non-zero exit), empty manifest, collection prefix removing all matching plugins | authored | tick-35621c |
+| cs-4-2 | Remove Command: Interactive Mode | empty manifest, single plugin installed | authored | tick-5bc8a9 |
+| cs-4-3 | Update Check Logic | git ls-remote network failure, tag with no newer tags, branch no longer exists on remote | authored | tick-76e6c7 |
+| cs-4-4 | Update Command: Single Plugin Nuke-and-Reinstall | plugin files already deleted from disk, non-existent plugin key (error + non-zero exit), empty manifest | authored | tick-2a89a4 |
+| cs-4-5 | Update Command: Local Path Re-Copy | stored path no longer exists, stored path no longer has agntc.json | authored | tick-a1ef32 |
+| cs-4-6 | Update Command: Tag-Pinned Behavior | no tags on remote, hundreds of tags | authored | tick-496cae |
+| cs-4-7 | Update Command: Agent Compatibility Changes | all installed agents dropped (warn + skip), new agents added by author (ignored) | authored | tick-027b1d |
+| cs-4-8 | Update Command: All-Plugins Mode | mix of HEAD/branch/tag/local plugins, some fail while others succeed, all already up-to-date | authored | tick-7c0be9 |
+| cs-4-9 | Update Command: Network Retry | intermittent failure succeeds on retry, auth failure no retry | authored | tick-4ec9ff |
+| cs-4-10 | Update and Remove Output Formatting | tag-pinned newer versions output, already up-to-date acknowledgment, agent compatibility change summary | authored | tick-32d35f |
 
 ### Phase 5: List Dashboard and Error Hardening
 status: approved
