@@ -74,6 +74,15 @@ approved_at: 2026-02-18
 - [ ] Each collection plugin gets its own manifest entry keyed as `owner/repo/plugin-name`
 - [ ] Summary output shows per-agent asset counts (skills, agents, hooks — only types that were installed)
 
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-2-1 | Multi-Asset Plugin Asset Copier | empty asset dir, subset of asset types present, nested subdirectories within asset dirs | pending | |
+| cs-2-2 | Add Command: Multi-Asset Plugin Integration | misconfiguration warning (root SKILL.md ignored), empty plugin warning (no assets) | pending | |
+| cs-2-3 | Collection Plugin Multiselect UI | no subdirs have agntc.json (not-an-agntc-repo fallthrough), all plugins already installed, single plugin in collection | pending | |
+| cs-2-4 | Add Command: Collection Integration | mixed plugin types within collection, plugin-level agntc.json validation failure | pending | |
+| cs-2-5 | Reinstall on Reselect | manifest files no longer on disk, reinstalling with different agent selection | pending | |
+
 ### Phase 3: Multi-Agent Support and Source Formats
 status: approved
 ext_id:
