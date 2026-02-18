@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 1
-  task: 6
+  task: 7
 ---
 
 # Plan: Core System
@@ -48,7 +48,7 @@ approved_at: 2026-02-18
 | cs-1-3 | Git Shallow Clone | clone failure (nonexistent repo), temp dir cleanup on error | authored | tick-3dff00 |
 | cs-1-4 | agntc.json Validation | missing file, invalid JSON, missing agents field, empty agents array, unknown agent identifiers | authored | tick-5024dd |
 | cs-1-5 | Type Detection (Bare Skill) | agntc.json but no SKILL.md and no asset dirs, SKILL.md with asset dirs (warning) | authored | tick-3f9f32 |
-| cs-1-6 | Agent Driver Interface and Claude Driver | no .claude/ dir and no system claude | pending | |
+| cs-1-6 | Agent Driver Interface and Claude Driver | no .claude/ dir and no system claude | authored | tick-cc248f |
 | cs-1-7 | Agent Multiselect UI | zero selection (cancel), unsupported agent warning | pending | |
 | cs-1-8 | Bare Skill File Copy | destination directory already exists, empty skill directory | pending | |
 | cs-1-9 | Manifest Creation and Write | .agntc/ already exists, manifest.json already exists with other entries | pending | |
