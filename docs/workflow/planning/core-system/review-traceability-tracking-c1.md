@@ -34,7 +34,7 @@ The spec explicitly states empty directories are left in place after removal and
 - empty parent directories left in place after removal
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
