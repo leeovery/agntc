@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: gated
 planning:
   phase: 3
-  task: 1
+  task: 5
 ---
 
 # Plan: Core System
@@ -85,7 +85,7 @@ approved_at: 2026-02-18
 
 ### Phase 3: Multi-Agent Support and Source Formats
 status: approved
-ext_id:
+ext_id: tick-ef070a
 approved_at: 2026-02-18
 
 **Goal**: Implement the Codex agent driver, the full agent detection system (project-level first, system-level fallback), the agent multiselect with pre-selection and unsupported-agent warnings, all remaining source formats (HTTPS URL, SSH URL, local path, direct collection path, `@ref` pinning), and the complete conflict handling flows (file path collisions across plugins, unmanaged file conflicts).
@@ -109,10 +109,10 @@ approved_at: 2026-02-18
 #### Tasks
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
-| cs-3-1 | Codex Agent Driver | none | pending | |
-| cs-3-2 | Agent Detection System | project dir exists but empty, which command not found, both project and system absent | pending | |
-| cs-3-3 | Agent Multiselect with Pre-Selection and Warnings | plugin declares no known agents (all unknown), no agents detected, user selects unsupported agent | pending | |
-| cs-3-4 | Source Parsing: HTTPS URL | URL with trailing slash, URL with .git suffix, non-GitHub hosts | pending | |
+| cs-3-1 | Codex Agent Driver | none | authored | tick-3f18d0 |
+| cs-3-2 | Agent Detection System | project dir exists but empty, which command not found, both project and system absent | authored | tick-947bd2 |
+| cs-3-3 | Agent Multiselect with Pre-Selection and Warnings | plugin declares no known agents (all unknown), no agents detected, user selects unsupported agent | authored | tick-1abe95 |
+| cs-3-4 | Source Parsing: HTTPS URL | URL with trailing slash, URL with .git suffix, non-GitHub hosts | authored | tick-d63c08 |
 | cs-3-5 | Source Parsing: SSH URL | missing .git suffix, non-standard SSH port syntax | pending | |
 | cs-3-6 | Source Parsing: Local Path | path does not exist, path is a file not directory, tilde expansion | pending | |
 | cs-3-7 | Source Parsing: Direct Collection Path | nested plugin path, ref containing slashes, tree URL with @ref suffix (invalid) | pending | |
