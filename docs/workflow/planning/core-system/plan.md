@@ -21,8 +21,9 @@ planning:
 # Plan: Core System
 
 ### Phase 1: Walking Skeleton - Add a Bare Skill from Git
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-18
 
 **Goal**: Prove the end-to-end architecture by installing a single bare skill from a GitHub shorthand source for one agent (Claude), writing a manifest entry, and confirming via list output. This establishes the CLI entry point (commander + @clack/prompts), source parsing, git shallow clone, `agntc.json` validation, type detection, the agent driver interface with the Claude driver, file copy with `agntc.json` exclusion, manifest creation, and a minimal `list` output.
 
@@ -40,8 +41,9 @@ ext_id:
 - [ ] Temp clone directory cleaned up after install
 
 ### Phase 2: Multi-Asset Plugins and Collection Support
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-18
 
 **Goal**: Extend type detection and asset discovery to handle multi-asset plugins (repos with `skills/`, `agents/`, `hooks/` directories) and collections (repos where subdirectories contain their own `agntc.json`). Implement the collection multiselect UI and reinstall-on-reselect behavior.
 
@@ -58,8 +60,9 @@ ext_id:
 - [ ] Summary output shows per-agent asset counts (skills, agents, hooks — only types that were installed)
 
 ### Phase 3: Multi-Agent Support and Source Formats
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-18
 
 **Goal**: Implement the Codex agent driver, the full agent detection system (project-level first, system-level fallback), the agent multiselect with pre-selection and unsupported-agent warnings, all remaining source formats (HTTPS URL, SSH URL, local path, direct collection path, `@ref` pinning), and the complete conflict handling flows (file path collisions across plugins, unmanaged file conflicts).
 
@@ -80,8 +83,9 @@ ext_id:
 - [ ] Empty selection (zero plugins or zero agents) treated as cancel with brief message and clean exit
 
 ### Phase 4: Remove and Update Commands
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-18
 
 **Goal**: Implement the `remove` command (interactive and parameterized modes) and the `update` command (all-plugins and specific-plugin modes) with nuke-and-reinstall mechanics, local path re-copy, tag-pinned behavior, agent compatibility change handling, and network retry logic.
 
@@ -108,8 +112,9 @@ ext_id:
 - [ ] `update` output: shows old ref/SHA to new, asset counts per agent; already up-to-date gets brief acknowledgment
 
 ### Phase 5: List Dashboard and Error Hardening
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-18
 
 **Goal**: Build the full interactive `list` dashboard with parallel update checks, status indicators, detail view, inline actions (update, remove, change version), and post-action navigation. Harden error handling across all commands: partial copy failure rollback, multi-plugin independent failure handling, and comprehensive summary output.
 
