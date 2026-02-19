@@ -351,7 +351,7 @@ The spec says manifest write should be a "single atomic write". cs-1-9 describes
 3. writeManifest(projectDir, manifest) — mkdir -p .agntc/, JSON.stringify 2-space indent + trailing newline, atomic write (write to temp file in .agntc/ then rename to manifest.json to avoid partial writes)
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---

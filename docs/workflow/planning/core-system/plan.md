@@ -12,7 +12,8 @@ updated: 2026-02-18
 external_dependencies: []
 task_list_gate_mode: auto
 author_gate_mode: auto
-finding_gate_mode: gated
+finding_gate_mode: auto
+review_cycle: 1
 planning:
   phase: 5
   task: ~
