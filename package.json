@@ -21,15 +21,22 @@
   },
   "license": "MIT",
   "author": "Lee Overy",
-  "type": "commonjs",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
+  "type": "module",
+  "bin": {
+    "agntc": "dist/cli.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsup",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0",
+    "commander": "^13.1.0"
   },
   "devDependencies": {
-    "@leeovery/claude-technical-workflows": "^2.1.11"
+    "@leeovery/claude-technical-workflows": "^2.1.11",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   }
 }
