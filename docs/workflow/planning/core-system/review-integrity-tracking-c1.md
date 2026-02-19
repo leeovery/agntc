@@ -173,8 +173,8 @@ Add to cs-4-4's Tests:
 
 Remove cs-4-9 as a standalone task.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: cs-4-9 cancelled, content merged into cs-4-4.
 
 ---
 

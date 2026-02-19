@@ -162,7 +162,7 @@ approved_at: 2026-02-18
 | cs-4-6 | Update Command: Tag-Pinned Behavior | no tags on remote, hundreds of tags | authored | tick-496cae |
 | cs-4-7 | Update Command: Agent Compatibility Changes | all installed agents dropped (warn + skip), new agents added by author (ignored) | authored | tick-027b1d |
 | cs-4-8 | Update Command: All-Plugins Mode | mix of HEAD/branch/tag/local plugins, some fail while others succeed, all already up-to-date | authored | tick-7c0be9 |
-| cs-4-9 | Update Command: Network Retry | intermittent failure succeeds on retry, auth failure no retry | authored | tick-4ec9ff |
+| ~~cs-4-9~~ | ~~Update Command: Network Retry~~ | ~~merged into cs-4-4~~ | cancelled | tick-4ec9ff |
 | cs-4-10 | Update and Remove Output Formatting | tag-pinned newer versions output, already up-to-date acknowledgment, agent compatibility change summary | authored | tick-32d35f |
 
 ### Phase 5: List Dashboard and Error Hardening
