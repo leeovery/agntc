@@ -134,8 +134,8 @@ Merge cs-3-3's test additions into cs-3-1 (Codex Agent Driver). Add to cs-3-1's 
 
 Remove cs-3-3 as a standalone task.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: cs-3-3 cancelled, content merged into cs-3-1.
 
 ---
 

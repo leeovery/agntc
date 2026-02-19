@@ -112,7 +112,7 @@ approved_at: 2026-02-18
 |----|------|------------|--------|--------|
 | cs-3-1 | Codex Agent Driver | none | authored | tick-3f18d0 |
 | cs-3-2 | Agent Detection System | project dir exists but empty, which command not found, both project and system absent | authored | tick-947bd2 |
-| cs-3-3 | Agent Multiselect with Pre-Selection and Warnings | plugin declares no known agents (all unknown), no agents detected, user selects unsupported agent | authored | tick-1abe95 |
+| ~~cs-3-3~~ | ~~Agent Multiselect with Pre-Selection and Warnings~~ | ~~merged into cs-3-1~~ | cancelled | tick-1abe95 |
 | cs-3-4 | Source Parsing: HTTPS URL | URL with trailing slash, URL with .git suffix, non-GitHub hosts | authored | tick-d63c08 |
 | cs-3-5 | Source Parsing: SSH URL | missing .git suffix, non-standard SSH port syntax | authored | tick-448957 |
 | cs-3-6 | Source Parsing: Local Path | path does not exist, path is a file not directory, tilde expansion | authored | tick-db20a7 |
