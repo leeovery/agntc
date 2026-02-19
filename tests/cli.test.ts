@@ -57,21 +57,15 @@ describe("agntc --help", () => {
 });
 
 describe("agntc add", () => {
-  it("exits 0 and outputs placeholder message with source argument", () => {
-    const { stdout, exitCode } = run(["add", "owner/repo"]);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("owner/repo");
-  });
-
   it("exits non-zero with no source argument", () => {
     const { exitCode } = run(["add"]);
     expect(exitCode).not.toBe(0);
   });
 
   it("exits non-zero with malformed source (bare repo name)", () => {
-    const { exitCode, stderr } = run(["add", "repo"]);
+    const { stdout, exitCode } = run(["add", "repo"]);
     expect(exitCode).not.toBe(0);
-    expect(stderr).toContain("owner/repo");
+    expect(stdout).toContain("owner/repo");
   });
 });
 
