@@ -8,7 +8,7 @@ coverage/
 .idea/
 *.swp
 *.swo
-.tick/.store
-.tick/lock
 .tick/cache.db
+.tick/lock
+.tick/.tasks-*.jsonl.tmp
 .claude/settings.local.json
