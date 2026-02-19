@@ -6,17 +6,29 @@ import { resolve } from "node:path";
 const ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(ROOT, "dist/cli.js");
 
-function run(args: string[]): { stdout: string; exitCode: number } {
+function run(args: string[]): {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+} {
   try {
     const stdout = execFileSync("node", [CLI, ...args], {
       encoding: "utf-8",
       cwd: ROOT,
       env: { ...process.env, NO_COLOR: "1" },
     });
-    return { stdout, exitCode: 0 };
+    return { stdout, stderr: "", exitCode: 0 };
   } catch (error: unknown) {
-    const err = error as { stdout: string; status: number };
-    return { stdout: err.stdout ?? "", exitCode: err.status ?? 1 };
+    const err = error as {
+      stdout: string;
+      stderr: string;
+      status: number;
+    };
+    return {
+      stdout: err.stdout ?? "",
+      stderr: err.stderr ?? "",
+      exitCode: err.status ?? 1,
+    };
   }
 }
 
@@ -54,6 +66,12 @@ describe("agntc add", () => {
   it("exits non-zero with no source argument", () => {
     const { exitCode } = run(["add"]);
     expect(exitCode).not.toBe(0);
+  });
+
+  it("exits non-zero with malformed source (bare repo name)", () => {
+    const { exitCode, stderr } = run(["add", "repo"]);
+    expect(exitCode).not.toBe(0);
+    expect(stderr).toContain("owner/repo");
   });
 });
 
