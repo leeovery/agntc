@@ -376,7 +376,7 @@ The spec documents: "If a copy fails after overwriting a file owned by another p
 **Acceptance Criteria**: Failure triggers rollback, tracked files deleted, ENOENT skipped, rollback failure logged not thrown, original error propagated, no manifest entry, both copy functions support rollback, rollback after overwriting another plugin's file deletes the new copy (previous plugin's asset unrecoverable — accepted edge case per spec, user can update that plugin to restore).
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
