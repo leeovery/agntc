@@ -1,7 +1,7 @@
 {
   "plugins": {
     "@leeovery/claude-technical-workflows": {
-      "version": "2.1.35",
+      "version": "2.1.36",
       "files": [
         "skills/begin-implementation",
         "skills/begin-planning",
