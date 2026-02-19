@@ -13,7 +13,7 @@ external_dependencies: []
 task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: auto
-review_cycle: 3
+review_cycle: 4
 planning:
   phase: 5
   task: ~

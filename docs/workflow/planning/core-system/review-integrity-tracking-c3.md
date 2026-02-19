@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-19
 cycle: 3
 phase: Plan Integrity Review
@@ -54,7 +54,7 @@ This is the same class of issue fixed in cycle 2 for cs-4-4 (remote updates), bu
 **Tests**: local triggers re-copy, copies even if unchanged, validates path, errors when gone, errors no agntc.json, agent compat checked from stored path, all-agents-dropped preserves files, partial drop uses effective agents, nukes then copies, manifest updated with effective agents, no git clone, no temp dir.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Same class of issue as the cycle 2 critical finding for cs-4-4. The pipeline reorder applied to remote updates in cs-4-4 needs to be mirrored in cs-4-5 for local updates, adapted for the no-clone context (re-read agntc.json directly from the stored path instead of from a temp clone).
 
 ---
@@ -95,7 +95,7 @@ An implementer reading cs-5-6 in isolation could implement nuke-then-clone (the 
 **Tests**: tags displayed, no tags, cancel, same tag, different tag reinstall with clone-before-nuke, agent compat checked, all-agents-dropped preserves files, manifest updated, refreshed detail, network failure, temp dir cleanup.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Same pattern as cs-5-4 fix from cycle 3 traceability review. Any task that performs nuke-and-reinstall should explicitly describe the clone-before-nuke pipeline to avoid implementing the old incorrect order.
 
 ---
