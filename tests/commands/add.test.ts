@@ -5,6 +5,9 @@ import type { CloneResult } from "../../src/git-clone.js";
 import type { AgntcConfig } from "../../src/config.js";
 import type { DetectedType } from "../../src/type-detection.js";
 import type { CopyBareSkillResult } from "../../src/copy-bare-skill.js";
+import type {
+  CopyPluginAssetsResult,
+} from "../../src/copy-plugin-assets.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 
@@ -62,6 +65,10 @@ vi.mock("../../src/copy-bare-skill.js", () => ({
   copyBareSkill: vi.fn(),
 }));
 
+vi.mock("../../src/copy-plugin-assets.js", () => ({
+  copyPluginAssets: vi.fn(),
+}));
+
 vi.mock("../../src/manifest.js", () => ({
   readManifest: vi.fn(),
   writeManifest: vi.fn(),
@@ -79,6 +86,7 @@ import {
 } from "../../src/drivers/registry.js";
 import { selectAgents } from "../../src/agent-select.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
+import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
 import { readManifest, writeManifest, addEntry } from "../../src/manifest.js";
 import { runAdd } from "../../src/commands/add.js";
 
@@ -91,6 +99,7 @@ const mockGetRegisteredAgentIds = vi.mocked(getRegisteredAgentIds);
 const mockGetDriver = vi.mocked(getDriver);
 const mockSelectAgents = vi.mocked(selectAgents);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
+const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockReadManifest = vi.mocked(readManifest);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockAddEntry = vi.mocked(addEntry);
@@ -453,32 +462,273 @@ describe("add command", () => {
     });
   });
 
-  describe("not-yet-supported: plugin type", () => {
-    it("shows not-yet-supported, cleans up, and exits 0", async () => {
+  describe("plugin type", () => {
+    const PLUGIN_DETECTED: DetectedType = {
+      type: "plugin",
+      assetDirs: ["skills", "agents"],
+    };
+
+    const PLUGIN_COPY_RESULT: CopyPluginAssetsResult = {
+      copiedFiles: [
+        ".claude/skills/planning/",
+        ".claude/skills/planning/SKILL.md",
+        ".claude/agents/reviewer/",
+        ".claude/agents/reviewer/agent.md",
+      ],
+      assetCountsByAgent: {
+        claude: { skills: 1, agents: 1 },
+      },
+    };
+
+    const PLUGIN_MANIFEST_ENTRY: ManifestEntry = {
+      ref: "main",
+      commit: "abc123def456",
+      installedAt: expect.any(String),
+      agents: ["claude"],
+      files: PLUGIN_COPY_RESULT.copiedFiles,
+    };
+
+    const PLUGIN_UPDATED_MANIFEST: Manifest = {
+      "owner/my-skill": PLUGIN_MANIFEST_ENTRY,
+    };
+
+    function setupPluginPath(): void {
+      mockDetectType.mockResolvedValue(PLUGIN_DETECTED);
+      mockCopyPluginAssets.mockResolvedValue(PLUGIN_COPY_RESULT);
+      mockAddEntry.mockReturnValue(PLUGIN_UPDATED_MANIFEST);
+    }
+
+    it("triggers copyPluginAssets with correct args", async () => {
+      setupPluginPath();
+
+      await runAdd("owner/my-skill");
+
+      expect(mockCopyPluginAssets).toHaveBeenCalledWith({
+        sourceDir: CLONE_RESULT.tempDir,
+        assetDirs: ["skills", "agents"],
+        agents: [{ id: "claude", driver: FAKE_DRIVER }],
+        projectDir: "/fake/project",
+      });
+      expect(mockCopyBareSkill).not.toHaveBeenCalled();
+    });
+
+    it("writes manifest entry with copiedFiles", async () => {
+      setupPluginPath();
+
+      await runAdd("owner/my-skill");
+
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        EMPTY_MANIFEST,
+        "owner/my-skill",
+        expect.objectContaining({
+          ref: "main",
+          commit: "abc123def456",
+          installedAt: expect.any(String),
+          agents: ["claude"],
+          files: PLUGIN_COPY_RESULT.copiedFiles,
+        }),
+      );
+      expect(mockWriteManifest).toHaveBeenCalledWith(
+        "/fake/project",
+        PLUGIN_UPDATED_MANIFEST,
+      );
+    });
+
+    it("shows per-agent counts in summary, omitting zero-count types", async () => {
+      setupPluginPath();
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [".claude/skills/planning/"],
+        assetCountsByAgent: {
+          claude: { skills: 2, agents: 0, hooks: 1 },
+        },
+      });
+
+      await runAdd("owner/my-skill");
+
+      const outroCall = mockOutro.mock.calls[0]![0] as string;
+      expect(outroCall).toContain("owner/my-skill");
+      expect(outroCall).toContain("main");
+      expect(outroCall).toContain("claude");
+      expect(outroCall).toContain("2 skill(s)");
+      expect(outroCall).toContain("1 hook(s)");
+      expect(outroCall).not.toContain("agent");
+    });
+
+    it("omits agents with all zero counts from summary", async () => {
+      setupPluginPath();
+      mockSelectAgents.mockResolvedValue(["claude", "codex"] as AgentId[]);
+      const codexDriver = {
+        detect: vi.fn().mockResolvedValue(true),
+        getTargetDir: vi.fn().mockReturnValue(null),
+      };
+      mockGetDriver.mockImplementation((id: AgentId) => {
+        if (id === "codex") return codexDriver;
+        return FAKE_DRIVER;
+      });
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [".claude/skills/planning/"],
+        assetCountsByAgent: {
+          claude: { skills: 2 },
+          codex: { skills: 0 },
+        },
+      });
+
+      await runAdd("owner/my-skill");
+
+      const outroCall = mockOutro.mock.calls[0]![0] as string;
+      expect(outroCall).toContain("claude");
+      expect(outroCall).not.toContain("codex");
+    });
+
+    it("shows key without ref when ref is null", async () => {
+      setupPluginPath();
+      mockParseSource.mockReturnValue({ ...PARSED, ref: null });
+
+      await runAdd("owner/my-skill");
+
+      const outroCall = mockOutro.mock.calls[0]![0] as string;
+      expect(outroCall).toContain("owner/my-skill");
+      expect(outroCall).toContain("HEAD");
+    });
+
+    it("shows key with ref when ref is present", async () => {
+      setupPluginPath();
+
+      await runAdd("owner/my-skill");
+
+      const outroCall = mockOutro.mock.calls[0]![0] as string;
+      expect(outroCall).toContain("owner/my-skill");
+      expect(outroCall).toContain("main");
+    });
+
+    it("warns and exits 0 without manifest write when copiedFiles is empty", async () => {
+      mockDetectType.mockResolvedValue(PLUGIN_DETECTED);
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [],
+        assetCountsByAgent: {
+          claude: { skills: 0, agents: 0 },
+        },
+      });
+
+      const err = await runAdd("owner/my-skill").catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(0);
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringMatching(/no files to install/i),
+      );
+      expect(mockWriteManifest).not.toHaveBeenCalled();
+      expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+    });
+
+    it("surfaces root SKILL.md ignored warning via onWarn", async () => {
+      setupPluginPath();
+      mockDetectType.mockImplementation(async (_dir, options) => {
+        options.onWarn?.(
+          "SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored",
+        );
+        return PLUGIN_DETECTED;
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        "SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored",
+      );
+    });
+
+    it("uses spinner during copyPluginAssets", async () => {
+      const spinnerInstance = {
+        start: vi.fn(),
+        stop: vi.fn(),
+        message: vi.fn(),
+      };
+      mockSpinner.mockReturnValue(spinnerInstance);
+      setupPluginPath();
+
+      await runAdd("owner/my-skill");
+
+      const startCalls = spinnerInstance.start.mock.calls.map(
+        (c) => c[0] as string,
+      );
+      expect(startCalls.some((msg) => msg.includes("Copy"))).toBe(true);
+    });
+
+    it("cleans up on success", async () => {
+      setupPluginPath();
+
+      await runAdd("owner/my-skill");
+
+      expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+    });
+
+    it("cleans up on empty plugin", async () => {
+      mockDetectType.mockResolvedValue(PLUGIN_DETECTED);
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [],
+        assetCountsByAgent: { claude: { skills: 0 } },
+      });
+
+      await runAdd("owner/my-skill").catch(() => {});
+
+      expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+    });
+
+    it("shows error and exits 1 on copy error", async () => {
+      mockDetectType.mockResolvedValue(PLUGIN_DETECTED);
+      mockCopyPluginAssets.mockRejectedValue(new Error("copy plugin failed"));
+
+      const err = await runAdd("owner/my-skill").catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockCancel).toHaveBeenCalled();
+      expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+    });
+
+    it("cleans up and exits 1 on manifest write error", async () => {
+      setupPluginPath();
+      mockWriteManifest.mockRejectedValue(new Error("write failed"));
+
+      const err = await runAdd("owner/my-skill").catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockCancel).toHaveBeenCalled();
+      expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+    });
+
+    it("passes detected assetDirs, not hardcoded values", async () => {
       mockDetectType.mockResolvedValue({
         type: "plugin",
-        assetDirs: ["skills"],
+        assetDirs: ["hooks"],
+      });
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [".claude/hooks/pre-commit.sh"],
+        assetCountsByAgent: { claude: { hooks: 1 } },
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(mockCopyPluginAssets).toHaveBeenCalledWith(
+        expect.objectContaining({ assetDirs: ["hooks"] }),
+      );
+    });
+  });
+
+  describe("not-agntc with config", () => {
+    it("shows warning, cleans up, and exits 0", async () => {
+      mockDetectType.mockImplementation(async (_dir, options) => {
+        options.onWarn?.("agntc.json present but no SKILL.md or asset dirs found");
+        return { type: "not-agntc" };
       });
 
       const err = await runAdd("owner/my-skill").catch((e) => e);
       expect(err).toBeInstanceOf(ExitSignal);
       expect((err as ExitSignal).code).toBe(0);
-      expect(
-        mockOutro.mock.calls[0]?.[0] ??
-          mockCancel.mock.calls[0]?.[0] ??
-          "",
-      ).toMatch(/not.*supported/i);
-      expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
-    });
-  });
-
-  describe("not-agntc warning", () => {
-    it("shows not-yet-supported for not-agntc type, cleans up, and exits 0", async () => {
-      mockDetectType.mockResolvedValue({ type: "not-agntc" });
-
-      const err = await runAdd("owner/my-skill").catch((e) => e);
-      expect(err).toBeInstanceOf(ExitSignal);
-      expect((err as ExitSignal).code).toBe(0);
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        "agntc.json present but no SKILL.md or asset dirs found",
+      );
       expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
     });
   });

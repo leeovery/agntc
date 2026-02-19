@@ -10,6 +10,8 @@ import {
 } from "../drivers/registry.js";
 import { selectAgents } from "../agent-select.js";
 import { copyBareSkill } from "../copy-bare-skill.js";
+import { copyPluginAssets } from "../copy-plugin-assets.js";
+import type { AssetCounts } from "../copy-plugin-assets.js";
 import { readManifest, writeManifest, addEntry } from "../manifest.js";
 import { ExitSignal } from "../exit-signal.js";
 import type { AgentId } from "../drivers/types.js";
@@ -44,7 +46,6 @@ export async function runAdd(source: string): Promise<void> {
     if (config === null) {
       p.outro("Collections are not yet supported");
       throw new ExitSignal(0);
-      return;
     }
 
     // 5. Detect type
@@ -53,23 +54,14 @@ export async function runAdd(source: string): Promise<void> {
       onWarn,
     });
 
-    // 6. Handle non-bare-skill types
-    if (detected.type === "plugin") {
-      p.outro("Plugins are not yet supported");
-      throw new ExitSignal(0);
-      return;
-    }
-
+    // 6. Handle unsupported types
     if (detected.type === "not-agntc") {
-      p.outro("Not a recognized agntc package — not yet supported");
       throw new ExitSignal(0);
-      return;
     }
 
     if (detected.type === "collection") {
       p.outro("Collections are not yet supported");
       throw new ExitSignal(0);
-      return;
     }
 
     // 7. Detect agents
@@ -93,7 +85,6 @@ export async function runAdd(source: string): Promise<void> {
     if (selectedAgents.length === 0) {
       p.cancel("Cancelled — no agents selected");
       throw new ExitSignal(0);
-      return;
     }
 
     // 9. Build agent+driver pairs for copy
@@ -102,47 +93,62 @@ export async function runAdd(source: string): Promise<void> {
       driver: getDriver(id),
     }));
 
-    // 10. Copy bare skill (with spinner)
+    // 10. Copy assets (with spinner)
+    let copiedFiles: string[];
+    let assetCountsByAgent: Record<string, AssetCounts> | undefined;
+
     spin.start("Copying skill files...");
-    let copyResult;
     try {
-      copyResult = await copyBareSkill({
-        sourceDir: tempDir,
-        projectDir,
-        agents,
-      });
+      if (detected.type === "plugin") {
+        const pluginResult = await copyPluginAssets({
+          sourceDir: tempDir,
+          assetDirs: detected.assetDirs,
+          agents,
+          projectDir,
+        });
+        copiedFiles = pluginResult.copiedFiles;
+        assetCountsByAgent = pluginResult.assetCountsByAgent;
+      } else {
+        const bareResult = await copyBareSkill({
+          sourceDir: tempDir,
+          projectDir,
+          agents,
+        });
+        copiedFiles = bareResult.copiedFiles;
+      }
     } catch (err) {
       spin.stop("Copy failed");
       throw err;
     }
     spin.stop("Copied successfully");
 
-    // 11. Write manifest
+    // 11. Handle empty plugin
+    if (detected.type === "plugin" && copiedFiles.length === 0) {
+      p.log.warn("No files to install");
+      throw new ExitSignal(0);
+    }
+
+    // 12. Write manifest
     const manifest = await readManifest(projectDir);
     const entry = {
       ref: parsed.ref,
       commit: cloneResult.commit,
       installedAt: new Date().toISOString(),
       agents: selectedAgents as string[],
-      files: copyResult.copiedFiles,
+      files: copiedFiles,
     };
     const updated = addEntry(manifest, parsed.manifestKey, entry);
     await writeManifest(projectDir, updated);
 
-    // 12. Summary
-    const agentSummary = selectedAgents
-      .map((id) => {
-        const driver = getDriver(id);
-        const targetPrefix = driver.getTargetDir("skills");
-        const count = copyResult.copiedFiles.filter(
-          (f) => targetPrefix !== null && f.startsWith(targetPrefix),
-        ).length;
-        return `${id}: ${count} skill(s)`;
-      })
-      .join(", ");
+    // 13. Summary
+    const refLabel = parsed.ref ?? "HEAD";
+    const agentSummary =
+      detected.type === "plugin" && assetCountsByAgent
+        ? formatPluginSummary(selectedAgents, assetCountsByAgent)
+        : formatBareSkillSummary(selectedAgents, copiedFiles);
 
     p.outro(
-      `Installed ${parsed.manifestKey}@${parsed.ref ?? "HEAD"} — ${agentSummary}`,
+      `Installed ${parsed.manifestKey}@${refLabel} — ${agentSummary}`,
     );
   } catch (err) {
     if (err instanceof ExitSignal) {
@@ -160,6 +166,45 @@ export async function runAdd(source: string): Promise<void> {
       }
     }
   }
+}
+
+function formatBareSkillSummary(
+  agentIds: AgentId[],
+  copiedFiles: string[],
+): string {
+  return agentIds
+    .map((id) => {
+      const driver = getDriver(id);
+      const targetPrefix = driver.getTargetDir("skills");
+      const count = copiedFiles.filter(
+        (f) => targetPrefix !== null && f.startsWith(targetPrefix),
+      ).length;
+      return `${id}: ${count} skill(s)`;
+    })
+    .join(", ");
+}
+
+function formatPluginSummary(
+  agentIds: AgentId[],
+  assetCountsByAgent: Record<string, AssetCounts>,
+): string {
+  const parts: string[] = [];
+
+  for (const id of agentIds) {
+    const counts = assetCountsByAgent[id];
+    if (!counts) continue;
+
+    const nonZero = Object.entries(counts)
+      .filter(([, count]) => count > 0)
+      .map(([type, count]) => `${count} ${type.replace(/s$/, "")}(s)`)
+      .join(", ");
+
+    if (nonZero.length > 0) {
+      parts.push(`${id}: ${nonZero}`);
+    }
+  }
+
+  return parts.join(", ");
 }
 
 export const addCommand = new Command("add")
