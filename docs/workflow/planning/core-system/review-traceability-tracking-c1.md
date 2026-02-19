@@ -301,8 +301,8 @@ and in acceptance criteria:
 - Returns empty known agents array when all agents unknown (downstream handles no-valid-agents scenario)
 ```
 
-**Resolution**: Pending
-**Notes**: The spec says unknown agents are warned and ignored. It does not specify throwing when all are unknown.
+**Resolution**: Fixed
+**Notes**: Applied as part of finding 8. Task now returns empty known agents instead of throwing.
 
 ---
 
