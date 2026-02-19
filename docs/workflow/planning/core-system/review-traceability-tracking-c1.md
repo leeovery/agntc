@@ -266,8 +266,8 @@ cs-1-4 includes tests "throws when agents is not an array" and "throws when agen
 - reads from correct path
 ```
 
-**Resolution**: Pending
-**Notes**: Removes two non-spec-grounded type validation tests and replaces the "throws when all agents unknown" with a non-throwing variant (see finding 9).
+**Resolution**: Fixed
+**Notes**: Removed two non-spec-grounded type validation tests. All-unknown adjusted in same update (see finding 9).
 
 ---
 
