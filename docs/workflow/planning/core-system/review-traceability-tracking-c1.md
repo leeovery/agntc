@@ -142,8 +142,8 @@ cs-5-1 specifies "Promise.race 5s timeout per plugin" but the spec says nothing 
 4. Create tests mocking checkForUpdate
 ```
 
-**Resolution**: Pending
-**Notes**: The 5s timeout is a reasonable implementation choice but it was not discussed in the spec. Remove or flag for user approval.
+**Resolution**: Fixed
+**Notes**: Removed hallucinated 5s timeout. Spec does not prescribe timeout behavior.
 
 ---
 
