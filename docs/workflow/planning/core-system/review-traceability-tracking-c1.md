@@ -174,8 +174,8 @@ cs-5-6 says "Truncate display for 50+ tags" but the spec does not specify any tr
 3. Different tag: nuke-and-reinstall at new ref. Update manifest.
 ```
 
-**Resolution**: Pending
-**Notes**: The spec does not specify truncation for the Change version tag selector.
+**Resolution**: Fixed
+**Notes**: Removed hallucinated truncation. Spec does not specify truncation.
 
 ---
 
