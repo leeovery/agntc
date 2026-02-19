@@ -326,8 +326,8 @@ cs-1-8 states "Overwrites existing destination (rm + copy for clean state)" as a
 - Copies to destination (conflict handling in add flow ensures clean destination before copy)
 ```
 
-**Resolution**: Pending
-**Notes**: The copy module should not independently handle overwrites. The add flow guarantees a clean destination before copy begins.
+**Resolution**: Fixed
+**Notes**: Removed independent overwrite. Copy assumes clean destination per add flow.
 
 ---
 
