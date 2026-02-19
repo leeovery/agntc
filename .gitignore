@@ -13,3 +13,4 @@ coverage/
 .tick/cache.db
 .tick/lock
 .tick/.tasks-*.jsonl.tmp
+docs/workflow/.cache/
