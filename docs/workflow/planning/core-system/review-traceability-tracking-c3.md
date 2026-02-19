@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-19
 cycle: 3
 phase: Traceability Review
@@ -42,5 +42,5 @@ Cycle 2 corrected cs-4-4 to use a clone-before-nuke pipeline so that agent compa
 **Tests**: remote update, local update, success refresh, failure stays, agent compat, clone failure before nuke (existing files preserved), all-agents-dropped aborts before nuke, temp dir cleanup.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Introduced by cycle 2's clone-before-nuke fix to cs-4-4. cs-5-4 was not updated to match.
