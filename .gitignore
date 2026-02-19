@@ -11,4 +11,3 @@ coverage/
 .tick/cache.db
 .tick/lock
 .tick/.tasks-*.jsonl.tmp
-.claude/settings.local.json
