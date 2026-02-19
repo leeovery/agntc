@@ -109,7 +109,7 @@ The spec states git is a runtime prerequisite. cs-1-3 should note this so the to
 **Context**: Spec says retry 3 times on transient, no retry on auth. Phase 1 = GitHub shorthand only, so URL is always https://github.com/{owner}/{repo}.git. Phase 3 extends for other hosts/formats. Caller owns cleanup on success; cloneSource owns cleanup on failure. Git is a runtime prerequisite — the tool should surface a clear error if git is not found on the system.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Minor. The error would naturally surface from execFile failure, but making it explicit improves implementer guidance.
 
 ---
