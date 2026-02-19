@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-19
 cycle: 2
 phase: Plan Integrity Review
@@ -60,7 +60,7 @@ cs-4-4 Tests:
 cs-4-7 Do step 3:
 3. All dropped: warn with spec message (includes remove command), return signal to abort update. Caller (cs-4-4) skips nuke and copy, cleans up temp dir, exits 0. Existing files preserved per spec.
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: The cycle 1 merge of cs-4-9 into cs-4-4 added post-nuke clone failure handling, but the root issue is that nuke should not happen before the clone and agent compat check. With the corrected pipeline, clone failure no longer creates a degraded state because nuke hasn't happened yet. This simplifies the error handling (no "files have been removed" context needed) while fixing the spec-violating behavior for all-agents-dropped.
 
 ---
