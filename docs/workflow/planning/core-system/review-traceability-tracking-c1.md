@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-18
 cycle: 1
 phase: Traceability Review
@@ -437,5 +437,5 @@ cs-4-9 invents two behaviors: (1) removing the manifest entry on clone failure a
 5. Create update-specific clone failure tests
 ```
 
-**Resolution**: Pending
-**Notes**: The spec does not prescribe specific recovery behavior for post-nuke clone failure. The manifest entry removal and specific error text are invented. The error should still be clear but the exact behavior should be user-decided.
+**Resolution**: Fixed
+**Notes**: Removed hallucinated manifest entry removal and specific error text. Now surfaces git error with context only.
