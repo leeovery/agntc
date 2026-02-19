@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-19
 cycle: 1
 phase: Plan Integrity Review
@@ -199,8 +199,8 @@ Update cs-5-10's Problem to: "Summary output is implemented inline across add (c
 
 Update cs-5-10's Solution to: "Extract existing inline summary formatting from all commands into a shared src/summary.ts module with renderAddSummary, renderUpdateSummary, renderRemoveSummary. Unify formatting patterns. Wire back into all commands, replacing inline code. No new output behaviour -- this is a refactoring task ensuring consistency with spec examples."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: cs-5-10 clarified as refactoring extraction task.
 
 ---
 
@@ -237,8 +237,8 @@ Task-design.md says a task is "probably too big" if the Do section exceeds 5 con
 4. Create src/commands/add.ts and src/commands/list.ts as stubs with @clack/prompts intro/outro
 5. Create tests/cli.test.ts with smoke tests for CLI wiring, build and verify
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: Do section condensed to 5 steps.
 
 ---
 
@@ -276,8 +276,8 @@ Same concern as cs-1-1 but for the integration task. cs-1-10 has 13 Do steps. As
 4. Cleanup temp dir in finally block (swallow cleanup errors). Detect agents via getRegisteredAgentIds + per-agent detect().
 5. Create tests/commands/add.test.ts mocking all dependencies: full happy path, error at each step, cleanup on all paths.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: Do section condensed to 5 steps.
 
 ---
 
@@ -297,5 +297,5 @@ Do step 6: "Make parseSource async (fs.stat needed). Update callers."
 **Proposed**:
 Do step 6: "Make parseSource async (fs.stat needed for path validation). Update callers: src/commands/add.ts (await parseSource), and all parseSource tests in tests/source-parser.test.ts (async test functions, await calls). This is a signature change affecting the add command pipeline."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: Caller details enumerated for self-containment.
