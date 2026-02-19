@@ -209,8 +209,8 @@ cs-4-6 says "tag list (newest first, max 10)" but the spec only says "list avail
 5. No file/manifest changes, exit 0
 ```
 
-**Resolution**: Pending
-**Notes**: The spec does not specify any truncation for tag listing in update output.
+**Resolution**: Fixed
+**Notes**: Removed hallucinated max 10 limit.
 
 ---
 
