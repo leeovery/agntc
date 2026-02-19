@@ -10,3 +10,4 @@ coverage/
 *.swo
 .tick/.store
 .tick/lock
+.claude/settings.local.json
