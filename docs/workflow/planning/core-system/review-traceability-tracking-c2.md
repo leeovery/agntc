@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-19
 cycle: 2
 phase: Traceability Review
@@ -34,5 +34,5 @@ cs-3-7 parses the direct collection path URL and extracts `targetPlugin`, `ref`,
 **Tests**: branch/tag refs, nested plugin paths, non-GitHub hosts, @ref suffix rejected, missing segments, no regression, add command bypasses collection multiselect for direct-path source, direct-path installs only the specified plugin, direct-path proceeds through agent selection and conflict checks normally, direct-path with targetPlugin not found in collection errors clearly
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: The spec explicitly calls out that direct-path sources skip the collection multiselect. Without this in any task's acceptance criteria, an implementer could parse the URL correctly but still show the multiselect for direct-path sources.
