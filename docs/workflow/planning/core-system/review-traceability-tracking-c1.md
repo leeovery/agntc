@@ -401,7 +401,7 @@ The spec calls out local path errors specifically (unreadable, no agntc.json). c
 **Acceptance Criteria**: Skips clone, uses resolvedPath, no temp dir, manifest ref+commit null, key=absolute path, bare skill+plugin+collection from local path, collection keys correct, local path with no agntc.json and no collection subdirs surfaces clear error and aborts, unreadable local path surfaces clear error and aborts, no regression.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
