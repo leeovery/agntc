@@ -5,6 +5,7 @@ import { nukeManifestFiles } from "../nuke-files.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { renderRemoveSummary } from "../summary.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
+import { identifyFileOwnership } from "../drivers/identify.js";
 
 async function selectPluginsInteractive(
   manifest: Manifest,
@@ -35,11 +36,16 @@ interface FileGroup {
   files: string[];
 }
 
+const ASSET_TYPE_LABELS: Record<string, string> = {
+  skills: "Skills",
+  agents: "Agents",
+  hooks: "Hooks",
+};
+
 function classifyFile(file: string): string {
-  if (file.includes("/skills/")) return "Skills";
-  if (file.includes("/agents/")) return "Agents";
-  if (file.includes("/hooks/")) return "Hooks";
-  return "Other";
+  const ownership = identifyFileOwnership(file);
+  if (ownership === null) return "Other";
+  return ASSET_TYPE_LABELS[ownership.assetType] ?? "Other";
 }
 
 function groupFilesByType(files: string[]): FileGroup[] {

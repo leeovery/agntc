@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import type { ManifestEntry } from "../manifest.js";
 import type { UpdateCheckResult } from "../update-check.js";
+import { identifyFileOwnership } from "../drivers/identify.js";
 
 export type DetailAction = "update" | "remove" | "change-version" | "back";
 
@@ -32,32 +33,19 @@ interface AssetCounts {
   other: number;
 }
 
-function deriveAgent(filePath: string): string {
-  if (filePath.startsWith(".claude/")) return "claude";
-  if (filePath.startsWith(".agents/")) return "codex";
-  return "other";
-}
-
-function classifyAssetType(
-  filePath: string,
-): keyof AssetCounts {
-  if (filePath.includes("/skills/")) return "skills";
-  if (filePath.includes("/agents/")) return "agents";
-  if (filePath.includes("/hooks/")) return "hooks";
-  return "other";
-}
-
 function computePerAgentCounts(
   files: string[],
 ): Map<string, AssetCounts> {
   const map = new Map<string, AssetCounts>();
   for (const file of files) {
-    const agent = deriveAgent(file);
+    const ownership = identifyFileOwnership(file);
+    const agent = ownership?.agentId ?? "other";
+    const assetType: keyof AssetCounts = ownership?.assetType ?? "other";
     if (!map.has(agent)) {
       map.set(agent, { skills: 0, agents: 0, hooks: 0, other: 0 });
     }
     const counts = map.get(agent)!;
-    counts[classifyAssetType(file)]++;
+    counts[assetType]++;
   }
   return map;
 }
