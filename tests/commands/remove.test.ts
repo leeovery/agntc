@@ -15,6 +15,7 @@ vi.mock("@clack/prompts", () => ({
   },
   cancel: vi.fn(),
   confirm: vi.fn(),
+  multiselect: vi.fn(),
   isCancel: (value: unknown): value is symbol => typeof value === "symbol",
 }));
 
@@ -36,6 +37,7 @@ const mockReadManifest = vi.mocked(readManifest);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockConfirm = vi.mocked(p.confirm);
+const mockMultiselect = vi.mocked(p.multiselect);
 const mockOutro = vi.mocked(p.outro);
 const mockCancel = vi.mocked(p.cancel);
 const mockLog = vi.mocked(p.log);
@@ -538,6 +540,318 @@ describe("remove command", () => {
       expect(mockLog.error).toHaveBeenCalledWith(
         expect.stringContaining("Failed to read manifest:"),
       );
+    });
+  });
+
+  describe("interactive mode (no-arg)", () => {
+    describe("empty manifest", () => {
+      it("displays message and returns without showing multiselect", async () => {
+        mockReadManifest.mockResolvedValue({});
+
+        await expect(runRemove()).resolves.toBeUndefined();
+
+        expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+        expect(mockMultiselect).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("multiselect shown", () => {
+      it("presents multiselect with all manifest keys", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+          "other/plugin": {
+            ref: null,
+            commit: "def456",
+            installedAt: "2026-01-16T10:00:00.000Z",
+            agents: ["claude", "codex"],
+            files: [".claude/skills/other/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo"]);
+        mockConfirm.mockResolvedValue(true);
+
+        await runRemove();
+
+        expect(mockMultiselect).toHaveBeenCalledOnce();
+        const call = mockMultiselect.mock.calls[0]![0];
+        const values = call.options.map(
+          (o: { value: string }) => o.value,
+        );
+        expect(values).toEqual(["owner/repo", "other/plugin"]);
+      });
+
+      it("shows ref hints on multiselect options", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+          "other/plugin": {
+            ref: null,
+            commit: "def456",
+            installedAt: "2026-01-16T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/other/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo"]);
+        mockConfirm.mockResolvedValue(true);
+
+        await runRemove();
+
+        const call = mockMultiselect.mock.calls[0]![0];
+        const ownerOption = call.options.find(
+          (o: { value: string }) => o.value === "owner/repo",
+        );
+        expect(ownerOption?.hint).toBe("v1.0");
+
+        const otherOption = call.options.find(
+          (o: { value: string }) => o.value === "other/plugin",
+        );
+        expect(otherOption?.hint).toBe("HEAD");
+      });
+
+      it("shows single plugin in multiselect", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo"]);
+        mockConfirm.mockResolvedValue(true);
+
+        await runRemove();
+
+        expect(mockMultiselect).toHaveBeenCalledOnce();
+        const call = mockMultiselect.mock.calls[0]![0];
+        expect(call.options).toHaveLength(1);
+        expect(call.options[0]!.value).toBe("owner/repo");
+      });
+    });
+
+    describe("cancel and zero selection", () => {
+      it("exits 0 when multiselect is cancelled", async () => {
+        mockReadManifest.mockResolvedValue({
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+        });
+        mockMultiselect.mockResolvedValue(
+          Symbol("cancel") as unknown as string[],
+        );
+
+        const err = await runRemove().catch((e) => e);
+
+        expect(err).toBeInstanceOf(ExitSignal);
+        expect((err as ExitSignal).code).toBe(0);
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+      });
+
+      it("exits 0 when zero plugins selected", async () => {
+        mockReadManifest.mockResolvedValue({
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+        });
+        mockMultiselect.mockResolvedValue([]);
+
+        const err = await runRemove().catch((e) => e);
+
+        expect(err).toBeInstanceOf(ExitSignal);
+        expect((err as ExitSignal).code).toBe(0);
+        expect(mockConfirm).not.toHaveBeenCalled();
+        expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("selection flows to confirm and remove", () => {
+      it("removes single selected plugin after confirmation", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
+          },
+          "other/plugin": {
+            ref: "v2.0",
+            commit: "def456",
+            installedAt: "2026-01-16T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/other/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo"]);
+        mockConfirm.mockResolvedValue(true);
+        mockNukeManifestFiles.mockResolvedValue({
+          removed: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
+          skipped: [],
+        });
+
+        await runRemove();
+
+        expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+          ".claude/skills/my-skill/",
+          ".claude/agents/executor.md",
+        ]);
+        expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+          "other/plugin": manifest["other/plugin"],
+        });
+      });
+
+      it("removes multiple selected plugins after confirmation", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+          "other/plugin": {
+            ref: "v2.0",
+            commit: "def456",
+            installedAt: "2026-01-16T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/other/"],
+          },
+          "keep/this": {
+            ref: null,
+            commit: "xyz789",
+            installedAt: "2026-01-17T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/keep/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
+        mockConfirm.mockResolvedValue(true);
+
+        await runRemove();
+
+        expect(mockNukeManifestFiles).toHaveBeenCalledTimes(2);
+        expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+          ".claude/skills/my-skill/",
+        ]);
+        expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+          ".claude/skills/other/",
+        ]);
+        expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+          "keep/this": manifest["keep/this"],
+        });
+      });
+
+      it("does not nuke or write when confirmation declined", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo"]);
+        mockConfirm.mockResolvedValue(false);
+
+        const err = await runRemove().catch((e) => e);
+
+        expect(err).toBeInstanceOf(ExitSignal);
+        expect((err as ExitSignal).code).toBe(0);
+        expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+        expect(mockWriteManifest).not.toHaveBeenCalled();
+      });
+
+      it("shows correct nuke args for selected keys", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [
+              ".claude/skills/planning/",
+              ".claude/skills/review/",
+              ".claude/agents/executor.md",
+            ],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo"]);
+        mockConfirm.mockResolvedValue(true);
+        mockNukeManifestFiles.mockResolvedValue({
+          removed: [
+            ".claude/skills/planning/",
+            ".claude/skills/review/",
+            ".claude/agents/executor.md",
+          ],
+          skipped: [],
+        });
+
+        await runRemove();
+
+        expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+          ".claude/skills/planning/",
+          ".claude/skills/review/",
+          ".claude/agents/executor.md",
+        ]);
+      });
+
+      it("shows summary with selected count and total files", async () => {
+        const manifest: Manifest = {
+          "owner/repo": {
+            ref: "v1.0",
+            commit: "abc123",
+            installedAt: "2026-01-15T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/my-skill/"],
+          },
+          "other/plugin": {
+            ref: "v2.0",
+            commit: "def456",
+            installedAt: "2026-01-16T10:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/other/", ".claude/agents/agent.md"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(manifest);
+        mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
+        mockConfirm.mockResolvedValue(true);
+
+        await runRemove();
+
+        expect(mockOutro).toHaveBeenCalledWith(
+          "Removed 2 plugin(s) — 3 file(s)",
+        );
+      });
     });
   });
 });

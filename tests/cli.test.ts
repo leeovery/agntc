@@ -79,9 +79,9 @@ describe("agntc list", () => {
 });
 
 describe("agntc remove", () => {
-  it("exits non-zero with no key argument", () => {
+  it("exits 0 with no key argument (interactive mode)", () => {
     const { exitCode } = run(["remove"]);
-    expect(exitCode).not.toBe(0);
+    expect(exitCode).toBe(0);
   });
 });
 

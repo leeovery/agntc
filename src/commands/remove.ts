@@ -4,7 +4,55 @@ import { readManifest, writeManifest, type Manifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import { ExitSignal } from "../exit-signal.js";
 
-export async function runRemove(key: string): Promise<void> {
+async function selectPluginsInteractive(
+  manifest: Manifest,
+): Promise<string[]> {
+  const entries = Object.entries(manifest);
+
+  const options = entries.map(([key, entry]) => ({
+    value: key,
+    label: key,
+    hint: entry.ref ?? "HEAD",
+  }));
+
+  const result = await p.multiselect<string>({
+    message: "Select plugins to remove",
+    options,
+    required: false,
+  });
+
+  if (p.isCancel(result)) {
+    return [];
+  }
+
+  return result;
+}
+
+function resolveTargetKeys(
+  key: string,
+  manifest: Manifest,
+): string[] {
+  const entries = Object.entries(manifest);
+
+  const exactMatch = manifest[key];
+  if (exactMatch) {
+    return [key];
+  }
+
+  const prefix = `${key}/`;
+  const prefixKeys = entries
+    .filter(([k]) => k.startsWith(prefix))
+    .map(([k]) => k);
+
+  if (prefixKeys.length === 0) {
+    p.log.error(`Plugin ${key} is not installed.`);
+    throw new ExitSignal(1);
+  }
+
+  return prefixKeys;
+}
+
+export async function runRemove(key?: string): Promise<void> {
   const projectDir = process.cwd();
 
   const manifest = await readManifest(projectDir).catch((err: unknown) => {
@@ -20,23 +68,23 @@ export async function runRemove(key: string): Promise<void> {
     return;
   }
 
-  // Match: exact key first
-  const exactMatch = manifest[key];
   let targetKeys: string[];
+  let summaryLabel: string;
 
-  if (exactMatch) {
-    targetKeys = [key];
+  if (key !== undefined) {
+    targetKeys = resolveTargetKeys(key, manifest);
+    summaryLabel = targetKeys.length === 1 ? targetKeys[0]! : key;
   } else {
-    // Collection prefix: keys starting with key/
-    const prefix = `${key}/`;
-    targetKeys = entries
-      .filter(([k]) => k.startsWith(prefix))
-      .map(([k]) => k);
-
-    if (targetKeys.length === 0) {
-      p.log.error(`Plugin ${key} is not installed.`);
-      throw new ExitSignal(1);
+    const selected = await selectPluginsInteractive(manifest);
+    if (selected.length === 0) {
+      p.cancel("Cancelled");
+      throw new ExitSignal(0);
     }
+    targetKeys = selected;
+    summaryLabel =
+      targetKeys.length === 1
+        ? targetKeys[0]!
+        : `${targetKeys.length} plugin(s)`;
   }
 
   // Gather all files across target plugins
@@ -50,7 +98,7 @@ export async function runRemove(key: string): Promise<void> {
 
   // Confirm
   const confirmed = await p.confirm({
-    message: `Remove ${targetKeys.length === 1 ? targetKeys[0] : key}? ${allFiles.length} file(s) will be deleted.`,
+    message: `Remove ${summaryLabel}? ${allFiles.length} file(s) will be deleted.`,
   });
 
   if (p.isCancel(confirmed) || confirmed !== true) {
@@ -76,13 +124,13 @@ export async function runRemove(key: string): Promise<void> {
   await writeManifest(projectDir, updated);
 
   // Summary
-  p.outro(`Removed ${key} — ${allFiles.length} file(s)`);
+  p.outro(`Removed ${summaryLabel} — ${allFiles.length} file(s)`);
 }
 
 export const removeCommand = new Command("remove")
   .description("Remove installed plugins")
-  .argument("<key>", "Plugin key to remove (owner/repo or owner/repo/plugin)")
-  .action(async (key: string) => {
+  .argument("[key]", "Plugin key to remove (owner/repo or owner/repo/plugin)")
+  .action(async (key?: string) => {
     try {
       await runRemove(key);
     } catch (err) {
