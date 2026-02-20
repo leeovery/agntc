@@ -7,7 +7,7 @@ task_gate_mode: auto
 fix_gate_mode: auto
 fix_attempts: 0
 linters: []
-analysis_cycle: 1
+analysis_cycle: 2
 project_skills:
   - .claude/skills/typescript-expert
   - .claude/skills/typescript-advanced-types
