@@ -24,7 +24,7 @@ interface CloneReinstallSuccess {
   droppedAgents: AgentId[];
 }
 
-interface CloneReinstallFailed {
+export interface CloneReinstallFailed {
   status: "failed";
   failureReason:
     | "clone-failed"
@@ -34,6 +34,35 @@ interface CloneReinstallFailed {
     | "copy-failed"
     | "unknown";
   message: string;
+}
+
+export interface CloneFailureHandlers<T> {
+  onCloneFailed: (msg: string) => T;
+  onNoConfig: (msg: string) => T;
+  onNoAgents: (msg: string) => T;
+  onInvalidType: (msg: string) => T;
+  onCopyFailed: (msg: string) => T;
+  onUnknown: (msg: string) => T;
+}
+
+export function mapCloneFailure<T>(
+  result: CloneReinstallFailed,
+  handlers: CloneFailureHandlers<T>,
+): T {
+  switch (result.failureReason) {
+    case "clone-failed":
+      return handlers.onCloneFailed(result.message);
+    case "no-config":
+      return handlers.onNoConfig(result.message);
+    case "no-agents":
+      return handlers.onNoAgents(result.message);
+    case "invalid-type":
+      return handlers.onInvalidType(result.message);
+    case "copy-failed":
+      return handlers.onCopyFailed(result.message);
+    case "unknown":
+      return handlers.onUnknown(result.message);
+  }
 }
 
 export type CloneReinstallResult = CloneReinstallSuccess | CloneReinstallFailed;

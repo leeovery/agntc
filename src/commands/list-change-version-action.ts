@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import { writeManifest, addEntry, removeEntry } from "../manifest.js";
-import { cloneAndReinstall } from "../clone-reinstall.js";
+import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 
 export interface ChangeVersionResult {
   changed: boolean;
@@ -51,37 +51,36 @@ export async function executeChangeVersionAction(
   });
 
   if (result.status === "failed") {
-    if (result.failureReason === "no-config") {
-      return {
-        changed: false,
-        message: `New version of ${key} has no agntc.json`,
-      };
-    }
-
-    if (result.failureReason === "no-agents") {
-      return {
-        changed: false,
-        message: `Plugin ${key} no longer supports any of your installed agents`,
-      };
-    }
-
-    if (result.failureReason === "invalid-type") {
-      return {
-        changed: false,
-        message: `New version of ${key} is not a valid plugin`,
-      };
-    }
-
     if (result.failureReason === "copy-failed") {
       await writeManifest(projectDir, removeEntry(manifest, key));
-      return {
-        changed: false,
-        message: result.message,
-      };
     }
 
-    // clone-failed or unknown
-    return { changed: false, message: result.message };
+    return mapCloneFailure(result, {
+      onNoConfig: () => ({
+        changed: false,
+        message: `New version of ${key} has no agntc.json`,
+      }),
+      onNoAgents: () => ({
+        changed: false,
+        message: `Plugin ${key} no longer supports any of your installed agents`,
+      }),
+      onInvalidType: () => ({
+        changed: false,
+        message: `New version of ${key} is not a valid plugin`,
+      }),
+      onCopyFailed: (msg) => ({
+        changed: false,
+        message: msg,
+      }),
+      onCloneFailed: (msg) => ({
+        changed: false,
+        message: msg,
+      }),
+      onUnknown: (msg) => ({
+        changed: false,
+        message: msg,
+      }),
+    });
   }
 
   const updated = addEntry(manifest, key, result.manifestEntry);

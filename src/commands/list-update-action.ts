@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import { stat } from "node:fs/promises";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { writeManifest, addEntry, removeEntry } from "../manifest.js";
-import { cloneAndReinstall } from "../clone-reinstall.js";
+import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 
 export interface UpdateActionResult {
   success: boolean;
@@ -35,37 +35,36 @@ async function runRemoteUpdate(
   });
 
   if (result.status === "failed") {
-    if (result.failureReason === "no-config") {
-      return {
-        success: false,
-        message: `New version of ${key} has no agntc.json`,
-      };
-    }
-
-    if (result.failureReason === "no-agents") {
-      return {
-        success: false,
-        message: `Plugin ${key} no longer supports any of your installed agents`,
-      };
-    }
-
-    if (result.failureReason === "invalid-type") {
-      return {
-        success: false,
-        message: `New version of ${key} is not a valid plugin`,
-      };
-    }
-
     if (result.failureReason === "copy-failed") {
       await writeManifest(projectDir, removeEntry(manifest, key));
-      return {
-        success: false,
-        message: result.message,
-      };
     }
 
-    // clone-failed or unknown
-    return { success: false, message: result.message };
+    return mapCloneFailure(result, {
+      onNoConfig: () => ({
+        success: false,
+        message: `New version of ${key} has no agntc.json`,
+      }),
+      onNoAgents: () => ({
+        success: false,
+        message: `Plugin ${key} no longer supports any of your installed agents`,
+      }),
+      onInvalidType: () => ({
+        success: false,
+        message: `New version of ${key} is not a valid plugin`,
+      }),
+      onCopyFailed: (msg) => ({
+        success: false,
+        message: msg,
+      }),
+      onCloneFailed: (msg) => ({
+        success: false,
+        message: msg,
+      }),
+      onUnknown: (msg) => ({
+        success: false,
+        message: msg,
+      }),
+    });
   }
 
   const updated = addEntry(manifest, key, result.manifestEntry);
@@ -110,36 +109,36 @@ async function runLocalUpdate(
     });
 
     if (result.status === "failed") {
-      if (result.failureReason === "no-config") {
-        return {
-          success: false,
-          message: `${key} has no agntc.json`,
-        };
-      }
-
-      if (result.failureReason === "no-agents") {
-        return {
-          success: false,
-          message: `Plugin ${key} no longer supports any of your installed agents`,
-        };
-      }
-
-      if (result.failureReason === "invalid-type") {
-        return {
-          success: false,
-          message: `${key} is not a valid plugin`,
-        };
-      }
-
       if (result.failureReason === "copy-failed") {
         await writeManifest(projectDir, removeEntry(manifest, key));
-        return {
-          success: false,
-          message: result.message,
-        };
       }
 
-      return { success: false, message: result.message };
+      return mapCloneFailure(result, {
+        onNoConfig: () => ({
+          success: false,
+          message: `${key} has no agntc.json`,
+        }),
+        onNoAgents: () => ({
+          success: false,
+          message: `Plugin ${key} no longer supports any of your installed agents`,
+        }),
+        onInvalidType: () => ({
+          success: false,
+          message: `${key} is not a valid plugin`,
+        }),
+        onCopyFailed: (msg) => ({
+          success: false,
+          message: msg,
+        }),
+        onCloneFailed: (msg) => ({
+          success: false,
+          message: msg,
+        }),
+        onUnknown: (msg) => ({
+          success: false,
+          message: msg,
+        }),
+      });
     }
 
     const updated = addEntry(manifest, key, result.manifestEntry);

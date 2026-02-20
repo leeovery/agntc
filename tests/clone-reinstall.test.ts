@@ -58,7 +58,9 @@ import { getDriver } from "../src/drivers/registry.js";
 import {
   cloneAndReinstall,
   formatAgentsDroppedWarning,
+  mapCloneFailure,
 } from "../src/clone-reinstall.js";
+import type { CloneFailureHandlers } from "../src/clone-reinstall.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
@@ -560,5 +562,82 @@ describe("cloneAndReinstall", () => {
         expect.anything(),
       );
     });
+  });
+});
+
+describe("mapCloneFailure", () => {
+  function makeHandlers(): CloneFailureHandlers<string> {
+    return {
+      onCloneFailed: (msg) => `clone-failed: ${msg}`,
+      onNoConfig: (msg) => `no-config: ${msg}`,
+      onNoAgents: (msg) => `no-agents: ${msg}`,
+      onInvalidType: (msg) => `invalid-type: ${msg}`,
+      onCopyFailed: (msg) => `copy-failed: ${msg}`,
+      onUnknown: (msg) => `unknown: ${msg}`,
+    };
+  }
+
+  it("dispatches clone-failed to onCloneFailed handler", () => {
+    const result = mapCloneFailure(
+      { status: "failed", failureReason: "clone-failed", message: "network error" },
+      makeHandlers(),
+    );
+    expect(result).toBe("clone-failed: network error");
+  });
+
+  it("dispatches no-config to onNoConfig handler", () => {
+    const result = mapCloneFailure(
+      { status: "failed", failureReason: "no-config", message: "no agntc.json" },
+      makeHandlers(),
+    );
+    expect(result).toBe("no-config: no agntc.json");
+  });
+
+  it("dispatches no-agents to onNoAgents handler", () => {
+    const result = mapCloneFailure(
+      { status: "failed", failureReason: "no-agents", message: "no agents" },
+      makeHandlers(),
+    );
+    expect(result).toBe("no-agents: no agents");
+  });
+
+  it("dispatches invalid-type to onInvalidType handler", () => {
+    const result = mapCloneFailure(
+      { status: "failed", failureReason: "invalid-type", message: "not valid" },
+      makeHandlers(),
+    );
+    expect(result).toBe("invalid-type: not valid");
+  });
+
+  it("dispatches copy-failed to onCopyFailed handler", () => {
+    const result = mapCloneFailure(
+      { status: "failed", failureReason: "copy-failed", message: "disk full" },
+      makeHandlers(),
+    );
+    expect(result).toBe("copy-failed: disk full");
+  });
+
+  it("dispatches unknown to onUnknown handler", () => {
+    const result = mapCloneFailure(
+      { status: "failed", failureReason: "unknown", message: "something" },
+      makeHandlers(),
+    );
+    expect(result).toBe("unknown: something");
+  });
+
+  it("returns the typed result from handler", () => {
+    const handlers: CloneFailureHandlers<number> = {
+      onCloneFailed: () => 1,
+      onNoConfig: () => 2,
+      onNoAgents: () => 3,
+      onInvalidType: () => 4,
+      onCopyFailed: () => 5,
+      onUnknown: () => 6,
+    };
+    const result = mapCloneFailure(
+      { status: "failed", failureReason: "no-config", message: "test" },
+      handlers,
+    );
+    expect(result).toBe(2);
   });
 });
