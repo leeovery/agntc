@@ -69,6 +69,26 @@ export function mapCloneFailure<T>(
   }
 }
 
+export function buildFailureMessage(
+  result: CloneReinstallFailed,
+  key: string,
+  opts?: { isChangeVersion?: boolean },
+): string {
+  const prefix = opts?.isChangeVersion ? `New version of ${key}` : key;
+  switch (result.failureReason) {
+    case "no-config":
+      return `${prefix} has no agntc.json`;
+    case "no-agents":
+      return `Plugin ${key} no longer supports any of your installed agents`;
+    case "invalid-type":
+      return `${prefix} is not a valid plugin`;
+    case "clone-failed":
+    case "copy-failed":
+    case "unknown":
+      return result.message;
+  }
+}
+
 export type CloneReinstallResult = CloneReinstallSuccess | CloneReinstallFailed;
 
 export function formatAgentsDroppedWarning(

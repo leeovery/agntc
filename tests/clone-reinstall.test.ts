@@ -65,8 +65,9 @@ import {
   cloneAndReinstall,
   formatAgentsDroppedWarning,
   mapCloneFailure,
+  buildFailureMessage,
 } from "../src/clone-reinstall.js";
-import type { CloneFailureHandlers } from "../src/clone-reinstall.js";
+import type { CloneFailureHandlers, CloneReinstallFailed } from "../src/clone-reinstall.js";
 
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockRemoveEntry = vi.mocked(removeEntry);
@@ -703,5 +704,105 @@ describe("mapCloneFailure", () => {
       handlers,
     );
     expect(result).toBe(2);
+  });
+});
+
+describe("buildFailureMessage", () => {
+  function makeFailed(
+    failureReason: CloneReinstallFailed["failureReason"],
+    message: string,
+  ): CloneReinstallFailed {
+    return { status: "failed", failureReason, message };
+  }
+
+  describe("passthrough reasons (clone-failed, copy-failed, unknown)", () => {
+    it("returns result.message for clone-failed", () => {
+      const msg = buildFailureMessage(
+        makeFailed("clone-failed", "network error"),
+        "owner/repo",
+      );
+      expect(msg).toBe("network error");
+    });
+
+    it("returns result.message for copy-failed", () => {
+      const msg = buildFailureMessage(
+        makeFailed("copy-failed", "disk full hint"),
+        "owner/repo",
+      );
+      expect(msg).toBe("disk full hint");
+    });
+
+    it("returns result.message for unknown", () => {
+      const msg = buildFailureMessage(
+        makeFailed("unknown", "something went wrong"),
+        "owner/repo",
+      );
+      expect(msg).toBe("something went wrong");
+    });
+  });
+
+  describe("no-agents", () => {
+    it("returns standard message regardless of isChangeVersion", () => {
+      const msg = buildFailureMessage(
+        makeFailed("no-agents", "ignored"),
+        "owner/repo",
+      );
+      expect(msg).toBe(
+        "Plugin owner/repo no longer supports any of your installed agents",
+      );
+    });
+
+    it("returns same message with isChangeVersion true", () => {
+      const msg = buildFailureMessage(
+        makeFailed("no-agents", "ignored"),
+        "owner/repo",
+        { isChangeVersion: true },
+      );
+      expect(msg).toBe(
+        "Plugin owner/repo no longer supports any of your installed agents",
+      );
+    });
+  });
+
+  describe("no-config without isChangeVersion", () => {
+    it("returns plain message", () => {
+      const msg = buildFailureMessage(
+        makeFailed("no-config", "ignored"),
+        "owner/repo",
+      );
+      expect(msg).toBe("owner/repo has no agntc.json");
+    });
+  });
+
+  describe("no-config with isChangeVersion", () => {
+    it("returns prefixed message", () => {
+      const msg = buildFailureMessage(
+        makeFailed("no-config", "ignored"),
+        "owner/repo",
+        { isChangeVersion: true },
+      );
+      expect(msg).toBe("New version of owner/repo has no agntc.json");
+    });
+  });
+
+  describe("invalid-type without isChangeVersion", () => {
+    it("returns plain message", () => {
+      const msg = buildFailureMessage(
+        makeFailed("invalid-type", "ignored"),
+        "owner/repo",
+      );
+      expect(msg).toBe("owner/repo is not a valid plugin");
+    });
+  });
+
+  describe("invalid-type with isChangeVersion", () => {
+    it("returns prefixed message", () => {
+      const msg = buildFailureMessage(
+        makeFailed("invalid-type", "ignored"),
+        "owner/repo",
+        { isChangeVersion: true },
+      );
+      expect(msg).toBe("New version of owner/repo is not a valid plugin");
+    });
   });
 });

@@ -1,6 +1,6 @@
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { writeManifest, addEntry } from "../manifest.js";
-import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
+import { cloneAndReinstall, buildFailureMessage } from "../clone-reinstall.js";
 import { validateLocalSourcePath } from "../fs-utils.js";
 import { errorMessage } from "../errors.js";
 
@@ -47,36 +47,10 @@ async function runUpdate(
     });
 
     if (result.status === "failed") {
-      return mapCloneFailure(result, {
-        onNoConfig: () => ({
-          success: false,
-          message: isLocal
-            ? `${key} has no agntc.json`
-            : `New version of ${key} has no agntc.json`,
-        }),
-        onNoAgents: () => ({
-          success: false,
-          message: `Plugin ${key} no longer supports any of your installed agents`,
-        }),
-        onInvalidType: () => ({
-          success: false,
-          message: isLocal
-            ? `${key} is not a valid plugin`
-            : `New version of ${key} is not a valid plugin`,
-        }),
-        onCopyFailed: (msg) => ({
-          success: false,
-          message: msg,
-        }),
-        onCloneFailed: (msg) => ({
-          success: false,
-          message: msg,
-        }),
-        onUnknown: (msg) => ({
-          success: false,
-          message: msg,
-        }),
+      const message = buildFailureMessage(result, key, {
+        isChangeVersion: !isLocal,
       });
+      return { success: false, message };
     }
 
     const updated = addEntry(manifest, key, result.manifestEntry);
