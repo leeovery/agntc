@@ -6,7 +6,7 @@ total_proposed: 4
 # Analysis Tasks: Core System (Cycle 5)
 
 ## Task 1: Derive agent/asset-type classification from driver registry instead of path substrings
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -40,7 +40,7 @@ sources: architecture
 ---
 
 ## Task 2: Consolidate mapCloneFailure handler blocks between list-update-action.ts and list-change-version-action.ts
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -72,7 +72,7 @@ sources: duplication
 ---
 
 ## Task 3: Deduplicate formatRef by reusing formatRefLabel from summary.ts
-status: pending
+status: approved
 severity: low
 sources: duplication
 
@@ -100,7 +100,7 @@ sources: duplication
 ---
 
 ## Task 4: Strengthen CollectionPluginResult.detectedType to use concrete DetectedType union
-status: pending
+status: approved
 severity: low
 sources: architecture
 

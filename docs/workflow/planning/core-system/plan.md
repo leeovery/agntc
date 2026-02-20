@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: auto
 review_cycle: 4
 planning:
-  phase: 9
+  phase: 10
   task: ~
 ---
 
@@ -269,3 +269,17 @@ ext_id: tick-f05a59
 | cs-9-1 | Unify runRemoteUpdate and runLocalUpdate in list-update-action.ts and internalize copy-failed manifest removal | none | authored | tick-6c1630 |
 | cs-9-2 | Extract shared conflict-check pipeline in add.ts | none | authored | tick-75db2e |
 | cs-9-3 | Extract withExitSignal wrapper for command actions | none | authored | tick-cfe67a |
+
+### Phase 10: Analysis (Cycle 5)
+status: approved
+ext_id: tick-7d400b
+
+**Goal**: Address findings from Analysis (Cycle 5).
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-10-1 | Derive agent/asset-type classification from driver registry instead of path substrings | none | authored | tick-5000e1 |
+| cs-10-2 | Consolidate mapCloneFailure handler blocks between list-update-action.ts and list-change-version-action.ts | none | authored | tick-995708 |
+| cs-10-3 | Deduplicate formatRef by reusing formatRefLabel from summary.ts | none | authored | tick-57e313 |
+| cs-10-4 | Strengthen CollectionPluginResult.detectedType to use concrete DetectedType union | none | authored | tick-6f7201 |
