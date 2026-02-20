@@ -5,18 +5,14 @@ import { readManifest, writeManifest, addEntry, removeEntry } from "../manifest.
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
 import type { UpdateCheckResult } from "../update-check.js";
-import { cloneSource, cleanupTempDir } from "../git-clone.js";
-import { buildParsedSourceFromKey, getSourceDirFromKey } from "../source-parser.js";
 import { ExitSignal } from "../exit-signal.js";
-import {
-  executeNukeAndReinstall,
-} from "../nuke-reinstall-pipeline.js";
 import {
   renderGitUpdateSummary,
   renderLocalUpdateSummary,
   renderUpdateOutcomeSummary,
 } from "../summary.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
+import { cloneAndReinstall } from "../clone-reinstall.js";
 
 type PluginOutcome =
   | { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
@@ -107,50 +103,19 @@ async function runGitUpdate(
   entry: ManifestEntry,
   projectDir: string,
 ): Promise<ManifestEntry | null> {
-  const parsed = buildParsedSourceFromKey(key, entry.ref, entry.cloneUrl);
-  let tempDir: string | undefined;
+  const result = await cloneAndReinstall({
+    key,
+    entry,
+    projectDir,
+  });
 
-  try {
-    const spin = p.spinner();
-    spin.start("Cloning repository...");
-
-    let cloneResult;
-    try {
-      cloneResult = await cloneSource(parsed);
-    } catch (err) {
-      spin.stop("Clone failed");
-      throw err;
-    }
-    spin.stop("Cloned successfully");
-
-    tempDir = cloneResult.tempDir;
-    const newCommit = cloneResult.commit;
-    const sourceDir = getSourceDirFromKey(tempDir, key);
-
-    const onWarn = (message: string) => p.log.warn(message);
-
-    const pipelineResult = await executeNukeAndReinstall({
-      key,
-      sourceDir,
-      existingEntry: entry,
-      projectDir,
-      newCommit,
-      onAgentsDropped: (dropped, newConfigAgents) => {
-        p.log.warn(
-          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-            `Currently installed for: ${entry.agents.join(", ")}. ` +
-            `New version supports: ${newConfigAgents.join(", ")}.`,
-        );
-      },
-      onWarn,
-    });
-
-    if (pipelineResult.status === "no-config") {
+  if (result.status === "failed") {
+    if (result.failureReason === "no-config") {
       p.log.error(`New version of ${key} has no agntc.json — aborting.`);
       throw new ExitSignal(1);
     }
 
-    if (pipelineResult.status === "no-agents") {
+    if (result.failureReason === "no-agents") {
       p.log.warn(
         `Plugin ${key} no longer supports any of your installed agents. ` +
           `No update performed. Run npx agntc remove ${key} to clean up.`,
@@ -158,47 +123,36 @@ async function runGitUpdate(
       return null;
     }
 
-    if (pipelineResult.status === "invalid-type") {
+    if (result.failureReason === "invalid-type") {
       p.log.error(`New version of ${key} is not a valid plugin — aborting.`);
       throw new ExitSignal(1);
     }
 
-    if (pipelineResult.status === "copy-failed") {
-      p.log.error(pipelineResult.recoveryHint);
+    if (result.failureReason === "copy-failed") {
+      p.log.error(result.message);
       const manifest = await readManifest(projectDir);
       await writeManifest(projectDir, removeEntry(manifest, key));
       throw new ExitSignal(1);
     }
 
-    // Summary
-    p.outro(
-      renderGitUpdateSummary({
-        key,
-        oldCommit: entry.commit,
-        newCommit,
-        copiedFiles: pipelineResult.copiedFiles,
-        effectiveAgents: pipelineResult.entry.agents,
-        droppedAgents: pipelineResult.droppedAgents,
-      }),
-    );
-
-    return pipelineResult.entry;
-  } catch (err) {
-    if (err instanceof ExitSignal) {
-      throw err;
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    p.cancel(message);
+    // clone-failed or unknown
+    p.cancel(result.message);
     throw new ExitSignal(1);
-  } finally {
-    if (tempDir) {
-      try {
-        await cleanupTempDir(tempDir);
-      } catch {
-        // Swallow cleanup errors
-      }
-    }
   }
+
+  // Summary
+  p.outro(
+    renderGitUpdateSummary({
+      key,
+      oldCommit: entry.commit,
+      newCommit: result.manifestEntry.commit!,
+      copiedFiles: result.copiedFiles,
+      effectiveAgents: result.manifestEntry.agents,
+      droppedAgents: result.droppedAgents,
+    }),
+  );
+
+  return result.manifestEntry;
 }
 
 async function validateLocalPath(sourcePath: string): Promise<void> {
@@ -228,60 +182,53 @@ async function runLocalUpdate(
 
   await validateLocalPath(sourcePath);
 
-  const onWarn = (message: string) => p.log.warn(message);
-
-  const pipelineResult = await executeNukeAndReinstall({
+  const result = await cloneAndReinstall({
     key,
-    sourceDir: sourcePath,
-    existingEntry: entry,
+    entry,
     projectDir,
-    newRef: null,
-    newCommit: null,
-    onAgentsDropped: (dropped, _kept) => {
-      p.log.warn(
-        `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-          `Currently installed for: ${entry.agents.join(", ")}. ` +
-          `New version supports: ${_kept.join(", ")}.`,
-      );
-    },
-    onWarn,
+    sourceDir: sourcePath,
   });
 
-  if (pipelineResult.status === "no-config") {
-    p.log.error(`${key} has no agntc.json — aborting.`);
-    throw new ExitSignal(1);
-  }
+  if (result.status === "failed") {
+    if (result.failureReason === "no-config") {
+      p.log.error(`${key} has no agntc.json — aborting.`);
+      throw new ExitSignal(1);
+    }
 
-  if (pipelineResult.status === "no-agents") {
-    p.log.warn(
-      `Plugin ${key} no longer supports any of your installed agents. ` +
-        `No update performed. Run npx agntc remove ${key} to clean up.`,
-    );
-    return null;
-  }
+    if (result.failureReason === "no-agents") {
+      p.log.warn(
+        `Plugin ${key} no longer supports any of your installed agents. ` +
+          `No update performed. Run npx agntc remove ${key} to clean up.`,
+      );
+      return null;
+    }
 
-  if (pipelineResult.status === "invalid-type") {
-    p.log.error(`${key} is not a valid plugin — aborting.`);
-    throw new ExitSignal(1);
-  }
+    if (result.failureReason === "invalid-type") {
+      p.log.error(`${key} is not a valid plugin — aborting.`);
+      throw new ExitSignal(1);
+    }
 
-  if (pipelineResult.status === "copy-failed") {
-    p.log.error(pipelineResult.recoveryHint);
-    const manifest = await readManifest(projectDir);
-    await writeManifest(projectDir, removeEntry(manifest, key));
+    if (result.failureReason === "copy-failed") {
+      p.log.error(result.message);
+      const manifest = await readManifest(projectDir);
+      await writeManifest(projectDir, removeEntry(manifest, key));
+      throw new ExitSignal(1);
+    }
+
+    // unknown failure
     throw new ExitSignal(1);
   }
 
   p.outro(
     renderLocalUpdateSummary({
       key,
-      copiedFiles: pipelineResult.copiedFiles,
-      effectiveAgents: pipelineResult.entry.agents,
-      droppedAgents: pipelineResult.droppedAgents,
+      copiedFiles: result.copiedFiles,
+      effectiveAgents: result.manifestEntry.agents,
+      droppedAgents: result.droppedAgents,
     }),
   );
 
-  return pipelineResult.entry;
+  return result.manifestEntry;
 }
 
 // --- All-plugins mode helpers ---
@@ -297,34 +244,14 @@ async function processGitUpdateForAll(
   entry: ManifestEntry,
   projectDir: string,
 ): Promise<PluginOutcome> {
-  const parsed = buildParsedSourceFromKey(key, entry.ref, entry.cloneUrl);
-  let tempDir: string | undefined;
+  const result = await cloneAndReinstall({
+    key,
+    entry,
+    projectDir,
+  });
 
-  try {
-    const cloneResult = await cloneSource(parsed);
-    tempDir = cloneResult.tempDir;
-    const newCommit = cloneResult.commit;
-    const sourceDir = getSourceDirFromKey(tempDir, key);
-
-    const onWarn = (message: string) => p.log.warn(message);
-
-    const pipelineResult = await executeNukeAndReinstall({
-      key,
-      sourceDir,
-      existingEntry: entry,
-      projectDir,
-      newCommit,
-      onAgentsDropped: (dropped, newConfigAgents) => {
-        p.log.warn(
-          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-            `Currently installed for: ${entry.agents.join(", ")}. ` +
-            `New version supports: ${newConfigAgents.join(", ")}.`,
-        );
-      },
-      onWarn,
-    });
-
-    if (pipelineResult.status === "no-config") {
+  if (result.status === "failed") {
+    if (result.failureReason === "no-config") {
       return {
         status: "failed",
         key,
@@ -332,7 +259,7 @@ async function processGitUpdateForAll(
       };
     }
 
-    if (pipelineResult.status === "no-agents") {
+    if (result.failureReason === "no-agents") {
       return {
         status: "failed",
         key,
@@ -340,7 +267,7 @@ async function processGitUpdateForAll(
       };
     }
 
-    if (pipelineResult.status === "invalid-type") {
+    if (result.failureReason === "invalid-type") {
       return {
         status: "failed",
         key,
@@ -348,42 +275,34 @@ async function processGitUpdateForAll(
       };
     }
 
-    if (pipelineResult.status === "copy-failed") {
+    if (result.failureReason === "copy-failed") {
       return {
         status: "copy-failed",
         key,
-        summary: pipelineResult.recoveryHint,
+        summary: result.message,
       };
     }
 
-    return {
-      status: "updated",
-      key,
-      summary: renderUpdateOutcomeSummary({
-        type: "git-update",
-        key,
-        oldCommit: entry.commit,
-        newCommit,
-        droppedAgents: pipelineResult.droppedAgents,
-      }),
-      newEntry: pipelineResult.entry,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    // clone-failed or unknown
     return {
       status: "failed",
       key,
-      summary: `${key}: Failed — ${message}`,
+      summary: `${key}: Failed — ${result.message}`,
     };
-  } finally {
-    if (tempDir) {
-      try {
-        await cleanupTempDir(tempDir);
-      } catch {
-        // Swallow cleanup errors
-      }
-    }
   }
+
+  return {
+    status: "updated",
+    key,
+    summary: renderUpdateOutcomeSummary({
+      type: "git-update",
+      key,
+      oldCommit: entry.commit,
+      newCommit: result.manifestEntry.commit!,
+      droppedAgents: result.droppedAgents,
+    }),
+    newEntry: result.manifestEntry,
+  };
 }
 
 async function processLocalUpdateForAll(
@@ -411,54 +330,50 @@ async function processLocalUpdateForAll(
       };
     }
 
-    const onWarn = (message: string) => p.log.warn(message);
-
-    const pipelineResult = await executeNukeAndReinstall({
+    const result = await cloneAndReinstall({
       key,
-      sourceDir: sourcePath,
-      existingEntry: entry,
+      entry,
       projectDir,
-      newRef: null,
-      newCommit: null,
-      onAgentsDropped: (dropped, newConfigAgents) => {
-        p.log.warn(
-          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-            `Currently installed for: ${entry.agents.join(", ")}. ` +
-            `New version supports: ${newConfigAgents.join(", ")}.`,
-        );
-      },
-      onWarn,
+      sourceDir: sourcePath,
     });
 
-    if (pipelineResult.status === "no-config") {
+    if (result.status === "failed") {
+      if (result.failureReason === "no-config") {
+        return {
+          status: "failed",
+          key,
+          summary: `${key}: Failed — no agntc.json`,
+        };
+      }
+
+      if (result.failureReason === "no-agents") {
+        return {
+          status: "failed",
+          key,
+          summary: `${key}: Skipped — no longer supports installed agents`,
+        };
+      }
+
+      if (result.failureReason === "invalid-type") {
+        return {
+          status: "failed",
+          key,
+          summary: `${key}: Failed — not a valid plugin`,
+        };
+      }
+
+      if (result.failureReason === "copy-failed") {
+        return {
+          status: "copy-failed",
+          key,
+          summary: result.message,
+        };
+      }
+
       return {
         status: "failed",
         key,
-        summary: `${key}: Failed — no agntc.json`,
-      };
-    }
-
-    if (pipelineResult.status === "no-agents") {
-      return {
-        status: "failed",
-        key,
-        summary: `${key}: Skipped — no longer supports installed agents`,
-      };
-    }
-
-    if (pipelineResult.status === "invalid-type") {
-      return {
-        status: "failed",
-        key,
-        summary: `${key}: Failed — not a valid plugin`,
-      };
-    }
-
-    if (pipelineResult.status === "copy-failed") {
-      return {
-        status: "copy-failed",
-        key,
-        summary: pipelineResult.recoveryHint,
+        summary: `${key}: Failed — ${result.message}`,
       };
     }
 
@@ -468,9 +383,9 @@ async function processLocalUpdateForAll(
       summary: renderUpdateOutcomeSummary({
         type: "local-update",
         key,
-        droppedAgents: pipelineResult.droppedAgents,
+        droppedAgents: result.droppedAgents,
       }),
-      newEntry: pipelineResult.entry,
+      newEntry: result.manifestEntry,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,12 +1,8 @@
 import * as p from "@clack/prompts";
 import { stat } from "node:fs/promises";
 import type { ManifestEntry, Manifest } from "../manifest.js";
-import { buildParsedSourceFromKey, getSourceDirFromKey } from "../source-parser.js";
-import { cloneSource, cleanupTempDir } from "../git-clone.js";
 import { writeManifest, addEntry, removeEntry } from "../manifest.js";
-import {
-  executeNukeAndReinstall,
-} from "../nuke-reinstall-pipeline.js";
+import { cloneAndReinstall } from "../clone-reinstall.js";
 
 export interface UpdateActionResult {
   success: boolean;
@@ -32,94 +28,54 @@ async function runRemoteUpdate(
   manifest: Manifest,
   projectDir: string,
 ): Promise<UpdateActionResult> {
-  const parsed = buildParsedSourceFromKey(key, entry.ref, entry.cloneUrl);
-  let tempDir: string | undefined;
+  const result = await cloneAndReinstall({
+    key,
+    entry,
+    projectDir,
+  });
 
-  try {
-    const spin = p.spinner();
-    spin.start("Cloning repository...");
-
-    let cloneResult;
-    try {
-      cloneResult = await cloneSource(parsed);
-    } catch (err) {
-      spin.stop("Clone failed");
-      const message = err instanceof Error ? err.message : String(err);
-      return { success: false, message };
-    }
-    spin.stop("Cloned successfully");
-
-    tempDir = cloneResult.tempDir;
-    const newCommit = cloneResult.commit;
-    const sourceDir = getSourceDirFromKey(tempDir, key);
-
-    const onWarn = (message: string) => p.log.warn(message);
-
-    const pipelineResult = await executeNukeAndReinstall({
-      key,
-      sourceDir,
-      existingEntry: entry,
-      projectDir,
-      newCommit,
-      onAgentsDropped: (dropped, newConfigAgents) => {
-        p.log.warn(
-          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-            `Currently installed for: ${entry.agents.join(", ")}. ` +
-            `New version supports: ${newConfigAgents.join(", ")}.`,
-        );
-      },
-      onWarn,
-    });
-
-    if (pipelineResult.status === "no-config") {
+  if (result.status === "failed") {
+    if (result.failureReason === "no-config") {
       return {
         success: false,
         message: `New version of ${key} has no agntc.json`,
       };
     }
 
-    if (pipelineResult.status === "no-agents") {
+    if (result.failureReason === "no-agents") {
       return {
         success: false,
         message: `Plugin ${key} no longer supports any of your installed agents`,
       };
     }
 
-    if (pipelineResult.status === "invalid-type") {
+    if (result.failureReason === "invalid-type") {
       return {
         success: false,
         message: `New version of ${key} is not a valid plugin`,
       };
     }
 
-    if (pipelineResult.status === "copy-failed") {
+    if (result.failureReason === "copy-failed") {
       await writeManifest(projectDir, removeEntry(manifest, key));
       return {
         success: false,
-        message: pipelineResult.recoveryHint,
+        message: result.message,
       };
     }
 
-    const updated = addEntry(manifest, key, pipelineResult.entry);
-    await writeManifest(projectDir, updated);
-
-    return {
-      success: true,
-      newEntry: pipelineResult.entry,
-      message: `Updated ${key}`,
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { success: false, message };
-  } finally {
-    if (tempDir) {
-      try {
-        await cleanupTempDir(tempDir);
-      } catch {
-        // Swallow cleanup errors
-      }
-    }
+    // clone-failed or unknown
+    return { success: false, message: result.message };
   }
+
+  const updated = addEntry(manifest, key, result.manifestEntry);
+  await writeManifest(projectDir, updated);
+
+  return {
+    success: true,
+    newEntry: result.manifestEntry,
+    message: `Updated ${key}`,
+  };
 }
 
 async function runLocalUpdate(
@@ -146,60 +102,52 @@ async function runLocalUpdate(
       };
     }
 
-    const onWarn = (message: string) => p.log.warn(message);
-
-    const pipelineResult = await executeNukeAndReinstall({
+    const result = await cloneAndReinstall({
       key,
-      sourceDir: sourcePath,
-      existingEntry: entry,
+      entry,
       projectDir,
-      newRef: null,
-      newCommit: null,
-      onAgentsDropped: (dropped, newConfigAgents) => {
-        p.log.warn(
-          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-            `Currently installed for: ${entry.agents.join(", ")}. ` +
-            `New version supports: ${newConfigAgents.join(", ")}.`,
-        );
-      },
-      onWarn,
+      sourceDir: sourcePath,
     });
 
-    if (pipelineResult.status === "no-config") {
-      return {
-        success: false,
-        message: `${key} has no agntc.json`,
-      };
+    if (result.status === "failed") {
+      if (result.failureReason === "no-config") {
+        return {
+          success: false,
+          message: `${key} has no agntc.json`,
+        };
+      }
+
+      if (result.failureReason === "no-agents") {
+        return {
+          success: false,
+          message: `Plugin ${key} no longer supports any of your installed agents`,
+        };
+      }
+
+      if (result.failureReason === "invalid-type") {
+        return {
+          success: false,
+          message: `${key} is not a valid plugin`,
+        };
+      }
+
+      if (result.failureReason === "copy-failed") {
+        await writeManifest(projectDir, removeEntry(manifest, key));
+        return {
+          success: false,
+          message: result.message,
+        };
+      }
+
+      return { success: false, message: result.message };
     }
 
-    if (pipelineResult.status === "no-agents") {
-      return {
-        success: false,
-        message: `Plugin ${key} no longer supports any of your installed agents`,
-      };
-    }
-
-    if (pipelineResult.status === "invalid-type") {
-      return {
-        success: false,
-        message: `${key} is not a valid plugin`,
-      };
-    }
-
-    if (pipelineResult.status === "copy-failed") {
-      await writeManifest(projectDir, removeEntry(manifest, key));
-      return {
-        success: false,
-        message: pipelineResult.recoveryHint,
-      };
-    }
-
-    const updated = addEntry(manifest, key, pipelineResult.entry);
+    const updated = addEntry(manifest, key, result.manifestEntry);
     await writeManifest(projectDir, updated);
 
     return {
       success: true,
-      newEntry: pipelineResult.entry,
+      newEntry: result.manifestEntry,
       message: `Refreshed ${key}`,
     };
   } catch (err) {
