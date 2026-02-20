@@ -16,6 +16,12 @@ import type { AssetCounts } from "../copy-plugin-assets.js";
 import type { Manifest } from "../manifest.js";
 import { readManifest, writeManifest, addEntry } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
+import { computeIncomingFiles } from "../compute-incoming-files.js";
+import { checkFileCollisions } from "../collision-check.js";
+import { resolveCollisions } from "../collision-resolve.js";
+import { checkUnmanagedConflicts } from "../unmanaged-check.js";
+import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
+import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { ExitSignal } from "../exit-signal.js";
 import type { AgentId } from "../drivers/types.js";
 import type { AgntcConfig } from "../config.js";
@@ -125,6 +131,51 @@ export async function runAdd(source: string): Promise<void> {
       await nukeManifestFiles(projectDir, existingEntry.files);
     }
 
+    // 10a. Compute incoming files
+    const incomingFiles = computeIncomingFiles(
+      detected.type === "plugin"
+        ? { type: "plugin", assetDirs: detected.assetDirs, agents }
+        : { type: "bare-skill", sourceDir, agents },
+    );
+
+    // 10b. Collision check
+    let currentManifest = manifest;
+    const collisions = checkFileCollisions(
+      incomingFiles,
+      currentManifest,
+      parsed.manifestKey,
+    );
+    if (collisions.size > 0) {
+      const resolution = await resolveCollisions(
+        collisions,
+        currentManifest,
+        projectDir,
+      );
+      currentManifest = resolution.updatedManifest;
+      if (!resolution.resolved) {
+        p.cancel("Cancelled — collision not resolved");
+        throw new ExitSignal(0);
+      }
+    }
+
+    // 10c. Unmanaged check
+    const unmanagedConflicts = await checkUnmanagedConflicts(
+      incomingFiles,
+      currentManifest,
+      projectDir,
+    );
+    if (unmanagedConflicts.length > 0) {
+      const conflicts: UnmanagedPluginConflicts[] = [
+        { pluginKey: parsed.manifestKey, files: unmanagedConflicts },
+      ];
+      const unmanagedResolution =
+        await resolveUnmanagedConflicts(conflicts);
+      if (unmanagedResolution.cancelled.length > 0) {
+        p.cancel("Cancelled — unmanaged conflicts not resolved");
+        throw new ExitSignal(0);
+      }
+    }
+
     // 11. Copy assets (with spinner)
     let copiedFiles: string[];
     let assetCountsByAgent: Record<string, AssetCounts> | undefined;
@@ -168,7 +219,7 @@ export async function runAdd(source: string): Promise<void> {
       agents: selectedAgents as string[],
       files: copiedFiles,
     };
-    const updated = addEntry(manifest, parsed.manifestKey, entry);
+    const updated = addEntry(currentManifest, parsed.manifestKey, entry);
     await writeManifest(projectDir, updated);
 
     // 14. Summary
@@ -296,52 +347,115 @@ async function runCollectionPipeline(
     driver: getDriver(id),
   }));
 
-  // 5. Per-plugin install
+  // 5. Per-plugin conflict checks + install
   const results: PluginInstallResult[] = [];
+  let currentManifest: Manifest = manifest;
 
+  // 5a. Per-plugin conflict resolution (before any copying)
+  const pluginsToInstall: Array<{
+    pluginName: string;
+    pluginDir: string;
+    pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
+    pluginManifestKey: string;
+  }> = [];
+
+  for (const pluginName of selectedPlugins) {
+    const pluginConfig = pluginConfigs.get(pluginName);
+    if (!pluginConfig) {
+      results.push({ pluginName, status: "skipped", copiedFiles: [] });
+      continue;
+    }
+
+    const pluginDir = join(sourceDir, pluginName);
+    const pluginDetected = await detectType(pluginDir, {
+      hasConfig: true,
+      onWarn,
+    });
+
+    if (pluginDetected.type === "not-agntc") {
+      onWarn(`${pluginName}: not a valid agntc plugin — skipping`);
+      results.push({ pluginName, status: "skipped", copiedFiles: [] });
+      continue;
+    }
+
+    if (pluginDetected.type === "collection") {
+      onWarn(`${pluginName}: nested collections not supported — skipping`);
+      results.push({ pluginName, status: "skipped", copiedFiles: [] });
+      continue;
+    }
+
+    // Nuke existing files if reinstalling this plugin
+    const pluginManifestKey =
+      parsed.type === "direct-path"
+        ? parsed.manifestKey
+        : `${parsed.manifestKey}/${pluginName}`;
+    const existingPluginEntry = currentManifest[pluginManifestKey];
+    if (existingPluginEntry) {
+      try {
+        await nukeManifestFiles(projectDir, existingPluginEntry.files);
+      } catch {
+        onWarn(`${pluginName}: failed to remove old files — skipping`);
+        results.push({ pluginName, status: "skipped", copiedFiles: [] });
+        continue;
+      }
+    }
+
+    // Compute incoming files
+    const incomingFiles = computeIncomingFiles(
+      pluginDetected.type === "plugin"
+        ? { type: "plugin", assetDirs: pluginDetected.assetDirs, agents }
+        : { type: "bare-skill", sourceDir: pluginDir, agents },
+    );
+
+    // Collision check
+    const collisions = checkFileCollisions(
+      incomingFiles,
+      currentManifest,
+      pluginManifestKey,
+    );
+    if (collisions.size > 0) {
+      const resolution = await resolveCollisions(
+        collisions,
+        currentManifest,
+        projectDir,
+      );
+      currentManifest = resolution.updatedManifest;
+      if (!resolution.resolved) {
+        results.push({ pluginName, status: "skipped", copiedFiles: [] });
+        continue;
+      }
+    }
+
+    // Unmanaged check
+    const unmanagedConflicts = await checkUnmanagedConflicts(
+      incomingFiles,
+      currentManifest,
+      projectDir,
+    );
+    if (unmanagedConflicts.length > 0) {
+      const conflicts: UnmanagedPluginConflicts[] = [
+        { pluginKey: pluginManifestKey, files: unmanagedConflicts },
+      ];
+      const unmanagedResolution =
+        await resolveUnmanagedConflicts(conflicts);
+      if (unmanagedResolution.cancelled.length > 0) {
+        results.push({ pluginName, status: "skipped", copiedFiles: [] });
+        continue;
+      }
+    }
+
+    pluginsToInstall.push({
+      pluginName,
+      pluginDir,
+      pluginDetected,
+      pluginManifestKey,
+    });
+  }
+
+  // 5b. Copy all approved plugins
   spin.start("Copying skill files...");
   try {
-    for (const pluginName of selectedPlugins) {
-      const pluginConfig = pluginConfigs.get(pluginName);
-      if (!pluginConfig) {
-        results.push({ pluginName, status: "skipped", copiedFiles: [] });
-        continue;
-      }
-
-      const pluginDir = join(sourceDir, pluginName);
-      const pluginDetected = await detectType(pluginDir, {
-        hasConfig: true,
-        onWarn,
-      });
-
-      if (pluginDetected.type === "not-agntc") {
-        onWarn(`${pluginName}: not a valid agntc plugin — skipping`);
-        results.push({ pluginName, status: "skipped", copiedFiles: [] });
-        continue;
-      }
-
-      if (pluginDetected.type === "collection") {
-        onWarn(`${pluginName}: nested collections not supported — skipping`);
-        results.push({ pluginName, status: "skipped", copiedFiles: [] });
-        continue;
-      }
-
-      // Nuke existing files if reinstalling this plugin
-      const pluginManifestKey =
-        parsed.type === "direct-path"
-          ? parsed.manifestKey
-          : `${parsed.manifestKey}/${pluginName}`;
-      const existingPluginEntry = manifest[pluginManifestKey];
-      if (existingPluginEntry) {
-        try {
-          await nukeManifestFiles(projectDir, existingPluginEntry.files);
-        } catch {
-          onWarn(`${pluginName}: failed to remove old files — skipping`);
-          results.push({ pluginName, status: "skipped", copiedFiles: [] });
-          continue;
-        }
-      }
-
+    for (const { pluginName, pluginDir, pluginDetected } of pluginsToInstall) {
       if (pluginDetected.type === "plugin") {
         const pluginResult = await copyPluginAssets({
           sourceDir: pluginDir,
@@ -378,7 +492,7 @@ async function runCollectionPipeline(
   spin.stop("Copied successfully");
 
   // 6. Single manifest write
-  let updatedManifest: Manifest = manifest;
+  let updatedManifest: Manifest = currentManifest;
   for (const result of results) {
     if (result.status !== "installed") continue;
     const manifestKey =

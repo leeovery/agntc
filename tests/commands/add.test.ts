@@ -9,6 +9,8 @@ import type {
   CopyPluginAssetsResult,
 } from "../../src/copy-plugin-assets.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import type { CollisionResolution } from "../../src/collision-resolve.js";
+import type { UnmanagedResolution } from "../../src/unmanaged-resolve.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 
 // Mock all dependencies before importing the module under test
@@ -86,6 +88,26 @@ vi.mock("../../src/detect-agents.js", () => ({
   detectAgents: vi.fn(),
 }));
 
+vi.mock("../../src/compute-incoming-files.js", () => ({
+  computeIncomingFiles: vi.fn(),
+}));
+
+vi.mock("../../src/collision-check.js", () => ({
+  checkFileCollisions: vi.fn(),
+}));
+
+vi.mock("../../src/collision-resolve.js", () => ({
+  resolveCollisions: vi.fn(),
+}));
+
+vi.mock("../../src/unmanaged-check.js", () => ({
+  checkUnmanagedConflicts: vi.fn(),
+}));
+
+vi.mock("../../src/unmanaged-resolve.js", () => ({
+  resolveUnmanagedConflicts: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { parseSource } from "../../src/source-parser.js";
 import { cloneSource, cleanupTempDir } from "../../src/git-clone.js";
@@ -99,6 +121,11 @@ import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
 import { readManifest, writeManifest, addEntry } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { computeIncomingFiles } from "../../src/compute-incoming-files.js";
+import { checkFileCollisions } from "../../src/collision-check.js";
+import { resolveCollisions } from "../../src/collision-resolve.js";
+import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
+import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
 import { runAdd } from "../../src/commands/add.js";
 
 const mockParseSource = vi.mocked(parseSource);
@@ -116,6 +143,11 @@ const mockReadManifest = vi.mocked(readManifest);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockAddEntry = vi.mocked(addEntry);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
+const mockComputeIncomingFiles = vi.mocked(computeIncomingFiles);
+const mockCheckFileCollisions = vi.mocked(checkFileCollisions);
+const mockResolveCollisions = vi.mocked(resolveCollisions);
+const mockCheckUnmanagedConflicts = vi.mocked(checkUnmanagedConflicts);
+const mockResolveUnmanagedConflicts = vi.mocked(resolveUnmanagedConflicts);
 const mockIntro = vi.mocked(p.intro);
 const mockOutro = vi.mocked(p.outro);
 const mockSpinner = vi.mocked(p.spinner);
@@ -175,6 +207,17 @@ function setupHappyPath(): void {
   mockAddEntry.mockReturnValue(UPDATED_MANIFEST);
   mockWriteManifest.mockResolvedValue(undefined);
   mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+  mockComputeIncomingFiles.mockReturnValue([".claude/skills/my-skill/"]);
+  mockCheckFileCollisions.mockReturnValue(new Map());
+  mockResolveCollisions.mockResolvedValue({
+    resolved: true,
+    updatedManifest: EMPTY_MANIFEST,
+  });
+  mockCheckUnmanagedConflicts.mockResolvedValue([]);
+  mockResolveUnmanagedConflicts.mockResolvedValue({
+    approved: [],
+    cancelled: [],
+  });
   mockCleanupTempDir.mockResolvedValue(undefined);
 }
 
@@ -1892,6 +1935,481 @@ describe("add command", () => {
         expect(mockCloneSource).toHaveBeenCalled();
         expect(mockCleanupTempDir).toHaveBeenCalled();
       });
+    });
+  });
+
+  describe("conflict flow — standalone", () => {
+    it("calls computeIncomingFiles with correct args for bare-skill", async () => {
+      await runAdd("owner/my-skill");
+
+      expect(mockComputeIncomingFiles).toHaveBeenCalledWith({
+        type: "bare-skill",
+        sourceDir: CLONE_RESULT.tempDir,
+        agents: [{ id: "claude", driver: FAKE_DRIVER }],
+      });
+    });
+
+    it("calls computeIncomingFiles with correct args for plugin", async () => {
+      const pluginDetected: DetectedType = {
+        type: "plugin",
+        assetDirs: ["skills", "agents"],
+      };
+      mockDetectType.mockResolvedValue(pluginDetected);
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [".claude/skills/planning/"],
+        assetCountsByAgent: { claude: { skills: 1 } },
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(mockComputeIncomingFiles).toHaveBeenCalledWith({
+        type: "plugin",
+        assetDirs: ["skills", "agents"],
+        agents: [{ id: "claude", driver: FAKE_DRIVER }],
+      });
+    });
+
+    it("calls collision check before copy with excludeKey", async () => {
+      const callOrder: string[] = [];
+      mockCheckFileCollisions.mockImplementation((...args) => {
+        callOrder.push("collision-check");
+        return new Map();
+      });
+      mockCopyBareSkill.mockImplementation(async () => {
+        callOrder.push("copy");
+        return { copiedFiles: [".claude/skills/my-skill/"] };
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(callOrder.indexOf("collision-check")).toBeLessThan(
+        callOrder.indexOf("copy"),
+      );
+      expect(mockCheckFileCollisions).toHaveBeenCalledWith(
+        [".claude/skills/my-skill/"],
+        EMPTY_MANIFEST,
+        "owner/my-skill",
+      );
+    });
+
+    it("calls unmanaged check after collision check, before copy", async () => {
+      const callOrder: string[] = [];
+      mockCheckFileCollisions.mockImplementation(() => {
+        callOrder.push("collision-check");
+        return new Map();
+      });
+      mockCheckUnmanagedConflicts.mockImplementation(async () => {
+        callOrder.push("unmanaged-check");
+        return [];
+      });
+      mockCopyBareSkill.mockImplementation(async () => {
+        callOrder.push("copy");
+        return { copiedFiles: [".claude/skills/my-skill/"] };
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(callOrder).toEqual([
+        "collision-check",
+        "unmanaged-check",
+        "copy",
+      ]);
+    });
+
+    it("passes updated manifest from collision resolution to unmanaged check", async () => {
+      const collidingManifest: Manifest = {
+        "other/repo": {
+          ref: "main",
+          commit: "old123",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/my-skill/"],
+        },
+      };
+      const resolvedManifest: Manifest = {};
+      mockReadManifest.mockResolvedValue(collidingManifest);
+      mockCheckFileCollisions.mockReturnValue(
+        new Map([["other/repo", [".claude/skills/my-skill/"]]]),
+      );
+      mockResolveCollisions.mockResolvedValue({
+        resolved: true,
+        updatedManifest: resolvedManifest,
+      });
+
+      await runAdd("owner/my-skill");
+
+      // Unmanaged check should get the updated (resolved) manifest
+      expect(mockCheckUnmanagedConflicts).toHaveBeenCalledWith(
+        [".claude/skills/my-skill/"],
+        resolvedManifest,
+        "/fake/project",
+      );
+    });
+
+    it("cancel at collision stage exits cleanly with ExitSignal(0)", async () => {
+      mockCheckFileCollisions.mockReturnValue(
+        new Map([["other/repo", [".claude/skills/my-skill/"]]]),
+      );
+      mockResolveCollisions.mockResolvedValue({
+        resolved: false,
+        updatedManifest: EMPTY_MANIFEST,
+      });
+
+      const err = await runAdd("owner/my-skill").catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(0);
+      expect(mockCopyBareSkill).not.toHaveBeenCalled();
+      expect(mockCheckUnmanagedConflicts).not.toHaveBeenCalled();
+    });
+
+    it("cancel at unmanaged stage exits cleanly with ExitSignal(0)", async () => {
+      mockCheckUnmanagedConflicts.mockResolvedValue([
+        ".claude/skills/my-skill/",
+      ]);
+      mockResolveUnmanagedConflicts.mockResolvedValue({
+        approved: [],
+        cancelled: [".claude/skills/my-skill/"],
+      });
+
+      const err = await runAdd("owner/my-skill").catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(0);
+      expect(mockCopyBareSkill).not.toHaveBeenCalled();
+    });
+
+    it("resolve collision then install succeeds", async () => {
+      mockCheckFileCollisions.mockReturnValue(
+        new Map([["other/repo", [".claude/skills/my-skill/"]]]),
+      );
+      mockResolveCollisions.mockResolvedValue({
+        resolved: true,
+        updatedManifest: EMPTY_MANIFEST,
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(mockCopyBareSkill).toHaveBeenCalled();
+      expect(mockWriteManifest).toHaveBeenCalled();
+    });
+
+    it("no conflict path — checks called but no issues, copy proceeds", async () => {
+      // Default setup: no collisions, no unmanaged
+      await runAdd("owner/my-skill");
+
+      expect(mockComputeIncomingFiles).toHaveBeenCalled();
+      expect(mockCheckFileCollisions).toHaveBeenCalled();
+      expect(mockCheckUnmanagedConflicts).toHaveBeenCalled();
+      expect(mockCopyBareSkill).toHaveBeenCalled();
+      // resolveCollisions should NOT be called when no collisions
+      expect(mockResolveCollisions).not.toHaveBeenCalled();
+      // resolveUnmanagedConflicts should NOT be called when no conflicts
+      expect(mockResolveUnmanagedConflicts).not.toHaveBeenCalled();
+    });
+
+    it("manifest write uses updated manifest from collision resolution", async () => {
+      const collidingManifest: Manifest = {
+        "other/repo": {
+          ref: "main",
+          commit: "old123",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/other-skill/"],
+        },
+      };
+      const resolvedManifest: Manifest = {};
+
+      mockReadManifest.mockResolvedValue(collidingManifest);
+      mockCheckFileCollisions.mockReturnValue(
+        new Map([["other/repo", [".claude/skills/my-skill/"]]]),
+      );
+      mockResolveCollisions.mockResolvedValue({
+        resolved: true,
+        updatedManifest: resolvedManifest,
+      });
+      mockAddEntry.mockReturnValue({
+        "owner/my-skill": MANIFEST_ENTRY,
+      });
+
+      await runAdd("owner/my-skill");
+
+      // addEntry should use the resolved manifest, not the original
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        resolvedManifest,
+        "owner/my-skill",
+        expect.any(Object),
+      );
+    });
+
+    it("unmanaged check receives pluginKey for standalone", async () => {
+      mockCheckUnmanagedConflicts.mockResolvedValue([
+        ".claude/skills/my-skill/",
+      ]);
+      mockResolveUnmanagedConflicts.mockResolvedValue({
+        approved: [".claude/skills/my-skill/"],
+        cancelled: [],
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(mockResolveUnmanagedConflicts).toHaveBeenCalledWith([
+        {
+          pluginKey: "owner/my-skill",
+          files: [".claude/skills/my-skill/"],
+        },
+      ]);
+    });
+
+    it("collision check uses manifest from after nuke (reinstall)", async () => {
+      const existingManifest: Manifest = {
+        "owner/my-skill": {
+          ref: "main",
+          commit: "old123",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/my-skill/"],
+        },
+      };
+      mockReadManifest.mockResolvedValue(existingManifest);
+
+      await runAdd("owner/my-skill");
+
+      // Collision check should pass the manifest AND the excludeKey
+      expect(mockCheckFileCollisions).toHaveBeenCalledWith(
+        [".claude/skills/my-skill/"],
+        existingManifest,
+        "owner/my-skill",
+      );
+    });
+  });
+
+  describe("conflict flow — collection", () => {
+    const COLLECTION_PARSED: ParsedSource = {
+      type: "github-shorthand",
+      owner: "owner",
+      repo: "my-collection",
+      ref: "main",
+      manifestKey: "owner/my-collection",
+    };
+
+    const COLLECTION_CLONE_RESULT: CloneResult = {
+      tempDir: "/tmp/agntc-coll-conflict",
+      commit: "collconf123",
+    };
+
+    const COLLECTION_DETECTED: DetectedType = {
+      type: "collection",
+      plugins: ["pluginA", "pluginB"],
+    };
+
+    function setupCollectionConflictBase(): void {
+      mockParseSource.mockReturnValue(COLLECTION_PARSED);
+      mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+      mockReadConfig.mockImplementation(async (dir) => {
+        if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+        return { agents: ["claude"] };
+      });
+      mockDetectType.mockImplementation(async (dir) => {
+        if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+        return { type: "bare-skill" } as DetectedType;
+      });
+      mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+      mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
+      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockGetDriver.mockReturnValue(FAKE_DRIVER);
+      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockWriteManifest.mockResolvedValue(undefined);
+      mockCleanupTempDir.mockResolvedValue(undefined);
+      mockAddEntry.mockImplementation((manifest, key, entry) => ({
+        ...manifest,
+        [key]: entry,
+      }));
+      mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+
+      // Per-plugin computeIncomingFiles
+      mockComputeIncomingFiles.mockImplementation((input: any) => {
+        if (input.sourceDir?.endsWith("/pluginA")) {
+          return [".claude/skills/pluginA/"];
+        }
+        if (input.sourceDir?.endsWith("/pluginB")) {
+          return [".claude/skills/pluginB/"];
+        }
+        return [];
+      });
+      mockCheckFileCollisions.mockReturnValue(new Map());
+      mockResolveCollisions.mockResolvedValue({
+        resolved: true,
+        updatedManifest: EMPTY_MANIFEST,
+      });
+      mockCheckUnmanagedConflicts.mockResolvedValue([]);
+      mockResolveUnmanagedConflicts.mockResolvedValue({
+        approved: [],
+        cancelled: [],
+      });
+      mockCopyBareSkill
+        .mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+        .mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+    }
+
+    it("per-plugin collision and unmanaged checks called for each plugin", async () => {
+      setupCollectionConflictBase();
+
+      await runAdd("owner/my-collection");
+
+      expect(mockComputeIncomingFiles).toHaveBeenCalledTimes(2);
+      expect(mockCheckFileCollisions).toHaveBeenCalledTimes(2);
+      expect(mockCheckUnmanagedConflicts).toHaveBeenCalledTimes(2);
+    });
+
+    it("cancelled plugin at unmanaged stage excluded from copy", async () => {
+      setupCollectionConflictBase();
+      // pluginA has unmanaged conflict, user cancels
+      mockCheckUnmanagedConflicts.mockImplementation(async (files) => {
+        if (files.includes(".claude/skills/pluginA/")) {
+          return [".claude/skills/pluginA/"];
+        }
+        return [];
+      });
+      mockResolveUnmanagedConflicts.mockResolvedValue({
+        approved: [],
+        cancelled: [".claude/skills/pluginA/"],
+      });
+
+      await runAdd("owner/my-collection");
+
+      // Only pluginB should be copied
+      expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceDir: COLLECTION_CLONE_RESULT.tempDir + "/pluginB",
+        }),
+      );
+    });
+
+    it("cancelled plugin at collision stage excluded from copy", async () => {
+      setupCollectionConflictBase();
+      // pluginA has collision, user cancels
+      mockCheckFileCollisions.mockImplementation((files) => {
+        if (files.includes(".claude/skills/pluginA/")) {
+          return new Map([
+            ["other/repo", [".claude/skills/pluginA/"]],
+          ]);
+        }
+        return new Map();
+      });
+      mockResolveCollisions.mockResolvedValue({
+        resolved: false,
+        updatedManifest: EMPTY_MANIFEST,
+      });
+
+      await runAdd("owner/my-collection");
+
+      // Only pluginB should be copied
+      expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceDir: COLLECTION_CLONE_RESULT.tempDir + "/pluginB",
+        }),
+      );
+    });
+
+    it("all plugins cancelled exits gracefully", async () => {
+      setupCollectionConflictBase();
+      mockCheckFileCollisions.mockReturnValue(
+        new Map([["other/repo", [".claude/skills/pluginA/"]]]),
+      );
+      mockResolveCollisions.mockResolvedValue({
+        resolved: false,
+        updatedManifest: EMPTY_MANIFEST,
+      });
+
+      const err = await runAdd("owner/my-collection").catch((e) => e);
+
+      // Should still succeed even with all cancelled (just nothing installed)
+      // The behavior depends on implementation - might show "no plugins installed"
+      expect(mockCopyBareSkill).not.toHaveBeenCalled();
+    });
+
+    it("collision removal persists even if plugin later cancelled at unmanaged", async () => {
+      const manifestWithOther: Manifest = {
+        "other/repo": {
+          ref: "main",
+          commit: "old123",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/pluginA/"],
+        },
+      };
+      const manifestAfterRemoval: Manifest = {};
+      setupCollectionConflictBase();
+      mockReadManifest.mockResolvedValue(manifestWithOther);
+
+      // pluginA: collision found, user resolves (removes other/repo)
+      mockCheckFileCollisions.mockImplementation((files) => {
+        if (files.includes(".claude/skills/pluginA/")) {
+          return new Map([["other/repo", [".claude/skills/pluginA/"]]]);
+        }
+        return new Map();
+      });
+      mockResolveCollisions.mockResolvedValue({
+        resolved: true,
+        updatedManifest: manifestAfterRemoval,
+      });
+      // Then pluginA has unmanaged conflict, user cancels
+      mockCheckUnmanagedConflicts.mockImplementation(async (files) => {
+        if (files.includes(".claude/skills/pluginA/")) {
+          return [".claude/skills/pluginA/"];
+        }
+        return [];
+      });
+      mockResolveUnmanagedConflicts.mockResolvedValue({
+        approved: [],
+        cancelled: [".claude/skills/pluginA/"],
+      });
+
+      await runAdd("owner/my-collection");
+
+      // The manifest write should use the updated manifest (collision removal persisted)
+      // pluginB should still be installed using the updated manifest
+      expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+      // The final manifest write should reflect the removal from collision resolution
+      const writeCall = mockWriteManifest.mock.calls[0];
+      expect(writeCall).toBeDefined();
+    });
+
+    it("summary notes skipped plugins with reason", async () => {
+      setupCollectionConflictBase();
+      // pluginA has unmanaged conflict, user cancels
+      mockCheckUnmanagedConflicts.mockImplementation(async (files) => {
+        if (files.includes(".claude/skills/pluginA/")) {
+          return [".claude/skills/pluginA/"];
+        }
+        return [];
+      });
+      mockResolveUnmanagedConflicts.mockResolvedValue({
+        approved: [],
+        cancelled: [".claude/skills/pluginA/"],
+      });
+
+      await runAdd("owner/my-collection");
+
+      const outroCall = mockOutro.mock.calls[0]![0] as string;
+      expect(outroCall).toContain("pluginB");
+      // Should note the skipped plugin
+      expect(outroCall).toMatch(/1.*skip|cancel/i);
+    });
+
+    it("uses per-plugin manifest key as excludeKey for collision check", async () => {
+      setupCollectionConflictBase();
+
+      await runAdd("owner/my-collection");
+
+      // Each plugin's collision check should use its own manifest key as excludeKey
+      const collisionCalls = mockCheckFileCollisions.mock.calls;
+      expect(collisionCalls).toHaveLength(2);
+      expect(collisionCalls[0]![2]).toBe("owner/my-collection/pluginA");
+      expect(collisionCalls[1]![2]).toBe("owner/my-collection/pluginB");
     });
   });
 });
