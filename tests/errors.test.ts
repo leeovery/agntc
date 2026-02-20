@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isNodeError } from "../src/errors.js";
+import { isNodeError, errorMessage } from "../src/errors.js";
 
 describe("isNodeError", () => {
   it("returns true for Error with code property", () => {
@@ -25,5 +25,19 @@ describe("isNodeError", () => {
 
   it("returns false for string", () => {
     expect(isNodeError("ENOENT")).toBe(false);
+  });
+});
+
+describe("errorMessage", () => {
+  it("returns the message property for Error instances", () => {
+    expect(errorMessage(new Error("something broke"))).toBe("something broke");
+  });
+
+  it("returns String(err) for non-Error values", () => {
+    expect(errorMessage("raw string")).toBe("raw string");
+    expect(errorMessage(42)).toBe("42");
+    expect(errorMessage(null)).toBe("null");
+    expect(errorMessage(undefined)).toBe("undefined");
+    expect(errorMessage({ foo: "bar" })).toBe("[object Object]");
   });
 });

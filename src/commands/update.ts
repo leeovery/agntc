@@ -13,6 +13,7 @@ import {
 import { resolveTargetKeys } from "../resolve-target-keys.js";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 import { validateLocalSourcePath } from "../fs-utils.js";
+import { errorMessage } from "../errors.js";
 
 type PluginOutcome =
   | { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
@@ -295,11 +296,10 @@ async function processUpdateForAll(
       newEntry: result.manifestEntry,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     return {
       status: "failed",
       key,
-      summary: `${key}: Failed — ${message}`,
+      summary: `${key}: Failed — ${errorMessage(err)}`,
     };
   }
 }

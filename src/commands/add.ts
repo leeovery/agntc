@@ -23,6 +23,7 @@ import { checkUnmanagedConflicts } from "../unmanaged-check.js";
 import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
 import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { ExitSignal } from "../exit-signal.js";
+import { errorMessage } from "../errors.js";
 import type { AgentId } from "../drivers/types.js";
 import type { AgntcConfig } from "../config.js";
 import {
@@ -248,8 +249,7 @@ export async function runAdd(source: string): Promise<void> {
     if (err instanceof ExitSignal) {
       throw err;
     }
-    const message = err instanceof Error ? err.message : String(err);
-    p.cancel(message);
+    p.cancel(errorMessage(err));
     throw new ExitSignal(1);
   } finally {
     if (tempDir) {
@@ -510,12 +510,11 @@ async function runCollectionPipeline(
         });
       }
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
       results.push({
         pluginName,
         status: "failed",
         copiedFiles: [],
-        errorMessage,
+        errorMessage: errorMessage(err),
       });
     }
   }

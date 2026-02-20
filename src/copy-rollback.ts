@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { errorMessage } from "./errors.js";
 
 export async function rollbackCopiedFiles(
   files: string[],
@@ -12,8 +13,7 @@ export async function rollbackCopiedFiles(
       await rm(fullPath, { recursive: true, force: true });
     } catch (err) {
       if (onWarn) {
-        const message = err instanceof Error ? err.message : String(err);
-        onWarn(`Rollback: failed to delete ${file}: ${message}`);
+        onWarn(`Rollback: failed to delete ${file}: ${errorMessage(err)}`);
       }
     }
   }

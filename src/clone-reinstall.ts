@@ -6,6 +6,7 @@ import { cloneSource, cleanupTempDir } from "./git-clone.js";
 import {
   executeNukeAndReinstall,
 } from "./nuke-reinstall-pipeline.js";
+import { errorMessage } from "./errors.js";
 
 export interface CloneAndReinstallOptions {
   key: string;
@@ -114,11 +115,10 @@ export async function cloneAndReinstall(
       cloneResult = await cloneSource(parsed);
     } catch (err) {
       spin.stop("Clone failed");
-      const message = err instanceof Error ? err.message : String(err);
       return {
         status: "failed",
         failureReason: "clone-failed",
-        message,
+        message: errorMessage(err),
       };
     }
     spin.stop("Cloned successfully");

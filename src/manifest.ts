@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import * as p from "@clack/prompts";
 import type { AgentId } from "./drivers/types.js";
-import { isNodeError } from "./errors.js";
+import { isNodeError, errorMessage } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
 
 export interface ManifestEntry {
@@ -76,8 +76,7 @@ export async function readManifestOrExit(
   projectDir: string,
 ): Promise<Manifest> {
   return readManifest(projectDir).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Failed to read manifest: ${message}`);
+    p.log.error(`Failed to read manifest: ${errorMessage(err)}`);
     throw new ExitSignal(1);
   });
 }

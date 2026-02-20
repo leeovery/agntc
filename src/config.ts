@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "./drivers/types.js";
-import { isNodeError } from "./errors.js";
+import { isNodeError, errorMessage } from "./errors.js";
 
 export interface AgntcConfig {
   agents: AgentId[];
@@ -40,8 +40,7 @@ export async function readConfig(
   try {
     parsed = JSON.parse(raw);
   } catch (err: unknown) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new ConfigError(`Invalid agntc.json: ${detail}`);
+    throw new ConfigError(`Invalid agntc.json: ${errorMessage(err)}`);
   }
 
   if (

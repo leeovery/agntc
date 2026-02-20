@@ -7,6 +7,7 @@ import { copyPluginAssets } from "./copy-plugin-assets.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
 import { getDriver } from "./drivers/registry.js";
 import { computeAgentChanges } from "./agent-compat.js";
+import { errorMessage } from "./errors.js";
 
 export interface NukeReinstallOptions {
   key: string;
@@ -125,10 +126,9 @@ export async function executeNukeAndReinstall(
       copiedFiles = bareResult.copiedFiles;
     }
   } catch (err: unknown) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
     return {
       status: "copy-failed",
-      errorMessage,
+      errorMessage: errorMessage(err),
       recoveryHint:
         `Update failed for ${options.key} after removing old files. ` +
         `The plugin is currently uninstalled. ` +

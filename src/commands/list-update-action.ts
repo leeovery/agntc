@@ -3,6 +3,7 @@ import type { ManifestEntry, Manifest } from "../manifest.js";
 import { writeManifest, addEntry, removeEntry } from "../manifest.js";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 import { validateLocalSourcePath } from "../fs-utils.js";
+import { errorMessage } from "../errors.js";
 
 export interface UpdateActionResult {
   success: boolean;
@@ -143,7 +144,6 @@ async function runLocalUpdate(
       message: `Refreshed ${key}`,
     };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { success: false, message };
+    return { success: false, message: errorMessage(err) };
   }
 }
