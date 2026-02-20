@@ -1,8 +1,8 @@
 import { cp, mkdir, readdir } from "node:fs/promises";
-import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import type { AgentId, AgentWithDriver, AssetType } from "./drivers/types.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
+import { readDirEntries } from "./fs-utils.js";
 
 export interface CopyPluginAssetsInput {
   sourceDir: string;
@@ -62,7 +62,7 @@ async function copyAssetDir(
   targetDir: string,
   copiedFilesSet: Set<string>,
 ): Promise<number> {
-  const topEntries = await readTopEntries(assetSourceDir);
+  const topEntries = await readDirEntries(assetSourceDir);
 
   for (const entry of topEntries) {
     const src = join(assetSourceDir, entry.name);
@@ -80,20 +80,6 @@ async function copyAssetDir(
   }
 
   return topEntries.length;
-}
-
-interface DirEntry {
-  name: string;
-  isDirectory: boolean;
-}
-
-async function readTopEntries(dir: string): Promise<DirEntry[]> {
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-    return entries.map((e: Dirent) => ({ name: e.name, isDirectory: e.isDirectory() }));
-  } catch {
-    return [];
-  }
 }
 
 async function collectDirPaths(

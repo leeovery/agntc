@@ -1,6 +1,6 @@
-import { readdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { AgentWithDriver, AssetType } from "./drivers/types.js";
+import { readDirEntries, type DirEntry } from "./fs-utils.js";
 
 interface BareSkillInput {
   type: "bare-skill";
@@ -50,9 +50,9 @@ async function computePluginFiles(input: PluginInput): Promise<string[]> {
   const files: string[] = [];
 
   // Scan source asset directories to enumerate individual assets
-  const assetEntries = new Map<AssetType, SourceEntry[]>();
+  const assetEntries = new Map<AssetType, DirEntry[]>();
   for (const assetDir of assetDirs) {
-    assetEntries.set(assetDir, await readSourceAssetDir(join(sourceDir, assetDir)));
+    assetEntries.set(assetDir, await readDirEntries(join(sourceDir, assetDir)));
   }
 
   for (const agent of agents) {
@@ -78,18 +78,4 @@ async function computePluginFiles(input: PluginInput): Promise<string[]> {
   }
 
   return files;
-}
-
-interface SourceEntry {
-  name: string;
-  isDirectory: boolean;
-}
-
-async function readSourceAssetDir(dir: string): Promise<SourceEntry[]> {
-  try {
-    const entries = await readdir(dir, { withFileTypes: true });
-    return entries.map((e) => ({ name: e.name, isDirectory: e.isDirectory() }));
-  } catch {
-    return [];
-  }
 }
