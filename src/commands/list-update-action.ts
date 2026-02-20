@@ -4,7 +4,7 @@ import { stat } from "node:fs/promises";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import type { ParsedSource } from "../source-parser.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
-import { writeManifest, addEntry } from "../manifest.js";
+import { writeManifest, addEntry, removeEntry } from "../manifest.js";
 import {
   executeNukeAndReinstall,
 } from "../nuke-reinstall-pipeline.js";
@@ -115,6 +115,14 @@ async function runRemoteUpdate(
       };
     }
 
+    if (pipelineResult.status === "copy-failed") {
+      await writeManifest(projectDir, removeEntry(manifest, key));
+      return {
+        success: false,
+        message: pipelineResult.recoveryHint,
+      };
+    }
+
     const updated = addEntry(manifest, key, pipelineResult.entry);
     await writeManifest(projectDir, updated);
 
@@ -198,6 +206,14 @@ async function runLocalUpdate(
       return {
         success: false,
         message: `${key} is not a valid plugin`,
+      };
+    }
+
+    if (pipelineResult.status === "copy-failed") {
+      await writeManifest(projectDir, removeEntry(manifest, key));
+      return {
+        success: false,
+        message: pipelineResult.recoveryHint,
       };
     }
 

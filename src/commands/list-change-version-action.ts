@@ -4,7 +4,7 @@ import type { ManifestEntry, Manifest } from "../manifest.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import type { ParsedSource } from "../source-parser.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
-import { writeManifest, addEntry } from "../manifest.js";
+import { writeManifest, addEntry, removeEntry } from "../manifest.js";
 import {
   executeNukeAndReinstall,
 } from "../nuke-reinstall-pipeline.js";
@@ -125,6 +125,14 @@ export async function executeChangeVersionAction(
       return {
         changed: false,
         message: `New version of ${key} is not a valid plugin`,
+      };
+    }
+
+    if (pipelineResult.status === "copy-failed") {
+      await writeManifest(projectDir, removeEntry(manifest, key));
+      return {
+        changed: false,
+        message: pipelineResult.recoveryHint,
       };
     }
 

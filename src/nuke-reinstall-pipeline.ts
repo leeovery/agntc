@@ -41,11 +41,18 @@ interface NukeReinstallInvalidType {
   status: "invalid-type";
 }
 
+interface NukeReinstallCopyFailed {
+  status: "copy-failed";
+  errorMessage: string;
+  recoveryHint: string;
+}
+
 export type NukeReinstallResult =
   | NukeReinstallSuccess
   | NukeReinstallNoConfig
   | NukeReinstallNoAgents
-  | NukeReinstallInvalidType;
+  | NukeReinstallInvalidType
+  | NukeReinstallCopyFailed;
 
 export async function executeNukeAndReinstall(
   options: NukeReinstallOptions,
@@ -109,21 +116,33 @@ export async function executeNukeAndReinstall(
   // Copy from source
   let copiedFiles: string[];
 
-  if (detected.type === "plugin") {
-    const pluginResult = await copyPluginAssets({
-      sourceDir,
-      assetDirs: detected.assetDirs,
-      agents,
-      projectDir,
-    });
-    copiedFiles = pluginResult.copiedFiles;
-  } else {
-    const bareResult = await copyBareSkill({
-      sourceDir,
-      projectDir,
-      agents,
-    });
-    copiedFiles = bareResult.copiedFiles;
+  try {
+    if (detected.type === "plugin") {
+      const pluginResult = await copyPluginAssets({
+        sourceDir,
+        assetDirs: detected.assetDirs,
+        agents,
+        projectDir,
+      });
+      copiedFiles = pluginResult.copiedFiles;
+    } else {
+      const bareResult = await copyBareSkill({
+        sourceDir,
+        projectDir,
+        agents,
+      });
+      copiedFiles = bareResult.copiedFiles;
+    }
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    return {
+      status: "copy-failed",
+      errorMessage,
+      recoveryHint:
+        `Update failed for ${options.key} after removing old files. ` +
+        `The plugin is currently uninstalled. ` +
+        `Run \`npx agntc update ${options.key}\` to retry installation.`,
+    };
   }
 
   // Construct new manifest entry

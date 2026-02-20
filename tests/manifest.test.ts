@@ -14,6 +14,7 @@ import {
   readManifest,
   writeManifest,
   addEntry,
+  removeEntry,
   type ManifestEntry,
   type Manifest,
 } from "../src/manifest.js";
@@ -298,6 +299,66 @@ describe("addEntry", () => {
 
     expect(original).toEqual(originalCopy);
     expect(result).not.toBe(original);
+  });
+});
+
+describe("removeEntry", () => {
+  it("returns manifest without the specified key, preserves other entries", () => {
+    const entryA: ManifestEntry = {
+      ref: "main",
+      commit: "abc123",
+      installedAt: "2026-01-15T10:00:00.000Z",
+      agents: ["claude"],
+      files: [".claude/skills/skill-a/"],
+    };
+    const entryB: ManifestEntry = {
+      ref: "v2",
+      commit: "def456",
+      installedAt: "2026-01-16T10:00:00.000Z",
+      agents: ["codex"],
+      files: [".codex/skills/skill-b/"],
+    };
+    const manifest: Manifest = {
+      "owner/repo/skill-a": entryA,
+      "owner/repo/skill-b": entryB,
+    };
+
+    const result = removeEntry(manifest, "owner/repo/skill-a");
+
+    expect(result).toEqual({ "owner/repo/skill-b": entryB });
+    expect(result["owner/repo/skill-a"]).toBeUndefined();
+  });
+
+  it("returns manifest unchanged when key does not exist", () => {
+    const entry: ManifestEntry = {
+      ref: "main",
+      commit: "abc123",
+      installedAt: "2026-01-15T10:00:00.000Z",
+      agents: ["claude"],
+      files: [".claude/skills/skill/"],
+    };
+    const manifest: Manifest = { "owner/repo/skill": entry };
+
+    const result = removeEntry(manifest, "nonexistent/key");
+
+    expect(result).toEqual(manifest);
+  });
+
+  it("does not mutate input", () => {
+    const entry: ManifestEntry = {
+      ref: "main",
+      commit: "abc123",
+      installedAt: "2026-01-15T10:00:00.000Z",
+      agents: ["claude"],
+      files: [".claude/skills/skill/"],
+    };
+    const manifest: Manifest = { "owner/repo/skill": entry };
+    const copy = JSON.parse(JSON.stringify(manifest)) as Manifest;
+
+    const result = removeEntry(manifest, "owner/repo/skill");
+
+    expect(manifest).toEqual(copy);
+    expect(result).not.toBe(manifest);
   });
 });
 

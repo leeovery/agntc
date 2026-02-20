@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as p from "@clack/prompts";
 import { join } from "node:path";
 import { stat } from "node:fs/promises";
-import { readManifest, writeManifest, addEntry } from "../manifest.js";
+import { readManifest, writeManifest, addEntry, removeEntry } from "../manifest.js";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
 import type { UpdateCheckResult } from "../update-check.js";
@@ -25,7 +25,8 @@ type PluginOutcome =
   | { status: "up-to-date"; key: string; summary: string }
   | { status: "newer-tags"; key: string; summary: string }
   | { status: "check-failed"; key: string; summary: string }
-  | { status: "failed"; key: string; summary: string };
+  | { status: "failed"; key: string; summary: string }
+  | { status: "copy-failed"; key: string; summary: string };
 
 function buildParsedSource(
   key: string,
@@ -189,6 +190,13 @@ async function runGitUpdate(
       throw new ExitSignal(1);
     }
 
+    if (pipelineResult.status === "copy-failed") {
+      p.log.error(pipelineResult.recoveryHint);
+      const manifest = await readManifest(projectDir);
+      await writeManifest(projectDir, removeEntry(manifest, key));
+      throw new ExitSignal(1);
+    }
+
     // Summary
     p.outro(
       renderGitUpdateSummary({
@@ -284,6 +292,13 @@ async function runLocalUpdate(
     throw new ExitSignal(1);
   }
 
+  if (pipelineResult.status === "copy-failed") {
+    p.log.error(pipelineResult.recoveryHint);
+    const manifest = await readManifest(projectDir);
+    await writeManifest(projectDir, removeEntry(manifest, key));
+    throw new ExitSignal(1);
+  }
+
   p.outro(
     renderLocalUpdateSummary({
       key,
@@ -357,6 +372,14 @@ async function processGitUpdateForAll(
         status: "failed",
         key,
         summary: `${key}: Failed — not a valid plugin in new version`,
+      };
+    }
+
+    if (pipelineResult.status === "copy-failed") {
+      return {
+        status: "copy-failed",
+        key,
+        summary: pipelineResult.recoveryHint,
       };
     }
 
@@ -458,6 +481,14 @@ async function processLocalUpdateForAll(
       };
     }
 
+    if (pipelineResult.status === "copy-failed") {
+      return {
+        status: "copy-failed",
+        key,
+        summary: pipelineResult.recoveryHint,
+      };
+    }
+
     return {
       status: "refreshed",
       key,
@@ -556,7 +587,7 @@ async function runAllUpdates(): Promise<void> {
     outcomes.push(outcome);
   }
 
-  // Build updated manifest with all successful updates
+  // Build updated manifest with all successful updates and copy-failed removals
   let updatedManifest = { ...manifest };
   let hasChanges = false;
 
@@ -566,6 +597,9 @@ async function runAllUpdates(): Promise<void> {
       "newEntry" in outcome
     ) {
       updatedManifest = addEntry(updatedManifest, outcome.key, outcome.newEntry);
+      hasChanges = true;
+    } else if (outcome.status === "copy-failed") {
+      updatedManifest = removeEntry(updatedManifest, outcome.key);
       hasChanges = true;
     }
   }
@@ -624,6 +658,8 @@ async function runAllUpdates(): Promise<void> {
   for (const outcome of outcomes) {
     if (outcome.status === "updated" || outcome.status === "refreshed") {
       p.log.success(outcome.summary);
+    } else if (outcome.status === "copy-failed") {
+      p.log.error(outcome.summary);
     } else if (outcome.status === "failed" || outcome.status === "check-failed") {
       p.log.warn(outcome.summary);
     } else if (outcome.status === "newer-tags") {

@@ -53,6 +53,11 @@ export function addEntry(
   return { ...manifest, [key]: entry };
 }
 
+export function removeEntry(manifest: Manifest, key: string): Manifest {
+  const { [key]: _, ...rest } = manifest;
+  return rest;
+}
+
 function isNodeError(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && "code" in err;
 }

@@ -34,6 +34,7 @@ vi.mock("../../src/manifest.js", () => ({
   readManifest: vi.fn(),
   writeManifest: vi.fn(),
   addEntry: vi.fn(),
+  removeEntry: vi.fn(),
 }));
 
 vi.mock("../../src/update-check.js", () => ({
@@ -74,7 +75,7 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { readManifest, writeManifest, addEntry } from "../../src/manifest.js";
+import { readManifest, writeManifest, addEntry, removeEntry } from "../../src/manifest.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { cloneSource, cleanupTempDir } from "../../src/git-clone.js";
 import { readConfig } from "../../src/config.js";
@@ -89,6 +90,7 @@ import { runUpdate } from "../../src/commands/update.js";
 const mockReadManifest = vi.mocked(readManifest);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockAddEntry = vi.mocked(addEntry);
+const mockRemoveEntry = vi.mocked(removeEntry);
 const mockCheckForUpdate = vi.mocked(checkForUpdate);
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
@@ -138,6 +140,10 @@ beforeEach(() => {
     ...manifest,
     [key]: entry,
   }));
+  mockRemoveEntry.mockImplementation((manifest, key) => {
+    const { [key]: _, ...rest } = manifest;
+    return rest;
+  });
 });
 
 describe("update command", () => {
@@ -2098,6 +2104,224 @@ describe("update command", () => {
       // Should only update the exact match, not the collection entry
       expect(mockCheckForUpdate).toHaveBeenCalledTimes(1);
       expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo", standaloneEntry);
+    });
+  });
+
+  describe("copy-failed — single-update git path", () => {
+    it("throws ExitSignal and removes manifest entry on copy failure", async () => {
+      const entry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/my-skill/"],
+      });
+      const manifest = { "owner/repo": entry };
+      mockReadManifest.mockResolvedValue(manifest);
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      const err = await runUpdate("owner/repo").catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockWriteManifest).toHaveBeenCalledWith(
+        "/fake/project",
+        expect.not.objectContaining({ "owner/repo": expect.anything() }),
+      );
+    });
+
+    it("logs recovery hint on copy failure", async () => {
+      const entry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      await runUpdate("owner/repo").catch(() => {});
+
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining("npx agntc update owner/repo"),
+      );
+    });
+  });
+
+  describe("copy-failed — single-update local path", () => {
+    const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+    const LOCAL_ENTRY: ManifestEntry = {
+      ref: null,
+      commit: null,
+      installedAt: "2026-02-01T00:00:00.000Z",
+      agents: ["claude"],
+      files: [".claude/skills/my-plugin/"],
+    };
+
+    it("throws ExitSignal and removes manifest entry on local copy failure", async () => {
+      const manifest = { [LOCAL_KEY]: LOCAL_ENTRY };
+      mockReadManifest.mockResolvedValue(manifest);
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockWriteManifest).toHaveBeenCalledWith(
+        "/fake/project",
+        expect.not.objectContaining({ [LOCAL_KEY]: expect.anything() }),
+      );
+    });
+
+    it("logs recovery hint on local copy failure", async () => {
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      await runUpdate(LOCAL_KEY).catch(() => {});
+
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining(`npx agntc update ${LOCAL_KEY}`),
+      );
+    });
+  });
+
+  describe("copy-failed — all-updates mode", () => {
+    it("removes entry from batch manifest for git copy failure", async () => {
+      const entryA = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-a/"],
+      });
+      const entryB = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-b/"],
+      });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-a": entryA,
+        "owner/repo-b": entryB,
+      });
+
+      mockCheckForUpdate.mockImplementation(
+        async (key: string, _entry: ManifestEntry) => {
+          if (key === "owner/repo-a")
+            return { status: "update-available", remoteCommit: REMOTE_SHA };
+          return { status: "update-available", remoteCommit: REMOTE_SHA };
+        },
+      );
+
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+
+      // First plugin copy fails, second succeeds
+      mockCopyBareSkill
+        .mockRejectedValueOnce(new Error("disk full"))
+        .mockResolvedValueOnce({
+          copiedFiles: [".claude/skills/skill-b/"],
+        });
+
+      await runUpdate();
+
+      expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+      const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+      // copy-failed entry should be removed
+      expect(writtenManifest["owner/repo-a"]).toBeUndefined();
+      // successful entry should be present
+      expect(writtenManifest["owner/repo-b"]).toBeDefined();
+    });
+
+    it("logs recovery hint in summary for copy-failed plugin", async () => {
+      const entry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      await runUpdate();
+
+      const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+      const hasRecoveryHint = errorCalls.some(
+        (msg) => msg.includes("npx agntc update owner/repo"),
+      );
+      expect(hasRecoveryHint).toBe(true);
+    });
+
+    it("removes entry from batch manifest for local copy failure", async () => {
+      const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+      const localEntry: ManifestEntry = {
+        ref: null,
+        commit: null,
+        installedAt: "2026-02-01T00:00:00.000Z",
+        agents: ["claude"],
+        files: [".claude/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      await runUpdate();
+
+      expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+      const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+      expect(writtenManifest[LOCAL_KEY]).toBeUndefined();
     });
   });
 });

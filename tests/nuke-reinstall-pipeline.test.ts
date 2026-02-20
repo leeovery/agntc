@@ -311,6 +311,60 @@ describe("executeNukeAndReinstall", () => {
     });
   });
 
+  describe("copy failure after nuke", () => {
+    it("returns copy-failed with recovery message when copyBareSkill throws", async () => {
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("ENOSPC: no space left on device"));
+
+      const result = await executeNukeAndReinstall(makeOptions());
+
+      expect(result.status).toBe("copy-failed");
+      if (result.status !== "copy-failed") return;
+
+      expect(result.errorMessage).toBe("ENOSPC: no space left on device");
+      expect(result.recoveryHint).toBe(
+        "Update failed for owner/repo after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+      );
+    });
+
+    it("returns copy-failed with recovery message when copyPluginAssets throws", async () => {
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "plugin",
+        assetDirs: ["skills"],
+      } as DetectedType);
+      mockCopyPluginAssets.mockRejectedValue(new Error("EACCES: permission denied"));
+
+      const result = await executeNukeAndReinstall(makeOptions());
+
+      expect(result.status).toBe("copy-failed");
+      if (result.status !== "copy-failed") return;
+
+      expect(result.errorMessage).toBe("EACCES: permission denied");
+      expect(result.recoveryHint).toBe(
+        "Update failed for owner/repo after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+      );
+    });
+
+    it("confirms nuke was called before copy failed", async () => {
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      await executeNukeAndReinstall(makeOptions());
+
+      expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+        "/fake/project",
+        [".claude/skills/my-skill/"],
+      );
+    });
+  });
+
   describe("agent+driver pair construction", () => {
     it("builds agents with drivers from effective agents", async () => {
       const options = makeOptions({
