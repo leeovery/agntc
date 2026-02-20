@@ -3,8 +3,9 @@ import * as p from "@clack/prompts";
 import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import { readManifest, writeManifest, addEntry } from "../manifest.js";
-import type { ManifestEntry } from "../manifest.js";
+import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
+import type { UpdateCheckResult } from "../update-check.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
 import type { ParsedSource } from "../source-parser.js";
 import { readConfig } from "../config.js";
@@ -19,6 +20,14 @@ import {
   computeEffectiveAgents,
   findDroppedAgents,
 } from "../agent-compat.js";
+
+type PluginOutcome =
+  | { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
+  | { status: "refreshed"; key: string; summary: string; newEntry: ManifestEntry }
+  | { status: "up-to-date"; key: string; summary: string }
+  | { status: "newer-tags"; key: string; summary: string }
+  | { status: "check-failed"; key: string; summary: string }
+  | { status: "failed"; key: string; summary: string };
 
 function buildParsedSource(
   key: string,
@@ -48,10 +57,8 @@ function getSourceDir(tempDir: string, key: string): string {
 
 export async function runUpdate(key?: string): Promise<void> {
   if (key === undefined) {
-    p.log.error(
-      "Please specify a plugin to update: npx agntc update owner/repo",
-    );
-    throw new ExitSignal(1);
+    await runAllUpdates();
+    return;
   }
 
   const projectDir = process.cwd();
@@ -105,6 +112,15 @@ export async function runUpdate(key?: string): Promise<void> {
   }
 
   // update-available — proceed with clone-then-nuke pipeline
+  await runGitUpdate(key, entry, manifest, projectDir);
+}
+
+async function runGitUpdate(
+  key: string,
+  entry: ManifestEntry,
+  manifest: Manifest,
+  projectDir: string,
+): Promise<void> {
   const parsed = buildParsedSource(key, entry);
   let tempDir: string | undefined;
 
@@ -264,7 +280,7 @@ async function validateLocalPath(sourcePath: string): Promise<void> {
 async function runLocalUpdate(
   key: string,
   entry: ManifestEntry,
-  manifest: Record<string, ManifestEntry>,
+  manifest: Manifest,
   projectDir: string,
 ): Promise<void> {
   const sourcePath = key;
@@ -354,6 +370,411 @@ async function runLocalUpdate(
   p.outro(
     `Refreshed ${key} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}${droppedSuffix}`,
   );
+}
+
+// --- All-plugins mode helpers ---
+
+interface CheckedPlugin {
+  key: string;
+  entry: ManifestEntry;
+  checkResult: UpdateCheckResult;
+}
+
+async function processGitUpdateForAll(
+  key: string,
+  entry: ManifestEntry,
+  projectDir: string,
+): Promise<PluginOutcome> {
+  const parsed = buildParsedSource(key, entry);
+  let tempDir: string | undefined;
+
+  try {
+    const cloneResult = await cloneSource(parsed);
+    tempDir = cloneResult.tempDir;
+    const newCommit = cloneResult.commit;
+    const sourceDir = getSourceDir(tempDir, key);
+
+    const onWarn = (message: string) => p.log.warn(message);
+    const config = await readConfig(sourceDir, { onWarn });
+
+    if (config === null) {
+      return {
+        status: "failed",
+        key,
+        summary: `${key}: Failed — no agntc.json in new version`,
+      };
+    }
+
+    const effectiveAgents = computeEffectiveAgents(
+      entry.agents,
+      config.agents,
+    );
+
+    if (effectiveAgents.length === 0) {
+      return {
+        status: "failed",
+        key,
+        summary: `${key}: Skipped — no longer supports installed agents`,
+      };
+    }
+
+    const droppedAgents = findDroppedAgents(entry.agents, config.agents);
+    if (droppedAgents.length > 0) {
+      p.log.warn(
+        `Plugin ${key} no longer declares support for ${droppedAgents.join(", ")}. ` +
+          `Currently installed for: ${entry.agents.join(", ")}. ` +
+          `New version supports: ${config.agents.join(", ")}.`,
+      );
+    }
+
+    const detected = await detectType(sourceDir, {
+      hasConfig: true,
+      onWarn,
+    });
+
+    if (detected.type === "not-agntc" || detected.type === "collection") {
+      return {
+        status: "failed",
+        key,
+        summary: `${key}: Failed — not a valid plugin in new version`,
+      };
+    }
+
+    const agents = effectiveAgents.map((id) => ({
+      id: id as AgentId,
+      driver: getDriver(id as AgentId),
+    }));
+
+    await nukeManifestFiles(projectDir, entry.files);
+
+    let copiedFiles: string[];
+
+    if (detected.type === "plugin") {
+      const pluginResult = await copyPluginAssets({
+        sourceDir,
+        assetDirs: detected.assetDirs,
+        agents,
+        projectDir,
+      });
+      copiedFiles = pluginResult.copiedFiles;
+    } else {
+      const bareResult = await copyBareSkill({
+        sourceDir,
+        projectDir,
+        agents,
+      });
+      copiedFiles = bareResult.copiedFiles;
+    }
+
+    const oldShort = entry.commit ? entry.commit.slice(0, 7) : "unknown";
+    const newShort = newCommit.slice(0, 7);
+    const newEntry: ManifestEntry = {
+      ref: entry.ref,
+      commit: newCommit,
+      installedAt: new Date().toISOString(),
+      agents: effectiveAgents,
+      files: copiedFiles,
+    };
+
+    return {
+      status: "updated",
+      key,
+      summary: `${key}: Updated ${oldShort} -> ${newShort}`,
+      newEntry,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      status: "failed",
+      key,
+      summary: `${key}: Failed — ${message}`,
+    };
+  } finally {
+    if (tempDir) {
+      try {
+        await cleanupTempDir(tempDir);
+      } catch {
+        // Swallow cleanup errors
+      }
+    }
+  }
+}
+
+async function processLocalUpdateForAll(
+  key: string,
+  entry: ManifestEntry,
+  projectDir: string,
+): Promise<PluginOutcome> {
+  try {
+    const sourcePath = key;
+
+    try {
+      const stats = await stat(sourcePath);
+      if (!stats.isDirectory()) {
+        return {
+          status: "failed",
+          key,
+          summary: `${key}: Failed — path is not a directory`,
+        };
+      }
+    } catch {
+      return {
+        status: "failed",
+        key,
+        summary: `${key}: Failed — path does not exist`,
+      };
+    }
+
+    const onWarn = (message: string) => p.log.warn(message);
+    const config = await readConfig(sourcePath, { onWarn });
+
+    if (config === null) {
+      return {
+        status: "failed",
+        key,
+        summary: `${key}: Failed — no agntc.json`,
+      };
+    }
+
+    const effectiveAgents = computeEffectiveAgents(
+      entry.agents,
+      config.agents,
+    );
+
+    if (effectiveAgents.length === 0) {
+      return {
+        status: "failed",
+        key,
+        summary: `${key}: Skipped — no longer supports installed agents`,
+      };
+    }
+
+    const droppedAgents = findDroppedAgents(entry.agents, config.agents);
+    if (droppedAgents.length > 0) {
+      p.log.warn(
+        `Plugin ${key} no longer declares support for ${droppedAgents.join(", ")}. ` +
+          `Currently installed for: ${entry.agents.join(", ")}. ` +
+          `New version supports: ${config.agents.join(", ")}.`,
+      );
+    }
+
+    const detected = await detectType(sourcePath, {
+      hasConfig: true,
+      onWarn,
+    });
+
+    if (detected.type === "not-agntc" || detected.type === "collection") {
+      return {
+        status: "failed",
+        key,
+        summary: `${key}: Failed — not a valid plugin`,
+      };
+    }
+
+    const agents = effectiveAgents.map((id) => ({
+      id: id as AgentId,
+      driver: getDriver(id as AgentId),
+    }));
+
+    await nukeManifestFiles(projectDir, entry.files);
+
+    let copiedFiles: string[];
+
+    if (detected.type === "plugin") {
+      const pluginResult = await copyPluginAssets({
+        sourceDir: sourcePath,
+        assetDirs: detected.assetDirs,
+        agents,
+        projectDir,
+      });
+      copiedFiles = pluginResult.copiedFiles;
+    } else {
+      const bareResult = await copyBareSkill({
+        sourceDir: sourcePath,
+        projectDir,
+        agents,
+      });
+      copiedFiles = bareResult.copiedFiles;
+    }
+
+    const newEntry: ManifestEntry = {
+      ref: null,
+      commit: null,
+      installedAt: new Date().toISOString(),
+      agents: effectiveAgents,
+      files: copiedFiles,
+    };
+
+    return {
+      status: "refreshed",
+      key,
+      summary: `${key}: Refreshed from local path`,
+      newEntry,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      status: "failed",
+      key,
+      summary: `${key}: Failed — ${message}`,
+    };
+  }
+}
+
+async function runAllUpdates(): Promise<void> {
+  const projectDir = process.cwd();
+
+  const manifest = await readManifest(projectDir).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(`Failed to read manifest: ${message}`);
+    throw new ExitSignal(1);
+  });
+
+  const entries = Object.entries(manifest);
+
+  if (entries.length === 0) {
+    p.outro("No plugins installed.");
+    return;
+  }
+
+  // Parallel update checks with spinner
+  const spin = p.spinner();
+  spin.start("Checking for updates...");
+
+  const checkResults: CheckedPlugin[] = await Promise.all(
+    entries.map(async ([key, entry]) => ({
+      key,
+      entry,
+      checkResult: await checkForUpdate(key, entry),
+    })),
+  );
+
+  spin.stop("Update checks complete.");
+
+  // Categorize
+  const updateAvailable: CheckedPlugin[] = [];
+  const local: CheckedPlugin[] = [];
+  const newerTags: CheckedPlugin[] = [];
+  const upToDate: CheckedPlugin[] = [];
+  const checkFailed: CheckedPlugin[] = [];
+
+  for (const checked of checkResults) {
+    switch (checked.checkResult.status) {
+      case "update-available":
+        updateAvailable.push(checked);
+        break;
+      case "local":
+        local.push(checked);
+        break;
+      case "newer-tags":
+        newerTags.push(checked);
+        break;
+      case "up-to-date":
+        upToDate.push(checked);
+        break;
+      case "check-failed":
+        checkFailed.push(checked);
+        break;
+    }
+  }
+
+  // Process updatable plugins sequentially, collecting outcomes
+  const outcomes: PluginOutcome[] = [];
+
+  for (const checked of updateAvailable) {
+    const outcome = await processGitUpdateForAll(
+      checked.key,
+      checked.entry,
+      projectDir,
+    );
+    outcomes.push(outcome);
+  }
+
+  for (const checked of local) {
+    const outcome = await processLocalUpdateForAll(
+      checked.key,
+      checked.entry,
+      projectDir,
+    );
+    outcomes.push(outcome);
+  }
+
+  // Build updated manifest with all successful updates
+  let updatedManifest = { ...manifest };
+  let hasChanges = false;
+
+  for (const outcome of outcomes) {
+    if (
+      (outcome.status === "updated" || outcome.status === "refreshed") &&
+      "newEntry" in outcome
+    ) {
+      updatedManifest = addEntry(updatedManifest, outcome.key, outcome.newEntry);
+      hasChanges = true;
+    }
+  }
+
+  // Single manifest write
+  if (hasChanges) {
+    await writeManifest(projectDir, updatedManifest);
+  }
+
+  // Collect summaries for non-actionable categories
+  for (const checked of newerTags) {
+    const result = checked.checkResult;
+    if (result.status === "newer-tags") {
+      const reversed = [...result.tags].reverse();
+      const newest = reversed[0]!;
+      outcomes.push({
+        status: "newer-tags",
+        key: checked.key,
+        summary: `${checked.key}: Pinned to ${checked.entry.ref} — newer tags available (latest: ${newest})`,
+      });
+    }
+  }
+
+  for (const checked of upToDate) {
+    outcomes.push({
+      status: "up-to-date",
+      key: checked.key,
+      summary: `${checked.key}: Up to date`,
+    });
+  }
+
+  for (const checked of checkFailed) {
+    const result = checked.checkResult;
+    const reason =
+      result.status === "check-failed" ? result.reason : "unknown";
+    outcomes.push({
+      status: "check-failed",
+      key: checked.key,
+      summary: `${checked.key}: Check failed — ${reason}`,
+    });
+  }
+
+  // If everything is up-to-date and nothing else happened
+  const allUpToDate =
+    updateAvailable.length === 0 &&
+    local.length === 0 &&
+    checkFailed.length === 0 &&
+    newerTags.length === 0;
+
+  if (allUpToDate) {
+    p.outro("All plugins are up to date.");
+    return;
+  }
+
+  // Per-plugin summary
+  for (const outcome of outcomes) {
+    if (outcome.status === "updated" || outcome.status === "refreshed") {
+      p.log.success(outcome.summary);
+    } else if (outcome.status === "failed" || outcome.status === "check-failed") {
+      p.log.warn(outcome.summary);
+    } else if (outcome.status === "newer-tags") {
+      p.log.info(outcome.summary);
+    } else {
+      p.log.message(outcome.summary);
+    }
+  }
 }
 
 export const updateCommand = new Command("update")

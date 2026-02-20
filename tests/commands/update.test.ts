@@ -141,15 +141,502 @@ beforeEach(() => {
 });
 
 describe("update command", () => {
-  describe("no key provided", () => {
-    it("shows error and exits 1 when no key argument given", async () => {
-      const err = await runUpdate().catch((e) => e);
+  describe("all-plugins mode (no key)", () => {
+    it("displays message and exits 0 when manifest is empty", async () => {
+      mockReadManifest.mockResolvedValue({});
 
-      expect(err).toBeInstanceOf(ExitSignal);
-      expect((err as ExitSignal).code).toBe(1);
-      expect(mockLog.error).toHaveBeenCalledWith(
-        "Please specify a plugin to update: npx agntc update owner/repo",
+      await runUpdate();
+
+      expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+      expect(mockCheckForUpdate).not.toHaveBeenCalled();
+    });
+
+    it("checks all entries in parallel", async () => {
+      const entryA = makeEntry({ commit: INSTALLED_SHA });
+      const entryB = makeEntry({ commit: INSTALLED_SHA });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-a": entryA,
+        "owner/repo-b": entryB,
+      });
+
+      let resolveA!: (v: UpdateCheckResult) => void;
+      let resolveB!: (v: UpdateCheckResult) => void;
+      const promiseA = new Promise<UpdateCheckResult>((r) => { resolveA = r; });
+      const promiseB = new Promise<UpdateCheckResult>((r) => { resolveB = r; });
+
+      mockCheckForUpdate.mockImplementation(
+        async (key: string, _entry: ManifestEntry) => {
+          if (key === "owner/repo-a") {
+            return promiseA;
+          }
+          return promiseB;
+        },
       );
+
+      const runPromise = runUpdate();
+
+      // Wait a tick for both to start
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Both should be inflight (parallel check)
+      expect(mockCheckForUpdate).toHaveBeenCalledTimes(2);
+
+      resolveA({ status: "up-to-date" });
+      resolveB({ status: "up-to-date" });
+
+      await runPromise;
+    });
+
+    it("shows spinner during parallel checks", async () => {
+      const entry = makeEntry();
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
+
+      const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
+      vi.mocked(p.spinner).mockReturnValue(mockSpinner as ReturnType<typeof p.spinner>);
+
+      await runUpdate();
+
+      expect(mockSpinner.start).toHaveBeenCalledWith(
+        expect.stringContaining("Checking for updates"),
+      );
+      expect(mockSpinner.stop).toHaveBeenCalled();
+    });
+
+    it("shows all up-to-date message when all plugins are current", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-a": makeEntry(),
+        "owner/repo-b": makeEntry(),
+      });
+      mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
+
+      await runUpdate();
+
+      expect(mockOutro).toHaveBeenCalledWith(
+        expect.stringContaining("up to date"),
+      );
+      expect(mockWriteManifest).not.toHaveBeenCalled();
+    });
+
+    it("processes update-available plugins via git update", async () => {
+      const entry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate();
+
+      expect(mockCloneSource).toHaveBeenCalled();
+      expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+        "/fake/project",
+        [".claude/skills/my-skill/"],
+      );
+      expect(mockCopyBareSkill).toHaveBeenCalled();
+      expect(mockWriteManifest).toHaveBeenCalled();
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        expect.anything(),
+        "owner/repo",
+        expect.objectContaining({
+          commit: REMOTE_SHA,
+          agents: ["claude"],
+        }),
+      );
+    });
+
+    it("processes local plugins via re-copy", async () => {
+      const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+      const localEntry: ManifestEntry = {
+        ref: null,
+        commit: null,
+        installedAt: "2026-02-01T00:00:00.000Z",
+        agents: ["claude"],
+        files: [".claude/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+
+      await runUpdate();
+
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceDir: LOCAL_KEY,
+        }),
+      );
+      expect(mockCloneSource).not.toHaveBeenCalled();
+      expect(mockWriteManifest).toHaveBeenCalled();
+    });
+
+    it("shows info for newer-tags plugins without updating", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": makeEntry({ ref: "v1.0" }),
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "newer-tags",
+        tags: ["v2.0", "v3.0"],
+      });
+
+      await runUpdate();
+
+      expect(mockCloneSource).not.toHaveBeenCalled();
+      expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+      // Summary should mention newer tags
+      const allLogCalls = [
+        ...mockLog.info.mock.calls.map((c) => c[0]),
+        ...mockLog.message.mock.calls.map((c) => c[0]),
+      ];
+      const hasNewerTagsInfo = allLogCalls.some(
+        (msg) => typeof msg === "string" && msg.includes("newer tags"),
+      );
+      expect(hasNewerTagsInfo).toBe(true);
+    });
+
+    it("notes check-failed plugins in summary", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": makeEntry(),
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "check-failed",
+        reason: "network timeout",
+      });
+
+      await runUpdate();
+
+      // Should not throw (continues)
+      // Summary should mention the failure
+      const allLogCalls = [
+        ...mockLog.warn.mock.calls.map((c) => c[0]),
+        ...mockLog.message.mock.calls.map((c) => c[0]),
+        ...mockLog.info.mock.calls.map((c) => c[0]),
+      ];
+      const hasFailedNote = allLogCalls.some(
+        (msg) => typeof msg === "string" && (msg.includes("failed") || msg.includes("Failed")),
+      );
+      expect(hasFailedNote).toBe(true);
+    });
+
+    it("performs single manifest write for multiple updates", async () => {
+      const entryA = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-a/"],
+      });
+      const entryB = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-b/"],
+      });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-a": entryA,
+        "owner/repo-b": entryB,
+      });
+
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/updated/"],
+      });
+
+      await runUpdate();
+
+      expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+    });
+
+    it("continues processing when one plugin fails during update", async () => {
+      const entryA = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-a/"],
+      });
+      const entryB = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-b/"],
+      });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-a": entryA,
+        "owner/repo-b": entryB,
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+
+      // First clone fails, second succeeds
+      mockCloneSource
+        .mockRejectedValueOnce(new Error("clone failed"))
+        .mockResolvedValueOnce({
+          tempDir: "/tmp/agntc-clone-b",
+          commit: REMOTE_SHA,
+        });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/skill-b/"],
+      });
+
+      await runUpdate();
+
+      // Should not throw — partial failure continues
+      // B should have been processed
+      expect(mockCopyBareSkill).toHaveBeenCalled();
+      expect(mockWriteManifest).toHaveBeenCalled();
+    });
+
+    it("handles mixed types in a single run", async () => {
+      const gitEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/git-skill/"],
+      });
+      const localEntry: ManifestEntry = {
+        ref: null,
+        commit: null,
+        installedAt: "2026-02-01T00:00:00.000Z",
+        agents: ["claude"],
+        files: [".claude/skills/local-skill/"],
+      };
+      const tagEntry = makeEntry({
+        ref: "v1.0",
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/tagged-skill/"],
+      });
+      const upToDateEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/current-skill/"],
+      });
+
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-git": gitEntry,
+        "/local/path": localEntry,
+        "owner/repo-tag": tagEntry,
+        "owner/repo-current": upToDateEntry,
+      });
+
+      mockCheckForUpdate.mockImplementation(
+        async (key: string, _entry: ManifestEntry) => {
+          if (key === "owner/repo-git")
+            return { status: "update-available", remoteCommit: REMOTE_SHA };
+          if (key === "/local/path") return { status: "local" };
+          if (key === "owner/repo-tag")
+            return { status: "newer-tags", tags: ["v2.0"] };
+          return { status: "up-to-date" };
+        },
+      );
+
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/some-skill/"],
+      });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+
+      await runUpdate();
+
+      // Git update should clone
+      expect(mockCloneSource).toHaveBeenCalled();
+      // Local update should stat
+      expect(mockStat).toHaveBeenCalled();
+      // Tag-pinned should not clone or nuke
+      // Manifest should be written (at least git and local were updated)
+      expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+    });
+
+    it("shows per-plugin summary", async () => {
+      const entryA = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-a/"],
+      });
+      const entryB = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/skill-b/"],
+      });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-a": entryA,
+        "owner/repo-b": entryB,
+      });
+
+      mockCheckForUpdate.mockImplementation(
+        async (key: string, _entry: ManifestEntry) => {
+          if (key === "owner/repo-a")
+            return { status: "update-available", remoteCommit: REMOTE_SHA };
+          return { status: "up-to-date" };
+        },
+      );
+
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/skill-a/"],
+      });
+
+      await runUpdate();
+
+      // Should have per-plugin info in the output
+      const allMessages = [
+        ...mockLog.info.mock.calls.map((c) => c[0]),
+        ...mockLog.message.mock.calls.map((c) => c[0]),
+        ...mockLog.success.mock.calls.map((c) => c[0]),
+      ];
+      const hasRepoA = allMessages.some(
+        (msg) => typeof msg === "string" && msg.includes("owner/repo-a"),
+      );
+      const hasRepoB = allMessages.some(
+        (msg) => typeof msg === "string" && msg.includes("owner/repo-b"),
+      );
+      expect(hasRepoA).toBe(true);
+      expect(hasRepoB).toBe(true);
+    });
+
+    it("emits dropped-agent warning for git update in all-plugins mode", async () => {
+      const entry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate();
+
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining("codex"),
+      );
+    });
+
+    it("emits dropped-agent warning for local update in all-plugins mode", async () => {
+      const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+      const localEntry: ManifestEntry = {
+        ref: null,
+        commit: null,
+        installedAt: "2026-02-01T00:00:00.000Z",
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+
+      await runUpdate();
+
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining("codex"),
+      );
+    });
+
+    it("does not write manifest when nothing was updated", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo-a": makeEntry(),
+        "owner/repo-b": makeEntry({ ref: "v1.0" }),
+      });
+      mockCheckForUpdate.mockImplementation(
+        async (key: string, _entry: ManifestEntry) => {
+          if (key === "owner/repo-b")
+            return { status: "newer-tags", tags: ["v2.0"] };
+          return { status: "up-to-date" };
+        },
+      );
+
+      await runUpdate();
+
+      expect(mockWriteManifest).not.toHaveBeenCalled();
+    });
+
+    it("cleans up temp dirs for git updates", async () => {
+      const entry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate();
+
+      expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
     });
   });
 
