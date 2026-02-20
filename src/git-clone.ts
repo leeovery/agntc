@@ -54,6 +54,9 @@ function resolveCloneUrl(parsed: ParsedSource): string {
   if (parsed.type === "https-url" || parsed.type === "ssh-url") {
     return parsed.cloneUrl;
   }
+  if (parsed.type === "local-path") {
+    throw new Error("cloneSource should not be called for local paths");
+  }
   return `https://github.com/${parsed.owner}/${parsed.repo}.git`;
 }
 

@@ -1,9 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { parseSource } from "../src/source-parser.js";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { tmpdir, homedir } from "node:os";
 
 describe("parseSource", () => {
-  it("parses owner/repo into structured source with null ref", () => {
-    const result = parseSource("owner/repo");
+  it("parses owner/repo into structured source with null ref", async () => {
+    const result = await parseSource("owner/repo");
     expect(result).toEqual({
       type: "github-shorthand",
       owner: "owner",
@@ -13,8 +16,8 @@ describe("parseSource", () => {
     });
   });
 
-  it("parses owner/repo@ref with tag ref", () => {
-    const result = parseSource("owner/repo@v2.0");
+  it("parses owner/repo@ref with tag ref", async () => {
+    const result = await parseSource("owner/repo@v2.0");
     expect(result).toEqual({
       type: "github-shorthand",
       owner: "owner",
@@ -24,8 +27,8 @@ describe("parseSource", () => {
     });
   });
 
-  it("parses owner/repo@ref with branch name ref", () => {
-    const result = parseSource("owner/repo@main");
+  it("parses owner/repo@ref with branch name ref", async () => {
+    const result = await parseSource("owner/repo@main");
     expect(result).toEqual({
       type: "github-shorthand",
       owner: "owner",
@@ -35,13 +38,13 @@ describe("parseSource", () => {
     });
   });
 
-  it("returns manifestKey as owner/repo", () => {
-    const result = parseSource("alice/my-skills@v1.0");
+  it("returns manifestKey as owner/repo", async () => {
+    const result = await parseSource("alice/my-skills@v1.0");
     expect(result.manifestKey).toBe("alice/my-skills");
   });
 
-  it("trims whitespace from input", () => {
-    const result = parseSource("  owner/repo  ");
+  it("trims whitespace from input", async () => {
+    const result = await parseSource("  owner/repo  ");
     expect(result).toEqual({
       type: "github-shorthand",
       owner: "owner",
@@ -51,36 +54,39 @@ describe("parseSource", () => {
     });
   });
 
-  it("throws for missing owner segment (bare repo name)", () => {
-    expect(() => parseSource("repo")).toThrow(
+  it("throws for missing owner segment (bare repo name)", async () => {
+    await expect(parseSource("repo")).rejects.toThrow(
       /must be in owner\/repo format/,
     );
   });
 
-  it("throws for empty owner (leading slash)", () => {
-    expect(() => parseSource("/repo")).toThrow(/owner cannot be empty/);
+  it("treats leading slash as local path (not GitHub shorthand)", async () => {
+    // /repo is now detected as a local path, not owner/repo with empty owner
+    await expect(parseSource("/repo")).rejects.toThrow(
+      /Path \/repo does not exist or is not a directory/,
+    );
   });
 
-  it("throws for empty repo (trailing slash)", () => {
-    expect(() => parseSource("owner/")).toThrow(/repo cannot be empty/);
+  it("throws for empty repo (trailing slash)", async () => {
+    await expect(parseSource("owner/")).rejects.toThrow(/repo cannot be empty/);
   });
 
-  it("throws for empty ref after @ symbol", () => {
-    expect(() => parseSource("owner/repo@")).toThrow(/ref cannot be empty/);
+  it("throws for empty ref after @ symbol", async () => {
+    await expect(parseSource("owner/repo@")).rejects.toThrow(/ref cannot be empty/);
   });
 
-  it("throws for extra slashes in path (three segments)", () => {
-    expect(() => parseSource("a/b/c")).toThrow(
+  it("throws for extra slashes in path (three segments)", async () => {
+    await expect(parseSource("a/b/c")).rejects.toThrow(
       /too many slashes/,
     );
   });
 
-  it("throws for empty string input", () => {
-    expect(() => parseSource("")).toThrow(/source cannot be empty/);
+  it("throws for empty string input", async () => {
+    await expect(parseSource("")).rejects.toThrow(/source cannot be empty/);
   });
 
-  it("handles ref containing special characters (e.g., v2.0.0-beta.1)", () => {
-    const result = parseSource("owner/repo@v2.0.0-beta.1");
+  it("handles ref containing special characters (e.g., v2.0.0-beta.1)", async () => {
+    const result = await parseSource("owner/repo@v2.0.0-beta.1");
     expect(result).toEqual({
       type: "github-shorthand",
       owner: "owner",
@@ -90,8 +96,8 @@ describe("parseSource", () => {
     });
   });
 
-  it("splits on first @ only - ref can contain @ characters", () => {
-    const result = parseSource("owner/repo@feat@special");
+  it("splits on first @ only - ref can contain @ characters", async () => {
+    const result = await parseSource("owner/repo@feat@special");
     expect(result).toEqual({
       type: "github-shorthand",
       owner: "owner",
@@ -102,8 +108,8 @@ describe("parseSource", () => {
   });
 
   describe("HTTPS URL sources", () => {
-    it("parses GitHub HTTPS URL with owner/repo", () => {
-      const result = parseSource("https://github.com/owner/repo");
+    it("parses GitHub HTTPS URL with owner/repo", async () => {
+      const result = await parseSource("https://github.com/owner/repo");
       expect(result).toEqual({
         type: "https-url",
         owner: "owner",
@@ -114,8 +120,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("parses GitLab HTTPS URL", () => {
-      const result = parseSource("https://gitlab.com/org/project");
+    it("parses GitLab HTTPS URL", async () => {
+      const result = await parseSource("https://gitlab.com/org/project");
       expect(result).toEqual({
         type: "https-url",
         owner: "org",
@@ -126,8 +132,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("parses Bitbucket HTTPS URL", () => {
-      const result = parseSource("https://bitbucket.org/team/tools");
+    it("parses Bitbucket HTTPS URL", async () => {
+      const result = await parseSource("https://bitbucket.org/team/tools");
       expect(result).toEqual({
         type: "https-url",
         owner: "team",
@@ -138,8 +144,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("parses HTTPS URL with @ref suffix", () => {
-      const result = parseSource("https://github.com/owner/repo@v1.0");
+    it("parses HTTPS URL with @ref suffix", async () => {
+      const result = await parseSource("https://github.com/owner/repo@v1.0");
       expect(result).toEqual({
         type: "https-url",
         owner: "owner",
@@ -150,8 +156,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("parses HTTPS URL with branch ref", () => {
-      const result = parseSource("https://gitlab.com/org/project@main");
+    it("parses HTTPS URL with branch ref", async () => {
+      const result = await parseSource("https://gitlab.com/org/project@main");
       expect(result).toEqual({
         type: "https-url",
         owner: "org",
@@ -162,8 +168,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("strips trailing slash from URL", () => {
-      const result = parseSource("https://github.com/owner/repo/");
+    it("strips trailing slash from URL", async () => {
+      const result = await parseSource("https://github.com/owner/repo/");
       expect(result).toEqual({
         type: "https-url",
         owner: "owner",
@@ -174,8 +180,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("strips .git suffix from repo in URL", () => {
-      const result = parseSource("https://github.com/owner/repo.git");
+    it("strips .git suffix from repo in URL", async () => {
+      const result = await parseSource("https://github.com/owner/repo.git");
       expect(result).toEqual({
         type: "https-url",
         owner: "owner",
@@ -186,8 +192,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("strips both trailing slash and .git suffix", () => {
-      const result = parseSource("https://github.com/owner/repo.git/");
+    it("strips both trailing slash and .git suffix", async () => {
+      const result = await parseSource("https://github.com/owner/repo.git/");
       expect(result).toEqual({
         type: "https-url",
         owner: "owner",
@@ -198,8 +204,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("strips .git suffix before extracting ref", () => {
-      const result = parseSource("https://github.com/owner/repo.git@v2.0");
+    it("strips .git suffix before extracting ref", async () => {
+      const result = await parseSource("https://github.com/owner/repo.git@v2.0");
       expect(result).toEqual({
         type: "https-url",
         owner: "owner",
@@ -210,15 +216,15 @@ describe("parseSource", () => {
       });
     });
 
-    it("manifestKey is host-independent (owner/repo only)", () => {
-      const github = parseSource("https://github.com/owner/repo");
-      const gitlab = parseSource("https://gitlab.com/owner/repo");
+    it("manifestKey is host-independent (owner/repo only)", async () => {
+      const github = await parseSource("https://github.com/owner/repo");
+      const gitlab = await parseSource("https://gitlab.com/owner/repo");
       expect(github.manifestKey).toBe("owner/repo");
       expect(gitlab.manifestKey).toBe("owner/repo");
     });
 
-    it("trims whitespace from HTTPS URL input", () => {
-      const result = parseSource("  https://github.com/owner/repo  ");
+    it("trims whitespace from HTTPS URL input", async () => {
+      const result = await parseSource("  https://github.com/owner/repo  ");
       expect(result).toEqual({
         type: "https-url",
         owner: "owner",
@@ -229,22 +235,22 @@ describe("parseSource", () => {
       });
     });
 
-    it("throws for HTTPS URL with no path segments", () => {
-      expect(() => parseSource("https://github.com")).toThrow();
+    it("throws for HTTPS URL with no path segments", async () => {
+      await expect(parseSource("https://github.com")).rejects.toThrow();
     });
 
-    it("throws for HTTPS URL with single path segment", () => {
-      expect(() => parseSource("https://github.com/owner")).toThrow();
+    it("throws for HTTPS URL with single path segment", async () => {
+      await expect(parseSource("https://github.com/owner")).rejects.toThrow();
     });
 
-    it("throws for HTTPS URL with empty ref after @", () => {
-      expect(() => parseSource("https://github.com/owner/repo@")).toThrow(
+    it("throws for HTTPS URL with empty ref after @", async () => {
+      await expect(parseSource("https://github.com/owner/repo@")).rejects.toThrow(
         /ref cannot be empty/,
       );
     });
 
-    it("supports self-hosted git hosts", () => {
-      const result = parseSource("https://git.mycompany.com/team/project");
+    it("supports self-hosted git hosts", async () => {
+      const result = await parseSource("https://git.mycompany.com/team/project");
       expect(result).toEqual({
         type: "https-url",
         owner: "team",
@@ -257,8 +263,8 @@ describe("parseSource", () => {
   });
 
   describe("SSH URL sources", () => {
-    it("parses git@github.com:owner/repo.git without ref", () => {
-      const result = parseSource("git@github.com:owner/repo.git");
+    it("parses git@github.com:owner/repo.git without ref", async () => {
+      const result = await parseSource("git@github.com:owner/repo.git");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "owner",
@@ -269,8 +275,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("parses git@github.com:owner/repo.git@v1.0 with tag ref", () => {
-      const result = parseSource("git@github.com:owner/repo.git@v1.0");
+    it("parses git@github.com:owner/repo.git@v1.0 with tag ref", async () => {
+      const result = await parseSource("git@github.com:owner/repo.git@v1.0");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "owner",
@@ -281,8 +287,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("parses SSH URL with branch ref", () => {
-      const result = parseSource("git@github.com:owner/repo.git@main");
+    it("parses SSH URL with branch ref", async () => {
+      const result = await parseSource("git@github.com:owner/repo.git@main");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "owner",
@@ -293,8 +299,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("handles missing .git suffix by adding it to cloneUrl", () => {
-      const result = parseSource("git@github.com:owner/repo");
+    it("handles missing .git suffix by adding it to cloneUrl", async () => {
+      const result = await parseSource("git@github.com:owner/repo");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "owner",
@@ -305,8 +311,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("handles missing .git suffix with ref", () => {
-      const result = parseSource("git@github.com:owner/repo@v2.0");
+    it("handles missing .git suffix with ref", async () => {
+      const result = await parseSource("git@github.com:owner/repo@v2.0");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "owner",
@@ -317,8 +323,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("supports non-GitHub hosts (GitLab)", () => {
-      const result = parseSource("git@gitlab.com:org/project.git");
+    it("supports non-GitHub hosts (GitLab)", async () => {
+      const result = await parseSource("git@gitlab.com:org/project.git");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "org",
@@ -329,8 +335,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("supports non-GitHub hosts (Bitbucket)", () => {
-      const result = parseSource("git@bitbucket.org:team/tools.git@v3.0");
+    it("supports non-GitHub hosts (Bitbucket)", async () => {
+      const result = await parseSource("git@bitbucket.org:team/tools.git@v3.0");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "team",
@@ -341,8 +347,8 @@ describe("parseSource", () => {
       });
     });
 
-    it("supports self-hosted git hosts", () => {
-      const result = parseSource("git@git.mycompany.com:team/project.git");
+    it("supports self-hosted git hosts", async () => {
+      const result = await parseSource("git@git.mycompany.com:team/project.git");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "team",
@@ -353,15 +359,15 @@ describe("parseSource", () => {
       });
     });
 
-    it("manifestKey is owner/repo regardless of host", () => {
-      const github = parseSource("git@github.com:owner/repo.git");
-      const gitlab = parseSource("git@gitlab.com:owner/repo.git");
+    it("manifestKey is owner/repo regardless of host", async () => {
+      const github = await parseSource("git@github.com:owner/repo.git");
+      const gitlab = await parseSource("git@gitlab.com:owner/repo.git");
       expect(github.manifestKey).toBe("owner/repo");
       expect(gitlab.manifestKey).toBe("owner/repo");
     });
 
-    it("trims whitespace from SSH URL input", () => {
-      const result = parseSource("  git@github.com:owner/repo.git  ");
+    it("trims whitespace from SSH URL input", async () => {
+      const result = await parseSource("  git@github.com:owner/repo.git  ");
       expect(result).toEqual({
         type: "ssh-url",
         owner: "owner",
@@ -372,32 +378,32 @@ describe("parseSource", () => {
       });
     });
 
-    it("throws for malformed SSH URL missing colon", () => {
-      expect(() => parseSource("git@github.com/owner/repo.git")).toThrow(
+    it("throws for malformed SSH URL missing colon", async () => {
+      await expect(parseSource("git@github.com/owner/repo.git")).rejects.toThrow(
         /invalid SSH URL/,
       );
     });
 
-    it("throws for malformed SSH URL missing owner/repo path", () => {
-      expect(() => parseSource("git@github.com:")).toThrow(
+    it("throws for malformed SSH URL missing owner/repo path", async () => {
+      await expect(parseSource("git@github.com:")).rejects.toThrow(
         /invalid SSH URL/,
       );
     });
 
-    it("throws for malformed SSH URL with only owner (no repo)", () => {
-      expect(() => parseSource("git@github.com:owner")).toThrow(
+    it("throws for malformed SSH URL with only owner (no repo)", async () => {
+      await expect(parseSource("git@github.com:owner")).rejects.toThrow(
         /invalid SSH URL/,
       );
     });
 
-    it("throws for SSH URL with empty ref after @", () => {
-      expect(() => parseSource("git@github.com:owner/repo.git@")).toThrow(
+    it("throws for SSH URL with empty ref after @", async () => {
+      await expect(parseSource("git@github.com:owner/repo.git@")).rejects.toThrow(
         /ref cannot be empty/,
       );
     });
 
-    it("handles ref with special characters", () => {
-      const result = parseSource(
+    it("handles ref with special characters", async () => {
+      const result = await parseSource(
         "git@github.com:owner/repo.git@v2.0.0-beta.1",
       );
       expect(result).toEqual({
@@ -412,26 +418,163 @@ describe("parseSource", () => {
   });
 
   describe("GitHub shorthand still works (no regression)", () => {
-    it("simple owner/repo still returns github-shorthand type", () => {
-      const result = parseSource("owner/repo");
+    it("simple owner/repo still returns github-shorthand type", async () => {
+      const result = await parseSource("owner/repo");
       expect(result.type).toBe("github-shorthand");
     });
 
-    it("owner/repo@ref still returns github-shorthand type", () => {
-      const result = parseSource("owner/repo@v1.0");
+    it("owner/repo@ref still returns github-shorthand type", async () => {
+      const result = await parseSource("owner/repo@v1.0");
       expect(result.type).toBe("github-shorthand");
     });
   });
 
   describe("HTTPS URL sources still work (no regression)", () => {
-    it("HTTPS URL still returns https-url type", () => {
-      const result = parseSource("https://github.com/owner/repo");
+    it("HTTPS URL still returns https-url type", async () => {
+      const result = await parseSource("https://github.com/owner/repo");
       expect(result.type).toBe("https-url");
     });
 
-    it("HTTPS URL with ref still returns https-url type", () => {
-      const result = parseSource("https://github.com/owner/repo@v1.0");
+    it("HTTPS URL with ref still returns https-url type", async () => {
+      const result = await parseSource("https://github.com/owner/repo@v1.0");
       expect(result.type).toBe("https-url");
+    });
+  });
+
+  describe("local path sources", () => {
+    let testDir: string;
+
+    beforeEach(() => {
+      testDir = join(tmpdir(), `agntc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      mkdirSync(testDir, { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(testDir, { recursive: true, force: true });
+    });
+
+    it("parses absolute path starting with /", async () => {
+      const result = await parseSource(testDir);
+      expect(result).toEqual({
+        type: "local-path",
+        resolvedPath: testDir,
+        ref: null,
+        manifestKey: testDir,
+      });
+    });
+
+    it("resolves ./ relative path to absolute", async () => {
+      // Create a subdir in cwd to test ./ prefix
+      const cwd = process.cwd();
+      const subName = `agntc-dotslash-test-${Date.now()}`;
+      const subDir = join(cwd, subName);
+      mkdirSync(subDir, { recursive: true });
+      try {
+        const result = await parseSource(`./${subName}`);
+        expect(result.type).toBe("local-path");
+        if (result.type === "local-path") {
+          expect(result.resolvedPath).toBe(subDir);
+          expect(result.manifestKey).toBe(subDir);
+        }
+      } finally {
+        rmSync(subDir, { recursive: true, force: true });
+      }
+    });
+
+    it("resolves ../ relative paths to absolute", async () => {
+      // path.resolve normalizes ../ segments
+      const subDir = join(testDir, "sub");
+      mkdirSync(subDir);
+      const relativePath = `${testDir}/sub/..`;
+      const result = await parseSource(relativePath);
+      expect(result.type).toBe("local-path");
+      if (result.type === "local-path") {
+        expect(result.resolvedPath).toBe(testDir);
+        expect(result.manifestKey).toBe(testDir);
+      }
+    });
+
+    it("expands tilde to home directory", async () => {
+      // ~ alone should resolve to the home directory
+      const home = homedir();
+      const result = await parseSource("~");
+      expect(result.type).toBe("local-path");
+      if (result.type === "local-path") {
+        expect(result.resolvedPath).toBe(home);
+        expect(result.manifestKey).toBe(home);
+      }
+    });
+
+    it("has ref as null for local paths", async () => {
+      const result = await parseSource(testDir);
+      expect(result.ref).toBeNull();
+    });
+
+    it("uses resolved absolute path as manifestKey", async () => {
+      const result = await parseSource(testDir);
+      expect(result.manifestKey).toBe(testDir);
+    });
+
+    it("throws for non-existent path", async () => {
+      const fakePath = join(testDir, "does-not-exist");
+      await expect(parseSource(fakePath)).rejects.toThrow(
+        `Path ${fakePath} does not exist or is not a directory`,
+      );
+    });
+
+    it("throws for path that is a file, not a directory", async () => {
+      const filePath = join(testDir, "somefile.txt");
+      writeFileSync(filePath, "content");
+      await expect(parseSource(filePath)).rejects.toThrow(
+        `Path ${filePath} does not exist or is not a directory`,
+      );
+    });
+
+    it("detects ./ prefix as local path", async () => {
+      const cwd = process.cwd();
+      const subName = `agntc-dotprefix-test-${Date.now()}`;
+      const subDir = join(cwd, subName);
+      mkdirSync(subDir, { recursive: true });
+      try {
+        const result = await parseSource(`./${subName}`);
+        expect(result.type).toBe("local-path");
+      } finally {
+        rmSync(subDir, { recursive: true, force: true });
+      }
+    });
+
+    it("detects ../ prefix as local path", async () => {
+      // ../agntc should resolve to parent dir / agntc = cwd
+      // This tests that ../ prefix triggers local path detection
+      const cwd = process.cwd();
+      const cwdName = cwd.split("/").pop()!;
+      const result = await parseSource(`../${cwdName}`);
+      expect(result.type).toBe("local-path");
+      if (result.type === "local-path") {
+        expect(result.resolvedPath).toBe(cwd);
+      }
+    });
+
+    it("detects / prefix as local path", async () => {
+      const result = await parseSource(testDir);
+      expect(result.type).toBe("local-path");
+    });
+
+    it("detects ~ prefix as local path", async () => {
+      const home = homedir();
+      const result = await parseSource("~");
+      expect(result.type).toBe("local-path");
+      if (result.type === "local-path") {
+        expect(result.resolvedPath).toBe(home);
+      }
+    });
+
+    it("trims whitespace before detecting local path", async () => {
+      const result = await parseSource(`  ${testDir}  `);
+      expect(result.type).toBe("local-path");
+      if (result.type === "local-path") {
+        expect(result.resolvedPath).toBe(testDir);
+      }
     });
   });
 });

@@ -27,7 +27,7 @@ export async function runAdd(source: string): Promise<void> {
 
   try {
     // 1. Parse source
-    const parsed = parseSource(source);
+    const parsed = await parseSource(source);
 
     // 2. Clone source (with spinner)
     const spin = p.spinner();
@@ -188,7 +188,7 @@ export async function runAdd(source: string): Promise<void> {
 
 interface CollectionPipelineInput {
   tempDir: string;
-  parsed: ReturnType<typeof parseSource>;
+  parsed: Awaited<ReturnType<typeof parseSource>>;
   cloneResult: { commit: string };
   detected: Extract<DetectedType, { type: "collection" }>;
   onWarn: (message: string) => void;

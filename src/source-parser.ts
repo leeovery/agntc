@@ -1,3 +1,7 @@
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
+import { homedir } from "node:os";
+
 interface GitHubShorthandSource {
   type: "github-shorthand";
   owner: string;
@@ -24,16 +28,39 @@ interface SshUrlSource {
   cloneUrl: string;
 }
 
+interface LocalPathSource {
+  type: "local-path";
+  resolvedPath: string;
+  ref: null;
+  manifestKey: string;
+}
+
 export type ParsedSource =
   | GitHubShorthandSource
   | HttpsUrlSource
-  | SshUrlSource;
+  | SshUrlSource
+  | LocalPathSource;
 
-export function parseSource(raw: string): ParsedSource {
+function isLocalPath(input: string): boolean {
+  return (
+    input.startsWith("./") ||
+    input.startsWith("../") ||
+    input.startsWith("/") ||
+    input.startsWith("~") ||
+    input === "." ||
+    input === ".."
+  );
+}
+
+export async function parseSource(raw: string): Promise<ParsedSource> {
   const trimmed = raw.trim();
 
   if (trimmed === "") {
     throw new Error("source cannot be empty");
+  }
+
+  if (isLocalPath(trimmed)) {
+    return parseLocalPath(trimmed);
   }
 
   if (trimmed.startsWith("https://")) {
@@ -45,6 +72,38 @@ export function parseSource(raw: string): ParsedSource {
   }
 
   return parseGitHubShorthand(trimmed);
+}
+
+async function parseLocalPath(input: string): Promise<LocalPathSource> {
+  let expanded = input;
+  if (expanded.startsWith("~")) {
+    expanded = homedir() + expanded.slice(1);
+  }
+
+  const resolvedPath = resolve(expanded);
+
+  try {
+    const stats = await stat(resolvedPath);
+    if (!stats.isDirectory()) {
+      throw new Error(
+        `Path ${resolvedPath} does not exist or is not a directory`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Path ")) {
+      throw err;
+    }
+    throw new Error(
+      `Path ${resolvedPath} does not exist or is not a directory`,
+    );
+  }
+
+  return {
+    type: "local-path",
+    resolvedPath,
+    ref: null,
+    manifestKey: resolvedPath,
+  };
 }
 
 function parseSshUrl(input: string): SshUrlSource {
