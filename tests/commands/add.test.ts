@@ -2849,4 +2849,262 @@ describe("add command", () => {
       expect(collisionCalls[1]![2]).toBe("owner/my-collection/pluginB");
     });
   });
+
+  describe("shared conflict-check pipeline", () => {
+    describe("standalone path uses shared pipeline", () => {
+      it("skips resolveCollisions when no collisions exist", async () => {
+        mockCheckFileCollisions.mockReturnValue(new Map());
+
+        await runAdd("owner/my-skill");
+
+        expect(mockResolveCollisions).not.toHaveBeenCalled();
+        expect(mockCheckUnmanagedConflicts).toHaveBeenCalled();
+        expect(mockCopyBareSkill).toHaveBeenCalled();
+      });
+
+      it("skips resolveUnmanagedConflicts when no unmanaged conflicts exist", async () => {
+        mockCheckUnmanagedConflicts.mockResolvedValue([]);
+
+        await runAdd("owner/my-skill");
+
+        expect(mockResolveUnmanagedConflicts).not.toHaveBeenCalled();
+        expect(mockCopyBareSkill).toHaveBeenCalled();
+      });
+
+      it("cancel at collision stage throws ExitSignal(0) and does not copy", async () => {
+        mockCheckFileCollisions.mockReturnValue(
+          new Map([["other/repo", [".claude/skills/my-skill/"]]]),
+        );
+        mockResolveCollisions.mockResolvedValue({
+          resolved: false,
+          updatedManifest: EMPTY_MANIFEST,
+        });
+
+        const err = await runAdd("owner/my-skill").catch((e) => e);
+
+        expect(err).toBeInstanceOf(ExitSignal);
+        expect((err as ExitSignal).code).toBe(0);
+        expect(mockCheckUnmanagedConflicts).not.toHaveBeenCalled();
+        expect(mockCopyBareSkill).not.toHaveBeenCalled();
+      });
+
+      it("cancel at unmanaged stage throws ExitSignal(0) and does not copy", async () => {
+        mockCheckUnmanagedConflicts.mockResolvedValue([
+          ".claude/skills/my-skill/",
+        ]);
+        mockResolveUnmanagedConflicts.mockResolvedValue({
+          approved: [],
+          cancelled: [".claude/skills/my-skill/"],
+        });
+
+        const err = await runAdd("owner/my-skill").catch((e) => e);
+
+        expect(err).toBeInstanceOf(ExitSignal);
+        expect((err as ExitSignal).code).toBe(0);
+        expect(mockCopyBareSkill).not.toHaveBeenCalled();
+      });
+
+      it("full pipeline order: collision-check, resolve, unmanaged-check, resolve", async () => {
+        const callOrder: string[] = [];
+        mockCheckFileCollisions.mockImplementation(() => {
+          callOrder.push("checkFileCollisions");
+          return new Map([["other/repo", [".claude/skills/my-skill/"]]]);
+        });
+        mockResolveCollisions.mockImplementation(async () => {
+          callOrder.push("resolveCollisions");
+          return { resolved: true, updatedManifest: EMPTY_MANIFEST };
+        });
+        mockCheckUnmanagedConflicts.mockImplementation(async () => {
+          callOrder.push("checkUnmanagedConflicts");
+          return [".claude/skills/my-skill/"];
+        });
+        mockResolveUnmanagedConflicts.mockImplementation(async () => {
+          callOrder.push("resolveUnmanagedConflicts");
+          return { approved: [".claude/skills/my-skill/"], cancelled: [] };
+        });
+
+        await runAdd("owner/my-skill");
+
+        expect(callOrder).toEqual([
+          "checkFileCollisions",
+          "resolveCollisions",
+          "checkUnmanagedConflicts",
+          "resolveUnmanagedConflicts",
+        ]);
+      });
+    });
+
+    describe("collection path uses shared pipeline", () => {
+      const COLLECTION_PARSED: ParsedSource = {
+        type: "github-shorthand",
+        owner: "owner",
+        repo: "my-collection",
+        ref: "main",
+        manifestKey: "owner/my-collection",
+      };
+
+      const COLLECTION_CLONE_RESULT: CloneResult = {
+        tempDir: "/tmp/agntc-shared-test",
+        commit: "shared123",
+      };
+
+      const COLLECTION_DETECTED: DetectedType = {
+        type: "collection",
+        plugins: ["pluginA", "pluginB"],
+      };
+
+      function setupSharedCollectionTest(): void {
+        mockParseSource.mockReturnValue(COLLECTION_PARSED);
+        mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+          return { agents: ["claude"] };
+        });
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir)
+            return COLLECTION_DETECTED;
+          return { type: "bare-skill" } as DetectedType;
+        });
+        mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+        mockSelectCollectionPlugins.mockResolvedValue([
+          "pluginA",
+          "pluginB",
+        ]);
+        mockDetectAgents.mockResolvedValue(["claude"]);
+        mockGetDriver.mockReturnValue(FAKE_DRIVER);
+        mockSelectAgents.mockResolvedValue(["claude"]);
+        mockWriteManifest.mockResolvedValue(undefined);
+        mockCleanupTempDir.mockResolvedValue(undefined);
+        mockAddEntry.mockImplementation((manifest, key, entry) => ({
+          ...manifest,
+          [key]: entry,
+        }));
+        mockNukeManifestFiles.mockResolvedValue({
+          removed: [],
+          skipped: [],
+        });
+        mockComputeIncomingFiles.mockImplementation((input: any) => {
+          if (input.sourceDir?.endsWith("/pluginA"))
+            return [".claude/skills/pluginA/"];
+          if (input.sourceDir?.endsWith("/pluginB"))
+            return [".claude/skills/pluginB/"];
+          return [];
+        });
+        mockCheckFileCollisions.mockReturnValue(new Map());
+        mockCheckUnmanagedConflicts.mockResolvedValue([]);
+        mockCopyBareSkill
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginA/"],
+          })
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+      }
+
+      it("skips resolveCollisions per-plugin when no collisions exist", async () => {
+        setupSharedCollectionTest();
+
+        await runAdd("owner/my-collection");
+
+        expect(mockResolveCollisions).not.toHaveBeenCalled();
+        expect(mockCheckUnmanagedConflicts).toHaveBeenCalledTimes(2);
+      });
+
+      it("skips resolveUnmanagedConflicts per-plugin when no unmanaged conflicts exist", async () => {
+        setupSharedCollectionTest();
+
+        await runAdd("owner/my-collection");
+
+        expect(mockResolveUnmanagedConflicts).not.toHaveBeenCalled();
+        expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
+      });
+
+      it("collision cancel on pluginA skips it but pluginB still installs", async () => {
+        setupSharedCollectionTest();
+        mockCheckFileCollisions.mockImplementation((files) => {
+          if (files.includes(".claude/skills/pluginA/")) {
+            return new Map([
+              ["other/repo", [".claude/skills/pluginA/"]],
+            ]);
+          }
+          return new Map();
+        });
+        mockResolveCollisions.mockResolvedValue({
+          resolved: false,
+          updatedManifest: EMPTY_MANIFEST,
+        });
+
+        await runAdd("owner/my-collection");
+
+        expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+        expect(mockCopyBareSkill).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sourceDir: COLLECTION_CLONE_RESULT.tempDir + "/pluginB",
+          }),
+        );
+      });
+
+      it("unmanaged cancel on pluginA skips it but pluginB still installs", async () => {
+        setupSharedCollectionTest();
+        mockCheckUnmanagedConflicts.mockImplementation(async (files) => {
+          if (files.includes(".claude/skills/pluginA/")) {
+            return [".claude/skills/pluginA/"];
+          }
+          return [];
+        });
+        mockResolveUnmanagedConflicts.mockResolvedValue({
+          approved: [],
+          cancelled: [".claude/skills/pluginA/"],
+        });
+
+        await runAdd("owner/my-collection");
+
+        expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+        expect(mockCopyBareSkill).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sourceDir: COLLECTION_CLONE_RESULT.tempDir + "/pluginB",
+          }),
+        );
+      });
+
+      it("full pipeline order per-plugin: collision-check, resolve, unmanaged-check, resolve", async () => {
+        setupSharedCollectionTest();
+        mockSelectCollectionPlugins.mockResolvedValue(["pluginA"]);
+        const callOrder: string[] = [];
+        mockCheckFileCollisions.mockImplementation(() => {
+          callOrder.push("checkFileCollisions");
+          return new Map([
+            ["other/repo", [".claude/skills/pluginA/"]],
+          ]);
+        });
+        mockResolveCollisions.mockImplementation(async () => {
+          callOrder.push("resolveCollisions");
+          return { resolved: true, updatedManifest: EMPTY_MANIFEST };
+        });
+        mockCheckUnmanagedConflicts.mockImplementation(async () => {
+          callOrder.push("checkUnmanagedConflicts");
+          return [".claude/skills/pluginA/"];
+        });
+        mockResolveUnmanagedConflicts.mockImplementation(async () => {
+          callOrder.push("resolveUnmanagedConflicts");
+          return {
+            approved: [".claude/skills/pluginA/"],
+            cancelled: [],
+          };
+        });
+        mockCopyBareSkill.mockResolvedValueOnce({
+          copiedFiles: [".claude/skills/pluginA/"],
+        });
+
+        await runAdd("owner/my-collection");
+
+        expect(callOrder).toEqual([
+          "checkFileCollisions",
+          "resolveCollisions",
+          "checkUnmanagedConflicts",
+          "resolveUnmanagedConflicts",
+        ]);
+      });
+    });
+  });
 });

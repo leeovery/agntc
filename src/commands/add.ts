@@ -36,6 +36,58 @@ function deriveCloneUrlForManifest(parsed: Awaited<ReturnType<typeof parseSource
   return resolveCloneUrl(parsed);
 }
 
+interface ConflictCheckResult {
+  updatedManifest: Manifest;
+  proceed: boolean;
+}
+
+async function runConflictChecks(opts: {
+  incomingFiles: string[];
+  manifest: Manifest;
+  pluginKey: string;
+  projectDir: string;
+}): Promise<ConflictCheckResult> {
+  const { incomingFiles, pluginKey, projectDir } = opts;
+  let currentManifest = opts.manifest;
+
+  // Collision check
+  const collisions = checkFileCollisions(
+    incomingFiles,
+    currentManifest,
+    pluginKey,
+  );
+  if (collisions.size > 0) {
+    const resolution = await resolveCollisions(
+      collisions,
+      currentManifest,
+      projectDir,
+    );
+    currentManifest = resolution.updatedManifest;
+    if (!resolution.resolved) {
+      return { updatedManifest: currentManifest, proceed: false };
+    }
+  }
+
+  // Unmanaged check
+  const unmanagedConflicts = await checkUnmanagedConflicts(
+    incomingFiles,
+    currentManifest,
+    projectDir,
+  );
+  if (unmanagedConflicts.length > 0) {
+    const conflicts: UnmanagedPluginConflicts[] = [
+      { pluginKey, files: unmanagedConflicts },
+    ];
+    const unmanagedResolution =
+      await resolveUnmanagedConflicts(conflicts);
+    if (unmanagedResolution.cancelled.length > 0) {
+      return { updatedManifest: currentManifest, proceed: false };
+    }
+  }
+
+  return { updatedManifest: currentManifest, proceed: true };
+}
+
 export async function runAdd(source: string): Promise<void> {
   p.intro("agntc add");
 
@@ -148,42 +200,17 @@ export async function runAdd(source: string): Promise<void> {
         : { type: "bare-skill", sourceDir, agents },
     );
 
-    // 10b. Collision check
-    let currentManifest = manifest;
-    const collisions = checkFileCollisions(
+    // 10b. Collision + unmanaged conflict checks
+    const conflictResult = await runConflictChecks({
       incomingFiles,
-      currentManifest,
-      parsed.manifestKey,
-    );
-    if (collisions.size > 0) {
-      const resolution = await resolveCollisions(
-        collisions,
-        currentManifest,
-        projectDir,
-      );
-      currentManifest = resolution.updatedManifest;
-      if (!resolution.resolved) {
-        p.cancel("Cancelled — collision not resolved");
-        throw new ExitSignal(0);
-      }
-    }
-
-    // 10c. Unmanaged check
-    const unmanagedConflicts = await checkUnmanagedConflicts(
-      incomingFiles,
-      currentManifest,
+      manifest,
+      pluginKey: parsed.manifestKey,
       projectDir,
-    );
-    if (unmanagedConflicts.length > 0) {
-      const conflicts: UnmanagedPluginConflicts[] = [
-        { pluginKey: parsed.manifestKey, files: unmanagedConflicts },
-      ];
-      const unmanagedResolution =
-        await resolveUnmanagedConflicts(conflicts);
-      if (unmanagedResolution.cancelled.length > 0) {
-        p.cancel("Cancelled — unmanaged conflicts not resolved");
-        throw new ExitSignal(0);
-      }
+    });
+    const currentManifest = conflictResult.updatedManifest;
+    if (!conflictResult.proceed) {
+      p.cancel("Cancelled — conflict not resolved");
+      throw new ExitSignal(0);
     }
 
     // 11. Copy assets (with spinner)
@@ -432,41 +459,17 @@ async function runCollectionPipeline(
         : { type: "bare-skill", sourceDir: pluginDir, agents },
     );
 
-    // Collision check
-    const collisions = checkFileCollisions(
+    // Collision + unmanaged conflict checks
+    const conflictResult = await runConflictChecks({
       incomingFiles,
-      currentManifest,
-      pluginManifestKey,
-    );
-    if (collisions.size > 0) {
-      const resolution = await resolveCollisions(
-        collisions,
-        currentManifest,
-        projectDir,
-      );
-      currentManifest = resolution.updatedManifest;
-      if (!resolution.resolved) {
-        results.push({ pluginName, status: "skipped", copiedFiles: [] });
-        continue;
-      }
-    }
-
-    // Unmanaged check
-    const unmanagedConflicts = await checkUnmanagedConflicts(
-      incomingFiles,
-      currentManifest,
+      manifest: currentManifest,
+      pluginKey: pluginManifestKey,
       projectDir,
-    );
-    if (unmanagedConflicts.length > 0) {
-      const conflicts: UnmanagedPluginConflicts[] = [
-        { pluginKey: pluginManifestKey, files: unmanagedConflicts },
-      ];
-      const unmanagedResolution =
-        await resolveUnmanagedConflicts(conflicts);
-      if (unmanagedResolution.cancelled.length > 0) {
-        results.push({ pluginName, status: "skipped", copiedFiles: [] });
-        continue;
-      }
+    });
+    currentManifest = conflictResult.updatedManifest;
+    if (!conflictResult.proceed) {
+      results.push({ pluginName, status: "skipped", copiedFiles: [] });
+      continue;
     }
 
     pluginsToInstall.push({
