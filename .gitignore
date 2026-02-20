@@ -5,6 +5,7 @@ node_modules/
 !docs/workflow/.cache/migrations.log
 .DS_Store
 dist/
+.idea
 coverage/
 .idea/
 *.swp
