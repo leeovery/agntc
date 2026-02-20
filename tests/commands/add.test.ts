@@ -53,7 +53,6 @@ vi.mock("../../src/type-detection.js", () => ({
 }));
 
 vi.mock("../../src/drivers/registry.js", () => ({
-  getRegisteredAgentIds: vi.fn(),
   getDriver: vi.fn(),
 }));
 
@@ -83,15 +82,17 @@ vi.mock("../../src/nuke-files.js", () => ({
   nukeManifestFiles: vi.fn(),
 }));
 
+vi.mock("../../src/detect-agents.js", () => ({
+  detectAgents: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { parseSource } from "../../src/source-parser.js";
 import { cloneSource, cleanupTempDir } from "../../src/git-clone.js";
 import { readConfig } from "../../src/config.js";
 import { detectType } from "../../src/type-detection.js";
-import {
-  getRegisteredAgentIds,
-  getDriver,
-} from "../../src/drivers/registry.js";
+import { getDriver } from "../../src/drivers/registry.js";
+import { detectAgents } from "../../src/detect-agents.js";
 import { selectAgents } from "../../src/agent-select.js";
 import { selectCollectionPlugins } from "../../src/collection-select.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
@@ -105,8 +106,8 @@ const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
 const mockReadConfig = vi.mocked(readConfig);
 const mockDetectType = vi.mocked(detectType);
-const mockGetRegisteredAgentIds = vi.mocked(getRegisteredAgentIds);
 const mockGetDriver = vi.mocked(getDriver);
+const mockDetectAgents = vi.mocked(detectAgents);
 const mockSelectAgents = vi.mocked(selectAgents);
 const mockSelectCollectionPlugins = vi.mocked(selectCollectionPlugins);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
@@ -166,7 +167,7 @@ function setupHappyPath(): void {
   mockCloneSource.mockResolvedValue(CLONE_RESULT);
   mockReadConfig.mockResolvedValue(CONFIG);
   mockDetectType.mockResolvedValue(BARE_SKILL);
-  mockGetRegisteredAgentIds.mockReturnValue(["claude"] as AgentId[]);
+  mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
   mockGetDriver.mockReturnValue(FAKE_DRIVER);
   mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
   mockCopyBareSkill.mockResolvedValue(COPY_RESULT);
@@ -203,7 +204,7 @@ describe("add command", () => {
           onWarn: expect.any(Function),
         }),
       );
-      expect(mockGetRegisteredAgentIds).toHaveBeenCalled();
+      expect(mockDetectAgents).toHaveBeenCalledWith("/fake/project");
       expect(mockSelectAgents).toHaveBeenCalled();
       expect(mockCopyBareSkill).toHaveBeenCalled();
       expect(mockReadManifest).toHaveBeenCalledWith("/fake/project");
@@ -256,50 +257,14 @@ describe("add command", () => {
   });
 
   describe("detect agents", () => {
-    it("calls detect on all registered agents", async () => {
-      const claudeDriver = {
-        detect: vi.fn().mockResolvedValue(true),
-        getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
-      };
-      const codexDriver = {
-        detect: vi.fn().mockResolvedValue(false),
-        getTargetDir: vi.fn().mockReturnValue(".codex/skills"),
-      };
-
-      mockGetRegisteredAgentIds.mockReturnValue([
-        "claude",
-        "codex",
-      ] as AgentId[]);
-      mockGetDriver.mockImplementation((id: AgentId) => {
-        if (id === "claude") return claudeDriver;
-        return codexDriver;
-      });
-      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
-
+    it("calls detectAgents with project dir", async () => {
       await runAdd("owner/my-skill");
 
-      expect(claudeDriver.detect).toHaveBeenCalledWith("/fake/project");
-      expect(codexDriver.detect).toHaveBeenCalledWith("/fake/project");
+      expect(mockDetectAgents).toHaveBeenCalledWith("/fake/project");
     });
 
     it("passes correct declaredAgents and detectedAgents to selectAgents", async () => {
-      const claudeDriver = {
-        detect: vi.fn().mockResolvedValue(true),
-        getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
-      };
-      const codexDriver = {
-        detect: vi.fn().mockResolvedValue(false),
-        getTargetDir: vi.fn().mockReturnValue(".codex/skills"),
-      };
-
-      mockGetRegisteredAgentIds.mockReturnValue([
-        "claude",
-        "codex",
-      ] as AgentId[]);
-      mockGetDriver.mockImplementation((id: AgentId) => {
-        if (id === "claude") return claudeDriver;
-        return codexDriver;
-      });
+      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
       mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
       mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
 
@@ -492,7 +457,7 @@ describe("add command", () => {
       mockDetectType.mockResolvedValue(COLLECTION_DETECTED);
       mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
       mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
-      mockGetRegisteredAgentIds.mockReturnValue(["claude"] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
       mockGetDriver.mockReturnValue(FAKE_DRIVER);
       mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
       mockWriteManifest.mockResolvedValue(undefined);
@@ -642,21 +607,16 @@ describe("add command", () => {
         if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
         return { type: "bare-skill" } as DetectedType;
       });
-      mockGetRegisteredAgentIds.mockReturnValue([
-        "claude",
-        "codex",
-      ] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude", "codex"] as AgentId[]);
       const claudeDriver = {
-        detect: vi.fn().mockResolvedValue(true),
         getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
       };
       const codexDriver = {
-        detect: vi.fn().mockResolvedValue(true),
         getTargetDir: vi.fn().mockReturnValue(".codex/skills"),
       };
       mockGetDriver.mockImplementation((id: AgentId) => {
-        if (id === "claude") return claudeDriver;
-        return codexDriver;
+        if (id === "claude") return claudeDriver as any;
+        return codexDriver as any;
       });
       mockSelectAgents.mockResolvedValue(["claude", "codex"] as AgentId[]);
       mockCopyBareSkill.mockResolvedValue({
@@ -1381,7 +1341,7 @@ describe("add command", () => {
           "pluginA",
           "pluginB",
         ]);
-        mockGetRegisteredAgentIds.mockReturnValue(["claude"] as AgentId[]);
+        mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
         mockGetDriver.mockReturnValue(FAKE_DRIVER);
         mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
         mockWriteManifest.mockResolvedValue(undefined);

@@ -6,10 +6,8 @@ import { cloneSource, cleanupTempDir } from "../git-clone.js";
 import { readConfig, ConfigError } from "../config.js";
 import { detectType } from "../type-detection.js";
 import type { DetectedType } from "../type-detection.js";
-import {
-  getRegisteredAgentIds,
-  getDriver,
-} from "../drivers/registry.js";
+import { getDriver } from "../drivers/registry.js";
+import { detectAgents } from "../detect-agents.js";
 import { selectAgents } from "../agent-select.js";
 import { selectCollectionPlugins } from "../collection-select.js";
 import { copyBareSkill } from "../copy-bare-skill.js";
@@ -88,7 +86,7 @@ export async function runAdd(source: string): Promise<void> {
 
     // 7. Detect agents
     const projectDir = process.cwd();
-    const detectedAgents = await detectProjectAgents(projectDir);
+    const detectedAgents = await detectAgents(projectDir);
 
     // 8. Select agents
     const selectedAgents = await selectAgents({
@@ -188,20 +186,6 @@ export async function runAdd(source: string): Promise<void> {
   }
 }
 
-async function detectProjectAgents(projectDir: string): Promise<AgentId[]> {
-  const registeredIds = getRegisteredAgentIds();
-  const detectedAgents: AgentId[] = [];
-
-  for (const id of registeredIds) {
-    const driver = getDriver(id);
-    if (await driver.detect(projectDir)) {
-      detectedAgents.push(id);
-    }
-  }
-
-  return detectedAgents;
-}
-
 interface CollectionPipelineInput {
   tempDir: string;
   parsed: ReturnType<typeof parseSource>;
@@ -272,7 +256,7 @@ async function runCollectionPipeline(
   }
 
   // 4. Detect agents + select once
-  const detectedAgents = await detectProjectAgents(projectDir);
+  const detectedAgents = await detectAgents(projectDir);
   const selectedAgents = await selectAgents({
     declaredAgents: [...allDeclaredAgents] as AgentId[],
     detectedAgents,
