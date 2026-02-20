@@ -20,6 +20,11 @@ import {
   computeEffectiveAgents,
   findDroppedAgents,
 } from "../agent-compat.js";
+import {
+  renderGitUpdateSummary,
+  renderLocalUpdateSummary,
+  renderUpdateOutcomeSummary,
+} from "../summary.js";
 
 type PluginOutcome =
   | { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
@@ -232,14 +237,15 @@ async function runGitUpdate(
     await writeManifest(projectDir, updated);
 
     // Summary
-    const oldShort = entry.commit ? entry.commit.slice(0, 7) : "unknown";
-    const newShort = newCommit.slice(0, 7);
-    const droppedSuffix =
-      droppedAgents.length > 0
-        ? `. ${droppedAgents.join(", ")} support removed by plugin author.`
-        : "";
     p.outro(
-      `Updated ${key}: ${oldShort} -> ${newShort} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}${droppedSuffix}`,
+      renderGitUpdateSummary({
+        key,
+        oldCommit: entry.commit,
+        newCommit,
+        copiedFiles,
+        effectiveAgents,
+        droppedAgents,
+      }),
     );
   } catch (err) {
     if (err instanceof ExitSignal) {
@@ -363,12 +369,13 @@ async function runLocalUpdate(
   const updated = addEntry(manifest, key, newEntry);
   await writeManifest(projectDir, updated);
 
-  const droppedSuffix =
-    droppedAgents.length > 0
-      ? `. ${droppedAgents.join(", ")} support removed by plugin author.`
-      : "";
   p.outro(
-    `Refreshed ${key} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}${droppedSuffix}`,
+    renderLocalUpdateSummary({
+      key,
+      copiedFiles,
+      effectiveAgents,
+      droppedAgents,
+    }),
   );
 }
 
@@ -466,8 +473,6 @@ async function processGitUpdateForAll(
       copiedFiles = bareResult.copiedFiles;
     }
 
-    const oldShort = entry.commit ? entry.commit.slice(0, 7) : "unknown";
-    const newShort = newCommit.slice(0, 7);
     const newEntry: ManifestEntry = {
       ref: entry.ref,
       commit: newCommit,
@@ -476,15 +481,16 @@ async function processGitUpdateForAll(
       files: copiedFiles,
     };
 
-    const droppedSuffix =
-      droppedAgents.length > 0
-        ? ` — ${droppedAgents.join(", ")} support removed by plugin author`
-        : "";
-
     return {
       status: "updated",
       key,
-      summary: `${key}: Updated ${oldShort} -> ${newShort}${droppedSuffix}`,
+      summary: renderUpdateOutcomeSummary({
+        type: "git-update",
+        key,
+        oldCommit: entry.commit,
+        newCommit,
+        droppedAgents,
+      }),
       newEntry,
     };
   } catch (err) {
@@ -610,15 +616,14 @@ async function processLocalUpdateForAll(
       files: copiedFiles,
     };
 
-    const droppedSuffix =
-      droppedAgents.length > 0
-        ? ` — ${droppedAgents.join(", ")} support removed by plugin author`
-        : "";
-
     return {
       status: "refreshed",
       key,
-      summary: `${key}: Refreshed from local path${droppedSuffix}`,
+      summary: renderUpdateOutcomeSummary({
+        type: "local-update",
+        key,
+        droppedAgents,
+      }),
       newEntry,
     };
   } catch (err) {

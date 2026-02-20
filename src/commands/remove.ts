@@ -3,6 +3,7 @@ import * as p from "@clack/prompts";
 import { readManifest, writeManifest, type Manifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import { ExitSignal } from "../exit-signal.js";
+import { renderRemoveSummary } from "../summary.js";
 
 async function selectPluginsInteractive(
   manifest: Manifest,
@@ -173,7 +174,12 @@ export async function runRemove(key?: string): Promise<void> {
   await writeManifest(projectDir, updated);
 
   // Summary
-  p.outro(`Removed ${summaryLabel} — ${allFiles.length} file(s)`);
+  p.outro(
+    renderRemoveSummary({
+      summaryLabel,
+      fileCount: allFiles.length,
+    }),
+  );
 }
 
 export const removeCommand = new Command("remove")

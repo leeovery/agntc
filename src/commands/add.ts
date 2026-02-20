@@ -25,6 +25,10 @@ import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { ExitSignal } from "../exit-signal.js";
 import type { AgentId } from "../drivers/types.js";
 import type { AgntcConfig } from "../config.js";
+import {
+  renderAddSummary,
+  renderCollectionAddSummary,
+} from "../summary.js";
 
 export async function runAdd(source: string): Promise<void> {
   p.intro("agntc add");
@@ -223,14 +227,16 @@ export async function runAdd(source: string): Promise<void> {
     await writeManifest(projectDir, updated);
 
     // 14. Summary
-    const refLabel = formatRefLabel(parsed.ref, commit);
-    const agentSummary =
-      detected.type === "plugin" && assetCountsByAgent
-        ? formatPluginSummary(selectedAgents, assetCountsByAgent)
-        : formatBareSkillSummary(selectedAgents, copiedFiles);
-
     p.outro(
-      `Installed ${parsed.manifestKey}@${refLabel} — ${agentSummary}`,
+      renderAddSummary({
+        manifestKey: parsed.manifestKey,
+        ref: parsed.ref,
+        commit,
+        detectedType: detected.type,
+        selectedAgents,
+        assetCountsByAgent,
+        copiedFiles,
+      }),
     );
   } catch (err) {
     if (err instanceof ExitSignal) {
@@ -517,78 +523,15 @@ async function runCollectionPipeline(
   await writeManifest(projectDir, updatedManifest);
 
   // 7. Per-plugin summary
-  const refLabel = formatRefLabel(parsed.ref, commit);
-  const installed = results.filter((r) => r.status === "installed");
-  const skipped = results.filter((r) => r.status === "skipped");
-  const failed = results.filter((r) => r.status === "failed");
-
-  const pluginSummaries = installed.map((r) => {
-    if (r.detectedType?.type === "plugin" && r.assetCountsByAgent) {
-      return `${r.pluginName}: ${formatPluginSummary(selectedAgents, r.assetCountsByAgent)}`;
-    }
-    return `${r.pluginName}: ${formatBareSkillSummary(selectedAgents, r.copiedFiles)}`;
-  });
-
-  const summaryParts = [...pluginSummaries];
-  if (skipped.length > 0) {
-    summaryParts.push(`${skipped.length} skipped`);
-  }
-  if (failed.length > 0) {
-    for (const f of failed) {
-      summaryParts.push(
-        `${f.pluginName}: failed — ${f.errorMessage}`,
-      );
-    }
-  }
-
   p.outro(
-    `Installed ${parsed.manifestKey}@${refLabel} — ${summaryParts.join(", ")}`,
+    renderCollectionAddSummary({
+      manifestKey: parsed.manifestKey,
+      ref: parsed.ref,
+      commit,
+      selectedAgents,
+      results,
+    }),
   );
-}
-
-function formatRefLabel(ref: string | null, commit: string | null): string {
-  if (ref !== null) return ref;
-  if (commit === null) return "local";
-  return "HEAD";
-}
-
-function formatBareSkillSummary(
-  agentIds: AgentId[],
-  copiedFiles: string[],
-): string {
-  return agentIds
-    .map((id) => {
-      const driver = getDriver(id);
-      const targetPrefix = driver.getTargetDir("skills");
-      const count = copiedFiles.filter(
-        (f) => targetPrefix !== null && f.startsWith(targetPrefix),
-      ).length;
-      return `${id}: ${count} skill(s)`;
-    })
-    .join(", ");
-}
-
-function formatPluginSummary(
-  agentIds: AgentId[],
-  assetCountsByAgent: Record<string, AssetCounts>,
-): string {
-  const parts: string[] = [];
-
-  for (const id of agentIds) {
-    const counts = assetCountsByAgent[id];
-    if (!counts) continue;
-
-    const nonZero = Object.entries(counts)
-      .filter(([, count]) => count > 0)
-      .map(([type, count]) => `${count} ${type.replace(/s$/, "")}(s)`)
-      .join(", ");
-
-    if (nonZero.length > 0) {
-      parts.push(`${id}: ${nonZero}`);
-    }
-  }
-
-  return parts.join(", ");
 }
 
 export const addCommand = new Command("add")
