@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
 import { join } from "node:path";
+import { stat } from "node:fs/promises";
 import { readManifest, writeManifest, addEntry } from "../manifest.js";
 import type { ManifestEntry } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
@@ -105,7 +106,7 @@ export async function runUpdate(key?: string): Promise<void> {
   }
 
   if (result.status === "local") {
-    p.outro(`${key} is a local install — use add to refresh.`);
+    await runLocalUpdate(key, entry, manifest, projectDir);
     return;
   }
 
@@ -242,6 +243,115 @@ export async function runUpdate(key?: string): Promise<void> {
       }
     }
   }
+}
+
+async function validateLocalPath(sourcePath: string): Promise<void> {
+  try {
+    const stats = await stat(sourcePath);
+    if (!stats.isDirectory()) {
+      p.log.error(
+        `Path ${sourcePath} does not exist or is not a directory.`,
+      );
+      throw new ExitSignal(1);
+    }
+  } catch (err) {
+    if (err instanceof ExitSignal) throw err;
+    p.log.error(
+      `Path ${sourcePath} does not exist or is not a directory.`,
+    );
+    throw new ExitSignal(1);
+  }
+}
+
+async function runLocalUpdate(
+  key: string,
+  entry: ManifestEntry,
+  manifest: Record<string, ManifestEntry>,
+  projectDir: string,
+): Promise<void> {
+  const sourcePath = key;
+
+  await validateLocalPath(sourcePath);
+
+  const onWarn = (message: string) => p.log.warn(message);
+  const config = await readConfig(sourcePath, { onWarn });
+
+  if (config === null) {
+    p.log.error(`${key} has no agntc.json — aborting.`);
+    throw new ExitSignal(1);
+  }
+
+  const effectiveAgents = computeEffectiveAgents(
+    entry.agents,
+    config.agents,
+  );
+  const droppedAgents = findDroppedAgents(entry.agents, config.agents);
+
+  if (effectiveAgents.length === 0) {
+    p.log.warn(
+      `Plugin ${key} no longer supports any of your installed agents. ` +
+        `No update performed. Run npx agntc remove ${key} to clean up.`,
+    );
+    return;
+  }
+
+  if (droppedAgents.length > 0) {
+    p.log.warn(
+      `Plugin ${key} no longer declares support for ${droppedAgents.join(", ")}. ` +
+        `Currently installed for: ${entry.agents.join(", ")}. ` +
+        `New version supports: ${config.agents.join(", ")}.`,
+    );
+  }
+
+  const detected = await detectType(sourcePath, {
+    hasConfig: true,
+    onWarn,
+  });
+
+  if (detected.type === "not-agntc" || detected.type === "collection") {
+    p.log.error(`${key} is not a valid plugin — aborting.`);
+    throw new ExitSignal(1);
+  }
+
+  const agents = effectiveAgents.map((id) => ({
+    id: id as AgentId,
+    driver: getDriver(id as AgentId),
+  }));
+
+  await nukeManifestFiles(projectDir, entry.files);
+
+  let copiedFiles: string[];
+
+  if (detected.type === "plugin") {
+    const pluginResult = await copyPluginAssets({
+      sourceDir: sourcePath,
+      assetDirs: detected.assetDirs,
+      agents,
+      projectDir,
+    });
+    copiedFiles = pluginResult.copiedFiles;
+  } else {
+    const bareResult = await copyBareSkill({
+      sourceDir: sourcePath,
+      projectDir,
+      agents,
+    });
+    copiedFiles = bareResult.copiedFiles;
+  }
+
+  const newEntry: ManifestEntry = {
+    ref: null,
+    commit: null,
+    installedAt: new Date().toISOString(),
+    agents: effectiveAgents,
+    files: copiedFiles,
+  };
+  const updated = addEntry(manifest, key, newEntry);
+  await writeManifest(projectDir, updated);
+
+  p.outro(
+    `Refreshed ${key} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}`,
+  );
 }
 
 export const updateCommand = new Command("update")

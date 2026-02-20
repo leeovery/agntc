@@ -9,6 +9,7 @@ import type {
 import type { CopyBareSkillResult } from "../../src/copy-bare-skill.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import type { NukeResult } from "../../src/nuke-files.js";
+import type { Stats } from "node:fs";
 import { ExitSignal } from "../../src/exit-signal.js";
 
 vi.mock("@clack/prompts", () => ({
@@ -68,6 +69,10 @@ vi.mock("../../src/drivers/registry.js", () => ({
   getDriver: vi.fn(),
 }));
 
+vi.mock("node:fs/promises", () => ({
+  stat: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { readManifest, writeManifest, addEntry } from "../../src/manifest.js";
 import { checkForUpdate } from "../../src/update-check.js";
@@ -78,6 +83,7 @@ import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { getDriver } from "../../src/drivers/registry.js";
+import { stat } from "node:fs/promises";
 import { runUpdate } from "../../src/commands/update.js";
 
 const mockReadManifest = vi.mocked(readManifest);
@@ -92,6 +98,7 @@ const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
+const mockStat = vi.mocked(stat);
 const mockOutro = vi.mocked(p.outro);
 const mockLog = vi.mocked(p.log);
 const mockCancel = vi.mocked(p.cancel);
@@ -740,7 +747,7 @@ describe("update command", () => {
     });
   });
 
-  describe("newer-tags and local statuses", () => {
+  describe("newer-tags", () => {
     it("treats newer-tags as up-to-date (tag-pinned)", async () => {
       mockReadManifest.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
@@ -757,19 +764,256 @@ describe("update command", () => {
       );
       expect(mockCloneSource).not.toHaveBeenCalled();
     });
+  });
 
-    it("treats local status as up-to-date with note", async () => {
-      mockReadManifest.mockResolvedValue({
-        "owner/repo": makeEntry({ ref: null, commit: null }),
-      });
+  describe("local path re-copy", () => {
+    const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+    const LOCAL_ENTRY: ManifestEntry = {
+      ref: null,
+      commit: null,
+      installedAt: "2026-02-01T00:00:00.000Z",
+      agents: ["claude"],
+      files: [".claude/skills/my-plugin/"],
+    };
+
+    function setupLocalBase(): void {
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+    }
 
-      await runUpdate("owner/repo");
+    it("triggers re-copy from stored path when status is local", async () => {
+      setupLocalBase();
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(mockStat).toHaveBeenCalledWith(LOCAL_KEY);
+      expect(mockReadConfig).toHaveBeenCalledWith(LOCAL_KEY, expect.anything());
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceDir: LOCAL_KEY,
+          projectDir: "/fake/project",
+        }),
+      );
+    });
+
+    it("validates path exists and is a directory", async () => {
+      setupLocalBase();
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(mockStat).toHaveBeenCalledWith(LOCAL_KEY);
+    });
+
+    it("errors when path does not exist", async () => {
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockRejectedValue(
+        Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+      );
+
+      const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining("does not exist or is not a directory"),
+      );
+    });
+
+    it("errors when path is not a directory", async () => {
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => false } as Stats);
+
+      const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining("does not exist or is not a directory"),
+      );
+    });
+
+    it("does not use git clone for local updates", async () => {
+      setupLocalBase();
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(mockCloneSource).not.toHaveBeenCalled();
+      expect(mockCleanupTempDir).not.toHaveBeenCalled();
+    });
+
+    it("checks agent compatibility before nuking", async () => {
+      setupLocalBase();
+
+      const callOrder: string[] = [];
+      mockReadConfig.mockImplementation(async () => {
+        callOrder.push("readConfig");
+        return { agents: ["claude"] };
+      });
+      mockNukeManifestFiles.mockImplementation(async () => {
+        callOrder.push("nuke");
+        return { removed: [], skipped: [] };
+      });
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(callOrder.indexOf("readConfig")).toBeLessThan(
+        callOrder.indexOf("nuke"),
+      );
+    });
+
+    it("preserves existing files when all agents are dropped", async () => {
+      const entry: ManifestEntry = {
+        ...LOCAL_ENTRY,
+        agents: ["codex"],
+        files: [".agents/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      // New config only supports claude, entry has codex
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+      expect(mockWriteManifest).not.toHaveBeenCalled();
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining("no longer supports any of your installed agents"),
+      );
+    });
+
+    it("uses effective agents for partial drop", async () => {
+      const entry: ManifestEntry = {
+        ...LOCAL_ENTRY,
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      // New version drops codex
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+
+      await runUpdate(LOCAL_KEY);
+
+      // Should only install for claude
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agents: [expect.objectContaining({ id: "claude" })],
+        }),
+      );
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining("codex"),
+      );
+    });
+
+    it("nukes then copies for local re-copy", async () => {
+      setupLocalBase();
+
+      const callOrder: string[] = [];
+      mockNukeManifestFiles.mockImplementation(async () => {
+        callOrder.push("nuke");
+        return { removed: [], skipped: [] };
+      });
+      mockCopyBareSkill.mockImplementation(async () => {
+        callOrder.push("copy");
+        return { copiedFiles: [".claude/skills/my-plugin/"] };
+      });
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(callOrder).toEqual(["nuke", "copy"]);
+    });
+
+    it("updates manifest with null ref and commit", async () => {
+      setupLocalBase();
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        { [LOCAL_KEY]: LOCAL_ENTRY },
+        LOCAL_KEY,
+        expect.objectContaining({
+          ref: null,
+          commit: null,
+          agents: ["claude"],
+          files: [".claude/skills/my-plugin/"],
+        }),
+      );
+      expect(mockWriteManifest).toHaveBeenCalled();
+    });
+
+    it("shows Refreshed summary", async () => {
+      setupLocalBase();
+
+      await runUpdate(LOCAL_KEY);
 
       expect(mockOutro).toHaveBeenCalledWith(
-        expect.stringContaining("owner/repo"),
+        expect.stringContaining("Refreshed"),
       );
+    });
+
+    it("does not create a temp dir for local updates", async () => {
+      setupLocalBase();
+
+      await runUpdate(LOCAL_KEY);
+
       expect(mockCloneSource).not.toHaveBeenCalled();
+      expect(mockCleanupTempDir).not.toHaveBeenCalled();
+    });
+
+    it("errors when config is null (no agntc.json)", async () => {
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue(null);
+
+      const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringContaining("no agntc.json"),
+      );
+    });
+
+    it("uses copyPluginAssets when type is plugin", async () => {
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "plugin",
+        assetDirs: ["skills", "agents"],
+      } as DetectedType);
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
+        assetCountsByAgent: { claude: { skills: 1, agents: 1 } },
+      });
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(mockCopyPluginAssets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceDir: LOCAL_KEY,
+          assetDirs: ["skills", "agents"],
+          projectDir: "/fake/project",
+        }),
+      );
+      expect(mockCopyBareSkill).not.toHaveBeenCalled();
     });
   });
 
