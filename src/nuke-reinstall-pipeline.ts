@@ -6,10 +6,7 @@ import { nukeManifestFiles } from "./nuke-files.js";
 import { copyPluginAssets } from "./copy-plugin-assets.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
 import { getDriver } from "./drivers/registry.js";
-import {
-  computeEffectiveAgents,
-  findDroppedAgents,
-} from "./agent-compat.js";
+import { computeAgentChanges } from "./agent-compat.js";
 
 export interface NukeReinstallOptions {
   key: string;
@@ -77,14 +74,8 @@ export async function executeNukeAndReinstall(
   }
 
   // Agent compatibility check
-  const effectiveAgents = computeEffectiveAgents(
-    existingEntry.agents,
-    config.agents,
-  );
-  const droppedAgents = findDroppedAgents(
-    existingEntry.agents,
-    config.agents,
-  );
+  const { effective: effectiveAgents, dropped: droppedAgents } =
+    computeAgentChanges(existingEntry.agents, config.agents);
 
   if (effectiveAgents.length === 0) {
     return { status: "no-agents" };

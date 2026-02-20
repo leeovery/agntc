@@ -1,17 +1,16 @@
 import type { AgentId } from "./drivers/types.js";
 
-export function computeEffectiveAgents(
-  entryAgents: AgentId[],
-  newConfigAgents: AgentId[],
-): AgentId[] {
-  const newSet = new Set(newConfigAgents);
-  return entryAgents.filter((a) => newSet.has(a));
+export interface AgentChanges {
+  effective: AgentId[];
+  dropped: AgentId[];
 }
 
-export function findDroppedAgents(
+export function computeAgentChanges(
   entryAgents: AgentId[],
   newConfigAgents: AgentId[],
-): AgentId[] {
+): AgentChanges {
   const newSet = new Set(newConfigAgents);
-  return entryAgents.filter((a) => !newSet.has(a));
+  const effective = entryAgents.filter((a) => newSet.has(a));
+  const dropped = entryAgents.filter((a) => !effective.includes(a));
+  return { effective, dropped };
 }
