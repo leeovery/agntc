@@ -79,6 +79,10 @@ vi.mock("../../src/manifest.js", () => ({
   addEntry: vi.fn(),
 }));
 
+vi.mock("../../src/nuke-files.js", () => ({
+  nukeManifestFiles: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { parseSource } from "../../src/source-parser.js";
 import { cloneSource, cleanupTempDir } from "../../src/git-clone.js";
@@ -93,6 +97,7 @@ import { selectCollectionPlugins } from "../../src/collection-select.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
 import { readManifest, writeManifest, addEntry } from "../../src/manifest.js";
+import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { runAdd } from "../../src/commands/add.js";
 
 const mockParseSource = vi.mocked(parseSource);
@@ -109,6 +114,7 @@ const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockReadManifest = vi.mocked(readManifest);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockAddEntry = vi.mocked(addEntry);
+const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockIntro = vi.mocked(p.intro);
 const mockOutro = vi.mocked(p.outro);
 const mockSpinner = vi.mocked(p.spinner);
@@ -167,6 +173,7 @@ function setupHappyPath(): void {
   mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
   mockAddEntry.mockReturnValue(UPDATED_MANIFEST);
   mockWriteManifest.mockResolvedValue(undefined);
+  mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
   mockCleanupTempDir.mockResolvedValue(undefined);
 }
 
@@ -1240,6 +1247,261 @@ describe("add command", () => {
       await runAdd("owner/my-skill");
 
       expect(mockCleanupTempDir).toHaveBeenCalled();
+    });
+  });
+
+  describe("reinstall (nuke before copy)", () => {
+    const EXISTING_MANIFEST: Manifest = {
+      "owner/my-skill": {
+        ref: "main",
+        commit: "old123",
+        installedAt: "2026-01-01T00:00:00.000Z",
+        agents: ["claude"],
+        files: [".claude/skills/my-skill/"],
+      },
+    };
+
+    it("standalone reinstall nukes old files before copy", async () => {
+      mockReadManifest.mockResolvedValue(EXISTING_MANIFEST);
+
+      const callOrder: string[] = [];
+      mockNukeManifestFiles.mockImplementation(async () => {
+        callOrder.push("nuke");
+        return { removed: [".claude/skills/my-skill/"], skipped: [] };
+      });
+      mockCopyBareSkill.mockImplementation(async (args) => {
+        callOrder.push("copy");
+        return { copiedFiles: [".claude/skills/my-skill/"] };
+      });
+
+      await runAdd("owner/my-skill");
+
+      expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+        "/fake/project",
+        [".claude/skills/my-skill/"],
+      );
+      expect(callOrder).toEqual(["nuke", "copy"]);
+    });
+
+    it("does not nuke when manifest key is not present", async () => {
+      mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+
+      await runAdd("owner/my-skill");
+
+      expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+    });
+
+    it("manifest entry replaced not duplicated on reinstall", async () => {
+      mockReadManifest.mockResolvedValue(EXISTING_MANIFEST);
+      mockNukeManifestFiles.mockResolvedValue({
+        removed: [".claude/skills/my-skill/"],
+        skipped: [],
+      });
+      mockAddEntry.mockImplementation((manifest, key, entry) => ({
+        ...manifest,
+        [key]: entry,
+      }));
+
+      await runAdd("owner/my-skill");
+
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        EXISTING_MANIFEST,
+        "owner/my-skill",
+        expect.objectContaining({
+          ref: "main",
+          commit: "abc123def456",
+          files: [".claude/skills/my-skill/"],
+        }),
+      );
+    });
+
+    it("different agent selection on reinstall: old files nuked, new files created", async () => {
+      const oldManifest: Manifest = {
+        "owner/my-skill": {
+          ref: "main",
+          commit: "old123",
+          installedAt: "2026-01-01T00:00:00.000Z",
+          agents: ["codex"],
+          files: [".codex/skills/my-skill/"],
+        },
+      };
+      mockReadManifest.mockResolvedValue(oldManifest);
+      mockNukeManifestFiles.mockResolvedValue({
+        removed: [".codex/skills/my-skill/"],
+        skipped: [],
+      });
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runAdd("owner/my-skill");
+
+      // Should nuke the OLD files (codex)
+      expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+        "/fake/project",
+        [".codex/skills/my-skill/"],
+      );
+      // Should copy to NEW agent (claude)
+      expect(mockCopyBareSkill).toHaveBeenCalled();
+    });
+
+    describe("collection reinstall", () => {
+      const COLLECTION_PARSED: ParsedSource = {
+        type: "github-shorthand",
+        owner: "owner",
+        repo: "my-collection",
+        ref: "main",
+        manifestKey: "owner/my-collection",
+      };
+
+      const COLLECTION_CLONE_RESULT: CloneResult = {
+        tempDir: "/tmp/agntc-coll123",
+        commit: "coll123def456",
+      };
+
+      const COLLECTION_DETECTED: DetectedType = {
+        type: "collection",
+        plugins: ["pluginA", "pluginB"],
+      };
+
+      function setupCollectionReinstall(): void {
+        mockParseSource.mockReturnValue(COLLECTION_PARSED);
+        mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+          return { agents: ["claude"] };
+        });
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) {
+            return COLLECTION_DETECTED;
+          }
+          return { type: "bare-skill" } as DetectedType;
+        });
+        mockSelectCollectionPlugins.mockResolvedValue([
+          "pluginA",
+          "pluginB",
+        ]);
+        mockGetRegisteredAgentIds.mockReturnValue(["claude"] as AgentId[]);
+        mockGetDriver.mockReturnValue(FAKE_DRIVER);
+        mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+        mockWriteManifest.mockResolvedValue(undefined);
+        mockCleanupTempDir.mockResolvedValue(undefined);
+        mockAddEntry.mockImplementation((manifest, key, entry) => ({
+          ...manifest,
+          [key]: entry,
+        }));
+        mockNukeManifestFiles.mockResolvedValue({
+          removed: [],
+          skipped: [],
+        });
+      }
+
+      it("collection reinstall nukes per-plugin before copy", async () => {
+        setupCollectionReinstall();
+        const existingCollectionManifest: Manifest = {
+          "owner/my-collection/pluginA": {
+            ref: "main",
+            commit: "old123",
+            installedAt: "2026-01-01T00:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/pluginA/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(existingCollectionManifest);
+        mockNukeManifestFiles.mockResolvedValue({
+          removed: [".claude/skills/pluginA/"],
+          skipped: [],
+        });
+        mockCopyBareSkill
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginA/"],
+          })
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        // Only pluginA is in manifest, so only pluginA should be nuked
+        expect(mockNukeManifestFiles).toHaveBeenCalledTimes(1);
+        expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+          "/fake/project",
+          [".claude/skills/pluginA/"],
+        );
+      });
+
+      it("only installed plugins nuked in collection", async () => {
+        setupCollectionReinstall();
+        const existingCollectionManifest: Manifest = {
+          "owner/my-collection/pluginA": {
+            ref: "main",
+            commit: "old123",
+            installedAt: "2026-01-01T00:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/pluginA/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(existingCollectionManifest);
+        mockNukeManifestFiles.mockResolvedValue({
+          removed: [".claude/skills/pluginA/"],
+          skipped: [],
+        });
+        mockCopyBareSkill
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginA/"],
+          })
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        // pluginB was not in manifest, so nuke should NOT be called for it
+        const nukeCalls = mockNukeManifestFiles.mock.calls;
+        expect(nukeCalls).toHaveLength(1);
+        expect(nukeCalls[0]![1]).toEqual([".claude/skills/pluginA/"]);
+      });
+
+      it("nuke failure on one collection plugin does not block others", async () => {
+        setupCollectionReinstall();
+        const existingCollectionManifest: Manifest = {
+          "owner/my-collection/pluginA": {
+            ref: "main",
+            commit: "old123",
+            installedAt: "2026-01-01T00:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/pluginA/"],
+          },
+          "owner/my-collection/pluginB": {
+            ref: "main",
+            commit: "old123",
+            installedAt: "2026-01-01T00:00:00.000Z",
+            agents: ["claude"],
+            files: [".claude/skills/pluginB/"],
+          },
+        };
+        mockReadManifest.mockResolvedValue(existingCollectionManifest);
+
+        // pluginA nuke fails, pluginB nuke succeeds
+        mockNukeManifestFiles
+          .mockRejectedValueOnce(
+            Object.assign(new Error("EACCES"), { code: "EACCES" }),
+          )
+          .mockResolvedValueOnce({
+            removed: [".claude/skills/pluginB/"],
+            skipped: [],
+          });
+
+        mockCopyBareSkill
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        // pluginB should still be installed
+        expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

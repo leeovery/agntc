@@ -17,6 +17,7 @@ import { copyPluginAssets } from "../copy-plugin-assets.js";
 import type { AssetCounts } from "../copy-plugin-assets.js";
 import type { Manifest } from "../manifest.js";
 import { readManifest, writeManifest, addEntry } from "../manifest.js";
+import { nukeManifestFiles } from "../nuke-files.js";
 import { ExitSignal } from "../exit-signal.js";
 import type { AgentId } from "../drivers/types.js";
 import type { AgntcConfig } from "../config.js";
@@ -106,7 +107,14 @@ export async function runAdd(source: string): Promise<void> {
       driver: getDriver(id),
     }));
 
-    // 10. Copy assets (with spinner)
+    // 10. Read manifest and nuke existing files if reinstalling
+    const manifest = await readManifest(projectDir);
+    const existingEntry = manifest[parsed.manifestKey];
+    if (existingEntry) {
+      await nukeManifestFiles(projectDir, existingEntry.files);
+    }
+
+    // 11. Copy assets (with spinner)
     let copiedFiles: string[];
     let assetCountsByAgent: Record<string, AssetCounts> | undefined;
 
@@ -135,14 +143,13 @@ export async function runAdd(source: string): Promise<void> {
     }
     spin.stop("Copied successfully");
 
-    // 11. Handle empty plugin
+    // 12. Handle empty plugin
     if (detected.type === "plugin" && copiedFiles.length === 0) {
       p.log.warn("No files to install");
       throw new ExitSignal(0);
     }
 
-    // 12. Write manifest
-    const manifest = await readManifest(projectDir);
+    // 13. Write manifest
     const entry = {
       ref: parsed.ref,
       commit: cloneResult.commit,
@@ -153,7 +160,7 @@ export async function runAdd(source: string): Promise<void> {
     const updated = addEntry(manifest, parsed.manifestKey, entry);
     await writeManifest(projectDir, updated);
 
-    // 13. Summary
+    // 14. Summary
     const refLabel = parsed.ref ?? "HEAD";
     const agentSummary =
       detected.type === "plugin" && assetCountsByAgent
@@ -309,6 +316,19 @@ async function runCollectionPipeline(
         onWarn(`${pluginName}: nested collections not supported — skipping`);
         results.push({ pluginName, status: "skipped", copiedFiles: [] });
         continue;
+      }
+
+      // Nuke existing files if reinstalling this plugin
+      const pluginManifestKey = `${parsed.manifestKey}/${pluginName}`;
+      const existingPluginEntry = manifest[pluginManifestKey];
+      if (existingPluginEntry) {
+        try {
+          await nukeManifestFiles(projectDir, existingPluginEntry.files);
+        } catch {
+          onWarn(`${pluginName}: failed to remove old files — skipping`);
+          results.push({ pluginName, status: "skipped", copiedFiles: [] });
+          continue;
+        }
       }
 
       if (pluginDetected.type === "plugin") {
