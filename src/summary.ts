@@ -1,6 +1,7 @@
 import { getDriver } from "./drivers/registry.js";
 import type { AgentId, AssetType } from "./drivers/types.js";
 import type { AssetCounts } from "./copy-plugin-assets.js";
+import type { DetectedType } from "./type-detection.js";
 
 export function capitalizeAgentName(id: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1);
@@ -88,7 +89,7 @@ interface CollectionPluginResult {
   status: "installed" | "skipped" | "failed";
   copiedFiles: string[];
   assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
-  detectedType?: { type: string };
+  detectedType?: DetectedType;
   errorMessage?: string;
 }
 
