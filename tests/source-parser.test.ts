@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { parseSource, buildParsedSourceFromKey, getSourceDirFromKey } from "../src/source-parser.js";
+import { parseSource, buildParsedSourceFromKey, getSourceDirFromKey, resolveCloneUrl, deriveCloneUrlFromKey } from "../src/source-parser.js";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir, homedir } from "node:os";
@@ -13,6 +13,7 @@ describe("parseSource", () => {
       repo: "repo",
       ref: null,
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -24,6 +25,7 @@ describe("parseSource", () => {
       repo: "repo",
       ref: "v2.0",
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -35,6 +37,7 @@ describe("parseSource", () => {
       repo: "repo",
       ref: "main",
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -51,6 +54,7 @@ describe("parseSource", () => {
       repo: "repo",
       ref: null,
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -93,6 +97,7 @@ describe("parseSource", () => {
       repo: "repo",
       ref: "v2.0.0-beta.1",
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -104,6 +109,7 @@ describe("parseSource", () => {
       repo: "repo",
       ref: "feat@special",
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -702,6 +708,7 @@ describe("buildParsedSourceFromKey", () => {
       repo: "repo",
       ref: "v1.0",
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -713,6 +720,7 @@ describe("buildParsedSourceFromKey", () => {
       repo: "repo",
       ref: null,
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -740,6 +748,7 @@ describe("buildParsedSourceFromKey", () => {
       repo: "repo",
       ref: "v2.0",
       manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
     });
   });
 
@@ -774,5 +783,95 @@ describe("getSourceDirFromKey", () => {
   it("returns tempDir joined with nested subpath for deep collection key", () => {
     const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo/nested/plugin");
     expect(result).toBe(join("/tmp/clone-abc", "nested/plugin"));
+  });
+});
+
+describe("resolveCloneUrl", () => {
+  it("returns cloneUrl for github-shorthand source", () => {
+    const result = resolveCloneUrl({
+      type: "github-shorthand",
+      owner: "owner",
+      repo: "repo",
+      ref: null,
+      manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
+    });
+    expect(result).toBe("https://github.com/owner/repo.git");
+  });
+
+  it("returns cloneUrl for https-url source", () => {
+    const result = resolveCloneUrl({
+      type: "https-url",
+      owner: "org",
+      repo: "project",
+      ref: null,
+      manifestKey: "org/project",
+      cloneUrl: "https://gitlab.com/org/project.git",
+    });
+    expect(result).toBe("https://gitlab.com/org/project.git");
+  });
+
+  it("returns cloneUrl for ssh-url source", () => {
+    const result = resolveCloneUrl({
+      type: "ssh-url",
+      owner: "team",
+      repo: "tools",
+      ref: null,
+      manifestKey: "team/tools",
+      cloneUrl: "git@github.com:team/tools.git",
+    });
+    expect(result).toBe("git@github.com:team/tools.git");
+  });
+
+  it("returns cloneUrl for direct-path source", () => {
+    const result = resolveCloneUrl({
+      type: "direct-path",
+      owner: "owner",
+      repo: "repo",
+      ref: "main",
+      targetPlugin: "plugin-name",
+      manifestKey: "owner/repo/plugin-name",
+      cloneUrl: "https://github.com/owner/repo.git",
+    });
+    expect(result).toBe("https://github.com/owner/repo.git");
+  });
+
+  it("throws for local-path source", () => {
+    expect(() =>
+      resolveCloneUrl({
+        type: "local-path",
+        resolvedPath: "/Users/lee/Code/my-skill",
+        ref: null,
+        manifestKey: "/Users/lee/Code/my-skill",
+      }),
+    ).toThrow();
+  });
+});
+
+describe("deriveCloneUrlFromKey", () => {
+  it("returns cloneUrl when non-null", () => {
+    const result = deriveCloneUrlFromKey(
+      "owner/repo",
+      "https://gitlab.com/owner/repo.git",
+    );
+    expect(result).toBe("https://gitlab.com/owner/repo.git");
+  });
+
+  it("constructs GitHub URL from key when cloneUrl is null", () => {
+    const result = deriveCloneUrlFromKey("owner/repo", null);
+    expect(result).toBe("https://github.com/owner/repo.git");
+  });
+
+  it("constructs GitHub URL from collection key when cloneUrl is null", () => {
+    const result = deriveCloneUrlFromKey("alice/my-skills/go", null);
+    expect(result).toBe("https://github.com/alice/my-skills.git");
+  });
+
+  it("returns SSH cloneUrl when provided", () => {
+    const result = deriveCloneUrlFromKey(
+      "owner/repo",
+      "git@github.com:owner/repo.git",
+    );
+    expect(result).toBe("git@github.com:owner/repo.git");
   });
 });

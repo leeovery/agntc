@@ -10,12 +10,15 @@ vi.mock("node:fs/promises");
 vi.mock("node:os");
 
 function makeParsed(overrides: Partial<ParsedSource> = {}): ParsedSource {
+  const owner = (overrides as Record<string, unknown>).owner as string ?? "acme";
+  const repo = (overrides as Record<string, unknown>).repo as string ?? "skills";
   return {
     type: "github-shorthand",
-    owner: "acme",
-    repo: "skills",
+    owner,
+    repo,
     ref: null,
-    manifestKey: "acme/skills",
+    manifestKey: `${owner}/${repo}`,
+    cloneUrl: `https://github.com/${owner}/${repo}.git`,
     ...overrides,
   };
 }

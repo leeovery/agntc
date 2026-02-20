@@ -31,9 +31,13 @@ vi.mock("@clack/prompts", () => ({
   cancel: vi.fn(),
 }));
 
-vi.mock("../../src/source-parser.js", () => ({
-  parseSource: vi.fn(),
-}));
+vi.mock("../../src/source-parser.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/source-parser.js")>();
+  return {
+    ...actual,
+    parseSource: vi.fn(),
+  };
+});
 
 vi.mock("../../src/git-clone.js", () => ({
   cloneSource: vi.fn(),
@@ -160,6 +164,7 @@ const PARSED: ParsedSource = {
   repo: "my-skill",
   ref: "main",
   manifestKey: "owner/my-skill",
+  cloneUrl: "https://github.com/owner/my-skill.git",
 };
 
 const CLONE_RESULT: CloneResult = {

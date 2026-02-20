@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
 import { join } from "node:path";
-import { parseSource } from "../source-parser.js";
+import { parseSource, resolveCloneUrl } from "../source-parser.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
 import { readConfig, ConfigError } from "../config.js";
 import { detectType } from "../type-detection.js";
@@ -30,13 +30,9 @@ import {
   renderCollectionAddSummary,
 } from "../summary.js";
 
-function deriveCloneUrl(parsed: Awaited<ReturnType<typeof parseSource>>): string | null {
+function deriveCloneUrlForManifest(parsed: Awaited<ReturnType<typeof parseSource>>): string | null {
   if (parsed.type === "local-path") return null;
-  if (parsed.type === "https-url" || parsed.type === "ssh-url" || parsed.type === "direct-path") {
-    return parsed.cloneUrl;
-  }
-  // github-shorthand
-  return `https://github.com/${parsed.owner}/${parsed.repo}.git`;
+  return resolveCloneUrl(parsed);
 }
 
 export async function runAdd(source: string): Promise<void> {
@@ -231,7 +227,7 @@ export async function runAdd(source: string): Promise<void> {
       installedAt: new Date().toISOString(),
       agents: selectedAgents,
       files: copiedFiles,
-      cloneUrl: deriveCloneUrl(parsed),
+      cloneUrl: deriveCloneUrlForManifest(parsed),
     };
     const updated = addEntry(currentManifest, parsed.manifestKey, entry);
     await writeManifest(projectDir, updated);
@@ -527,7 +523,7 @@ async function runCollectionPipeline(
       installedAt: new Date().toISOString(),
       agents: selectedAgents,
       files: result.copiedFiles,
-      cloneUrl: deriveCloneUrl(parsed),
+      cloneUrl: deriveCloneUrlForManifest(parsed),
     };
     updatedManifest = addEntry(updatedManifest, manifestKey, entry);
   }

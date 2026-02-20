@@ -8,6 +8,7 @@ interface GitHubShorthandSource {
   repo: string;
   ref: string | null;
   manifestKey: string;
+  cloneUrl: string;
 }
 
 interface HttpsUrlSource {
@@ -342,6 +343,7 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
     repo,
     ref,
     manifestKey: `${owner}/${repo}`,
+    cloneUrl: `https://github.com/${owner}/${repo}.git`,
   };
 }
 
@@ -371,7 +373,28 @@ export function buildParsedSourceFromKey(
     repo,
     ref,
     manifestKey: `${owner}/${repo}`,
+    cloneUrl: `https://github.com/${owner}/${repo}.git`,
   };
+}
+
+export function resolveCloneUrl(parsed: ParsedSource): string {
+  if (parsed.type === "local-path") {
+    throw new Error("Cannot resolve clone URL for local path source");
+  }
+  return parsed.cloneUrl;
+}
+
+export function deriveCloneUrlFromKey(
+  key: string,
+  cloneUrl: string | null,
+): string {
+  if (cloneUrl !== null) {
+    return cloneUrl;
+  }
+  const parts = key.split("/");
+  const owner = parts[0]!;
+  const repo = parts[1]!;
+  return `https://github.com/${owner}/${repo}.git`;
 }
 
 export function getSourceDirFromKey(tempDir: string, key: string): string {

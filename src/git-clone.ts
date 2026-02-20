@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { execGit } from "./git-utils.js";
 import type { ParsedSource } from "./source-parser.js";
+import { resolveCloneUrl } from "./source-parser.js";
 
 export interface CloneResult {
   tempDir: string;
@@ -24,16 +25,6 @@ function isAuthError(stderr: string): boolean {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function resolveCloneUrl(parsed: ParsedSource): string {
-  if (parsed.type === "https-url" || parsed.type === "ssh-url" || parsed.type === "direct-path") {
-    return parsed.cloneUrl;
-  }
-  if (parsed.type === "local-path") {
-    throw new Error("cloneSource should not be called for local paths");
-  }
-  return `https://github.com/${parsed.owner}/${parsed.repo}.git`;
 }
 
 export async function cloneSource(parsed: ParsedSource): Promise<CloneResult> {

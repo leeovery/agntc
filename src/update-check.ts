@@ -1,5 +1,6 @@
 import { execGit } from "./git-utils.js";
 import type { ManifestEntry } from "./manifest.js";
+import { deriveCloneUrlFromKey } from "./source-parser.js";
 
 export type UpdateCheckResult =
   | { status: "local" }
@@ -7,14 +8,6 @@ export type UpdateCheckResult =
   | { status: "update-available"; remoteCommit: string }
   | { status: "newer-tags"; tags: string[] }
   | { status: "check-failed"; reason: string };
-
-// Only valid for owner/repo keys (not local path keys).
-function deriveCloneUrl(key: string): string {
-  const parts = key.split("/");
-  const owner = parts[0]!;
-  const repo = parts[1]!;
-  return `https://github.com/${owner}/${repo}.git`;
-}
 
 // Heuristic: matches "v1...", "1...", etc. Does not match branch names like
 // "dev", "main", or "feature-x". Will misclassify tags that start with a
@@ -58,7 +51,7 @@ export async function checkForUpdate(
     return { status: "local" };
   }
 
-  const url = entry.cloneUrl ?? deriveCloneUrl(key);
+  const url = deriveCloneUrlFromKey(key, entry.cloneUrl);
 
   if (entry.ref === null) {
     return checkHead(url, entry.commit!);
