@@ -1,9 +1,13 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { readManifest, type ManifestEntry } from "../manifest.js";
+import { readManifest, type ManifestEntry, type Manifest } from "../manifest.js";
 import { checkAllForUpdates } from "../update-check-all.js";
-import type { UpdateCheckResult } from "../update-check.js";
+import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
 import { ExitSignal } from "../exit-signal.js";
+import { renderDetailView } from "./list-detail.js";
+import { executeUpdateAction } from "./list-update-action.js";
+import { executeRemoveAction } from "./list-remove-action.js";
+import { executeChangeVersionAction } from "./list-change-version-action.js";
 
 const DONE_VALUE = "__done__";
 
@@ -29,26 +33,11 @@ function formatStatusHint(result: UpdateCheckResult): string {
   }
 }
 
-export async function runList(): Promise<string | null> {
-  const manifest = await readManifest(process.cwd()).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Failed to read manifest: ${message}`);
-    throw new ExitSignal(1);
-  });
-
+async function showListView(
+  manifest: Manifest,
+  checkResults: Map<string, UpdateCheckResult>,
+): Promise<string | null> {
   const entries = Object.entries(manifest);
-
-  if (entries.length === 0) {
-    p.outro(
-      "No plugins installed. Run npx agntc add owner/repo to get started.",
-    );
-    return null;
-  }
-
-  const spin = p.spinner();
-  spin.start("Checking for updates...");
-  const checkResults = await checkAllForUpdates(manifest);
-  spin.stop("Update checks complete.");
 
   const options = entries.map(([key, entry]) => {
     const result = checkResults.get(key) ?? {
@@ -80,11 +69,92 @@ export async function runList(): Promise<string | null> {
   return selected;
 }
 
+export async function runListLoop(): Promise<void> {
+  const projectDir = process.cwd();
+
+  while (true) {
+    const manifest = await readManifest(projectDir).catch((err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      p.log.error(`Failed to read manifest: ${message}`);
+      throw new ExitSignal(1);
+    });
+
+    const entries = Object.entries(manifest);
+
+    if (entries.length === 0) {
+      p.outro(
+        "No plugins installed. Run npx agntc add owner/repo to get started.",
+      );
+      return;
+    }
+
+    const spin = p.spinner();
+    spin.start("Checking for updates...");
+    const checkResults = await checkAllForUpdates(manifest);
+    spin.stop("Update checks complete.");
+
+    const selectedKey = await showListView(manifest, checkResults);
+
+    if (selectedKey === null) {
+      return;
+    }
+
+    const entry = manifest[selectedKey];
+    if (!entry) {
+      continue;
+    }
+
+    while (true) {
+      const freshManifest = await readManifest(projectDir);
+      const freshEntry = freshManifest[selectedKey];
+      if (!freshEntry) break;
+
+      const freshStatus = await checkForUpdate(selectedKey, freshEntry);
+
+      const action = await renderDetailView({
+        key: selectedKey,
+        entry: freshEntry,
+        updateStatus: freshStatus,
+      });
+
+      if (action === "back") break;
+
+      if (action === "remove") {
+        const result = await executeRemoveAction(selectedKey, freshEntry, freshManifest, projectDir);
+        if (result.removed) {
+          p.log.success(result.message);
+        }
+        break;
+      }
+
+      if (action === "update") {
+        const result = await executeUpdateAction(selectedKey, freshEntry, freshManifest, projectDir);
+        if (result.success) {
+          p.log.success(result.message);
+        } else {
+          p.log.error(result.message);
+        }
+        continue;
+      }
+
+      if (action === "change-version") {
+        const result = await executeChangeVersionAction(selectedKey, freshEntry, freshManifest, projectDir, freshStatus);
+        if (result.changed) {
+          p.log.success(result.message);
+        } else if (result.message !== "Cancelled") {
+          p.log.error(result.message);
+        }
+        continue;
+      }
+    }
+  }
+}
+
 export const listCommand = new Command("list")
   .description("List installed plugins")
   .action(async () => {
     try {
-      await runList();
+      await runListLoop();
     } catch (err) {
       if (err instanceof ExitSignal) {
         process.exit(err.code);
