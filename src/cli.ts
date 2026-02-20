@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { addCommand } from "./commands/add.js";
 import { listCommand } from "./commands/list.js";
+import { removeCommand } from "./commands/remove.js";
 
 const program = new Command();
 
@@ -11,6 +12,7 @@ program
 
 program.addCommand(addCommand);
 program.addCommand(listCommand);
+program.addCommand(removeCommand);
 
 program.showHelpAfterError(true);
 
