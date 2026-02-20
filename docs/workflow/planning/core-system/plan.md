@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: auto
 review_cycle: 4
 planning:
-  phase: 6
+  phase: 7
   task: ~
 ---
 
@@ -225,3 +225,19 @@ ext_id: tick-9b3876
 | cs-6-9 | Extract shared execGit helper | none | authored | tick-6b7df4 |
 | cs-6-10 | Extract shared buildParsedSource and getSourceDir helpers | none | authored | tick-8fe97c |
 | cs-6-11 | Add filesystem-based integration tests for core workflows | none | authored | tick-ed706d |
+
+### Phase 7: Analysis (Cycle 2)
+status: approved
+ext_id: tick-d00910
+
+**Goal**: Address findings from Analysis (Cycle 2).
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-7-1 | Extract shared clone-and-reinstall orchestration | none | authored | tick-b51c55 |
+| cs-7-2 | Centralize clone URL derivation and add cloneUrl to GitHubShorthandSource | none | authored | tick-dc4981 |
+| cs-7-3 | Fix collection add to enforce per-plugin agent compatibility warnings | none | authored | tick-b999e1 |
+| cs-7-4 | Extract shared readDirEntries utility | none | authored | tick-56138f |
+| cs-7-5 | Consolidate findDroppedAgents as complement of computeEffectiveAgents | none | authored | tick-e6bbde |
+| cs-7-6 | Align summary output format with spec | none | authored | tick-72799f |

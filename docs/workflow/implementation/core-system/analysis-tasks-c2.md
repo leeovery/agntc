@@ -6,7 +6,7 @@ total_proposed: 6
 # Analysis Tasks: Core System (Cycle 2)
 
 ## Task 1: Extract shared clone-and-reinstall orchestration
-status: pending
+status: approved
 severity: high
 sources: duplication, architecture
 
@@ -40,7 +40,7 @@ sources: duplication, architecture
 - Each NukeReinstallResult status (no-config, no-agents, invalid-type, copy-failed, success) produces the same error messages/behavior as before
 
 ## Task 2: Centralize clone URL derivation and add cloneUrl to GitHubShorthandSource
-status: pending
+status: approved
 severity: medium
 sources: duplication, architecture
 
@@ -72,7 +72,7 @@ sources: duplication, architecture
 - Git clone tests pass with centralized URL resolution
 
 ## Task 3: Fix collection add to enforce per-plugin agent compatibility warnings
-status: pending
+status: approved
 severity: medium
 sources: standards
 
@@ -101,7 +101,7 @@ sources: standards
 - Single-plugin (non-collection) flow remains unchanged
 
 ## Task 4: Extract shared readDirEntries utility
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -131,7 +131,7 @@ sources: duplication
 - readDirEntries correctly maps entries with name and isDirectory
 
 ## Task 5: Consolidate findDroppedAgents as complement of computeEffectiveAgents
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -160,7 +160,7 @@ sources: architecture
 - When effective agents change, dropped agents are always the exact complement
 
 ## Task 6: Align summary output format with spec
-status: pending
+status: approved
 severity: low
 sources: standards
 
