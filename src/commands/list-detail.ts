@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import type { ManifestEntry } from "../manifest.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import { identifyFileOwnership } from "../drivers/identify.js";
+import { formatRefLabel } from "../summary.js";
 
 export type DetailAction = "update" | "remove" | "change-version" | "back";
 
@@ -9,12 +10,6 @@ export interface DetailViewInput {
   key: string;
   entry: ManifestEntry;
   updateStatus: UpdateCheckResult;
-}
-
-function formatRef(entry: ManifestEntry): string {
-  if (entry.ref !== null) return entry.ref;
-  if (entry.commit) return "HEAD";
-  return "local";
 }
 
 function formatCommit(entry: ManifestEntry): string {
@@ -100,7 +95,7 @@ export async function renderDetailView(
   const { key, entry, updateStatus } = input;
 
   p.log.info(`Plugin: ${key}`);
-  p.log.info(`Ref: ${formatRef(entry)}`);
+  p.log.info(`Ref: ${formatRefLabel(entry.ref, entry.commit)}`);
   p.log.info(`Commit: ${formatCommit(entry)}`);
   p.log.info(`Installed: ${formatDate(entry.installedAt)}`);
   p.log.info(`Agents: ${entry.agents.join(", ")}`);
