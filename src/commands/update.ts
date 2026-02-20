@@ -1,6 +1,5 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { stat } from "node:fs/promises";
 import { readManifest, writeManifest, addEntry, removeEntry } from "../manifest.js";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
@@ -13,6 +12,7 @@ import {
 } from "../summary.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
+import { validateLocalSourcePath } from "../fs-utils.js";
 
 type PluginOutcome =
   | { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
@@ -103,16 +103,8 @@ async function handleCopyFailedRemoval(
 }
 
 async function validateLocalPath(sourcePath: string): Promise<void> {
-  try {
-    const stats = await stat(sourcePath);
-    if (!stats.isDirectory()) {
-      p.log.error(
-        `Path ${sourcePath} does not exist or is not a directory.`,
-      );
-      throw new ExitSignal(1);
-    }
-  } catch (err) {
-    if (err instanceof ExitSignal) throw err;
+  const result = await validateLocalSourcePath(sourcePath);
+  if (!result.valid) {
     p.log.error(
       `Path ${sourcePath} does not exist or is not a directory.`,
     );
@@ -225,20 +217,12 @@ async function processUpdateForAll(
 
     // Local path validation
     if (isLocal) {
-      try {
-        const stats = await stat(key);
-        if (!stats.isDirectory()) {
-          return {
-            status: "failed",
-            key,
-            summary: `${key}: Failed — path is not a directory`,
-          };
-        }
-      } catch {
+      const pathResult = await validateLocalSourcePath(key);
+      if (!pathResult.valid) {
         return {
           status: "failed",
           key,
-          summary: `${key}: Failed — path does not exist`,
+          summary: `${key}: Failed — ${pathResult.reason}`,
         };
       }
     }

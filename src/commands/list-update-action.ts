@@ -1,8 +1,8 @@
 import * as p from "@clack/prompts";
-import { stat } from "node:fs/promises";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { writeManifest, addEntry, removeEntry } from "../manifest.js";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
+import { validateLocalSourcePath } from "../fs-utils.js";
 
 export interface UpdateActionResult {
   success: boolean;
@@ -86,15 +86,8 @@ async function runLocalUpdate(
   try {
     const sourcePath = key;
 
-    try {
-      const stats = await stat(sourcePath);
-      if (!stats.isDirectory()) {
-        return {
-          success: false,
-          message: `Path ${sourcePath} does not exist or is not a directory`,
-        };
-      }
-    } catch {
+    const pathResult = await validateLocalSourcePath(sourcePath);
+    if (!pathResult.valid) {
       return {
         success: false,
         message: `Path ${sourcePath} does not exist or is not a directory`,
