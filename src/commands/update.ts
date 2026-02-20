@@ -101,7 +101,13 @@ export async function runUpdate(key?: string): Promise<void> {
   }
 
   if (result.status === "newer-tags") {
-    p.outro(`${key} is already up to date (tag-pinned).`);
+    p.log.info(`Pinned to ${entry.ref}. Newer tags available:`);
+    const reversed = [...result.tags].reverse();
+    for (const tag of reversed) {
+      p.log.message(`  ${tag}`);
+    }
+    const newest = reversed[0]!;
+    p.outro(`To upgrade: npx agntc add ${key}@${newest}`);
     return;
   }
 

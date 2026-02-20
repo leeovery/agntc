@@ -748,7 +748,44 @@ describe("update command", () => {
   });
 
   describe("newer-tags", () => {
-    it("treats newer-tags as up-to-date (tag-pinned)", async () => {
+    it("shows pinned ref and newer tags available message", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": makeEntry({ ref: "v1.0" }),
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "newer-tags",
+        tags: ["v2.0", "v3.0"],
+      });
+
+      await runUpdate("owner/repo");
+
+      expect(mockLog.info).toHaveBeenCalledWith(
+        "Pinned to v1.0. Newer tags available:",
+      );
+    });
+
+    it("lists newer tags newest-first", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": makeEntry({ ref: "v1.0" }),
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "newer-tags",
+        tags: ["v2.0", "v3.0", "v4.0"],
+      });
+
+      await runUpdate("owner/repo");
+
+      const messageCalls = mockLog.message.mock.calls.map(
+        (call) => call[0],
+      );
+      expect(messageCalls).toEqual([
+        "  v4.0",
+        "  v3.0",
+        "  v2.0",
+      ]);
+    });
+
+    it("shows re-add command with newest tag", async () => {
       mockReadManifest.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
       });
@@ -760,7 +797,66 @@ describe("update command", () => {
       await runUpdate("owner/repo");
 
       expect(mockOutro).toHaveBeenCalledWith(
-        expect.stringContaining("owner/repo is already up to date"),
+        "To upgrade: npx agntc add owner/repo@v3.0",
+      );
+    });
+
+    it("does not clone, nuke, or write manifest", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": makeEntry({ ref: "v1.0" }),
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "newer-tags",
+        tags: ["v2.0"],
+      });
+
+      await runUpdate("owner/repo");
+
+      expect(mockCloneSource).not.toHaveBeenCalled();
+      expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+      expect(mockWriteManifest).not.toHaveBeenCalled();
+    });
+
+    it("exits 0 (does not throw)", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": makeEntry({ ref: "v1.0" }),
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "newer-tags",
+        tags: ["v2.0"],
+      });
+
+      await expect(runUpdate("owner/repo")).resolves.toBeUndefined();
+    });
+
+    it("shows re-add command for collection plugin key", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo/go": makeEntry({ ref: "v1.0" }),
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "newer-tags",
+        tags: ["v2.0", "v3.0"],
+      });
+
+      await runUpdate("owner/repo/go");
+
+      expect(mockOutro).toHaveBeenCalledWith(
+        "To upgrade: npx agntc add owner/repo/go@v3.0",
+      );
+    });
+  });
+
+  describe("tag-pinned up-to-date", () => {
+    it("shows up-to-date for tag-pinned plugin with no newer tags", async () => {
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": makeEntry({ ref: "v3.0" }),
+      });
+      mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
+
+      await runUpdate("owner/repo");
+
+      expect(mockOutro).toHaveBeenCalledWith(
+        "owner/repo is already up to date.",
       );
       expect(mockCloneSource).not.toHaveBeenCalled();
     });
