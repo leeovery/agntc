@@ -2,7 +2,7 @@
 topic: core-system
 plan: ../../planning/core-system/plan.md
 format: tick
-status: in-progress
+status: completed
 task_gate_mode: auto
 fix_gate_mode: auto
 fix_attempts: 0
@@ -24,6 +24,7 @@ completed_phases:
   - 7
   - 8
   - 9
+  - 10
 completed_tasks:
   - cs-1-1
   - cs-1-2
@@ -101,7 +102,7 @@ completed_tasks:
   - cs-10-4
 started: 2026-02-19
 updated: 2026-02-20
-completed: ~
+completed: 2026-02-20
 ---
 
 # Implementation: Core System
