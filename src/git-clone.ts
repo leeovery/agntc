@@ -50,8 +50,15 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveCloneUrl(parsed: ParsedSource): string {
+  if (parsed.type === "https-url") {
+    return parsed.cloneUrl;
+  }
+  return `https://github.com/${parsed.owner}/${parsed.repo}.git`;
+}
+
 export async function cloneSource(parsed: ParsedSource): Promise<CloneResult> {
-  const url = `https://github.com/${parsed.owner}/${parsed.repo}.git`;
+  const url = resolveCloneUrl(parsed);
   const tempDir = await mkdtemp(tmpdir() + "/agntc-");
 
   const cloneArgs = ["clone", "--depth", "1"];

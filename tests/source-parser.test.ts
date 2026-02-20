@@ -100,4 +100,171 @@ describe("parseSource", () => {
       manifestKey: "owner/repo",
     });
   });
+
+  describe("HTTPS URL sources", () => {
+    it("parses GitHub HTTPS URL with owner/repo", () => {
+      const result = parseSource("https://github.com/owner/repo");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("parses GitLab HTTPS URL", () => {
+      const result = parseSource("https://gitlab.com/org/project");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "org",
+        repo: "project",
+        ref: null,
+        manifestKey: "org/project",
+        cloneUrl: "https://gitlab.com/org/project.git",
+      });
+    });
+
+    it("parses Bitbucket HTTPS URL", () => {
+      const result = parseSource("https://bitbucket.org/team/tools");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "team",
+        repo: "tools",
+        ref: null,
+        manifestKey: "team/tools",
+        cloneUrl: "https://bitbucket.org/team/tools.git",
+      });
+    });
+
+    it("parses HTTPS URL with @ref suffix", () => {
+      const result = parseSource("https://github.com/owner/repo@v1.0");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "owner",
+        repo: "repo",
+        ref: "v1.0",
+        manifestKey: "owner/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("parses HTTPS URL with branch ref", () => {
+      const result = parseSource("https://gitlab.com/org/project@main");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "org",
+        repo: "project",
+        ref: "main",
+        manifestKey: "org/project",
+        cloneUrl: "https://gitlab.com/org/project.git",
+      });
+    });
+
+    it("strips trailing slash from URL", () => {
+      const result = parseSource("https://github.com/owner/repo/");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("strips .git suffix from repo in URL", () => {
+      const result = parseSource("https://github.com/owner/repo.git");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("strips both trailing slash and .git suffix", () => {
+      const result = parseSource("https://github.com/owner/repo.git/");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("strips .git suffix before extracting ref", () => {
+      const result = parseSource("https://github.com/owner/repo.git@v2.0");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "owner",
+        repo: "repo",
+        ref: "v2.0",
+        manifestKey: "owner/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("manifestKey is host-independent (owner/repo only)", () => {
+      const github = parseSource("https://github.com/owner/repo");
+      const gitlab = parseSource("https://gitlab.com/owner/repo");
+      expect(github.manifestKey).toBe("owner/repo");
+      expect(gitlab.manifestKey).toBe("owner/repo");
+    });
+
+    it("trims whitespace from HTTPS URL input", () => {
+      const result = parseSource("  https://github.com/owner/repo  ");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("throws for HTTPS URL with no path segments", () => {
+      expect(() => parseSource("https://github.com")).toThrow();
+    });
+
+    it("throws for HTTPS URL with single path segment", () => {
+      expect(() => parseSource("https://github.com/owner")).toThrow();
+    });
+
+    it("throws for HTTPS URL with empty ref after @", () => {
+      expect(() => parseSource("https://github.com/owner/repo@")).toThrow(
+        /ref cannot be empty/,
+      );
+    });
+
+    it("supports self-hosted git hosts", () => {
+      const result = parseSource("https://git.mycompany.com/team/project");
+      expect(result).toEqual({
+        type: "https-url",
+        owner: "team",
+        repo: "project",
+        ref: null,
+        manifestKey: "team/project",
+        cloneUrl: "https://git.mycompany.com/team/project.git",
+      });
+    });
+  });
+
+  describe("GitHub shorthand still works (no regression)", () => {
+    it("simple owner/repo still returns github-shorthand type", () => {
+      const result = parseSource("owner/repo");
+      expect(result.type).toBe("github-shorthand");
+    });
+
+    it("owner/repo@ref still returns github-shorthand type", () => {
+      const result = parseSource("owner/repo@v1.0");
+      expect(result.type).toBe("github-shorthand");
+    });
+  });
 });

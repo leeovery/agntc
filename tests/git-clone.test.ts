@@ -303,6 +303,41 @@ describe("cloneSource", () => {
     expect(err.message).toMatch(/git clone failed/);
     expect(err.message).toMatch(/repository.*not found/);
   });
+
+  it("uses cloneUrl directly for https-url type", async () => {
+    mockExecFileSuccess();
+    const parsed: ParsedSource = {
+      type: "https-url",
+      owner: "team",
+      repo: "tools",
+      ref: null,
+      manifestKey: "team/tools",
+      cloneUrl: "https://gitlab.com/team/tools.git",
+    };
+
+    const promise = cloneSource(parsed);
+    await vi.runAllTimersAsync();
+    await promise;
+
+    const execFileMock = vi.mocked(childProcess.execFile);
+    const firstCall = execFileMock.mock.calls[0]!;
+    const args = firstCall[1] as string[];
+    expect(args).toContain("https://gitlab.com/team/tools.git");
+  });
+
+  it("still builds GitHub URL for github-shorthand type", async () => {
+    mockExecFileSuccess();
+    const parsed = makeParsed({ owner: "bob", repo: "plugins" });
+
+    const promise = cloneSource(parsed);
+    await vi.runAllTimersAsync();
+    await promise;
+
+    const execFileMock = vi.mocked(childProcess.execFile);
+    const firstCall = execFileMock.mock.calls[0]!;
+    const args = firstCall[1] as string[];
+    expect(args).toContain("https://github.com/bob/plugins.git");
+  });
 });
 
 describe("cleanupTempDir", () => {
