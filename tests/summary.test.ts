@@ -17,6 +17,7 @@ import {
   renderLocalUpdateSummary,
   renderUpdateOutcomeSummary,
   renderRemoveSummary,
+  capitalizeAgentName,
 } from "../src/summary.js";
 
 const mockGetDriver = vi.mocked(getDriver);
@@ -47,8 +48,15 @@ describe("formatRefLabel", () => {
   });
 });
 
+describe("capitalizeAgentName", () => {
+  it("capitalizes first letter of agent name", () => {
+    expect(capitalizeAgentName("claude")).toBe("Claude");
+    expect(capitalizeAgentName("codex")).toBe("Codex");
+  });
+});
+
 describe("formatPluginSummary", () => {
-  it("formats per-agent asset counts", () => {
+  it("formats multi-line per-agent blocks with capitalized names", () => {
     const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
       claude: { skills: 12, agents: 3, hooks: 2 },
       codex: { skills: 12 },
@@ -58,7 +66,7 @@ describe("formatPluginSummary", () => {
       assetCounts,
     );
     expect(result).toBe(
-      "claude: 12 skill(s), 3 agent(s), 2 hook(s), codex: 12 skill(s)",
+      "\n\n  Claude:\n    12 skills, 3 agents, 2 hooks\n\n  Codex:\n    12 skills",
     );
   });
 
@@ -70,7 +78,7 @@ describe("formatPluginSummary", () => {
       ["claude"],
       assetCounts,
     );
-    expect(result).toBe("claude: 5 skill(s)");
+    expect(result).toBe("\n\n  Claude:\n    5 skills");
   });
 
   it("omits agents with no non-zero counts", () => {
@@ -82,7 +90,7 @@ describe("formatPluginSummary", () => {
       ["claude", "codex"],
       assetCounts,
     );
-    expect(result).toBe("claude: 3 skill(s)");
+    expect(result).toBe("\n\n  Claude:\n    3 skills");
   });
 
   it("omits agents not in assetCountsByAgent", () => {
@@ -93,12 +101,23 @@ describe("formatPluginSummary", () => {
       ["claude", "codex"],
       assetCounts,
     );
-    expect(result).toBe("claude: 2 skill(s)");
+    expect(result).toBe("\n\n  Claude:\n    2 skills");
+  });
+
+  it("uses singular form for count of 1", () => {
+    const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
+      claude: { skills: 1, agents: 1, hooks: 1 },
+    };
+    const result = formatPluginSummary(
+      ["claude"],
+      assetCounts,
+    );
+    expect(result).toBe("\n\n  Claude:\n    1 skill, 1 agent, 1 hook");
   });
 });
 
 describe("formatBareSkillSummary", () => {
-  it("counts files per agent based on target dir prefix", () => {
+  it("formats multi-line per-agent blocks with file counts", () => {
     const copiedFiles = [
       ".claude/skills/my-skill/file1.md",
       ".claude/skills/my-skill/file2.md",
@@ -108,21 +127,23 @@ describe("formatBareSkillSummary", () => {
       ["claude", "codex"],
       copiedFiles,
     );
-    expect(result).toBe("claude: 2 skill(s), codex: 1 skill(s)");
+    expect(result).toBe(
+      "\n\n  Claude:\n    2 skills\n\n  Codex:\n    1 skill",
+    );
   });
 
-  it("shows zero for agent with no matching files", () => {
+  it("omits agent with no matching files", () => {
     const copiedFiles = [".claude/skills/my-skill/file1.md"];
     const result = formatBareSkillSummary(
       ["claude", "codex"],
       copiedFiles,
     );
-    expect(result).toBe("claude: 1 skill(s), codex: 0 skill(s)");
+    expect(result).toBe("\n\n  Claude:\n    1 skill");
   });
 });
 
 describe("renderAddSummary", () => {
-  it("formats standalone plugin add with key, ref, and agent counts", () => {
+  it("formats standalone plugin add with multi-line per-agent blocks", () => {
     const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
       claude: { skills: 12, agents: 3, hooks: 2 },
       codex: { skills: 12 },
@@ -137,11 +158,11 @@ describe("renderAddSummary", () => {
       copiedFiles: [],
     });
     expect(result).toBe(
-      "Installed leeovery/claude-technical-workflows@v2.1.6 — claude: 12 skill(s), 3 agent(s), 2 hook(s), codex: 12 skill(s)",
+      "Installed leeovery/claude-technical-workflows@v2.1.6\n\n  Claude:\n    12 skills, 3 agents, 2 hooks\n\n  Codex:\n    12 skills",
     );
   });
 
-  it("formats bare skill add with per-agent file counts", () => {
+  it("formats bare skill add with multi-line per-agent blocks", () => {
     const result = renderAddSummary({
       manifestKey: "owner/my-skill",
       ref: "main",
@@ -150,9 +171,13 @@ describe("renderAddSummary", () => {
       selectedAgents: ["claude"],
       copiedFiles: [".claude/skills/my-skill/file1.md"],
     });
-    expect(result).toBe(
-      "Installed owner/my-skill@main — claude: 1 skill(s)",
-    );
+    const expected = [
+      "Installed owner/my-skill@main",
+      "",
+      "  Claude:",
+      "    1 skill",
+    ].join("\n");
+    expect(result).toBe(expected);
   });
 
   it("uses HEAD label when ref is null with commit", () => {
@@ -181,7 +206,7 @@ describe("renderAddSummary", () => {
 });
 
 describe("renderCollectionAddSummary", () => {
-  it("shows per-plugin summaries for installed plugins", () => {
+  it("shows per-plugin multi-line summaries for installed plugins", () => {
     const results = [
       {
         pluginName: "pluginA",
@@ -206,9 +231,11 @@ describe("renderCollectionAddSummary", () => {
       selectedAgents: ["claude", "codex"],
       results,
     });
-    expect(result).toContain("pluginA");
-    expect(result).toContain("pluginB");
     expect(result).toContain("Installed owner/my-collection@main");
+    expect(result).toContain("pluginA:");
+    expect(result).toContain("pluginB:");
+    expect(result).toContain("Claude:");
+    expect(result).toContain("Codex:");
   });
 
   it("notes skipped plugins", () => {
@@ -281,7 +308,7 @@ describe("renderCollectionAddSummary", () => {
       selectedAgents: ["claude"],
       results,
     });
-    expect(result).toContain("pluginA");
+    expect(result).toContain("pluginA:");
     expect(result).toMatch(/1 skipped/);
     expect(result).toMatch(/pluginC: failed — disk full/);
   });
@@ -305,7 +332,9 @@ describe("renderCollectionAddSummary", () => {
       selectedAgents: ["claude"],
       results,
     });
-    expect(result).toContain("pluginA: claude: 5 skill(s), 2 agent(s)");
+    expect(result).toContain("pluginA:");
+    expect(result).toContain("Claude:");
+    expect(result).toContain("5 skills, 2 agents");
   });
 });
 
@@ -464,7 +493,7 @@ describe("renderRemoveSummary", () => {
 });
 
 describe("edge cases", () => {
-  it("single plugin in collection produces concise summary", () => {
+  it("single plugin in collection produces multi-line summary", () => {
     const results = [
       {
         pluginName: "myPlugin",
@@ -480,8 +509,8 @@ describe("edge cases", () => {
       selectedAgents: ["claude"],
       results,
     });
-    expect(result).toContain("myPlugin");
-    // Should be a single concise string, not spread across many parts
+    expect(result).toContain("myPlugin:");
+    expect(result).toContain("Claude:");
     expect(result).toMatch(/^Installed /);
   });
 

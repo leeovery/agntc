@@ -457,8 +457,8 @@ describe("add command", () => {
       const outroCall = mockOutro.mock.calls[0]![0] as string;
       expect(outroCall).toContain("owner/my-skill");
       expect(outroCall).toContain("main");
-      expect(outroCall).toContain("claude");
-      expect(outroCall).toContain("1");
+      expect(outroCall).toContain("Claude:");
+      expect(outroCall).toContain("1 skill");
     });
   });
 
@@ -1431,10 +1431,10 @@ describe("add command", () => {
       const outroCall = mockOutro.mock.calls[0]![0] as string;
       expect(outroCall).toContain("owner/my-skill");
       expect(outroCall).toContain("main");
-      expect(outroCall).toContain("claude");
-      expect(outroCall).toContain("2 skill(s)");
-      expect(outroCall).toContain("1 hook(s)");
-      expect(outroCall).not.toContain("agent");
+      expect(outroCall).toContain("Claude:");
+      expect(outroCall).toContain("2 skills");
+      expect(outroCall).toContain("1 hook");
+      expect(outroCall).not.toContain("0 agent");
     });
 
     it("omits agents with all zero counts from summary", async () => {
@@ -1459,8 +1459,8 @@ describe("add command", () => {
       await runAdd("owner/my-skill");
 
       const outroCall = mockOutro.mock.calls[0]![0] as string;
-      expect(outroCall).toContain("claude");
-      expect(outroCall).not.toContain("codex");
+      expect(outroCall).toContain("Claude:");
+      expect(outroCall).not.toContain("Codex:");
     });
 
     it("shows key without ref when ref is null", async () => {
