@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 
 export interface ManifestEntry {
   ref: string | null;
-  commit: string;
+  commit: string | null;
   installedAt: string;
   agents: string[];
   files: string[];

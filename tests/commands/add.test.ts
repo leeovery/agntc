@@ -1587,4 +1587,311 @@ describe("add command", () => {
       });
     });
   });
+
+  describe("local-path source", () => {
+    const LOCAL_PARSED: ParsedSource = {
+      type: "local-path",
+      resolvedPath: "/Users/dev/my-plugin",
+      ref: null,
+      manifestKey: "/Users/dev/my-plugin",
+    };
+
+    const LOCAL_CONFIG: AgntcConfig = { agents: ["claude"] };
+    const LOCAL_BARE_SKILL: DetectedType = { type: "bare-skill" };
+
+    function setupLocalBareSkill(): void {
+      mockParseSource.mockReturnValue(LOCAL_PARSED);
+      mockReadConfig.mockResolvedValue(LOCAL_CONFIG);
+      mockDetectType.mockResolvedValue(LOCAL_BARE_SKILL);
+      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockGetDriver.mockReturnValue(FAKE_DRIVER);
+      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+      mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+      mockAddEntry.mockReturnValue({
+        "/Users/dev/my-plugin": {
+          ref: null,
+          commit: null,
+          installedAt: expect.any(String),
+          agents: ["claude"],
+          files: [".claude/skills/my-plugin/"],
+        },
+      } as unknown as Manifest);
+      mockWriteManifest.mockResolvedValue(undefined);
+      mockCleanupTempDir.mockResolvedValue(undefined);
+    }
+
+    it("skips clone for local-path source", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      expect(mockCloneSource).not.toHaveBeenCalled();
+    });
+
+    it("uses resolvedPath as sourceDir for readConfig", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      expect(mockReadConfig).toHaveBeenCalledWith(
+        "/Users/dev/my-plugin",
+        expect.objectContaining({ onWarn: expect.any(Function) }),
+      );
+    });
+
+    it("uses resolvedPath as sourceDir for detectType", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      expect(mockDetectType).toHaveBeenCalledWith(
+        "/Users/dev/my-plugin",
+        expect.objectContaining({
+          hasConfig: true,
+          onWarn: expect.any(Function),
+        }),
+      );
+    });
+
+    it("does not clean up temp dir for local-path source", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      expect(mockCleanupTempDir).not.toHaveBeenCalled();
+    });
+
+    it("writes manifest entry with null ref and null commit", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        EMPTY_MANIFEST,
+        "/Users/dev/my-plugin",
+        expect.objectContaining({
+          ref: null,
+          commit: null,
+          installedAt: expect.any(String),
+          agents: ["claude"],
+          files: [".claude/skills/my-plugin/"],
+        }),
+      );
+    });
+
+    it("uses absolute path as manifest key", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      const addEntryCall = mockAddEntry.mock.calls[0]!;
+      expect(addEntryCall[1]).toBe("/Users/dev/my-plugin");
+    });
+
+    it("passes resolvedPath as sourceDir to copyBareSkill", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      expect(mockCopyBareSkill).toHaveBeenCalledWith({
+        sourceDir: "/Users/dev/my-plugin",
+        projectDir: "/fake/project",
+        agents: [{ id: "claude", driver: FAKE_DRIVER }],
+      });
+    });
+
+    it("shows 'local' instead of ref in summary", async () => {
+      setupLocalBareSkill();
+
+      await runAdd("./my-plugin");
+
+      const outroCall = mockOutro.mock.calls[0]![0] as string;
+      expect(outroCall).toContain("local");
+      expect(outroCall).not.toContain("HEAD");
+    });
+
+    it("handles plugin type from local path", async () => {
+      const pluginDetected: DetectedType = {
+        type: "plugin",
+        assetDirs: ["skills", "agents"],
+      };
+      setupLocalBareSkill();
+      mockDetectType.mockResolvedValue(pluginDetected);
+      mockCopyPluginAssets.mockResolvedValue({
+        copiedFiles: [".claude/skills/planning/", ".claude/agents/executor/"],
+        assetCountsByAgent: { claude: { skills: 1, agents: 1 } },
+      });
+
+      await runAdd("./my-plugin");
+
+      expect(mockCopyPluginAssets).toHaveBeenCalledWith({
+        sourceDir: "/Users/dev/my-plugin",
+        assetDirs: ["skills", "agents"],
+        agents: [{ id: "claude", driver: FAKE_DRIVER }],
+        projectDir: "/fake/project",
+      });
+      expect(mockCopyBareSkill).not.toHaveBeenCalled();
+    });
+
+    describe("local-path collection", () => {
+      const LOCAL_COLLECTION_PARSED: ParsedSource = {
+        type: "local-path",
+        resolvedPath: "/Users/dev/my-collection",
+        ref: null,
+        manifestKey: "/Users/dev/my-collection",
+      };
+
+      const COLLECTION_DETECTED: DetectedType = {
+        type: "collection",
+        plugins: ["pluginA", "pluginB"],
+      };
+
+      function setupLocalCollection(): void {
+        mockParseSource.mockReturnValue(LOCAL_COLLECTION_PARSED);
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === "/Users/dev/my-collection") return null;
+          if (dir.endsWith("/pluginA")) return { agents: ["claude"] };
+          if (dir.endsWith("/pluginB")) return { agents: ["claude"] };
+          return null;
+        });
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === "/Users/dev/my-collection") return COLLECTION_DETECTED;
+          return { type: "bare-skill" } as DetectedType;
+        });
+        mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+        mockSelectCollectionPlugins.mockResolvedValue([
+          "pluginA",
+          "pluginB",
+        ]);
+        mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+        mockGetDriver.mockReturnValue(FAKE_DRIVER);
+        mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+        mockWriteManifest.mockResolvedValue(undefined);
+        mockCleanupTempDir.mockResolvedValue(undefined);
+        mockAddEntry.mockImplementation((manifest, key, entry) => ({
+          ...manifest,
+          [key]: entry,
+        }));
+        mockCopyBareSkill
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginA/"],
+          })
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+      }
+
+      it("skips clone for local-path collection", async () => {
+        setupLocalCollection();
+
+        await runAdd("./my-collection");
+
+        expect(mockCloneSource).not.toHaveBeenCalled();
+      });
+
+      it("does not clean up temp dir for local-path collection", async () => {
+        setupLocalCollection();
+
+        await runAdd("./my-collection");
+
+        expect(mockCleanupTempDir).not.toHaveBeenCalled();
+      });
+
+      it("uses resolvedPath/pluginName as collection manifest keys", async () => {
+        setupLocalCollection();
+
+        await runAdd("./my-collection");
+
+        const addEntryCalls = mockAddEntry.mock.calls;
+        const keys = addEntryCalls.map((call) => call[1]);
+        expect(keys).toContain("/Users/dev/my-collection/pluginA");
+        expect(keys).toContain("/Users/dev/my-collection/pluginB");
+      });
+
+      it("writes null ref and null commit for collection plugin entries", async () => {
+        setupLocalCollection();
+
+        await runAdd("./my-collection");
+
+        for (const call of mockAddEntry.mock.calls) {
+          const entry = call[2] as ManifestEntry;
+          expect(entry.ref).toBeNull();
+          expect(entry.commit).toBeNull();
+        }
+      });
+
+      it("uses resolvedPath as manifestKeyPrefix for collection select", async () => {
+        setupLocalCollection();
+
+        await runAdd("./my-collection");
+
+        expect(mockSelectCollectionPlugins).toHaveBeenCalledWith({
+          plugins: ["pluginA", "pluginB"],
+          manifest: EMPTY_MANIFEST,
+          manifestKeyPrefix: "/Users/dev/my-collection",
+        });
+      });
+
+      it("shows 'local' in collection summary", async () => {
+        setupLocalCollection();
+
+        await runAdd("./my-collection");
+
+        const outroCall = mockOutro.mock.calls[0]![0] as string;
+        expect(outroCall).toContain("local");
+        expect(outroCall).not.toContain("HEAD");
+      });
+    });
+
+    describe("local-path error: no agntc.json and not a collection", () => {
+      it("surfaces clear error when local path has no agntc.json and no collection subdirs", async () => {
+        mockParseSource.mockReturnValue(LOCAL_PARSED);
+        mockReadConfig.mockResolvedValue(null);
+        mockDetectType.mockResolvedValue({ type: "not-agntc" });
+
+        const err = await runAdd("./my-plugin").catch((e) => e);
+
+        expect(err).toBeInstanceOf(ExitSignal);
+        expect((err as ExitSignal).code).toBe(0);
+        expect(mockCancel).toHaveBeenCalledWith(
+          expect.stringContaining("Not an agntc source"),
+        );
+        expect(mockCloneSource).not.toHaveBeenCalled();
+        expect(mockCleanupTempDir).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("local-path error: unreadable path", () => {
+      it("surfaces clear error when parseSource throws for unreadable path", async () => {
+        mockParseSource.mockImplementation(() => {
+          throw new Error(
+            "Path /bad/path does not exist or is not a directory",
+          );
+        });
+
+        const err = await runAdd("./bad-path").catch((e) => e);
+
+        expect(err).toBeInstanceOf(ExitSignal);
+        expect((err as ExitSignal).code).toBe(1);
+        expect(mockCancel).toHaveBeenCalled();
+        expect(mockCloneSource).not.toHaveBeenCalled();
+        expect(mockCleanupTempDir).not.toHaveBeenCalled();
+      });
+    });
+
+    describe("no regression: git-based sources still work", () => {
+      it("git-based source still clones and cleans up", async () => {
+        // Reset to default happy path (git-based)
+        setupHappyPath();
+
+        await runAdd("owner/my-skill");
+
+        expect(mockCloneSource).toHaveBeenCalled();
+        expect(mockCleanupTempDir).toHaveBeenCalled();
+      });
+    });
+  });
 });

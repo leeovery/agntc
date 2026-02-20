@@ -29,35 +29,45 @@ export async function runAdd(source: string): Promise<void> {
     // 1. Parse source
     const parsed = await parseSource(source);
 
-    // 2. Clone source (with spinner)
+    // 2. Resolve source directory and commit
     const spin = p.spinner();
-    spin.start("Cloning repository...");
-    let cloneResult;
-    try {
-      cloneResult = await cloneSource(parsed);
-    } catch (err) {
-      spin.stop("Clone failed");
-      throw err;
+    let sourceDir: string;
+    let commit: string | null;
+
+    if (parsed.type === "local-path") {
+      sourceDir = parsed.resolvedPath;
+      commit = null;
+    } else {
+      spin.start("Cloning repository...");
+      let cloneResult;
+      try {
+        cloneResult = await cloneSource(parsed);
+      } catch (err) {
+        spin.stop("Clone failed");
+        throw err;
+      }
+      spin.stop("Cloned successfully");
+      tempDir = cloneResult.tempDir;
+      sourceDir = cloneResult.tempDir;
+      commit = cloneResult.commit;
     }
-    spin.stop("Cloned successfully");
-    tempDir = cloneResult.tempDir;
 
     // 3. Read config
     const onWarn = (message: string) => p.log.warn(message);
-    const config = await readConfig(tempDir, { onWarn });
+    const config = await readConfig(sourceDir, { onWarn });
 
     // 4. Handle null config — detect if collection
     if (config === null) {
-      const detected = await detectType(tempDir, {
+      const detected = await detectType(sourceDir, {
         hasConfig: false,
         onWarn,
       });
 
       if (detected.type === "collection") {
         await runCollectionPipeline({
-          tempDir,
+          sourceDir,
           parsed,
-          cloneResult,
+          commit,
           detected,
           onWarn,
           spin,
@@ -66,11 +76,14 @@ export async function runAdd(source: string): Promise<void> {
       }
 
       // Not a collection — not-agntc
+      p.cancel(
+        "Not an agntc source — no agntc.json found and no collection detected",
+      );
       throw new ExitSignal(0);
     }
 
     // 5. Detect type (standalone)
-    const detected = await detectType(tempDir, {
+    const detected = await detectType(sourceDir, {
       hasConfig: true,
       onWarn,
     });
@@ -120,7 +133,7 @@ export async function runAdd(source: string): Promise<void> {
     try {
       if (detected.type === "plugin") {
         const pluginResult = await copyPluginAssets({
-          sourceDir: tempDir,
+          sourceDir,
           assetDirs: detected.assetDirs,
           agents,
           projectDir,
@@ -129,7 +142,7 @@ export async function runAdd(source: string): Promise<void> {
         assetCountsByAgent = pluginResult.assetCountsByAgent;
       } else {
         const bareResult = await copyBareSkill({
-          sourceDir: tempDir,
+          sourceDir,
           projectDir,
           agents,
         });
@@ -150,7 +163,7 @@ export async function runAdd(source: string): Promise<void> {
     // 13. Write manifest
     const entry = {
       ref: parsed.ref,
-      commit: cloneResult.commit,
+      commit,
       installedAt: new Date().toISOString(),
       agents: selectedAgents as string[],
       files: copiedFiles,
@@ -159,7 +172,7 @@ export async function runAdd(source: string): Promise<void> {
     await writeManifest(projectDir, updated);
 
     // 14. Summary
-    const refLabel = parsed.ref ?? "HEAD";
+    const refLabel = formatRefLabel(parsed.ref, commit);
     const agentSummary =
       detected.type === "plugin" && assetCountsByAgent
         ? formatPluginSummary(selectedAgents, assetCountsByAgent)
@@ -187,9 +200,9 @@ export async function runAdd(source: string): Promise<void> {
 }
 
 interface CollectionPipelineInput {
-  tempDir: string;
+  sourceDir: string;
   parsed: Awaited<ReturnType<typeof parseSource>>;
-  cloneResult: { commit: string };
+  commit: string | null;
   detected: Extract<DetectedType, { type: "collection" }>;
   onWarn: (message: string) => void;
   spin: ReturnType<typeof p.spinner>;
@@ -206,7 +219,7 @@ interface PluginInstallResult {
 async function runCollectionPipeline(
   input: CollectionPipelineInput,
 ): Promise<void> {
-  const { tempDir, parsed, cloneResult, detected, onWarn, spin } = input;
+  const { sourceDir, parsed, commit, detected, onWarn, spin } = input;
   const projectDir = process.cwd();
 
   // 1. Read manifest
@@ -240,7 +253,7 @@ async function runCollectionPipeline(
   const allDeclaredAgents = new Set<string>();
 
   for (const pluginName of selectedPlugins) {
-    const pluginDir = join(tempDir, pluginName);
+    const pluginDir = join(sourceDir, pluginName);
     try {
       const pluginConfig = await readConfig(pluginDir, { onWarn });
       if (pluginConfig === null) {
@@ -295,7 +308,7 @@ async function runCollectionPipeline(
         continue;
       }
 
-      const pluginDir = join(tempDir, pluginName);
+      const pluginDir = join(sourceDir, pluginName);
       const pluginDetected = await detectType(pluginDir, {
         hasConfig: true,
         onWarn,
@@ -374,7 +387,7 @@ async function runCollectionPipeline(
         : `${parsed.manifestKey}/${result.pluginName}`;
     const entry = {
       ref: parsed.ref,
-      commit: cloneResult.commit,
+      commit,
       installedAt: new Date().toISOString(),
       agents: selectedAgents as string[],
       files: result.copiedFiles,
@@ -384,7 +397,7 @@ async function runCollectionPipeline(
   await writeManifest(projectDir, updatedManifest);
 
   // 7. Per-plugin summary
-  const refLabel = parsed.ref ?? "HEAD";
+  const refLabel = formatRefLabel(parsed.ref, commit);
   const installed = results.filter((r) => r.status === "installed");
   const skipped = results.filter((r) => r.status === "skipped");
 
@@ -403,6 +416,12 @@ async function runCollectionPipeline(
   p.outro(
     `Installed ${parsed.manifestKey}@${refLabel} — ${summaryParts.join(", ")}`,
   );
+}
+
+function formatRefLabel(ref: string | null, commit: string | null): string {
+  if (ref !== null) return ref;
+  if (commit === null) return "local";
+  return "HEAD";
 }
 
 function formatBareSkillSummary(
