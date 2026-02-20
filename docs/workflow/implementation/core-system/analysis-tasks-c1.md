@@ -6,7 +6,7 @@ total_proposed: 11
 # Analysis Tasks: Core System (Cycle 1)
 
 ## Task 1: Extract shared nuke-and-reinstall pipeline
-status: pending
+status: approved
 severity: high
 sources: duplication
 
@@ -42,7 +42,7 @@ sources: duplication
 ---
 
 ## Task 2: Add collection prefix matching to update command
-status: pending
+status: approved
 severity: high
 sources: standards
 
@@ -74,7 +74,7 @@ sources: standards
 ---
 
 ## Task 3: Fix nuke-before-copy data loss risk on copy failure
-status: pending
+status: approved
 severity: high
 sources: architecture
 
@@ -104,7 +104,7 @@ sources: architecture
 ---
 
 ## Task 4: Strengthen type safety for AssetType, AgentId, and AgentWithDriver
-status: pending
+status: approved
 severity: medium
 sources: architecture, duplication
 
@@ -140,7 +140,7 @@ sources: architecture, duplication
 ---
 
 ## Task 5: Store original clone URL in manifest to fix non-GitHub update flows
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -175,7 +175,7 @@ sources: architecture
 ---
 
 ## Task 6: Fix config validation error messages to include spec-required prefix
-status: pending
+status: approved
 severity: medium
 sources: standards
 
@@ -202,7 +202,7 @@ sources: standards
 ---
 
 ## Task 7: Fix computeIncomingFiles granularity for plugin collision/unmanaged checks
-status: pending
+status: approved
 severity: medium
 sources: standards
 
@@ -236,7 +236,7 @@ sources: standards
 ---
 
 ## Task 8: Extract shared isNodeError type guard
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -263,7 +263,7 @@ sources: duplication
 ---
 
 ## Task 9: Extract shared execGit helper
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -291,7 +291,7 @@ sources: duplication
 ---
 
 ## Task 10: Extract shared buildParsedSource and getSourceDir helpers
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -321,7 +321,7 @@ sources: duplication
 ---
 
 ## Task 11: Add filesystem-based integration tests for core workflows
-status: pending
+status: approved
 severity: medium
 sources: architecture
 

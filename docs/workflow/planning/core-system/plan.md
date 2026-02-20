@@ -8,14 +8,14 @@ cross_cutting_specs:
   - ../../specification/naming-and-identity.md
 spec_commit: fbcc1fda1d7e7d0c45b13fb9a88019b5e1b1cb48
 created: 2026-02-18
-updated: 2026-02-19
+updated: 2026-02-20
 external_dependencies: []
 task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: auto
 review_cycle: 4
 planning:
-  phase: 5
+  phase: 6
   task: ~
 ---
 
@@ -204,3 +204,24 @@ approved_at: 2026-02-18
 | cs-5-8 | Partial Copy Failure Rollback | rollback failure (file locked), overwritten file from another plugin cannot be restored | authored | tick-95a48e |
 | cs-5-9 | Multi-Plugin Independent Failure Handling | all plugins fail, first succeeds but second fails, conflict-skipped alongside failed | authored | tick-e908a4 |
 | cs-5-10 | Comprehensive Summary Output | mix of installed/failed/skipped outcomes, single plugin operations | authored | tick-1028ba |
+
+### Phase 6: Analysis (Cycle 1)
+status: approved
+ext_id: tick-9b3876
+
+**Goal**: Address findings from Analysis (Cycle 1).
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-6-1 | Extract shared nuke-and-reinstall pipeline | none | authored | tick-7180d4 |
+| cs-6-2 | Add collection prefix matching to update command | none | authored | tick-cf8b24 |
+| cs-6-3 | Fix nuke-before-copy data loss risk on copy failure | none | authored | tick-a00a08 |
+| cs-6-4 | Strengthen type safety for AssetType, AgentId, and AgentWithDriver | none | authored | tick-8387d9 |
+| cs-6-5 | Store original clone URL in manifest to fix non-GitHub update flows | none | authored | tick-42ff1b |
+| cs-6-6 | Fix config validation error messages to include spec-required prefix | none | authored | tick-c04b35 |
+| cs-6-7 | Fix computeIncomingFiles granularity for plugin collision/unmanaged checks | none | authored | tick-a4046d |
+| cs-6-8 | Extract shared isNodeError type guard | none | authored | tick-a3306f |
+| cs-6-9 | Extract shared execGit helper | none | authored | tick-6b7df4 |
+| cs-6-10 | Extract shared buildParsedSource and getSourceDir helpers | none | authored | tick-8fe97c |
+| cs-6-11 | Add filesystem-based integration tests for core workflows | none | authored | tick-ed706d |
