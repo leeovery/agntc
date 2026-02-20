@@ -1,23 +1,35 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
 import { readManifest, type ManifestEntry } from "../manifest.js";
+import { checkAllForUpdates } from "../update-check-all.js";
+import type { UpdateCheckResult } from "../update-check.js";
 import { ExitSignal } from "../exit-signal.js";
 
-function formatVersion(entry: ManifestEntry): string {
+const DONE_VALUE = "__done__";
+
+function formatLabel(key: string, entry: ManifestEntry): string {
   if (entry.ref !== null) {
-    return `@${entry.ref}`;
+    return `${key}@${entry.ref}`;
   }
-  if (entry.commit) {
-    return "HEAD";
-  }
-  return "local";
+  return key;
 }
 
-function formatDate(isoDate: string): string {
-  return isoDate.slice(0, 10);
+function formatStatusHint(result: UpdateCheckResult): string {
+  switch (result.status) {
+    case "up-to-date":
+      return "\u2713 Up to date";
+    case "update-available":
+      return "\u2191 Update available";
+    case "newer-tags":
+      return "\u2691 Newer tags available";
+    case "check-failed":
+      return "\u2717 Check failed";
+    case "local":
+      return "\u25CF Local";
+  }
 }
 
-export async function runList(): Promise<void> {
+export async function runList(): Promise<string | null> {
   const manifest = await readManifest(process.cwd()).catch((err: unknown) => {
     const message = err instanceof Error ? err.message : String(err);
     p.log.error(`Failed to read manifest: ${message}`);
@@ -30,19 +42,42 @@ export async function runList(): Promise<void> {
     p.outro(
       "No plugins installed. Run npx agntc add owner/repo to get started.",
     );
-    return;
+    return null;
   }
 
-  p.intro("Installed plugins");
+  const spin = p.spinner();
+  spin.start("Checking for updates...");
+  const checkResults = await checkAllForUpdates(manifest);
+  spin.stop("Update checks complete.");
 
-  for (const [key, entry] of entries) {
-    const version = formatVersion(entry);
-    const agents = entry.agents.join(", ");
-    const date = formatDate(entry.installedAt);
-    p.log.message(`${key} ${version}  agents: ${agents}  installed: ${date}`);
+  const options = entries.map(([key, entry]) => {
+    const result = checkResults.get(key) ?? {
+      status: "check-failed" as const,
+      reason: "unknown",
+    };
+    return {
+      value: key,
+      label: formatLabel(key, entry),
+      hint: formatStatusHint(result),
+    };
+  });
+
+  options.push({
+    value: DONE_VALUE,
+    label: "Done",
+    hint: "",
+  });
+
+  const selected = await p.select<string>({
+    message: "Select a plugin to manage",
+    options,
+  });
+
+  if (p.isCancel(selected) || selected === DONE_VALUE) {
+    return null;
   }
 
-  p.outro("");
+  return selected;
 }
 
 export const listCommand = new Command("list")
