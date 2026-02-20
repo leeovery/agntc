@@ -1,8 +1,7 @@
 import * as p from "@clack/prompts";
-import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import type { ManifestEntry, Manifest } from "../manifest.js";
-import type { ParsedSource } from "../source-parser.js";
+import { buildParsedSourceFromKey, getSourceDirFromKey } from "../source-parser.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
 import { writeManifest, addEntry, removeEntry } from "../manifest.js";
 import {
@@ -27,47 +26,13 @@ export async function executeUpdateAction(
   return runLocalUpdate(key, entry, manifest, projectDir);
 }
 
-function buildParsedSource(key: string, entry: ManifestEntry): ParsedSource {
-  const parts = key.split("/");
-  const owner = parts[0]!;
-  const repo = parts[1]!;
-
-  if (entry.cloneUrl !== null && entry.cloneUrl !== undefined) {
-    return {
-      type: "https-url",
-      owner,
-      repo,
-      ref: entry.ref,
-      manifestKey: `${owner}/${repo}`,
-      cloneUrl: entry.cloneUrl,
-    };
-  }
-
-  return {
-    type: "github-shorthand",
-    owner,
-    repo,
-    ref: entry.ref,
-    manifestKey: `${owner}/${repo}`,
-  };
-}
-
-function getSourceDir(tempDir: string, key: string): string {
-  const parts = key.split("/");
-  if (parts.length > 2) {
-    const subPath = parts.slice(2).join("/");
-    return join(tempDir, subPath);
-  }
-  return tempDir;
-}
-
 async function runRemoteUpdate(
   key: string,
   entry: ManifestEntry,
   manifest: Manifest,
   projectDir: string,
 ): Promise<UpdateActionResult> {
-  const parsed = buildParsedSource(key, entry);
+  const parsed = buildParsedSourceFromKey(key, entry.ref, entry.cloneUrl);
   let tempDir: string | undefined;
 
   try {
@@ -86,7 +51,7 @@ async function runRemoteUpdate(
 
     tempDir = cloneResult.tempDir;
     const newCommit = cloneResult.commit;
-    const sourceDir = getSourceDir(tempDir, key);
+    const sourceDir = getSourceDirFromKey(tempDir, key);
 
     const onWarn = (message: string) => p.log.warn(message);
 

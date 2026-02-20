@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 
 interface GitHubShorthandSource {
@@ -343,4 +343,42 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
     ref,
     manifestKey: `${owner}/${repo}`,
   };
+}
+
+export function buildParsedSourceFromKey(
+  key: string,
+  ref: string | null,
+  cloneUrl: string | null,
+): ParsedSource {
+  const parts = key.split("/");
+  const owner = parts[0]!;
+  const repo = parts[1]!;
+
+  if (cloneUrl !== null) {
+    return {
+      type: "https-url",
+      owner,
+      repo,
+      ref,
+      manifestKey: `${owner}/${repo}`,
+      cloneUrl,
+    };
+  }
+
+  return {
+    type: "github-shorthand",
+    owner,
+    repo,
+    ref,
+    manifestKey: `${owner}/${repo}`,
+  };
+}
+
+export function getSourceDirFromKey(tempDir: string, key: string): string {
+  const parts = key.split("/");
+  if (parts.length > 2) {
+    const subPath = parts.slice(2).join("/");
+    return join(tempDir, subPath);
+  }
+  return tempDir;
 }

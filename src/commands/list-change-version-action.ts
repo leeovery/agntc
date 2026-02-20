@@ -1,8 +1,7 @@
 import * as p from "@clack/prompts";
-import { join } from "node:path";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import type { UpdateCheckResult } from "../update-check.js";
-import type { ParsedSource } from "../source-parser.js";
+import { buildParsedSourceFromKey, getSourceDirFromKey } from "../source-parser.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
 import { writeManifest, addEntry, removeEntry } from "../manifest.js";
 import {
@@ -13,39 +12,6 @@ export interface ChangeVersionResult {
   changed: boolean;
   newEntry?: ManifestEntry;
   message: string;
-}
-
-function buildParsedSource(key: string, ref: string, cloneUrl: string | null | undefined): ParsedSource {
-  const parts = key.split("/");
-  const owner = parts[0]!;
-  const repo = parts[1]!;
-
-  if (cloneUrl !== null && cloneUrl !== undefined) {
-    return {
-      type: "https-url",
-      owner,
-      repo,
-      ref,
-      manifestKey: `${owner}/${repo}`,
-      cloneUrl,
-    };
-  }
-
-  return {
-    type: "github-shorthand",
-    owner,
-    repo,
-    ref,
-    manifestKey: `${owner}/${repo}`,
-  };
-}
-
-function getSourceDir(tempDir: string, key: string): string {
-  const parts = key.split("/");
-  if (parts.length > 2) {
-    return join(tempDir, parts.slice(2).join("/"));
-  }
-  return tempDir;
 }
 
 export async function executeChangeVersionAction(
@@ -81,7 +47,7 @@ export async function executeChangeVersionAction(
     return { changed: false, message: "Already on this version" };
   }
 
-  const parsed = buildParsedSource(key, selectedTag, entry.cloneUrl);
+  const parsed = buildParsedSourceFromKey(key, selectedTag, entry.cloneUrl);
   let tempDir: string | undefined;
 
   try {
@@ -100,7 +66,7 @@ export async function executeChangeVersionAction(
 
     tempDir = cloneResult.tempDir;
     const newCommit = cloneResult.commit;
-    const sourceDir = getSourceDir(tempDir, key);
+    const sourceDir = getSourceDirFromKey(tempDir, key);
 
     const onWarn = (message: string) => p.log.warn(message);
 

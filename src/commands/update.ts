@@ -1,13 +1,12 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { join } from "node:path";
 import { stat } from "node:fs/promises";
 import { readManifest, writeManifest, addEntry, removeEntry } from "../manifest.js";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
-import type { ParsedSource } from "../source-parser.js";
+import { buildParsedSourceFromKey, getSourceDirFromKey } from "../source-parser.js";
 import { ExitSignal } from "../exit-signal.js";
 import {
   executeNukeAndReinstall,
@@ -27,43 +26,6 @@ type PluginOutcome =
   | { status: "check-failed"; key: string; summary: string }
   | { status: "failed"; key: string; summary: string }
   | { status: "copy-failed"; key: string; summary: string };
-
-function buildParsedSource(
-  key: string,
-  entry: ManifestEntry,
-): ParsedSource {
-  const parts = key.split("/");
-  const owner = parts[0]!;
-  const repo = parts[1]!;
-
-  if (entry.cloneUrl !== null && entry.cloneUrl !== undefined) {
-    return {
-      type: "https-url",
-      owner,
-      repo,
-      ref: entry.ref,
-      manifestKey: `${owner}/${repo}`,
-      cloneUrl: entry.cloneUrl,
-    };
-  }
-
-  return {
-    type: "github-shorthand",
-    owner,
-    repo,
-    ref: entry.ref,
-    manifestKey: `${owner}/${repo}`,
-  };
-}
-
-function getSourceDir(tempDir: string, key: string): string {
-  const parts = key.split("/");
-  if (parts.length > 2) {
-    const subPath = parts.slice(2).join("/");
-    return join(tempDir, subPath);
-  }
-  return tempDir;
-}
 
 export async function runUpdate(key?: string): Promise<void> {
   if (key === undefined) {
@@ -145,7 +107,7 @@ async function runGitUpdate(
   entry: ManifestEntry,
   projectDir: string,
 ): Promise<ManifestEntry | null> {
-  const parsed = buildParsedSource(key, entry);
+  const parsed = buildParsedSourceFromKey(key, entry.ref, entry.cloneUrl);
   let tempDir: string | undefined;
 
   try {
@@ -163,7 +125,7 @@ async function runGitUpdate(
 
     tempDir = cloneResult.tempDir;
     const newCommit = cloneResult.commit;
-    const sourceDir = getSourceDir(tempDir, key);
+    const sourceDir = getSourceDirFromKey(tempDir, key);
 
     const onWarn = (message: string) => p.log.warn(message);
 
@@ -335,14 +297,14 @@ async function processGitUpdateForAll(
   entry: ManifestEntry,
   projectDir: string,
 ): Promise<PluginOutcome> {
-  const parsed = buildParsedSource(key, entry);
+  const parsed = buildParsedSourceFromKey(key, entry.ref, entry.cloneUrl);
   let tempDir: string | undefined;
 
   try {
     const cloneResult = await cloneSource(parsed);
     tempDir = cloneResult.tempDir;
     const newCommit = cloneResult.commit;
-    const sourceDir = getSourceDir(tempDir, key);
+    const sourceDir = getSourceDirFromKey(tempDir, key);
 
     const onWarn = (message: string) => p.log.warn(message);
 

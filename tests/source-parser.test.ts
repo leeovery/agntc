@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { parseSource } from "../src/source-parser.js";
+import { parseSource, buildParsedSourceFromKey, getSourceDirFromKey } from "../src/source-parser.js";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir, homedir } from "node:os";
@@ -690,5 +690,89 @@ describe("parseSource", () => {
         expect(result.resolvedPath).toBe(testDir);
       }
     });
+  });
+});
+
+describe("buildParsedSourceFromKey", () => {
+  it("returns github-shorthand for standalone key without cloneUrl", () => {
+    const result = buildParsedSourceFromKey("owner/repo", "v1.0", null);
+    expect(result).toEqual({
+      type: "github-shorthand",
+      owner: "owner",
+      repo: "repo",
+      ref: "v1.0",
+      manifestKey: "owner/repo",
+    });
+  });
+
+  it("returns github-shorthand with null ref", () => {
+    const result = buildParsedSourceFromKey("owner/repo", null, null);
+    expect(result).toEqual({
+      type: "github-shorthand",
+      owner: "owner",
+      repo: "repo",
+      ref: null,
+      manifestKey: "owner/repo",
+    });
+  });
+
+  it("returns https-url when cloneUrl is provided", () => {
+    const result = buildParsedSourceFromKey(
+      "owner/repo",
+      "main",
+      "https://github.com/owner/repo.git",
+    );
+    expect(result).toEqual({
+      type: "https-url",
+      owner: "owner",
+      repo: "repo",
+      ref: "main",
+      manifestKey: "owner/repo",
+      cloneUrl: "https://github.com/owner/repo.git",
+    });
+  });
+
+  it("extracts owner/repo from collection key (owner/repo/plugin)", () => {
+    const result = buildParsedSourceFromKey("owner/repo/plugin", "v2.0", null);
+    expect(result).toEqual({
+      type: "github-shorthand",
+      owner: "owner",
+      repo: "repo",
+      ref: "v2.0",
+      manifestKey: "owner/repo",
+    });
+  });
+
+  it("extracts owner/repo from collection key with cloneUrl", () => {
+    const result = buildParsedSourceFromKey(
+      "owner/repo/plugin",
+      "v2.0",
+      "https://gitlab.com/owner/repo.git",
+    );
+    expect(result).toEqual({
+      type: "https-url",
+      owner: "owner",
+      repo: "repo",
+      ref: "v2.0",
+      manifestKey: "owner/repo",
+      cloneUrl: "https://gitlab.com/owner/repo.git",
+    });
+  });
+});
+
+describe("getSourceDirFromKey", () => {
+  it("returns tempDir for standalone key (owner/repo)", () => {
+    const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo");
+    expect(result).toBe("/tmp/clone-abc");
+  });
+
+  it("returns tempDir joined with subpath for collection key (owner/repo/plugin)", () => {
+    const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo/plugin");
+    expect(result).toBe(join("/tmp/clone-abc", "plugin"));
+  });
+
+  it("returns tempDir joined with nested subpath for deep collection key", () => {
+    const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo/nested/plugin");
+    expect(result).toBe(join("/tmp/clone-abc", "nested/plugin"));
   });
 });
