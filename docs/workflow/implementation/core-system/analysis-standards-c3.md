@@ -1,0 +1,21 @@
+AGENT: standards
+FINDINGS:
+- FINDING: Collection add flow applies selected agents uniformly to all plugins without per-plugin filtering
+  SEVERITY: medium
+  FILES: /Users/leeovery/Code/agntc/src/commands/add.ts:370-373, /Users/leeovery/Code/agntc/src/commands/add.ts:482-521
+  DESCRIPTION: In the collection pipeline, all selected agents are applied to every plugin during copy (line 488 passes the same `agents` array to every plugin). If plugin A declares `["claude"]` and plugin B declares `["codex"]`, and the user selects both agents, plugin A gets installed for codex and plugin B gets installed for claude. Per-plugin warnings were added in cycle 2 (lines 358-368), which aligns with the spec's "warn, never block" principle. However, the spec also says "No inheritance -- every installable unit declares its own agents, even within collections." The current behavior means a plugin's agents field is effectively ignored during copy: the user's blanket selection overrides per-plugin declarations with no per-plugin opt-in. The spec's intent is that the agent multiselect reflects per-plugin compatibility -- the current single-multiselect-for-all-plugins approach collapses this. Re-reading the spec: "The user can always select any agent regardless of detection or compatibility" -- this could justify the current behavior IF the warning is clear enough that the user understands they're overriding per-plugin declarations. The warnings are now emitted, so this is partially addressed from cycle 2 but the underlying behavioral question remains.
+  RECOMMENDATION: Consider filtering the agent list per plugin during copy so each plugin only receives agents the user explicitly consented to install for that plugin, or accept the current behavior as "warn, never block" and document that collection installs apply agents uniformly after warning. Given the spec's repeated emphasis on "warn, never block" and "user can always select any agent," the current implementation may be acceptable, but the per-plugin manifest `agents` field should then reflect what was actually installed (currently it does -- it stores `selectedAgents` for all plugins, which is consistent but means the manifest doesn't reflect which plugins actually declared support).
+
+- FINDING: Manifest entry includes undeclared cloneUrl field
+  SEVERITY: low
+  FILES: /Users/leeovery/Code/agntc/src/manifest.ts:13
+  DESCRIPTION: Carried forward from cycle 2. The spec defines manifest entry fields as: ref, commit, installedAt, agents, files. The implementation adds cloneUrl (string | null). This is pragmatically necessary since the manifest key (owner/repo) cannot reconstruct SSH or non-GitHub clone URLs. The spec's update semantics ("Re-clone at the same ref") implicitly require this information. No code change recommended.
+  RECOMMENDATION: No code change. Note the deviation for spec alignment.
+
+- FINDING: Direct-path tree URL @ref rejection is overly broad
+  SEVERITY: low
+  FILES: /Users/leeovery/Code/agntc/src/source-parser.ts:134-137
+  DESCRIPTION: The `parseDirectPath` function rejects any tree URL containing `@` anywhere in the string (line 135: `if (input.includes("@"))`). This would incorrectly reject legitimate URLs that contain `@` in non-ref positions (e.g., `https://user@github.com/owner/repo/tree/main/plugin`), though such URLs are atypical. The spec says "All formats except direct path and local path support @ref suffix" -- the intent is to reject `@ref` suffixes, not any `@` in the URL. The current check works for standard GitHub URLs but could break for authenticated URLs or unusual hosting patterns.
+  RECOMMENDATION: Narrow the check to only reject `@` after the last path segment (i.e., after the tree path portion), rather than anywhere in the URL. For example, check only the portion after the hostname.
+
+SUMMARY: One medium finding persists from cycle 2: collection agent selection is applied uniformly to all plugins without per-plugin filtering, though per-plugin warnings are now emitted. Two low findings: the undeclared cloneUrl manifest field (pragmatic, carried forward) and an overly broad @ref rejection in tree URL parsing. Overall spec conformance is strong across all commands, type detection, manifest management, driver architecture, conflict handling, and rollback behavior.
