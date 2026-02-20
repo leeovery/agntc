@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: auto
 review_cycle: 4
 planning:
-  phase: 8
+  phase: 9
   task: ~
 ---
 
@@ -256,3 +256,16 @@ ext_id: tick-64fe90
 | cs-8-3 | Extract readManifestOrExit helper | none | authored | tick-902b4f |
 | cs-8-4 | Extract errorMessage utility function | none | authored | tick-99a33c |
 | cs-8-5 | Narrow tree URL @ref rejection to path portion only | none | authored | tick-a36a34 |
+
+### Phase 9: Analysis (Cycle 4)
+status: approved
+ext_id: tick-f05a59
+
+**Goal**: Address findings from Analysis (Cycle 4).
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-9-1 | Unify runRemoteUpdate and runLocalUpdate in list-update-action.ts and internalize copy-failed manifest removal | none | authored | tick-6c1630 |
+| cs-9-2 | Extract shared conflict-check pipeline in add.ts | none | authored | tick-75db2e |
+| cs-9-3 | Extract withExitSignal wrapper for command actions | none | authored | tick-cfe67a |

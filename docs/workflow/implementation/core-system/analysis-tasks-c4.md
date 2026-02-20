@@ -6,7 +6,7 @@ total_proposed: 3
 # Analysis Tasks: Core System (Cycle 4)
 
 ## Task 1: Unify runRemoteUpdate and runLocalUpdate in list-update-action.ts and internalize copy-failed manifest removal
-status: pending
+status: approved
 severity: medium
 sources: duplication, architecture
 
@@ -44,7 +44,7 @@ sources: duplication, architecture
 ---
 
 ## Task 2: Extract shared conflict-check pipeline in add.ts
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -78,7 +78,7 @@ sources: duplication
 ---
 
 ## Task 3: Extract withExitSignal wrapper for command actions
-status: pending
+status: approved
 severity: low
 sources: duplication
 
