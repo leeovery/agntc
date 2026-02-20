@@ -15,7 +15,19 @@ interface HttpsUrlSource {
   cloneUrl: string;
 }
 
-export type ParsedSource = GitHubShorthandSource | HttpsUrlSource;
+interface SshUrlSource {
+  type: "ssh-url";
+  owner: string;
+  repo: string;
+  ref: string | null;
+  manifestKey: string;
+  cloneUrl: string;
+}
+
+export type ParsedSource =
+  | GitHubShorthandSource
+  | HttpsUrlSource
+  | SshUrlSource;
 
 export function parseSource(raw: string): ParsedSource {
   const trimmed = raw.trim();
@@ -28,7 +40,79 @@ export function parseSource(raw: string): ParsedSource {
     return parseHttpsUrl(trimmed);
   }
 
+  if (trimmed.startsWith("git@")) {
+    return parseSshUrl(trimmed);
+  }
+
   return parseGitHubShorthand(trimmed);
+}
+
+function parseSshUrl(input: string): SshUrlSource {
+  const withoutPrefix = input.slice("git@".length);
+
+  const colonIndex = withoutPrefix.indexOf(":");
+  if (colonIndex === -1) {
+    throw new Error(
+      `invalid SSH URL: expected git@host:owner/repo format, got "${input}"`,
+    );
+  }
+
+  const host = withoutPrefix.slice(0, colonIndex);
+  const afterColon = withoutPrefix.slice(colonIndex + 1);
+
+  if (afterColon === "") {
+    throw new Error(
+      `invalid SSH URL: missing owner/repo path in "${input}"`,
+    );
+  }
+
+  let pathPart: string;
+  let ref: string | null = null;
+
+  const dotGitIndex = afterColon.indexOf(".git");
+  if (dotGitIndex !== -1) {
+    const afterDotGit = afterColon.slice(dotGitIndex + ".git".length);
+    pathPart = afterColon.slice(0, dotGitIndex);
+
+    if (afterDotGit.startsWith("@")) {
+      ref = afterDotGit.slice(1);
+      if (ref === "") {
+        throw new Error("ref cannot be empty when @ is present");
+      }
+    }
+  } else {
+    const atIndex = afterColon.indexOf("@");
+    if (atIndex !== -1) {
+      pathPart = afterColon.slice(0, atIndex);
+      ref = afterColon.slice(atIndex + 1);
+      if (ref === "") {
+        throw new Error("ref cannot be empty when @ is present");
+      }
+    } else {
+      pathPart = afterColon;
+    }
+  }
+
+  const segments = pathPart.split("/").filter((s) => s !== "");
+
+  if (segments.length < 2) {
+    throw new Error(
+      `invalid SSH URL: expected owner/repo path, got "${pathPart}"`,
+    );
+  }
+
+  const owner = segments[0]!;
+  const repo = segments[1]!;
+  const cloneUrl = `git@${host}:${owner}/${repo}.git`;
+
+  return {
+    type: "ssh-url",
+    owner,
+    repo,
+    ref,
+    manifestKey: `${owner}/${repo}`,
+    cloneUrl,
+  };
 }
 
 function parseHttpsUrl(input: string): HttpsUrlSource {

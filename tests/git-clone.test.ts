@@ -325,6 +325,27 @@ describe("cloneSource", () => {
     expect(args).toContain("https://gitlab.com/team/tools.git");
   });
 
+  it("uses cloneUrl directly for ssh-url type", async () => {
+    mockExecFileSuccess();
+    const parsed: ParsedSource = {
+      type: "ssh-url",
+      owner: "team",
+      repo: "tools",
+      ref: null,
+      manifestKey: "team/tools",
+      cloneUrl: "git@gitlab.com:team/tools.git",
+    };
+
+    const promise = cloneSource(parsed);
+    await vi.runAllTimersAsync();
+    await promise;
+
+    const execFileMock = vi.mocked(childProcess.execFile);
+    const firstCall = execFileMock.mock.calls[0]!;
+    const args = firstCall[1] as string[];
+    expect(args).toContain("git@gitlab.com:team/tools.git");
+  });
+
   it("still builds GitHub URL for github-shorthand type", async () => {
     mockExecFileSuccess();
     const parsed = makeParsed({ owner: "bob", repo: "plugins" });

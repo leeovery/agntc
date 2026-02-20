@@ -256,6 +256,161 @@ describe("parseSource", () => {
     });
   });
 
+  describe("SSH URL sources", () => {
+    it("parses git@github.com:owner/repo.git without ref", () => {
+      const result = parseSource("git@github.com:owner/repo.git");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "git@github.com:owner/repo.git",
+      });
+    });
+
+    it("parses git@github.com:owner/repo.git@v1.0 with tag ref", () => {
+      const result = parseSource("git@github.com:owner/repo.git@v1.0");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "repo",
+        ref: "v1.0",
+        manifestKey: "owner/repo",
+        cloneUrl: "git@github.com:owner/repo.git",
+      });
+    });
+
+    it("parses SSH URL with branch ref", () => {
+      const result = parseSource("git@github.com:owner/repo.git@main");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "repo",
+        ref: "main",
+        manifestKey: "owner/repo",
+        cloneUrl: "git@github.com:owner/repo.git",
+      });
+    });
+
+    it("handles missing .git suffix by adding it to cloneUrl", () => {
+      const result = parseSource("git@github.com:owner/repo");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "git@github.com:owner/repo.git",
+      });
+    });
+
+    it("handles missing .git suffix with ref", () => {
+      const result = parseSource("git@github.com:owner/repo@v2.0");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "repo",
+        ref: "v2.0",
+        manifestKey: "owner/repo",
+        cloneUrl: "git@github.com:owner/repo.git",
+      });
+    });
+
+    it("supports non-GitHub hosts (GitLab)", () => {
+      const result = parseSource("git@gitlab.com:org/project.git");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "org",
+        repo: "project",
+        ref: null,
+        manifestKey: "org/project",
+        cloneUrl: "git@gitlab.com:org/project.git",
+      });
+    });
+
+    it("supports non-GitHub hosts (Bitbucket)", () => {
+      const result = parseSource("git@bitbucket.org:team/tools.git@v3.0");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "team",
+        repo: "tools",
+        ref: "v3.0",
+        manifestKey: "team/tools",
+        cloneUrl: "git@bitbucket.org:team/tools.git",
+      });
+    });
+
+    it("supports self-hosted git hosts", () => {
+      const result = parseSource("git@git.mycompany.com:team/project.git");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "team",
+        repo: "project",
+        ref: null,
+        manifestKey: "team/project",
+        cloneUrl: "git@git.mycompany.com:team/project.git",
+      });
+    });
+
+    it("manifestKey is owner/repo regardless of host", () => {
+      const github = parseSource("git@github.com:owner/repo.git");
+      const gitlab = parseSource("git@gitlab.com:owner/repo.git");
+      expect(github.manifestKey).toBe("owner/repo");
+      expect(gitlab.manifestKey).toBe("owner/repo");
+    });
+
+    it("trims whitespace from SSH URL input", () => {
+      const result = parseSource("  git@github.com:owner/repo.git  ");
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "repo",
+        ref: null,
+        manifestKey: "owner/repo",
+        cloneUrl: "git@github.com:owner/repo.git",
+      });
+    });
+
+    it("throws for malformed SSH URL missing colon", () => {
+      expect(() => parseSource("git@github.com/owner/repo.git")).toThrow(
+        /invalid SSH URL/,
+      );
+    });
+
+    it("throws for malformed SSH URL missing owner/repo path", () => {
+      expect(() => parseSource("git@github.com:")).toThrow(
+        /invalid SSH URL/,
+      );
+    });
+
+    it("throws for malformed SSH URL with only owner (no repo)", () => {
+      expect(() => parseSource("git@github.com:owner")).toThrow(
+        /invalid SSH URL/,
+      );
+    });
+
+    it("throws for SSH URL with empty ref after @", () => {
+      expect(() => parseSource("git@github.com:owner/repo.git@")).toThrow(
+        /ref cannot be empty/,
+      );
+    });
+
+    it("handles ref with special characters", () => {
+      const result = parseSource(
+        "git@github.com:owner/repo.git@v2.0.0-beta.1",
+      );
+      expect(result).toEqual({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "repo",
+        ref: "v2.0.0-beta.1",
+        manifestKey: "owner/repo",
+        cloneUrl: "git@github.com:owner/repo.git",
+      });
+    });
+  });
+
   describe("GitHub shorthand still works (no regression)", () => {
     it("simple owner/repo still returns github-shorthand type", () => {
       const result = parseSource("owner/repo");
@@ -265,6 +420,18 @@ describe("parseSource", () => {
     it("owner/repo@ref still returns github-shorthand type", () => {
       const result = parseSource("owner/repo@v1.0");
       expect(result.type).toBe("github-shorthand");
+    });
+  });
+
+  describe("HTTPS URL sources still work (no regression)", () => {
+    it("HTTPS URL still returns https-url type", () => {
+      const result = parseSource("https://github.com/owner/repo");
+      expect(result.type).toBe("https-url");
+    });
+
+    it("HTTPS URL with ref still returns https-url type", () => {
+      const result = parseSource("https://github.com/owner/repo@v1.0");
+      expect(result.type).toBe("https-url");
     });
   });
 });

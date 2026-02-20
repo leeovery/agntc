@@ -51,7 +51,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function resolveCloneUrl(parsed: ParsedSource): string {
-  if (parsed.type === "https-url") {
+  if (parsed.type === "https-url" || parsed.type === "ssh-url") {
     return parsed.cloneUrl;
   }
   return `https://github.com/${parsed.owner}/${parsed.repo}.git`;
