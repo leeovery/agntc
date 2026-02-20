@@ -15,6 +15,10 @@ import { copyBareSkill } from "../copy-bare-skill.js";
 import { getDriver } from "../drivers/registry.js";
 import type { AgentId } from "../drivers/types.js";
 import { ExitSignal } from "../exit-signal.js";
+import {
+  computeEffectiveAgents,
+  findDroppedAgents,
+} from "../agent-compat.js";
 
 function buildParsedSource(
   key: string,
@@ -40,22 +44,6 @@ function getSourceDir(tempDir: string, key: string): string {
     return join(tempDir, subPath);
   }
   return tempDir;
-}
-
-function computeEffectiveAgents(
-  entryAgents: string[],
-  newConfigAgents: string[],
-): string[] {
-  const newSet = new Set(newConfigAgents);
-  return entryAgents.filter((a) => newSet.has(a));
-}
-
-function findDroppedAgents(
-  entryAgents: string[],
-  newConfigAgents: string[],
-): string[] {
-  const newSet = new Set(newConfigAgents);
-  return entryAgents.filter((a) => !newSet.has(a));
 }
 
 export async function runUpdate(key?: string): Promise<void> {
@@ -230,8 +218,12 @@ export async function runUpdate(key?: string): Promise<void> {
     // Summary
     const oldShort = entry.commit ? entry.commit.slice(0, 7) : "unknown";
     const newShort = newCommit.slice(0, 7);
+    const droppedSuffix =
+      droppedAgents.length > 0
+        ? `. ${droppedAgents.join(", ")} support removed.`
+        : "";
     p.outro(
-      `Updated ${key}: ${oldShort} -> ${newShort} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}`,
+      `Updated ${key}: ${oldShort} -> ${newShort} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}${droppedSuffix}`,
     );
   } catch (err) {
     if (err instanceof ExitSignal) {
@@ -355,8 +347,12 @@ async function runLocalUpdate(
   const updated = addEntry(manifest, key, newEntry);
   await writeManifest(projectDir, updated);
 
+  const droppedSuffix =
+    droppedAgents.length > 0
+      ? `. ${droppedAgents.join(", ")} support removed.`
+      : "";
   p.outro(
-    `Refreshed ${key} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}`,
+    `Refreshed ${key} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}${droppedSuffix}`,
   );
 }
 

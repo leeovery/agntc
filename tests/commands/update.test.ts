@@ -431,6 +431,118 @@ describe("update command", () => {
       );
     });
 
+    it("proceeds normally when agents have not changed", async () => {
+      const entry = makeEntry({
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
+      });
+
+      await runUpdate("owner/repo");
+
+      expect(mockLog.warn).not.toHaveBeenCalled();
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agents: [
+            expect.objectContaining({ id: "claude" }),
+            expect.objectContaining({ id: "codex" }),
+          ],
+        }),
+      );
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        expect.anything(),
+        "owner/repo",
+        expect.objectContaining({
+          agents: ["claude", "codex"],
+        }),
+      );
+    });
+
+    it("ignores new agents added by plugin author", async () => {
+      const entry = makeEntry({
+        agents: ["claude"],
+        files: [".claude/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      // New version adds codex support, but entry only has claude
+      mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate("owner/repo");
+
+      // Only claude is used (intersection), codex is ignored
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agents: [expect.objectContaining({ id: "claude" })],
+        }),
+      );
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        expect.anything(),
+        "owner/repo",
+        expect.objectContaining({
+          agents: ["claude"],
+        }),
+      );
+      // No warnings for new agents
+      expect(mockLog.warn).not.toHaveBeenCalled();
+    });
+
+    it("includes dropped agent info in summary when partial drop", async () => {
+      const entry = makeEntry({
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate("owner/repo");
+
+      const summaryCall = mockOutro.mock.calls[0]![0] as string;
+      expect(summaryCall).toContain("codex support removed");
+    });
+
     it("warns when agents are dropped by new version", async () => {
       const entry = makeEntry({
         agents: ["claude", "codex"],
@@ -487,6 +599,29 @@ describe("update command", () => {
         expect.stringContaining("no longer supports any of your installed agents"),
       );
       expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
+    });
+
+    it("shows remove command in all-agents-dropped warning", async () => {
+      const entry = makeEntry({
+        agents: ["codex"],
+        files: [".agents/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+
+      await runUpdate("owner/repo");
+
+      expect(mockLog.warn).toHaveBeenCalledWith(
+        expect.stringContaining("npx agntc remove owner/repo"),
+      );
     });
 
     it("exits 0 when all agents dropped (preserves existing files)", async () => {
@@ -1014,6 +1149,53 @@ describe("update command", () => {
       expect(mockLog.warn).toHaveBeenCalledWith(
         expect.stringContaining("codex"),
       );
+    });
+
+    it("ignores new agents added by plugin author for local update", async () => {
+      const entry: ManifestEntry = {
+        ...LOCAL_ENTRY,
+        agents: ["claude"],
+        files: [".claude/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      // New version adds codex, but entry only has claude
+      mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+
+      await runUpdate(LOCAL_KEY);
+
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agents: [expect.objectContaining({ id: "claude" })],
+        }),
+      );
+      expect(mockLog.warn).not.toHaveBeenCalled();
+    });
+
+    it("includes dropped agent info in local summary", async () => {
+      const entry: ManifestEntry = {
+        ...LOCAL_ENTRY,
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+
+      await runUpdate(LOCAL_KEY);
+
+      const summaryCall = mockOutro.mock.calls[0]![0] as string;
+      expect(summaryCall).toContain("codex support removed");
     });
 
     it("nukes then copies for local re-copy", async () => {
