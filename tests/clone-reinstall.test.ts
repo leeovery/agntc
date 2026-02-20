@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ManifestEntry } from "../src/manifest.js";
+import type { ManifestEntry, Manifest } from "../src/manifest.js";
 import type { DetectedType } from "../src/type-detection.js";
 import type { AgentId } from "../src/drivers/types.js";
 
@@ -16,6 +16,11 @@ vi.mock("@clack/prompts", () => ({
     success: vi.fn(),
     message: vi.fn(),
   },
+}));
+
+vi.mock("../src/manifest.js", () => ({
+  writeManifest: vi.fn(),
+  removeEntry: vi.fn(),
 }));
 
 vi.mock("../src/git-clone.js", () => ({
@@ -48,6 +53,7 @@ vi.mock("../src/drivers/registry.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
+import { writeManifest, removeEntry } from "../src/manifest.js";
 import { cloneSource, cleanupTempDir } from "../src/git-clone.js";
 import { readConfig } from "../src/config.js";
 import { detectType } from "../src/type-detection.js";
@@ -61,6 +67,9 @@ import {
   mapCloneFailure,
 } from "../src/clone-reinstall.js";
 import type { CloneFailureHandlers } from "../src/clone-reinstall.js";
+
+const mockWriteManifest = vi.mocked(writeManifest);
+const mockRemoveEntry = vi.mocked(removeEntry);
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
@@ -102,6 +111,11 @@ beforeEach(() => {
   mockCleanupTempDir.mockResolvedValue(undefined);
   mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
   mockGetDriver.mockReturnValue(fakeDriver);
+  mockWriteManifest.mockResolvedValue(undefined);
+  mockRemoveEntry.mockImplementation((manifest, key) => {
+    const { [key]: _, ...rest } = manifest;
+    return rest;
+  });
 });
 
 describe("formatAgentsDroppedWarning", () => {
@@ -393,6 +407,56 @@ describe("cloneAndReinstall", () => {
         expect(result.failureReason).toBe("copy-failed");
         expect(result.message).toContain("npx agntc update owner/repo");
       }
+    });
+
+    it("removes entry from manifest when manifest is provided", async () => {
+      const entry = makeEntry();
+      const manifest: Manifest = { "owner/repo": entry };
+
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      await cloneAndReinstall({
+        key: "owner/repo",
+        entry,
+        projectDir: "/fake/project",
+        manifest,
+      });
+
+      expect(mockRemoveEntry).toHaveBeenCalledWith(manifest, "owner/repo");
+      expect(mockWriteManifest).toHaveBeenCalledWith(
+        "/fake/project",
+        expect.not.objectContaining({ "owner/repo": expect.anything() }),
+      );
+    });
+
+    it("does not write manifest when manifest is not provided", async () => {
+      const entry = makeEntry();
+
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+      await cloneAndReinstall({
+        key: "owner/repo",
+        entry,
+        projectDir: "/fake/project",
+      });
+
+      expect(mockWriteManifest).not.toHaveBeenCalled();
     });
   });
 

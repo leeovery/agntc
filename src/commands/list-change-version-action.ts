@@ -1,7 +1,7 @@
 import * as p from "@clack/prompts";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import type { UpdateCheckResult } from "../update-check.js";
-import { writeManifest, addEntry, removeEntry } from "../manifest.js";
+import { writeManifest, addEntry } from "../manifest.js";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 
 export interface ChangeVersionResult {
@@ -48,13 +48,10 @@ export async function executeChangeVersionAction(
     entry,
     projectDir,
     newRef: selectedTag,
+    manifest,
   });
 
   if (result.status === "failed") {
-    if (result.failureReason === "copy-failed") {
-      await writeManifest(projectDir, removeEntry(manifest, key));
-    }
-
     return mapCloneFailure(result, {
       onNoConfig: () => ({
         changed: false,

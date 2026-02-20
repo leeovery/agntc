@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
-import type { ManifestEntry } from "./manifest.js";
+import type { ManifestEntry, Manifest } from "./manifest.js";
+import { writeManifest, removeEntry } from "./manifest.js";
 import type { AgentId } from "./drivers/types.js";
 import { buildParsedSourceFromKey, getSourceDirFromKey } from "./source-parser.js";
 import { cloneSource, cleanupTempDir } from "./git-clone.js";
@@ -16,6 +17,8 @@ export interface CloneAndReinstallOptions {
   newCommit?: string;
   /** Provide to skip cloning (local path). */
   sourceDir?: string;
+  /** When provided, copy-failed will automatically remove the entry and write the manifest. */
+  manifest?: Manifest;
 }
 
 interface CloneReinstallSuccess {
@@ -88,7 +91,7 @@ export async function cloneAndReinstall(
 
   // Local path mode: no cloning needed
   if (options.sourceDir !== undefined) {
-    return runPipeline({
+    const result = await runPipeline({
       key,
       entry,
       projectDir,
@@ -96,6 +99,7 @@ export async function cloneAndReinstall(
       newRef: options.newRef ?? null,
       newCommit: options.newCommit ?? null,
     });
+    return handleCopyFailedRemoval(result, options);
   }
 
   // Remote mode: clone first
@@ -127,7 +131,7 @@ export async function cloneAndReinstall(
     const newCommit = options.newCommit ?? cloneResult.commit;
     const sourceDir = getSourceDirFromKey(tempDir, key);
 
-    return await runPipeline({
+    const result = await runPipeline({
       key,
       entry,
       projectDir,
@@ -135,6 +139,7 @@ export async function cloneAndReinstall(
       newRef: options.newRef ?? null,
       newCommit,
     });
+    return handleCopyFailedRemoval(result, options);
   } finally {
     if (tempDir) {
       try {
@@ -144,6 +149,23 @@ export async function cloneAndReinstall(
       }
     }
   }
+}
+
+async function handleCopyFailedRemoval(
+  result: CloneReinstallResult,
+  options: CloneAndReinstallOptions,
+): Promise<CloneReinstallResult> {
+  if (
+    result.status === "failed" &&
+    result.failureReason === "copy-failed" &&
+    options.manifest !== undefined
+  ) {
+    await writeManifest(
+      options.projectDir,
+      removeEntry(options.manifest, options.key),
+    );
+  }
+  return result;
 }
 
 interface PipelineInput {

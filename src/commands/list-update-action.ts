@@ -1,6 +1,5 @@
-import * as p from "@clack/prompts";
 import type { ManifestEntry, Manifest } from "../manifest.js";
-import { writeManifest, addEntry, removeEntry } from "../manifest.js";
+import { writeManifest, addEntry } from "../manifest.js";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 import { validateLocalSourcePath } from "../fs-utils.js";
 import { errorMessage } from "../errors.js";
@@ -17,100 +16,43 @@ export async function executeUpdateAction(
   manifest: Manifest,
   projectDir: string,
 ): Promise<UpdateActionResult> {
-  if (entry.commit !== null) {
-    return runRemoteUpdate(key, entry, manifest, projectDir);
-  }
-  return runLocalUpdate(key, entry, manifest, projectDir);
+  return runUpdate(key, entry, manifest, projectDir);
 }
 
-async function runRemoteUpdate(
+async function runUpdate(
   key: string,
   entry: ManifestEntry,
   manifest: Manifest,
   projectDir: string,
 ): Promise<UpdateActionResult> {
-  const result = await cloneAndReinstall({
-    key,
-    entry,
-    projectDir,
-  });
+  const isLocal = entry.commit === null;
 
-  if (result.status === "failed") {
-    if (result.failureReason === "copy-failed") {
-      await writeManifest(projectDir, removeEntry(manifest, key));
-    }
-
-    return mapCloneFailure(result, {
-      onNoConfig: () => ({
-        success: false,
-        message: `New version of ${key} has no agntc.json`,
-      }),
-      onNoAgents: () => ({
-        success: false,
-        message: `Plugin ${key} no longer supports any of your installed agents`,
-      }),
-      onInvalidType: () => ({
-        success: false,
-        message: `New version of ${key} is not a valid plugin`,
-      }),
-      onCopyFailed: (msg) => ({
-        success: false,
-        message: msg,
-      }),
-      onCloneFailed: (msg) => ({
-        success: false,
-        message: msg,
-      }),
-      onUnknown: (msg) => ({
-        success: false,
-        message: msg,
-      }),
-    });
-  }
-
-  const updated = addEntry(manifest, key, result.manifestEntry);
-  await writeManifest(projectDir, updated);
-
-  return {
-    success: true,
-    newEntry: result.manifestEntry,
-    message: `Updated ${key}`,
-  };
-}
-
-async function runLocalUpdate(
-  key: string,
-  entry: ManifestEntry,
-  manifest: Manifest,
-  projectDir: string,
-): Promise<UpdateActionResult> {
   try {
-    const sourcePath = key;
-
-    const pathResult = await validateLocalSourcePath(sourcePath);
-    if (!pathResult.valid) {
-      return {
-        success: false,
-        message: `Path ${sourcePath} does not exist or is not a directory`,
-      };
+    if (isLocal) {
+      const pathResult = await validateLocalSourcePath(key);
+      if (!pathResult.valid) {
+        return {
+          success: false,
+          message: `Path ${key} does not exist or is not a directory`,
+        };
+      }
     }
 
     const result = await cloneAndReinstall({
       key,
       entry,
       projectDir,
-      sourceDir: sourcePath,
+      manifest,
+      ...(isLocal ? { sourceDir: key } : {}),
     });
 
     if (result.status === "failed") {
-      if (result.failureReason === "copy-failed") {
-        await writeManifest(projectDir, removeEntry(manifest, key));
-      }
-
       return mapCloneFailure(result, {
         onNoConfig: () => ({
           success: false,
-          message: `${key} has no agntc.json`,
+          message: isLocal
+            ? `${key} has no agntc.json`
+            : `New version of ${key} has no agntc.json`,
         }),
         onNoAgents: () => ({
           success: false,
@@ -118,7 +60,9 @@ async function runLocalUpdate(
         }),
         onInvalidType: () => ({
           success: false,
-          message: `${key} is not a valid plugin`,
+          message: isLocal
+            ? `${key} is not a valid plugin`
+            : `New version of ${key} is not a valid plugin`,
         }),
         onCopyFailed: (msg) => ({
           success: false,
@@ -141,7 +85,7 @@ async function runLocalUpdate(
     return {
       success: true,
       newEntry: result.manifestEntry,
-      message: `Refreshed ${key}`,
+      message: isLocal ? `Refreshed ${key}` : `Updated ${key}`,
     };
   } catch (err) {
     return { success: false, message: errorMessage(err) };

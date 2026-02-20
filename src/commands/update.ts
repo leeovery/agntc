@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { readManifest, readManifestOrExit, writeManifest, addEntry, removeEntry } from "../manifest.js";
+import { readManifestOrExit, writeManifest, addEntry, removeEntry } from "../manifest.js";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
 import type { UpdateCheckResult } from "../update-check.js";
@@ -46,7 +46,7 @@ export async function runUpdate(key?: string): Promise<void> {
 
   for (const targetKey of targetKeys) {
     const entry = manifest[targetKey]!;
-    const newEntry = await runSingleUpdate(targetKey, entry, projectDir);
+    const newEntry = await runSingleUpdate(targetKey, entry, manifest, projectDir);
     if (newEntry !== null) {
       updatedManifest = addEntry(updatedManifest, targetKey, newEntry);
       hasChanges = true;
@@ -61,6 +61,7 @@ export async function runUpdate(key?: string): Promise<void> {
 async function runSingleUpdate(
   key: string,
   entry: ManifestEntry,
+  manifest: Manifest,
   projectDir: string,
 ): Promise<ManifestEntry | null> {
   // Check for update
@@ -88,15 +89,7 @@ async function runSingleUpdate(
   }
 
   // update-available or local — proceed with single plugin update
-  return runSinglePluginUpdate(key, entry, projectDir);
-}
-
-async function handleCopyFailedRemoval(
-  key: string,
-  projectDir: string,
-): Promise<void> {
-  const manifest = await readManifest(projectDir);
-  await writeManifest(projectDir, removeEntry(manifest, key));
+  return runSinglePluginUpdate(key, entry, manifest, projectDir);
 }
 
 async function validateLocalPath(sourcePath: string): Promise<void> {
@@ -112,6 +105,7 @@ async function validateLocalPath(sourcePath: string): Promise<void> {
 async function runSinglePluginUpdate(
   key: string,
   entry: ManifestEntry,
+  manifest: Manifest,
   projectDir: string,
 ): Promise<ManifestEntry | null> {
   const isLocal = entry.commit === null;
@@ -124,14 +118,11 @@ async function runSinglePluginUpdate(
     key,
     entry,
     projectDir,
+    manifest,
     ...(isLocal ? { sourceDir: key } : {}),
   });
 
   if (result.status === "failed") {
-    if (result.failureReason === "copy-failed") {
-      await handleCopyFailedRemoval(key, projectDir);
-    }
-
     const noConfigMsg = isLocal
       ? `${key} has no agntc.json — aborting.`
       : `New version of ${key} has no agntc.json — aborting.`;
