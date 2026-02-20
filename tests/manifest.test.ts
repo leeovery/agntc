@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdir,
   writeFile,
@@ -15,9 +15,25 @@ import {
   writeManifest,
   addEntry,
   removeEntry,
+  readManifestOrExit,
   type ManifestEntry,
   type Manifest,
 } from "../src/manifest.js";
+import { ExitSignal } from "../src/exit-signal.js";
+
+vi.mock("@clack/prompts", () => ({
+  log: {
+    error: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    success: vi.fn(),
+    message: vi.fn(),
+  },
+}));
+
+import * as p from "@clack/prompts";
+
+const mockLog = vi.mocked(p.log);
 
 let testDir: string;
 
@@ -473,5 +489,77 @@ describe("backward compatibility", () => {
     const result = await readManifest(testDir);
 
     expect(result["owner/repo/skill"]!.cloneUrl).toBeNull();
+  });
+});
+
+describe("readManifestOrExit", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("returns manifest when readManifest succeeds", async () => {
+    const manifest: Manifest = {
+      "owner/repo/skill": {
+        ref: "main",
+        commit: "abc123",
+        installedAt: "2026-01-15T10:00:00.000Z",
+        agents: ["claude"],
+        files: [".claude/skills/skill/"],
+        cloneUrl: null,
+      },
+    };
+    await mkdir(join(testDir, ".agntc"), { recursive: true });
+    await writeFile(
+      join(testDir, ".agntc", "manifest.json"),
+      JSON.stringify(manifest),
+    );
+
+    const result = await readManifestOrExit(testDir);
+
+    expect(result).toEqual(manifest);
+  });
+
+  it("throws ExitSignal(1) when manifest cannot be read", async () => {
+    await mkdir(join(testDir, ".agntc"), { recursive: true });
+    await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
+
+    const err = await readManifestOrExit(testDir).catch((e) => e);
+
+    expect(err).toBeInstanceOf(ExitSignal);
+    expect((err as ExitSignal).code).toBe(1);
+  });
+
+  it("logs error message with 'Failed to read manifest:' prefix", async () => {
+    await mkdir(join(testDir, ".agntc"), { recursive: true });
+    await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
+
+    await readManifestOrExit(testDir).catch(() => {});
+
+    expect(mockLog.error).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to read manifest:"),
+    );
+  });
+
+  it("includes the underlying error message in the log", async () => {
+    await mkdir(join(testDir, ".agntc"), { recursive: true });
+    const manifestPath = join(testDir, ".agntc", "manifest.json");
+    await writeFile(manifestPath, "{}");
+    await chmod(manifestPath, 0o000);
+
+    try {
+      await readManifestOrExit(testDir).catch(() => {});
+
+      expect(mockLog.error).toHaveBeenCalledWith(
+        expect.stringMatching(/Failed to read manifest:.*permission/i),
+      );
+    } finally {
+      await chmod(manifestPath, 0o644);
+    }
+  });
+
+  it("returns empty object for missing manifest (ENOENT)", async () => {
+    const result = await readManifestOrExit(join(testDir, "nonexistent"));
+
+    expect(result).toEqual({});
   });
 });

@@ -32,6 +32,7 @@ vi.mock("@clack/prompts", () => ({
 
 vi.mock("../../src/manifest.js", () => ({
   readManifest: vi.fn(),
+  readManifestOrExit: vi.fn(),
   writeManifest: vi.fn(),
   addEntry: vi.fn(),
   removeEntry: vi.fn(),
@@ -75,7 +76,7 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { readManifest, writeManifest, addEntry, removeEntry } from "../../src/manifest.js";
+import { readManifest, readManifestOrExit, writeManifest, addEntry, removeEntry } from "../../src/manifest.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { cloneSource, cleanupTempDir } from "../../src/git-clone.js";
 import { readConfig } from "../../src/config.js";
@@ -88,6 +89,7 @@ import { stat } from "node:fs/promises";
 import { runUpdate } from "../../src/commands/update.js";
 
 const mockReadManifest = vi.mocked(readManifest);
+const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockAddEntry = vi.mocked(addEntry);
 const mockRemoveEntry = vi.mocked(removeEntry);
@@ -150,7 +152,7 @@ beforeEach(() => {
 describe("update command", () => {
   describe("all-plugins mode (no key)", () => {
     it("displays message and exits 0 when manifest is empty", async () => {
-      mockReadManifest.mockResolvedValue({});
+      mockReadManifestOrExit.mockResolvedValue({});
 
       await runUpdate();
 
@@ -161,7 +163,7 @@ describe("update command", () => {
     it("checks all entries in parallel", async () => {
       const entryA = makeEntry({ commit: INSTALLED_SHA });
       const entryB = makeEntry({ commit: INSTALLED_SHA });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-a": entryA,
         "owner/repo-b": entryB,
       });
@@ -196,7 +198,7 @@ describe("update command", () => {
 
     it("shows spinner during parallel checks", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
       const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
@@ -211,7 +213,7 @@ describe("update command", () => {
     });
 
     it("shows all up-to-date message when all plugins are current", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-a": makeEntry(),
         "owner/repo-b": makeEntry(),
       });
@@ -231,7 +233,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -277,7 +279,7 @@ describe("update command", () => {
         files: [".claude/skills/my-plugin/"],
         cloneUrl: null,
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -300,7 +302,7 @@ describe("update command", () => {
     });
 
     it("shows info for newer-tags plugins without updating", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -324,7 +326,7 @@ describe("update command", () => {
     });
 
     it("notes check-failed plugins in summary", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry(),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -358,7 +360,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/skill-b/"],
       });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-a": entryA,
         "owner/repo-b": entryB,
       });
@@ -395,7 +397,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/skill-b/"],
       });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-a": entryA,
         "owner/repo-b": entryB,
       });
@@ -453,7 +455,7 @@ describe("update command", () => {
         files: [".claude/skills/current-skill/"],
       });
 
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-git": gitEntry,
         "/local/path": localEntry,
         "owner/repo-tag": tagEntry,
@@ -506,7 +508,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/skill-b/"],
       });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-a": entryA,
         "owner/repo-b": entryB,
       });
@@ -555,7 +557,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -587,7 +589,7 @@ describe("update command", () => {
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
         cloneUrl: null,
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -604,7 +606,7 @@ describe("update command", () => {
     });
 
     it("does not write manifest when nothing was updated", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-a": makeEntry(),
         "owner/repo-b": makeEntry({ ref: "v1.0" }),
       });
@@ -627,7 +629,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -652,7 +654,7 @@ describe("update command", () => {
 
   describe("empty manifest", () => {
     it("displays message and exits 0", async () => {
-      mockReadManifest.mockResolvedValue({});
+      mockReadManifestOrExit.mockResolvedValue({});
 
       await runUpdate("owner/repo");
 
@@ -663,7 +665,7 @@ describe("update command", () => {
 
   describe("non-existent key", () => {
     it("exits 1 with error message", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "other/plugin": makeEntry(),
       });
 
@@ -679,7 +681,7 @@ describe("update command", () => {
 
   describe("up-to-date", () => {
     it("displays up-to-date message and exits 0", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry(),
       });
       mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
@@ -695,7 +697,7 @@ describe("update command", () => {
 
   describe("check-failed", () => {
     it("exits 1 with error when update check fails", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry(),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -716,7 +718,7 @@ describe("update command", () => {
   describe("update-available — full pipeline", () => {
     it("clones before nuking existing files", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -753,7 +755,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -793,7 +795,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/old-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -830,7 +832,7 @@ describe("update command", () => {
         commit: INSTALLED_SHA,
         agents: ["claude"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -861,7 +863,7 @@ describe("update command", () => {
   describe("no confirmation needed", () => {
     it("does not prompt for confirmation before updating", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -892,7 +894,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -933,7 +935,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -975,7 +977,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1017,7 +1019,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1045,7 +1047,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1076,7 +1078,7 @@ describe("update command", () => {
         agents: ["codex"],
         files: [".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1103,7 +1105,7 @@ describe("update command", () => {
         agents: ["codex"],
         files: [".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1126,7 +1128,7 @@ describe("update command", () => {
         agents: ["codex"],
         files: [".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1147,7 +1149,7 @@ describe("update command", () => {
   describe("temp dir cleanup", () => {
     it("cleans up temp dir on successful update", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1171,7 +1173,9 @@ describe("update command", () => {
 
     it("cleans up temp dir when copy fails", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      const manifest = { "owner/repo": entry };
+      mockReadManifestOrExit.mockResolvedValue(manifest);
+      mockReadManifest.mockResolvedValue(manifest);
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1194,7 +1198,7 @@ describe("update command", () => {
 
     it("cleans up temp dir when all agents dropped", async () => {
       const entry = makeEntry({ agents: ["codex"] });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1214,7 +1218,7 @@ describe("update command", () => {
   describe("clone failure", () => {
     it("does not modify existing files when clone fails", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1231,7 +1235,7 @@ describe("update command", () => {
 
     it("shows error message on clone failure", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1251,7 +1255,7 @@ describe("update command", () => {
   describe("constructs ParsedSource for cloneSource", () => {
     it("creates github-shorthand ParsedSource from manifest key and entry ref", async () => {
       const entry = makeEntry({ ref: "dev" });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1285,7 +1289,7 @@ describe("update command", () => {
         ref: "dev",
         cloneUrl: "https://gitlab.com/owner/repo.git",
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1313,7 +1317,7 @@ describe("update command", () => {
 
     it("falls back to github-shorthand when cloneUrl is null", async () => {
       const entry = makeEntry({ ref: "dev", cloneUrl: null });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1343,7 +1347,7 @@ describe("update command", () => {
 
     it("uses null ref for HEAD-tracking plugins", async () => {
       const entry = makeEntry({ ref: null });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1376,7 +1380,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/old-skill/", ".claude/agents/executor.md"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1411,7 +1415,7 @@ describe("update command", () => {
   describe("plugin type detection — bare skill", () => {
     it("uses copyBareSkill for bare-skill type", async () => {
       const entry = makeEntry();
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1442,7 +1446,7 @@ describe("update command", () => {
 
   describe("newer-tags", () => {
     it("shows pinned ref and newer tags available message", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -1458,7 +1462,7 @@ describe("update command", () => {
     });
 
     it("lists newer tags newest-first", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -1479,7 +1483,7 @@ describe("update command", () => {
     });
 
     it("shows re-add command with newest tag", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -1495,7 +1499,7 @@ describe("update command", () => {
     });
 
     it("does not clone, nuke, or write manifest", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -1511,7 +1515,7 @@ describe("update command", () => {
     });
 
     it("exits 0 (does not throw)", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v1.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -1523,7 +1527,7 @@ describe("update command", () => {
     });
 
     it("shows re-add command for collection plugin key", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo/go": makeEntry({ ref: "v1.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({
@@ -1541,7 +1545,7 @@ describe("update command", () => {
 
   describe("tag-pinned up-to-date", () => {
     it("shows up-to-date for tag-pinned plugin with no newer tags", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": makeEntry({ ref: "v3.0" }),
       });
       mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
@@ -1567,7 +1571,7 @@ describe("update command", () => {
     };
 
     function setupLocalBase(): void {
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -1602,7 +1606,7 @@ describe("update command", () => {
     });
 
     it("errors when path does not exist", async () => {
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockRejectedValue(
         Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
@@ -1618,7 +1622,7 @@ describe("update command", () => {
     });
 
     it("errors when path is not a directory", async () => {
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => false } as Stats);
 
@@ -1666,7 +1670,7 @@ describe("update command", () => {
         agents: ["codex"],
         files: [".agents/skills/my-plugin/"],
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       // New config only supports claude, entry has codex
@@ -1687,7 +1691,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       // New version drops codex
@@ -1716,7 +1720,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/my-plugin/"],
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       // New version adds codex, but entry only has claude
@@ -1742,7 +1746,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -1813,7 +1817,7 @@ describe("update command", () => {
     });
 
     it("errors when config is null (no agntc.json)", async () => {
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue(null);
@@ -1828,7 +1832,7 @@ describe("update command", () => {
     });
 
     it("uses copyPluginAssets when type is plugin", async () => {
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -1860,7 +1864,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/go/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo/go": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo/go": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1905,7 +1909,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1938,7 +1942,7 @@ describe("update command", () => {
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
         cloneUrl: null,
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -1961,7 +1965,7 @@ describe("update command", () => {
         agents: ["claude", "codex"],
         files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -1994,7 +1998,7 @@ describe("update command", () => {
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
         cloneUrl: null,
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -2014,15 +2018,12 @@ describe("update command", () => {
 
   describe("manifest read error", () => {
     it("exits 1 on manifest read failure", async () => {
-      mockReadManifest.mockRejectedValue(new Error("Permission denied"));
+      mockReadManifestOrExit.mockRejectedValue(new ExitSignal(1));
 
       const err = await runUpdate("owner/repo").catch((e) => e);
 
       expect(err).toBeInstanceOf(ExitSignal);
       expect((err as ExitSignal).code).toBe(1);
-      expect(mockLog.error).toHaveBeenCalledWith(
-        expect.stringContaining("Failed to read manifest"),
-      );
     });
   });
 
@@ -2038,7 +2039,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/ts/"],
       });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo/go": goEntry,
         "owner/repo/ts": tsEntry,
       });
@@ -2096,7 +2097,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/ts/"],
       });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo/go": goEntry,
         "owner/repo/ts": tsEntry,
       });
@@ -2123,7 +2124,7 @@ describe("update command", () => {
     });
 
     it("shows error for nonexistent prefix", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "other/plugin": makeEntry(),
       });
 
@@ -2147,7 +2148,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/sub-plugin/"],
       });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": standaloneEntry,
         "owner/repo/sub-plugin": collectionEntry,
       });
@@ -2183,6 +2184,7 @@ describe("update command", () => {
         files: [".claude/skills/my-skill/"],
       });
       const manifest = { "owner/repo": entry };
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockReadManifest.mockResolvedValue(manifest);
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
@@ -2214,7 +2216,9 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      const manifest = { "owner/repo": entry };
+      mockReadManifestOrExit.mockResolvedValue(manifest);
+      mockReadManifest.mockResolvedValue(manifest);
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -2250,6 +2254,7 @@ describe("update command", () => {
 
     it("throws ExitSignal and removes manifest entry on local copy failure", async () => {
       const manifest = { [LOCAL_KEY]: LOCAL_ENTRY };
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockReadManifest.mockResolvedValue(manifest);
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
@@ -2270,7 +2275,9 @@ describe("update command", () => {
     });
 
     it("logs recovery hint on local copy failure", async () => {
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+      const manifest = { [LOCAL_KEY]: LOCAL_ENTRY };
+      mockReadManifestOrExit.mockResolvedValue(manifest);
+      mockReadManifest.mockResolvedValue(manifest);
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -2299,7 +2306,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/skill-b/"],
       });
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo-a": entryA,
         "owner/repo-b": entryB,
       });
@@ -2344,7 +2351,7 @@ describe("update command", () => {
         agents: ["claude"],
         files: [".claude/skills/my-skill/"],
       });
-      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
       mockCheckForUpdate.mockResolvedValue({
         status: "update-available",
         remoteCommit: REMOTE_SHA,
@@ -2378,7 +2385,7 @@ describe("update command", () => {
         files: [".claude/skills/my-plugin/"],
         cloneUrl: null,
       };
-      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
       mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
       mockReadConfig.mockResolvedValue({ agents: ["claude"] });

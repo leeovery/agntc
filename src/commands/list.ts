@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { readManifest, type ManifestEntry, type Manifest } from "../manifest.js";
+import { readManifest, readManifestOrExit, type ManifestEntry, type Manifest } from "../manifest.js";
 import { checkAllForUpdates } from "../update-check-all.js";
 import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
 import { ExitSignal } from "../exit-signal.js";
@@ -73,11 +73,7 @@ export async function runListLoop(): Promise<void> {
   const projectDir = process.cwd();
 
   while (true) {
-    const manifest = await readManifest(projectDir).catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      p.log.error(`Failed to read manifest: ${message}`);
-      throw new ExitSignal(1);
-    });
+    const manifest = await readManifestOrExit(projectDir);
 
     const entries = Object.entries(manifest);
 

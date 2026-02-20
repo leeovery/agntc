@@ -1,8 +1,10 @@
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import * as p from "@clack/prompts";
 import type { AgentId } from "./drivers/types.js";
 import { isNodeError } from "./errors.js";
+import { ExitSignal } from "./exit-signal.js";
 
 export interface ManifestEntry {
   ref: string | null;
@@ -68,4 +70,14 @@ export function addEntry(
 export function removeEntry(manifest: Manifest, key: string): Manifest {
   const { [key]: _, ...rest } = manifest;
   return rest;
+}
+
+export async function readManifestOrExit(
+  projectDir: string,
+): Promise<Manifest> {
+  return readManifest(projectDir).catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    p.log.error(`Failed to read manifest: ${message}`);
+    throw new ExitSignal(1);
+  });
 }

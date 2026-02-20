@@ -21,6 +21,7 @@ vi.mock("@clack/prompts", () => ({
 
 vi.mock("../../src/manifest.js", () => ({
   readManifest: vi.fn(),
+  readManifestOrExit: vi.fn(),
   writeManifest: vi.fn(),
 }));
 
@@ -29,11 +30,11 @@ vi.mock("../../src/nuke-files.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { readManifest, writeManifest } from "../../src/manifest.js";
+import { readManifestOrExit, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { runRemove } from "../../src/commands/remove.js";
 
-const mockReadManifest = vi.mocked(readManifest);
+const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockConfirm = vi.mocked(p.confirm);
@@ -52,7 +53,7 @@ beforeEach(() => {
 describe("remove command", () => {
   describe("empty manifest", () => {
     it("displays 'No plugins installed.' and exits 0", async () => {
-      mockReadManifest.mockResolvedValue({});
+      mockReadManifestOrExit.mockResolvedValue({});
 
       await expect(runRemove("owner/repo")).resolves.toBeUndefined();
 
@@ -71,7 +72,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
@@ -112,7 +113,7 @@ describe("remove command", () => {
           files: [".claude/skills/python/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [".claude/skills/go/", ".agents/skills/go/"],
@@ -156,7 +157,7 @@ describe("remove command", () => {
           files: [".claude/skills/other/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [],
@@ -194,7 +195,7 @@ describe("remove command", () => {
           files: [".claude/skills/python/", ".claude/agents/python-agent.md"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
@@ -220,7 +221,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
 
       const err = await runRemove("nonexistent/plugin").catch((e) => e);
 
@@ -243,7 +244,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
@@ -271,7 +272,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(false);
 
       const err = await runRemove("owner/repo").catch((e) => e);
@@ -283,7 +284,7 @@ describe("remove command", () => {
     });
 
     it("cancels and exits 0 when confirm is cancelled (symbol)", async () => {
-      mockReadManifest.mockResolvedValue({
+      mockReadManifestOrExit.mockResolvedValue({
         "owner/repo": {
           ref: "v1.0",
           commit: "abc123",
@@ -317,7 +318,7 @@ describe("remove command", () => {
           ],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [
@@ -349,7 +350,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [".claude/skills/my-skill/"],
@@ -380,7 +381,7 @@ describe("remove command", () => {
           files: [".claude/skills/other/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [".claude/skills/my-skill/"],
@@ -420,7 +421,7 @@ describe("remove command", () => {
           files: [".claude/skills/unrelated/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
@@ -447,7 +448,7 @@ describe("remove command", () => {
           ],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [
@@ -475,7 +476,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [".claude/skills/my-skill/"],
@@ -501,7 +502,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({
         removed: [".claude/skills/my-skill/"],
@@ -521,32 +522,29 @@ describe("remove command", () => {
 
   describe("readManifest integration", () => {
     it("reads manifest from cwd", async () => {
-      mockReadManifest.mockResolvedValue({});
+      mockReadManifestOrExit.mockResolvedValue({});
 
       await runRemove("owner/repo");
 
-      expect(mockReadManifest).toHaveBeenCalledWith("/fake/project");
+      expect(mockReadManifestOrExit).toHaveBeenCalledWith("/fake/project");
     });
   });
 
   describe("manifest read error", () => {
     it("throws ExitSignal(1) on read failure", async () => {
-      mockReadManifest.mockRejectedValue(new Error("Permission denied"));
+      mockReadManifestOrExit.mockRejectedValue(new ExitSignal(1));
 
       const err = await runRemove("owner/repo").catch((e) => e);
 
       expect(err).toBeInstanceOf(ExitSignal);
       expect((err as ExitSignal).code).toBe(1);
-      expect(mockLog.error).toHaveBeenCalledWith(
-        expect.stringContaining("Failed to read manifest:"),
-      );
     });
   });
 
   describe("interactive mode (no-arg)", () => {
     describe("empty manifest", () => {
       it("displays message and returns without showing multiselect", async () => {
-        mockReadManifest.mockResolvedValue({});
+        mockReadManifestOrExit.mockResolvedValue({});
 
         await expect(runRemove()).resolves.toBeUndefined();
 
@@ -573,7 +571,7 @@ describe("remove command", () => {
             files: [".claude/skills/other/"],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo"]);
         mockConfirm.mockResolvedValue(true);
 
@@ -604,7 +602,7 @@ describe("remove command", () => {
             files: [".claude/skills/other/"],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo"]);
         mockConfirm.mockResolvedValue(true);
 
@@ -632,7 +630,7 @@ describe("remove command", () => {
             files: [".claude/skills/my-skill/"],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo"]);
         mockConfirm.mockResolvedValue(true);
 
@@ -647,7 +645,7 @@ describe("remove command", () => {
 
     describe("cancel and zero selection", () => {
       it("exits 0 when multiselect is cancelled", async () => {
-        mockReadManifest.mockResolvedValue({
+        mockReadManifestOrExit.mockResolvedValue({
           "owner/repo": {
             ref: "v1.0",
             commit: "abc123",
@@ -669,7 +667,7 @@ describe("remove command", () => {
       });
 
       it("exits 0 when zero plugins selected", async () => {
-        mockReadManifest.mockResolvedValue({
+        mockReadManifestOrExit.mockResolvedValue({
           "owner/repo": {
             ref: "v1.0",
             commit: "abc123",
@@ -707,7 +705,7 @@ describe("remove command", () => {
             files: [".claude/skills/other/"],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo"]);
         mockConfirm.mockResolvedValue(true);
         mockNukeManifestFiles.mockResolvedValue({
@@ -750,7 +748,7 @@ describe("remove command", () => {
             files: [".claude/skills/keep/"],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
         mockConfirm.mockResolvedValue(true);
 
@@ -778,7 +776,7 @@ describe("remove command", () => {
             files: [".claude/skills/my-skill/"],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo"]);
         mockConfirm.mockResolvedValue(false);
 
@@ -804,7 +802,7 @@ describe("remove command", () => {
             ],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo"]);
         mockConfirm.mockResolvedValue(true);
         mockNukeManifestFiles.mockResolvedValue({
@@ -842,7 +840,7 @@ describe("remove command", () => {
             files: [".claude/skills/other/", ".claude/agents/agent.md"],
           },
         };
-        mockReadManifest.mockResolvedValue(manifest);
+        mockReadManifestOrExit.mockResolvedValue(manifest);
         mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
         mockConfirm.mockResolvedValue(true);
 
@@ -871,7 +869,7 @@ describe("remove command", () => {
           ],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
@@ -899,7 +897,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
@@ -934,7 +932,7 @@ describe("remove command", () => {
           files: [".claude/skills/python/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
@@ -957,7 +955,7 @@ describe("remove command", () => {
           files: [".claude/skills/my-skill/"],
         },
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockConfirm.mockResolvedValue(true);
       mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 

@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { readManifest, writeManifest, addEntry, removeEntry } from "../manifest.js";
+import { readManifest, readManifestOrExit, writeManifest, addEntry, removeEntry } from "../manifest.js";
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
 import type { UpdateCheckResult } from "../update-check.js";
@@ -31,11 +31,7 @@ export async function runUpdate(key?: string): Promise<void> {
 
   const projectDir = process.cwd();
 
-  const manifest = await readManifest(projectDir).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Failed to read manifest: ${message}`);
-    throw new ExitSignal(1);
-  });
+  const manifest = await readManifestOrExit(projectDir);
 
   if (Object.keys(manifest).length === 0) {
     p.outro("No plugins installed.");
@@ -311,11 +307,7 @@ async function processUpdateForAll(
 async function runAllUpdates(): Promise<void> {
   const projectDir = process.cwd();
 
-  const manifest = await readManifest(projectDir).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Failed to read manifest: ${message}`);
-    throw new ExitSignal(1);
-  });
+  const manifest = await readManifestOrExit(projectDir);
 
   const entries = Object.entries(manifest);
 

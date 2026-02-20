@@ -27,6 +27,7 @@ vi.mock("@clack/prompts", async (importOriginal) => {
 
 vi.mock("../../src/manifest.js", () => ({
   readManifest: vi.fn(),
+  readManifestOrExit: vi.fn(),
   writeManifest: vi.fn(),
   addEntry: vi.fn(),
 }));
@@ -56,7 +57,7 @@ vi.mock("../../src/commands/list-change-version-action.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { readManifest } from "../../src/manifest.js";
+import { readManifest, readManifestOrExit } from "../../src/manifest.js";
 import { checkAllForUpdates } from "../../src/update-check-all.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { renderDetailView } from "../../src/commands/list-detail.js";
@@ -66,6 +67,7 @@ import { executeChangeVersionAction } from "../../src/commands/list-change-versi
 import { runListLoop } from "../../src/commands/list.js";
 
 const mockReadManifest = vi.mocked(readManifest);
+const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockCheckAll = vi.mocked(checkAllForUpdates);
 const mockCheckForUpdate = vi.mocked(checkForUpdate);
 const mockSelect = vi.mocked(p.select);
@@ -122,7 +124,7 @@ beforeEach(() => {
 describe("runListLoop", () => {
   describe("empty manifest", () => {
     it("shows empty message and exits loop", async () => {
-      mockReadManifest.mockResolvedValue({});
+      mockReadManifestOrExit.mockResolvedValue({});
 
       await runListLoop();
 
@@ -136,7 +138,7 @@ describe("runListLoop", () => {
   describe("Done selection", () => {
     it("exits loop when user selects Done", async () => {
       const manifest = makeManifest(["owner/skill"]);
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockCheckAll.mockResolvedValue(
         setupCheckResults(["owner/skill"]),
       );
@@ -152,7 +154,7 @@ describe("runListLoop", () => {
   describe("cancel", () => {
     it("exits loop when user cancels", async () => {
       const manifest = makeManifest(["owner/skill"]);
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockCheckAll.mockResolvedValue(
         setupCheckResults(["owner/skill"]),
       );
@@ -168,6 +170,7 @@ describe("runListLoop", () => {
   describe("back from detail", () => {
     it("returns to list when detail view returns back", async () => {
       const manifest = makeManifest(["owner/skill"]);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockReadManifest.mockResolvedValue(manifest);
       mockCheckAll.mockResolvedValue(
         setupCheckResults(["owner/skill"]),
@@ -186,8 +189,9 @@ describe("runListLoop", () => {
 
       expect(mockSelect).toHaveBeenCalledTimes(2);
       expect(mockRenderDetailView).toHaveBeenCalledTimes(1);
-      // readManifest: 1 outer + 1 inner + 1 outer = 3
-      expect(mockReadManifest).toHaveBeenCalledTimes(3);
+      // readManifestOrExit: 2 outer, readManifest: 1 inner
+      expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
+      expect(mockReadManifest).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -197,7 +201,7 @@ describe("runListLoop", () => {
       const reducedManifest = makeManifest(["owner/skill-b"]);
 
       // First outer iteration: full manifest
-      mockReadManifest.mockResolvedValueOnce(fullManifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(fullManifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill-a", "owner/skill-b"]),
       );
@@ -213,7 +217,7 @@ describe("runListLoop", () => {
       });
 
       // Second outer iteration: reduced manifest
-      mockReadManifest.mockResolvedValueOnce(reducedManifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(reducedManifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill-b"]),
       );
@@ -223,8 +227,9 @@ describe("runListLoop", () => {
 
       expect(mockExecuteRemoveAction).toHaveBeenCalledTimes(1);
       expect(mockLog.success).toHaveBeenCalledWith("Removed owner/skill-a");
-      // readManifest: 1 outer + 1 inner + 1 outer = 3
-      expect(mockReadManifest).toHaveBeenCalledTimes(3);
+      // readManifestOrExit: 2 outer, readManifest: 1 inner
+      expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
+      expect(mockReadManifest).toHaveBeenCalledTimes(1);
       expect(mockSelect).toHaveBeenCalledTimes(2);
     });
   });
@@ -234,7 +239,7 @@ describe("runListLoop", () => {
       const manifest = makeManifest(["owner/only-skill"]);
 
       // First outer iteration: one plugin
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/only-skill"]),
       );
@@ -250,7 +255,7 @@ describe("runListLoop", () => {
       });
 
       // Second outer iteration: empty manifest
-      mockReadManifest.mockResolvedValueOnce({});
+      mockReadManifestOrExit.mockResolvedValueOnce({});
 
       await runListLoop();
 
@@ -268,7 +273,7 @@ describe("runListLoop", () => {
       const updatedManifest: Manifest = { "owner/skill": updatedEntry };
 
       // Outer loop iteration 1: select plugin
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         new Map([
           ["owner/skill", { status: "update-available" as const, remoteCommit: "def456" }],
@@ -291,7 +296,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Outer loop iteration 2: Done
-      mockReadManifest.mockResolvedValueOnce(updatedManifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -303,8 +308,9 @@ describe("runListLoop", () => {
       expect(mockLog.success).toHaveBeenCalledWith("Updated owner/skill");
       // Detail view rendered twice (once before update, once after)
       expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
-      // readManifest: 1 outer + 1 inner + 1 inner (after update) + 1 outer = 4
-      expect(mockReadManifest).toHaveBeenCalledTimes(4);
+      // readManifestOrExit: 2 outer, readManifest: 2 inner
+      expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
+      expect(mockReadManifest).toHaveBeenCalledTimes(2);
       expect(mockSelect).toHaveBeenCalledTimes(2);
     });
   });
@@ -322,7 +328,7 @@ describe("runListLoop", () => {
       };
 
       // Outer loop iteration 1: select plugin
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         new Map([["owner/skill", updateStatus]]),
       );
@@ -343,7 +349,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Outer loop iteration 2: Done
-      mockReadManifest.mockResolvedValueOnce(updatedManifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -355,8 +361,9 @@ describe("runListLoop", () => {
       expect(mockLog.success).toHaveBeenCalledWith("Changed owner/skill to v1.1.0");
       // Detail view rendered twice (before change, after change)
       expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
-      // readManifest: 1 outer + 1 inner + 1 inner (after change) + 1 outer = 4
-      expect(mockReadManifest).toHaveBeenCalledTimes(4);
+      // readManifestOrExit: 2 outer, readManifest: 2 inner
+      expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
+      expect(mockReadManifest).toHaveBeenCalledTimes(2);
       expect(mockSelect).toHaveBeenCalledTimes(2);
     });
   });
@@ -366,7 +373,7 @@ describe("runListLoop", () => {
       const manifest = makeManifest(["owner/skill"]);
 
       // Outer iteration 1: select plugin
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -377,7 +384,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Outer iteration 2: select plugin
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -392,7 +399,7 @@ describe("runListLoop", () => {
       });
 
       // Outer iteration 3: empty manifest
-      mockReadManifest.mockResolvedValueOnce({});
+      mockReadManifestOrExit.mockResolvedValueOnce({});
 
       await runListLoop();
 
@@ -410,7 +417,7 @@ describe("runListLoop", () => {
       const manifest = makeManifest(["owner/skill"]);
 
       // Outer loop iteration 1: select plugin
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         new Map([
           ["owner/skill", { status: "update-available" as const, remoteCommit: "def456" }],
@@ -433,7 +440,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Outer loop iteration 2: Done
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -445,8 +452,9 @@ describe("runListLoop", () => {
       expect(mockLog.error).toHaveBeenCalledWith("Clone failed");
       // Detail view rendered twice (before update, after failure)
       expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
-      // readManifest: 1 outer + 1 inner + 1 inner (after failure) + 1 outer = 4
-      expect(mockReadManifest).toHaveBeenCalledTimes(4);
+      // readManifestOrExit: 2 outer, readManifest: 2 inner
+      expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
+      expect(mockReadManifest).toHaveBeenCalledTimes(2);
       expect(mockSelect).toHaveBeenCalledTimes(2);
     });
   });
@@ -460,7 +468,7 @@ describe("runListLoop", () => {
         remoteCommit: "def456",
       };
 
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         new Map([["owner/skill", updateStatus]]),
       );
@@ -472,7 +480,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Second outer iteration: Done
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         new Map([["owner/skill", updateStatus]]),
       );
@@ -497,7 +505,7 @@ describe("runListLoop", () => {
         remoteCommit: "def456",
       };
 
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         new Map([["owner/skill", updateStatus]]),
       );
@@ -518,7 +526,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Second outer iteration: Done
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -538,7 +546,7 @@ describe("runListLoop", () => {
       const entry = makeEntry();
       const manifest: Manifest = { "owner/skill": entry };
 
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -554,7 +562,7 @@ describe("runListLoop", () => {
       });
 
       // Second outer iteration: empty
-      mockReadManifest.mockResolvedValueOnce({});
+      mockReadManifestOrExit.mockResolvedValueOnce({});
 
       await runListLoop();
 
@@ -580,7 +588,7 @@ describe("runListLoop", () => {
       });
 
       // First outer iteration: back
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -591,7 +599,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Second outer iteration: Done
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -609,7 +617,7 @@ describe("runListLoop", () => {
       const manifest: Manifest = {
         "owner/skill": makeEntry({ ref: "v2.1.6" }),
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockCheckAll.mockResolvedValue(
         new Map([["owner/skill", { status: "up-to-date" as const }]]),
       );
@@ -631,7 +639,7 @@ describe("runListLoop", () => {
       const manifest: Manifest = {
         "owner/skill": makeEntry({ ref: null }),
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockCheckAll.mockResolvedValue(
         new Map([["owner/skill", { status: "up-to-date" as const }]]),
       );
@@ -657,7 +665,7 @@ describe("runListLoop", () => {
         "owner/d": makeEntry(),
         "owner/e": makeEntry({ ref: null, commit: null }),
       };
-      mockReadManifest.mockResolvedValue(manifest);
+      mockReadManifestOrExit.mockResolvedValue(manifest);
       mockCheckAll.mockResolvedValue(
         new Map<string, UpdateCheckResult>([
           ["owner/a", { status: "up-to-date" }],
@@ -697,18 +705,13 @@ describe("runListLoop", () => {
   });
 
   describe("error handling", () => {
-    it("shows error and throws ExitSignal on manifest read failure", async () => {
-      mockReadManifest.mockRejectedValue(
-        new SyntaxError("Unexpected token"),
-      );
+    it("throws ExitSignal on manifest read failure", async () => {
+      mockReadManifestOrExit.mockRejectedValue(new ExitSignal(1));
 
       const err = await runListLoop().catch((e) => e);
 
       expect(err).toBeInstanceOf(ExitSignal);
       expect((err as ExitSignal).code).toBe(1);
-      expect(mockLog.error).toHaveBeenCalledWith(
-        expect.stringContaining("Failed to read manifest:"),
-      );
     });
   });
 
@@ -720,7 +723,7 @@ describe("runListLoop", () => {
       const updatedManifest: Manifest = { "owner/skill": updatedEntry };
 
       // Outer loop iteration 1
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         new Map([
           ["owner/skill", { status: "update-available" as const, remoteCommit: "def456" }],
@@ -744,7 +747,7 @@ describe("runListLoop", () => {
       mockRenderDetailView.mockResolvedValueOnce("back");
 
       // Outer loop iteration 2: Done
-      mockReadManifest.mockResolvedValueOnce(updatedManifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -772,7 +775,7 @@ describe("runListLoop", () => {
     it("does not show success message when remove is cancelled", async () => {
       const manifest = makeManifest(["owner/skill"]);
 
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );
@@ -789,7 +792,7 @@ describe("runListLoop", () => {
 
       // Remove cancelled -> breaks inner loop, returns to outer list
       // Second outer iteration: Done
-      mockReadManifest.mockResolvedValueOnce(manifest);
+      mockReadManifestOrExit.mockResolvedValueOnce(manifest);
       mockCheckAll.mockResolvedValueOnce(
         setupCheckResults(["owner/skill"]),
       );

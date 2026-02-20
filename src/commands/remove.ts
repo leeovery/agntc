@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { readManifest, writeManifest, type Manifest } from "../manifest.js";
+import { readManifestOrExit, writeManifest, type Manifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import { ExitSignal } from "../exit-signal.js";
 import { renderRemoveSummary } from "../summary.js";
@@ -69,11 +69,7 @@ function groupFilesByType(files: string[]): FileGroup[] {
 export async function runRemove(key?: string): Promise<void> {
   const projectDir = process.cwd();
 
-  const manifest = await readManifest(projectDir).catch((err: unknown) => {
-    const message = err instanceof Error ? err.message : String(err);
-    p.log.error(`Failed to read manifest: ${message}`);
-    throw new ExitSignal(1);
-  });
+  const manifest = await readManifestOrExit(projectDir);
 
   const entries = Object.entries(manifest);
 
