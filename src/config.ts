@@ -48,13 +48,13 @@ export async function readConfig(
     parsed === null ||
     !("agents" in parsed)
   ) {
-    throw new ConfigError("agents field is required");
+    throw new ConfigError("Invalid agntc.json: agents field is required");
   }
 
   const { agents } = parsed as { agents: unknown };
 
   if (!Array.isArray(agents) || agents.length === 0) {
-    throw new ConfigError("agents must not be empty");
+    throw new ConfigError("Invalid agntc.json: agents must not be empty");
   }
 
   const knownSet = new Set<string>(KNOWN_AGENTS);

@@ -82,7 +82,7 @@ describe("readConfig", () => {
 
     await expect(readConfig("/some/dir")).rejects.toThrow(ConfigError);
     await expect(readConfig("/some/dir")).rejects.toThrow(
-      "agents field is required",
+      "Invalid agntc.json: agents field is required",
     );
   });
 
@@ -93,7 +93,7 @@ describe("readConfig", () => {
 
     await expect(readConfig("/some/dir")).rejects.toThrow(ConfigError);
     await expect(readConfig("/some/dir")).rejects.toThrow(
-      "agents must not be empty",
+      "Invalid agntc.json: agents must not be empty",
     );
   });
 

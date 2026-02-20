@@ -510,7 +510,7 @@ describe("add command", () => {
     it("shows error, cleans up, and exits 1", async () => {
       const { ConfigError } = await import("../../src/config.js");
       mockReadConfig.mockRejectedValue(
-        new ConfigError("agents must not be empty"),
+        new ConfigError("Invalid agntc.json: agents must not be empty"),
       );
 
       const err = await runAdd("owner/my-skill").catch((e) => e);
