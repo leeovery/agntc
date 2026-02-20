@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execGit } from "./git-utils.js";
 import type { ManifestEntry } from "./manifest.js";
 
 export type UpdateCheckResult =
@@ -7,29 +7,6 @@ export type UpdateCheckResult =
   | { status: "update-available"; remoteCommit: string }
   | { status: "newer-tags"; tags: string[] }
   | { status: "check-failed"; reason: string };
-
-function execGit(
-  args: string[],
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      args,
-      { timeout: 15_000 },
-      (error: Error | null, stdout: string, stderr: string) => {
-        if (error) {
-          const gitError = Object.assign(
-            new Error(stderr || error.message),
-            { stderr: stderr || "" },
-          );
-          reject(gitError);
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
-  });
-}
 
 // Only valid for owner/repo keys (not local path keys).
 function deriveCloneUrl(key: string): string {
@@ -99,7 +76,7 @@ async function checkHead(
   installedCommit: string,
 ): Promise<UpdateCheckResult> {
   try {
-    const { stdout } = await execGit(["ls-remote", url, "HEAD"]);
+    const { stdout } = await execGit(["ls-remote", url, "HEAD"], { timeout: 15_000 });
     const remoteSha = parseLsRemoteSha(stdout);
     if (remoteSha === null) {
       return { status: "check-failed", reason: "No HEAD ref found on remote" };
@@ -126,7 +103,7 @@ async function checkBranch(
       "ls-remote",
       url,
       `refs/heads/${branch}`,
-    ]);
+    ], { timeout: 15_000 });
     const remoteSha = parseLsRemoteSha(stdout);
     if (remoteSha === null) {
       return {
@@ -152,7 +129,7 @@ async function checkTag(
   _installedCommit: string,
 ): Promise<UpdateCheckResult> {
   try {
-    const { stdout } = await execGit(["ls-remote", "--tags", url]);
+    const { stdout } = await execGit(["ls-remote", "--tags", url], { timeout: 15_000 });
     const allTags = parseAllTags(stdout);
     const newerTags = findNewerTags(allTags, tag);
     if (newerTags === null) {

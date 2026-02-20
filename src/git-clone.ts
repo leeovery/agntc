@@ -1,6 +1,6 @@
-import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { execGit } from "./git-utils.js";
 import type { ParsedSource } from "./source-parser.js";
 
 export interface CloneResult {
@@ -20,30 +20,6 @@ const AUTH_ERROR_PATTERNS = [
 
 function isAuthError(stderr: string): boolean {
   return AUTH_ERROR_PATTERNS.some((pattern) => stderr.includes(pattern));
-}
-
-function execGit(
-  args: string[],
-  cwd?: string,
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      args,
-      { cwd, timeout: 60_000 },
-      (error, stdout, stderr) => {
-        if (error) {
-          const gitError = Object.assign(
-            new Error(stderr || error.message),
-            { stderr: stderr || "" },
-          );
-          reject(gitError);
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
-  });
 }
 
 function delay(ms: number): Promise<void> {
@@ -74,8 +50,8 @@ export async function cloneSource(parsed: ParsedSource): Promise<CloneResult> {
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      await execGit(cloneArgs);
-      const { stdout } = await execGit(["-C", tempDir, "rev-parse", "HEAD"]);
+      await execGit(cloneArgs, { timeout: 60_000 });
+      const { stdout } = await execGit(["-C", tempDir, "rev-parse", "HEAD"], { timeout: 60_000 });
       const commit = stdout.trim();
       return { tempDir, commit };
     } catch (err: unknown) {
