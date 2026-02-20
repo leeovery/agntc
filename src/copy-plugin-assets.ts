@@ -2,6 +2,7 @@ import { cp, mkdir, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
 import type { AgentDriver, AgentId } from "./drivers/types.js";
+import { rollbackCopiedFiles } from "./copy-rollback.js";
 
 interface AgentWithDriver {
   id: AgentId;
@@ -31,24 +32,29 @@ export async function copyPluginAssets(
   const copiedFilesSet = new Set<string>();
   const assetCountsByAgent: Record<string, AssetCounts> = {};
 
-  for (const agent of agents) {
-    const counts: AssetCounts = {};
+  try {
+    for (const agent of agents) {
+      const counts: AssetCounts = {};
 
-    for (const assetDir of assetDirs) {
-      const targetDir = agent.driver.getTargetDir(assetDir);
-      if (targetDir === null) {
-        continue;
+      for (const assetDir of assetDirs) {
+        const targetDir = agent.driver.getTargetDir(assetDir);
+        if (targetDir === null) {
+          continue;
+        }
+
+        counts[assetDir] = await copyAssetDir(
+          join(sourceDir, assetDir),
+          join(projectDir, targetDir),
+          targetDir,
+          copiedFilesSet,
+        );
       }
 
-      counts[assetDir] = await copyAssetDir(
-        join(sourceDir, assetDir),
-        join(projectDir, targetDir),
-        targetDir,
-        copiedFilesSet,
-      );
+      assetCountsByAgent[agent.id] = counts;
     }
-
-    assetCountsByAgent[agent.id] = counts;
+  } catch (err) {
+    await rollbackCopiedFiles([...copiedFilesSet], projectDir);
+    throw err;
   }
 
   return {
