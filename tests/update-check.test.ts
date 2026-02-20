@@ -15,6 +15,7 @@ function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
     installedAt: "2026-02-01T00:00:00.000Z",
     agents: ["claude"],
     files: [".claude/skills/my-skill/"],
+    cloneUrl: null,
     ...overrides,
   };
 }
@@ -85,9 +86,9 @@ describe("checkForUpdate", () => {
   });
 
   describe("clone URL derivation", () => {
-    it("derives clone URL from owner/repo key", async () => {
+    it("derives clone URL from owner/repo key when cloneUrl is null", async () => {
       mockLsRemoteSuccess(INSTALLED_SHA);
-      const entry = makeEntry();
+      const entry = makeEntry({ cloneUrl: null });
 
       await checkForUpdate("alice/my-skills", entry);
 
@@ -97,9 +98,9 @@ describe("checkForUpdate", () => {
       expect(args).toContain("https://github.com/alice/my-skills.git");
     });
 
-    it("derives clone URL from owner/repo/plugin key (collection)", async () => {
+    it("derives clone URL from owner/repo/plugin key when cloneUrl is null (collection)", async () => {
       mockLsRemoteSuccess(INSTALLED_SHA);
-      const entry = makeEntry();
+      const entry = makeEntry({ cloneUrl: null });
 
       await checkForUpdate("alice/my-skills/go", entry);
 
@@ -107,6 +108,34 @@ describe("checkForUpdate", () => {
       const firstCall = execFileMock.mock.calls[0]!;
       const args = firstCall[1] as string[];
       expect(args).toContain("https://github.com/alice/my-skills.git");
+    });
+
+    it("uses entry.cloneUrl when available instead of deriving from key", async () => {
+      mockLsRemoteSuccess(INSTALLED_SHA);
+      const entry = makeEntry({
+        cloneUrl: "https://gitlab.com/alice/my-skills.git",
+      });
+
+      await checkForUpdate("alice/my-skills", entry);
+
+      const execFileMock = vi.mocked(childProcess.execFile);
+      const firstCall = execFileMock.mock.calls[0]!;
+      const args = firstCall[1] as string[];
+      expect(args).toContain("https://gitlab.com/alice/my-skills.git");
+    });
+
+    it("uses SSH cloneUrl for update check", async () => {
+      mockLsRemoteSuccess(INSTALLED_SHA);
+      const entry = makeEntry({
+        cloneUrl: "git@github.com:alice/my-skills.git",
+      });
+
+      await checkForUpdate("alice/my-skills", entry);
+
+      const execFileMock = vi.mocked(childProcess.execFile);
+      const firstCall = execFileMock.mock.calls[0]!;
+      const args = firstCall[1] as string[];
+      expect(args).toContain("git@github.com:alice/my-skills.git");
     });
   });
 

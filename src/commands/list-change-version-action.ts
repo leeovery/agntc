@@ -15,14 +15,28 @@ export interface ChangeVersionResult {
   message: string;
 }
 
-function buildParsedSource(key: string, ref: string): ParsedSource {
+function buildParsedSource(key: string, ref: string, cloneUrl: string | null | undefined): ParsedSource {
   const parts = key.split("/");
+  const owner = parts[0]!;
+  const repo = parts[1]!;
+
+  if (cloneUrl !== null && cloneUrl !== undefined) {
+    return {
+      type: "https-url",
+      owner,
+      repo,
+      ref,
+      manifestKey: `${owner}/${repo}`,
+      cloneUrl,
+    };
+  }
+
   return {
     type: "github-shorthand",
-    owner: parts[0]!,
-    repo: parts[1]!,
+    owner,
+    repo,
     ref,
-    manifestKey: `${parts[0]}/${parts[1]}`,
+    manifestKey: `${owner}/${repo}`,
   };
 }
 
@@ -67,7 +81,7 @@ export async function executeChangeVersionAction(
     return { changed: false, message: "Already on this version" };
   }
 
-  const parsed = buildParsedSource(key, selectedTag);
+  const parsed = buildParsedSource(key, selectedTag, entry.cloneUrl);
   let tempDir: string | undefined;
 
   try {

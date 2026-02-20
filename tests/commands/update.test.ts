@@ -115,6 +115,7 @@ function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
     installedAt: "2026-02-01T00:00:00.000Z",
     agents: ["claude"],
     files: [".claude/skills/my-skill/"],
+    cloneUrl: null,
     ...overrides,
   };
 }
@@ -274,6 +275,7 @@ describe("update command", () => {
         installedAt: "2026-02-01T00:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/my-plugin/"],
+        cloneUrl: null,
       };
       mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
@@ -437,6 +439,7 @@ describe("update command", () => {
         installedAt: "2026-02-01T00:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/local-skill/"],
+        cloneUrl: null,
       };
       const tagEntry = makeEntry({
         ref: "v1.0",
@@ -582,6 +585,7 @@ describe("update command", () => {
         installedAt: "2026-02-01T00:00:00.000Z",
         agents: ["claude", "codex"],
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+        cloneUrl: null,
       };
       mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
@@ -1276,6 +1280,67 @@ describe("update command", () => {
       );
     });
 
+    it("uses stored cloneUrl for cloneSource when available", async () => {
+      const entry = makeEntry({
+        ref: "dev",
+        cloneUrl: "https://gitlab.com/owner/repo.git",
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate("owner/repo");
+
+      expect(mockCloneSource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cloneUrl: "https://gitlab.com/owner/repo.git",
+        }),
+      );
+    });
+
+    it("falls back to github-shorthand when cloneUrl is null", async () => {
+      const entry = makeEntry({ ref: "dev", cloneUrl: null });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate("owner/repo");
+
+      expect(mockCloneSource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "github-shorthand",
+          owner: "owner",
+          repo: "repo",
+        }),
+      );
+    });
+
     it("uses null ref for HEAD-tracking plugins", async () => {
       const entry = makeEntry({ ref: null });
       mockReadManifest.mockResolvedValue({ "owner/repo": entry });
@@ -1498,6 +1563,7 @@ describe("update command", () => {
       installedAt: "2026-02-01T00:00:00.000Z",
       agents: ["claude"],
       files: [".claude/skills/my-plugin/"],
+      cloneUrl: null,
     };
 
     function setupLocalBase(): void {
@@ -1870,6 +1936,7 @@ describe("update command", () => {
         installedAt: "2026-02-01T00:00:00.000Z",
         agents: ["claude", "codex"],
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+        cloneUrl: null,
       };
       mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
@@ -1925,6 +1992,7 @@ describe("update command", () => {
         installedAt: "2026-02-01T00:00:00.000Z",
         agents: ["claude", "codex"],
         files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+        cloneUrl: null,
       };
       mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });
@@ -2177,6 +2245,7 @@ describe("update command", () => {
       installedAt: "2026-02-01T00:00:00.000Z",
       agents: ["claude"],
       files: [".claude/skills/my-plugin/"],
+      cloneUrl: null,
     };
 
     it("throws ExitSignal and removes manifest entry on local copy failure", async () => {
@@ -2307,6 +2376,7 @@ describe("update command", () => {
         installedAt: "2026-02-01T00:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/my-plugin/"],
+        cloneUrl: null,
       };
       mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
       mockCheckForUpdate.mockResolvedValue({ status: "local" });

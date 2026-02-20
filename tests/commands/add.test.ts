@@ -188,6 +188,7 @@ const MANIFEST_ENTRY: ManifestEntry = {
   installedAt: expect.any(String),
   agents: ["claude"],
   files: [".claude/skills/my-skill/"],
+  cloneUrl: "https://github.com/owner/my-skill.git",
 };
 
 const UPDATED_MANIFEST: Manifest = {
@@ -379,6 +380,59 @@ describe("add command", () => {
       expect(new Date(entry.installedAt).toISOString()).toBe(
         entry.installedAt,
       );
+    });
+
+    it("stores cloneUrl from github-shorthand source", async () => {
+      await runAdd("owner/my-skill");
+
+      const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+      expect(entry.cloneUrl).toBe("https://github.com/owner/my-skill.git");
+    });
+
+    it("stores cloneUrl from https-url source", async () => {
+      mockParseSource.mockReturnValue({
+        type: "https-url",
+        owner: "owner",
+        repo: "my-skill",
+        ref: null,
+        manifestKey: "owner/my-skill",
+        cloneUrl: "https://gitlab.com/owner/my-skill.git",
+      });
+
+      await runAdd("https://gitlab.com/owner/my-skill");
+
+      const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+      expect(entry.cloneUrl).toBe("https://gitlab.com/owner/my-skill.git");
+    });
+
+    it("stores cloneUrl from ssh-url source", async () => {
+      mockParseSource.mockReturnValue({
+        type: "ssh-url",
+        owner: "owner",
+        repo: "my-skill",
+        ref: null,
+        manifestKey: "owner/my-skill",
+        cloneUrl: "git@github.com:owner/my-skill.git",
+      });
+
+      await runAdd("git@github.com:owner/my-skill.git");
+
+      const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+      expect(entry.cloneUrl).toBe("git@github.com:owner/my-skill.git");
+    });
+
+    it("stores null cloneUrl for local-path source", async () => {
+      mockParseSource.mockReturnValue({
+        type: "local-path",
+        resolvedPath: "/Users/lee/Code/my-skill",
+        ref: null,
+        manifestKey: "/Users/lee/Code/my-skill",
+      });
+
+      await runAdd("/Users/lee/Code/my-skill");
+
+      const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+      expect(entry.cloneUrl).toBeNull();
     });
 
     it("writes updated manifest", async () => {

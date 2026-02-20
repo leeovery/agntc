@@ -152,6 +152,7 @@ export async function executeNukeAndReinstall(
     installedAt: new Date().toISOString(),
     agents: effectiveAgents,
     files: copiedFiles,
+    cloneUrl: existingEntry.cloneUrl ?? null,
   };
 
   return {

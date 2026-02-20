@@ -81,7 +81,7 @@ export async function checkForUpdate(
     return { status: "local" };
   }
 
-  const url = deriveCloneUrl(key);
+  const url = entry.cloneUrl ?? deriveCloneUrl(key);
 
   if (entry.ref === null) {
     return checkHead(url, entry.commit!);

@@ -37,6 +37,7 @@ function makeEntry(
     installedAt: "2026-01-15T10:30:45.000Z",
     agents: ["claude"],
     files: [".claude/skills/my-skill/SKILL.md"],
+    cloneUrl: null,
     ...overrides,
   };
 }

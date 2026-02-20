@@ -36,6 +36,17 @@ function buildParsedSource(
   const owner = parts[0]!;
   const repo = parts[1]!;
 
+  if (entry.cloneUrl !== null && entry.cloneUrl !== undefined) {
+    return {
+      type: "https-url",
+      owner,
+      repo,
+      ref: entry.ref,
+      manifestKey: `${owner}/${repo}`,
+      cloneUrl: entry.cloneUrl,
+    };
+  }
+
   return {
     type: "github-shorthand",
     owner,

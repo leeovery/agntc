@@ -30,6 +30,15 @@ import {
   renderCollectionAddSummary,
 } from "../summary.js";
 
+function deriveCloneUrl(parsed: Awaited<ReturnType<typeof parseSource>>): string | null {
+  if (parsed.type === "local-path") return null;
+  if (parsed.type === "https-url" || parsed.type === "ssh-url" || parsed.type === "direct-path") {
+    return parsed.cloneUrl;
+  }
+  // github-shorthand
+  return `https://github.com/${parsed.owner}/${parsed.repo}.git`;
+}
+
 export async function runAdd(source: string): Promise<void> {
   p.intro("agntc add");
 
@@ -222,6 +231,7 @@ export async function runAdd(source: string): Promise<void> {
       installedAt: new Date().toISOString(),
       agents: selectedAgents,
       files: copiedFiles,
+      cloneUrl: deriveCloneUrl(parsed),
     };
     const updated = addEntry(currentManifest, parsed.manifestKey, entry);
     await writeManifest(projectDir, updated);
@@ -517,6 +527,7 @@ async function runCollectionPipeline(
       installedAt: new Date().toISOString(),
       agents: selectedAgents,
       files: result.copiedFiles,
+      cloneUrl: deriveCloneUrl(parsed),
     };
     updatedManifest = addEntry(updatedManifest, manifestKey, entry);
   }

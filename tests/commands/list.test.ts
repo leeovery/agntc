@@ -86,6 +86,7 @@ function makeEntry(
     installedAt: "2026-01-15T10:00:00.000Z",
     agents: ["claude"],
     files: [],
+    cloneUrl: null,
     ...overrides,
   };
 }

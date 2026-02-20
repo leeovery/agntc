@@ -94,6 +94,7 @@ function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
     installedAt: "2026-02-01T00:00:00.000Z",
     agents: ["claude"],
     files: [".claude/skills/my-skill/"],
+    cloneUrl: null,
     ...overrides,
   };
 }

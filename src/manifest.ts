@@ -9,6 +9,7 @@ export interface ManifestEntry {
   installedAt: string;
   agents: AgentId[];
   files: string[];
+  cloneUrl: string | null;
 }
 
 export type Manifest = Record<string, ManifestEntry>;
@@ -29,7 +30,16 @@ export async function readManifest(projectDir: string): Promise<Manifest> {
     throw err;
   }
 
-  return JSON.parse(raw) as Manifest;
+  const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
+
+  // Backfill cloneUrl for manifests written before this field existed.
+  for (const entry of Object.values(parsed)) {
+    if (!("cloneUrl" in entry)) {
+      entry.cloneUrl = null;
+    }
+  }
+
+  return parsed as unknown as Manifest;
 }
 
 export async function writeManifest(

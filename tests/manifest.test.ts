@@ -49,6 +49,7 @@ describe("readManifest", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill/"],
+        cloneUrl: null,
       },
     };
     await mkdir(join(testDir, ".agntc"), { recursive: true });
@@ -69,6 +70,7 @@ describe("readManifest", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill-a/"],
+        cloneUrl: null,
       },
       "owner/repo/skill-b": {
         ref: null,
@@ -76,6 +78,7 @@ describe("readManifest", () => {
         installedAt: "2026-01-16T10:00:00.000Z",
         agents: ["claude", "codex"],
         files: [".claude/skills/skill-b/", ".codex/skills/skill-b/"],
+        cloneUrl: null,
       },
     };
     await mkdir(join(testDir, ".agntc"), { recursive: true });
@@ -121,6 +124,7 @@ describe("writeManifest", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill/"],
+        cloneUrl: null,
       },
     };
 
@@ -141,6 +145,7 @@ describe("writeManifest", () => {
         installedAt: "2026-01-01T00:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/old/"],
+        cloneUrl: null,
       },
     };
     const updated: Manifest = {
@@ -150,6 +155,7 @@ describe("writeManifest", () => {
         installedAt: "2026-02-01T00:00:00.000Z",
         agents: ["codex"],
         files: [".codex/skills/new/"],
+        cloneUrl: null,
       },
     };
 
@@ -176,6 +182,7 @@ describe("writeManifest", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill/"],
+        cloneUrl: null,
       },
     };
 
@@ -197,6 +204,7 @@ describe("writeManifest", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill/"],
+        cloneUrl: null,
       },
     };
 
@@ -224,6 +232,7 @@ describe("addEntry", () => {
       installedAt: "2026-01-15T10:00:00.000Z",
       agents: ["claude"],
       files: [".claude/skills/skill/"],
+      cloneUrl: null,
     };
 
     const result = addEntry({}, "owner/repo/skill", entry);
@@ -238,6 +247,7 @@ describe("addEntry", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill-a/"],
+        cloneUrl: null,
       },
     };
     const newEntry: ManifestEntry = {
@@ -246,6 +256,7 @@ describe("addEntry", () => {
       installedAt: "2026-01-16T10:00:00.000Z",
       agents: ["codex"],
       files: [".codex/skills/skill-b/"],
+      cloneUrl: null,
     };
 
     const result = addEntry(existing, "owner/repo/skill-b", newEntry);
@@ -262,6 +273,7 @@ describe("addEntry", () => {
       installedAt: "2026-01-15T10:00:00.000Z",
       agents: ["claude"],
       files: [".claude/skills/skill/"],
+      cloneUrl: null,
     };
     const updated: ManifestEntry = {
       ref: "v2",
@@ -269,6 +281,7 @@ describe("addEntry", () => {
       installedAt: "2026-02-01T00:00:00.000Z",
       agents: ["claude", "codex"],
       files: [".claude/skills/skill/", ".codex/skills/skill/"],
+      cloneUrl: null,
     };
     const manifest: Manifest = { "owner/repo/skill": original };
 
@@ -284,6 +297,7 @@ describe("addEntry", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill-a/"],
+        cloneUrl: null,
       },
     };
     const originalCopy = JSON.parse(JSON.stringify(original)) as Manifest;
@@ -293,6 +307,7 @@ describe("addEntry", () => {
       installedAt: "2026-01-16T10:00:00.000Z",
       agents: ["codex"],
       files: [".codex/skills/skill-b/"],
+      cloneUrl: null,
     };
 
     const result = addEntry(original, "owner/repo/skill-b", newEntry);
@@ -310,6 +325,7 @@ describe("removeEntry", () => {
       installedAt: "2026-01-15T10:00:00.000Z",
       agents: ["claude"],
       files: [".claude/skills/skill-a/"],
+      cloneUrl: null,
     };
     const entryB: ManifestEntry = {
       ref: "v2",
@@ -317,6 +333,7 @@ describe("removeEntry", () => {
       installedAt: "2026-01-16T10:00:00.000Z",
       agents: ["codex"],
       files: [".codex/skills/skill-b/"],
+      cloneUrl: null,
     };
     const manifest: Manifest = {
       "owner/repo/skill-a": entryA,
@@ -336,6 +353,7 @@ describe("removeEntry", () => {
       installedAt: "2026-01-15T10:00:00.000Z",
       agents: ["claude"],
       files: [".claude/skills/skill/"],
+      cloneUrl: null,
     };
     const manifest: Manifest = { "owner/repo/skill": entry };
 
@@ -351,6 +369,7 @@ describe("removeEntry", () => {
       installedAt: "2026-01-15T10:00:00.000Z",
       agents: ["claude"],
       files: [".claude/skills/skill/"],
+      cloneUrl: null,
     };
     const manifest: Manifest = { "owner/repo/skill": entry };
     const copy = JSON.parse(JSON.stringify(manifest)) as Manifest;
@@ -371,6 +390,7 @@ describe("round-trip", () => {
         installedAt: "2026-01-15T10:00:00.000Z",
         agents: ["claude"],
         files: [".claude/skills/skill-a/"],
+        cloneUrl: "https://github.com/owner/repo.git",
       },
       "owner/repo/skill-b": {
         ref: null,
@@ -378,6 +398,7 @@ describe("round-trip", () => {
         installedAt: "2026-01-16T10:00:00.000Z",
         agents: ["claude", "codex"],
         files: [".claude/skills/skill-b/", ".codex/skills/skill-b/"],
+        cloneUrl: null,
       },
     };
 
@@ -395,6 +416,7 @@ describe("ManifestEntry fields", () => {
       installedAt: "2026-01-15T10:00:00.000Z",
       agents: ["claude", "codex"],
       files: [".claude/skills/skill/", ".codex/skills/skill/"],
+      cloneUrl: null,
     };
 
     expect(entry.ref).toBeNull();
@@ -402,5 +424,54 @@ describe("ManifestEntry fields", () => {
     expect(entry.installedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(Array.isArray(entry.agents)).toBe(true);
     expect(Array.isArray(entry.files)).toBe(true);
+  });
+
+  it("stores cloneUrl as string for remote installs", () => {
+    const entry: ManifestEntry = {
+      ref: "main",
+      commit: "abc123def456",
+      installedAt: "2026-01-15T10:00:00.000Z",
+      agents: ["claude"],
+      files: [".claude/skills/skill/"],
+      cloneUrl: "https://gitlab.com/owner/repo.git",
+    };
+
+    expect(entry.cloneUrl).toBe("https://gitlab.com/owner/repo.git");
+  });
+
+  it("stores cloneUrl as null for local installs", () => {
+    const entry: ManifestEntry = {
+      ref: null,
+      commit: null,
+      installedAt: "2026-01-15T10:00:00.000Z",
+      agents: ["claude"],
+      files: [".claude/skills/skill/"],
+      cloneUrl: null,
+    };
+
+    expect(entry.cloneUrl).toBeNull();
+  });
+});
+
+describe("backward compatibility", () => {
+  it("defaults cloneUrl to null when reading manifest without cloneUrl field", async () => {
+    const oldManifest = {
+      "owner/repo/skill": {
+        ref: "main",
+        commit: "abc123",
+        installedAt: "2026-01-15T10:00:00.000Z",
+        agents: ["claude"],
+        files: [".claude/skills/skill/"],
+      },
+    };
+    await mkdir(join(testDir, ".agntc"), { recursive: true });
+    await writeFile(
+      join(testDir, ".agntc", "manifest.json"),
+      JSON.stringify(oldManifest),
+    );
+
+    const result = await readManifest(testDir);
+
+    expect(result["owner/repo/skill"]!.cloneUrl).toBeNull();
   });
 });
