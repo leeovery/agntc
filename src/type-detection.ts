@@ -1,8 +1,9 @@
 import { access, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
+import type { AssetType } from "./drivers/types.js";
 
-export const ASSET_DIRS = ["skills", "agents", "hooks"] as const;
+export const ASSET_DIRS = ["skills", "agents", "hooks"] as const satisfies readonly AssetType[];
 
 interface BareSkill {
   type: "bare-skill";
@@ -10,7 +11,7 @@ interface BareSkill {
 
 interface Plugin {
   type: "plugin";
-  assetDirs: string[];
+  assetDirs: AssetType[];
 }
 
 interface Collection {
@@ -55,7 +56,7 @@ async function detectWithConfig(
   dir: string,
   onWarn?: (message: string) => void,
 ): Promise<DetectedType> {
-  const foundAssetDirs: string[] = [];
+  const foundAssetDirs: AssetType[] = [];
   for (const assetDir of ASSET_DIRS) {
     if (await exists(join(dir, assetDir))) {
       foundAssetDirs.push(assetDir);

@@ -21,13 +21,13 @@ const mockGetRegisteredAgentIds = vi.mocked(getRegisteredAgentIds);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGetRegisteredAgentIds.mockReturnValue(["claude"] as AgentId[]);
+  mockGetRegisteredAgentIds.mockReturnValue(["claude"]);
 });
 
 describe("selectAgents", () => {
   it("pre-selects declared AND detected agents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude", "codex"],
@@ -39,8 +39,8 @@ describe("selectAgents", () => {
   });
 
   it("does not pre-select declared-only agents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude", "codex"],
@@ -52,8 +52,8 @@ describe("selectAgents", () => {
   });
 
   it("does not pre-select detected-only agents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude"],
@@ -66,8 +66,8 @@ describe("selectAgents", () => {
   });
 
   it("shows all registered agents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude"],
@@ -80,8 +80,8 @@ describe("selectAgents", () => {
   });
 
   it("adds warning hint on undeclared agents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude"],
@@ -97,8 +97,8 @@ describe("selectAgents", () => {
   });
 
   it("has no hint on declared agents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude"],
@@ -124,7 +124,7 @@ describe("selectAgents", () => {
   });
 
   it("returns empty array on zero selection", async () => {
-    mockMultiselect.mockResolvedValue([] as AgentId[]);
+    mockMultiselect.mockResolvedValue([]);
 
     const result = await selectAgents({
       declaredAgents: ["claude"],
@@ -135,8 +135,8 @@ describe("selectAgents", () => {
   });
 
   it("returns selected AgentId[] on valid selection", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude", "codex"]);
 
     const result = await selectAgents({
       declaredAgents: ["claude", "codex"],
@@ -147,7 +147,7 @@ describe("selectAgents", () => {
   });
 
   it("passes correct options shape to multiselect", async () => {
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude"],
@@ -167,8 +167,8 @@ describe("selectAgents", () => {
   });
 
   it("handles empty declaredAgents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: [],
@@ -184,8 +184,8 @@ describe("selectAgents", () => {
   });
 
   it("handles empty detectedAgents", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude"]);
 
     await selectAgents({
       declaredAgents: ["claude", "codex"],
@@ -198,8 +198,8 @@ describe("selectAgents", () => {
   });
 
   it("handles all agents declared and detected", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
-    mockMultiselect.mockResolvedValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
+    mockMultiselect.mockResolvedValue(["claude", "codex"]);
 
     await selectAgents({
       declaredAgents: ["claude", "codex"],
@@ -219,11 +219,11 @@ describe("selectAgents", () => {
       mockGetRegisteredAgentIds.mockReturnValue([
         "claude",
         "codex",
-      ] as AgentId[]);
+      ]);
     });
 
     it("pre-selects both when plugin declares both and user has both", async () => {
-      mockMultiselect.mockResolvedValue(["claude", "codex"] as AgentId[]);
+      mockMultiselect.mockResolvedValue(["claude", "codex"]);
 
       await selectAgents({
         declaredAgents: ["claude", "codex"],
@@ -239,7 +239,7 @@ describe("selectAgents", () => {
     });
 
     it("pre-selects only claude when plugin declares both but user has only claude", async () => {
-      mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+      mockMultiselect.mockResolvedValue(["claude"]);
 
       await selectAgents({
         declaredAgents: ["claude", "codex"],
@@ -255,7 +255,7 @@ describe("selectAgents", () => {
     });
 
     it("pre-selects only claude when plugin declares claude-only but user has both", async () => {
-      mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+      mockMultiselect.mockResolvedValue(["claude"]);
 
       await selectAgents({
         declaredAgents: ["claude"],
@@ -277,7 +277,7 @@ describe("selectAgents", () => {
     });
 
     it("shows warning on both agents when declaredAgents is empty", async () => {
-      mockMultiselect.mockResolvedValue([] as AgentId[]);
+      mockMultiselect.mockResolvedValue([]);
 
       await selectAgents({
         declaredAgents: [],

@@ -1,12 +1,13 @@
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import type { AgentId } from "./drivers/types.js";
 
 export interface ManifestEntry {
   ref: string | null;
   commit: string | null;
   installedAt: string;
-  agents: string[];
+  agents: AgentId[];
   files: string[];
 }
 

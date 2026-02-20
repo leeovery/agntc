@@ -1,5 +1,5 @@
 import { getDriver } from "./drivers/registry.js";
-import type { AgentId } from "./drivers/types.js";
+import type { AgentId, AssetType } from "./drivers/types.js";
 import type { AssetCounts } from "./copy-plugin-assets.js";
 
 export function formatRefLabel(
@@ -13,7 +13,7 @@ export function formatRefLabel(
 
 export function formatPluginSummary(
   agentIds: AgentId[],
-  assetCountsByAgent: Record<string, AssetCounts>,
+  assetCountsByAgent: Partial<Record<AgentId, AssetCounts>>,
 ): string {
   const parts: string[] = [];
 
@@ -56,7 +56,7 @@ interface AddSummaryInput {
   commit: string | null;
   detectedType: "plugin" | "bare-skill";
   selectedAgents: AgentId[];
-  assetCountsByAgent?: Record<string, AssetCounts>;
+  assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
   copiedFiles: string[];
 }
 
@@ -74,7 +74,7 @@ interface CollectionPluginResult {
   pluginName: string;
   status: "installed" | "skipped" | "failed";
   copiedFiles: string[];
-  assetCountsByAgent?: Record<string, AssetCounts>;
+  assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
   detectedType?: { type: string };
   errorMessage?: string;
 }

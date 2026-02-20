@@ -30,7 +30,7 @@ describe("detectAgents", () => {
     const claudeDriver = makeDriver(true);
     const codexDriver = makeDriver(true);
 
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
     mockGetDriver.mockImplementation((id: AgentId) => {
       if (id === "claude") return claudeDriver;
       return codexDriver;
@@ -45,7 +45,7 @@ describe("detectAgents", () => {
     const claudeDriver = makeDriver(true);
     const codexDriver = makeDriver(false);
 
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
     mockGetDriver.mockImplementation((id: AgentId) => {
       if (id === "claude") return claudeDriver;
       return codexDriver;
@@ -60,7 +60,7 @@ describe("detectAgents", () => {
     const claudeDriver = makeDriver(false);
     const codexDriver = makeDriver(false);
 
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
     mockGetDriver.mockImplementation((id: AgentId) => {
       if (id === "claude") return claudeDriver;
       return codexDriver;
@@ -92,7 +92,7 @@ describe("detectAgents", () => {
       getTargetDir: vi.fn().mockReturnValue(null),
     };
 
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
     mockGetDriver.mockImplementation((id: AgentId) => {
       if (id === "claude") return claudeDriver;
       return codexDriver;
@@ -110,7 +110,7 @@ describe("detectAgents", () => {
     const claudeDriver = makeDriver(true);
     const codexDriver = makeDriver(new Error("detection failed"));
 
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
     mockGetDriver.mockImplementation((id: AgentId) => {
       if (id === "claude") return claudeDriver;
       return codexDriver;
@@ -125,7 +125,7 @@ describe("detectAgents", () => {
     const claudeDriver = makeDriver(new Error("claude error"));
     const codexDriver = makeDriver(new Error("codex error"));
 
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
     mockGetDriver.mockImplementation((id: AgentId) => {
       if (id === "claude") return claudeDriver;
       return codexDriver;
@@ -140,7 +140,7 @@ describe("detectAgents", () => {
     const claudeDriver = makeDriver(true);
     const codexDriver = makeDriver(false);
 
-    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue(["claude", "codex"]);
     mockGetDriver.mockImplementation((id: AgentId) => {
       if (id === "claude") return claudeDriver;
       return codexDriver;
@@ -153,7 +153,7 @@ describe("detectAgents", () => {
   });
 
   it("returns empty array when no agents are registered", async () => {
-    mockGetRegisteredAgentIds.mockReturnValue([] as AgentId[]);
+    mockGetRegisteredAgentIds.mockReturnValue([]);
 
     const result = await detectAgents("/my/project");
 

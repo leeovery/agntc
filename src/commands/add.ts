@@ -113,7 +113,7 @@ export async function runAdd(source: string): Promise<void> {
 
     // 8. Select agents
     const selectedAgents = await selectAgents({
-      declaredAgents: config.agents as AgentId[],
+      declaredAgents: config.agents,
       detectedAgents,
     });
 
@@ -182,7 +182,7 @@ export async function runAdd(source: string): Promise<void> {
 
     // 11. Copy assets (with spinner)
     let copiedFiles: string[];
-    let assetCountsByAgent: Record<string, AssetCounts> | undefined;
+    let assetCountsByAgent: Partial<Record<AgentId, AssetCounts>> | undefined;
 
     spin.start("Copying skill files...");
     try {
@@ -220,7 +220,7 @@ export async function runAdd(source: string): Promise<void> {
       ref: parsed.ref,
       commit,
       installedAt: new Date().toISOString(),
-      agents: selectedAgents as string[],
+      agents: selectedAgents,
       files: copiedFiles,
     };
     const updated = addEntry(currentManifest, parsed.manifestKey, entry);
@@ -269,7 +269,7 @@ interface PluginInstallResult {
   pluginName: string;
   status: "installed" | "skipped" | "failed";
   copiedFiles: string[];
-  assetCountsByAgent?: Record<string, AssetCounts>;
+  assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
   detectedType?: DetectedType;
   errorMessage?: string;
 }
@@ -308,7 +308,7 @@ async function runCollectionPipeline(
 
   // 3. Read configs for all selected plugins, collect union of declared agents
   const pluginConfigs = new Map<string, AgntcConfig>();
-  const allDeclaredAgents = new Set<string>();
+  const allDeclaredAgents = new Set<AgentId>();
 
   for (const pluginName of selectedPlugins) {
     const pluginDir = join(sourceDir, pluginName);
@@ -340,7 +340,7 @@ async function runCollectionPipeline(
   // 4. Detect agents + select once
   const detectedAgents = await detectAgents(projectDir);
   const selectedAgents = await selectAgents({
-    declaredAgents: [...allDeclaredAgents] as AgentId[],
+    declaredAgents: [...allDeclaredAgents],
     detectedAgents,
   });
 
@@ -515,7 +515,7 @@ async function runCollectionPipeline(
       ref: parsed.ref,
       commit,
       installedAt: new Date().toISOString(),
-      agents: selectedAgents as string[],
+      agents: selectedAgents,
       files: result.copiedFiles,
     };
     updatedManifest = addEntry(updatedManifest, manifestKey, entry);

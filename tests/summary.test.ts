@@ -5,7 +5,7 @@ vi.mock("../src/drivers/registry.js", () => ({
 }));
 
 import { getDriver } from "../src/drivers/registry.js";
-import type { AgentId } from "../src/drivers/types.js";
+import type { AgentId, AssetType } from "../src/drivers/types.js";
 import type { AssetCounts } from "../src/copy-plugin-assets.js";
 import {
   formatRefLabel,
@@ -25,7 +25,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGetDriver.mockImplementation((id: AgentId) => ({
     detect: vi.fn(),
-    getTargetDir: (assetType: string) => {
+    getTargetDir: (assetType: AssetType) => {
       if (id === "claude") return `.claude/${assetType}/`;
       if (id === "codex") return `.codex/${assetType}/`;
       return null;
@@ -49,12 +49,12 @@ describe("formatRefLabel", () => {
 
 describe("formatPluginSummary", () => {
   it("formats per-agent asset counts", () => {
-    const assetCounts: Record<string, AssetCounts> = {
+    const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
       claude: { skills: 12, agents: 3, hooks: 2 },
       codex: { skills: 12 },
     };
     const result = formatPluginSummary(
-      ["claude", "codex"] as AgentId[],
+      ["claude", "codex"],
       assetCounts,
     );
     expect(result).toBe(
@@ -63,34 +63,34 @@ describe("formatPluginSummary", () => {
   });
 
   it("omits zero-count asset types", () => {
-    const assetCounts: Record<string, AssetCounts> = {
+    const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
       claude: { skills: 5, agents: 0, hooks: 0 },
     };
     const result = formatPluginSummary(
-      ["claude"] as AgentId[],
+      ["claude"],
       assetCounts,
     );
     expect(result).toBe("claude: 5 skill(s)");
   });
 
   it("omits agents with no non-zero counts", () => {
-    const assetCounts: Record<string, AssetCounts> = {
+    const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
       claude: { skills: 3 },
       codex: { skills: 0, agents: 0 },
     };
     const result = formatPluginSummary(
-      ["claude", "codex"] as AgentId[],
+      ["claude", "codex"],
       assetCounts,
     );
     expect(result).toBe("claude: 3 skill(s)");
   });
 
   it("omits agents not in assetCountsByAgent", () => {
-    const assetCounts: Record<string, AssetCounts> = {
+    const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
       claude: { skills: 2 },
     };
     const result = formatPluginSummary(
-      ["claude", "codex"] as AgentId[],
+      ["claude", "codex"],
       assetCounts,
     );
     expect(result).toBe("claude: 2 skill(s)");
@@ -105,7 +105,7 @@ describe("formatBareSkillSummary", () => {
       ".codex/skills/my-skill/file1.md",
     ];
     const result = formatBareSkillSummary(
-      ["claude", "codex"] as AgentId[],
+      ["claude", "codex"],
       copiedFiles,
     );
     expect(result).toBe("claude: 2 skill(s), codex: 1 skill(s)");
@@ -114,7 +114,7 @@ describe("formatBareSkillSummary", () => {
   it("shows zero for agent with no matching files", () => {
     const copiedFiles = [".claude/skills/my-skill/file1.md"];
     const result = formatBareSkillSummary(
-      ["claude", "codex"] as AgentId[],
+      ["claude", "codex"],
       copiedFiles,
     );
     expect(result).toBe("claude: 1 skill(s), codex: 0 skill(s)");
@@ -123,7 +123,7 @@ describe("formatBareSkillSummary", () => {
 
 describe("renderAddSummary", () => {
   it("formats standalone plugin add with key, ref, and agent counts", () => {
-    const assetCounts: Record<string, AssetCounts> = {
+    const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
       claude: { skills: 12, agents: 3, hooks: 2 },
       codex: { skills: 12 },
     };
@@ -132,7 +132,7 @@ describe("renderAddSummary", () => {
       ref: "v2.1.6",
       commit: "abc1234",
       detectedType: "plugin",
-      selectedAgents: ["claude", "codex"] as AgentId[],
+      selectedAgents: ["claude", "codex"],
       assetCountsByAgent: assetCounts,
       copiedFiles: [],
     });
@@ -147,7 +147,7 @@ describe("renderAddSummary", () => {
       ref: "main",
       commit: "abc123def456",
       detectedType: "bare-skill",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       copiedFiles: [".claude/skills/my-skill/file1.md"],
     });
     expect(result).toBe(
@@ -161,7 +161,7 @@ describe("renderAddSummary", () => {
       ref: null,
       commit: "abc123",
       detectedType: "bare-skill",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       copiedFiles: [".claude/skills/my-skill/file1.md"],
     });
     expect(result).toContain("owner/my-skill@HEAD");
@@ -173,7 +173,7 @@ describe("renderAddSummary", () => {
       ref: null,
       commit: null,
       detectedType: "bare-skill",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       copiedFiles: [".claude/skills/my-skill/file1.md"],
     });
     expect(result).toContain("owner/my-skill@local");
@@ -203,7 +203,7 @@ describe("renderCollectionAddSummary", () => {
       manifestKey: "owner/my-collection",
       ref: "main",
       commit: "abc123",
-      selectedAgents: ["claude", "codex"] as AgentId[],
+      selectedAgents: ["claude", "codex"],
       results,
     });
     expect(result).toContain("pluginA");
@@ -229,7 +229,7 @@ describe("renderCollectionAddSummary", () => {
       manifestKey: "owner/my-collection",
       ref: "main",
       commit: "abc123",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       results,
     });
     expect(result).toMatch(/1 skipped/);
@@ -248,7 +248,7 @@ describe("renderCollectionAddSummary", () => {
       manifestKey: "owner/my-collection",
       ref: "main",
       commit: "abc123",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       results,
     });
     expect(result).toMatch(/pluginA: failed — permission denied/);
@@ -278,7 +278,7 @@ describe("renderCollectionAddSummary", () => {
       manifestKey: "owner/my-collection",
       ref: "v1.0",
       commit: "abc123",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       results,
     });
     expect(result).toContain("pluginA");
@@ -294,7 +294,7 @@ describe("renderCollectionAddSummary", () => {
         copiedFiles: [],
         assetCountsByAgent: {
           claude: { skills: 5, agents: 2 },
-        } as Record<string, AssetCounts>,
+        } as Partial<Record<AgentId, AssetCounts>>,
         detectedType: { type: "plugin" as const },
       },
     ];
@@ -302,7 +302,7 @@ describe("renderCollectionAddSummary", () => {
       manifestKey: "owner/my-collection",
       ref: "main",
       commit: "abc123",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       results,
     });
     expect(result).toContain("pluginA: claude: 5 skill(s), 2 agent(s)");
@@ -477,7 +477,7 @@ describe("edge cases", () => {
       manifestKey: "owner/my-collection",
       ref: "main",
       commit: "abc123",
-      selectedAgents: ["claude"] as AgentId[],
+      selectedAgents: ["claude"],
       results,
     });
     expect(result).toContain("myPlugin");

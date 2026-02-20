@@ -1,28 +1,21 @@
 import { cp, mkdir, readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { join } from "node:path";
-import type { AgentDriver, AgentId } from "./drivers/types.js";
+import type { AgentId, AgentWithDriver, AssetType } from "./drivers/types.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
-
-interface AgentWithDriver {
-  id: AgentId;
-  driver: AgentDriver;
-}
 
 export interface CopyPluginAssetsInput {
   sourceDir: string;
-  assetDirs: string[];
+  assetDirs: AssetType[];
   agents: AgentWithDriver[];
   projectDir: string;
 }
 
-export interface AssetCounts {
-  [assetType: string]: number;
-}
+export type AssetCounts = Partial<Record<AssetType, number>>;
 
 export interface CopyPluginAssetsResult {
   copiedFiles: string[];
-  assetCountsByAgent: Record<string, AssetCounts>;
+  assetCountsByAgent: Partial<Record<AgentId, AssetCounts>>;
 }
 
 export async function copyPluginAssets(
@@ -30,7 +23,7 @@ export async function copyPluginAssets(
 ): Promise<CopyPluginAssetsResult> {
   const { sourceDir, assetDirs, agents, projectDir } = input;
   const copiedFilesSet = new Set<string>();
-  const assetCountsByAgent: Record<string, AssetCounts> = {};
+  const assetCountsByAgent: Partial<Record<AgentId, AssetCounts>> = {};
 
   try {
     for (const agent of agents) {

@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import { computeIncomingFiles } from "../src/compute-incoming-files.js";
-import type { AgentDriver, AgentId } from "../src/drivers/types.js";
+import type { AgentDriver, AssetType } from "../src/drivers/types.js";
 
-function makeDriver(targetDirs: Record<string, string | null>): AgentDriver {
+function makeDriver(targetDirs: Partial<Record<AssetType, string>>): AgentDriver {
   return {
     detect: vi.fn().mockResolvedValue(true),
-    getTargetDir: vi.fn((assetType: string) => targetDirs[assetType] ?? null),
+    getTargetDir: vi.fn((assetType: AssetType) => targetDirs[assetType] ?? null),
   };
 }
 
@@ -13,7 +13,7 @@ describe("computeIncomingFiles", () => {
   describe("bare-skill", () => {
     it("computes target path for single agent", () => {
       const driver = makeDriver({ skills: ".claude/skills" });
-      const agents = [{ id: "claude" as AgentId, driver }];
+      const agents = [{ id: "claude", driver }];
 
       const result = computeIncomingFiles({
         type: "bare-skill",
@@ -28,8 +28,8 @@ describe("computeIncomingFiles", () => {
       const claudeDriver = makeDriver({ skills: ".claude/skills" });
       const codexDriver = makeDriver({ skills: ".agents/skills" });
       const agents = [
-        { id: "claude" as AgentId, driver: claudeDriver },
-        { id: "codex" as AgentId, driver: codexDriver },
+        { id: "claude", driver: claudeDriver },
+        { id: "codex", driver: codexDriver },
       ];
 
       const result = computeIncomingFiles({
@@ -48,8 +48,8 @@ describe("computeIncomingFiles", () => {
       const claudeDriver = makeDriver({ skills: ".claude/skills" });
       const nullDriver = makeDriver({});
       const agents = [
-        { id: "claude" as AgentId, driver: claudeDriver },
-        { id: "codex" as AgentId, driver: nullDriver },
+        { id: "claude", driver: claudeDriver },
+        { id: "codex", driver: nullDriver },
       ];
 
       const result = computeIncomingFiles({
@@ -63,7 +63,7 @@ describe("computeIncomingFiles", () => {
 
     it("uses basename of sourceDir as skill name", () => {
       const driver = makeDriver({ skills: ".claude/skills" });
-      const agents = [{ id: "claude" as AgentId, driver }];
+      const agents = [{ id: "claude", driver }];
 
       const result = computeIncomingFiles({
         type: "bare-skill",
@@ -78,7 +78,7 @@ describe("computeIncomingFiles", () => {
   describe("plugin", () => {
     it("computes target paths for single asset dir and agent", () => {
       const driver = makeDriver({ skills: ".claude/skills" });
-      const agents = [{ id: "claude" as AgentId, driver }];
+      const agents = [{ id: "claude", driver }];
 
       const result = computeIncomingFiles({
         type: "plugin",
@@ -95,7 +95,7 @@ describe("computeIncomingFiles", () => {
         agents: ".claude/agents",
         hooks: ".claude/hooks",
       });
-      const agents = [{ id: "claude" as AgentId, driver: claudeDriver }];
+      const agents = [{ id: "claude", driver: claudeDriver }];
 
       const result = computeIncomingFiles({
         type: "plugin",
@@ -112,7 +112,7 @@ describe("computeIncomingFiles", () => {
 
     it("skips asset dirs where driver returns null", () => {
       const codexDriver = makeDriver({ skills: ".agents/skills" });
-      const agents = [{ id: "codex" as AgentId, driver: codexDriver }];
+      const agents = [{ id: "codex", driver: codexDriver }];
 
       const result = computeIncomingFiles({
         type: "plugin",
@@ -127,8 +127,8 @@ describe("computeIncomingFiles", () => {
       const claudeDriver = makeDriver({ skills: ".claude/skills" });
       const codexDriver = makeDriver({ skills: ".claude/skills" });
       const agents = [
-        { id: "claude" as AgentId, driver: claudeDriver },
-        { id: "codex" as AgentId, driver: codexDriver },
+        { id: "claude", driver: claudeDriver },
+        { id: "codex", driver: codexDriver },
       ];
 
       const result = computeIncomingFiles({
@@ -154,7 +154,7 @@ describe("computeIncomingFiles", () => {
 
     it("returns empty array for plugin with no asset dirs", () => {
       const driver = makeDriver({ skills: ".claude/skills" });
-      const agents = [{ id: "claude" as AgentId, driver }];
+      const agents = [{ id: "claude", driver }];
 
       const result = computeIncomingFiles({
         type: "plugin",

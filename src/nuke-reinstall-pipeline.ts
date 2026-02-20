@@ -18,7 +18,7 @@ export interface NukeReinstallOptions {
   projectDir: string;
   newRef?: string | null;
   newCommit?: string | null;
-  onAgentsDropped?: (dropped: string[], newConfigAgents: string[]) => void;
+  onAgentsDropped?: (dropped: AgentId[], newConfigAgents: AgentId[]) => void;
   onWarn?: (message: string) => void;
 }
 
@@ -26,7 +26,7 @@ interface NukeReinstallSuccess {
   status: "success";
   entry: ManifestEntry;
   copiedFiles: string[];
-  droppedAgents: string[];
+  droppedAgents: AgentId[];
 }
 
 interface NukeReinstallNoConfig {
@@ -106,8 +106,8 @@ export async function executeNukeAndReinstall(
 
   // Build agent+driver pairs
   const agents = effectiveAgents.map((id) => ({
-    id: id as AgentId,
-    driver: getDriver(id as AgentId),
+    id,
+    driver: getDriver(id),
   }));
 
   // Nuke existing files

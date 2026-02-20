@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { AgentId } from "./drivers/types.js";
 
 export interface AgntcConfig {
-  agents: string[];
+  agents: AgentId[];
 }
 
 export const KNOWN_AGENTS = ["claude", "codex"] as const;
@@ -57,11 +58,11 @@ export async function readConfig(
   }
 
   const knownSet = new Set<string>(KNOWN_AGENTS);
-  const filtered: string[] = [];
+  const filtered: AgentId[] = [];
 
   for (const agent of agents) {
     if (typeof agent === "string" && knownSet.has(agent)) {
-      filtered.push(agent);
+      filtered.push(agent as AgentId);
     } else if (typeof agent === "string") {
       options?.onWarn?.(`Unknown agent "${agent}" — skipping`);
     }

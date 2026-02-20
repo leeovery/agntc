@@ -199,9 +199,9 @@ function setupHappyPath(): void {
   mockCloneSource.mockResolvedValue(CLONE_RESULT);
   mockReadConfig.mockResolvedValue(CONFIG);
   mockDetectType.mockResolvedValue(BARE_SKILL);
-  mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+  mockDetectAgents.mockResolvedValue(["claude"]);
   mockGetDriver.mockReturnValue(FAKE_DRIVER);
-  mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+  mockSelectAgents.mockResolvedValue(["claude"]);
   mockCopyBareSkill.mockResolvedValue(COPY_RESULT);
   mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
   mockAddEntry.mockReturnValue(UPDATED_MANIFEST);
@@ -307,9 +307,9 @@ describe("add command", () => {
     });
 
     it("passes correct declaredAgents and detectedAgents to selectAgents", async () => {
-      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude"]);
       mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
-      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockSelectAgents.mockResolvedValue(["claude"]);
 
       await runAdd("owner/my-skill");
 
@@ -500,9 +500,9 @@ describe("add command", () => {
       mockDetectType.mockResolvedValue(COLLECTION_DETECTED);
       mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
       mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
-      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude"]);
       mockGetDriver.mockReturnValue(FAKE_DRIVER);
-      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockSelectAgents.mockResolvedValue(["claude"]);
       mockWriteManifest.mockResolvedValue(undefined);
       mockCleanupTempDir.mockResolvedValue(undefined);
       mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -650,7 +650,7 @@ describe("add command", () => {
         if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
         return { type: "bare-skill" } as DetectedType;
       });
-      mockDetectAgents.mockResolvedValue(["claude", "codex"] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude", "codex"]);
       const claudeDriver = {
         getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
       };
@@ -661,7 +661,7 @@ describe("add command", () => {
         if (id === "claude") return claudeDriver as any;
         return codexDriver as any;
       });
-      mockSelectAgents.mockResolvedValue(["claude", "codex"] as AgentId[]);
+      mockSelectAgents.mockResolvedValue(["claude", "codex"]);
       mockCopyBareSkill.mockResolvedValue({
         copiedFiles: [".claude/skills/pluginA/"],
       });
@@ -1243,7 +1243,7 @@ describe("add command", () => {
 
     it("omits agents with all zero counts from summary", async () => {
       setupPluginPath();
-      mockSelectAgents.mockResolvedValue(["claude", "codex"] as AgentId[]);
+      mockSelectAgents.mockResolvedValue(["claude", "codex"]);
       const codexDriver = {
         detect: vi.fn().mockResolvedValue(true),
         getTargetDir: vi.fn().mockReturnValue(null),
@@ -1531,9 +1531,9 @@ describe("add command", () => {
         return { type: "bare-skill" } as DetectedType;
       });
       mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
-      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude"]);
       mockGetDriver.mockReturnValue(FAKE_DRIVER);
-      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockSelectAgents.mockResolvedValue(["claude"]);
       mockWriteManifest.mockResolvedValue(undefined);
       mockCleanupTempDir.mockResolvedValue(undefined);
       mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -1747,9 +1747,9 @@ describe("add command", () => {
           "pluginA",
           "pluginB",
         ]);
-        mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+        mockDetectAgents.mockResolvedValue(["claude"]);
         mockGetDriver.mockReturnValue(FAKE_DRIVER);
-        mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+        mockSelectAgents.mockResolvedValue(["claude"]);
         mockWriteManifest.mockResolvedValue(undefined);
         mockCleanupTempDir.mockResolvedValue(undefined);
         mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -1886,9 +1886,9 @@ describe("add command", () => {
       mockParseSource.mockReturnValue(LOCAL_PARSED);
       mockReadConfig.mockResolvedValue(LOCAL_CONFIG);
       mockDetectType.mockResolvedValue(LOCAL_BARE_SKILL);
-      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude"]);
       mockGetDriver.mockReturnValue(FAKE_DRIVER);
-      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockSelectAgents.mockResolvedValue(["claude"]);
       mockCopyBareSkill.mockResolvedValue({
         copiedFiles: [".claude/skills/my-plugin/"],
       });
@@ -2049,9 +2049,9 @@ describe("add command", () => {
           "pluginA",
           "pluginB",
         ]);
-        mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+        mockDetectAgents.mockResolvedValue(["claude"]);
         mockGetDriver.mockReturnValue(FAKE_DRIVER);
-        mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+        mockSelectAgents.mockResolvedValue(["claude"]);
         mockWriteManifest.mockResolvedValue(undefined);
         mockCleanupTempDir.mockResolvedValue(undefined);
         mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -2456,9 +2456,9 @@ describe("add command", () => {
       });
       mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
       mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
-      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockDetectAgents.mockResolvedValue(["claude"]);
       mockGetDriver.mockReturnValue(FAKE_DRIVER);
-      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockSelectAgents.mockResolvedValue(["claude"]);
       mockWriteManifest.mockResolvedValue(undefined);
       mockCleanupTempDir.mockResolvedValue(undefined);
       mockAddEntry.mockImplementation((manifest, key, entry) => ({

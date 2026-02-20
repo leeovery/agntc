@@ -1,12 +1,7 @@
 import { cp, mkdir, rm, access } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import type { AgentDriver, AgentId } from "./drivers/types.js";
+import type { AgentWithDriver } from "./drivers/types.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
-
-interface AgentWithDriver {
-  id: AgentId;
-  driver: AgentDriver;
-}
 
 export interface CopyBareSkillInput {
   sourceDir: string;

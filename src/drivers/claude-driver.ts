@@ -2,9 +2,9 @@ import { access } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentDriver } from "./types.js";
+import type { AgentDriver, AssetType } from "./types.js";
 
-const TARGET_DIRS: Record<string, string> = {
+const TARGET_DIRS: Record<AssetType, string> = {
   skills: ".claude/skills",
   agents: ".claude/agents",
   hooks: ".claude/hooks",
@@ -27,7 +27,7 @@ export class ClaudeDriver implements AgentDriver {
     return false;
   }
 
-  getTargetDir(assetType: string): string | null {
+  getTargetDir(assetType: AssetType): string | null {
     return TARGET_DIRS[assetType] ?? null;
   }
 

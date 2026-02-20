@@ -1,9 +1,9 @@
 import { access } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { join } from "node:path";
-import type { AgentDriver } from "./types.js";
+import type { AgentDriver, AssetType } from "./types.js";
 
-const TARGET_DIRS: Record<string, string> = {
+const TARGET_DIRS: Partial<Record<AssetType, string>> = {
   skills: ".agents/skills",
 };
 
@@ -20,7 +20,7 @@ export class CodexDriver implements AgentDriver {
     return false;
   }
 
-  getTargetDir(assetType: string): string | null {
+  getTargetDir(assetType: AssetType): string | null {
     return TARGET_DIRS[assetType] ?? null;
   }
 

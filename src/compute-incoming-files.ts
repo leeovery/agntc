@@ -1,10 +1,5 @@
 import { basename } from "node:path";
-import type { AgentDriver, AgentId } from "./drivers/types.js";
-
-interface AgentWithDriver {
-  id: AgentId;
-  driver: AgentDriver;
-}
+import type { AgentWithDriver, AssetType } from "./drivers/types.js";
 
 interface BareSkillInput {
   type: "bare-skill";
@@ -14,7 +9,7 @@ interface BareSkillInput {
 
 interface PluginInput {
   type: "plugin";
-  assetDirs: string[];
+  assetDirs: AssetType[];
   agents: AgentWithDriver[];
 }
 
