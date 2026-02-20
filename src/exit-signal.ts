@@ -7,3 +7,18 @@ export class ExitSignal extends Error {
     this.code = code;
   }
 }
+
+export function withExitSignal<T extends (...args: any[]) => Promise<void>>(
+  fn: T,
+): T {
+  return (async (...args: any[]) => {
+    try {
+      await fn(...args);
+    } catch (err) {
+      if (err instanceof ExitSignal) {
+        return process.exit(err.code);
+      }
+      throw err;
+    }
+  }) as T;
+}

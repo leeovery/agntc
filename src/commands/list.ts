@@ -3,7 +3,7 @@ import * as p from "@clack/prompts";
 import { readManifest, readManifestOrExit, type ManifestEntry, type Manifest } from "../manifest.js";
 import { checkAllForUpdates } from "../update-check-all.js";
 import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
-import { ExitSignal } from "../exit-signal.js";
+import { withExitSignal } from "../exit-signal.js";
 import { renderDetailView } from "./list-detail.js";
 import { executeUpdateAction } from "./list-update-action.js";
 import { executeRemoveAction } from "./list-remove-action.js";
@@ -148,13 +148,6 @@ export async function runListLoop(): Promise<void> {
 
 export const listCommand = new Command("list")
   .description("List installed plugins")
-  .action(async () => {
-    try {
-      await runListLoop();
-    } catch (err) {
-      if (err instanceof ExitSignal) {
-        process.exit(err.code);
-      }
-      throw err;
-    }
-  });
+  .action(withExitSignal(async () => {
+    await runListLoop();
+  }));

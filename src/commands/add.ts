@@ -22,7 +22,7 @@ import { resolveCollisions } from "../collision-resolve.js";
 import { checkUnmanagedConflicts } from "../unmanaged-check.js";
 import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
 import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
-import { ExitSignal } from "../exit-signal.js";
+import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { errorMessage } from "../errors.js";
 import type { AgentId } from "../drivers/types.js";
 import type { AgntcConfig } from "../config.js";
@@ -558,13 +558,6 @@ async function runCollectionPipeline(
 export const addCommand = new Command("add")
   .description("Install a plugin from a git repo or local path")
   .argument("<source>", "Git repo (owner/repo) or local path")
-  .action(async (source: string) => {
-    try {
-      await runAdd(source);
-    } catch (err) {
-      if (err instanceof ExitSignal) {
-        process.exit(err.code);
-      }
-      throw err;
-    }
-  });
+  .action(withExitSignal(async (source: string) => {
+    await runAdd(source);
+  }));

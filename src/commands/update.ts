@@ -4,7 +4,7 @@ import { readManifestOrExit, writeManifest, addEntry, removeEntry } from "../man
 import type { ManifestEntry, Manifest } from "../manifest.js";
 import { checkForUpdate } from "../update-check.js";
 import type { UpdateCheckResult } from "../update-check.js";
-import { ExitSignal } from "../exit-signal.js";
+import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import {
   renderGitUpdateSummary,
   renderLocalUpdateSummary,
@@ -449,13 +449,6 @@ export const updateCommand = new Command("update")
     "[key]",
     "Plugin key to update (owner/repo or owner/repo/plugin)",
   )
-  .action(async (key?: string) => {
-    try {
-      await runUpdate(key);
-    } catch (err) {
-      if (err instanceof ExitSignal) {
-        process.exit(err.code);
-      }
-      throw err;
-    }
-  });
+  .action(withExitSignal(async (key?: string) => {
+    await runUpdate(key);
+  }));

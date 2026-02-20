@@ -2,7 +2,7 @@ import { Command } from "commander";
 import * as p from "@clack/prompts";
 import { readManifestOrExit, writeManifest, type Manifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
-import { ExitSignal } from "../exit-signal.js";
+import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { renderRemoveSummary } from "../summary.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
 
@@ -158,13 +158,6 @@ export async function runRemove(key?: string): Promise<void> {
 export const removeCommand = new Command("remove")
   .description("Remove installed plugins")
   .argument("[key]", "Plugin key to remove (owner/repo or owner/repo/plugin)")
-  .action(async (key?: string) => {
-    try {
-      await runRemove(key);
-    } catch (err) {
-      if (err instanceof ExitSignal) {
-        process.exit(err.code);
-      }
-      throw err;
-    }
-  });
+  .action(withExitSignal(async (key?: string) => {
+    await runRemove(key);
+  }));
