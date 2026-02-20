@@ -8,18 +8,10 @@ import { checkForUpdate } from "../update-check.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import { cloneSource, cleanupTempDir } from "../git-clone.js";
 import type { ParsedSource } from "../source-parser.js";
-import { readConfig } from "../config.js";
-import { detectType } from "../type-detection.js";
-import { nukeManifestFiles } from "../nuke-files.js";
-import { copyPluginAssets } from "../copy-plugin-assets.js";
-import { copyBareSkill } from "../copy-bare-skill.js";
-import { getDriver } from "../drivers/registry.js";
-import type { AgentId } from "../drivers/types.js";
 import { ExitSignal } from "../exit-signal.js";
 import {
-  computeEffectiveAgents,
-  findDroppedAgents,
-} from "../agent-compat.js";
+  executeNukeAndReinstall,
+} from "../nuke-reinstall-pipeline.js";
 import {
   renderGitUpdateSummary,
   renderLocalUpdateSummary,
@@ -146,23 +138,30 @@ async function runGitUpdate(
     const newCommit = cloneResult.commit;
     const sourceDir = getSourceDir(tempDir, key);
 
-    // Read config from new version
     const onWarn = (message: string) => p.log.warn(message);
-    const config = await readConfig(sourceDir, { onWarn });
 
-    if (config === null) {
+    const pipelineResult = await executeNukeAndReinstall({
+      key,
+      sourceDir,
+      existingEntry: entry,
+      projectDir,
+      newCommit,
+      onAgentsDropped: (dropped, newConfigAgents) => {
+        p.log.warn(
+          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
+            `Currently installed for: ${entry.agents.join(", ")}. ` +
+            `New version supports: ${newConfigAgents.join(", ")}.`,
+        );
+      },
+      onWarn,
+    });
+
+    if (pipelineResult.status === "no-config") {
       p.log.error(`New version of ${key} has no agntc.json — aborting.`);
       throw new ExitSignal(1);
     }
 
-    // Agent compatibility check
-    const effectiveAgents = computeEffectiveAgents(
-      entry.agents,
-      config.agents,
-    );
-    const droppedAgents = findDroppedAgents(entry.agents, config.agents);
-
-    if (effectiveAgents.length === 0) {
+    if (pipelineResult.status === "no-agents") {
       p.log.warn(
         `Plugin ${key} no longer supports any of your installed agents. ` +
           `No update performed. Run npx agntc remove ${key} to clean up.`,
@@ -170,70 +169,13 @@ async function runGitUpdate(
       return;
     }
 
-    if (droppedAgents.length > 0) {
-      p.log.warn(
-        `Plugin ${key} no longer declares support for ${droppedAgents.join(", ")}. ` +
-          `Currently installed for: ${entry.agents.join(", ")}. ` +
-          `New version supports: ${config.agents.join(", ")}.`,
-      );
-    }
-
-    // Detect type from new version
-    const detected = await detectType(sourceDir, {
-      hasConfig: true,
-      onWarn,
-    });
-
-    if (detected.type === "not-agntc" || detected.type === "collection") {
+    if (pipelineResult.status === "invalid-type") {
       p.log.error(`New version of ${key} is not a valid plugin — aborting.`);
       throw new ExitSignal(1);
     }
 
-    // Build agent+driver pairs for effective agents
-    const agents = effectiveAgents.map((id) => ({
-      id: id as AgentId,
-      driver: getDriver(id as AgentId),
-    }));
-
-    // Nuke existing files (after clone succeeded)
-    await nukeManifestFiles(projectDir, entry.files);
-
-    // Copy from temp
-    let copiedFiles: string[];
-
-    spin.start("Copying files...");
-    try {
-      if (detected.type === "plugin") {
-        const pluginResult = await copyPluginAssets({
-          sourceDir,
-          assetDirs: detected.assetDirs,
-          agents,
-          projectDir,
-        });
-        copiedFiles = pluginResult.copiedFiles;
-      } else {
-        const bareResult = await copyBareSkill({
-          sourceDir,
-          projectDir,
-          agents,
-        });
-        copiedFiles = bareResult.copiedFiles;
-      }
-    } catch (err) {
-      spin.stop("Copy failed");
-      throw err;
-    }
-    spin.stop("Copied successfully");
-
     // Update manifest
-    const newEntry: ManifestEntry = {
-      ref: entry.ref,
-      commit: newCommit,
-      installedAt: new Date().toISOString(),
-      agents: effectiveAgents,
-      files: copiedFiles,
-    };
-    const updated = addEntry(manifest, key, newEntry);
+    const updated = addEntry(manifest, key, pipelineResult.entry);
     await writeManifest(projectDir, updated);
 
     // Summary
@@ -242,9 +184,9 @@ async function runGitUpdate(
         key,
         oldCommit: entry.commit,
         newCommit,
-        copiedFiles,
-        effectiveAgents,
-        droppedAgents,
+        copiedFiles: pipelineResult.copiedFiles,
+        effectiveAgents: pipelineResult.entry.agents,
+        droppedAgents: pipelineResult.droppedAgents,
       }),
     );
   } catch (err) {
@@ -294,20 +236,30 @@ async function runLocalUpdate(
   await validateLocalPath(sourcePath);
 
   const onWarn = (message: string) => p.log.warn(message);
-  const config = await readConfig(sourcePath, { onWarn });
 
-  if (config === null) {
+  const pipelineResult = await executeNukeAndReinstall({
+    key,
+    sourceDir: sourcePath,
+    existingEntry: entry,
+    projectDir,
+    newRef: null,
+    newCommit: null,
+    onAgentsDropped: (dropped, _kept) => {
+      p.log.warn(
+        `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
+          `Currently installed for: ${entry.agents.join(", ")}. ` +
+          `New version supports: ${_kept.join(", ")}.`,
+      );
+    },
+    onWarn,
+  });
+
+  if (pipelineResult.status === "no-config") {
     p.log.error(`${key} has no agntc.json — aborting.`);
     throw new ExitSignal(1);
   }
 
-  const effectiveAgents = computeEffectiveAgents(
-    entry.agents,
-    config.agents,
-  );
-  const droppedAgents = findDroppedAgents(entry.agents, config.agents);
-
-  if (effectiveAgents.length === 0) {
+  if (pipelineResult.status === "no-agents") {
     p.log.warn(
       `Plugin ${key} no longer supports any of your installed agents. ` +
         `No update performed. Run npx agntc remove ${key} to clean up.`,
@@ -315,66 +267,20 @@ async function runLocalUpdate(
     return;
   }
 
-  if (droppedAgents.length > 0) {
-    p.log.warn(
-      `Plugin ${key} no longer declares support for ${droppedAgents.join(", ")}. ` +
-        `Currently installed for: ${entry.agents.join(", ")}. ` +
-        `New version supports: ${config.agents.join(", ")}.`,
-    );
-  }
-
-  const detected = await detectType(sourcePath, {
-    hasConfig: true,
-    onWarn,
-  });
-
-  if (detected.type === "not-agntc" || detected.type === "collection") {
+  if (pipelineResult.status === "invalid-type") {
     p.log.error(`${key} is not a valid plugin — aborting.`);
     throw new ExitSignal(1);
   }
 
-  const agents = effectiveAgents.map((id) => ({
-    id: id as AgentId,
-    driver: getDriver(id as AgentId),
-  }));
-
-  await nukeManifestFiles(projectDir, entry.files);
-
-  let copiedFiles: string[];
-
-  if (detected.type === "plugin") {
-    const pluginResult = await copyPluginAssets({
-      sourceDir: sourcePath,
-      assetDirs: detected.assetDirs,
-      agents,
-      projectDir,
-    });
-    copiedFiles = pluginResult.copiedFiles;
-  } else {
-    const bareResult = await copyBareSkill({
-      sourceDir: sourcePath,
-      projectDir,
-      agents,
-    });
-    copiedFiles = bareResult.copiedFiles;
-  }
-
-  const newEntry: ManifestEntry = {
-    ref: null,
-    commit: null,
-    installedAt: new Date().toISOString(),
-    agents: effectiveAgents,
-    files: copiedFiles,
-  };
-  const updated = addEntry(manifest, key, newEntry);
+  const updated = addEntry(manifest, key, pipelineResult.entry);
   await writeManifest(projectDir, updated);
 
   p.outro(
     renderLocalUpdateSummary({
       key,
-      copiedFiles,
-      effectiveAgents,
-      droppedAgents,
+      copiedFiles: pipelineResult.copiedFiles,
+      effectiveAgents: pipelineResult.entry.agents,
+      droppedAgents: pipelineResult.droppedAgents,
     }),
   );
 }
@@ -402,9 +308,24 @@ async function processGitUpdateForAll(
     const sourceDir = getSourceDir(tempDir, key);
 
     const onWarn = (message: string) => p.log.warn(message);
-    const config = await readConfig(sourceDir, { onWarn });
 
-    if (config === null) {
+    const pipelineResult = await executeNukeAndReinstall({
+      key,
+      sourceDir,
+      existingEntry: entry,
+      projectDir,
+      newCommit,
+      onAgentsDropped: (dropped, newConfigAgents) => {
+        p.log.warn(
+          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
+            `Currently installed for: ${entry.agents.join(", ")}. ` +
+            `New version supports: ${newConfigAgents.join(", ")}.`,
+        );
+      },
+      onWarn,
+    });
+
+    if (pipelineResult.status === "no-config") {
       return {
         status: "failed",
         key,
@@ -412,12 +333,7 @@ async function processGitUpdateForAll(
       };
     }
 
-    const effectiveAgents = computeEffectiveAgents(
-      entry.agents,
-      config.agents,
-    );
-
-    if (effectiveAgents.length === 0) {
+    if (pipelineResult.status === "no-agents") {
       return {
         status: "failed",
         key,
@@ -425,61 +341,13 @@ async function processGitUpdateForAll(
       };
     }
 
-    const droppedAgents = findDroppedAgents(entry.agents, config.agents);
-    if (droppedAgents.length > 0) {
-      p.log.warn(
-        `Plugin ${key} no longer declares support for ${droppedAgents.join(", ")}. ` +
-          `Currently installed for: ${entry.agents.join(", ")}. ` +
-          `New version supports: ${config.agents.join(", ")}.`,
-      );
-    }
-
-    const detected = await detectType(sourceDir, {
-      hasConfig: true,
-      onWarn,
-    });
-
-    if (detected.type === "not-agntc" || detected.type === "collection") {
+    if (pipelineResult.status === "invalid-type") {
       return {
         status: "failed",
         key,
         summary: `${key}: Failed — not a valid plugin in new version`,
       };
     }
-
-    const agents = effectiveAgents.map((id) => ({
-      id: id as AgentId,
-      driver: getDriver(id as AgentId),
-    }));
-
-    await nukeManifestFiles(projectDir, entry.files);
-
-    let copiedFiles: string[];
-
-    if (detected.type === "plugin") {
-      const pluginResult = await copyPluginAssets({
-        sourceDir,
-        assetDirs: detected.assetDirs,
-        agents,
-        projectDir,
-      });
-      copiedFiles = pluginResult.copiedFiles;
-    } else {
-      const bareResult = await copyBareSkill({
-        sourceDir,
-        projectDir,
-        agents,
-      });
-      copiedFiles = bareResult.copiedFiles;
-    }
-
-    const newEntry: ManifestEntry = {
-      ref: entry.ref,
-      commit: newCommit,
-      installedAt: new Date().toISOString(),
-      agents: effectiveAgents,
-      files: copiedFiles,
-    };
 
     return {
       status: "updated",
@@ -489,9 +357,9 @@ async function processGitUpdateForAll(
         key,
         oldCommit: entry.commit,
         newCommit,
-        droppedAgents,
+        droppedAgents: pipelineResult.droppedAgents,
       }),
-      newEntry,
+      newEntry: pipelineResult.entry,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -537,9 +405,25 @@ async function processLocalUpdateForAll(
     }
 
     const onWarn = (message: string) => p.log.warn(message);
-    const config = await readConfig(sourcePath, { onWarn });
 
-    if (config === null) {
+    const pipelineResult = await executeNukeAndReinstall({
+      key,
+      sourceDir: sourcePath,
+      existingEntry: entry,
+      projectDir,
+      newRef: null,
+      newCommit: null,
+      onAgentsDropped: (dropped, newConfigAgents) => {
+        p.log.warn(
+          `Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
+            `Currently installed for: ${entry.agents.join(", ")}. ` +
+            `New version supports: ${newConfigAgents.join(", ")}.`,
+        );
+      },
+      onWarn,
+    });
+
+    if (pipelineResult.status === "no-config") {
       return {
         status: "failed",
         key,
@@ -547,12 +431,7 @@ async function processLocalUpdateForAll(
       };
     }
 
-    const effectiveAgents = computeEffectiveAgents(
-      entry.agents,
-      config.agents,
-    );
-
-    if (effectiveAgents.length === 0) {
+    if (pipelineResult.status === "no-agents") {
       return {
         status: "failed",
         key,
@@ -560,21 +439,7 @@ async function processLocalUpdateForAll(
       };
     }
 
-    const droppedAgents = findDroppedAgents(entry.agents, config.agents);
-    if (droppedAgents.length > 0) {
-      p.log.warn(
-        `Plugin ${key} no longer declares support for ${droppedAgents.join(", ")}. ` +
-          `Currently installed for: ${entry.agents.join(", ")}. ` +
-          `New version supports: ${config.agents.join(", ")}.`,
-      );
-    }
-
-    const detected = await detectType(sourcePath, {
-      hasConfig: true,
-      onWarn,
-    });
-
-    if (detected.type === "not-agntc" || detected.type === "collection") {
+    if (pipelineResult.status === "invalid-type") {
       return {
         status: "failed",
         key,
@@ -582,49 +447,15 @@ async function processLocalUpdateForAll(
       };
     }
 
-    const agents = effectiveAgents.map((id) => ({
-      id: id as AgentId,
-      driver: getDriver(id as AgentId),
-    }));
-
-    await nukeManifestFiles(projectDir, entry.files);
-
-    let copiedFiles: string[];
-
-    if (detected.type === "plugin") {
-      const pluginResult = await copyPluginAssets({
-        sourceDir: sourcePath,
-        assetDirs: detected.assetDirs,
-        agents,
-        projectDir,
-      });
-      copiedFiles = pluginResult.copiedFiles;
-    } else {
-      const bareResult = await copyBareSkill({
-        sourceDir: sourcePath,
-        projectDir,
-        agents,
-      });
-      copiedFiles = bareResult.copiedFiles;
-    }
-
-    const newEntry: ManifestEntry = {
-      ref: null,
-      commit: null,
-      installedAt: new Date().toISOString(),
-      agents: effectiveAgents,
-      files: copiedFiles,
-    };
-
     return {
       status: "refreshed",
       key,
       summary: renderUpdateOutcomeSummary({
         type: "local-update",
         key,
-        droppedAgents,
+        droppedAgents: pipelineResult.droppedAgents,
       }),
-      newEntry,
+      newEntry: pipelineResult.entry,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
