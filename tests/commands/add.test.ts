@@ -907,6 +907,246 @@ describe("add command", () => {
         COLLECTION_CLONE_RESULT.tempDir + "/pluginA",
       );
     });
+
+    describe("independent failure handling", () => {
+      function setupCollectionForFailure(): void {
+        setupCollectionBase();
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+          if (dir.endsWith("/pluginA")) return PLUGIN_A_CONFIG;
+          if (dir.endsWith("/pluginB")) return PLUGIN_B_CONFIG;
+          return null;
+        });
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir)
+            return COLLECTION_DETECTED;
+          if (dir.endsWith("/pluginA")) return PLUGIN_A_BARE;
+          if (dir.endsWith("/pluginB")) return PLUGIN_B_BARE;
+          return { type: "not-agntc" };
+        });
+        mockComputeIncomingFiles.mockReturnValue([]);
+        mockCheckFileCollisions.mockReturnValue(new Map());
+        mockCheckUnmanagedConflicts.mockResolvedValue([]);
+        mockResolveUnmanagedConflicts.mockResolvedValue({
+          approved: [],
+          cancelled: [],
+        });
+      }
+
+      it("first plugin copy fails, second succeeds — only second gets manifest entry", async () => {
+        setupCollectionForFailure();
+        mockCopyBareSkill
+          .mockRejectedValueOnce(new Error("disk full"))
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        // addEntry should only be called for pluginB
+        expect(mockAddEntry).toHaveBeenCalledTimes(1);
+        expect(mockAddEntry).toHaveBeenCalledWith(
+          expect.anything(),
+          "owner/my-collection/pluginB",
+          expect.objectContaining({
+            files: [".claude/skills/pluginB/"],
+          }),
+        );
+      });
+
+      it("all plugin copies fail — no manifest entries, exits 0, summary shows failures", async () => {
+        setupCollectionForFailure();
+        mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+        // Should not throw — exits 0 with summary
+        await runAdd("owner/my-collection");
+
+        // No addEntry calls for failed plugins
+        expect(mockAddEntry).not.toHaveBeenCalled();
+        // Manifest still written once (with no additions)
+        expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+        // Summary mentions failures
+        const outroCall = mockOutro.mock.calls[0]![0] as string;
+        expect(outroCall).toMatch(/pluginA: failed —/);
+        expect(outroCall).toMatch(/pluginB: failed —/);
+      });
+
+      it("failed plugin allows subsequent plugins to install", async () => {
+        setupCollectionForFailure();
+        mockCopyBareSkill
+          .mockRejectedValueOnce(new Error("permission denied"))
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        // pluginB was still copied despite pluginA failing
+        expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
+        const secondCall = mockCopyBareSkill.mock.calls[1]![0];
+        expect(secondCall.sourceDir).toBe(
+          COLLECTION_CLONE_RESULT.tempDir + "/pluginB",
+        );
+      });
+
+      it("single manifest write even with mixed success and failure", async () => {
+        setupCollectionForFailure();
+        mockCopyBareSkill
+          .mockRejectedValueOnce(new Error("copy error"))
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+      });
+
+      it("error message from copy failure appears in summary", async () => {
+        setupCollectionForFailure();
+        mockCopyBareSkill
+          .mockRejectedValueOnce(new Error("ENOSPC: no space left"))
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        const outroCall = mockOutro.mock.calls[0]![0] as string;
+        expect(outroCall).toMatch(
+          /pluginA: failed — ENOSPC: no space left/,
+        );
+      });
+
+      // Rollback on copy failure is delegated to the copy functions themselves
+      // (copyBareSkill / copyPluginAssets). Those rollback behaviors are tested
+      // in cs-5-8's copy function test suites.
+
+      it("both plugins succeed — both get manifest entries, no failures in summary", async () => {
+        setupCollectionForFailure();
+        mockCopyBareSkill
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginA/"],
+          })
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginB/"],
+          });
+
+        await runAdd("owner/my-collection");
+
+        // Both plugins should get manifest entries
+        expect(mockAddEntry).toHaveBeenCalledTimes(2);
+        expect(mockAddEntry).toHaveBeenCalledWith(
+          expect.anything(),
+          "owner/my-collection/pluginA",
+          expect.objectContaining({
+            files: [".claude/skills/pluginA/"],
+          }),
+        );
+        expect(mockAddEntry).toHaveBeenCalledWith(
+          expect.anything(),
+          "owner/my-collection/pluginB",
+          expect.objectContaining({
+            files: [".claude/skills/pluginB/"],
+          }),
+        );
+        // Summary should mention both plugins but not "failed"
+        const outroCall = mockOutro.mock.calls[0]![0] as string;
+        expect(outroCall).toContain("pluginA");
+        expect(outroCall).toContain("pluginB");
+        expect(outroCall).not.toMatch(/failed/);
+        expect(outroCall).not.toMatch(/skipped/);
+      });
+
+      it("one plugin skipped (ConfigError) and another fails during copy — both tracked in summary", async () => {
+        setupCollectionBase();
+        const { ConfigError } = await import("../../src/config.js");
+        // pluginA: ConfigError during readConfig => skipped
+        // pluginB: succeeds readConfig but fails during copy
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+          if (dir.endsWith("/pluginA"))
+            throw new ConfigError("invalid schema");
+          if (dir.endsWith("/pluginB")) return PLUGIN_B_CONFIG;
+          return null;
+        });
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir)
+            return COLLECTION_DETECTED;
+          if (dir.endsWith("/pluginB")) return PLUGIN_B_BARE;
+          return { type: "not-agntc" };
+        });
+        mockComputeIncomingFiles.mockReturnValue([]);
+        mockCheckFileCollisions.mockReturnValue(new Map());
+        mockCheckUnmanagedConflicts.mockResolvedValue([]);
+        mockCopyBareSkill.mockRejectedValueOnce(
+          new Error("permission denied"),
+        );
+
+        await runAdd("owner/my-collection");
+
+        // No manifest entries — one skipped, one failed
+        expect(mockAddEntry).not.toHaveBeenCalled();
+        // Summary should show 1 skipped and pluginB failed
+        const outroCall = mockOutro.mock.calls[0]![0] as string;
+        expect(outroCall).toMatch(/1 skipped/);
+        expect(outroCall).toMatch(/pluginB: failed — permission denied/);
+      });
+
+      it("three plugins: one installed, one copy fails, one skipped — manifest entry only for installed", async () => {
+        // Setup with 3 plugins
+        const THREE_PLUGIN_DETECTED: DetectedType = {
+          type: "collection",
+          plugins: ["pluginA", "pluginB", "pluginC"],
+        };
+        setupCollectionBase();
+        const { ConfigError } = await import("../../src/config.js");
+        mockSelectCollectionPlugins.mockResolvedValue([
+          "pluginA",
+          "pluginB",
+          "pluginC",
+        ]);
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir)
+            return THREE_PLUGIN_DETECTED;
+          return { type: "bare-skill" } as DetectedType;
+        });
+        // pluginA: valid config, will be installed
+        // pluginB: valid config, copy will fail
+        // pluginC: ConfigError => skipped
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+          if (dir.endsWith("/pluginC"))
+            throw new ConfigError("malformed json");
+          return { agents: ["claude"] };
+        });
+        mockComputeIncomingFiles.mockReturnValue([]);
+        mockCheckFileCollisions.mockReturnValue(new Map());
+        mockCheckUnmanagedConflicts.mockResolvedValue([]);
+        mockCopyBareSkill
+          .mockResolvedValueOnce({
+            copiedFiles: [".claude/skills/pluginA/"],
+          })
+          .mockRejectedValueOnce(new Error("disk full"));
+
+        await runAdd("owner/my-collection");
+
+        // Only pluginA should get a manifest entry
+        expect(mockAddEntry).toHaveBeenCalledTimes(1);
+        expect(mockAddEntry).toHaveBeenCalledWith(
+          expect.anything(),
+          "owner/my-collection/pluginA",
+          expect.objectContaining({
+            files: [".claude/skills/pluginA/"],
+          }),
+        );
+        // Summary: pluginA installed, pluginB failed, pluginC skipped
+        const outroCall = mockOutro.mock.calls[0]![0] as string;
+        expect(outroCall).toContain("pluginA");
+        expect(outroCall).toMatch(/pluginB: failed — disk full/);
+        expect(outroCall).toMatch(/1 skipped/);
+      });
+    });
   });
 
   describe("plugin type", () => {

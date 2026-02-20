@@ -261,10 +261,11 @@ interface CollectionPipelineInput {
 
 interface PluginInstallResult {
   pluginName: string;
-  status: "installed" | "skipped";
+  status: "installed" | "skipped" | "failed";
   copiedFiles: string[];
   assetCountsByAgent?: Record<string, AssetCounts>;
   detectedType?: DetectedType;
+  errorMessage?: string;
 }
 
 async function runCollectionPipeline(
@@ -452,10 +453,10 @@ async function runCollectionPipeline(
     });
   }
 
-  // 5b. Copy all approved plugins
+  // 5b. Copy all approved plugins (independent failure handling)
   spin.start("Copying skill files...");
-  try {
-    for (const { pluginName, pluginDir, pluginDetected } of pluginsToInstall) {
+  for (const { pluginName, pluginDir, pluginDetected } of pluginsToInstall) {
+    try {
       if (pluginDetected.type === "plugin") {
         const pluginResult = await copyPluginAssets({
           sourceDir: pluginDir,
@@ -484,12 +485,17 @@ async function runCollectionPipeline(
           detectedType: pluginDetected,
         });
       }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      results.push({
+        pluginName,
+        status: "failed",
+        copiedFiles: [],
+        errorMessage,
+      });
     }
-  } catch (err) {
-    spin.stop("Copy failed");
-    throw err;
   }
-  spin.stop("Copied successfully");
+  spin.stop("Copied");
 
   // 6. Single manifest write
   let updatedManifest: Manifest = currentManifest;
@@ -514,6 +520,7 @@ async function runCollectionPipeline(
   const refLabel = formatRefLabel(parsed.ref, commit);
   const installed = results.filter((r) => r.status === "installed");
   const skipped = results.filter((r) => r.status === "skipped");
+  const failed = results.filter((r) => r.status === "failed");
 
   const pluginSummaries = installed.map((r) => {
     if (r.detectedType?.type === "plugin" && r.assetCountsByAgent) {
@@ -525,6 +532,13 @@ async function runCollectionPipeline(
   const summaryParts = [...pluginSummaries];
   if (skipped.length > 0) {
     summaryParts.push(`${skipped.length} skipped`);
+  }
+  if (failed.length > 0) {
+    for (const f of failed) {
+      summaryParts.push(
+        `${f.pluginName}: failed — ${f.errorMessage}`,
+      );
+    }
   }
 
   p.outro(
