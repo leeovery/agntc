@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "./drivers/types.js";
+import { isNodeError } from "./errors.js";
 
 export interface AgntcConfig {
   agents: AgentId[];
@@ -69,8 +70,4 @@ export async function readConfig(
   }
 
   return { agents: filtered };
-}
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
 }

@@ -1,13 +1,10 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { isNodeError } from "./errors.js";
 
 export interface NukeResult {
   removed: string[];
   skipped: string[];
-}
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
 }
 
 export async function nukeManifestFiles(

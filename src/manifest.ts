@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AgentId } from "./drivers/types.js";
+import { isNodeError } from "./errors.js";
 
 export interface ManifestEntry {
   ref: string | null;
@@ -67,8 +68,4 @@ export function addEntry(
 export function removeEntry(manifest: Manifest, key: string): Manifest {
   const { [key]: _, ...rest } = manifest;
   return rest;
-}
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && "code" in err;
 }
