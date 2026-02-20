@@ -48,12 +48,13 @@ describe("build output", () => {
 });
 
 describe("agntc --help", () => {
-  it("includes add, list, and remove in output", () => {
+  it("includes add, list, remove, and update in output", () => {
     const { stdout, exitCode } = run(["--help"]);
     expect(exitCode).toBe(0);
     expect(stdout).toContain("add");
     expect(stdout).toContain("list");
     expect(stdout).toContain("remove");
+    expect(stdout).toContain("update");
   });
 });
 
@@ -85,12 +86,20 @@ describe("agntc remove", () => {
   });
 });
 
+describe("agntc update", () => {
+  it("exits non-zero with no key argument", () => {
+    const { exitCode } = run(["update"]);
+    expect(exitCode).not.toBe(0);
+  });
+});
+
 describe("agntc with no arguments", () => {
   it("shows help", () => {
     const { stdout } = run([]);
     expect(stdout).toContain("add");
     expect(stdout).toContain("list");
     expect(stdout).toContain("remove");
+    expect(stdout).toContain("update");
   });
 });
 
