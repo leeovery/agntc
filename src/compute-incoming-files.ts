@@ -1,4 +1,5 @@
-import { basename } from "node:path";
+import { readdir } from "node:fs/promises";
+import { basename, join } from "node:path";
 import type { AgentWithDriver, AssetType } from "./drivers/types.js";
 
 interface BareSkillInput {
@@ -9,6 +10,7 @@ interface BareSkillInput {
 
 interface PluginInput {
   type: "plugin";
+  sourceDir: string;
   assetDirs: AssetType[];
   agents: AgentWithDriver[];
 }
@@ -20,7 +22,7 @@ type ComputeInput = BareSkillInput | PluginInput;
  * without actually copying. Used for collision and unmanaged checks
  * before copy begins.
  */
-export function computeIncomingFiles(input: ComputeInput): string[] {
+export async function computeIncomingFiles(input: ComputeInput): Promise<string[]> {
   if (input.type === "bare-skill") {
     return computeBareSkillFiles(input);
   }
@@ -42,23 +44,52 @@ function computeBareSkillFiles(input: BareSkillInput): string[] {
   return files;
 }
 
-function computePluginFiles(input: PluginInput): string[] {
+async function computePluginFiles(input: PluginInput): Promise<string[]> {
+  const { sourceDir, assetDirs, agents } = input;
   const seen = new Set<string>();
   const files: string[] = [];
 
-  for (const agent of input.agents) {
-    for (const assetDir of input.assetDirs) {
+  // Scan source asset directories to enumerate individual assets
+  const assetEntries = new Map<AssetType, SourceEntry[]>();
+  for (const assetDir of assetDirs) {
+    assetEntries.set(assetDir, await readSourceAssetDir(join(sourceDir, assetDir)));
+  }
+
+  for (const agent of agents) {
+    for (const assetDir of assetDirs) {
       const targetDir = agent.driver.getTargetDir(assetDir);
       if (targetDir === null) {
         continue;
       }
-      const path = `${targetDir}/`;
-      if (!seen.has(path)) {
-        seen.add(path);
-        files.push(path);
+
+      const entries = assetEntries.get(assetDir) ?? [];
+      for (const entry of entries) {
+        // Skills are directories, agents/hooks are files
+        const path = entry.isDirectory
+          ? `${targetDir}/${entry.name}/`
+          : `${targetDir}/${entry.name}`;
+
+        if (!seen.has(path)) {
+          seen.add(path);
+          files.push(path);
+        }
       }
     }
   }
 
   return files;
+}
+
+interface SourceEntry {
+  name: string;
+  isDirectory: boolean;
+}
+
+async function readSourceAssetDir(dir: string): Promise<SourceEntry[]> {
+  try {
+    const entries = await readdir(dir, { withFileTypes: true });
+    return entries.map((e) => ({ name: e.name, isDirectory: e.isDirectory() }));
+  } catch {
+    return [];
+  }
 }

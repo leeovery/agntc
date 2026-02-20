@@ -145,9 +145,9 @@ export async function runAdd(source: string): Promise<void> {
     }
 
     // 10a. Compute incoming files
-    const incomingFiles = computeIncomingFiles(
+    const incomingFiles = await computeIncomingFiles(
       detected.type === "plugin"
-        ? { type: "plugin", assetDirs: detected.assetDirs, agents }
+        ? { type: "plugin", sourceDir, assetDirs: detected.assetDirs, agents }
         : { type: "bare-skill", sourceDir, agents },
     );
 
@@ -418,9 +418,9 @@ async function runCollectionPipeline(
     }
 
     // Compute incoming files
-    const incomingFiles = computeIncomingFiles(
+    const incomingFiles = await computeIncomingFiles(
       pluginDetected.type === "plugin"
-        ? { type: "plugin", assetDirs: pluginDetected.assetDirs, agents }
+        ? { type: "plugin", sourceDir: pluginDir, assetDirs: pluginDetected.assetDirs, agents }
         : { type: "bare-skill", sourceDir: pluginDir, agents },
     );
 

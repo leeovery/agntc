@@ -2258,6 +2258,7 @@ describe("add command", () => {
 
       expect(mockComputeIncomingFiles).toHaveBeenCalledWith({
         type: "plugin",
+        sourceDir: CLONE_RESULT.tempDir,
         assetDirs: ["skills", "agents"],
         agents: [{ id: "claude", driver: FAKE_DRIVER }],
       });
