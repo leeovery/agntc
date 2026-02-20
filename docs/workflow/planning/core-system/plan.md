@@ -15,7 +15,7 @@ author_gate_mode: auto
 finding_gate_mode: auto
 review_cycle: 4
 planning:
-  phase: 7
+  phase: 8
   task: ~
 ---
 
@@ -241,3 +241,18 @@ ext_id: tick-d00910
 | cs-7-4 | Extract shared readDirEntries utility | none | authored | tick-56138f |
 | cs-7-5 | Consolidate findDroppedAgents as complement of computeEffectiveAgents | none | authored | tick-e6bbde |
 | cs-7-6 | Align summary output format with spec | none | authored | tick-72799f |
+
+### Phase 8: Analysis (Cycle 3)
+status: approved
+ext_id: tick-64fe90
+
+**Goal**: Address findings from Analysis (Cycle 3).
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| cs-8-1 | Extract failure-reason mapper and unify update orchestration functions | none | authored | tick-e16f38 |
+| cs-8-2 | Extract local path validation helper | none | authored | tick-90df13 |
+| cs-8-3 | Extract readManifestOrExit helper | none | authored | tick-902b4f |
+| cs-8-4 | Extract errorMessage utility function | none | authored | tick-99a33c |
+| cs-8-5 | Narrow tree URL @ref rejection to path portion only | none | authored | tick-a36a34 |

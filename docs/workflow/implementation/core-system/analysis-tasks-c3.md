@@ -6,7 +6,7 @@ total_proposed: 5
 # Analysis Tasks: Core System (Cycle 3)
 
 ## Task 1: Extract failure-reason mapper and unify update orchestration functions
-status: pending
+status: approved
 severity: high
 sources: duplication, architecture
 
@@ -39,7 +39,7 @@ sources: duplication, architecture
 - Each failure reason (no-config, no-agents, invalid-type, copy-failed, clone-failed, unknown) produces the same error messages/behavior as before
 
 ## Task 2: Extract local path validation helper
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -70,7 +70,7 @@ sources: duplication
 - validateLocalSourcePath returns valid:false for file paths (not directories)
 
 ## Task 3: Extract readManifestOrExit helper
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -97,7 +97,7 @@ sources: duplication
 - readManifestOrExit throws ExitSignal(1) when manifest cannot be read
 
 ## Task 4: Extract errorMessage utility function
-status: pending
+status: approved
 severity: low
 sources: duplication
 
@@ -123,7 +123,7 @@ sources: duplication
 - errorMessage returns String(err) for non-Error values
 
 ## Task 5: Narrow tree URL @ref rejection to path portion only
-status: pending
+status: approved
 severity: low
 sources: standards
 
