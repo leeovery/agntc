@@ -213,4 +213,82 @@ describe("selectAgents", () => {
       expect(opt.hint).toBeUndefined();
     }
   });
+
+  describe("two-agent spec examples", () => {
+    beforeEach(() => {
+      mockGetRegisteredAgentIds.mockReturnValue([
+        "claude",
+        "codex",
+      ] as AgentId[]);
+    });
+
+    it("pre-selects both when plugin declares both and user has both", async () => {
+      mockMultiselect.mockResolvedValue(["claude", "codex"] as AgentId[]);
+
+      await selectAgents({
+        declaredAgents: ["claude", "codex"],
+        detectedAgents: ["claude", "codex"],
+      });
+
+      const call = mockMultiselect.mock.calls[0]![0];
+      expect(call.initialValues).toEqual(["claude", "codex"]);
+      // Both declared — no warning hints
+      for (const opt of call.options) {
+        expect(opt.hint).toBeUndefined();
+      }
+    });
+
+    it("pre-selects only claude when plugin declares both but user has only claude", async () => {
+      mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+
+      await selectAgents({
+        declaredAgents: ["claude", "codex"],
+        detectedAgents: ["claude"],
+      });
+
+      const call = mockMultiselect.mock.calls[0]![0];
+      expect(call.initialValues).toEqual(["claude"]);
+      // Both declared — no warning hints even though codex not detected
+      for (const opt of call.options) {
+        expect(opt.hint).toBeUndefined();
+      }
+    });
+
+    it("pre-selects only claude when plugin declares claude-only but user has both", async () => {
+      mockMultiselect.mockResolvedValue(["claude"] as AgentId[]);
+
+      await selectAgents({
+        declaredAgents: ["claude"],
+        detectedAgents: ["claude", "codex"],
+      });
+
+      const call = mockMultiselect.mock.calls[0]![0];
+      expect(call.initialValues).toEqual(["claude"]);
+      // Codex not declared — should have warning hint
+      const codexOption = call.options.find(
+        (o: { value: AgentId }) => o.value === "codex",
+      );
+      expect(codexOption?.hint).toMatch(/not declared/i);
+      // Claude declared — no warning
+      const claudeOption = call.options.find(
+        (o: { value: AgentId }) => o.value === "claude",
+      );
+      expect(claudeOption?.hint).toBeUndefined();
+    });
+
+    it("shows warning on both agents when declaredAgents is empty", async () => {
+      mockMultiselect.mockResolvedValue([] as AgentId[]);
+
+      await selectAgents({
+        declaredAgents: [],
+        detectedAgents: ["claude", "codex"],
+      });
+
+      const call = mockMultiselect.mock.calls[0]![0];
+      expect(call.initialValues).toEqual([]);
+      for (const opt of call.options) {
+        expect(opt.hint).toMatch(/not declared/i);
+      }
+    });
+  });
 });
