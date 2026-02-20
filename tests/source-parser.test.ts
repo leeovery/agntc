@@ -441,6 +441,120 @@ describe("parseSource", () => {
     });
   });
 
+  describe("direct path sources (tree URLs)", () => {
+    it("parses tree URL with branch ref", async () => {
+      const result = await parseSource(
+        "https://github.com/owner/repo/tree/main/plugin-name",
+      );
+      expect(result).toEqual({
+        type: "direct-path",
+        owner: "owner",
+        repo: "repo",
+        ref: "main",
+        targetPlugin: "plugin-name",
+        manifestKey: "owner/repo/plugin-name",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("parses tree URL with tag ref", async () => {
+      const result = await parseSource(
+        "https://github.com/owner/repo/tree/v2.0/my-plugin",
+      );
+      expect(result).toEqual({
+        type: "direct-path",
+        owner: "owner",
+        repo: "repo",
+        ref: "v2.0",
+        targetPlugin: "my-plugin",
+        manifestKey: "owner/repo/my-plugin",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("parses tree URL with nested plugin path", async () => {
+      const result = await parseSource(
+        "https://github.com/owner/repo/tree/develop/nested/plugin",
+      );
+      expect(result).toEqual({
+        type: "direct-path",
+        owner: "owner",
+        repo: "repo",
+        ref: "develop",
+        targetPlugin: "nested/plugin",
+        manifestKey: "owner/repo/nested/plugin",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+
+    it("parses tree URL from non-GitHub host", async () => {
+      const result = await parseSource(
+        "https://gitlab.com/org/project/tree/main/my-skill",
+      );
+      expect(result).toEqual({
+        type: "direct-path",
+        owner: "org",
+        repo: "project",
+        ref: "main",
+        targetPlugin: "my-skill",
+        manifestKey: "org/project/my-skill",
+        cloneUrl: "https://gitlab.com/org/project.git",
+      });
+    });
+
+    it("parses tree URL from self-hosted git host", async () => {
+      const result = await parseSource(
+        "https://git.mycompany.com/team/tools/tree/main/helper",
+      );
+      expect(result).toEqual({
+        type: "direct-path",
+        owner: "team",
+        repo: "tools",
+        ref: "main",
+        targetPlugin: "helper",
+        manifestKey: "team/tools/helper",
+        cloneUrl: "https://git.mycompany.com/team/tools.git",
+      });
+    });
+
+    it("throws for @ref suffix on tree URL", async () => {
+      await expect(
+        parseSource("https://github.com/owner/repo/tree/main/plugin@v1.0"),
+      ).rejects.toThrow(/tree URLs cannot have @ref suffix/);
+    });
+
+    it("throws for tree URL missing plugin path after ref", async () => {
+      await expect(
+        parseSource("https://github.com/owner/repo/tree/main"),
+      ).rejects.toThrow(
+        /invalid tree URL: missing plugin path after ref/,
+      );
+    });
+
+    it("throws for tree URL missing ref and plugin", async () => {
+      await expect(
+        parseSource("https://github.com/owner/repo/tree/"),
+      ).rejects.toThrow(
+        /invalid tree URL: missing ref and plugin path/,
+      );
+    });
+
+    it("trims whitespace from tree URL input", async () => {
+      const result = await parseSource(
+        "  https://github.com/owner/repo/tree/main/plugin-name  ",
+      );
+      expect(result).toEqual({
+        type: "direct-path",
+        owner: "owner",
+        repo: "repo",
+        ref: "main",
+        targetPlugin: "plugin-name",
+        manifestKey: "owner/repo/plugin-name",
+        cloneUrl: "https://github.com/owner/repo.git",
+      });
+    });
+  });
+
   describe("local path sources", () => {
     let testDir: string;
 

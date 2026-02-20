@@ -212,16 +212,27 @@ async function runCollectionPipeline(
   // 1. Read manifest
   const manifest = await readManifest(projectDir);
 
-  // 2. Select plugins
-  const selectedPlugins = await selectCollectionPlugins({
-    plugins: detected.plugins,
-    manifest,
-    manifestKeyPrefix: parsed.manifestKey,
-  });
+  // 2. Select plugins (or use targetPlugin for direct-path)
+  let selectedPlugins: string[];
 
-  if (selectedPlugins.length === 0) {
-    p.cancel("Cancelled — no plugins selected");
-    throw new ExitSignal(0);
+  if (parsed.type === "direct-path") {
+    if (!detected.plugins.includes(parsed.targetPlugin)) {
+      throw new Error(
+        `Plugin "${parsed.targetPlugin}" not found in collection. Available: ${detected.plugins.join(", ")}`,
+      );
+    }
+    selectedPlugins = [parsed.targetPlugin];
+  } else {
+    selectedPlugins = await selectCollectionPlugins({
+      plugins: detected.plugins,
+      manifest,
+      manifestKeyPrefix: parsed.manifestKey,
+    });
+
+    if (selectedPlugins.length === 0) {
+      p.cancel("Cancelled — no plugins selected");
+      throw new ExitSignal(0);
+    }
   }
 
   // 3. Read configs for all selected plugins, collect union of declared agents
@@ -303,7 +314,10 @@ async function runCollectionPipeline(
       }
 
       // Nuke existing files if reinstalling this plugin
-      const pluginManifestKey = `${parsed.manifestKey}/${pluginName}`;
+      const pluginManifestKey =
+        parsed.type === "direct-path"
+          ? parsed.manifestKey
+          : `${parsed.manifestKey}/${pluginName}`;
       const existingPluginEntry = manifest[pluginManifestKey];
       if (existingPluginEntry) {
         try {
@@ -354,7 +368,10 @@ async function runCollectionPipeline(
   let updatedManifest: Manifest = manifest;
   for (const result of results) {
     if (result.status !== "installed") continue;
-    const manifestKey = `${parsed.manifestKey}/${result.pluginName}`;
+    const manifestKey =
+      parsed.type === "direct-path"
+        ? parsed.manifestKey
+        : `${parsed.manifestKey}/${result.pluginName}`;
     const entry = {
       ref: parsed.ref,
       commit: cloneResult.commit,

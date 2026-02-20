@@ -51,7 +51,7 @@ function delay(ms: number): Promise<void> {
 }
 
 function resolveCloneUrl(parsed: ParsedSource): string {
-  if (parsed.type === "https-url" || parsed.type === "ssh-url") {
+  if (parsed.type === "https-url" || parsed.type === "ssh-url" || parsed.type === "direct-path") {
     return parsed.cloneUrl;
   }
   if (parsed.type === "local-path") {

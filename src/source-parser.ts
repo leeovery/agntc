@@ -28,6 +28,16 @@ interface SshUrlSource {
   cloneUrl: string;
 }
 
+interface DirectPathSource {
+  type: "direct-path";
+  owner: string;
+  repo: string;
+  ref: string;
+  targetPlugin: string;
+  manifestKey: string;
+  cloneUrl: string;
+}
+
 interface LocalPathSource {
   type: "local-path";
   resolvedPath: string;
@@ -39,6 +49,7 @@ export type ParsedSource =
   | GitHubShorthandSource
   | HttpsUrlSource
   | SshUrlSource
+  | DirectPathSource
   | LocalPathSource;
 
 function isLocalPath(input: string): boolean {
@@ -64,6 +75,10 @@ export async function parseSource(raw: string): Promise<ParsedSource> {
   }
 
   if (trimmed.startsWith("https://")) {
+    const withoutProtocol = trimmed.slice("https://".length);
+    if (hasTreePath(withoutProtocol)) {
+      return parseDirectPath(trimmed);
+    }
     return parseHttpsUrl(trimmed);
   }
 
@@ -103,6 +118,68 @@ async function parseLocalPath(input: string): Promise<LocalPathSource> {
     resolvedPath,
     ref: null,
     manifestKey: resolvedPath,
+  };
+}
+
+function hasTreePath(withoutProtocol: string): boolean {
+  // Check if the path portion (after the host) contains /tree/
+  const slashIndex = withoutProtocol.indexOf("/");
+  if (slashIndex === -1) return false;
+  const pathPart = withoutProtocol.slice(slashIndex);
+  return pathPart.includes("/tree/") || pathPart.endsWith("/tree/");
+}
+
+function parseDirectPath(input: string): DirectPathSource {
+  // Reject @ref suffix on tree URLs
+  if (input.includes("@")) {
+    throw new Error("tree URLs cannot have @ref suffix");
+  }
+
+  const withoutProtocol = input.slice("https://".length);
+  const slashIndex = withoutProtocol.indexOf("/");
+  const host = withoutProtocol.slice(0, slashIndex);
+  const rawPath = withoutProtocol.slice(slashIndex + 1);
+
+  // Split on /tree/ to get owner/repo prefix and ref/plugin suffix
+  const treeIndex = rawPath.indexOf("/tree/");
+  const ownerRepoPath = rawPath.slice(0, treeIndex);
+  const afterTree = rawPath.slice(treeIndex + "/tree/".length).replace(/\/+$/, "");
+
+  // Parse owner/repo
+  const ownerRepoSegments = ownerRepoPath.split("/").filter((s) => s !== "");
+  if (ownerRepoSegments.length < 2) {
+    throw new Error(
+      `invalid tree URL: expected owner/repo before /tree/, got "${ownerRepoPath}"`,
+    );
+  }
+  const owner = ownerRepoSegments[0]!;
+  const repo = ownerRepoSegments[1]!;
+
+  // Parse ref (first segment) and plugin (rest)
+  const afterTreeSegments = afterTree.split("/").filter((s) => s !== "");
+
+  if (afterTreeSegments.length === 0) {
+    throw new Error("invalid tree URL: missing ref and plugin path");
+  }
+
+  if (afterTreeSegments.length === 1) {
+    throw new Error("invalid tree URL: missing plugin path after ref");
+  }
+
+  const ref = afterTreeSegments[0]!;
+  const targetPlugin = afterTreeSegments.slice(1).join("/");
+
+  const cloneUrl = `https://${host}/${owner}/${repo}.git`;
+  const manifestKey = `${owner}/${repo}/${targetPlugin}`;
+
+  return {
+    type: "direct-path",
+    owner,
+    repo,
+    ref,
+    targetPlugin,
+    manifestKey,
+    cloneUrl,
   };
 }
 

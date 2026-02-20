@@ -1210,6 +1210,129 @@ describe("add command", () => {
     });
   });
 
+  describe("direct-path source (tree URL)", () => {
+    const DIRECT_PATH_PARSED: ParsedSource = {
+      type: "direct-path",
+      owner: "owner",
+      repo: "my-collection",
+      ref: "main",
+      targetPlugin: "pluginA",
+      manifestKey: "owner/my-collection/pluginA",
+      cloneUrl: "https://github.com/owner/my-collection.git",
+    };
+
+    const DIRECT_PATH_CLONE_RESULT: CloneResult = {
+      tempDir: "/tmp/agntc-dp123",
+      commit: "dp123def456",
+    };
+
+    const COLLECTION_DETECTED: DetectedType = {
+      type: "collection",
+      plugins: ["pluginA", "pluginB"],
+    };
+
+    const PLUGIN_A_CONFIG: AgntcConfig = { agents: ["claude"] };
+
+    function setupDirectPath(): void {
+      mockParseSource.mockReturnValue(DIRECT_PATH_PARSED);
+      mockCloneSource.mockResolvedValue(DIRECT_PATH_CLONE_RESULT);
+      mockReadConfig.mockImplementation(async (dir) => {
+        if (dir === DIRECT_PATH_CLONE_RESULT.tempDir) return null;
+        if (dir.endsWith("/pluginA")) return PLUGIN_A_CONFIG;
+        return null;
+      });
+      mockDetectType.mockImplementation(async (dir) => {
+        if (dir === DIRECT_PATH_CLONE_RESULT.tempDir) {
+          return COLLECTION_DETECTED;
+        }
+        return { type: "bare-skill" } as DetectedType;
+      });
+      mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+      mockDetectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockGetDriver.mockReturnValue(FAKE_DRIVER);
+      mockSelectAgents.mockResolvedValue(["claude"] as AgentId[]);
+      mockWriteManifest.mockResolvedValue(undefined);
+      mockCleanupTempDir.mockResolvedValue(undefined);
+      mockAddEntry.mockImplementation((manifest, key, entry) => ({
+        ...manifest,
+        [key]: entry,
+      }));
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/pluginA/"],
+      });
+    }
+
+    it("skips collection multiselect and installs targetPlugin directly", async () => {
+      setupDirectPath();
+
+      await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+      expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+      expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+      expect(mockCopyBareSkill).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceDir: DIRECT_PATH_CLONE_RESULT.tempDir + "/pluginA",
+        }),
+      );
+    });
+
+    it("writes manifest with correct key for direct-path plugin", async () => {
+      setupDirectPath();
+
+      await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        EMPTY_MANIFEST,
+        "owner/my-collection/pluginA",
+        expect.objectContaining({
+          ref: "main",
+          commit: "dp123def456",
+          agents: ["claude"],
+          files: [".claude/skills/pluginA/"],
+        }),
+      );
+    });
+
+    it("throws error when targetPlugin not found in collection", async () => {
+      setupDirectPath();
+      mockDetectType.mockImplementation(async (dir) => {
+        if (dir === DIRECT_PATH_CLONE_RESULT.tempDir) {
+          return {
+            type: "collection",
+            plugins: ["pluginB", "pluginC"],
+          } as DetectedType;
+        }
+        return { type: "bare-skill" } as DetectedType;
+      });
+
+      const err = await runAdd(
+        "https://github.com/owner/my-collection/tree/main/pluginA",
+      ).catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+    });
+
+    it("agent multiselect still shown for direct-path source", async () => {
+      setupDirectPath();
+
+      await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+      expect(mockSelectAgents).toHaveBeenCalledTimes(1);
+    });
+
+    it("cleans up temp dir on success", async () => {
+      setupDirectPath();
+
+      await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+      expect(mockCleanupTempDir).toHaveBeenCalledWith(
+        DIRECT_PATH_CLONE_RESULT.tempDir,
+      );
+    });
+  });
+
   describe("reinstall (nuke before copy)", () => {
     const EXISTING_MANIFEST: Manifest = {
       "owner/my-skill": {
