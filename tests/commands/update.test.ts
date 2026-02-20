@@ -1827,6 +1827,117 @@ describe("update command", () => {
     });
   });
 
+  describe("dropped agent summary includes 'by plugin author'", () => {
+    it("git update summary says 'support removed by plugin author'", async () => {
+      const entry = makeEntry({
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate("owner/repo");
+
+      const summaryCall = mockOutro.mock.calls[0]![0] as string;
+      expect(summaryCall).toContain("codex support removed by plugin author.");
+    });
+
+    it("local update summary says 'support removed by plugin author'", async () => {
+      const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+      const entry: ManifestEntry = {
+        ref: null,
+        commit: null,
+        installedAt: "2026-02-01T00:00:00.000Z",
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: entry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+
+      await runUpdate(LOCAL_KEY);
+
+      const summaryCall = mockOutro.mock.calls[0]![0] as string;
+      expect(summaryCall).toContain("codex support removed by plugin author.");
+    });
+  });
+
+  describe("all-plugins mode dropped agent info in summary", () => {
+    it("git update summary includes dropped agent info", async () => {
+      const entry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
+      });
+      mockReadManifest.mockResolvedValue({ "owner/repo": entry });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-skill/"],
+      });
+
+      await runUpdate();
+
+      const successCalls = mockLog.success.mock.calls.map((c) => c[0] as string);
+      const updatedSummary = successCalls.find((msg) => msg.includes("owner/repo"));
+      expect(updatedSummary).toBeDefined();
+      expect(updatedSummary).toContain("codex support removed by plugin author");
+    });
+
+    it("local update summary includes dropped agent info in all-plugins mode", async () => {
+      const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+      const localEntry: ManifestEntry = {
+        ref: null,
+        commit: null,
+        installedAt: "2026-02-01T00:00:00.000Z",
+        agents: ["claude", "codex"],
+        files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
+      };
+      mockReadManifest.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+      mockCheckForUpdate.mockResolvedValue({ status: "local" });
+      mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/my-plugin/"],
+      });
+
+      await runUpdate();
+
+      const successCalls = mockLog.success.mock.calls.map((c) => c[0] as string);
+      const refreshedSummary = successCalls.find((msg) => msg.includes(LOCAL_KEY));
+      expect(refreshedSummary).toBeDefined();
+      expect(refreshedSummary).toContain("codex support removed by plugin author");
+    });
+  });
+
   describe("manifest read error", () => {
     it("exits 1 on manifest read failure", async () => {
       mockReadManifest.mockRejectedValue(new Error("Permission denied"));

@@ -87,9 +87,9 @@ describe("agntc remove", () => {
 });
 
 describe("agntc update", () => {
-  it("exits non-zero with no key argument", () => {
+  it("exits 0 with no key argument (all-plugins mode)", () => {
     const { exitCode } = run(["update"]);
-    expect(exitCode).not.toBe(0);
+    expect(exitCode).toBe(0);
   });
 });
 

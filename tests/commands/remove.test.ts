@@ -854,4 +854,116 @@ describe("remove command", () => {
       });
     });
   });
+
+  describe("file grouping by type in confirmation display", () => {
+    it("groups files by type with headers", async () => {
+      const manifest: Manifest = {
+        "owner/repo": {
+          ref: "v1.0",
+          commit: "abc123",
+          installedAt: "2026-01-15T10:00:00.000Z",
+          agents: ["claude"],
+          files: [
+            ".claude/skills/planning/",
+            ".claude/skills/review/",
+            ".claude/agents/executor.md",
+            ".claude/hooks/pre-commit.sh",
+          ],
+        },
+      };
+      mockReadManifest.mockResolvedValue(manifest);
+      mockConfirm.mockResolvedValue(true);
+      mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+
+      await runRemove("owner/repo");
+
+      const messageCalls = mockLog.message.mock.calls.map((c) => c[0] as string);
+      const skillsHeaderIdx = messageCalls.findIndex((m) => m.includes("Skills"));
+      const agentsHeaderIdx = messageCalls.findIndex((m) => m.includes("Agents"));
+      const hooksHeaderIdx = messageCalls.findIndex((m) => m.includes("Hooks"));
+
+      expect(skillsHeaderIdx).toBeGreaterThanOrEqual(0);
+      expect(agentsHeaderIdx).toBeGreaterThanOrEqual(0);
+      expect(hooksHeaderIdx).toBeGreaterThanOrEqual(0);
+      expect(skillsHeaderIdx).toBeLessThan(agentsHeaderIdx);
+      expect(agentsHeaderIdx).toBeLessThan(hooksHeaderIdx);
+    });
+
+    it("only shows headers for types that have files", async () => {
+      const manifest: Manifest = {
+        "owner/repo": {
+          ref: "v1.0",
+          commit: "abc123",
+          installedAt: "2026-01-15T10:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/my-skill/"],
+        },
+      };
+      mockReadManifest.mockResolvedValue(manifest);
+      mockConfirm.mockResolvedValue(true);
+      mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+
+      await runRemove("owner/repo");
+
+      const messageCalls = mockLog.message.mock.calls.map((c) => c[0] as string);
+      const hasSkillsHeader = messageCalls.some((m) => m.includes("Skills"));
+      const hasAgentsHeader = messageCalls.some((m) => m.includes("Agents"));
+      const hasHooksHeader = messageCalls.some((m) => m.includes("Hooks"));
+
+      expect(hasSkillsHeader).toBe(true);
+      expect(hasAgentsHeader).toBe(false);
+      expect(hasHooksHeader).toBe(false);
+    });
+  });
+
+  describe("collection remove lists affected plugins", () => {
+    it("lists affected plugin names before file list for collection prefix match", async () => {
+      const manifest: Manifest = {
+        "owner/repo/go": {
+          ref: null,
+          commit: "def456",
+          installedAt: "2026-01-15T10:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/go/"],
+        },
+        "owner/repo/python": {
+          ref: null,
+          commit: "def456",
+          installedAt: "2026-01-15T10:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/python/"],
+        },
+      };
+      mockReadManifest.mockResolvedValue(manifest);
+      mockConfirm.mockResolvedValue(true);
+      mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+
+      await runRemove("owner/repo");
+
+      const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+      const hasGoPlugin = infoCalls.some((m) => m.includes("owner/repo/go"));
+      const hasPythonPlugin = infoCalls.some((m) => m.includes("owner/repo/python"));
+      expect(hasGoPlugin).toBe(true);
+      expect(hasPythonPlugin).toBe(true);
+    });
+
+    it("does not list affected plugins for single exact key match", async () => {
+      const manifest: Manifest = {
+        "owner/repo": {
+          ref: "v1.0",
+          commit: "abc123",
+          installedAt: "2026-01-15T10:00:00.000Z",
+          agents: ["claude"],
+          files: [".claude/skills/my-skill/"],
+        },
+      };
+      mockReadManifest.mockResolvedValue(manifest);
+      mockConfirm.mockResolvedValue(true);
+      mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+
+      await runRemove("owner/repo");
+
+      expect(mockLog.info).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -236,7 +236,7 @@ async function runGitUpdate(
     const newShort = newCommit.slice(0, 7);
     const droppedSuffix =
       droppedAgents.length > 0
-        ? `. ${droppedAgents.join(", ")} support removed.`
+        ? `. ${droppedAgents.join(", ")} support removed by plugin author.`
         : "";
     p.outro(
       `Updated ${key}: ${oldShort} -> ${newShort} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}${droppedSuffix}`,
@@ -365,7 +365,7 @@ async function runLocalUpdate(
 
   const droppedSuffix =
     droppedAgents.length > 0
-      ? `. ${droppedAgents.join(", ")} support removed.`
+      ? `. ${droppedAgents.join(", ")} support removed by plugin author.`
       : "";
   p.outro(
     `Refreshed ${key} — ${copiedFiles.length} file(s) for ${effectiveAgents.join(", ")}${droppedSuffix}`,
@@ -476,10 +476,15 @@ async function processGitUpdateForAll(
       files: copiedFiles,
     };
 
+    const droppedSuffix =
+      droppedAgents.length > 0
+        ? ` — ${droppedAgents.join(", ")} support removed by plugin author`
+        : "";
+
     return {
       status: "updated",
       key,
-      summary: `${key}: Updated ${oldShort} -> ${newShort}`,
+      summary: `${key}: Updated ${oldShort} -> ${newShort}${droppedSuffix}`,
       newEntry,
     };
   } catch (err) {
@@ -605,10 +610,15 @@ async function processLocalUpdateForAll(
       files: copiedFiles,
     };
 
+    const droppedSuffix =
+      droppedAgents.length > 0
+        ? ` — ${droppedAgents.join(", ")} support removed by plugin author`
+        : "";
+
     return {
       status: "refreshed",
       key,
-      summary: `${key}: Refreshed from local path`,
+      summary: `${key}: Refreshed from local path${droppedSuffix}`,
       newEntry,
     };
   } catch (err) {
