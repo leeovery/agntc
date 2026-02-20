@@ -1951,4 +1951,153 @@ describe("update command", () => {
       );
     });
   });
+
+  describe("collection prefix matching", () => {
+    it("resolves owner/repo to multiple collection keys and updates each", async () => {
+      const goEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/go/"],
+      });
+      const tsEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/ts/"],
+      });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo/go": goEntry,
+        "owner/repo/ts": tsEntry,
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+
+      // Return distinct copiedFiles per key so we can verify both entries
+      mockCopyBareSkill
+        .mockResolvedValueOnce({ copiedFiles: [".claude/skills/go/"] })
+        .mockResolvedValueOnce({ copiedFiles: [".claude/skills/ts/"] });
+
+      await runUpdate("owner/repo");
+
+      expect(mockCheckForUpdate).toHaveBeenCalledTimes(2);
+      expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/go", goEntry);
+      expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/ts", tsEntry);
+
+      // Manifest should be written once with BOTH updated entries
+      expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+      const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+      expect(writtenManifest["owner/repo/go"]).toEqual(
+        expect.objectContaining({
+          commit: REMOTE_SHA,
+          agents: ["claude"],
+          files: [".claude/skills/go/"],
+        }),
+      );
+      expect(writtenManifest["owner/repo/ts"]).toEqual(
+        expect.objectContaining({
+          commit: REMOTE_SHA,
+          agents: ["claude"],
+          files: [".claude/skills/ts/"],
+        }),
+      );
+    });
+
+    it("resolves owner/repo/plugin-name to exact match", async () => {
+      const goEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/go/"],
+      });
+      const tsEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/ts/"],
+      });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo/go": goEntry,
+        "owner/repo/ts": tsEntry,
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/go/"],
+      });
+
+      await runUpdate("owner/repo/go");
+
+      expect(mockCheckForUpdate).toHaveBeenCalledTimes(1);
+      expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/go", goEntry);
+    });
+
+    it("shows error for nonexistent prefix", async () => {
+      mockReadManifest.mockResolvedValue({
+        "other/plugin": makeEntry(),
+      });
+
+      const err = await runUpdate("nonexistent/repo").catch((e) => e);
+
+      expect(err).toBeInstanceOf(ExitSignal);
+      expect((err as ExitSignal).code).toBe(1);
+      expect(mockLog.error).toHaveBeenCalledWith(
+        "Plugin nonexistent/repo is not installed.",
+      );
+    });
+
+    it("prefers exact match when key exists as both standalone and collection prefix", async () => {
+      const standaloneEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/standalone/"],
+      });
+      const collectionEntry = makeEntry({
+        commit: INSTALLED_SHA,
+        agents: ["claude"],
+        files: [".claude/skills/sub-plugin/"],
+      });
+      mockReadManifest.mockResolvedValue({
+        "owner/repo": standaloneEntry,
+        "owner/repo/sub-plugin": collectionEntry,
+      });
+      mockCheckForUpdate.mockResolvedValue({
+        status: "update-available",
+        remoteCommit: REMOTE_SHA,
+      });
+      mockCloneSource.mockResolvedValue({
+        tempDir: "/tmp/agntc-clone",
+        commit: REMOTE_SHA,
+      });
+      mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+      mockDetectType.mockResolvedValue({
+        type: "bare-skill",
+      } as DetectedType);
+      mockCopyBareSkill.mockResolvedValue({
+        copiedFiles: [".claude/skills/standalone/"],
+      });
+
+      await runUpdate("owner/repo");
+
+      // Should only update the exact match, not the collection entry
+      expect(mockCheckForUpdate).toHaveBeenCalledTimes(1);
+      expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo", standaloneEntry);
+    });
+  });
 });

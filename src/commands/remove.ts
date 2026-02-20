@@ -4,6 +4,7 @@ import { readManifest, writeManifest, type Manifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import { ExitSignal } from "../exit-signal.js";
 import { renderRemoveSummary } from "../summary.js";
+import { resolveTargetKeys } from "../resolve-target-keys.js";
 
 async function selectPluginsInteractive(
   manifest: Manifest,
@@ -27,30 +28,6 @@ async function selectPluginsInteractive(
   }
 
   return result;
-}
-
-function resolveTargetKeys(
-  key: string,
-  manifest: Manifest,
-): string[] {
-  const entries = Object.entries(manifest);
-
-  const exactMatch = manifest[key];
-  if (exactMatch) {
-    return [key];
-  }
-
-  const prefix = `${key}/`;
-  const prefixKeys = entries
-    .filter(([k]) => k.startsWith(prefix))
-    .map(([k]) => k);
-
-  if (prefixKeys.length === 0) {
-    p.log.error(`Plugin ${key} is not installed.`);
-    throw new ExitSignal(1);
-  }
-
-  return prefixKeys;
 }
 
 interface FileGroup {

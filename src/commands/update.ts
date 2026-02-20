@@ -17,6 +17,7 @@ import {
   renderLocalUpdateSummary,
   renderUpdateOutcomeSummary,
 } from "../summary.js";
+import { resolveTargetKeys } from "../resolve-target-keys.js";
 
 type PluginOutcome =
   | { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
@@ -66,25 +67,41 @@ export async function runUpdate(key?: string): Promise<void> {
     throw new ExitSignal(1);
   });
 
-  const entries = Object.entries(manifest);
-
-  if (entries.length === 0) {
+  if (Object.keys(manifest).length === 0) {
     p.outro("No plugins installed.");
     return;
   }
 
-  const entry = manifest[key];
-  if (!entry) {
-    p.log.error(`Plugin ${key} is not installed.`);
-    throw new ExitSignal(1);
+  const targetKeys = resolveTargetKeys(key, manifest);
+
+  let updatedManifest = { ...manifest };
+  let hasChanges = false;
+
+  for (const targetKey of targetKeys) {
+    const entry = manifest[targetKey]!;
+    const newEntry = await runSingleUpdate(targetKey, entry, projectDir);
+    if (newEntry !== null) {
+      updatedManifest = addEntry(updatedManifest, targetKey, newEntry);
+      hasChanges = true;
+    }
   }
 
+  if (hasChanges) {
+    await writeManifest(projectDir, updatedManifest);
+  }
+}
+
+async function runSingleUpdate(
+  key: string,
+  entry: ManifestEntry,
+  projectDir: string,
+): Promise<ManifestEntry | null> {
   // Check for update
   const result = await checkForUpdate(key, entry);
 
   if (result.status === "up-to-date") {
     p.outro(`${key} is already up to date.`);
-    return;
+    return null;
   }
 
   if (result.status === "check-failed") {
@@ -100,24 +117,22 @@ export async function runUpdate(key?: string): Promise<void> {
     }
     const newest = reversed[0]!;
     p.outro(`To upgrade: npx agntc add ${key}@${newest}`);
-    return;
+    return null;
   }
 
   if (result.status === "local") {
-    await runLocalUpdate(key, entry, manifest, projectDir);
-    return;
+    return runLocalUpdate(key, entry, projectDir);
   }
 
   // update-available — proceed with clone-then-nuke pipeline
-  await runGitUpdate(key, entry, manifest, projectDir);
+  return runGitUpdate(key, entry, projectDir);
 }
 
 async function runGitUpdate(
   key: string,
   entry: ManifestEntry,
-  manifest: Manifest,
   projectDir: string,
-): Promise<void> {
+): Promise<ManifestEntry | null> {
   const parsed = buildParsedSource(key, entry);
   let tempDir: string | undefined;
 
@@ -166,17 +181,13 @@ async function runGitUpdate(
         `Plugin ${key} no longer supports any of your installed agents. ` +
           `No update performed. Run npx agntc remove ${key} to clean up.`,
       );
-      return;
+      return null;
     }
 
     if (pipelineResult.status === "invalid-type") {
       p.log.error(`New version of ${key} is not a valid plugin — aborting.`);
       throw new ExitSignal(1);
     }
-
-    // Update manifest
-    const updated = addEntry(manifest, key, pipelineResult.entry);
-    await writeManifest(projectDir, updated);
 
     // Summary
     p.outro(
@@ -189,6 +200,8 @@ async function runGitUpdate(
         droppedAgents: pipelineResult.droppedAgents,
       }),
     );
+
+    return pipelineResult.entry;
   } catch (err) {
     if (err instanceof ExitSignal) {
       throw err;
@@ -228,9 +241,8 @@ async function validateLocalPath(sourcePath: string): Promise<void> {
 async function runLocalUpdate(
   key: string,
   entry: ManifestEntry,
-  manifest: Manifest,
   projectDir: string,
-): Promise<void> {
+): Promise<ManifestEntry | null> {
   const sourcePath = key;
 
   await validateLocalPath(sourcePath);
@@ -264,16 +276,13 @@ async function runLocalUpdate(
       `Plugin ${key} no longer supports any of your installed agents. ` +
         `No update performed. Run npx agntc remove ${key} to clean up.`,
     );
-    return;
+    return null;
   }
 
   if (pipelineResult.status === "invalid-type") {
     p.log.error(`${key} is not a valid plugin — aborting.`);
     throw new ExitSignal(1);
   }
-
-  const updated = addEntry(manifest, key, pipelineResult.entry);
-  await writeManifest(projectDir, updated);
 
   p.outro(
     renderLocalUpdateSummary({
@@ -283,6 +292,8 @@ async function runLocalUpdate(
       droppedAgents: pipelineResult.droppedAgents,
     }),
   );
+
+  return pipelineResult.entry;
 }
 
 // --- All-plugins mode helpers ---
