@@ -355,6 +355,18 @@ async function runCollectionPipeline(
     throw new ExitSignal(0);
   }
 
+  // 4a. Per-plugin agent compatibility warnings
+  for (const [pluginName, pluginConfig] of pluginConfigs) {
+    const declaredSet = new Set(pluginConfig.agents);
+    for (const agent of selectedAgents) {
+      if (!declaredSet.has(agent)) {
+        p.log.warn(
+          `Plugin ${pluginName} does not declare support for ${agent}. Installing at your own risk.`,
+        );
+      }
+    }
+  }
+
   const agents = selectedAgents.map((id) => ({
     id,
     driver: getDriver(id),

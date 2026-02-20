@@ -1206,6 +1206,143 @@ describe("add command", () => {
         expect(outroCall).toMatch(/1 skipped/);
       });
     });
+
+    describe("per-plugin agent compatibility warnings", () => {
+      function setupCollectionWithDifferentAgents(): void {
+        setupCollectionBase();
+        // pluginA declares claude only, pluginB declares codex only
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+          if (dir.endsWith("/pluginA")) return { agents: ["claude"] as AgentId[] };
+          if (dir.endsWith("/pluginB")) return { agents: ["codex"] as AgentId[] };
+          return null;
+        });
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+          return { type: "bare-skill" } as DetectedType;
+        });
+        mockDetectAgents.mockResolvedValue(["claude", "codex"]);
+        mockSelectAgents.mockResolvedValue(["claude", "codex"]);
+        const claudeDriver = {
+          detect: vi.fn().mockResolvedValue(true),
+          getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
+        };
+        const codexDriver = {
+          detect: vi.fn().mockResolvedValue(true),
+          getTargetDir: vi.fn().mockReturnValue(".agents/skills"),
+        };
+        mockGetDriver.mockImplementation((id: AgentId) => {
+          if (id === "claude") return claudeDriver as any;
+          return codexDriver as any;
+        });
+        mockCopyBareSkill
+          .mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/", ".agents/skills/pluginA/"] })
+          .mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/", ".agents/skills/pluginB/"] });
+        mockComputeIncomingFiles.mockReturnValue([]);
+        mockCheckFileCollisions.mockReturnValue(new Map());
+        mockCheckUnmanagedConflicts.mockResolvedValue([]);
+      }
+
+      it("shows unsupported warning for pluginA when codex selected but not declared", async () => {
+        setupCollectionWithDifferentAgents();
+
+        await runAdd("owner/my-collection");
+
+        const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+        expect(warnCalls).toEqual(
+          expect.arrayContaining([
+            expect.stringContaining("pluginA"),
+          ]),
+        );
+        const pluginAWarning = warnCalls.find(
+          (msg) => msg.includes("pluginA") && msg.includes("codex"),
+        );
+        expect(pluginAWarning).toBeDefined();
+        expect(pluginAWarning).toMatch(/does not declare support for/i);
+      });
+
+      it("shows unsupported warning for pluginB when claude selected but not declared", async () => {
+        setupCollectionWithDifferentAgents();
+
+        await runAdd("owner/my-collection");
+
+        const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+        const pluginBWarning = warnCalls.find(
+          (msg) => msg.includes("pluginB") && msg.includes("claude"),
+        );
+        expect(pluginBWarning).toBeDefined();
+        expect(pluginBWarning).toMatch(/does not declare support for/i);
+      });
+
+      it("no warnings when all plugins declare the same agents as selected", async () => {
+        setupCollectionBase();
+        // Both plugins declare claude and codex
+        mockReadConfig.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+          return { agents: ["claude", "codex"] as AgentId[] };
+        });
+        mockDetectType.mockImplementation(async (dir) => {
+          if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+          return { type: "bare-skill" } as DetectedType;
+        });
+        mockDetectAgents.mockResolvedValue(["claude", "codex"]);
+        mockSelectAgents.mockResolvedValue(["claude", "codex"]);
+        const claudeDriver = {
+          detect: vi.fn().mockResolvedValue(true),
+          getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
+        };
+        const codexDriver = {
+          detect: vi.fn().mockResolvedValue(true),
+          getTargetDir: vi.fn().mockReturnValue(".agents/skills"),
+        };
+        mockGetDriver.mockImplementation((id: AgentId) => {
+          if (id === "claude") return claudeDriver as any;
+          return codexDriver as any;
+        });
+        mockCopyBareSkill.mockResolvedValue({
+          copiedFiles: [".claude/skills/pluginA/"],
+        });
+        mockComputeIncomingFiles.mockReturnValue([]);
+        mockCheckFileCollisions.mockReturnValue(new Map());
+        mockCheckUnmanagedConflicts.mockResolvedValue([]);
+
+        await runAdd("owner/my-collection");
+
+        const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+        const compatWarnings = warnCalls.filter((msg) =>
+          msg.includes("does not declare support for"),
+        );
+        expect(compatWarnings).toHaveLength(0);
+      });
+
+      it("installs all selected agents for each plugin regardless of warnings (warn never block)", async () => {
+        setupCollectionWithDifferentAgents();
+
+        await runAdd("owner/my-collection");
+
+        // Both copy calls should receive agents for both claude and codex
+        const copyCalls = mockCopyBareSkill.mock.calls;
+        expect(copyCalls).toHaveLength(2);
+        for (const call of copyCalls) {
+          const agents = call[0].agents;
+          const agentIds = agents.map((a: { id: AgentId }) => a.id);
+          expect(agentIds).toContain("claude");
+          expect(agentIds).toContain("codex");
+        }
+      });
+
+      it("manifest agents field includes all selected agents for each plugin", async () => {
+        setupCollectionWithDifferentAgents();
+
+        await runAdd("owner/my-collection");
+
+        const addEntryCalls = mockAddEntry.mock.calls;
+        for (const call of addEntryCalls) {
+          const entry = call[2];
+          expect(entry.agents).toEqual(["claude", "codex"]);
+        }
+      });
+    });
   });
 
   describe("plugin type", () => {
