@@ -529,6 +529,27 @@ describe("parseSource", () => {
       ).rejects.toThrow(/tree URLs cannot have @ref suffix/);
     });
 
+    it("accepts tree URL with @ in auth portion of hostname", async () => {
+      const result = await parseSource(
+        "https://user@github.com/owner/repo/tree/main/plugin",
+      );
+      expect(result).toEqual({
+        type: "direct-path",
+        owner: "owner",
+        repo: "repo",
+        ref: "main",
+        targetPlugin: "plugin",
+        manifestKey: "owner/repo/plugin",
+        cloneUrl: "https://user@github.com/owner/repo.git",
+      });
+    });
+
+    it("rejects @ in path portion after /tree/ segment", async () => {
+      await expect(
+        parseSource("https://github.com/owner/repo/tree/main/nested/plugin@v2"),
+      ).rejects.toThrow(/tree URLs cannot have @ref suffix/);
+    });
+
     it("throws for tree URL missing plugin path after ref", async () => {
       await expect(
         parseSource("https://github.com/owner/repo/tree/main"),

@@ -131,15 +131,16 @@ function hasTreePath(withoutProtocol: string): boolean {
 }
 
 function parseDirectPath(input: string): DirectPathSource {
-  // Reject @ref suffix on tree URLs
-  if (input.includes("@")) {
-    throw new Error("tree URLs cannot have @ref suffix");
-  }
-
   const withoutProtocol = input.slice("https://".length);
   const slashIndex = withoutProtocol.indexOf("/");
   const host = withoutProtocol.slice(0, slashIndex);
   const rawPath = withoutProtocol.slice(slashIndex + 1);
+
+  // Reject @ref suffix on tree URLs — only check the path after the hostname,
+  // so that authenticated URLs (e.g., https://user@host/...) are not rejected.
+  if (rawPath.includes("@")) {
+    throw new Error("tree URLs cannot have @ref suffix");
+  }
 
   // Split on /tree/ to get owner/repo prefix and ref/plugin suffix
   const treeIndex = rawPath.indexOf("/tree/");
