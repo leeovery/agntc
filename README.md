@@ -27,18 +27,24 @@ Skills and agents are scattered across repos with no standard installation metho
 - **Manual copy** — tedious, no version tracking, easy to forget what came from where
 - **npm postinstall** — tied to Node.js projects, couples plugin lifecycle to package manager
 - **git submodules** — heavyweight, nested repo complexity, merge conflicts
+- **[Vercel skills](https://github.com/vercel-labs/skills)** — skills only, no agents or hooks, telemetry
 
-agntc sits in between: simple `add` command, manifest tracking, multi-agent routing.
+agntc sits in between: simple `add` command, manifest tracking, multi-agent routing, and support for all asset types.
 
 ### Key differences
 
-| | agntc | Manual | npm postinstall | Submodules |
+| | agntc | Vercel skills | Manual | npm postinstall |
 |---|---|---|---|---|
-| Version tracking | Manifest | None | package.json | Git refs |
-| Multi-agent support | Yes | No | No | No |
-| Update command | Yes | No | Rebuild | Pull |
-| Non-Node projects | Yes | Yes | No | Yes |
-| Setup | `npx agntc add` | Copy files | Install package | Clone |
+| Skills | Yes | Yes | Yes | Yes |
+| Agents | Yes | No | Yes | Yes |
+| Hooks | Yes | No | Yes | Yes |
+| Multi-asset plugins | Yes | No | No | No |
+| Collections | Yes | No | No | No |
+| Version tracking | Manifest | Manifest | None | package.json |
+| File-level tracking | Yes | No | No | No |
+| Update command | Yes | Yes | No | Rebuild |
+| Non-Node projects | Yes | Yes | Yes | No |
+| Telemetry | No | Yes | No | No |
 
 ## Install
 
