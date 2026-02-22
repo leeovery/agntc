@@ -11,12 +11,12 @@ spec_commit: 687cd14d57f8e5c2704c60c22274c5a4e9ce2629
 created: 2026-02-22
 updated: 2026-02-22
 external_dependencies: []
-task_list_gate_mode: gated
+task_list_gate_mode: auto
 author_gate_mode: gated
 finding_gate_mode: gated
 planning:
   phase: 1
-  task: ~
+  task: 1
 ---
 
 # Plan: Plugin Authoring
