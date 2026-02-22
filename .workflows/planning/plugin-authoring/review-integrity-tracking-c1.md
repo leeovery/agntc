@@ -242,7 +242,7 @@ On balance, the task is large but not critically so. The real issue is that the 
 
 **Spec Reference**: .workflows/specification/plugin-authoring/specification.md -- Step 5: Scaffold
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: The task is at the boundary of "too large" but splitting it would create a task that's too small (mechanically repeating a pattern). The improved Do section makes the scope explicit enough for an implementer to execute in one cycle.
 
 ---
