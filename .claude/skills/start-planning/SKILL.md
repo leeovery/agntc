@@ -74,11 +74,13 @@ Parse the discovery output to understand:
 
 **From `specifications` section:**
 - `exists` - whether any specifications exist
-- `feature` - list of feature specs (name, status, has_plan, plan_status)
+- `feature` - list of feature specs (name, status, has_plan, plan_status, has_impl, impl_status)
 - `crosscutting` - list of cross-cutting specs (name, status)
 - `counts.feature` - total feature specifications
 - `counts.feature_ready` - feature specs ready for planning (concluded + no plan)
 - `counts.feature_with_plan` - feature specs that already have plans
+- `counts.feature_actionable_with_plan` - specs with plans that are NOT fully implemented
+- `counts.feature_implemented` - specs with `impl_status: completed`
 - `counts.crosscutting` - total cross-cutting specifications
 
 **From `plans` section:**
@@ -108,7 +110,7 @@ No specifications exist yet.
 ```
 Planning Overview
 
-No specifications found in docs/workflow/specification/
+No specifications found in .workflows/specification/
 
 The planning phase requires a concluded specification.
 Run /start-specification first.
@@ -195,7 +197,7 @@ Saving session state so Claude can pick up where it left off if the conversation
 .claude/hooks/workflows/write-session-state.sh \
   "{topic}" \
   "skills/technical-planning/SKILL.md" \
-  "docs/workflow/planning/{topic}/plan.md"
+  ".workflows/planning/{topic}/plan.md"
 ```
 
 Load **[invoke-skill.md](references/invoke-skill.md)** and follow its instructions as written.

@@ -19,7 +19,7 @@ if [ -z "$PROJECT_DIR" ]; then
 fi
 
 if [ -z "$CLAUDE_SESSION_ID" ]; then
-  # No session ID available — silently skip
+  echo "[write-session-state] WARNING: CLAUDE_SESSION_ID not set — session state will not be saved" >&2
   exit 0
 fi
 
@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-SESSIONS_DIR="$PROJECT_DIR/docs/workflow/.cache/sessions"
+SESSIONS_DIR="$PROJECT_DIR/.workflows/.cache/sessions"
 mkdir -p "$SESSIONS_DIR"
 
 SESSION_FILE="$SESSIONS_DIR/${CLAUDE_SESSION_ID}.yaml"

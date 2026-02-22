@@ -107,7 +107,7 @@ No plans exist yet.
 ```
 Review Overview
 
-No plans found in docs/workflow/planning/
+No plans found in .workflows/planning/
 
 The review phase requires a completed implementation based on a plan.
 Run /start-planning first to create a plan, then /start-implementation
@@ -128,7 +128,7 @@ Review Overview
 All {N} implemented plans have been reviewed.
 
 1. {topic:(titlecase)}
-   └─ Review: r{N} ({verdict})
+   └─ Review: x{review_count} — r{latest_review_version} ({latest_review_verdict})
    └─ Synthesis: @if(has_synthesis) completed @else pending @endif
 
 2. ...

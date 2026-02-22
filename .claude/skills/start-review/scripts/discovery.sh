@@ -7,10 +7,10 @@
 
 set -eo pipefail
 
-PLAN_DIR="docs/workflow/planning"
-SPEC_DIR="docs/workflow/specification"
-REVIEW_DIR="docs/workflow/review"
-IMPL_DIR="docs/workflow/implementation"
+PLAN_DIR=".workflows/planning"
+SPEC_DIR=".workflows/specification"
+REVIEW_DIR=".workflows/review"
+IMPL_DIR=".workflows/implementation"
 
 # Helper: Extract a frontmatter field value from a file
 # Usage: extract_field <file> <field_name>
@@ -78,11 +78,30 @@ if [ -d "$PLAN_DIR" ] && [ -n "$(ls -A "$PLAN_DIR" 2>/dev/null)" ]; then
         fi
 
         # Check implementation status
-        impl_tracking="docs/workflow/implementation/${name}/tracking.md"
+        impl_tracking=".workflows/implementation/${name}/tracking.md"
         impl_status="none"
         if [ -f "$impl_tracking" ]; then
             impl_status_val=$(extract_field "$impl_tracking" "status")
             impl_status=${impl_status_val:-"in-progress"}
+        fi
+
+        # Check review status for this plan
+        review_count=0
+        latest_review_version=0
+        latest_review_verdict=""
+        if [ -d "$REVIEW_DIR/$name" ]; then
+            for rdir in "$REVIEW_DIR/$name"/r*/; do
+                [ -d "$rdir" ] || continue
+                [ -f "${rdir}review.md" ] || continue
+                rnum=${rdir##*r}
+                rnum=${rnum%/}
+                review_count=$((review_count + 1))
+                if [ "$rnum" -gt "$latest_review_version" ] 2>/dev/null; then
+                    latest_review_version=$rnum
+                    latest_review_verdict=$(grep -m1 '\*\*QA Verdict\*\*:' "${rdir}review.md" 2>/dev/null | \
+                        sed -E 's/.*\*\*QA Verdict\*\*:[[:space:]]*//' || true)
+                fi
+            done
         fi
 
         echo "    - name: \"$name\""
@@ -96,6 +115,11 @@ if [ -d "$PLAN_DIR" ] && [ -n "$(ls -A "$PLAN_DIR" 2>/dev/null)" ]; then
             echo "      plan_id: \"$plan_id\""
         fi
         echo "      implementation_status: \"$impl_status\""
+        echo "      review_count: $review_count"
+        if [ "$review_count" -gt 0 ]; then
+            echo "      latest_review_version: $latest_review_version"
+            echo "      latest_review_verdict: \"$latest_review_verdict\""
+        fi
 
         plan_count=$((plan_count + 1))
         if [ "$impl_status" != "none" ]; then

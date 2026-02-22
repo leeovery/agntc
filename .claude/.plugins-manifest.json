@@ -1,10 +1,11 @@
 {
   "plugins": {
     "@leeovery/claude-technical-workflows": {
-      "version": "2.1.36",
+      "version": "2.1.41",
       "files": [
         "skills/begin-implementation",
         "skills/begin-planning",
+        "skills/begin-review",
         "skills/continue-feature",
         "skills/link-dependencies",
         "skills/migrate",

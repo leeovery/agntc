@@ -1,6 +1,6 @@
 ---
 name: technical-implementation
-description: "Orchestrate implementation of plans using agent-based TDD workflow with per-task review and approval gate (auto mode available). Use when: (1) Implementing a plan from docs/workflow/planning/{topic}/plan.md, (2) User says 'implement', 'build', or 'code this' with a plan available, (3) Ad hoc coding that should follow TDD and quality standards, (4) Bug fixes or features benefiting from structured implementation. Dispatches executor and reviewer agents per task, commits after review approval."
+description: "Orchestrate implementation of plans using agent-based TDD workflow with per-task review and approval gate (auto mode available). Use when: (1) Implementing a plan from .workflows/planning/{topic}/plan.md, (2) User says 'implement', 'build', or 'code this' with a plan available, (3) Ad hoc coding that should follow TDD and quality standards, (4) Bug fixes or features benefiting from structured implementation. Dispatches executor and reviewer agents per task, commits after review approval."
 user-invocable: false
 ---
 
@@ -36,7 +36,7 @@ Either way: dispatch agents per task — executor implements via TDD, reviewer v
 
 ```
 I need an implementation plan to execute. Could you point me to the plan file
-(e.g., docs/workflow/planning/{topic}/plan.md)?
+(e.g., .workflows/planning/{topic}/plan.md)?
 ```
 
 **STOP.** Wait for user response.
@@ -73,7 +73,7 @@ Context refresh (compaction) summarizes the conversation, losing procedural deta
 
 1. **Re-read this skill file completely.** Do not rely on your summary of it. The full process, steps, and rules must be reloaded.
 2. **Check task progress in the plan** — use the plan adapter's instructions to read the plan's current state. Also read the implementation tracking file and any other working documents for additional context.
-3. **Check `task_gate_mode`, `fix_gate_mode`, `fix_attempts`, and `analysis_cycle`** in the tracking file — if gates are `auto`, the user previously opted out. If `fix_attempts` > 0, you're mid-fix-loop for the current task. If `analysis_cycle` > 0, you've completed analysis cycles — check for findings files on disk (`analysis-*-c{cycle-number}.md` in `{topic}/`) to determine mid-analysis state.
+3. **Check `task_gate_mode`, `fix_gate_mode`, `analysis_gate_mode`, `fix_attempts`, and `analysis_cycle`** in the tracking file — if gates are `auto`, the user previously opted out. If `fix_attempts` > 0, you're mid-fix-loop for the current task. If `analysis_cycle` > 0, you've completed analysis cycles — check for findings files on disk (`analysis-*-c{cycle-number}.md` in `{topic}/`) to determine mid-analysis state.
 4. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
 5. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
 
@@ -101,7 +101,7 @@ Complete ALL setup steps before proceeding.
 
 Load **[environment-setup.md](references/environment-setup.md)** and follow its instructions.
 
-#### If `docs/workflow/environment-setup.md` states "No special setup required"
+#### If `.workflows/environment-setup.md` states "No special setup required"
 
 → Proceed to **Step 2**.
 
@@ -122,7 +122,7 @@ I should follow before implementing?
 
 **STOP.** Wait for user response.
 
-Save their instructions to `docs/workflow/environment-setup.md` (or "No special setup required." if none needed). Commit.
+Save their instructions to `.workflows/environment-setup.md` (or "No special setup required." if none needed). Commit.
 
 → Proceed to **Step 2**.
 
@@ -130,7 +130,7 @@ Save their instructions to `docs/workflow/environment-setup.md` (or "No special 
 
 ## Step 2: Read Plan + Load Plan Adapter
 
-1. Read the plan from the provided location (typically `docs/workflow/planning/{topic}/plan.md`)
+1. Read the plan from the provided location (typically `.workflows/planning/{topic}/plan.md`)
 2. Plans can be stored in various formats. The `format` field in the plan's frontmatter identifies which format this plan uses.
 3. Load the format's per-concern adapter files from `../technical-planning/references/output-formats/{format}/`:
    - **reading.md** — how to read tasks from the plan
@@ -145,15 +145,15 @@ Save their instructions to `docs/workflow/environment-setup.md` (or "No special 
 
 ## Step 3: Initialize Implementation Tracking
 
-#### If `docs/workflow/implementation/{topic}/tracking.md` already exists
+#### If `.workflows/implementation/{topic}/tracking.md` already exists
 
-Reset `task_gate_mode` and `fix_gate_mode` to `gated`, `fix_attempts` to `0`, and `analysis_cycle` to `0` (fresh session = fresh gates/cycles).
+Reset `task_gate_mode`, `fix_gate_mode`, and `analysis_gate_mode` to `gated`, `fix_attempts` to `0`, and `analysis_cycle` to `0` (fresh session = fresh gates/cycles).
 
 → Proceed to **Step 4**.
 
 #### If no tracking file exists
 
-Create `docs/workflow/implementation/{topic}/tracking.md`:
+Create `.workflows/implementation/{topic}/tracking.md`:
 
 ```yaml
 ---
@@ -163,6 +163,7 @@ format: {format from plan}
 status: in-progress
 task_gate_mode: gated
 fix_gate_mode: gated
+analysis_gate_mode: gated
 fix_attempts: 0
 linters: []
 analysis_cycle: 0
@@ -325,27 +326,11 @@ Discuss the user's context. If additional work is needed, route back to **Step 6
 
 #### If yes
 
-Update the tracking file (`docs/workflow/implementation/{topic}/tracking.md`):
+Update the tracking file (`.workflows/implementation/{topic}/tracking.md`):
 - Set `status: completed`
 - Set `completed: YYYY-MM-DD` (use today's actual date)
 - Update `updated` date
 
 Commit: `impl({topic}): complete implementation`
 
----
-
-## References
-
-- **[environment-setup.md](references/environment-setup.md)** — Environment setup before implementation
-- **[linter-setup.md](references/linter-setup.md)** — Linter discovery and configuration
-- **[task-loop.md](references/task-loop.md)** — Task execution loop, task gates, tracking, commits
-- **[analysis-loop.md](references/analysis-loop.md)** — Analysis and refinement cycle
-- **[invoke-executor.md](references/invoke-executor.md)** — How to invoke the executor agent
-- **[invoke-reviewer.md](references/invoke-reviewer.md)** — How to invoke the reviewer agent
-- **[invoke-analysis.md](references/invoke-analysis.md)** — How to invoke analysis agents
-- **[invoke-synthesizer.md](references/invoke-synthesizer.md)** — How to invoke the synthesis agent
-- **[invoke-task-writer.md](references/invoke-task-writer.md)** — How to invoke the task writer agent
-- **[task-normalisation.md](references/task-normalisation.md)** — Normalised task shape for agent invocation
-- **[tdd-workflow.md](references/tdd-workflow.md)** — TDD cycle (passed to executor agent)
-- **[code-quality.md](references/code-quality.md)** — Quality standards (passed to executor agent)
 

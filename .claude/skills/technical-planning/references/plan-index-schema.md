@@ -4,7 +4,7 @@
 
 ---
 
-This file defines the canonical structure for Plan Index Files (`docs/workflow/planning/{topic}/plan.md`). All agents and references that create or update plan index content **must** follow these templates.
+This file defines the canonical structure for Plan Index Files (`.workflows/planning/{topic}/plan.md`). All agents and references that create or update plan index content **must** follow these templates.
 
 ---
 
@@ -15,6 +15,7 @@ This file defines the canonical structure for Plan Index Files (`docs/workflow/p
 topic: {topic-name}
 status: {status}
 format: {chosen-format}
+work_type:
 ext_id:
 specification: ../specification/{topic}/specification.md
 cross_cutting_specs:
@@ -37,6 +38,7 @@ planning:
 | `topic` | Plan creation (Step 1) |
 | `status` | Plan creation → `planning`; conclusion → `concluded` |
 | `format` | Plan creation — user-chosen output format |
+| `work_type` | Plan creation — set by caller if known. Values: `greenfield`, `feature`, `bugfix`. Defaults to `greenfield` when empty. |
 | `ext_id` | First task authored — external identifier for the plan |
 | `specification` | Plan creation — relative path to source specification |
 | `cross_cutting_specs` | Plan creation — relative paths to cross-cutting specs (omit key if none) |
