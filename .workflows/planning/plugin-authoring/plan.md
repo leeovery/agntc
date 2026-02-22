@@ -70,6 +70,15 @@ approved_at: 2026-02-22
 - [ ] Plugin success message: "Done. Add your skills, agents, and hooks."
 - [ ] Collection success message: "Done. Rename `my-plugin/` and duplicate for each plugin in your collection."
 
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| plugin-authoring-2-1 | Scaffold plugin files and directories | agntc.json already exists, skills/ directory already exists, agents/ or hooks/ already exists, SKILL.md already exists inside existing skills/my-skill/ | pending | |
+| plugin-authoring-2-2 | Plugin preview and success message | mixed created and skipped items in preview output | pending | |
+| plugin-authoring-2-3 | Scaffold collection structure | my-plugin/ directory already exists, partial contents inside existing my-plugin/ | pending | |
+| plugin-authoring-2-4 | Collection preview and success message | mixed created and skipped items in preview output | pending | |
+| plugin-authoring-2-5 | End-to-end type routing | cancel at any prompt step exits cleanly for plugin and collection paths | pending | |
+
 ### Phase 3: Pre-check and Reconfigure
 status: approved
 ext_id:
