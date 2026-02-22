@@ -15,7 +15,7 @@ task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: gated
 planning:
-  phase: 2
+  phase: 3
   task: ~
 ---
 
@@ -53,7 +53,7 @@ approved_at: 2026-02-22
 
 ### Phase 2: Plugin and Collection Scaffolding
 status: approved
-ext_id:
+ext_id: tick-1a7ccc
 approved_at: 2026-02-22
 
 **Goal**: Extend the init flow so selecting "Plugin" or "Collection" produces their correct directory structures and starter files, completing all three scaffolding paths specified in the spec.
@@ -73,11 +73,11 @@ approved_at: 2026-02-22
 #### Tasks
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
-| plugin-authoring-2-1 | Scaffold plugin files and directories | agntc.json already exists, skills/ directory already exists, agents/ or hooks/ already exists, SKILL.md already exists inside existing skills/my-skill/ | pending | |
-| plugin-authoring-2-2 | Plugin preview and success message | mixed created and skipped items in preview output | pending | |
-| plugin-authoring-2-3 | Scaffold collection structure | my-plugin/ directory already exists, partial contents inside existing my-plugin/ | pending | |
-| plugin-authoring-2-4 | Collection preview and success message | mixed created and skipped items in preview output | pending | |
-| plugin-authoring-2-5 | End-to-end type routing | cancel at any prompt step exits cleanly for plugin and collection paths | pending | |
+| plugin-authoring-2-1 | Scaffold plugin files and directories | agntc.json already exists, skills/ directory already exists, agents/ or hooks/ already exists, SKILL.md already exists inside existing skills/my-skill/ | authored | tick-e6b318 |
+| plugin-authoring-2-2 | Plugin preview and success message | mixed created and skipped items in preview output | authored | tick-ca0f0a |
+| plugin-authoring-2-3 | Scaffold collection structure | my-plugin/ directory already exists, partial contents inside existing my-plugin/ | authored | tick-640df5 |
+| plugin-authoring-2-4 | Collection preview and success message | mixed created and skipped items in preview output | authored | tick-01d772 |
+| plugin-authoring-2-5 | End-to-end type routing | cancel at any prompt step exits cleanly for plugin and collection paths | authored | tick-d1d22a |
 
 ### Phase 3: Pre-check and Reconfigure
 status: approved
