@@ -1,6 +1,6 @@
 ---
 topic: plugin-authoring
-status: planning
+status: concluded
 format: tick
 work_type: greenfield
 ext_id: tick-5ae939
