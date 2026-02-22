@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-22
 cycle: 2
 phase: Plan Integrity Review
@@ -90,7 +90,7 @@ Add the following Tests sections to each task:
 - "displays correct success message for plugin" -- verify outro contains "Done. Add your skills, agents, and hooks."
 - "displays correct success message for collection" -- verify outro contains "Done. Rename `my-plugin/`..."
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
@@ -122,7 +122,7 @@ Add the following Tests section to task tick-1010d8, after Edge Cases:
 - "works for plugin type scaffold result" -- pass a plugin-shaped result with directories, verify rendering
 - "report entries appear in scaffold processing order" -- pass result with specific ordering, verify output preserves order
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
@@ -143,7 +143,7 @@ Tick title for tick-7a71b4: "Pre-check detection and reconfigure-or-cancel promp
 **Proposed**:
 Update tick title for tick-7a71b4 to: "Pre-check detection, orchestrator wiring, and cancel behavior"
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: The plan.md name was updated as part of cycle 1 fixes to reflect the absorbed orchestrator wiring from removed task 3-2. The tick title was not updated to match.
 
 ---
