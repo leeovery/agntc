@@ -22,8 +22,9 @@ planning:
 # Plan: Plugin Authoring
 
 ### Phase 1: Walking Skeleton -- Skill Scaffolding End-to-End
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-22
 
 **Goal**: A user can run `npx agntc init`, select "Skill" type, select agent(s), confirm, and get `agntc.json` + `SKILL.md` written to disk. This is the thinnest vertical slice through the complete init flow, threading through command registration in `src/cli.ts`, the interactive prompt sequence using `@clack/prompts`, file generation with skip-if-exists logic, and success output.
 
@@ -41,8 +42,9 @@ ext_id:
 - [ ] All tests pass; existing test suite remains green
 
 ### Phase 2: Plugin and Collection Scaffolding
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-22
 
 **Goal**: Extend the init flow so selecting "Plugin" or "Collection" produces their correct directory structures and starter files, completing all three scaffolding paths specified in the spec.
 
@@ -59,8 +61,9 @@ ext_id:
 - [ ] Collection success message: "Done. Rename `my-plugin/` and duplicate for each plugin in your collection."
 
 ### Phase 3: Pre-check and Reconfigure
-status: draft
+status: approved
 ext_id:
+approved_at: 2026-02-22
 
 **Goal**: Detect when `agntc.json` already exists before the prompt flow begins, warn the user, and offer reconfigure-or-cancel. Reconfigure reruns the full init flow and overwrites `agntc.json` with new selections while all other files follow fresh-run skip-if-exists behaviour.
 
