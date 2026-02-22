@@ -41,6 +41,16 @@ approved_at: 2026-02-22
 - [ ] Success message: "Done. Edit `SKILL.md` to define your skill."
 - [ ] All tests pass; existing test suite remains green
 
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| plugin-authoring-1-1 | Register init command with Commander | none | pending | |
+| plugin-authoring-1-2 | Type selection prompt | user cancels at type prompt | pending | |
+| plugin-authoring-1-3 | Agent selection prompt | empty selection rejected, user cancels at agent prompt | pending | |
+| plugin-authoring-1-4 | Preview and confirm prompt | user declines confirmation, user cancels at confirm prompt | pending | |
+| plugin-authoring-1-5 | Scaffold skill files to disk | agntc.json already exists, SKILL.md already exists, both already exist | pending | |
+| plugin-authoring-1-6 | End-to-end init flow orchestration | cancel at any prompt step exits cleanly without writing files | pending | |
+
 ### Phase 2: Plugin and Collection Scaffolding
 status: approved
 ext_id:
