@@ -81,7 +81,7 @@ approved_at: 2026-02-22
 
 ### Phase 3: Pre-check and Reconfigure
 status: approved
-ext_id:
+ext_id: tick-5c139e
 approved_at: 2026-02-22
 
 **Goal**: Detect when `agntc.json` already exists before the prompt flow begins, warn the user, and offer reconfigure-or-cancel. Reconfigure reruns the full init flow and overwrites `agntc.json` with new selections while all other files follow fresh-run skip-if-exists behaviour.
@@ -101,7 +101,7 @@ approved_at: 2026-02-22
 #### Tasks
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
-| plugin-authoring-3-1 | Pre-check detection and reconfigure-or-cancel prompt | agntc.json exists but is empty or malformed, collection directory with no root agntc.json does not trigger pre-check | pending | |
-| plugin-authoring-3-2 | Cancel at pre-check exits cleanly | none | pending | |
-| plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | agntc.json is read-only, other files already exist and are skipped, type changes from skill to plugin on reconfigure | pending | |
-| plugin-authoring-3-4 | Output report distinguishes overwritten from created and skipped | mixed report with overwritten and skipped and created entries in same run | pending | |
+| plugin-authoring-3-1 | Pre-check detection and reconfigure-or-cancel prompt | agntc.json exists but is empty or malformed, collection directory with no root agntc.json does not trigger pre-check | authored | tick-7a71b4 |
+| plugin-authoring-3-2 | Cancel at pre-check exits cleanly | none | authored | tick-df1d66 |
+| plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | agntc.json is read-only, other files already exist and are skipped, type changes from skill to plugin on reconfigure | authored | tick-36fae5 |
+| plugin-authoring-3-4 | Output report distinguishes overwritten from created and skipped | mixed report with overwritten and skipped and created entries in same run | authored | tick-1010d8 |
