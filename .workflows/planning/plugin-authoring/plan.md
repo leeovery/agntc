@@ -97,3 +97,11 @@ approved_at: 2026-02-22
 - [ ] On reconfigure: all files other than `agntc.json` follow fresh-run behaviour (skip if exists, do not overwrite)
 - [ ] Output report correctly distinguishes overwritten files from created and skipped files
 - [ ] Pre-check does not trigger for collection directories (which have no root `agntc.json`)
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| plugin-authoring-3-1 | Pre-check detection and reconfigure-or-cancel prompt | agntc.json exists but is empty or malformed, collection directory with no root agntc.json does not trigger pre-check | pending | |
+| plugin-authoring-3-2 | Cancel at pre-check exits cleanly | none | pending | |
+| plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | agntc.json is read-only, other files already exist and are skipped, type changes from skill to plugin on reconfigure | pending | |
+| plugin-authoring-3-4 | Output report distinguishes overwritten from created and skipped | mixed report with overwritten and skipped and created entries in same run | pending | |
