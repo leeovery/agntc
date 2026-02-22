@@ -53,7 +53,7 @@ Task tick-df1d66 "Cancel at pre-check exits cleanly":
 **Proposed**:
 Remove task tick-df1d66. Its content is absorbed into the updated task 3-1 (see Finding 2).
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: This removal pairs with Finding 2, which updates task 3-1 to absorb the orchestrator wiring and cancel behavior.
 
 ---
