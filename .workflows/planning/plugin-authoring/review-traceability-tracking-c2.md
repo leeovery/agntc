@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-22
 cycle: 2
 phase: Traceability Review
@@ -35,7 +35,7 @@ Task 3-3 includes the edge case "agntc.json is read-only: let error propagate (f
 - For collection reconfigure: my-plugin/agntc.json is overwritten, root remains free of agntc.json
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: The plan table edge case column for this task also lists "agntc.json is read-only" and should be updated to remove it. The remaining two edge cases are reasonable inferences from the spec's reconfigure behavior.
 
 ---
@@ -60,5 +60,5 @@ The plan.md task table for plugin-authoring-3-3 lists "agntc.json is read-only" 
 | plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | other files already exist and are skipped, type changes from skill to plugin on reconfigure | authored | tick-36fae5 |
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Companion fix to Finding 1.

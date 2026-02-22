@@ -14,7 +14,7 @@ external_dependencies: []
 task_list_gate_mode: auto
 author_gate_mode: auto
 finding_gate_mode: auto
-review_cycle: 1
+review_cycle: 2
 planning:
   phase: 3
   task: ~
@@ -103,5 +103,5 @@ approved_at: 2026-02-22
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
 | plugin-authoring-3-1 | Pre-check detection, orchestrator wiring, and cancel behavior | agntc.json exists but is empty or malformed, collection directory with no root agntc.json does not trigger pre-check, cancel at pre-check exits without writing files | authored | tick-7a71b4 |
-| plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | agntc.json is read-only, other files already exist and are skipped, type changes from skill to plugin on reconfigure | authored | tick-36fae5 |
+| plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | other files already exist and are skipped, type changes from skill to plugin on reconfigure | authored | tick-36fae5 |
 | plugin-authoring-3-4 | Output report distinguishes overwritten from created and skipped | mixed report with overwritten and skipped and created entries in same run | authored | tick-1010d8 |
