@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-22
 cycle: 1
 phase: Plan Integrity Review
@@ -289,7 +289,7 @@ Task 1-4's Do section says "Plugin and Collection file lists will be added in Ph
 - "preview message includes 'This will create:'" -- verify the displayed text
 - "throws for plugin type" -- call with type "plugin", verify it throws (placeholder until Phase 2)
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Minor but improves implementation clarity. The orchestrator in task 1-6 already guards against plugin/collection types with a "coming soon" exit, so this throw would only fire if the guard is bypassed.
 
 ---
@@ -321,5 +321,5 @@ If Finding 1 (remove task 3-2) is accepted, the Phase 3 task table in plan.md ne
 | plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | agntc.json is read-only, other files already exist and are skipped, type changes from skill to plugin on reconfigure | authored | tick-36fae5 |
 | plugin-authoring-3-4 | Output report distinguishes overwritten from created and skipped | mixed report with overwritten and skipped and created entries in same run | authored | tick-1010d8 |
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: Depends on Finding 1 being accepted. If Finding 1 is rejected, this finding should also be rejected.
