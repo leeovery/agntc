@@ -3,7 +3,7 @@ topic: plugin-authoring
 status: planning
 format: tick
 work_type: greenfield
-ext_id:
+ext_id: tick-5ae939
 specification: ../../specification/plugin-authoring/specification.md
 cross_cutting_specs:
   - ../../specification/naming-and-identity/specification.md
@@ -12,18 +12,18 @@ created: 2026-02-22
 updated: 2026-02-22
 external_dependencies: []
 task_list_gate_mode: auto
-author_gate_mode: gated
+author_gate_mode: auto
 finding_gate_mode: gated
 planning:
-  phase: 1
-  task: 1
+  phase: 2
+  task: ~
 ---
 
 # Plan: Plugin Authoring
 
 ### Phase 1: Walking Skeleton -- Skill Scaffolding End-to-End
 status: approved
-ext_id:
+ext_id: tick-e2964f
 approved_at: 2026-02-22
 
 **Goal**: A user can run `npx agntc init`, select "Skill" type, select agent(s), confirm, and get `agntc.json` + `SKILL.md` written to disk. This is the thinnest vertical slice through the complete init flow, threading through command registration in `src/cli.ts`, the interactive prompt sequence using `@clack/prompts`, file generation with skip-if-exists logic, and success output.
@@ -44,12 +44,12 @@ approved_at: 2026-02-22
 #### Tasks
 | ID | Name | Edge Cases | Status | Ext ID |
 |----|------|------------|--------|--------|
-| plugin-authoring-1-1 | Register init command with Commander | none | pending | |
-| plugin-authoring-1-2 | Type selection prompt | user cancels at type prompt | pending | |
-| plugin-authoring-1-3 | Agent selection prompt | empty selection rejected, user cancels at agent prompt | pending | |
-| plugin-authoring-1-4 | Preview and confirm prompt | user declines confirmation, user cancels at confirm prompt | pending | |
-| plugin-authoring-1-5 | Scaffold skill files to disk | agntc.json already exists, SKILL.md already exists, both already exist | pending | |
-| plugin-authoring-1-6 | End-to-end init flow orchestration | cancel at any prompt step exits cleanly without writing files | pending | |
+| plugin-authoring-1-1 | Register init command with Commander | none | authored | tick-4ec897 |
+| plugin-authoring-1-2 | Type selection prompt | user cancels at type prompt | authored | tick-63577c |
+| plugin-authoring-1-3 | Agent selection prompt | empty selection rejected, user cancels at agent prompt | authored | tick-036c2f |
+| plugin-authoring-1-4 | Preview and confirm prompt | user declines confirmation, user cancels at confirm prompt | authored | tick-3bc6b7 |
+| plugin-authoring-1-5 | Scaffold skill files to disk | agntc.json already exists, SKILL.md already exists, both already exist | authored | tick-37bd20 |
+| plugin-authoring-1-6 | End-to-end init flow orchestration | cancel at any prompt step exits cleanly without writing files | authored | tick-3127a5 |
 
 ### Phase 2: Plugin and Collection Scaffolding
 status: approved
