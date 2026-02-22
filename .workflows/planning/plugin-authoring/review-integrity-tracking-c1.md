@@ -151,7 +151,7 @@ Task 3-1 creates the preCheck module but does not wire it into the orchestrator.
 
 **Spec Reference**: .workflows/specification/plugin-authoring/specification.md -- Step 1: Pre-check
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: This update pairs with Finding 1, which removes task 3-2. The plan.md task table for Phase 3 must be updated to remove the plugin-authoring-3-2 row. Phase 3 acceptance criteria remain unchanged since they already cover the cancel behavior.
 
 ---
