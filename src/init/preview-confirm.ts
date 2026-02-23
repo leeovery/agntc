@@ -1,7 +1,7 @@
 import { confirm, isCancel, note } from "@clack/prompts";
 import type { InitType } from "./type-select.js";
 
-const filesByType: Partial<Record<InitType, string[]>> = {
+const filesByType: Record<InitType, string[]> = {
 	skill: ["agntc.json", "SKILL.md"],
 	plugin: [
 		"agntc.json",
@@ -26,10 +26,6 @@ export async function previewAndConfirm(options: {
 	type: InitType;
 }): Promise<boolean> {
 	const files = filesByType[options.type];
-
-	if (!files) {
-		throw new Error(`Init type "${options.type}" is not yet supported`);
-	}
 
 	note(files.map((f) => `  ${f}`).join("\n"), "This will create:");
 
