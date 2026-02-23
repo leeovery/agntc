@@ -77,6 +77,7 @@ describe("runInit", () => {
 		mockScaffoldSkill.mockResolvedValue({
 			created: ["agntc.json", "SKILL.md"],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
@@ -88,7 +89,7 @@ describe("runInit", () => {
 		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
 		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
-			"Done. Edit `SKILL.md` to define your skill.",
+			"agntc.json, SKILL.md\nDone. Edit `SKILL.md` to define your skill.",
 		);
 	});
 
@@ -141,6 +142,7 @@ describe("runInit", () => {
 		mockScaffoldPlugin.mockResolvedValue({
 			created: ["agntc.json", "skills/my-skill/SKILL.md", "agents/", "hooks/"],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
@@ -151,7 +153,7 @@ describe("runInit", () => {
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
-			"Done. Add your skills, agents, and hooks.",
+			"agntc.json, skills/my-skill/SKILL.md, agents/, hooks/\nDone. Add your skills, agents, and hooks.",
 		);
 	});
 
@@ -162,12 +164,13 @@ describe("runInit", () => {
 		mockScaffoldPlugin.mockResolvedValue({
 			created: ["skills/my-skill/SKILL.md", "agents/", "hooks/"],
 			skipped: ["agntc.json"],
+			overwritten: [],
 		});
 
 		await runInit();
 
 		expect(mockOutro).toHaveBeenCalledWith(
-			expect.stringContaining("Skipped (already exists): agntc.json"),
+			expect.stringContaining("agntc.json (already exists)"),
 		);
 		expect(mockOutro).toHaveBeenCalledWith(
 			expect.stringContaining("Done. Add your skills, agents, and hooks."),
@@ -201,6 +204,7 @@ describe("runInit", () => {
 				"my-plugin/hooks/",
 			],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
@@ -211,7 +215,7 @@ describe("runInit", () => {
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
-			"Done. Rename `my-plugin/` and duplicate for each plugin in your collection.",
+			"my-plugin/agntc.json, my-plugin/skills/my-skill/SKILL.md, my-plugin/agents/, my-plugin/hooks/\nDone. Rename `my-plugin/` and duplicate for each plugin in your collection.",
 		);
 	});
 
@@ -237,12 +241,13 @@ describe("runInit", () => {
 		mockScaffoldSkill.mockResolvedValue({
 			created: ["agntc.json"],
 			skipped: ["SKILL.md"],
+			overwritten: [],
 		});
 
 		await runInit();
 
 		expect(mockOutro).toHaveBeenCalledWith(
-			expect.stringContaining("Skipped (already exists): SKILL.md"),
+			expect.stringContaining("SKILL.md (already exists)"),
 		);
 		expect(mockOutro).toHaveBeenCalledWith(
 			expect.stringContaining("Done. Edit `SKILL.md` to define your skill."),
@@ -256,6 +261,7 @@ describe("runInit", () => {
 		mockScaffoldSkill.mockResolvedValue({
 			created: ["agntc.json", "SKILL.md"],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
@@ -273,6 +279,7 @@ describe("runInit", () => {
 		mockScaffoldPlugin.mockResolvedValue({
 			created: ["agntc.json", "skills/my-skill/SKILL.md", "agents/", "hooks/"],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
@@ -295,6 +302,7 @@ describe("runInit", () => {
 				"my-plugin/hooks/",
 			],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
@@ -328,6 +336,7 @@ describe("runInit", () => {
 		mockScaffoldSkill.mockResolvedValue({
 			created: ["agntc.json", "SKILL.md"],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
