@@ -1,6 +1,6 @@
-import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { isCancel, log, select } from "@clack/prompts";
+import { pathExists } from "./scaffold-utils.js";
 
 export type PreCheckResult =
 	| { status: "fresh" }
@@ -10,9 +10,7 @@ export type PreCheckResult =
 export async function preCheck(cwd: string): Promise<PreCheckResult> {
 	const configPath = join(cwd, "agntc.json");
 
-	try {
-		await access(configPath);
-	} catch {
+	if (!(await pathExists(configPath))) {
 		return { status: "fresh" };
 	}
 
