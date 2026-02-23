@@ -60,8 +60,47 @@ describe("previewAndConfirm", () => {
 		expect(result).toBe(false);
 	});
 
-	it("throws for plugin type", async () => {
-		await expect(previewAndConfirm({ type: "plugin" })).rejects.toThrow();
+	it("builds plugin preview lines matching spec tree format", async () => {
+		mockConfirm.mockResolvedValue(true);
+
+		await previewAndConfirm({ type: "plugin" });
+
+		expect(mockNote).toHaveBeenCalledOnce();
+		const message = mockNote.mock.calls[0]![0]!;
+		expect(message).toBe(
+			[
+				"  agntc.json",
+				"  skills/",
+				"    my-skill/",
+				"      SKILL.md",
+				"  agents/",
+				"  hooks/",
+			].join("\n"),
+		);
+	});
+
+	it("plugin preview is shown before confirmation prompt", async () => {
+		mockConfirm.mockResolvedValue(true);
+		const callOrder: string[] = [];
+		mockNote.mockImplementation(() => {
+			callOrder.push("note");
+		});
+		mockConfirm.mockImplementation(() => {
+			callOrder.push("confirm");
+			return Promise.resolve(true);
+		});
+
+		await previewAndConfirm({ type: "plugin" });
+
+		expect(callOrder).toEqual(["note", "confirm"]);
+	});
+
+	it("cancelling plugin confirm returns false", async () => {
+		mockConfirm.mockResolvedValue(Symbol("cancel"));
+
+		const result = await previewAndConfirm({ type: "plugin" });
+
+		expect(result).toBe(false);
 	});
 
 	it("throws for collection type", async () => {

@@ -23,10 +23,15 @@ vi.mock("../../src/init/scaffold-skill.js", () => ({
 	scaffoldSkill: vi.fn(),
 }));
 
+vi.mock("../../src/init/scaffold-plugin.js", () => ({
+	scaffoldPlugin: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { runInit } from "../../src/commands/init.js";
 import { selectInitAgents } from "../../src/init/agent-select.js";
 import { previewAndConfirm } from "../../src/init/preview-confirm.js";
+import { scaffoldPlugin } from "../../src/init/scaffold-plugin.js";
 import { scaffoldSkill } from "../../src/init/scaffold-skill.js";
 import { selectInitType } from "../../src/init/type-select.js";
 
@@ -37,6 +42,7 @@ const mockSelectInitType = vi.mocked(selectInitType);
 const mockSelectInitAgents = vi.mocked(selectInitAgents);
 const mockPreviewAndConfirm = vi.mocked(previewAndConfirm);
 const mockScaffoldSkill = vi.mocked(scaffoldSkill);
+const mockScaffoldPlugin = vi.mocked(scaffoldPlugin);
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -107,17 +113,55 @@ describe("runInit", () => {
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 	});
 
-	it("exits with coming-soon for plugin type", async () => {
+	it("completes plugin scaffolding end-to-end", async () => {
 		mockSelectInitType.mockResolvedValue("plugin");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldPlugin.mockResolvedValue({
+			created: ["agntc.json", "skills/my-skill/SKILL.md", "agents/", "hooks/"],
+			skipped: [],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldPlugin).toHaveBeenCalledWith(expect.any(String), [
+			"claude",
+		]);
+		expect(mockOutro).toHaveBeenCalledWith(
+			"Done. Add your skills, agents, and hooks.",
+		);
+	});
+
+	it("shows plugin success message with skipped files", async () => {
+		mockSelectInitType.mockResolvedValue("plugin");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldPlugin.mockResolvedValue({
+			created: ["skills/my-skill/SKILL.md", "agents/", "hooks/"],
+			skipped: ["agntc.json"],
+		});
+
+		await runInit();
+
+		expect(mockOutro).toHaveBeenCalledWith(
+			expect.stringContaining("Skipped (already exists): agntc.json"),
+		);
+		expect(mockOutro).toHaveBeenCalledWith(
+			expect.stringContaining("Done. Add your skills, agents, and hooks."),
+		);
+	});
+
+	it("exits cleanly when plugin confirmation is declined", async () => {
+		mockSelectInitType.mockResolvedValue("plugin");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(false);
 
 		const error = await runInit().catch((e: unknown) => e);
 
 		expect(error).toBeInstanceOf(ExitSignal);
 		expect((error as ExitSignal).code).toBe(0);
-		expect(mockCancel).toHaveBeenCalledWith(
-			"Plugin and Collection scaffolding coming soon",
-		);
-		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockCancel).toHaveBeenCalledWith("Cancelled");
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
 	});
 
 	it("exits with coming-soon for collection type", async () => {
@@ -128,7 +172,7 @@ describe("runInit", () => {
 		expect(error).toBeInstanceOf(ExitSignal);
 		expect((error as ExitSignal).code).toBe(0);
 		expect(mockCancel).toHaveBeenCalledWith(
-			"Plugin and Collection scaffolding coming soon",
+			"Collection scaffolding coming soon",
 		);
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 	});

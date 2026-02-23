@@ -3,6 +3,14 @@ import type { InitType } from "./type-select.js";
 
 const filesByType: Partial<Record<InitType, string[]>> = {
 	skill: ["agntc.json", "SKILL.md"],
+	plugin: [
+		"agntc.json",
+		"skills/",
+		"  my-skill/",
+		"    SKILL.md",
+		"agents/",
+		"hooks/",
+	],
 };
 
 export async function previewAndConfirm(options: {

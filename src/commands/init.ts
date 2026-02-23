@@ -1,10 +1,17 @@
 import * as p from "@clack/prompts";
 import { Command } from "commander";
+import type { AgentId } from "../drivers/types.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { selectInitAgents } from "../init/agent-select.js";
 import { previewAndConfirm } from "../init/preview-confirm.js";
+import { scaffoldPlugin } from "../init/scaffold-plugin.js";
 import { scaffoldSkill } from "../init/scaffold-skill.js";
 import { selectInitType } from "../init/type-select.js";
+
+const successMessageByType: Record<"skill" | "plugin", string> = {
+	skill: "Done. Edit `SKILL.md` to define your skill.",
+	plugin: "Done. Add your skills, agents, and hooks.",
+};
 
 export async function runInit(): Promise<void> {
 	p.intro("agntc init");
@@ -15,8 +22,8 @@ export async function runInit(): Promise<void> {
 		throw new ExitSignal(0);
 	}
 
-	if (type === "plugin" || type === "collection") {
-		p.cancel("Plugin and Collection scaffolding coming soon");
+	if (type === "collection") {
+		p.cancel("Collection scaffolding coming soon");
 		throw new ExitSignal(0);
 	}
 
@@ -32,7 +39,7 @@ export async function runInit(): Promise<void> {
 		throw new ExitSignal(0);
 	}
 
-	const result = await scaffoldSkill({ agents, targetDir: process.cwd() });
+	const result = await scaffold(type, agents, process.cwd());
 
 	const parts: string[] = [];
 
@@ -41,10 +48,21 @@ export async function runInit(): Promise<void> {
 	}
 
 	if (result.created.length > 0) {
-		parts.push("Done. Edit `SKILL.md` to define your skill.");
+		parts.push(successMessageByType[type]);
 	}
 
 	p.outro(parts.join("\n"));
+}
+
+async function scaffold(
+	type: "skill" | "plugin",
+	agents: AgentId[],
+	targetDir: string,
+): Promise<{ created: string[]; skipped: string[] }> {
+	if (type === "plugin") {
+		return scaffoldPlugin(targetDir, agents);
+	}
+	return scaffoldSkill({ agents, targetDir });
 }
 
 export const initCommand = new Command("init")
