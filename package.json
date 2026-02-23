@@ -1,44 +1,44 @@
 {
-  "name": "agntc",
-  "version": "0.0.0",
-  "description": "Agent skills and knowledge installer for AI coding agents",
-  "keywords": [
-    "agent",
-    "skills",
-    "cli",
-    "ai",
-    "claude",
-    "codex",
-    "cursor"
-  ],
-  "homepage": "https://github.com/leeovery/agntc#readme",
-  "bugs": {
-    "url": "https://github.com/leeovery/agntc/issues"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/leeovery/agntc.git"
-  },
-  "license": "MIT",
-  "author": "Lee Overy",
-  "type": "module",
-  "bin": {
-    "agntc": "dist/cli.js"
-  },
-  "scripts": {
-    "build": "tsup",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@clack/prompts": "^0.11.0",
-    "commander": "^13.1.0"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^2.4.4",
-    "@leeovery/claude-technical-workflows": "^2.1.11",
-    "@types/node": "^25.3.0",
-    "tsup": "^8.4.0",
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.5"
-  }
+	"name": "agntc",
+	"version": "0.0.0",
+	"description": "Agent skills and knowledge installer for AI coding agents",
+	"keywords": [
+		"agent",
+		"skills",
+		"cli",
+		"ai",
+		"claude",
+		"codex",
+		"cursor"
+	],
+	"homepage": "https://github.com/leeovery/agntc#readme",
+	"bugs": {
+		"url": "https://github.com/leeovery/agntc/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/leeovery/agntc.git"
+	},
+	"license": "MIT",
+	"author": "Lee Overy",
+	"type": "module",
+	"bin": {
+		"agntc": "dist/cli.js"
+	},
+	"scripts": {
+		"build": "tsup",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@clack/prompts": "^0.11.0",
+		"commander": "^13.1.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.4",
+		"@leeovery/claude-technical-workflows": "^2.1.11",
+		"@types/node": "^25.3.0",
+		"tsup": "^8.4.0",
+		"typescript": "^5.7.3",
+		"vitest": "^3.0.5"
+	}
 }

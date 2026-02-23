@@ -1,67 +1,67 @@
-import type { ManifestEntry, Manifest } from "../manifest.js";
-import { writeManifest, addEntry } from "../manifest.js";
-import { cloneAndReinstall, buildFailureMessage } from "../clone-reinstall.js";
-import { validateLocalSourcePath } from "../fs-utils.js";
+import { buildFailureMessage, cloneAndReinstall } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
+import { validateLocalSourcePath } from "../fs-utils.js";
+import type { Manifest, ManifestEntry } from "../manifest.js";
+import { addEntry, writeManifest } from "../manifest.js";
 
 export interface UpdateActionResult {
-  success: boolean;
-  newEntry?: ManifestEntry;
-  message: string;
+	success: boolean;
+	newEntry?: ManifestEntry;
+	message: string;
 }
 
 export async function executeUpdateAction(
-  key: string,
-  entry: ManifestEntry,
-  manifest: Manifest,
-  projectDir: string,
+	key: string,
+	entry: ManifestEntry,
+	manifest: Manifest,
+	projectDir: string,
 ): Promise<UpdateActionResult> {
-  return runUpdate(key, entry, manifest, projectDir);
+	return runUpdate(key, entry, manifest, projectDir);
 }
 
 async function runUpdate(
-  key: string,
-  entry: ManifestEntry,
-  manifest: Manifest,
-  projectDir: string,
+	key: string,
+	entry: ManifestEntry,
+	manifest: Manifest,
+	projectDir: string,
 ): Promise<UpdateActionResult> {
-  const isLocal = entry.commit === null;
+	const isLocal = entry.commit === null;
 
-  try {
-    if (isLocal) {
-      const pathResult = await validateLocalSourcePath(key);
-      if (!pathResult.valid) {
-        return {
-          success: false,
-          message: `Path ${key} does not exist or is not a directory`,
-        };
-      }
-    }
+	try {
+		if (isLocal) {
+			const pathResult = await validateLocalSourcePath(key);
+			if (!pathResult.valid) {
+				return {
+					success: false,
+					message: `Path ${key} does not exist or is not a directory`,
+				};
+			}
+		}
 
-    const result = await cloneAndReinstall({
-      key,
-      entry,
-      projectDir,
-      manifest,
-      ...(isLocal ? { sourceDir: key } : {}),
-    });
+		const result = await cloneAndReinstall({
+			key,
+			entry,
+			projectDir,
+			manifest,
+			...(isLocal ? { sourceDir: key } : {}),
+		});
 
-    if (result.status === "failed") {
-      const message = buildFailureMessage(result, key, {
-        isChangeVersion: !isLocal,
-      });
-      return { success: false, message };
-    }
+		if (result.status === "failed") {
+			const message = buildFailureMessage(result, key, {
+				isChangeVersion: !isLocal,
+			});
+			return { success: false, message };
+		}
 
-    const updated = addEntry(manifest, key, result.manifestEntry);
-    await writeManifest(projectDir, updated);
+		const updated = addEntry(manifest, key, result.manifestEntry);
+		await writeManifest(projectDir, updated);
 
-    return {
-      success: true,
-      newEntry: result.manifestEntry,
-      message: isLocal ? `Refreshed ${key}` : `Updated ${key}`,
-    };
-  } catch (err) {
-    return { success: false, message: errorMessage(err) };
-  }
+		return {
+			success: true,
+			newEntry: result.manifestEntry,
+			message: isLocal ? `Refreshed ${key}` : `Updated ${key}`,
+		};
+	} catch (err) {
+		return { success: false, message: errorMessage(err) };
+	}
 }

@@ -1,72 +1,68 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "./drivers/types.js";
-import { isNodeError, errorMessage } from "./errors.js";
+import { errorMessage, isNodeError } from "./errors.js";
 
 export interface AgntcConfig {
-  agents: AgentId[];
+	agents: AgentId[];
 }
 
 export const KNOWN_AGENTS = ["claude", "codex"] as const;
 
 export interface ReadConfigOptions {
-  onWarn?: (message: string) => void;
+	onWarn?: (message: string) => void;
 }
 
 export class ConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ConfigError";
-  }
+	constructor(message: string) {
+		super(message);
+		this.name = "ConfigError";
+	}
 }
 
 export async function readConfig(
-  dir: string,
-  options?: ReadConfigOptions,
+	dir: string,
+	options?: ReadConfigOptions,
 ): Promise<AgntcConfig | null> {
-  const filePath = join(dir, "agntc.json");
+	const filePath = join(dir, "agntc.json");
 
-  let raw: string;
-  try {
-    raw = await readFile(filePath, "utf-8");
-  } catch (err: unknown) {
-    if (isNodeError(err) && err.code === "ENOENT") {
-      return null;
-    }
-    throw err;
-  }
+	let raw: string;
+	try {
+		raw = await readFile(filePath, "utf-8");
+	} catch (err: unknown) {
+		if (isNodeError(err) && err.code === "ENOENT") {
+			return null;
+		}
+		throw err;
+	}
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err: unknown) {
-    throw new ConfigError(`Invalid agntc.json: ${errorMessage(err)}`);
-  }
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch (err: unknown) {
+		throw new ConfigError(`Invalid agntc.json: ${errorMessage(err)}`);
+	}
 
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    !("agents" in parsed)
-  ) {
-    throw new ConfigError("Invalid agntc.json: agents field is required");
-  }
+	if (typeof parsed !== "object" || parsed === null || !("agents" in parsed)) {
+		throw new ConfigError("Invalid agntc.json: agents field is required");
+	}
 
-  const { agents } = parsed as { agents: unknown };
+	const { agents } = parsed as { agents: unknown };
 
-  if (!Array.isArray(agents) || agents.length === 0) {
-    throw new ConfigError("Invalid agntc.json: agents must not be empty");
-  }
+	if (!Array.isArray(agents) || agents.length === 0) {
+		throw new ConfigError("Invalid agntc.json: agents must not be empty");
+	}
 
-  const knownSet = new Set<string>(KNOWN_AGENTS);
-  const filtered: AgentId[] = [];
+	const knownSet = new Set<string>(KNOWN_AGENTS);
+	const filtered: AgentId[] = [];
 
-  for (const agent of agents) {
-    if (typeof agent === "string" && knownSet.has(agent)) {
-      filtered.push(agent as AgentId);
-    } else if (typeof agent === "string") {
-      options?.onWarn?.(`Unknown agent "${agent}" — skipping`);
-    }
-  }
+	for (const agent of agents) {
+		if (typeof agent === "string" && knownSet.has(agent)) {
+			filtered.push(agent as AgentId);
+		} else if (typeof agent === "string") {
+			options?.onWarn?.(`Unknown agent "${agent}" — skipping`);
+		}
+	}
 
-  return { agents: filtered };
+	return { agents: filtered };
 }

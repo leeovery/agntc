@@ -10,32 +10,32 @@ import type { Manifest } from "./manifest.js";
  * @param excludeKey - Manifest key to exclude (for reinstall scenarios)
  */
 export function checkFileCollisions(
-  incomingFiles: string[],
-  manifest: Manifest,
-  excludeKey?: string,
+	incomingFiles: string[],
+	manifest: Manifest,
+	excludeKey?: string,
 ): Map<string, string[]> {
-  const collisions = new Map<string, string[]>();
+	const collisions = new Map<string, string[]>();
 
-  if (incomingFiles.length === 0) {
-    return collisions;
-  }
+	if (incomingFiles.length === 0) {
+		return collisions;
+	}
 
-  const incomingSet = new Set(incomingFiles);
+	const incomingSet = new Set(incomingFiles);
 
-  for (const [key, entry] of Object.entries(manifest)) {
-    if (key === excludeKey) continue;
+	for (const [key, entry] of Object.entries(manifest)) {
+		if (key === excludeKey) continue;
 
-    const overlapping: string[] = [];
-    for (const file of entry.files) {
-      if (incomingSet.has(file)) {
-        overlapping.push(file);
-      }
-    }
+		const overlapping: string[] = [];
+		for (const file of entry.files) {
+			if (incomingSet.has(file)) {
+				overlapping.push(file);
+			}
+		}
 
-    if (overlapping.length > 0) {
-      collisions.set(key, overlapping);
-    }
-  }
+		if (overlapping.length > 0) {
+			collisions.set(key, overlapping);
+		}
+	}
 
-  return collisions;
+	return collisions;
 }

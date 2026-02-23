@@ -13,40 +13,40 @@ import type { Manifest } from "./manifest.js";
  * @returns Array of conflicting relative paths
  */
 export async function checkUnmanagedConflicts(
-  incomingFiles: string[],
-  manifest: Manifest,
-  projectDir: string,
+	incomingFiles: string[],
+	manifest: Manifest,
+	projectDir: string,
 ): Promise<string[]> {
-  if (incomingFiles.length === 0) {
-    return [];
-  }
+	if (incomingFiles.length === 0) {
+		return [];
+	}
 
-  // Collect all tracked files from all manifest entries
-  const trackedFiles = new Set<string>();
-  for (const entry of Object.values(manifest)) {
-    for (const file of entry.files) {
-      trackedFiles.add(file);
-    }
-  }
+	// Collect all tracked files from all manifest entries
+	const trackedFiles = new Set<string>();
+	for (const entry of Object.values(manifest)) {
+		for (const file of entry.files) {
+			trackedFiles.add(file);
+		}
+	}
 
-  const conflicts: string[] = [];
+	const conflicts: string[] = [];
 
-  for (const file of incomingFiles) {
-    // Skip if tracked by manifest
-    if (trackedFiles.has(file)) {
-      continue;
-    }
+	for (const file of incomingFiles) {
+		// Skip if tracked by manifest
+		if (trackedFiles.has(file)) {
+			continue;
+		}
 
-    // Check if it exists on disk
-    const fullPath = join(projectDir, file);
-    try {
-      await stat(fullPath);
-      // Exists and is untracked — conflict
-      conflicts.push(file);
-    } catch {
-      // Does not exist — no conflict
-    }
-  }
+		// Check if it exists on disk
+		const fullPath = join(projectDir, file);
+		try {
+			await stat(fullPath);
+			// Exists and is untracked — conflict
+			conflicts.push(file);
+		} catch {
+			// Does not exist — no conflict
+		}
+	}
 
-  return conflicts;
+	return conflicts;
 }
