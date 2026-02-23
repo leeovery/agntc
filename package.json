@@ -34,6 +34,7 @@
     "commander": "^13.1.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
     "@leeovery/claude-technical-workflows": "^2.1.11",
     "@types/node": "^25.3.0",
     "tsup": "^8.4.0",
