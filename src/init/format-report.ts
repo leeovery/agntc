@@ -1,4 +1,4 @@
-import type { ScaffoldResult } from "./scaffold-skill.js";
+import type { ScaffoldResult } from "./scaffold-utils.js";
 import type { InitType } from "./type-select.js";
 
 const successMessageByType: Record<InitType, string> = {

@@ -1,39 +1,14 @@
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "../drivers/types.js";
-
-export interface ScaffoldPluginResult {
-	created: string[];
-	skipped: string[];
-	overwritten: string[];
-}
-
-const SKILL_MD_TEMPLATE = `---
-name: my-skill
-description: Brief description of what this skill does and when to use it.
----
-
-# My Skill
-
-## Instructions
-
-[Describe what the agent should do when this skill is invoked]
-`;
-
-async function pathExists(path: string): Promise<boolean> {
-	try {
-		await access(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
+import { pathExists, type ScaffoldResult } from "./scaffold-utils.js";
+import { SKILL_MD_TEMPLATE } from "./templates.js";
 
 export async function scaffoldPlugin(
 	dir: string,
 	agents: AgentId[],
 	options?: { reconfigure?: boolean },
-): Promise<ScaffoldPluginResult> {
+): Promise<ScaffoldResult> {
 	const created: string[] = [];
 	const skipped: string[] = [];
 	const overwritten: string[] = [];

@@ -1,33 +1,10 @@
-import { access, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "../drivers/types.js";
+import { pathExists, type ScaffoldResult } from "./scaffold-utils.js";
+import { SKILL_MD_TEMPLATE } from "./templates.js";
 
-export interface ScaffoldResult {
-	created: string[];
-	skipped: string[];
-	overwritten: string[];
-}
-
-const SKILL_MD_TEMPLATE = `---
-name: my-skill
-description: Brief description of what this skill does and when to use it.
----
-
-# My Skill
-
-## Instructions
-
-[Describe what the agent should do when this skill is invoked]
-`;
-
-async function fileExists(path: string): Promise<boolean> {
-	try {
-		await access(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
+export type { ScaffoldResult } from "./scaffold-utils.js";
 
 export async function scaffoldSkill(options: {
 	agents: AgentId[];
@@ -41,7 +18,7 @@ export async function scaffoldSkill(options: {
 	const agntcJsonPath = join(options.targetDir, "agntc.json");
 	const agntcJsonContent = `${JSON.stringify({ agents: options.agents }, null, 2)}\n`;
 
-	if (await fileExists(agntcJsonPath)) {
+	if (await pathExists(agntcJsonPath)) {
 		if (options.reconfigure) {
 			await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
 			overwritten.push("agntc.json");
@@ -54,7 +31,7 @@ export async function scaffoldSkill(options: {
 	}
 
 	const skillMdPath = join(options.targetDir, "SKILL.md");
-	if (await fileExists(skillMdPath)) {
+	if (await pathExists(skillMdPath)) {
 		skipped.push("SKILL.md");
 	} else {
 		await writeFile(skillMdPath, SKILL_MD_TEMPLATE, "utf-8");

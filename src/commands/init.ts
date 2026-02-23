@@ -9,6 +9,7 @@ import { previewAndConfirm } from "../init/preview-confirm.js";
 import { scaffoldCollection } from "../init/scaffold-collection.js";
 import { scaffoldPlugin } from "../init/scaffold-plugin.js";
 import { scaffoldSkill } from "../init/scaffold-skill.js";
+import type { ScaffoldResult } from "../init/scaffold-utils.js";
 import type { InitType } from "../init/type-select.js";
 import { selectInitType } from "../init/type-select.js";
 
@@ -50,7 +51,7 @@ async function scaffold(
 	agents: AgentId[],
 	targetDir: string,
 	reconfigure: boolean,
-): Promise<{ created: string[]; skipped: string[]; overwritten: string[] }> {
+): Promise<ScaffoldResult> {
 	if (reconfigure) {
 		if (type === "collection") {
 			return scaffoldCollection(targetDir, agents, { reconfigure: true });
