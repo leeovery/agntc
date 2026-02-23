@@ -6,7 +6,7 @@ total_proposed: 4
 # Analysis Tasks: Plugin Authoring (Cycle 1)
 
 ## Task 1: Extract shared scaffold utilities (template, pathExists, ScaffoldResult)
-status: pending
+status: approved
 severity: high
 sources: duplication, standards, architecture
 
@@ -42,7 +42,7 @@ sources: duplication, standards, architecture
 ---
 
 ## Task 2: Compose scaffoldCollection with scaffoldPlugin
-status: pending
+status: approved
 severity: medium
 sources: architecture, duplication
 
@@ -80,7 +80,7 @@ sources: architecture, duplication
 ---
 
 ## Task 3: Unify scaffold function signatures
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -110,7 +110,7 @@ sources: architecture
 ---
 
 ## Task 4: Tighten Partial<Record> to Record in preview-confirm
-status: pending
+status: approved
 severity: low
 sources: standards
 

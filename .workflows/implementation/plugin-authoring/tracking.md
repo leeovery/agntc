@@ -5,7 +5,7 @@ format: tick
 status: in-progress
 task_gate_mode: auto
 fix_gate_mode: auto
-analysis_gate_mode: gated
+analysis_gate_mode: auto
 fix_attempts: 0
 linters:
   - name: tsc

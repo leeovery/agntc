@@ -16,7 +16,7 @@ author_gate_mode: auto
 finding_gate_mode: auto
 review_cycle: 3
 planning:
-  phase: 3
+  phase: 4
   task: ~
 ---
 
@@ -105,3 +105,17 @@ approved_at: 2026-02-22
 | plugin-authoring-3-1 | Pre-check detection, orchestrator wiring, and cancel behavior | agntc.json exists but is empty or malformed, collection directory with no root agntc.json does not trigger pre-check, cancel at pre-check exits without writing files | authored | tick-7a71b4 |
 | plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | other files already exist and are skipped, type changes from skill to plugin on reconfigure | authored | tick-36fae5 |
 | plugin-authoring-3-4 | Output report distinguishes overwritten from created and skipped | mixed report with overwritten and skipped and created entries in same run | authored | tick-1010d8 |
+
+### Phase 4: Analysis Refinements
+status: approved
+ext_id: tick-fa5a7a
+
+**Goal**: Address findings from analysis cycle 1 -- extract shared scaffold utilities, compose scaffoldCollection with scaffoldPlugin, unify scaffold function signatures, and tighten types.
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| plugin-authoring-4-1 | Extract shared scaffold utilities (template, pathExists, ScaffoldResult) | none | authored | tick-aae765 |
+| plugin-authoring-4-2 | Compose scaffoldCollection with scaffoldPlugin | reconfigure mode must pass through correctly | authored | tick-a68a2f |
+| plugin-authoring-4-3 | Unify scaffold function signatures | test files need call signature updates | authored | tick-d69180 |
+| plugin-authoring-4-4 | Tighten Partial<Record> to Record in preview-confirm | none | authored | tick-1ec0c0 |
