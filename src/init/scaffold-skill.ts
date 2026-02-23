@@ -5,6 +5,7 @@ import type { AgentId } from "../drivers/types.js";
 export interface ScaffoldResult {
 	created: string[];
 	skipped: string[];
+	overwritten: string[];
 }
 
 const SKILL_MD_TEMPLATE = `---
@@ -31,16 +32,24 @@ async function fileExists(path: string): Promise<boolean> {
 export async function scaffoldSkill(options: {
 	agents: AgentId[];
 	targetDir: string;
+	reconfigure?: boolean;
 }): Promise<ScaffoldResult> {
 	const created: string[] = [];
 	const skipped: string[] = [];
+	const overwritten: string[] = [];
 
 	const agntcJsonPath = join(options.targetDir, "agntc.json");
+	const agntcJsonContent = `${JSON.stringify({ agents: options.agents }, null, 2)}\n`;
+
 	if (await fileExists(agntcJsonPath)) {
-		skipped.push("agntc.json");
+		if (options.reconfigure) {
+			await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
+			overwritten.push("agntc.json");
+		} else {
+			skipped.push("agntc.json");
+		}
 	} else {
-		const content = `${JSON.stringify({ agents: options.agents }, null, 2)}\n`;
-		await writeFile(agntcJsonPath, content, "utf-8");
+		await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
 		created.push("agntc.json");
 	}
 
@@ -52,5 +61,5 @@ export async function scaffoldSkill(options: {
 		created.push("SKILL.md");
 	}
 
-	return { created, skipped };
+	return { created, skipped, overwritten };
 }

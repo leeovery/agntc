@@ -138,4 +138,50 @@ describe("scaffoldPlugin", () => {
 		expect(allItems).toContain("agents/");
 		expect(allItems).toContain("hooks/");
 	});
+
+	it("fresh mode returns empty overwritten array", async () => {
+		const result = await scaffoldPlugin(testDir, ["claude"]);
+
+		expect(result.overwritten).toEqual([]);
+	});
+
+	it("scaffoldPlugin overwrites agntc.json when reconfigure is true", async () => {
+		const original = '{"agents": ["codex"]}\n';
+		await writeFile(join(testDir, "agntc.json"), original);
+
+		await scaffoldPlugin(testDir, ["claude"], { reconfigure: true });
+
+		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
+		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
+	});
+
+	it("scaffoldPlugin skips SKILL.md even in reconfigure mode", async () => {
+		const original = "# Existing skill\n";
+		await writeFile(join(testDir, "agntc.json"), "{}");
+		await mkdir(join(testDir, "skills", "my-skill"), { recursive: true });
+		await writeFile(join(testDir, "skills", "my-skill", "SKILL.md"), original);
+
+		const result = await scaffoldPlugin(testDir, ["claude"], {
+			reconfigure: true,
+		});
+
+		const content = await readFile(
+			join(testDir, "skills", "my-skill", "SKILL.md"),
+			"utf-8",
+		);
+		expect(content).toBe(original);
+		expect(result.skipped).toContain("skills/my-skill/SKILL.md");
+	});
+
+	it("scaffoldPlugin reports agntc.json as overwritten", async () => {
+		await writeFile(join(testDir, "agntc.json"), "{}");
+
+		const result = await scaffoldPlugin(testDir, ["claude"], {
+			reconfigure: true,
+		});
+
+		expect(result.overwritten).toContain("agntc.json");
+		expect(result.created).not.toContain("agntc.json");
+		expect(result.skipped).not.toContain("agntc.json");
+	});
 });

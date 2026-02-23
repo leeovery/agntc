@@ -118,4 +118,60 @@ describe("scaffoldCollection", () => {
 		}
 		expect(allPaths).toHaveLength(4);
 	});
+
+	it("fresh mode returns empty overwritten array", async () => {
+		const result = await scaffoldCollection(testDir, ["claude"]);
+
+		expect(result.overwritten).toEqual([]);
+	});
+
+	it("scaffoldCollection overwrites my-plugin/agntc.json when reconfigure is true", async () => {
+		const original = '{"agents": ["codex"]}\n';
+		await mkdir(join(testDir, "my-plugin"), { recursive: true });
+		await writeFile(join(testDir, "my-plugin", "agntc.json"), original);
+
+		await scaffoldCollection(testDir, ["claude"], { reconfigure: true });
+
+		const content = await readFile(
+			join(testDir, "my-plugin", "agntc.json"),
+			"utf-8",
+		);
+		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
+	});
+
+	it("scaffoldCollection skips SKILL.md even in reconfigure mode", async () => {
+		const original = "# Existing skill\n";
+		await mkdir(join(testDir, "my-plugin", "skills", "my-skill"), {
+			recursive: true,
+		});
+		await writeFile(join(testDir, "my-plugin", "agntc.json"), "{}");
+		await writeFile(
+			join(testDir, "my-plugin", "skills", "my-skill", "SKILL.md"),
+			original,
+		);
+
+		const result = await scaffoldCollection(testDir, ["claude"], {
+			reconfigure: true,
+		});
+
+		const content = await readFile(
+			join(testDir, "my-plugin", "skills", "my-skill", "SKILL.md"),
+			"utf-8",
+		);
+		expect(content).toBe(original);
+		expect(result.skipped).toContain("my-plugin/skills/my-skill/SKILL.md");
+	});
+
+	it("scaffoldCollection reports my-plugin/agntc.json as overwritten", async () => {
+		await mkdir(join(testDir, "my-plugin"), { recursive: true });
+		await writeFile(join(testDir, "my-plugin", "agntc.json"), "{}");
+
+		const result = await scaffoldCollection(testDir, ["claude"], {
+			reconfigure: true,
+		});
+
+		expect(result.overwritten).toContain("my-plugin/agntc.json");
+		expect(result.created).not.toContain("my-plugin/agntc.json");
+		expect(result.skipped).not.toContain("my-plugin/agntc.json");
+	});
 });

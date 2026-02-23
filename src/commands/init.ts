@@ -45,7 +45,8 @@ export async function runInit(): Promise<void> {
 		throw new ExitSignal(0);
 	}
 
-	const result = await scaffold(type, agents, process.cwd());
+	const reconfigure = preCheckResult.status === "reconfigure";
+	const result = await scaffold(type, agents, process.cwd(), reconfigure);
 
 	const parts: string[] = [];
 
@@ -64,7 +65,18 @@ async function scaffold(
 	type: InitType,
 	agents: AgentId[],
 	targetDir: string,
-): Promise<{ created: string[]; skipped: string[] }> {
+	reconfigure: boolean,
+): Promise<{ created: string[]; skipped: string[]; overwritten: string[] }> {
+	if (reconfigure) {
+		if (type === "collection") {
+			return scaffoldCollection(targetDir, agents, { reconfigure: true });
+		}
+		if (type === "plugin") {
+			return scaffoldPlugin(targetDir, agents, { reconfigure: true });
+		}
+		return scaffoldSkill({ agents, targetDir, reconfigure: true });
+	}
+
 	if (type === "collection") {
 		return scaffoldCollection(targetDir, agents);
 	}

@@ -5,6 +5,7 @@ import type { AgentId } from "../drivers/types.js";
 export interface ScaffoldPluginResult {
 	created: string[];
 	skipped: string[];
+	overwritten: string[];
 }
 
 const SKILL_MD_TEMPLATE = `---
@@ -31,16 +32,24 @@ async function pathExists(path: string): Promise<boolean> {
 export async function scaffoldPlugin(
 	dir: string,
 	agents: AgentId[],
+	options?: { reconfigure?: boolean },
 ): Promise<ScaffoldPluginResult> {
 	const created: string[] = [];
 	const skipped: string[] = [];
+	const overwritten: string[] = [];
 
 	const agntcJsonPath = join(dir, "agntc.json");
+	const agntcJsonContent = `${JSON.stringify({ agents }, null, 2)}\n`;
+
 	if (await pathExists(agntcJsonPath)) {
-		skipped.push("agntc.json");
+		if (options?.reconfigure) {
+			await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
+			overwritten.push("agntc.json");
+		} else {
+			skipped.push("agntc.json");
+		}
 	} else {
-		const content = `${JSON.stringify({ agents }, null, 2)}\n`;
-		await writeFile(agntcJsonPath, content, "utf-8");
+		await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
 		created.push("agntc.json");
 	}
 
@@ -69,5 +78,5 @@ export async function scaffoldPlugin(
 		created.push("hooks/");
 	}
 
-	return { created, skipped };
+	return { created, skipped, overwritten };
 }

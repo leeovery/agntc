@@ -346,6 +346,7 @@ describe("runInit", () => {
 		mockScaffoldSkill.mockResolvedValue({
 			created: ["agntc.json", "SKILL.md"],
 			skipped: [],
+			overwritten: [],
 		});
 
 		await runInit();
@@ -354,5 +355,88 @@ describe("runInit", () => {
 		expect(mockSelectInitAgents).toHaveBeenCalled();
 		expect(mockPreviewAndConfirm).toHaveBeenCalled();
 		expect(mockScaffoldSkill).toHaveBeenCalled();
+	});
+
+	it("passes reconfigure true to scaffoldSkill when preCheck returns reconfigure", async () => {
+		mockPreCheck.mockResolvedValue({ status: "reconfigure" });
+		mockSelectInitType.mockResolvedValue("skill");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldSkill.mockResolvedValue({
+			created: [],
+			skipped: ["SKILL.md"],
+			overwritten: ["agntc.json"],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldSkill).toHaveBeenCalledWith({
+			agents: ["claude"],
+			targetDir: expect.any(String),
+			reconfigure: true,
+		});
+	});
+
+	it("passes reconfigure true to scaffoldPlugin when preCheck returns reconfigure", async () => {
+		mockPreCheck.mockResolvedValue({ status: "reconfigure" });
+		mockSelectInitType.mockResolvedValue("plugin");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldPlugin.mockResolvedValue({
+			created: [],
+			skipped: ["skills/my-skill/SKILL.md", "agents/", "hooks/"],
+			overwritten: ["agntc.json"],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldPlugin).toHaveBeenCalledWith(
+			expect.any(String),
+			["claude"],
+			{ reconfigure: true },
+		);
+	});
+
+	it("passes reconfigure true to scaffoldCollection when preCheck returns reconfigure", async () => {
+		mockPreCheck.mockResolvedValue({ status: "reconfigure" });
+		mockSelectInitType.mockResolvedValue("collection");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldCollection.mockResolvedValue({
+			created: [],
+			skipped: [
+				"my-plugin/skills/my-skill/SKILL.md",
+				"my-plugin/agents/",
+				"my-plugin/hooks/",
+			],
+			overwritten: ["my-plugin/agntc.json"],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldCollection).toHaveBeenCalledWith(
+			expect.any(String),
+			["claude"],
+			{ reconfigure: true },
+		);
+	});
+
+	it("does not pass reconfigure to scaffoldSkill when preCheck returns fresh", async () => {
+		mockPreCheck.mockResolvedValue({ status: "fresh" });
+		mockSelectInitType.mockResolvedValue("skill");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldSkill.mockResolvedValue({
+			created: ["agntc.json", "SKILL.md"],
+			skipped: [],
+			overwritten: [],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldSkill).toHaveBeenCalledWith({
+			agents: ["claude"],
+			targetDir: expect.any(String),
+		});
 	});
 });

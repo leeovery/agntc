@@ -112,4 +112,88 @@ describe("scaffoldSkill", () => {
 		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
 		expect(content.endsWith("\n")).toBe(true);
 	});
+
+	it("fresh mode returns empty overwritten array", async () => {
+		const result = await scaffoldSkill({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
+
+		expect(result.overwritten).toEqual([]);
+	});
+
+	it("scaffoldSkill overwrites agntc.json when reconfigure is true", async () => {
+		const original = '{"agents": ["codex"]}\n';
+		await writeFile(join(testDir, "agntc.json"), original);
+
+		await scaffoldSkill({
+			agents: ["claude"],
+			targetDir: testDir,
+			reconfigure: true,
+		});
+
+		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
+		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
+	});
+
+	it("scaffoldSkill skips SKILL.md even in reconfigure mode", async () => {
+		const original = "# Existing skill\n";
+		await writeFile(join(testDir, "agntc.json"), "{}");
+		await writeFile(join(testDir, "SKILL.md"), original);
+
+		const result = await scaffoldSkill({
+			agents: ["claude"],
+			targetDir: testDir,
+			reconfigure: true,
+		});
+
+		const content = await readFile(join(testDir, "SKILL.md"), "utf-8");
+		expect(content).toBe(original);
+		expect(result.skipped).toContain("SKILL.md");
+	});
+
+	it("scaffoldSkill reports agntc.json as overwritten", async () => {
+		await writeFile(join(testDir, "agntc.json"), "{}");
+
+		const result = await scaffoldSkill({
+			agents: ["claude"],
+			targetDir: testDir,
+			reconfigure: true,
+		});
+
+		expect(result.overwritten).toContain("agntc.json");
+		expect(result.created).not.toContain("agntc.json");
+		expect(result.skipped).not.toContain("agntc.json");
+	});
+
+	it("scaffoldSkill in fresh mode is unchanged", async () => {
+		const original = '{"agents": ["codex"]}\n';
+		await writeFile(join(testDir, "agntc.json"), original);
+
+		const result = await scaffoldSkill({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
+
+		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
+		expect(content).toBe(original);
+		expect(result.skipped).toContain("agntc.json");
+		expect(result.overwritten).toEqual([]);
+	});
+
+	it("overwritten agntc.json is full replace not merge", async () => {
+		const original = '{"agents": ["codex"], "extra": true}\n';
+		await writeFile(join(testDir, "agntc.json"), original);
+
+		await scaffoldSkill({
+			agents: ["claude"],
+			targetDir: testDir,
+			reconfigure: true,
+		});
+
+		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
+		const parsed = JSON.parse(content);
+		expect(parsed).toEqual({ agents: ["claude"] });
+		expect(parsed).not.toHaveProperty("extra");
+	});
 });
