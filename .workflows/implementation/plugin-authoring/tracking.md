@@ -4,7 +4,7 @@ plan: ../../planning/plugin-authoring/plan.md
 format: tick
 status: in-progress
 task_gate_mode: auto
-fix_gate_mode: gated
+fix_gate_mode: auto
 analysis_gate_mode: gated
 fix_attempts: 0
 linters:
@@ -18,12 +18,13 @@ project_skills:
   - typescript-expert
   - typescript-pro
 current_phase: 1
-current_task: plugin-authoring-1-4
+current_task: plugin-authoring-1-5
 completed_phases: []
 completed_tasks:
   - plugin-authoring-1-1
   - plugin-authoring-1-2
   - plugin-authoring-1-3
+  - plugin-authoring-1-4
 started: 2026-02-23
 updated: 2026-02-23
 completed: ~
