@@ -1,60 +1,26 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "../drivers/types.js";
-import { pathExists, type ScaffoldResult } from "./scaffold-utils.js";
-import { SKILL_MD_TEMPLATE } from "./templates.js";
+import { scaffoldPlugin } from "./scaffold-plugin.js";
+import type { ScaffoldResult } from "./scaffold-utils.js";
+
+const PREFIX = "my-plugin";
 
 export async function scaffoldCollection(
 	dir: string,
 	agents: AgentId[],
 	options?: { reconfigure?: boolean },
 ): Promise<ScaffoldResult> {
-	const created: string[] = [];
-	const skipped: string[] = [];
-	const overwritten: string[] = [];
-	const pluginDir = join(dir, "my-plugin");
-
+	const pluginDir = join(dir, PREFIX);
 	await mkdir(pluginDir, { recursive: true });
 
-	const agntcJsonPath = join(pluginDir, "agntc.json");
-	const agntcJsonContent = `${JSON.stringify({ agents }, null, 2)}\n`;
+	const result = await scaffoldPlugin(pluginDir, agents, options);
 
-	if (await pathExists(agntcJsonPath)) {
-		if (options?.reconfigure) {
-			await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
-			overwritten.push("my-plugin/agntc.json");
-		} else {
-			skipped.push("my-plugin/agntc.json");
-		}
-	} else {
-		await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
-		created.push("my-plugin/agntc.json");
-	}
+	const prefix = (path: string) => `${PREFIX}/${path}`;
 
-	const skillMdPath = join(pluginDir, "skills", "my-skill", "SKILL.md");
-	if (await pathExists(skillMdPath)) {
-		skipped.push("my-plugin/skills/my-skill/SKILL.md");
-	} else {
-		await mkdir(join(pluginDir, "skills", "my-skill"), { recursive: true });
-		await writeFile(skillMdPath, SKILL_MD_TEMPLATE, "utf-8");
-		created.push("my-plugin/skills/my-skill/SKILL.md");
-	}
-
-	const agentsDir = join(pluginDir, "agents");
-	if (await pathExists(agentsDir)) {
-		skipped.push("my-plugin/agents/");
-	} else {
-		await mkdir(agentsDir, { recursive: true });
-		created.push("my-plugin/agents/");
-	}
-
-	const hooksDir = join(pluginDir, "hooks");
-	if (await pathExists(hooksDir)) {
-		skipped.push("my-plugin/hooks/");
-	} else {
-		await mkdir(hooksDir, { recursive: true });
-		created.push("my-plugin/hooks/");
-	}
-
-	return { created, skipped, overwritten };
+	return {
+		created: result.created.map(prefix),
+		skipped: result.skipped.map(prefix),
+		overwritten: result.overwritten.map(prefix),
+	};
 }
