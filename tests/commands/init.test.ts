@@ -31,9 +31,14 @@ vi.mock("../../src/init/scaffold-collection.js", () => ({
 	scaffoldCollection: vi.fn(),
 }));
 
+vi.mock("../../src/init/pre-check.js", () => ({
+	preCheck: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { runInit } from "../../src/commands/init.js";
 import { selectInitAgents } from "../../src/init/agent-select.js";
+import { preCheck } from "../../src/init/pre-check.js";
 import { previewAndConfirm } from "../../src/init/preview-confirm.js";
 import { scaffoldCollection } from "../../src/init/scaffold-collection.js";
 import { scaffoldPlugin } from "../../src/init/scaffold-plugin.js";
@@ -49,9 +54,11 @@ const mockPreviewAndConfirm = vi.mocked(previewAndConfirm);
 const mockScaffoldSkill = vi.mocked(scaffoldSkill);
 const mockScaffoldPlugin = vi.mocked(scaffoldPlugin);
 const mockScaffoldCollection = vi.mocked(scaffoldCollection);
+const mockPreCheck = vi.mocked(preCheck);
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mockPreCheck.mockResolvedValue({ status: "fresh" });
 });
 
 describe("runInit", () => {
@@ -296,5 +303,56 @@ describe("runInit", () => {
 			"claude",
 			"codex",
 		]);
+	});
+
+	it("orchestrator exits cleanly on cancel", async () => {
+		mockPreCheck.mockResolvedValue({ status: "cancel" });
+
+		const error = await runInit().catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(ExitSignal);
+		expect((error as ExitSignal).code).toBe(0);
+		expect(mockCancel).toHaveBeenCalledWith("Operation cancelled.");
+		expect(mockSelectInitType).not.toHaveBeenCalled();
+		expect(mockSelectInitAgents).not.toHaveBeenCalled();
+		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
+	});
+
+	it("orchestrator proceeds normally on fresh", async () => {
+		mockPreCheck.mockResolvedValue({ status: "fresh" });
+		mockSelectInitType.mockResolvedValue("skill");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldSkill.mockResolvedValue({
+			created: ["agntc.json", "SKILL.md"],
+			skipped: [],
+		});
+
+		await runInit();
+
+		expect(mockSelectInitType).toHaveBeenCalled();
+		expect(mockSelectInitAgents).toHaveBeenCalled();
+		expect(mockPreviewAndConfirm).toHaveBeenCalled();
+		expect(mockScaffoldSkill).toHaveBeenCalled();
+	});
+
+	it("orchestrator proceeds normally on reconfigure", async () => {
+		mockPreCheck.mockResolvedValue({ status: "reconfigure" });
+		mockSelectInitType.mockResolvedValue("skill");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldSkill.mockResolvedValue({
+			created: ["agntc.json", "SKILL.md"],
+			skipped: [],
+		});
+
+		await runInit();
+
+		expect(mockSelectInitType).toHaveBeenCalled();
+		expect(mockSelectInitAgents).toHaveBeenCalled();
+		expect(mockPreviewAndConfirm).toHaveBeenCalled();
+		expect(mockScaffoldSkill).toHaveBeenCalled();
 	});
 });

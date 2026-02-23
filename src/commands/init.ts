@@ -3,6 +3,7 @@ import { Command } from "commander";
 import type { AgentId } from "../drivers/types.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { selectInitAgents } from "../init/agent-select.js";
+import { preCheck } from "../init/pre-check.js";
 import { previewAndConfirm } from "../init/preview-confirm.js";
 import { scaffoldCollection } from "../init/scaffold-collection.js";
 import { scaffoldPlugin } from "../init/scaffold-plugin.js";
@@ -19,6 +20,12 @@ const successMessageByType: Record<InitType, string> = {
 
 export async function runInit(): Promise<void> {
 	p.intro("agntc init");
+
+	const preCheckResult = await preCheck(process.cwd());
+	if (preCheckResult.status === "cancel") {
+		p.cancel("Operation cancelled.");
+		throw new ExitSignal(0);
+	}
 
 	const type = await selectInitType();
 	if (type === null) {
