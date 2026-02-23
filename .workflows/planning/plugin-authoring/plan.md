@@ -16,7 +16,7 @@ author_gate_mode: auto
 finding_gate_mode: auto
 review_cycle: 3
 planning:
-  phase: 4
+  phase: 5
   task: ~
 ---
 
@@ -119,3 +119,16 @@ ext_id: tick-fa5a7a
 | plugin-authoring-4-2 | Compose scaffoldCollection with scaffoldPlugin | reconfigure mode must pass through correctly | authored | tick-a68a2f |
 | plugin-authoring-4-3 | Unify scaffold function signatures | test files need call signature updates | authored | tick-d69180 |
 | plugin-authoring-4-4 | Tighten Partial<Record> to Record in preview-confirm | none | authored | tick-1ec0c0 |
+
+### Phase 5: Analysis Refinements (Cycle 2)
+status: approved
+ext_id: tick-7b1bb7
+
+**Goal**: Address findings from Analysis (Cycle 2).
+
+#### Tasks
+| ID | Name | Edge Cases | Status | Ext ID |
+|----|------|------------|--------|--------|
+| plugin-authoring-5-1 | Extract agntc.json write-or-skip-or-overwrite helper into scaffold-utils | none | authored | tick-fbd2f9 |
+| plugin-authoring-5-2 | Use pathExists from scaffold-utils in pre-check.ts | none | authored | tick-d64cc1 |
+| plugin-authoring-5-3 | Remove allowExcessArguments from init command | none | authored | tick-9a674c |

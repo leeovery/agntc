@@ -6,7 +6,7 @@ total_proposed: 3
 # Analysis Tasks: Plugin Authoring (Cycle 2)
 
 ## Task 1: Extract agntc.json write-or-skip-or-overwrite helper into scaffold-utils
-status: pending
+status: approved
 severity: medium
 sources: duplication, architecture
 
@@ -38,7 +38,7 @@ sources: duplication, architecture
 - Unit test for writeConfigFile: returns `{ path: "agntc.json", status: "overwritten" }` when file exists and reconfigure is true
 
 ## Task 2: Use pathExists from scaffold-utils in pre-check.ts
-status: pending
+status: approved
 severity: low
 sources: duplication, architecture
 
@@ -64,7 +64,7 @@ sources: duplication, architecture
 - Existing pre-check tests continue to pass (fresh directory returns "fresh", existing config triggers reconfigure prompt)
 
 ## Task 3: Remove allowExcessArguments from init command
-status: pending
+status: approved
 severity: medium
 sources: standards
 
