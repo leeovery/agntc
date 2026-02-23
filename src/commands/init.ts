@@ -67,7 +67,6 @@ async function scaffold(
 
 export const initCommand = new Command("init")
 	.description("Scaffold a new agntc plugin")
-	.allowExcessArguments(true)
 	.action(
 		withExitSignal(async () => {
 			await runInit();

@@ -106,9 +106,10 @@ describe("agntc init", () => {
 		expect(exitCode).toBe(0);
 	});
 
-	it("ignores extra arguments", () => {
-		const { exitCode } = run(["init", "extra", "args"]);
-		expect(exitCode).toBe(0);
+	it("rejects extra arguments", () => {
+		const { exitCode, stderr } = run(["init", "extra", "args"]);
+		expect(exitCode).not.toBe(0);
+		expect(stderr).toContain("too many arguments");
 	});
 });
 
