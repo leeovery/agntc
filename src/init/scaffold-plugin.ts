@@ -1,7 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentId } from "../drivers/types.js";
-import { pathExists, type ScaffoldResult } from "./scaffold-utils.js";
+import {
+	pathExists,
+	type ScaffoldResult,
+	writeConfigFile,
+} from "./scaffold-utils.js";
 import { SKILL_MD_TEMPLATE } from "./templates.js";
 
 export async function scaffoldPlugin(options: {
@@ -14,20 +18,10 @@ export async function scaffoldPlugin(options: {
 	const skipped: string[] = [];
 	const overwritten: string[] = [];
 
-	const agntcJsonPath = join(targetDir, "agntc.json");
-	const agntcJsonContent = `${JSON.stringify({ agents }, null, 2)}\n`;
-
-	if (await pathExists(agntcJsonPath)) {
-		if (reconfigure) {
-			await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
-			overwritten.push("agntc.json");
-		} else {
-			skipped.push("agntc.json");
-		}
-	} else {
-		await writeFile(agntcJsonPath, agntcJsonContent, "utf-8");
-		created.push("agntc.json");
-	}
+	const configResult = await writeConfigFile(targetDir, agents, reconfigure);
+	if (configResult.status === "created") created.push(configResult.path);
+	else if (configResult.status === "skipped") skipped.push(configResult.path);
+	else overwritten.push(configResult.path);
 
 	const skillMdPath = join(targetDir, "skills", "my-skill", "SKILL.md");
 	if (await pathExists(skillMdPath)) {

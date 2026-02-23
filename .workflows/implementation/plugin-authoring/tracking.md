@@ -17,8 +17,8 @@ project_skills:
   - typescript-advanced-types
   - typescript-expert
   - typescript-pro
-current_phase: ~
-current_task: ~
+current_phase: 5
+current_task: plugin-authoring-5-1
 completed_phases:
   - 1
   - 2
