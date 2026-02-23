@@ -7,9 +7,16 @@ task_gate_mode: gated
 fix_gate_mode: gated
 analysis_gate_mode: gated
 fix_attempts: 0
-linters: []
+linters:
+  - name: tsc
+    command: npx tsc --noEmit
+  - name: biome
+    command: npx biome check --write
 analysis_cycle: 0
-project_skills: []
+project_skills:
+  - typescript-advanced-types
+  - typescript-expert
+  - typescript-pro
 current_phase: 1
 current_task: ~
 completed_phases: []
