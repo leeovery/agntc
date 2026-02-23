@@ -44,7 +44,7 @@ describe("scaffoldCollection", () => {
 	});
 
 	it("creates my-plugin/ subtree in empty directory", async () => {
-		await scaffoldCollection(testDir, ["claude"]);
+		await scaffoldCollection({ agents: ["claude"], targetDir: testDir });
 
 		expect(await exists(join(testDir, "my-plugin", "agntc.json"))).toBe(true);
 		expect(
@@ -57,13 +57,13 @@ describe("scaffoldCollection", () => {
 	});
 
 	it("does not create root agntc.json", async () => {
-		await scaffoldCollection(testDir, ["claude"]);
+		await scaffoldCollection({ agents: ["claude"], targetDir: testDir });
 
 		expect(await exists(join(testDir, "agntc.json"))).toBe(false);
 	});
 
 	it("my-plugin/agntc.json content matches agent selection", async () => {
-		await scaffoldCollection(testDir, ["claude"]);
+		await scaffoldCollection({ agents: ["claude"], targetDir: testDir });
 
 		const content = await readFile(
 			join(testDir, "my-plugin", "agntc.json"),
@@ -73,7 +73,7 @@ describe("scaffoldCollection", () => {
 	});
 
 	it("my-plugin/skills/my-skill/SKILL.md matches spec template", async () => {
-		await scaffoldCollection(testDir, ["claude"]);
+		await scaffoldCollection({ agents: ["claude"], targetDir: testDir });
 
 		const content = await readFile(
 			join(testDir, "my-plugin", "skills", "my-skill", "SKILL.md"),
@@ -87,7 +87,10 @@ describe("scaffoldCollection", () => {
 		await mkdir(join(testDir, "my-plugin"), { recursive: true });
 		await writeFile(join(testDir, "my-plugin", "agntc.json"), original);
 
-		const result = await scaffoldCollection(testDir, ["claude"]);
+		const result = await scaffoldCollection({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		const content = await readFile(
 			join(testDir, "my-plugin", "agntc.json"),
@@ -101,7 +104,10 @@ describe("scaffoldCollection", () => {
 	it("checks items individually when my-plugin/ already exists", async () => {
 		await mkdir(join(testDir, "my-plugin", "agents"), { recursive: true });
 
-		const result = await scaffoldCollection(testDir, ["claude"]);
+		const result = await scaffoldCollection({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		expect(result.skipped).toContain("my-plugin/agents/");
 		expect(result.created).toContain("my-plugin/agntc.json");
@@ -110,7 +116,10 @@ describe("scaffoldCollection", () => {
 	});
 
 	it("return paths all prefixed with my-plugin/", async () => {
-		const result = await scaffoldCollection(testDir, ["claude"]);
+		const result = await scaffoldCollection({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		const allPaths = [...result.created, ...result.skipped];
 		for (const p of allPaths) {
@@ -120,7 +129,10 @@ describe("scaffoldCollection", () => {
 	});
 
 	it("fresh mode returns empty overwritten array", async () => {
-		const result = await scaffoldCollection(testDir, ["claude"]);
+		const result = await scaffoldCollection({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		expect(result.overwritten).toEqual([]);
 	});
@@ -130,7 +142,11 @@ describe("scaffoldCollection", () => {
 		await mkdir(join(testDir, "my-plugin"), { recursive: true });
 		await writeFile(join(testDir, "my-plugin", "agntc.json"), original);
 
-		await scaffoldCollection(testDir, ["claude"], { reconfigure: true });
+		await scaffoldCollection({
+			agents: ["claude"],
+			targetDir: testDir,
+			reconfigure: true,
+		});
 
 		const content = await readFile(
 			join(testDir, "my-plugin", "agntc.json"),
@@ -150,7 +166,9 @@ describe("scaffoldCollection", () => {
 			original,
 		);
 
-		const result = await scaffoldCollection(testDir, ["claude"], {
+		const result = await scaffoldCollection({
+			agents: ["claude"],
+			targetDir: testDir,
 			reconfigure: true,
 		});
 
@@ -166,7 +184,9 @@ describe("scaffoldCollection", () => {
 		await mkdir(join(testDir, "my-plugin"), { recursive: true });
 		await writeFile(join(testDir, "my-plugin", "agntc.json"), "{}");
 
-		const result = await scaffoldCollection(testDir, ["claude"], {
+		const result = await scaffoldCollection({
+			agents: ["claude"],
+			targetDir: testDir,
 			reconfigure: true,
 		});
 

@@ -44,7 +44,7 @@ describe("scaffoldPlugin", () => {
 	});
 
 	it("creates all four items in empty directory", async () => {
-		await scaffoldPlugin(testDir, ["claude"]);
+		await scaffoldPlugin({ agents: ["claude"], targetDir: testDir });
 
 		expect(await exists(join(testDir, "agntc.json"))).toBe(true);
 		expect(await exists(join(testDir, "skills", "my-skill", "SKILL.md"))).toBe(
@@ -55,14 +55,14 @@ describe("scaffoldPlugin", () => {
 	});
 
 	it("writes agntc.json with selected agents", async () => {
-		await scaffoldPlugin(testDir, ["claude"]);
+		await scaffoldPlugin({ agents: ["claude"], targetDir: testDir });
 
 		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
 		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
 	});
 
 	it("writes SKILL.md with spec template", async () => {
-		await scaffoldPlugin(testDir, ["claude"]);
+		await scaffoldPlugin({ agents: ["claude"], targetDir: testDir });
 
 		const content = await readFile(
 			join(testDir, "skills", "my-skill", "SKILL.md"),
@@ -75,7 +75,10 @@ describe("scaffoldPlugin", () => {
 		const original = '{"agents": ["codex"]}\n';
 		await writeFile(join(testDir, "agntc.json"), original);
 
-		const result = await scaffoldPlugin(testDir, ["claude"]);
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
 		expect(content).toBe(original);
@@ -88,7 +91,10 @@ describe("scaffoldPlugin", () => {
 		await mkdir(join(testDir, "skills", "my-skill"), { recursive: true });
 		await writeFile(join(testDir, "skills", "my-skill", "SKILL.md"), original);
 
-		const result = await scaffoldPlugin(testDir, ["claude"]);
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		const content = await readFile(
 			join(testDir, "skills", "my-skill", "SKILL.md"),
@@ -102,7 +108,10 @@ describe("scaffoldPlugin", () => {
 	it("creates SKILL.md when skills/ exists but SKILL.md does not", async () => {
 		await mkdir(join(testDir, "skills"), { recursive: true });
 
-		const result = await scaffoldPlugin(testDir, ["claude"]);
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		expect(await exists(join(testDir, "skills", "my-skill", "SKILL.md"))).toBe(
 			true,
@@ -113,7 +122,10 @@ describe("scaffoldPlugin", () => {
 	it("skips agents/ when it already exists", async () => {
 		await mkdir(join(testDir, "agents"), { recursive: true });
 
-		const result = await scaffoldPlugin(testDir, ["claude"]);
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		expect(result.skipped).toContain("agents/");
 		expect(result.created).not.toContain("agents/");
@@ -122,14 +134,20 @@ describe("scaffoldPlugin", () => {
 	it("skips hooks/ when it already exists", async () => {
 		await mkdir(join(testDir, "hooks"), { recursive: true });
 
-		const result = await scaffoldPlugin(testDir, ["claude"]);
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		expect(result.skipped).toContain("hooks/");
 		expect(result.created).not.toContain("hooks/");
 	});
 
 	it("created and skipped arrays account for all four items", async () => {
-		const result = await scaffoldPlugin(testDir, ["claude"]);
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		const allItems = [...result.created, ...result.skipped];
 		expect(allItems).toHaveLength(4);
@@ -140,7 +158,10 @@ describe("scaffoldPlugin", () => {
 	});
 
 	it("fresh mode returns empty overwritten array", async () => {
-		const result = await scaffoldPlugin(testDir, ["claude"]);
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+		});
 
 		expect(result.overwritten).toEqual([]);
 	});
@@ -149,7 +170,11 @@ describe("scaffoldPlugin", () => {
 		const original = '{"agents": ["codex"]}\n';
 		await writeFile(join(testDir, "agntc.json"), original);
 
-		await scaffoldPlugin(testDir, ["claude"], { reconfigure: true });
+		await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
+			reconfigure: true,
+		});
 
 		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
 		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
@@ -161,7 +186,9 @@ describe("scaffoldPlugin", () => {
 		await mkdir(join(testDir, "skills", "my-skill"), { recursive: true });
 		await writeFile(join(testDir, "skills", "my-skill", "SKILL.md"), original);
 
-		const result = await scaffoldPlugin(testDir, ["claude"], {
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
 			reconfigure: true,
 		});
 
@@ -176,7 +203,9 @@ describe("scaffoldPlugin", () => {
 	it("scaffoldPlugin reports agntc.json as overwritten", async () => {
 		await writeFile(join(testDir, "agntc.json"), "{}");
 
-		const result = await scaffoldPlugin(testDir, ["claude"], {
+		const result = await scaffoldPlugin({
+			agents: ["claude"],
+			targetDir: testDir,
 			reconfigure: true,
 		});
 

@@ -147,9 +147,10 @@ describe("runInit", () => {
 
 		await runInit();
 
-		expect(mockScaffoldPlugin).toHaveBeenCalledWith(expect.any(String), [
-			"claude",
-		]);
+		expect(mockScaffoldPlugin).toHaveBeenCalledWith({
+			agents: ["claude"],
+			targetDir: expect.any(String),
+		});
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
@@ -209,9 +210,10 @@ describe("runInit", () => {
 
 		await runInit();
 
-		expect(mockScaffoldCollection).toHaveBeenCalledWith(expect.any(String), [
-			"claude",
-		]);
+		expect(mockScaffoldCollection).toHaveBeenCalledWith({
+			agents: ["claude"],
+			targetDir: expect.any(String),
+		});
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
@@ -284,10 +286,10 @@ describe("runInit", () => {
 
 		await runInit();
 
-		expect(mockScaffoldPlugin).toHaveBeenCalledWith(expect.any(String), [
-			"claude",
-			"codex",
-		]);
+		expect(mockScaffoldPlugin).toHaveBeenCalledWith({
+			agents: ["claude", "codex"],
+			targetDir: expect.any(String),
+		});
 	});
 
 	it("passes selected agents to scaffoldCollection", async () => {
@@ -307,10 +309,10 @@ describe("runInit", () => {
 
 		await runInit();
 
-		expect(mockScaffoldCollection).toHaveBeenCalledWith(expect.any(String), [
-			"claude",
-			"codex",
-		]);
+		expect(mockScaffoldCollection).toHaveBeenCalledWith({
+			agents: ["claude", "codex"],
+			targetDir: expect.any(String),
+		});
 	});
 
 	it("orchestrator exits cleanly on cancel", async () => {
@@ -399,11 +401,11 @@ describe("runInit", () => {
 
 		await runInit();
 
-		expect(mockScaffoldPlugin).toHaveBeenCalledWith(
-			expect.any(String),
-			["claude"],
-			{ reconfigure: true },
-		);
+		expect(mockScaffoldPlugin).toHaveBeenCalledWith({
+			agents: ["claude"],
+			targetDir: expect.any(String),
+			reconfigure: true,
+		});
 	});
 
 	it("passes reconfigure true to scaffoldCollection when preCheck returns reconfigure", async () => {
@@ -423,11 +425,11 @@ describe("runInit", () => {
 
 		await runInit();
 
-		expect(mockScaffoldCollection).toHaveBeenCalledWith(
-			expect.any(String),
-			["claude"],
-			{ reconfigure: true },
-		);
+		expect(mockScaffoldCollection).toHaveBeenCalledWith({
+			agents: ["claude"],
+			targetDir: expect.any(String),
+			reconfigure: true,
+		});
 	});
 
 	it("does not pass reconfigure to scaffoldSkill when preCheck returns fresh", async () => {

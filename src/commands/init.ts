@@ -52,23 +52,17 @@ async function scaffold(
 	targetDir: string,
 	reconfigure: boolean,
 ): Promise<ScaffoldResult> {
-	if (reconfigure) {
-		if (type === "collection") {
-			return scaffoldCollection(targetDir, agents, { reconfigure: true });
-		}
-		if (type === "plugin") {
-			return scaffoldPlugin(targetDir, agents, { reconfigure: true });
-		}
-		return scaffoldSkill({ agents, targetDir, reconfigure: true });
-	}
+	const options = reconfigure
+		? { agents, targetDir, reconfigure: true as const }
+		: { agents, targetDir };
 
 	if (type === "collection") {
-		return scaffoldCollection(targetDir, agents);
+		return scaffoldCollection(options);
 	}
 	if (type === "plugin") {
-		return scaffoldPlugin(targetDir, agents);
+		return scaffoldPlugin(options);
 	}
-	return scaffoldSkill({ agents, targetDir });
+	return scaffoldSkill(options);
 }
 
 export const initCommand = new Command("init")

@@ -6,15 +6,20 @@ import type { ScaffoldResult } from "./scaffold-utils.js";
 
 const PREFIX = "my-plugin";
 
-export async function scaffoldCollection(
-	dir: string,
-	agents: AgentId[],
-	options?: { reconfigure?: boolean },
-): Promise<ScaffoldResult> {
-	const pluginDir = join(dir, PREFIX);
+export async function scaffoldCollection(options: {
+	agents: AgentId[];
+	targetDir: string;
+	reconfigure?: boolean;
+}): Promise<ScaffoldResult> {
+	const { agents, targetDir, reconfigure } = options;
+	const pluginDir = join(targetDir, PREFIX);
 	await mkdir(pluginDir, { recursive: true });
 
-	const result = await scaffoldPlugin(pluginDir, agents, options);
+	const result = await scaffoldPlugin({
+		agents,
+		targetDir: pluginDir,
+		reconfigure,
+	});
 
 	const prefix = (path: string) => `${PREFIX}/${path}`;
 
