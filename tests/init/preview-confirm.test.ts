@@ -103,8 +103,43 @@ describe("previewAndConfirm", () => {
 		expect(result).toBe(false);
 	});
 
-	it("throws for collection type", async () => {
-		await expect(previewAndConfirm({ type: "collection" })).rejects.toThrow();
+	it("builds collection preview lines with my-plugin/ at root", async () => {
+		mockConfirm.mockResolvedValue(true);
+
+		await previewAndConfirm({ type: "collection" });
+
+		expect(mockNote).toHaveBeenCalledOnce();
+		const message = mockNote.mock.calls[0]![0]!;
+		const lines = (message as string).split("\n");
+		expect(lines[0]).toBe("  my-plugin/");
+		expect(lines[1]).toBe("    agntc.json");
+	});
+
+	it("preview shows correct 2-space indentation", async () => {
+		mockConfirm.mockResolvedValue(true);
+
+		await previewAndConfirm({ type: "collection" });
+
+		const message = mockNote.mock.calls[0]![0]!;
+		expect(message).toBe(
+			[
+				"  my-plugin/",
+				"    agntc.json",
+				"    skills/",
+				"      my-skill/",
+				"        SKILL.md",
+				"    agents/",
+				"    hooks/",
+			].join("\n"),
+		);
+	});
+
+	it("cancelling collection confirm returns false", async () => {
+		mockConfirm.mockResolvedValue(Symbol("cancel"));
+
+		const result = await previewAndConfirm({ type: "collection" });
+
+		expect(result).toBe(false);
 	});
 
 	it("asks 'Proceed?' via confirm prompt", async () => {

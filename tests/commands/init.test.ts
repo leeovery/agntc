@@ -27,10 +27,15 @@ vi.mock("../../src/init/scaffold-plugin.js", () => ({
 	scaffoldPlugin: vi.fn(),
 }));
 
+vi.mock("../../src/init/scaffold-collection.js", () => ({
+	scaffoldCollection: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { runInit } from "../../src/commands/init.js";
 import { selectInitAgents } from "../../src/init/agent-select.js";
 import { previewAndConfirm } from "../../src/init/preview-confirm.js";
+import { scaffoldCollection } from "../../src/init/scaffold-collection.js";
 import { scaffoldPlugin } from "../../src/init/scaffold-plugin.js";
 import { scaffoldSkill } from "../../src/init/scaffold-skill.js";
 import { selectInitType } from "../../src/init/type-select.js";
@@ -43,6 +48,7 @@ const mockSelectInitAgents = vi.mocked(selectInitAgents);
 const mockPreviewAndConfirm = vi.mocked(previewAndConfirm);
 const mockScaffoldSkill = vi.mocked(scaffoldSkill);
 const mockScaffoldPlugin = vi.mocked(scaffoldPlugin);
+const mockScaffoldCollection = vi.mocked(scaffoldCollection);
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -164,17 +170,41 @@ describe("runInit", () => {
 		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
 	});
 
-	it("exits with coming-soon for collection type", async () => {
+	it("success message is 'Done. Rename `my-plugin/` and duplicate for each plugin in your collection.'", async () => {
 		mockSelectInitType.mockResolvedValue("collection");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldCollection.mockResolvedValue({
+			created: [
+				"my-plugin/agntc.json",
+				"my-plugin/skills/my-skill/SKILL.md",
+				"my-plugin/agents/",
+				"my-plugin/hooks/",
+			],
+			skipped: [],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldCollection).toHaveBeenCalledWith(expect.any(String), [
+			"claude",
+		]);
+		expect(mockOutro).toHaveBeenCalledWith(
+			"Done. Rename `my-plugin/` and duplicate for each plugin in your collection.",
+		);
+	});
+
+	it("exits cleanly when collection confirmation is declined", async () => {
+		mockSelectInitType.mockResolvedValue("collection");
+		mockSelectInitAgents.mockResolvedValue(["claude"]);
+		mockPreviewAndConfirm.mockResolvedValue(false);
 
 		const error = await runInit().catch((e: unknown) => e);
 
 		expect(error).toBeInstanceOf(ExitSignal);
 		expect((error as ExitSignal).code).toBe(0);
-		expect(mockCancel).toHaveBeenCalledWith(
-			"Collection scaffolding coming soon",
-		);
-		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockCancel).toHaveBeenCalledWith("Cancelled");
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 	});
 
 	it("reports skipped files in output", async () => {

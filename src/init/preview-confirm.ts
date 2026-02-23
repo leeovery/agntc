@@ -11,6 +11,15 @@ const filesByType: Partial<Record<InitType, string[]>> = {
 		"agents/",
 		"hooks/",
 	],
+	collection: [
+		"my-plugin/",
+		"  agntc.json",
+		"  skills/",
+		"    my-skill/",
+		"      SKILL.md",
+		"  agents/",
+		"  hooks/",
+	],
 };
 
 export async function previewAndConfirm(options: {
