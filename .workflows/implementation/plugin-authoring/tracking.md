@@ -12,7 +12,7 @@ linters:
     command: npx tsc --noEmit
   - name: biome
     command: npx biome check --write
-analysis_cycle: 0
+analysis_cycle: 1
 project_skills:
   - typescript-advanced-types
   - typescript-expert
