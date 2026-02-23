@@ -78,6 +78,8 @@ describe("runInit", () => {
 			agents: ["claude"],
 			targetDir: expect.any(String),
 		});
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
 			"Done. Edit `SKILL.md` to define your skill.",
 		);
@@ -92,6 +94,8 @@ describe("runInit", () => {
 		expect((error as ExitSignal).code).toBe(0);
 		expect(mockCancel).toHaveBeenCalledWith("Cancelled");
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 	});
 
 	it("exits cleanly when agent selection is cancelled", async () => {
@@ -104,6 +108,8 @@ describe("runInit", () => {
 		expect((error as ExitSignal).code).toBe(0);
 		expect(mockCancel).toHaveBeenCalledWith("Cancelled");
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 	});
 
 	it("exits cleanly when confirmation is declined", async () => {
@@ -117,6 +123,8 @@ describe("runInit", () => {
 		expect((error as ExitSignal).code).toBe(0);
 		expect(mockCancel).toHaveBeenCalledWith("Cancelled");
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 	});
 
 	it("completes plugin scaffolding end-to-end", async () => {
@@ -133,6 +141,8 @@ describe("runInit", () => {
 		expect(mockScaffoldPlugin).toHaveBeenCalledWith(expect.any(String), [
 			"claude",
 		]);
+		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
 			"Done. Add your skills, agents, and hooks.",
 		);
@@ -167,10 +177,12 @@ describe("runInit", () => {
 		expect(error).toBeInstanceOf(ExitSignal);
 		expect((error as ExitSignal).code).toBe(0);
 		expect(mockCancel).toHaveBeenCalledWith("Cancelled");
+		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
+		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 	});
 
-	it("success message is 'Done. Rename `my-plugin/` and duplicate for each plugin in your collection.'", async () => {
+	it("completes collection scaffolding end-to-end", async () => {
 		mockSelectInitType.mockResolvedValue("collection");
 		mockSelectInitAgents.mockResolvedValue(["claude"]);
 		mockPreviewAndConfirm.mockResolvedValue(true);
@@ -189,6 +201,8 @@ describe("runInit", () => {
 		expect(mockScaffoldCollection).toHaveBeenCalledWith(expect.any(String), [
 			"claude",
 		]);
+		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
 		expect(mockOutro).toHaveBeenCalledWith(
 			"Done. Rename `my-plugin/` and duplicate for each plugin in your collection.",
 		);
@@ -204,6 +218,8 @@ describe("runInit", () => {
 		expect(error).toBeInstanceOf(ExitSignal);
 		expect((error as ExitSignal).code).toBe(0);
 		expect(mockCancel).toHaveBeenCalledWith("Cancelled");
+		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(mockScaffoldPlugin).not.toHaveBeenCalled();
 		expect(mockScaffoldCollection).not.toHaveBeenCalled();
 	});
 
@@ -241,5 +257,44 @@ describe("runInit", () => {
 			agents: ["claude", "codex"],
 			targetDir: expect.any(String),
 		});
+	});
+
+	it("passes selected agents to scaffoldPlugin", async () => {
+		mockSelectInitType.mockResolvedValue("plugin");
+		mockSelectInitAgents.mockResolvedValue(["claude", "codex"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldPlugin.mockResolvedValue({
+			created: ["agntc.json", "skills/my-skill/SKILL.md", "agents/", "hooks/"],
+			skipped: [],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldPlugin).toHaveBeenCalledWith(expect.any(String), [
+			"claude",
+			"codex",
+		]);
+	});
+
+	it("passes selected agents to scaffoldCollection", async () => {
+		mockSelectInitType.mockResolvedValue("collection");
+		mockSelectInitAgents.mockResolvedValue(["claude", "codex"]);
+		mockPreviewAndConfirm.mockResolvedValue(true);
+		mockScaffoldCollection.mockResolvedValue({
+			created: [
+				"my-plugin/agntc.json",
+				"my-plugin/skills/my-skill/SKILL.md",
+				"my-plugin/agents/",
+				"my-plugin/hooks/",
+			],
+			skipped: [],
+		});
+
+		await runInit();
+
+		expect(mockScaffoldCollection).toHaveBeenCalledWith(expect.any(String), [
+			"claude",
+			"codex",
+		]);
 	});
 });
