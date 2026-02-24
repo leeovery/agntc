@@ -63,6 +63,7 @@ npm install -g agntc
 ## Quick Start
 
 ```bash
+npx agntc init                        # scaffold a new plugin
 npx agntc add owner/repo              # install from GitHub
 npx agntc add owner/repo@v2.0         # specific version
 npx agntc list                        # see installed + update status
@@ -71,6 +72,22 @@ npx agntc remove owner/repo           # remove plugin
 ```
 
 ## Commands
+
+### `init`
+
+Scaffold a new agntc plugin for authoring. Interactive type and agent selection.
+
+```bash
+npx agntc init
+```
+
+| Type | Scaffolded Structure |
+|---|---|
+| Skill | `agntc.json`, `SKILL.md` |
+| Plugin | `agntc.json`, `skills/my-skill/SKILL.md`, `agents/`, `hooks/` |
+| Collection | `my-plugin/` subdirectory with full plugin structure |
+
+If `agntc.json` already exists, offers to reconfigure (overwrites config) or cancel.
 
 ### `add`
 

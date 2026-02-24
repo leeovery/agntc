@@ -6,6 +6,7 @@ agntc is a CLI tool for installing AI agent skills from git repos. Supports Clau
 
 ## Commands
 
+- `init` — Scaffold new plugin. Interactive type + agent selection.
 - `add <source>` — Install from git/local. Interactive agent + plugin selection.
 - `remove [key]` — Remove plugin(s). Interactive if no arg.
 - `update [key]` — Nuke-and-reinstall at same ref. No arg = all.
@@ -16,8 +17,9 @@ agntc is a CLI tool for installing AI agent skills from git repos. Supports Clau
 ```
 src/
   cli.ts              # Entry point, commander setup
-  commands/           # add, remove, update, list
+  commands/           # add, remove, update, list, init
   drivers/            # Agent drivers (claude, codex) + registry
+  init/               # Plugin scaffolding (skill, plugin, collection)
   source-parser.ts    # Parse owner/repo, URLs, local paths, tree URLs
   type-detection.ts   # Detect skill vs plugin vs collection
   manifest.ts         # Read/write .agntc/manifest.json
