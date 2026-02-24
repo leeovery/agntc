@@ -1,6 +1,6 @@
 {
 	"name": "agntc",
-	"version": "0.0.0",
+	"version": "0.0.0-development",
 	"description": "Agent skills and knowledge installer for AI coding agents",
 	"keywords": [
 		"agent",
@@ -22,6 +22,9 @@
 	"license": "MIT",
 	"author": "Lee Overy",
 	"type": "module",
+	"files": [
+		"dist"
+	],
 	"bin": {
 		"agntc": "dist/cli.js"
 	},
