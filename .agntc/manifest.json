@@ -1,8 +1,8 @@
 {
   "leeovery/claude-technical-workflows": {
     "ref": null,
-    "commit": "e613ea3e8f31cbf10fb8eb0d3faf8e8f61d02bdf",
-    "installedAt": "2026-02-27T14:52:02.933Z",
+    "commit": "c5c3693e02f8a59506f95dd21bc95f35940a96de",
+    "installedAt": "2026-02-27T15:22:44.359Z",
     "agents": [
       "claude"
     ],
@@ -145,6 +145,9 @@
       ".claude/skills/technical-discussion/",
       ".claude/skills/technical-discussion/SKILL.md",
       ".claude/skills/technical-discussion/references/",
+      ".claude/skills/technical-discussion/references/conclude-discussion.md",
+      ".claude/skills/technical-discussion/references/discussion-guidelines.md",
+      ".claude/skills/technical-discussion/references/discussion-session.md",
       ".claude/skills/technical-discussion/references/guidelines.md",
       ".claude/skills/technical-discussion/references/meeting-assistant.md",
       ".claude/skills/technical-discussion/references/template.md",
@@ -167,6 +170,7 @@
       ".claude/skills/technical-investigation/SKILL.md",
       ".claude/skills/technical-investigation/references/",
       ".claude/skills/technical-investigation/references/analysis-patterns.md",
+      ".claude/skills/technical-investigation/references/conclude-investigation.md",
       ".claude/skills/technical-investigation/references/symptom-gathering.md",
       ".claude/skills/technical-investigation/references/template.md",
       ".claude/skills/technical-planning/",
@@ -223,7 +227,10 @@
       ".claude/skills/technical-research/",
       ".claude/skills/technical-research/SKILL.md",
       ".claude/skills/technical-research/references/",
+      ".claude/skills/technical-research/references/convergence-awareness.md",
       ".claude/skills/technical-research/references/interview.md",
+      ".claude/skills/technical-research/references/research-guidelines.md",
+      ".claude/skills/technical-research/references/research-session.md",
       ".claude/skills/technical-research/references/template.md",
       ".claude/skills/technical-review/",
       ".claude/skills/technical-review/SKILL.md",
