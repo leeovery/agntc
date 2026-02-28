@@ -1,8 +1,8 @@
 {
   "leeovery/claude-technical-workflows": {
     "ref": null,
-    "commit": "e1812babe78fa2e73f5e2cd103386eab163c4b81",
-    "installedAt": "2026-02-27T16:14:12.236Z",
+    "commit": "1dc6e3189a8c51e4086b7d9f0ef92c2b82a9671c",
+    "installedAt": "2026-02-28T10:42:11.491Z",
     "agents": [
       "claude"
     ],
@@ -248,8 +248,6 @@
       ".claude/skills/technical-specification/references/dependencies.md",
       ".claude/skills/technical-specification/references/exhaustive-extraction.md",
       ".claude/skills/technical-specification/references/process-review-findings.md",
-      ".claude/skills/technical-specification/references/review-gap-analysis.md",
-      ".claude/skills/technical-specification/references/review-input.md",
       ".claude/skills/technical-specification/references/review-tracking-format.md",
       ".claude/skills/technical-specification/references/spec-completion.md",
       ".claude/skills/technical-specification/references/spec-construction.md",
@@ -291,6 +289,8 @@
       ".claude/agents/planning-task-designer.md",
       ".claude/agents/review-findings-synthesizer.md",
       ".claude/agents/review-task-verifier.md",
+      ".claude/agents/specification-review-gap-analysis.md",
+      ".claude/agents/specification-review-input.md",
       ".claude/hooks/workflows/",
       ".claude/hooks/workflows/compact-recovery.sh",
       ".claude/hooks/workflows/session-cleanup.sh",
