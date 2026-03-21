@@ -1,6 +1,7 @@
 ---
 topic: plugin-init-scaffolding
 status: concluded
+work_type: greenfield
 date: 2026-02-09
 ---
 

@@ -1,0 +1,366 @@
+{
+  "name": "v1",
+  "work_type": "epic",
+  "status": "in-progress",
+  "created": "2026-03-21",
+  "description": "v1 work unit",
+  "phases": {
+    "discussion": {
+      "items": {
+        "cli-commands-ux": {
+          "status": "completed"
+        },
+        "config-file-simplification": {
+          "status": "completed"
+        },
+        "core-architecture": {
+          "status": "completed"
+        },
+        "deferred-items-triage": {
+          "status": "completed"
+        },
+        "multi-agent-support": {
+          "status": "completed"
+        },
+        "naming-and-identity": {
+          "status": "completed"
+        },
+        "plugin-init-scaffolding": {
+          "status": "completed"
+        }
+      }
+    },
+    "specification": {
+      "items": {
+        "core-system": {
+          "status": "completed",
+          "sources": {
+            "core-architecture": {
+              "status": "incorporated"
+            },
+            "multi-agent-support": {
+              "status": "incorporated"
+            },
+            "config-file-simplification": {
+              "status": "incorporated"
+            },
+            "cli-commands-ux": {
+              "status": "incorporated"
+            },
+            "deferred-items-triage": {
+              "status": "incorporated"
+            }
+          }
+        },
+        "naming-and-identity": {
+          "status": "promoted",
+          "sources": {
+            "naming-and-identity": {
+              "status": "incorporated"
+            }
+          },
+          "promoted_to": "naming-and-identity"
+        },
+        "plugin-authoring": {
+          "status": "completed",
+          "sources": {
+            "plugin-init-scaffolding": {
+              "status": "incorporated"
+            }
+          }
+        }
+      }
+    },
+    "planning": {
+      "items": {
+        "core-system": {
+          "status": "completed",
+          "format": "tick",
+          "external_id": "tick-20aa13",
+          "specification": "../../specification/core-system/specification.md",
+          "spec_commit": "fbcc1fda1d7e7d0c45b13fb9a88019b5e1b1cb48",
+          "finding_gate_mode": "auto",
+          "author_gate_mode": "auto",
+          "task_map": {
+            "cs-1-1": "tick-0ba43c",
+            "cs-1-2": "tick-be4c96",
+            "cs-1-3": "tick-3dff00",
+            "cs-1-4": "tick-5024dd",
+            "cs-1-5": "tick-3f9f32",
+            "cs-1-6": "tick-cc248f",
+            "cs-1-7": "tick-e86117",
+            "cs-1-8": "tick-601f31",
+            "cs-1-9": "tick-aaa446",
+            "cs-1-10": "tick-d7ffd9",
+            "cs-1-11": "tick-15542a",
+            "cs-2-1": "tick-a4cc6d",
+            "cs-2-2": "tick-456e1a",
+            "cs-2-3": "tick-46b8a2",
+            "cs-2-4": "tick-f68023",
+            "cs-2-5": "tick-5820dd",
+            "cs-3-1": "tick-3f18d0",
+            "cs-3-2": "tick-947bd2",
+            "~~cs-3-3~~": "tick-1abe95",
+            "cs-3-4": "tick-d63c08",
+            "cs-3-5": "tick-448957",
+            "cs-3-6": "tick-db20a7",
+            "cs-3-7": "tick-0b36b0",
+            "cs-3-8": "tick-d24318",
+            "cs-3-9": "tick-400db7",
+            "cs-3-10": "tick-081566",
+            "cs-3-11": "tick-f5b1ac",
+            "cs-4-1": "tick-35621c",
+            "cs-4-2": "tick-5bc8a9",
+            "cs-4-3": "tick-76e6c7",
+            "cs-4-4": "tick-2a89a4",
+            "cs-4-5": "tick-a1ef32",
+            "cs-4-6": "tick-496cae",
+            "cs-4-7": "tick-027b1d",
+            "cs-4-8": "tick-7c0be9",
+            "~~cs-4-9~~": "tick-4ec9ff",
+            "cs-4-10": "tick-32d35f",
+            "cs-5-1": "tick-0f3e21",
+            "cs-5-2": "tick-b0cb9a",
+            "cs-5-3": "tick-d19707",
+            "cs-5-4": "tick-9d07b8",
+            "cs-5-5": "tick-ba9807",
+            "cs-5-6": "tick-39a172",
+            "cs-5-7": "tick-bb6c3b",
+            "cs-5-8": "tick-95a48e",
+            "cs-5-9": "tick-e908a4",
+            "cs-5-10": "tick-1028ba",
+            "cs-6-1": "tick-7180d4",
+            "cs-6-2": "tick-cf8b24",
+            "cs-6-3": "tick-a00a08",
+            "cs-6-4": "tick-8387d9",
+            "cs-6-5": "tick-42ff1b",
+            "cs-6-6": "tick-c04b35",
+            "cs-6-7": "tick-a4046d",
+            "cs-6-8": "tick-a3306f",
+            "cs-6-9": "tick-6b7df4",
+            "cs-6-10": "tick-8fe97c",
+            "cs-6-11": "tick-ed706d",
+            "cs-7-1": "tick-b51c55",
+            "cs-7-2": "tick-dc4981",
+            "cs-7-3": "tick-b999e1",
+            "cs-7-4": "tick-56138f",
+            "cs-7-5": "tick-e6bbde",
+            "cs-7-6": "tick-72799f",
+            "cs-8-1": "tick-e16f38",
+            "cs-8-2": "tick-90df13",
+            "cs-8-3": "tick-902b4f",
+            "cs-8-4": "tick-99a33c",
+            "cs-8-5": "tick-a36a34",
+            "cs-9-1": "tick-6c1630",
+            "cs-9-2": "tick-75db2e",
+            "cs-9-3": "tick-cfe67a",
+            "cs-10-1": "tick-5000e1",
+            "cs-10-2": "tick-995708",
+            "cs-10-3": "tick-57e313",
+            "cs-10-4": "tick-6f7201",
+            "core-system-1": "tick-dea5ee",
+            "core-system-2": "tick-aed71e",
+            "core-system-3": "tick-ef070a",
+            "core-system-4": "tick-d85f8a",
+            "core-system-5": "tick-71886c",
+            "core-system-6": "tick-9b3876",
+            "core-system-7": "tick-d00910",
+            "core-system-8": "tick-64fe90",
+            "core-system-9": "tick-f05a59",
+            "core-system-10": "tick-7d400b"
+          }
+        },
+        "plugin-authoring": {
+          "status": "completed",
+          "format": "tick",
+          "external_id": "tick-5ae939",
+          "specification": "../../specification/plugin-authoring/specification.md",
+          "spec_commit": "687cd14d57f8e5c2704c60c22274c5a4e9ce2629",
+          "finding_gate_mode": "auto",
+          "author_gate_mode": "auto",
+          "task_map": {
+            "plugin-authoring-1-1": "tick-4ec897",
+            "plugin-authoring-1-2": "tick-63577c",
+            "plugin-authoring-1-3": "tick-036c2f",
+            "plugin-authoring-1-4": "tick-3bc6b7",
+            "plugin-authoring-1-5": "tick-37bd20",
+            "plugin-authoring-1-6": "tick-3127a5",
+            "plugin-authoring-2-1": "tick-e6b318",
+            "plugin-authoring-2-2": "tick-ca0f0a",
+            "plugin-authoring-2-3": "tick-640df5",
+            "plugin-authoring-2-4": "tick-01d772",
+            "plugin-authoring-2-5": "tick-d1d22a",
+            "plugin-authoring-3-1": "tick-7a71b4",
+            "plugin-authoring-3-3": "tick-36fae5",
+            "plugin-authoring-3-4": "tick-1010d8",
+            "plugin-authoring-4-1": "tick-aae765",
+            "plugin-authoring-4-2": "tick-a68a2f",
+            "plugin-authoring-4-3": "tick-d69180",
+            "plugin-authoring-4-4": "tick-1ec0c0",
+            "plugin-authoring-5-1": "tick-fbd2f9",
+            "plugin-authoring-5-2": "tick-d64cc1",
+            "plugin-authoring-5-3": "tick-9a674c",
+            "plugin-authoring-1": "tick-e2964f",
+            "plugin-authoring-2": "tick-1a7ccc",
+            "plugin-authoring-3": "tick-5c139e",
+            "plugin-authoring-4": "tick-fa5a7a",
+            "plugin-authoring-5": "tick-7b1bb7"
+          }
+        }
+      }
+    },
+    "implementation": {
+      "items": {
+        "core-system": {
+          "status": "completed",
+          "format": "tick",
+          "task_gate_mode": "auto",
+          "fix_gate_mode": "auto",
+          "fix_attempts": 0,
+          "analysis_cycle": 6,
+          "current_phase": "10",
+          "current_task": "~",
+          "completed_tasks": [
+            "cs-1-1",
+            "cs-1-2",
+            "cs-1-3",
+            "cs-1-4",
+            "cs-1-5",
+            "cs-1-6",
+            "cs-1-7",
+            "cs-1-8",
+            "cs-1-9",
+            "cs-1-10",
+            "cs-1-11",
+            "cs-2-1",
+            "cs-2-2",
+            "cs-2-3",
+            "cs-2-4",
+            "cs-2-5",
+            "cs-3-1",
+            "cs-3-2",
+            "cs-3-4",
+            "cs-3-5",
+            "cs-3-6",
+            "cs-3-7",
+            "cs-3-8",
+            "cs-3-9",
+            "cs-3-10",
+            "cs-3-11",
+            "cs-4-1",
+            "cs-4-2",
+            "cs-4-3",
+            "cs-4-4",
+            "cs-4-5",
+            "cs-4-6",
+            "cs-4-7",
+            "cs-4-8",
+            "cs-4-10",
+            "cs-5-1",
+            "cs-5-2",
+            "cs-5-3",
+            "cs-5-4",
+            "cs-5-5",
+            "cs-5-6",
+            "cs-5-7",
+            "cs-5-8",
+            "cs-5-9",
+            "cs-5-10",
+            "cs-6-1",
+            "cs-6-2",
+            "cs-6-3",
+            "cs-6-4",
+            "cs-6-5",
+            "cs-6-6",
+            "cs-6-7",
+            "cs-6-8",
+            "cs-6-9",
+            "cs-6-10",
+            "cs-6-11",
+            "cs-7-1",
+            "cs-7-2",
+            "cs-7-3",
+            "cs-7-4",
+            "cs-7-5",
+            "cs-7-6",
+            "cs-8-1",
+            "cs-8-2",
+            "cs-8-3",
+            "cs-8-4",
+            "cs-8-5",
+            "cs-9-1",
+            "cs-9-2",
+            "cs-9-3",
+            "cs-10-1",
+            "cs-10-2",
+            "cs-10-3",
+            "cs-10-4"
+          ],
+          "completed_phases": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10
+          ]
+        },
+        "plugin-authoring": {
+          "status": "completed",
+          "format": "tick",
+          "task_gate_mode": "auto",
+          "fix_gate_mode": "auto",
+          "analysis_gate_mode": "auto",
+          "fix_attempts": 0,
+          "analysis_cycle": 3,
+          "current_phase": "~",
+          "current_task": "~",
+          "completed_tasks": [
+            "plugin-authoring-1-1",
+            "plugin-authoring-1-2",
+            "plugin-authoring-1-3",
+            "plugin-authoring-1-4",
+            "plugin-authoring-1-5",
+            "plugin-authoring-1-6",
+            "plugin-authoring-2-1",
+            "plugin-authoring-2-2",
+            "plugin-authoring-2-3",
+            "plugin-authoring-2-4",
+            "plugin-authoring-2-5",
+            "plugin-authoring-3-1",
+            "plugin-authoring-3-3",
+            "plugin-authoring-3-4",
+            "plugin-authoring-4-1",
+            "plugin-authoring-4-2",
+            "plugin-authoring-4-3",
+            "plugin-authoring-4-4",
+            "plugin-authoring-5-1",
+            "plugin-authoring-5-2",
+            "plugin-authoring-5-3"
+          ],
+          "completed_phases": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ]
+        }
+      }
+    },
+    "research": {
+      "items": {
+        "exploration": {
+          "status": "completed"
+        },
+        "plugin-init-scaffolding": {
+          "status": "completed"
+        }
+      }
+    }
+  }
+}

@@ -2,6 +2,7 @@
 topic: core-system
 status: concluded
 type: feature
+work_type: greenfield
 date: 2026-02-14
 sources:
   - name: core-architecture

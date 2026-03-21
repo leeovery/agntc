@@ -1,0 +1,10 @@
+{
+  "work_units": {
+    "v1": {
+      "work_type": "epic"
+    },
+    "naming-and-identity": {
+      "work_type": "cross-cutting"
+    }
+  }
+}

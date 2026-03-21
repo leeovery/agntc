@@ -1,6 +1,7 @@
 ---
 topic: naming-and-identity
 status: concluded
+work_type: greenfield
 date: 2026-02-09
 ---
 

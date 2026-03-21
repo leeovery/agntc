@@ -2,6 +2,7 @@
 topic: naming-and-identity
 status: concluded
 type: cross-cutting
+work_type: greenfield
 date: 2026-02-12
 sources:
   - name: naming-and-identity

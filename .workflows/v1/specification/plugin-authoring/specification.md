@@ -2,6 +2,7 @@
 topic: plugin-authoring
 status: concluded
 type: feature
+work_type: greenfield
 date: 2026-02-10
 sources:
   - name: plugin-init-scaffolding

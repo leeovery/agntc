@@ -3,7 +3,7 @@ topic: plugin-authoring
 status: concluded
 format: tick
 work_type: greenfield
-ext_id: tick-5ae939
+external_id: tick-5ae939
 specification: ../../specification/plugin-authoring/specification.md
 cross_cutting_specs:
   - ../../specification/naming-and-identity/specification.md
@@ -24,7 +24,7 @@ planning:
 
 ### Phase 1: Walking Skeleton -- Skill Scaffolding End-to-End
 status: approved
-ext_id: tick-e2964f
+external_id: tick-e2964f
 approved_at: 2026-02-22
 
 **Goal**: A user can run `npx agntc init`, select "Skill" type, select agent(s), confirm, and get `agntc.json` + `SKILL.md` written to disk. This is the thinnest vertical slice through the complete init flow, threading through command registration in `src/cli.ts`, the interactive prompt sequence using `@clack/prompts`, file generation with skip-if-exists logic, and success output.
@@ -43,8 +43,8 @@ approved_at: 2026-02-22
 - [ ] All tests pass; existing test suite remains green
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | plugin-authoring-1-1 | Register init command with Commander | none | authored | tick-4ec897 |
 | plugin-authoring-1-2 | Type selection prompt | user cancels at type prompt | authored | tick-63577c |
 | plugin-authoring-1-3 | Agent selection prompt | empty selection rejected, user cancels at agent prompt | authored | tick-036c2f |
@@ -54,7 +54,7 @@ approved_at: 2026-02-22
 
 ### Phase 2: Plugin and Collection Scaffolding
 status: approved
-ext_id: tick-1a7ccc
+external_id: tick-1a7ccc
 approved_at: 2026-02-22
 
 **Goal**: Extend the init flow so selecting "Plugin" or "Collection" produces their correct directory structures and starter files, completing all three scaffolding paths specified in the spec.
@@ -72,8 +72,8 @@ approved_at: 2026-02-22
 - [ ] Collection success message: "Done. Rename `my-plugin/` and duplicate for each plugin in your collection."
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | plugin-authoring-2-1 | Scaffold plugin files and directories | agntc.json already exists, skills/ directory already exists, agents/ or hooks/ already exists, SKILL.md already exists inside existing skills/my-skill/ | authored | tick-e6b318 |
 | plugin-authoring-2-2 | Plugin preview and success message | mixed created and skipped items in preview output | authored | tick-ca0f0a |
 | plugin-authoring-2-3 | Scaffold collection structure | my-plugin/ directory already exists, partial contents inside existing my-plugin/ | authored | tick-640df5 |
@@ -82,7 +82,7 @@ approved_at: 2026-02-22
 
 ### Phase 3: Pre-check and Reconfigure
 status: approved
-ext_id: tick-5c139e
+external_id: tick-5c139e
 approved_at: 2026-02-22
 
 **Goal**: Detect when `agntc.json` already exists before the prompt flow begins, warn the user, and offer reconfigure-or-cancel. Reconfigure reruns the full init flow and overwrites `agntc.json` with new selections while all other files follow fresh-run skip-if-exists behaviour.
@@ -100,21 +100,21 @@ approved_at: 2026-02-22
 - [ ] Pre-check does not trigger for collection directories (which have no root `agntc.json`)
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | plugin-authoring-3-1 | Pre-check detection, orchestrator wiring, and cancel behavior | agntc.json exists but is empty or malformed, collection directory with no root agntc.json does not trigger pre-check, cancel at pre-check exits without writing files | authored | tick-7a71b4 |
 | plugin-authoring-3-3 | Reconfigure overwrites agntc.json while skipping other files | other files already exist and are skipped, type changes from skill to plugin on reconfigure | authored | tick-36fae5 |
 | plugin-authoring-3-4 | Output report distinguishes overwritten from created and skipped | mixed report with overwritten and skipped and created entries in same run | authored | tick-1010d8 |
 
 ### Phase 4: Analysis Refinements
 status: approved
-ext_id: tick-fa5a7a
+external_id: tick-fa5a7a
 
 **Goal**: Address findings from analysis cycle 1 -- extract shared scaffold utilities, compose scaffoldCollection with scaffoldPlugin, unify scaffold function signatures, and tighten types.
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | plugin-authoring-4-1 | Extract shared scaffold utilities (template, pathExists, ScaffoldResult) | none | authored | tick-aae765 |
 | plugin-authoring-4-2 | Compose scaffoldCollection with scaffoldPlugin | reconfigure mode must pass through correctly | authored | tick-a68a2f |
 | plugin-authoring-4-3 | Unify scaffold function signatures | test files need call signature updates | authored | tick-d69180 |
@@ -122,13 +122,13 @@ ext_id: tick-fa5a7a
 
 ### Phase 5: Analysis Refinements (Cycle 2)
 status: approved
-ext_id: tick-7b1bb7
+external_id: tick-7b1bb7
 
 **Goal**: Address findings from Analysis (Cycle 2).
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | plugin-authoring-5-1 | Extract agntc.json write-or-skip-or-overwrite helper into scaffold-utils | none | authored | tick-fbd2f9 |
 | plugin-authoring-5-2 | Use pathExists from scaffold-utils in pre-check.ts | none | authored | tick-d64cc1 |
 | plugin-authoring-5-3 | Remove allowExcessArguments from init command | none | authored | tick-9a674c |

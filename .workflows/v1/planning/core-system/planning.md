@@ -1,8 +1,9 @@
 ---
 topic: core-system
 status: concluded
+work_type: greenfield
 format: tick
-ext_id: tick-20aa13
+external_id: tick-20aa13
 specification: ../../specification/core-system/specification.md
 cross_cutting_specs:
   - ../../specification/naming-and-identity.md
@@ -23,7 +24,7 @@ planning:
 
 ### Phase 1: Walking Skeleton - Add a Bare Skill from Git
 status: approved
-ext_id: tick-dea5ee
+external_id: tick-dea5ee
 approved_at: 2026-02-18
 
 **Goal**: Prove the end-to-end architecture by installing a single bare skill from a GitHub shorthand source for one agent (Claude), writing a manifest entry, and confirming via list output. This establishes the CLI entry point (commander + @clack/prompts), source parsing, git shallow clone, `agntc.json` validation, type detection, the agent driver interface with the Claude driver, file copy with `agntc.json` exclusion, manifest creation, and a minimal `list` output.
@@ -42,8 +43,8 @@ approved_at: 2026-02-18
 - [ ] Temp clone directory cleaned up after install
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-1-1 | Project Scaffolding and CLI Entry Point | none | authored | tick-0ba43c |
 | cs-1-2 | Source Argument Parsing (GitHub Shorthand) | missing owner or repo segment, @ref with empty string, extra slashes | authored | tick-be4c96 |
 | cs-1-3 | Git Shallow Clone | clone failure (nonexistent repo), temp dir cleanup on error | authored | tick-3dff00 |
@@ -58,7 +59,7 @@ approved_at: 2026-02-18
 
 ### Phase 2: Multi-Asset Plugins and Collection Support
 status: approved
-ext_id: tick-aed71e
+external_id: tick-aed71e
 approved_at: 2026-02-18
 
 **Goal**: Extend type detection and asset discovery to handle multi-asset plugins (repos with `skills/`, `agents/`, `hooks/` directories) and collections (repos where subdirectories contain their own `agntc.json`). Implement the collection multiselect UI and reinstall-on-reselect behavior.
@@ -76,8 +77,8 @@ approved_at: 2026-02-18
 - [ ] Summary output shows per-agent asset counts (skills, agents, hooks — only types that were installed)
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-2-1 | Multi-Asset Plugin Asset Copier | empty asset dir, subset of asset types present, nested subdirectories within asset dirs | authored | tick-a4cc6d |
 | cs-2-2 | Add Command: Multi-Asset Plugin Integration | misconfiguration warning (root SKILL.md ignored), empty plugin warning (no assets) | authored | tick-456e1a |
 | cs-2-3 | Collection Plugin Multiselect UI | no subdirs have agntc.json (not-an-agntc-repo fallthrough), all plugins already installed, single plugin in collection | authored | tick-46b8a2 |
@@ -86,7 +87,7 @@ approved_at: 2026-02-18
 
 ### Phase 3: Multi-Agent Support and Source Formats
 status: approved
-ext_id: tick-ef070a
+external_id: tick-ef070a
 approved_at: 2026-02-18
 
 **Goal**: Implement the Codex agent driver, the full agent detection system (project-level first, system-level fallback), the agent multiselect with pre-selection and unsupported-agent warnings, all remaining source formats (HTTPS URL, SSH URL, local path, direct collection path, `@ref` pinning), and the complete conflict handling flows (file path collisions across plugins, unmanaged file conflicts).
@@ -108,8 +109,8 @@ approved_at: 2026-02-18
 - [ ] Empty selection (zero plugins or zero agents) treated as cancel with brief message and clean exit
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-3-1 | Codex Agent Driver | none | authored | tick-3f18d0 |
 | cs-3-2 | Agent Detection System | project dir exists but empty, which command not found, both project and system absent | authored | tick-947bd2 |
 | ~~cs-3-3~~ | ~~Agent Multiselect with Pre-Selection and Warnings~~ | ~~merged into cs-3-1~~ | cancelled | tick-1abe95 |
@@ -124,7 +125,7 @@ approved_at: 2026-02-18
 
 ### Phase 4: Remove and Update Commands
 status: approved
-ext_id: tick-d85f8a
+external_id: tick-d85f8a
 approved_at: 2026-02-18
 
 **Goal**: Implement the `remove` command (interactive and parameterized modes) and the `update` command (all-plugins and specific-plugin modes) with nuke-and-reinstall mechanics, local path re-copy, tag-pinned behavior, agent compatibility change handling, and network retry logic.
@@ -152,8 +153,8 @@ approved_at: 2026-02-18
 - [ ] `update` output: shows old ref/SHA to new, asset counts per agent; already up-to-date gets brief acknowledgment
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-4-1 | Remove Command: Parameterized Mode | non-existent plugin key (error + non-zero exit), empty manifest, collection prefix removing all matching plugins | authored | tick-35621c |
 | cs-4-2 | Remove Command: Interactive Mode | empty manifest, single plugin installed | authored | tick-5bc8a9 |
 | cs-4-3 | Update Check Logic | git ls-remote network failure, tag with no newer tags, branch no longer exists on remote | authored | tick-76e6c7 |
@@ -167,7 +168,7 @@ approved_at: 2026-02-18
 
 ### Phase 5: List Dashboard and Error Hardening
 status: approved
-ext_id: tick-71886c
+external_id: tick-71886c
 approved_at: 2026-02-18
 
 **Goal**: Build the full interactive `list` dashboard with parallel update checks, status indicators, detail view, inline actions (update, remove, change version), and post-action navigation. Harden error handling across all commands: partial copy failure rollback, multi-plugin independent failure handling, and comprehensive summary output.
@@ -192,8 +193,8 @@ approved_at: 2026-02-18
 - [ ] No remote check performed for local installs in list view
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-5-1 | Parallel Update Check for All Plugins | network timeout on one plugin while others succeed, local installs skipped, empty manifest | authored | tick-0f3e21 |
 | cs-5-2 | List View: Plugin List with Status Indicators | all plugins local (no spinner needed), single plugin installed, very long plugin keys | authored | tick-b0cb9a |
 | cs-5-3 | Detail View: Plugin Information Display | plugin with null ref and null commit (local), plugin with many files | authored | tick-d19707 |
@@ -207,13 +208,13 @@ approved_at: 2026-02-18
 
 ### Phase 6: Analysis (Cycle 1)
 status: approved
-ext_id: tick-9b3876
+external_id: tick-9b3876
 
 **Goal**: Address findings from Analysis (Cycle 1).
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-6-1 | Extract shared nuke-and-reinstall pipeline | none | authored | tick-7180d4 |
 | cs-6-2 | Add collection prefix matching to update command | none | authored | tick-cf8b24 |
 | cs-6-3 | Fix nuke-before-copy data loss risk on copy failure | none | authored | tick-a00a08 |
@@ -228,13 +229,13 @@ ext_id: tick-9b3876
 
 ### Phase 7: Analysis (Cycle 2)
 status: approved
-ext_id: tick-d00910
+external_id: tick-d00910
 
 **Goal**: Address findings from Analysis (Cycle 2).
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-7-1 | Extract shared clone-and-reinstall orchestration | none | authored | tick-b51c55 |
 | cs-7-2 | Centralize clone URL derivation and add cloneUrl to GitHubShorthandSource | none | authored | tick-dc4981 |
 | cs-7-3 | Fix collection add to enforce per-plugin agent compatibility warnings | none | authored | tick-b999e1 |
@@ -244,13 +245,13 @@ ext_id: tick-d00910
 
 ### Phase 8: Analysis (Cycle 3)
 status: approved
-ext_id: tick-64fe90
+external_id: tick-64fe90
 
 **Goal**: Address findings from Analysis (Cycle 3).
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-8-1 | Extract failure-reason mapper and unify update orchestration functions | none | authored | tick-e16f38 |
 | cs-8-2 | Extract local path validation helper | none | authored | tick-90df13 |
 | cs-8-3 | Extract readManifestOrExit helper | none | authored | tick-902b4f |
@@ -259,26 +260,26 @@ ext_id: tick-64fe90
 
 ### Phase 9: Analysis (Cycle 4)
 status: approved
-ext_id: tick-f05a59
+external_id: tick-f05a59
 
 **Goal**: Address findings from Analysis (Cycle 4).
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-9-1 | Unify runRemoteUpdate and runLocalUpdate in list-update-action.ts and internalize copy-failed manifest removal | none | authored | tick-6c1630 |
 | cs-9-2 | Extract shared conflict-check pipeline in add.ts | none | authored | tick-75db2e |
 | cs-9-3 | Extract withExitSignal wrapper for command actions | none | authored | tick-cfe67a |
 
 ### Phase 10: Analysis (Cycle 5)
 status: approved
-ext_id: tick-7d400b
+external_id: tick-7d400b
 
 **Goal**: Address findings from Analysis (Cycle 5).
 
 #### Tasks
-| ID | Name | Edge Cases | Status | Ext ID |
-|----|------|------------|--------|--------|
+| Internal ID | Name | Edge Cases | Status | External ID |
+|-------------|------|------------|--------|--------|
 | cs-10-1 | Derive agent/asset-type classification from driver registry instead of path substrings | none | authored | tick-5000e1 |
 | cs-10-2 | Consolidate mapCloneFailure handler blocks between list-update-action.ts and list-change-version-action.ts | none | authored | tick-995708 |
 | cs-10-3 | Deduplicate formatRef by reusing formatRefLabel from summary.ts | none | authored | tick-57e313 |

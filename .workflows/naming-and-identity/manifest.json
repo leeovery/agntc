@@ -1,0 +1,26 @@
+{
+  "name": "naming-and-identity",
+  "work_type": "cross-cutting",
+  "status": "completed",
+  "created": "2026-03-21",
+  "description": "Promoted from epic: v1",
+  "source_work_unit": "v1",
+  "source_topic": "naming-and-identity",
+  "phases": {
+    "discussion": {
+      "items": {
+        "naming-and-identity": {
+          "status": "completed"
+        }
+      }
+    },
+    "specification": {
+      "items": {
+        "naming-and-identity": {
+          "status": "completed",
+          "date": "2026-03-21"
+        }
+      }
+    }
+  }
+}
