@@ -1,0 +1,32 @@
+# Handoff: Unify With Incorporation
+
+*Reference for **[confirm-unify.md](../confirm-unify.md)***
+
+---
+
+This skill's purpose is now fulfilled. Invoke the [workflow-specification-process](../../../workflow-specification-process/SKILL.md) skill for your next instructions. Do not act on the gathered information until the skill is loaded — it contains the instructions for how to proceed.
+
+```
+Specification session for: Unified
+
+Source discussions:
+- .workflows/{work_unit}/discussion/{discussion-name}.md
+- .workflows/{work_unit}/discussion/{discussion-name}.md
+...
+
+Existing specifications to incorporate:
+- .workflows/{work_unit}/specification/{topic}/specification.md
+- .workflows/{work_unit}/specification/{topic}/specification.md
+
+Output: .workflows/{work_unit}/specification/unified/specification.md
+
+Context: This consolidates all discussions into a single unified specification. The existing specifications should be incorporated - extract and adapt their content alongside the discussion material.
+
+After the unified specification is complete, mark the incorporated specs as superseded via manifest CLI:
+
+    set {source-work-unit}.specification.{source-topic} status superseded
+    set {source-work-unit}.specification.{source-topic} superseded_by unified
+
+---
+Invoke the workflow-specification-process skill.
+```
