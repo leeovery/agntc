@@ -1,7 +1,7 @@
 ---
 name: workflow-investigation-entry
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.js)
+allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs)
 ---
 
 Act as **precise intake coordinator**. Follow each step literally without interpretation. Do not engage with the subject matter — your role is preparation, not processing.
@@ -46,7 +46,7 @@ Investigation is always bugfix work_type. Store work_unit for the handoff.
 Check if the investigation phase entry exists:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.js exists {work_unit}.investigation.{topic}
+node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.investigation.{topic}
 ```
 
 **If exists (`true`):**
@@ -76,6 +76,20 @@ Load **[validate-phase.md](references/validate-phase.md)** and follow its instru
 ---
 
 ## Step 3: Gather Bug Context
+
+#### If bug context is already available in conversation
+
+The caller already gathered bug context (expected/actual behavior, initial context). Do not re-ask.
+
+> *Output the next fenced block as a code block:*
+
+```
+Starting investigation: {work_unit:(titlecase)}
+```
+
+→ Proceed to **Step 4**.
+
+#### Otherwise
 
 Load **[gather-context.md](references/gather-context.md)** and follow its instructions as written.
 
