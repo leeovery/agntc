@@ -11,6 +11,13 @@
           "status": "completed"
         }
       }
+    },
+    "discussion": {
+      "items": {
+        "version-constraints": {
+          "status": "in-progress"
+        }
+      }
     }
   }
 }
