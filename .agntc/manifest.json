@@ -1,8 +1,8 @@
 {
   "leeovery/agentic-workflows": {
     "ref": null,
-    "commit": "f6d455dacd52c99d3f7e8211e2f55e9bdc6d4257",
-    "installedAt": "2026-03-21T16:56:39.871Z",
+    "commit": "5c6b69f6f24386dcc5c6274904f7f77ce7d342b8",
+    "installedAt": "2026-03-22T19:09:58.565Z",
     "agents": [
       "claude"
     ],
@@ -184,6 +184,7 @@
       ".claude/skills/workflow-migrate/scripts/migrations/031-project-manifest.sh",
       ".claude/skills/workflow-migrate/scripts/migrations/032-promote-cross-cutting-specs.sh",
       ".claude/skills/workflow-migrate/scripts/migrations/033-rename-inbox-to-dotinbox.sh",
+      ".claude/skills/workflow-migrate/scripts/migrations/034-show-clear-context-on-plan-accept.sh",
       ".claude/skills/workflow-planning-entry/",
       ".claude/skills/workflow-planning-entry/SKILL.md",
       ".claude/skills/workflow-planning-entry/references/",
