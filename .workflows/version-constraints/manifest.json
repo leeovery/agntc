@@ -1,0 +1,16 @@
+{
+  "name": "version-constraints",
+  "work_type": "feature",
+  "status": "in-progress",
+  "created": "2026-03-22",
+  "description": "Composer-style version constraints for plugin installation and updates (e.g. ^1.0, ~1.0) to control major/minor/patch update scope",
+  "phases": {
+    "research": {
+      "items": {
+        "version-constraints": {
+          "status": "in-progress"
+        }
+      }
+    }
+  }
+}
