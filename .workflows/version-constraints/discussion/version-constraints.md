@@ -20,7 +20,7 @@ Key constraints:
 - [x] How should the manifest store constraints vs resolved versions?
       - Current manifest has `ref` (user-specified) and `commit` (resolved SHA)
       - Need to store the constraint expression separately from the resolved tag
-- [ ] What should `update` output look like when a newer major version exists but the constraint blocks it?
+- [x] What should `update` output look like when a newer major version exists but the constraint blocks it?
       - UX question: inform, warn, or silently skip?
 - [ ] How should pre-1.0 versions be handled?
       - Cargo/Composer treat `^0.x` specially (minor becomes the breaking boundary)
@@ -30,8 +30,9 @@ Key constraints:
 - [ ] What is the version resolution algorithm?
       - How do we select the best matching tag from ls-remote output?
       - How do we handle non-semver tags?
-- [ ] How should constraint violations during `update` be reported?
+- [x] How should constraint violations during `update` be reported?
       - Single plugin vs batch update scenarios
+      - Merged with the update output question above
 
 ---
 
@@ -79,6 +80,49 @@ Update routing is clean:
 - `constraint` absent + no ref → existing behavior (track HEAD)
 
 No migration needed — `constraint` is purely additive. Old entries without it behave exactly as before.
+
+---
+
+## What should `update` output when a newer version exists outside the constraint?
+
+### Context
+When a constrained plugin has a newer version that falls outside its constraint (e.g. `v2.0.0` exists but constraint is `^1.0`), the user should know. But the update command shouldn't be noisy about it — they chose the constraint deliberately.
+
+Also covers: how constraint violations are reported in batch vs single updates (merged the two questions since they're the same concern).
+
+### Options Considered
+
+**Silent** — just report normal update results, don't mention out-of-constraint versions.
+- Cons: Hides useful information. User may not know v2 exists.
+
+**Warning** — prominent/colored warning suggesting re-add.
+- Cons: Overblown. They chose the constraint; a warning implies they did something wrong.
+
+**Info line** — quiet informational line after update results.
+- Pros: Respects user's choice while keeping them informed.
+
+### Journey
+Info line was the obvious winner. The real question was placement: inline with each plugin's update result, or collated at the end?
+
+Initially considered showing inline for single-plugin updates and collated for batch. Decided same format regardless of count — simpler logic, same net result for single-plugin case.
+
+For which version to show: considered listing the next major, or all out-of-constraint versions. Settled on latest only — if they're going to bump their constraint, they want to know the ceiling, not every step.
+
+### Decision
+**Info line, always collated at the end. Show the latest available version outside the constraint.**
+
+Batch output:
+```
+✓ owner/plugin-a  v1.2.3 → v1.3.0
+✓ owner/plugin-b  (up to date)
+✓ owner/plugin-c  v2.1.0 → v2.1.5
+
+ℹ Newer versions outside constraints:
+  owner/plugin-a  v2.0.0 available (constraint: ^1.0)
+  owner/plugin-b  v3.1.0 available (constraint: ^2.0)
+```
+
+Single plugin — same format, info section at the end.
 
 ---
 
