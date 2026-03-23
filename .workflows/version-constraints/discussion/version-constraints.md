@@ -22,12 +22,12 @@ Key constraints:
       - Need to store the constraint expression separately from the resolved tag
 - [x] What should `update` output look like when a newer major version exists but the constraint blocks it?
       - UX question: inform, warn, or silently skip?
-- [ ] How should pre-1.0 versions be handled?
+- [x] How should pre-1.0 versions be handled?
       - Cargo/Composer treat `^0.x` specially (minor becomes the breaking boundary)
       - Do we need this complexity or can we keep it simple?
 - [ ] Should `add` without any constraint on a tagged repo default to caret behavior, or stay as exact pin?
       - Ergonomics vs explicitness trade-off
-- [ ] What is the version resolution algorithm?
+- [x] What is the version resolution algorithm?
       - How do we select the best matching tag from ls-remote output?
       - How do we handle non-semver tags?
 - [x] How should constraint violations during `update` be reported?
@@ -123,6 +123,49 @@ Batch output:
 ```
 
 Single plugin — same format, info section at the end.
+
+---
+
+## How should pre-1.0 versions be handled?
+
+### Context
+Cargo, npm, and Composer treat `^0.x` specially: minor becomes the breaking boundary. So `^0.2.3` means `>=0.2.3, <0.3.0`. The question was whether to adopt this or keep caret semantics uniform.
+
+### Journey
+Initial instinct was to skip special handling — simpler, and agntc plugins aren't library APIs. But this fell apart when considering the author's perspective: a pre-1.0 plugin author needs a way to signal breaking changes through semver without being forced to jump to `1.0.0`. If `^0.2` means `<1.0.0`, bumping from `0.2.x` to `0.3.0` to signal a break would be invisible to the constraint — users would auto-update across it.
+
+The key insight: this isn't about whether *we* think skills break the same way as libraries. It's about giving plugin authors the standard semver tools to communicate intent. Tags are the release mechanism — authors push to main freely, and only tag when ready to publish. The convention lets them signal "this minor bump is breaking" at `0.x` without prematurely committing to `1.0`.
+
+Considered implementing only `^0.x` special handling and skipping `^0.0.x` (pinning to patch), but decided to adopt the full convention. It's already well-defined, avoids us making selective decisions about which edge cases to support, and means anyone coming from npm/Cargo/Composer gets exactly what they expect.
+
+### Decision
+**Adopt full Cargo/npm convention for pre-1.0:**
+- `^0.2.3` → `>=0.2.3, <0.3.0` (minor is breaking boundary)
+- `^0.0.3` → `>=0.0.3, <0.0.4` (patch is breaking boundary)
+- `^1.0.0`+ → normal behavior (`>=1.0.0, <2.0.0`)
+
+No custom rules. Follow the established convention exactly.
+
+---
+
+## What is the version resolution algorithm?
+
+### Context
+Need to select the best matching tag from `ls-remote` output given a constraint expression.
+
+### Decision
+**Use the `semver` npm package** rather than implementing our own resolver.
+
+- `semver.maxSatisfying(tags, constraint)` is essentially the entire resolver — pass tags from ls-remote, pass the constraint, get the best match
+- Handles all `^0.x` and `^0.0.x` special casing we just agreed to adopt
+- `semver.valid()` and `semver.coerce()` for parsing/filtering tags
+- Battle-tested by every `npm install` ever run
+- Tiny (~50KB), zero dependencies
+- Has `@types/semver` for TypeScript
+
+Non-semver tags are handled naturally — `semver.valid()` filters them out before matching. No custom logic needed.
+
+This avoids reimplementing well-defined behaviour and getting edge cases wrong. Added as a production dependency alongside `commander` and `@clack/prompts`.
 
 ---
 
