@@ -25,7 +25,7 @@ Key constraints:
 - [x] How should pre-1.0 versions be handled?
       - Cargo/Composer treat `^0.x` specially (minor becomes the breaking boundary)
       - Do we need this complexity or can we keep it simple?
-- [ ] Should `add` without any constraint on a tagged repo default to caret behavior, or stay as exact pin?
+- [x] Should `add` without any constraint on a tagged repo default to caret behavior, or stay as exact pin?
       - Ergonomics vs explicitness trade-off
 - [x] What is the version resolution algorithm?
       - How do we select the best matching tag from ls-remote output?
@@ -169,12 +169,51 @@ This avoids reimplementing well-defined behaviour and getting edge cases wrong. 
 
 ---
 
+## Should `add` without a constraint default to caret, or stay as exact pin?
+
+### Context
+When a user types `agntc add owner/repo@v1.2.3` (explicit tag), should we auto-apply a `^` constraint? And separately, what should bare `agntc add owner/repo` (no `@` at all) do?
+
+### Journey
+Started with the narrow question: should `@v1.2.3` imply `^1.2.3`? Quickly agreed no — explicit tag means exact pin. If you typed a specific version, you meant it. The `@^1` syntax exists for when you want constraints.
+
+This opened a bigger question inspired by npm/Composer: those tools don't require you to specify a version at all. `npm install foo` resolves latest and applies `^` automatically. Could agntc do the same?
+
+The difference: npm/Composer have registries with a "latest stable" concept. agntc installs from git repos. But we can approximate it — `ls-remote` gives us all tags, `semver.valid()` filters to semver ones, and we pick the latest. If semver tags exist, we have a "latest stable."
+
+This led to: bare `agntc add owner/repo` should resolve the latest semver tag and auto-apply `^X.Y.Z`. The documented install path becomes just `agntc add owner/repo` — clean, no version syntax needed. The `@^1` and `@v1.2.3` forms are power-user options that still work but aren't the advertised path.
+
+On enforcement: we can't guarantee authors follow semver, but neither can npm or Composer. The constraint system is a trust-based contract. We recommend semver in authoring docs and trust that tagged releases follow it.
+
+Brief detour on `^1` vs `^1.2.3` as the default — concluded it doesn't matter. Upper bound is identical, floor only differs for downgrades which aren't a thing. `^1.2.3` is more precise and matches npm convention.
+
+Also discussed `@branch` syntax (`@main`, `@develop`, feature branches). Keeping it — it's an existing code path, useful for testing PRs or unreleased work. Not advertised as primary install path but valuable as an escape hatch.
+
+### Decision
+**Bare `add` defaults to latest semver tag with caret constraint. Explicit tags are exact pins.**
+
+Full `add` resolution order:
+1. `agntc add owner/repo` — resolve latest semver tag, apply `^X.Y.Z`
+2. `agntc add owner/repo@^1` — explicit constraint, resolve best match
+3. `agntc add owner/repo@~1.2` — explicit constraint, resolve best match
+4. `agntc add owner/repo@v1.2.3` — exact pin, no constraint
+5. `agntc add owner/repo@main` — track branch HEAD, no constraint
+6. `agntc add owner/repo` (no semver tags) — fall back to HEAD, no constraint
+
+The documented install path for plugin READMEs is simply `agntc add owner/repo`. No version syntax in getting-started docs.
+
+---
+
 ## Summary
 
 ### Key Insights
+1. Constraint captures user *intent*, ref/commit capture *current state* — these shift independently
+2. The `semver` npm package handles all resolution including pre-1.0 edge cases — no need to reimplement
+3. Bare `add` should behave like npm/Composer: resolve latest, apply caret — the version syntax is power-user territory
+4. Can't enforce semver compliance, but neither can npm/Composer — it's a trust-based contract
 
 ### Current State
-- Questions identified, discussion not yet started
+- All questions resolved
 
 ### Next Steps
-- [ ] Work through each question
+- [ ] Proceed to specification
