@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-23
 cycle: 1
 phase: Gap Analysis
@@ -169,6 +169,6 @@ Since collection plugins share a single repo source, they would logically share 
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Refined per user feedback — collections present items for individual selection (not bulk install), each tracked independently. Clarified distinction from plugin bundles. Used "plugins" not "skills" since agents can also be installed.
 

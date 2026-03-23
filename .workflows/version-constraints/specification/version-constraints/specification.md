@@ -212,6 +212,15 @@ The `list` dashboard will surface constraint information:
 - **Update status**: Differentiate between "update available within constraint" and "newer version outside constraint" — same distinction as the update output info line
 - **Change version action**: The existing change-version action operates outside the constraint system — it allows the user to pick any available tag. Selecting a specific tag via the list action is equivalent to re-adding with an exact pin, removing the constraint
 
+## Collection Constraints
+
+Each plugin installed from a collection is tracked independently in the manifest with its own `constraint`, `ref`, and `commit`. A collection presents items for individual selection — this is distinct from a plugin that bundles multiple assets (skills, agents, hooks) installed as a single unit.
+
+- `agntc add owner/collection@^1.0` — user selects which plugins to install; each selected plugin gets `constraint: "^1.0"` in its own manifest entry
+- Bare `agntc add owner/collection` — auto-applies `^X.Y.Z` per default behavior to each selected plugin
+- On `update`, each plugin resolves its constraint independently — they may diverge if installed at different times or with different constraints
+- Individual plugins from a collection can be re-added with different constraints (e.g. `agntc add owner/collection@^2.0` and selecting only one plugin)
+
 ---
 
 ## Working Notes
