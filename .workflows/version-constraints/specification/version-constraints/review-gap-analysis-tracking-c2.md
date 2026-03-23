@@ -59,8 +59,8 @@ Should these be caught at parse time (parser rejects them) or at resolution time
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added Constraint Validation subsection under Constraint Syntax. Parse-time rejection via semver.validRange().
 
 ---
 

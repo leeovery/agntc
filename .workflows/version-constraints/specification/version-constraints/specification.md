@@ -62,6 +62,10 @@ Constraints are not supported on:
 - Local paths — no remote tags to resolve against
 - Tree URLs (direct path to a specific commit) — already pinned to a specific ref
 
+### Constraint Validation
+
+The parser will validate the constraint expression after extracting it. If the version portion is not valid semver (as determined by `semver.validRange()`), reject at parse time with a clear error message. Examples of invalid input: `@^abc`, `@^`, `@~`, `@^1.2.3.4`.
+
 ## Manifest Storage
 
 A new `constraint` field will be added to manifest entries alongside the existing `ref` and `commit` fields. The `constraint` field captures user *intent* (e.g. "I want compatible 1.x updates"), while `ref` + `commit` capture *current state*. These shift independently — on `update`, `ref` and `commit` change while `constraint` stays fixed.
