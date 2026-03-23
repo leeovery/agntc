@@ -19,7 +19,8 @@ approved_at: 2026-03-23
 - [ ] All existing source-parser tests continue to pass unchanged
 
 ### Tasks
-status: draft
+status: approved
+approved_at: 2026-03-23
 
 | ID | Task | Edge Cases |
 |----|------|------------|

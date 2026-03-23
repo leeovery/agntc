@@ -40,12 +40,12 @@
           "status": "in-progress",
           "format": "tick",
           "spec_commit": "6f5c7a2f9fe19722d21a1555869f5fcb20884027",
-          "task_list_gate_mode": "gated",
+          "task_list_gate_mode": "auto",
           "author_gate_mode": "gated",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "~",
+          "task": "vc-1-1",
           "task_map": {}
         }
       },
