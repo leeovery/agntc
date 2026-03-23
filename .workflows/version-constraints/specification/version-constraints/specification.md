@@ -113,6 +113,31 @@ The `@^` and `@~` forms are power-user options. The `@branch` syntax (`@main`, `
 
 Semver compliance by plugin authors cannot be enforced — same as npm/Composer. The constraint system is a trust-based contract. Semver tagging will be recommended in authoring docs.
 
+## Update Output UX
+
+When constrained plugins have newer versions outside their constraint bounds, the user should be informed without implying they did something wrong.
+
+### Format
+
+An informational section will be collated at the end of update output, after all update results. Same format regardless of single-plugin or batch update.
+
+```
+✓ owner/plugin-a  v1.2.3 → v1.3.0
+✓ owner/plugin-b  (up to date)
+✓ owner/plugin-c  v2.1.0 → v2.1.5
+
+ℹ Newer versions outside constraints:
+  owner/plugin-a  v2.0.0 available (constraint: ^1.0)
+  owner/plugin-b  v3.1.0 available (constraint: ^2.0)
+```
+
+### Rules
+
+- **Always collated at end** — never inline with individual plugin results
+- **Show latest only** — if they're going to bump their constraint, they want to know the ceiling, not every step
+- **Info tone, not warning** — the user chose the constraint deliberately; a warning implies they did something wrong
+- **Omit section entirely** if no out-of-constraint versions exist
+
 ---
 
 ## Working Notes
