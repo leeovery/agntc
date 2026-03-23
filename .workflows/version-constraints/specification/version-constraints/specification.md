@@ -59,6 +59,18 @@ The presence or absence of `constraint` determines update behavior:
 | `constraint` absent + branch ref | Existing behavior (track branch HEAD) |
 | `constraint` absent + no ref | Existing behavior (track HEAD) |
 
+### Constrained Update Flow
+
+When `constraint` is present, the update command follows this flow:
+
+1. Fetch tags via `ls-remote`
+2. Resolve the best matching tag within constraint bounds using `semver.maxSatisfying`
+3. Compare the resolved tag against the current `ref`:
+   - **Same tag** — plugin is up to date, no action needed
+   - **Newer tag** — apply the standard nuke-and-reinstall: delete manifest `files`, re-clone at the new tag, re-copy for the same agents. Update `ref` and `commit`; `constraint` stays unchanged
+   - **Older tag** — should not occur (maxSatisfying returns the highest match), but if it does, skip — never downgrade
+4. If no tag satisfies the constraint, report an error and leave the plugin untouched
+
 ### Migration
 
 No migration needed — `constraint` is purely additive. Old manifest entries without it behave exactly as before.

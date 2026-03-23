@@ -25,8 +25,8 @@ The discussion established that `ref`/`commit` shift while `constraint` stays fi
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Refined to include comparison logic (same/newer/older) per user feedback — never downgrade, skip if already at best match.
 
 ---
 
