@@ -25,8 +25,8 @@ An implementer needs to know: (a) the exact sequence of filter/normalize operati
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added Tag Normalization Pipeline subsection under Version Resolution. Clarifies clean() over coerce(), original tag stored in ref.
 
 ---
 

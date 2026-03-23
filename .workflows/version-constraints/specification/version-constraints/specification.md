@@ -92,6 +92,17 @@ Add `semver` as a production dependency (alongside `commander` and `@clack/promp
 
 `semver.maxSatisfying` handles all pre-1.0 special casing (`^0.x`, `^0.0.x`) automatically — no custom logic needed.
 
+### Tag Normalization Pipeline
+
+1. Collect all tag names from `ls-remote`
+2. For each tag, attempt `semver.clean(tag)` — strips `v` prefix and whitespace (e.g. `v1.2.3` → `1.2.3`). Less aggressive than `coerce()`
+3. Discard tags where `clean()` returns `null` (not valid semver)
+4. Pass cleaned versions to `semver.maxSatisfying(cleanedVersions, constraint)`
+5. Map the matched clean version back to the original tag name
+6. Store the original tag name in `ref` (it's the git ref used for checkout)
+
+`semver.coerce()` will not be used — it's too aggressive and could match non-version tags. `semver.clean()` plus `semver.valid()` is the correct pipeline.
+
 ### No Match
 
 If `maxSatisfying` returns `null` (no tags satisfy the constraint), report this to the user. This covers cases like a constraint of `^2.0` when only `v1.x` tags exist.
