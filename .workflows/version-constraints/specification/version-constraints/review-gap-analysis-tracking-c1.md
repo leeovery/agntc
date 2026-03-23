@@ -147,8 +147,8 @@ These are existing features that will need to interact with the new constraint s
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**: This could be considered out of scope if the intent is to handle list interactions in a separate pass, but it affects implementation planning since `list` reads manifest entries.
+**Resolution**: Approved
+**Notes**: Added List Command Integration section. Display, update status differentiation, and change-version action behavior.
 
 ---
 

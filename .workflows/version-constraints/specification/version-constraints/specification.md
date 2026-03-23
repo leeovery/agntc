@@ -204,6 +204,14 @@ An informational section will be collated at the end of update output, after all
 - **Info tone, not warning** — the user chose the constraint deliberately; a warning implies they did something wrong
 - **Omit section entirely** if no out-of-constraint versions exist
 
+## List Command Integration
+
+The `list` dashboard will surface constraint information:
+
+- **Display**: Show the constraint alongside the current ref when present (e.g. `^1.0 → v1.2.3`)
+- **Update status**: Differentiate between "update available within constraint" and "newer version outside constraint" — same distinction as the update output info line
+- **Change version action**: The existing change-version action operates outside the constraint system — it allows the user to pick any available tag. Selecting a specific tag via the list action is equivalent to re-adding with an exact pin, removing the constraint
+
 ---
 
 ## Working Notes
