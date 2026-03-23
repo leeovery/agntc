@@ -18,6 +18,19 @@ approved_at: 2026-03-23
 - [ ] `semver` added as production dependency and `@types/semver` as dev dependency in `package.json`
 - [ ] All existing source-parser tests continue to pass unchanged
 
+### Tasks
+status: draft
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-1-1 | Add semver dependency | none |
+| vc-1-2 | Extend ParsedSource types with constraint field | existing tests must pass unchanged with constraint: null default |
+| vc-1-3 | Detect and extract constraint from source parser | partial versions (^1, ~1.2), constraint on SSH with .git suffix, constraint on HTTPS with .git suffix, empty constraint after operator (^, ~) |
+| vc-1-4 | Validate constraint expressions at parse time | invalid semver after operator (^abc, ^1.2.3.4), valid partial versions (^1, ^1.2), tilde variants (~1, ~1.2.3) |
+| vc-1-5 | Reject constraints on local-path and direct-path sources | local path with @^ prefix looks like local path not constraint, tree URL with constraint in path portion |
+| vc-1-6 | Tag normalization pipeline | duplicate versions (v1.2.3 and 1.2.3 both exist), no semver tags at all, tags with extra whitespace, non-semver tags mixed in (release-candidate, latest) |
+| vc-1-7 | Version resolver with constraint matching | no tags satisfy constraint, pre-release tags excluded by maxSatisfying, pre-1.0 caret semantics (^0.2.3), partial constraint (^1) against full tags |
+
 ## Phase 2: Add Command with Constraints
 status: approved
 approved_at: 2026-03-23
