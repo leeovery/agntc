@@ -129,7 +129,7 @@ Add `semver` as a production dependency (alongside `commander` and `@clack/promp
 
 1. Fetch all refs via `ls-remote`
 2. Filter to semver-valid tags using `semver.valid()` (non-semver tags are naturally excluded)
-3. Use `semver.coerce()` for parsing/normalizing tag formats
+3. Use `semver.clean()` for normalizing tag formats (see Tag Normalization Pipeline below)
 4. Pass filtered tags and the constraint to `semver.maxSatisfying(tags, constraint)` to select the best match
 
 `semver.maxSatisfying` handles all pre-1.0 special casing (`^0.x`, `^0.0.x`) automatically — no custom logic needed.
