@@ -63,8 +63,8 @@ The current `ParsedSource` types have `ref: string | null` but no `constraint` f
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added Parser Output subsection under Constraint Syntax. Parser classifies, add command resolves.
 
 ---
 

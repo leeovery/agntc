@@ -37,6 +37,18 @@ This gives plugin authors the standard semver tools to communicate breaking chan
 
 Constraints are unambiguous — no git ref starts with `^` or `~`. The source parser can distinguish constraints from literal refs by prefix.
 
+### Parser Output
+
+The source parser will detect constraint prefixes (`^`, `~`) in the `@` suffix and classify accordingly. `ParsedSource` will gain an optional `constraint` field:
+
+- `owner/repo@^1.0` → `{ constraint: "^1.0", ref: null }`
+- `owner/repo@~1.2` → `{ constraint: "~1.2", ref: null }`
+- `owner/repo@v1.2.3` → `{ constraint: null, ref: "v1.2.3" }`
+- `owner/repo@main` → `{ constraint: null, ref: "main" }`
+- `owner/repo` (bare) → `{ constraint: null, ref: null }`
+
+The bare-add default behavior (resolve latest semver tag, apply `^X.Y.Z`) is the responsibility of the add command, not the parser. The parser only classifies user input — it does not resolve tags or derive constraints.
+
 ## Manifest Storage
 
 A new `constraint` field will be added to manifest entries alongside the existing `ref` and `commit` fields. The `constraint` field captures user *intent* (e.g. "I want compatible 1.x updates"), while `ref` + `commit` capture *current state*. These shift independently — on `update`, `ref` and `commit` change while `constraint` stays fixed.
