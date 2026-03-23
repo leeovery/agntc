@@ -85,8 +85,8 @@ The existing code already handles re-add (nuke old files, reinstall), so the man
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**: This may be implicitly "it just works" via the existing nuke-and-reinstall, but worth confirming since constraint is a new concept.
+**Resolution**: Approved
+**Notes**: Added Re-Add Behavior subsection under Add Command Behavior. Overwrites via standard nuke-and-reinstall, no confirmation prompt.
 
 ---
 

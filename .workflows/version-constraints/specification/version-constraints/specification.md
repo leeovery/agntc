@@ -145,6 +145,17 @@ The full `add` resolution order:
 
 The `@^` and `@~` forms are power-user options. The `@branch` syntax (`@main`, `@develop`, feature branches) is kept as an escape hatch for testing PRs or unreleased work.
 
+### Re-Add Behavior
+
+Re-adding an already-installed plugin follows the same resolution order as a fresh install. The existing manifest entry is overwritten via the standard nuke-and-reinstall — the new `constraint`, `ref`, and `commit` values replace the old ones entirely.
+
+Examples:
+- Installed with `^1.0` → re-add with `@^2.0` → constraint changes to `^2.0`, resolves new tag
+- Installed with `^1.0` → re-add with `@v1.5.0` → constraint removed, exact pin
+- Installed with exact pin → bare re-add → constraint auto-applied per default behavior
+
+No confirmation prompt for constraint changes — the user explicitly chose the new form.
+
 ### Explicit Tags Are Exact Pins
 
 `agntc add owner/repo@v1.2.3` means exact pin — no constraint applied. If you typed a specific version, you meant it. The `@^1` syntax exists for when you want constraints.
