@@ -23,8 +23,8 @@ An implementer would need to: (a) find the absolute latest semver tag across all
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added Out-of-Constraint Detection subsection under Manifest Storage.
 
 ---
 

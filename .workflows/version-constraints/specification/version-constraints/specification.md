@@ -88,6 +88,14 @@ When `constraint` is present, the update command follows this flow:
    - **Older tag** — should not occur (maxSatisfying returns the highest match), but if it does, skip — never downgrade
 4. If no tag satisfies the constraint, report an error and leave the plugin untouched
 
+### Out-of-Constraint Detection
+
+After resolving the best tag within constraint bounds, determine if newer versions exist outside the constraint:
+
+1. Find the absolute latest stable semver tag using `semver.maxSatisfying(cleanedVersions, '*')`
+2. If the absolute latest is higher than the best within-constraint match, include it in the info line output
+3. This check runs for every constrained plugin during `update` and `list` — it uses the same tag data already fetched via `ls-remote`
+
 ### Migration
 
 No migration needed — `constraint` is purely additive. Old manifest entries without it behave exactly as before.
