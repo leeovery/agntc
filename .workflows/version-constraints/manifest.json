@@ -22,7 +22,7 @@
     "specification": {
       "items": {
         "version-constraints": {
-          "status": "in-progress",
+          "status": "completed",
           "review_cycle": 4,
           "finding_gate_mode": "gated",
           "date": "2026-03-23",
