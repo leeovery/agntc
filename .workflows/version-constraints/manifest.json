@@ -23,12 +23,12 @@
       "items": {
         "version-constraints": {
           "status": "in-progress",
-          "review_cycle": 0,
+          "review_cycle": 1,
           "finding_gate_mode": "gated",
           "date": "2026-03-23",
           "sources": {
             "version-constraints": {
-              "status": "pending"
+              "status": "incorporated"
             }
           }
         }
