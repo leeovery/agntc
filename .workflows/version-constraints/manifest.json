@@ -23,7 +23,7 @@
       "items": {
         "version-constraints": {
           "status": "in-progress",
-          "review_cycle": 3,
+          "review_cycle": 4,
           "finding_gate_mode": "gated",
           "date": "2026-03-23",
           "sources": {
