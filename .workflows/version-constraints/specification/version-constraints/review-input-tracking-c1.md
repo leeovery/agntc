@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-23
 cycle: 1
 phase: Input Review
@@ -43,5 +43,5 @@ The specification mentions "the documented install path becomes simply `agntc ad
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**: Minor finding -- this is authoring guidance rather than core feature specification. May be better suited for a separate authoring docs section rather than the version-constraints spec itself.
+**Resolution**: Approved
+**Notes**: Added as Documentation Guidance subsection under Add Command Behavior.

@@ -121,6 +121,10 @@ The `@^` and `@~` forms are power-user options. The `@branch` syntax (`@main`, `
 
 `agntc add owner/repo@v1.2.3` means exact pin — no constraint applied. If you typed a specific version, you meant it. The `@^1` syntax exists for when you want constraints.
 
+### Documentation Guidance
+
+Plugin READMEs and getting-started docs should advertise `agntc add owner/repo` — no version syntax. The `@^1`, `@~1.2`, and `@v1.2.3` forms are power-user options and should not appear in introductory documentation.
+
 ### Semver Compliance
 
 Semver compliance by plugin authors cannot be enforced — same as npm/Composer. The constraint system is a trust-based contract. Semver tagging will be recommended in authoring docs.
