@@ -16,7 +16,12 @@ agntc will support Composer/npm-style version constraints via the existing `@` s
 
 ### Partial Versions
 
-Partial versions fill zeros: `^1` = `^1.0.0`, `^1.2` = `^1.2.0`. Caret semantics are stable regardless of segment count.
+Partial versions fill zeros for both operators. Behavior follows the `semver` npm package conventions:
+
+- `^1` = `^1.0.0`, `^1.2` = `^1.2.0`
+- `~1` = `~1.0.0`, `~1.2` = `~1.2.0`
+
+Caret and tilde semantics are stable regardless of segment count.
 
 ### Pre-1.0 Handling
 

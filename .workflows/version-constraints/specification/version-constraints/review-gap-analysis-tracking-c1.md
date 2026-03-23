@@ -41,8 +41,8 @@ The Partial Versions section says "Partial versions fill zeros: `^1` = `^1.0.0`,
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**: May be trivially resolved by noting the `semver` package handles both, but worth being explicit since the spec chose to be explicit about caret partials.
+**Resolution**: Approved
+**Notes**: Updated Partial Versions subsection to include tilde partials alongside caret.
 
 ---
 
