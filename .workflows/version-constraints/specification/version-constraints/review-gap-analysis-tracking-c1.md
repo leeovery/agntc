@@ -103,8 +103,8 @@ The spec should clarify whether the single-plugin update path also gets the "New
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Skipped
+**Notes**: Already covered by "Same format regardless of single-plugin or batch update." Implementation detail, not a spec gap.
 
 ---
 
