@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-23
 cycle: 2
 phase: Gap Analysis
@@ -75,5 +75,5 @@ The Tag Normalization Pipeline (step 5) says "Map the matched clean version back
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added v-prefix tie-breaking rule to Tag Normalization Pipeline.

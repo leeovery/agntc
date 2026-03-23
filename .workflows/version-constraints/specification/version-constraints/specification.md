@@ -143,6 +143,8 @@ Add `semver` as a production dependency (alongside `commander` and `@clack/promp
 5. Map the matched clean version back to the original tag name
 6. Store the original tag name in `ref` (it's the git ref used for checkout)
 
+If multiple tags clean to the same semver version, prefer the `v`-prefixed form (e.g. `v1.2.3` over `1.2.3`). This matches the dominant tagging convention.
+
 `semver.coerce()` will not be used — it's too aggressive and could match non-version tags. `semver.clean()` plus `semver.valid()` is the correct pipeline.
 
 ### No Match
