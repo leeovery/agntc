@@ -41,8 +41,8 @@ For HTTPS URLs (`https://github.com/owner/repo@^1.0`) and SSH URLs (`git@github.
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added Source Type Support subsection under Constraint Syntax.
 
 ---
 

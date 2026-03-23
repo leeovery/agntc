@@ -49,6 +49,19 @@ The source parser will detect constraint prefixes (`^`, `~`) in the `@` suffix a
 
 The bare-add default behavior (resolve latest semver tag, apply `^X.Y.Z`) is the responsibility of the add command, not the parser. The parser only classifies user input — it does not resolve tags or derive constraints.
 
+### Source Type Support
+
+Constraints are supported on all remote source types that accept an `@` suffix:
+
+- GitHub shorthand: `owner/repo@^1.0`
+- HTTPS URL: `https://github.com/owner/repo@^1.0`
+- SSH URL: `git@github.com:owner/repo@^1.0`
+
+Constraints are not supported on:
+
+- Local paths — no remote tags to resolve against
+- Tree URLs (direct path to a specific commit) — already pinned to a specific ref
+
 ## Manifest Storage
 
 A new `constraint` field will be added to manifest entries alongside the existing `ref` and `commit` fields. The `constraint` field captures user *intent* (e.g. "I want compatible 1.x updates"), while `ref` + `commit` capture *current state*. These shift independently — on `update`, `ref` and `commit` change while `constraint` stays fixed.
