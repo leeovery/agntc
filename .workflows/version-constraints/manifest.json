@@ -18,6 +18,21 @@
           "status": "completed"
         }
       }
+    },
+    "specification": {
+      "items": {
+        "version-constraints": {
+          "status": "in-progress",
+          "review_cycle": 0,
+          "finding_gate_mode": "gated",
+          "date": "2026-03-23",
+          "sources": {
+            "version-constraints": {
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   }
 }
