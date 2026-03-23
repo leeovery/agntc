@@ -125,8 +125,8 @@ The `semver` package treats pre-release versions specially -- `maxSatisfying(['1
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added Latest Tag Resolution subsection under Add Command Behavior. Uses maxSatisfying with '*', excludes pre-releases.
 
 ---
 

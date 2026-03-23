@@ -132,6 +132,17 @@ If `maxSatisfying` returns `null` (no tags satisfy the constraint), report this 
 
 If no semver tags exist, fall back to tracking HEAD with no constraint (existing behavior).
 
+### Latest Tag Resolution (Bare Add)
+
+For bare `agntc add owner/repo`, the latest stable semver tag is determined by:
+
+1. Collect and clean tags via the tag normalization pipeline
+2. Use `semver.maxSatisfying(cleanedVersions, '*')` to find the highest stable version
+3. Pre-release tags (e.g. `2.0.0-beta.1`) are excluded — `maxSatisfying` with `*` only matches stable releases
+4. Apply `^X.Y.Z` using the resolved version
+
+If no stable semver tags exist, fall back to HEAD with no constraint.
+
 ### Resolution Order
 
 The full `add` resolution order:
