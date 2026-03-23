@@ -84,6 +84,35 @@ Add `semver` as a production dependency (alongside `commander` and `@clack/promp
 
 If `maxSatisfying` returns `null` (no tags satisfy the constraint), report this to the user. This covers cases like a constraint of `^2.0` when only `v1.x` tags exist.
 
+## Add Command Behavior
+
+### Default Behavior (Bare Add)
+
+`agntc add owner/repo` (no `@` suffix) will resolve the latest semver tag and auto-apply a `^X.Y.Z` constraint. This mirrors npm/Composer behavior — the documented install path becomes simply `agntc add owner/repo` with no version syntax needed.
+
+If no semver tags exist, fall back to tracking HEAD with no constraint (existing behavior).
+
+### Resolution Order
+
+The full `add` resolution order:
+
+1. `agntc add owner/repo` — resolve latest semver tag, apply `^X.Y.Z`
+2. `agntc add owner/repo@^1` — explicit constraint, resolve best match
+3. `agntc add owner/repo@~1.2` — explicit constraint, resolve best match
+4. `agntc add owner/repo@v1.2.3` — exact pin, no constraint
+5. `agntc add owner/repo@main` — track branch HEAD, no constraint
+6. `agntc add owner/repo` (no semver tags) — fall back to HEAD, no constraint
+
+The `@^` and `@~` forms are power-user options. The `@branch` syntax (`@main`, `@develop`, feature branches) is kept as an escape hatch for testing PRs or unreleased work.
+
+### Explicit Tags Are Exact Pins
+
+`agntc add owner/repo@v1.2.3` means exact pin — no constraint applied. If you typed a specific version, you meant it. The `@^1` syntax exists for when you want constraints.
+
+### Semver Compliance
+
+Semver compliance by plugin authors cannot be enforced — same as npm/Composer. The constraint system is a trust-based contract. Semver tagging will be recommended in authoring docs.
+
 ---
 
 ## Working Notes
