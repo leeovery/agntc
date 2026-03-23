@@ -1,7 +1,8 @@
 # Plan: Version Constraints
 
 ## Phase 1: Constraint Parsing and Version Resolution
-status: draft
+status: approved
+approved_at: 2026-03-23
 
 **Goal**: Parse constraint syntax from user input and resolve tags to the best matching version using semver.
 
@@ -18,7 +19,8 @@ status: draft
 - [ ] All existing source-parser tests continue to pass unchanged
 
 ## Phase 2: Add Command with Constraints
-status: draft
+status: approved
+approved_at: 2026-03-23
 
 **Goal**: Integrate constraint parsing and version resolution into the add command, including the bare-add default behavior that auto-applies `^X.Y.Z`.
 
@@ -36,7 +38,8 @@ status: draft
 - [ ] `git-clone` receives the resolved tag name (not the constraint expression) as the `--branch` argument
 
 ## Phase 3: Constrained Update Flow
-status: draft
+status: approved
+approved_at: 2026-03-23
 
 **Goal**: Implement constraint-aware update resolution so the update command finds newer versions within constraint bounds and reports out-of-constraint availability.
 
@@ -52,7 +55,8 @@ status: draft
 - [ ] Update output UX matches spec: per-plugin results listed first, then collated informational section at end for out-of-constraint versions (section omitted entirely if none exist); info tone, not warning
 
 ## Phase 4: List Command Integration
-status: draft
+status: approved
+approved_at: 2026-03-23
 
 **Goal**: Surface constraint information and constraint-aware update status in the list dashboard, and make the change-version action constraint-removing.
 
