@@ -39,7 +39,7 @@
         "version-constraints": {
           "status": "in-progress",
           "format": "tick",
-          "spec_commit": "e720bae73e45cda9d4471498953453d24f4f6109",
+          "spec_commit": "6f5c7a2f9fe19722d21a1555869f5fcb20884027",
           "task_list_gate_mode": "gated",
           "author_gate_mode": "gated",
           "finding_gate_mode": "gated",

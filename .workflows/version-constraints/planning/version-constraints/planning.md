@@ -1,1 +1,65 @@
 # Plan: Version Constraints
+
+## Phase 1: Constraint Parsing and Version Resolution
+status: draft
+
+**Goal**: Parse constraint syntax from user input and resolve tags to the best matching version using semver.
+
+**Why this order**: This is the foundational capability. Every subsequent phase — add command, update command, list command — depends on being able to parse `^`/`~` constraint prefixes from the `@` suffix and resolve them against remote tags via semver. Without this, nothing else can be built.
+
+**Acceptance**:
+- [ ] Source parser detects `^`/`~` prefixes in the `@` suffix and populates an optional `constraint` field on `ParsedSource` types (`null` for exact/branch/bare/local/tree inputs)
+- [ ] Parser validates constraint expressions via `semver.validRange()`, rejecting invalid input (e.g. `@^abc`, `@^`, `@~`, `@^1.2.3.4`) with clear error messages at parse time
+- [ ] Constraints are supported on `github-shorthand`, `https-url`, and `ssh-url` source types; rejected on `local-path` and `direct-path`
+- [ ] Tag normalization pipeline implemented: collect tags from ls-remote output, clean via `semver.clean()`, discard non-semver tags, prefer `v`-prefixed form when multiple tags clean to the same version
+- [ ] Version resolver accepts cleaned tags and a constraint string, returns best match via `semver.maxSatisfying()`, and maps the result back to the original tag name for git checkout
+- [ ] No-match case (no tags satisfy constraint) returns null with appropriate context for caller error reporting
+- [ ] `semver` added as production dependency and `@types/semver` as dev dependency in `package.json`
+- [ ] All existing source-parser tests continue to pass unchanged
+
+## Phase 2: Add Command with Constraints
+status: draft
+
+**Goal**: Integrate constraint parsing and version resolution into the add command, including the bare-add default behavior that auto-applies `^X.Y.Z`.
+
+**Why this order**: The add command is the entry point for all constraint-based installs. It produces the manifest entries (with the new `constraint` field) that the update and list commands will consume. Phase 1's parsing and resolution logic is required; Phases 3 and 4 consume this phase's output.
+
+**Acceptance**:
+- [ ] Bare add (`agntc add owner/repo`) resolves the latest stable semver tag via `maxSatisfying(cleanedVersions, '*')` and auto-applies `^X.Y.Z` constraint; manifest stores both the constraint and the resolved tag
+- [ ] Bare add with no semver tags falls back to tracking HEAD with no constraint (existing behavior preserved exactly)
+- [ ] Explicit constraint (`owner/repo@^1.0`, `@~1.2`) resolves best matching tag within bounds, stores constraint in manifest, clones at resolved tag
+- [ ] Exact tag (`owner/repo@v1.2.3`) installs as exact pin — no constraint field in manifest entry (existing behavior preserved)
+- [ ] Branch ref (`owner/repo@main`) tracks branch HEAD with no constraint (existing behavior preserved)
+- [ ] `ManifestEntry` type gains optional `constraint` field; field is absent (not null) when not constrained; old manifests without it behave identically (no migration needed)
+- [ ] Re-add behavior: overwrites constraint/ref/commit entirely — constraint additions, changes, and removals all work per spec (e.g. `^1.0` to `@v1.5.0` removes constraint)
+- [ ] Collection add propagates constraint to each selected plugin's independent manifest entry
+- [ ] `git-clone` receives the resolved tag name (not the constraint expression) as the `--branch` argument
+
+## Phase 3: Constrained Update Flow
+status: draft
+
+**Goal**: Implement constraint-aware update resolution so the update command finds newer versions within constraint bounds and reports out-of-constraint availability.
+
+**Why this order**: Update depends on manifest entries containing the `constraint` field (produced by Phase 2's add command) and the version resolution + tag normalization logic (from Phase 1). The update command is the primary consumer of stored constraints.
+
+**Acceptance**:
+- [ ] When `constraint` is present in manifest entry: fetch tags via `ls-remote`, run tag normalization pipeline, resolve best match via `maxSatisfying(cleanedVersions, constraint)`, compare against current `ref`
+- [ ] Same tag as current = up to date; newer tag = nuke-and-reinstall at new tag (ref and commit updated, constraint stays unchanged); older tag = skip (never downgrade)
+- [ ] No satisfying tag = error reported to user, plugin left untouched
+- [ ] Out-of-constraint detection implemented: find absolute latest stable tag via `maxSatisfying(cleanedVersions, '*')`, include in output if higher than within-constraint best
+- [ ] Constraint-absent entries behave exactly as before — branch tracking, exact tag pinning, and HEAD tracking all unchanged
+- [ ] Batch update (`agntc update` with no key) handles mixed constrained and unconstrained plugins correctly
+- [ ] Update output UX matches spec: per-plugin results listed first, then collated informational section at end for out-of-constraint versions (section omitted entirely if none exist); info tone, not warning
+
+## Phase 4: List Command Integration
+status: draft
+
+**Goal**: Surface constraint information and constraint-aware update status in the list dashboard, and make the change-version action constraint-removing.
+
+**Why this order**: List depends on constraint-aware update checking (Phase 3's logic) and the manifest shape with `constraint` field (Phase 2). It is the final consumer of the constraint system and the least critical to core functionality.
+
+**Acceptance**:
+- [ ] List view label shows constraint alongside current ref when present (e.g. `^1.0 → v1.2.3`)
+- [ ] Update status in list differentiates between "update available within constraint" and "newer version outside constraint"
+- [ ] Change-version action operates outside the constraint system — selecting a specific tag removes the constraint from the manifest entry (equivalent to exact pin re-add per spec)
+- [ ] Non-constrained plugins display and behave identically to current behavior (no regressions)
