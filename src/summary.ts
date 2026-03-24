@@ -209,3 +209,23 @@ interface RemoveSummaryInput {
 export function renderRemoveSummary(input: RemoveSummaryInput): string {
 	return `Removed ${input.summaryLabel} — ${input.fileCount} file(s)`;
 }
+
+export interface OutOfConstraintInfo {
+	key: string;
+	latestOverall: string;
+	constraint: string;
+}
+
+export function renderOutOfConstraintSection(
+	infos: OutOfConstraintInfo[],
+): string[] {
+	if (infos.length === 0) return [];
+
+	const lines: string[] = ["Newer versions outside constraints:"];
+	for (const info of infos) {
+		lines.push(
+			`  ${info.key}  ${info.latestOverall} available (constraint: ${info.constraint})`,
+		);
+	}
+	return lines;
+}

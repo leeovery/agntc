@@ -14,8 +14,10 @@ import {
 } from "../manifest.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
 import {
+	type OutOfConstraintInfo,
 	renderGitUpdateSummary,
 	renderLocalUpdateSummary,
+	renderOutOfConstraintSection,
 	renderUpdateOutcomeSummary,
 } from "../summary.js";
 import type { UpdateCheckResult } from "../update-check.js";
@@ -36,10 +38,9 @@ type PluginOutcome =
 	| { status: "copy-failed"; key: string; summary: string }
 	| { status: "constrained-no-match"; key: string; summary: string };
 
-export interface OutOfConstraintInfo {
-	key: string;
-	latestOverall: string;
-	constraint: string;
+interface SingleUpdateResult {
+	newEntry: ManifestEntry | null;
+	outOfConstraint: OutOfConstraintInfo | null;
 }
 
 export async function runUpdate(key?: string): Promise<void> {
@@ -61,24 +62,50 @@ export async function runUpdate(key?: string): Promise<void> {
 
 	let updatedManifest = { ...manifest };
 	let hasChanges = false;
+	const outOfConstraintInfos: OutOfConstraintInfo[] = [];
 
 	for (const targetKey of targetKeys) {
 		const entry = manifest[targetKey]!;
-		const newEntry = await runSingleUpdate(
+		const result = await runSingleUpdate(
 			targetKey,
 			entry,
 			manifest,
 			projectDir,
 		);
-		if (newEntry !== null) {
-			updatedManifest = addEntry(updatedManifest, targetKey, newEntry);
+		if (result.newEntry !== null) {
+			updatedManifest = addEntry(updatedManifest, targetKey, result.newEntry);
 			hasChanges = true;
+		}
+		if (result.outOfConstraint !== null) {
+			outOfConstraintInfos.push(result.outOfConstraint);
 		}
 	}
 
 	if (hasChanges) {
 		await writeManifest(projectDir, updatedManifest);
 	}
+
+	renderOutOfConstraintOutput(outOfConstraintInfos);
+}
+
+function extractOutOfConstraint(
+	key: string,
+	entry: ManifestEntry,
+	checkResult: UpdateCheckResult,
+): OutOfConstraintInfo | null {
+	if (
+		(checkResult.status === "constrained-update-available" ||
+			checkResult.status === "constrained-up-to-date") &&
+		checkResult.latestOverall !== null &&
+		entry.constraint !== undefined
+	) {
+		return {
+			key,
+			latestOverall: checkResult.latestOverall,
+			constraint: entry.constraint,
+		};
+	}
+	return null;
 }
 
 async function runSingleUpdate(
@@ -86,13 +113,14 @@ async function runSingleUpdate(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
-): Promise<ManifestEntry | null> {
+): Promise<SingleUpdateResult> {
 	// Check for update
 	const result = await checkForUpdate(key, entry);
+	const outOfConstraint = extractOutOfConstraint(key, entry, result);
 
 	if (result.status === "up-to-date") {
 		p.outro(`${key} is already up to date.`);
-		return null;
+		return { newEntry: null, outOfConstraint };
 	}
 
 	if (result.status === "check-failed") {
@@ -108,12 +136,12 @@ async function runSingleUpdate(
 		}
 		const newest = reversed[0]!;
 		p.outro(`To upgrade: npx agntc add ${key}@${newest}`);
-		return null;
+		return { newEntry: null, outOfConstraint };
 	}
 
 	if (result.status === "constrained-up-to-date") {
 		p.outro(`${key} is already up to date.`);
-		return null;
+		return { newEntry: null, outOfConstraint };
 	}
 
 	if (result.status === "constrained-no-match") {
@@ -129,16 +157,29 @@ async function runSingleUpdate(
 			gte(clean(entry.ref) ?? "0.0.0", clean(result.tag) ?? "0.0.0")
 		) {
 			p.outro(`${key} is already up to date.`);
-			return null;
+			return { newEntry: null, outOfConstraint };
 		}
-		return runSinglePluginUpdate(key, entry, manifest, projectDir, {
-			newRef: result.tag,
-			newCommit: result.commit,
-		});
+		const newEntry = await runSinglePluginUpdate(
+			key,
+			entry,
+			manifest,
+			projectDir,
+			{
+				newRef: result.tag,
+				newCommit: result.commit,
+			},
+		);
+		return { newEntry, outOfConstraint };
 	}
 
 	// update-available or local — proceed with single plugin update
-	return runSinglePluginUpdate(key, entry, manifest, projectDir);
+	const newEntry = await runSinglePluginUpdate(
+		key,
+		entry,
+		manifest,
+		projectDir,
+	);
+	return { newEntry, outOfConstraint };
 }
 
 async function validateLocalPath(sourcePath: string): Promise<void> {
@@ -419,21 +460,16 @@ async function runAllUpdates(): Promise<void> {
 		}
 	}
 
-	// Collect out-of-constraint info for downstream rendering (vc-3-5)
+	// Collect out-of-constraint info for downstream rendering
 	const outOfConstraintInfo: OutOfConstraintInfo[] = [];
 	for (const checked of checkResults) {
-		const result = checked.checkResult;
-		if (
-			(result.status === "constrained-update-available" ||
-				result.status === "constrained-up-to-date") &&
-			result.latestOverall !== null &&
-			checked.entry.constraint !== undefined
-		) {
-			outOfConstraintInfo.push({
-				key: checked.key,
-				latestOverall: result.latestOverall,
-				constraint: checked.entry.constraint,
-			});
+		const info = extractOutOfConstraint(
+			checked.key,
+			checked.entry,
+			checked.checkResult,
+		);
+		if (info !== null) {
+			outOfConstraintInfo.push(info);
 		}
 	}
 
@@ -553,6 +589,7 @@ async function runAllUpdates(): Promise<void> {
 
 	if (allUpToDate) {
 		p.outro("All plugins are up to date.");
+		renderOutOfConstraintOutput(outOfConstraintInfo);
 		return;
 	}
 
@@ -573,6 +610,15 @@ async function runAllUpdates(): Promise<void> {
 		} else {
 			p.log.message(outcome.summary);
 		}
+	}
+
+	renderOutOfConstraintOutput(outOfConstraintInfo);
+}
+
+function renderOutOfConstraintOutput(infos: OutOfConstraintInfo[]): void {
+	const lines = renderOutOfConstraintSection(infos);
+	for (const line of lines) {
+		p.log.info(line);
 	}
 }
 
