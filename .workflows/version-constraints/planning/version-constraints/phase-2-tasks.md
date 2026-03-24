@@ -219,9 +219,7 @@ total: 5
   async function resolveConstraintAndRef(parsed: ParsedSource): Promise<{ ref: string | null; constraint?: string }>
   ```
   This function encapsulates: if bare add, resolve latest tag and derive `^X.Y.Z`; if explicit constraint, resolve best match; if exact/branch, return as-is with no constraint.
-- In `runCollectionPipeline()`, call `resolveConstraintAndRef(parsed)` once at the top (after parsing, before plugin selection), getting the resolved `ref` and optional `constraint`
-- Update the `parsed.ref` used by `cloneSource` to use the resolved ref (this may require restructuring — currently `cloneSource(parsed)` is called before `runCollectionPipeline`, so the resolution needs to happen before or be passed into the pipeline)
-- Actually, looking at the code: `cloneSource(parsed)` happens in `runAdd()` before `runCollectionPipeline` is called. The resolution must happen before cloning. So the shared helper must be called in `runAdd()` before the clone step, and the resolved ref/constraint passed through to both the standalone path and the collection path.
+- In `runAdd()`, call `resolveConstraintAndRef(parsed)` before `cloneSource(parsed)` -- this is necessary because `cloneSource` happens in `runAdd()` before the collection pipeline is invoked, so the resolved ref must be set on `parsed` before cloning. The resolved constraint is passed through to both the standalone path and the collection pipeline via `CollectionPipelineInput`.
 - In `runCollectionPipeline`, update the manifest entry construction (step 6, the loop that builds entries for installed plugins) to include `constraint` when present:
   ```typescript
   const entry = {

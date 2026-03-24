@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-24
 cycle: 2
 phase: Plan Integrity Review
@@ -36,7 +36,7 @@ Replace those three Do steps with a single clear step:
 - In `runAdd()`, call `resolveConstraintAndRef(parsed)` before `cloneSource(parsed)` -- this is necessary because `cloneSource` happens in `runAdd()` before the collection pipeline is invoked, so the resolved ref must be set on `parsed` before cloning. The resolved constraint is passed through to both the standalone path and the collection pipeline via `CollectionPipelineInput`.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
@@ -75,5 +75,5 @@ Replace the comment:
   }
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: The code itself is correct -- the comment is what's misleading. vc-3-5 will add rendering between `p.outro` and `return null`.

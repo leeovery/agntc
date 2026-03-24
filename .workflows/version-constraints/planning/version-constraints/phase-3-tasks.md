@@ -151,7 +151,7 @@ total: 5
 
   if (result.status === "constrained-up-to-date") {
     p.outro(`${key} is already up to date.`);
-    // out-of-constraint info is collected but displayed only in batch mode (vc-3-5)
+    // out-of-constraint info display is added by vc-3-5 (both single-plugin and batch modes)
     return null;
   }
 
