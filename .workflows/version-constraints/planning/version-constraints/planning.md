@@ -51,6 +51,17 @@ approved_at: 2026-03-23
 - [ ] Collection add propagates constraint to each selected plugin's independent manifest entry
 - [ ] `git-clone` receives the resolved tag name (not the constraint expression) as the `--branch` argument
 
+### Tasks
+status: draft
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-2-1 | Extend ManifestEntry with optional constraint field | old manifests without constraint field read correctly, constraint field absent (not null) when not constrained |
+| vc-2-2 | Bare add resolves latest semver tag and auto-applies constraint | no semver tags exist (fall back to HEAD), all tags are pre-release (fall back to HEAD), repo has only non-semver tags mixed with semver |
+| vc-2-3 | Explicit constraint resolves best matching tag | no tags satisfy constraint, partial constraint (^1) against full tags, pre-1.0 caret semantics (^0.2.3) |
+| vc-2-4 | Exact tag and branch ref preserve existing behavior | re-add from constrained to exact pin must remove constraint, re-add from constrained to branch must remove constraint |
+| vc-2-5 | Collection add propagates constraint to each plugin manifest entry | collection bare add auto-applies same ^X.Y.Z to all selected plugins, collection with explicit constraint propagates to all |
+
 ## Phase 3: Constrained Update Flow
 status: approved
 approved_at: 2026-03-23
