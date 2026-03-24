@@ -3466,4 +3466,193 @@ describe("add command", () => {
 			expect(entry.constraint).toBe("^1.0");
 		});
 	});
+
+	describe("exact tag and branch ref — no constraint", () => {
+		const EXACT_TAG_PARSED: ParsedSource = {
+			type: "github-shorthand",
+			owner: "owner",
+			repo: "my-skill",
+			ref: "v1.2.3",
+			constraint: null,
+			manifestKey: "owner/my-skill",
+			cloneUrl: "https://github.com/owner/my-skill.git",
+		};
+
+		const BRANCH_REF_PARSED: ParsedSource = {
+			type: "github-shorthand",
+			owner: "owner",
+			repo: "my-skill",
+			ref: "main",
+			constraint: null,
+			manifestKey: "owner/my-skill",
+			cloneUrl: "https://github.com/owner/my-skill.git",
+		};
+
+		function setupExactTag(): void {
+			setupHappyPath();
+			mockParseSource.mockReturnValue(EXACT_TAG_PARSED);
+		}
+
+		function setupBranchRef(): void {
+			setupHappyPath();
+			mockParseSource.mockReturnValue(BRANCH_REF_PARSED);
+		}
+
+		it("exact tag add produces manifest entry without constraint", async () => {
+			setupExactTag();
+
+			await runAdd("owner/my-skill@v1.2.3");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("v1.2.3");
+			expect("constraint" in entry).toBe(false);
+		});
+
+		it("branch ref add produces manifest entry without constraint", async () => {
+			setupBranchRef();
+
+			await runAdd("owner/my-skill@main");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("main");
+			expect("constraint" in entry).toBe(false);
+		});
+
+		it("exact tag add does not call ls-remote", async () => {
+			setupExactTag();
+
+			await runAdd("owner/my-skill@v1.2.3");
+
+			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
+			expect(mockResolveLatestVersion).not.toHaveBeenCalled();
+			expect(mockResolveVersion).not.toHaveBeenCalled();
+		});
+
+		it("branch ref add does not call ls-remote", async () => {
+			setupBranchRef();
+
+			await runAdd("owner/my-skill@main");
+
+			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
+			expect(mockResolveLatestVersion).not.toHaveBeenCalled();
+			expect(mockResolveVersion).not.toHaveBeenCalled();
+		});
+
+		it("re-add from constrained to exact tag removes constraint", async () => {
+			setupExactTag();
+			const existingEntry: ManifestEntry = {
+				ref: "v1.0.0",
+				commit: "old-commit",
+				installedAt: "2025-01-01T00:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+				cloneUrl: "https://github.com/owner/my-skill.git",
+				constraint: "^1.0",
+			};
+			mockReadManifest.mockResolvedValue({
+				"owner/my-skill": existingEntry,
+			});
+
+			await runAdd("owner/my-skill@v1.2.3");
+
+			// Should nuke old files
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				existingEntry.files,
+			);
+
+			// New entry should not have constraint
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("v1.2.3");
+			expect("constraint" in entry).toBe(false);
+		});
+
+		it("re-add from constrained to branch removes constraint", async () => {
+			setupBranchRef();
+			const existingEntry: ManifestEntry = {
+				ref: "v1.0.0",
+				commit: "old-commit",
+				installedAt: "2025-01-01T00:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+				cloneUrl: "https://github.com/owner/my-skill.git",
+				constraint: "^1.0",
+			};
+			mockReadManifest.mockResolvedValue({
+				"owner/my-skill": existingEntry,
+			});
+
+			await runAdd("owner/my-skill@main");
+
+			// Should nuke old files
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				existingEntry.files,
+			);
+
+			// New entry should not have constraint
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("main");
+			expect("constraint" in entry).toBe(false);
+		});
+
+		it("re-add from constrained to bare add applies new constraint", async () => {
+			const BARE_PARSED: ParsedSource = {
+				type: "github-shorthand",
+				owner: "owner",
+				repo: "my-skill",
+				ref: null,
+				constraint: null,
+				manifestKey: "owner/my-skill",
+				cloneUrl: "https://github.com/owner/my-skill.git",
+			};
+			setupHappyPath();
+			mockParseSource.mockReturnValue(BARE_PARSED);
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+			const existingEntry: ManifestEntry = {
+				ref: "v1.0.0",
+				commit: "old-commit",
+				installedAt: "2025-01-01T00:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+				cloneUrl: "https://github.com/owner/my-skill.git",
+				constraint: "^1.0",
+			};
+			mockReadManifest.mockResolvedValue({
+				"owner/my-skill": existingEntry,
+			});
+
+			await runAdd("owner/my-skill");
+
+			// Should nuke old files
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				existingEntry.files,
+			);
+
+			// New entry should have new constraint from bare-add resolution
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("v2.0.0");
+			expect(entry.constraint).toBe("^2.0.0");
+		});
+
+		it("cloneSource receives exact tag ref directly", async () => {
+			setupExactTag();
+
+			await runAdd("owner/my-skill@v1.2.3");
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v1.2.3");
+			expect(cloneCall.constraint).toBeNull();
+		});
+	});
 });
