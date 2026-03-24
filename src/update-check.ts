@@ -1,4 +1,4 @@
-import { execGit } from "./git-utils.js";
+import { execGit, parseTagRefs } from "./git-utils.js";
 import type { ManifestEntry } from "./manifest.js";
 import { deriveCloneUrlFromKey } from "./source-parser.js";
 import { resolveLatestVersion, resolveVersion } from "./version-resolve.js";
@@ -31,19 +31,6 @@ function parseLsRemoteSha(stdout: string): string | null {
 	const firstLine = trimmed.split("\n")[0]!;
 	const sha = firstLine.split("\t")[0]!.trim();
 	return sha || null;
-}
-
-function parseAllTags(stdout: string): string[] {
-	const trimmed = stdout.trim();
-	if (trimmed === "") return [];
-	return trimmed
-		.split("\n")
-		.filter((line) => line.trim() !== "")
-		.filter((line) => !line.includes("^{}"))
-		.map((line) => {
-			const ref = line.split("\t")[1]!.trim();
-			return ref.replace("refs/tags/", "");
-		});
 }
 
 function findNewerTags(allTags: string[], currentTag: string): string[] | null {
@@ -139,7 +126,7 @@ async function checkTag(
 		const { stdout } = await execGit(["ls-remote", "--tags", url], {
 			timeout: 15_000,
 		});
-		const allTags = parseAllTags(stdout);
+		const allTags = parseTagRefs(stdout).map((r) => r.tag);
 		const newerTags = findNewerTags(allTags, tag);
 		if (newerTags === null) {
 			return {
@@ -159,22 +146,6 @@ async function checkTag(
 	}
 }
 
-function parseTagCommitMap(stdout: string): Map<string, string> {
-	const trimmed = stdout.trim();
-	if (trimmed === "") return new Map();
-	const result = new Map<string, string>();
-	for (const line of trimmed.split("\n")) {
-		if (line.trim() === "" || line.includes("^{}")) continue;
-		const parts = line.split("\t");
-		const sha = parts[0]?.trim();
-		const ref = parts[1]?.trim().replace("refs/tags/", "");
-		if (sha && ref) {
-			result.set(ref, sha);
-		}
-	}
-	return result;
-}
-
 function detectLatestOverall(tags: string[], bestTag: string): string | null {
 	const latest = resolveLatestVersion(tags);
 	if (latest === null) return null;
@@ -191,8 +162,9 @@ async function checkConstrained(
 		const { stdout } = await execGit(["ls-remote", "--tags", url], {
 			timeout: 15_000,
 		});
-		const tagCommitMap = parseTagCommitMap(stdout);
-		const tags = [...tagCommitMap.keys()];
+		const parsed = parseTagRefs(stdout);
+		const tagCommitMap = new Map(parsed.map((r) => [r.tag, r.sha]));
+		const tags = parsed.map((r) => r.tag);
 
 		const best = resolveVersion(constraint, tags);
 		if (best === null) {

@@ -26,10 +26,12 @@ export function execGit(
 	});
 }
 
-export async function fetchRemoteTags(url: string): Promise<string[]> {
-	const { stdout } = await execGit(["ls-remote", "--tags", url], {
-		timeout: 15_000,
-	});
+export interface TagRef {
+	tag: string;
+	sha: string;
+}
+
+export function parseTagRefs(stdout: string): TagRef[] {
 	const trimmed = stdout.trim();
 	if (trimmed === "") return [];
 	return trimmed
@@ -37,7 +39,16 @@ export async function fetchRemoteTags(url: string): Promise<string[]> {
 		.filter((line) => line.trim() !== "")
 		.filter((line) => !line.includes("^{}"))
 		.map((line) => {
-			const ref = line.split("\t")[1]?.trim() ?? "";
-			return ref.replace("refs/tags/", "");
+			const parts = line.split("\t");
+			const sha = parts[0]?.trim() ?? "";
+			const ref = parts[1]?.trim() ?? "";
+			return { tag: ref.replace("refs/tags/", ""), sha };
 		});
+}
+
+export async function fetchRemoteTags(url: string): Promise<string[]> {
+	const { stdout } = await execGit(["ls-remote", "--tags", url], {
+		timeout: 15_000,
+	});
+	return parseTagRefs(stdout).map((r) => r.tag);
 }
