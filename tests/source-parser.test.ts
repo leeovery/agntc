@@ -462,6 +462,198 @@ describe("parseSource", () => {
 		});
 	});
 
+	describe("constraint detection from source input", () => {
+		describe("GitHub shorthand constraints", () => {
+			it("extracts caret constraint from github shorthand", async () => {
+				const result = await parseSource("owner/repo@^1.2.3");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "^1.2.3",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("extracts tilde constraint from github shorthand", async () => {
+				const result = await parseSource("owner/repo@~1.2.3");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "~1.2.3",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("extracts partial caret constraint", async () => {
+				const result = await parseSource("owner/repo@^1");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "^1",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("extracts partial tilde constraint", async () => {
+				const result = await parseSource("owner/repo@~1.2");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "~1.2",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("preserves exact ref when no constraint prefix", async () => {
+				const result = await parseSource("owner/repo@v1.2.3");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: "v1.2.3",
+					constraint: null,
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("preserves branch ref when no constraint prefix", async () => {
+				const result = await parseSource("owner/repo@main");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: "main",
+					constraint: null,
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("stores empty constraint after operator verbatim", async () => {
+				const result = await parseSource("owner/repo@^");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "^",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("stores empty tilde constraint verbatim", async () => {
+				const result = await parseSource("owner/repo@~");
+				expect(result).toEqual({
+					type: "github-shorthand",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "~",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+		});
+
+		describe("HTTPS URL constraints", () => {
+			it("extracts constraint from HTTPS URL", async () => {
+				const result = await parseSource("https://github.com/owner/repo@^1.0");
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "^1.0",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("extracts constraint from HTTPS URL with .git suffix", async () => {
+				const result = await parseSource(
+					"https://github.com/owner/repo.git@^1.0",
+				);
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "^1.0",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+
+			it("extracts tilde constraint from HTTPS URL", async () => {
+				const result = await parseSource("https://github.com/owner/repo@~1.2");
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "~1.2",
+					manifestKey: "owner/repo",
+					cloneUrl: "https://github.com/owner/repo.git",
+				});
+			});
+		});
+
+		describe("SSH URL constraints", () => {
+			it("extracts constraint from SSH URL with .git suffix", async () => {
+				const result = await parseSource("git@github.com:owner/repo.git@^1.0");
+				expect(result).toEqual({
+					type: "ssh-url",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "^1.0",
+					manifestKey: "owner/repo",
+					cloneUrl: "git@github.com:owner/repo.git",
+				});
+			});
+
+			it("extracts constraint from SSH URL without .git suffix", async () => {
+				const result = await parseSource("git@github.com:owner/repo@~1.2");
+				expect(result).toEqual({
+					type: "ssh-url",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "~1.2",
+					manifestKey: "owner/repo",
+					cloneUrl: "git@github.com:owner/repo.git",
+				});
+			});
+
+			it("extracts caret constraint from SSH URL without .git suffix", async () => {
+				const result = await parseSource("git@github.com:owner/repo@^1.0");
+				expect(result).toEqual({
+					type: "ssh-url",
+					owner: "owner",
+					repo: "repo",
+					ref: null,
+					constraint: "^1.0",
+					manifestKey: "owner/repo",
+					cloneUrl: "git@github.com:owner/repo.git",
+				});
+			});
+		});
+	});
+
 	describe("GitHub shorthand still works (no regression)", () => {
 		it("simple owner/repo still returns github-shorthand type", async () => {
 			const result = await parseSource("owner/repo");

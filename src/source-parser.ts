@@ -250,12 +250,14 @@ function parseSshUrl(input: string): SshUrlSource {
 	const repo = segments[1]!;
 	const cloneUrl = `git@${host}:${owner}/${repo}.git`;
 
+	const { ref: finalRef, constraint } = classifyRefOrConstraint(ref);
+
 	return {
 		type: "ssh-url",
 		owner,
 		repo,
-		ref,
-		constraint: null,
+		ref: finalRef,
+		constraint,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl,
 	};
@@ -263,7 +265,7 @@ function parseSshUrl(input: string): SshUrlSource {
 
 function parseHttpsUrl(input: string): HttpsUrlSource {
 	const withoutProtocol = input.slice("https://".length);
-	const { urlPart: rawUrlPart, ref } = extractRef(withoutProtocol);
+	const { urlPart: rawUrlPart, ref: rawRef } = extractRef(withoutProtocol);
 
 	const urlPart = rawUrlPart.replace(/\/+$/, "");
 
@@ -289,12 +291,14 @@ function parseHttpsUrl(input: string): HttpsUrlSource {
 	const repo = segments[segments.length - 1]!;
 	const cloneUrl = `https://${host}/${owner}/${repo}.git`;
 
+	const { ref, constraint } = classifyRefOrConstraint(rawRef);
+
 	return {
 		type: "https-url",
 		owner,
 		repo,
 		ref,
-		constraint: null,
+		constraint,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl,
 	};
@@ -315,11 +319,25 @@ function extractRef(input: string): { urlPart: string; ref: string | null } {
 	return { urlPart: input.slice(0, atIndex), ref };
 }
 
+function isConstraintPrefix(suffix: string): boolean {
+	return suffix.startsWith("^") || suffix.startsWith("~");
+}
+
+function classifyRefOrConstraint(rawRef: string | null): {
+	ref: string | null;
+	constraint: string | null;
+} {
+	if (rawRef !== null && isConstraintPrefix(rawRef)) {
+		return { ref: null, constraint: rawRef };
+	}
+	return { ref: rawRef, constraint: null };
+}
+
 function parseGitHubShorthand(input: string): GitHubShorthandSource {
 	const [pathPart, ...refParts] = input.split("@");
-	const ref = refParts.length > 0 ? refParts.join("@") : null;
+	const rawRef = refParts.length > 0 ? refParts.join("@") : null;
 
-	if (ref === "") {
+	if (rawRef === "") {
 		throw new Error("ref cannot be empty when @ is present");
 	}
 
@@ -345,12 +363,14 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 		throw new Error("repo cannot be empty");
 	}
 
+	const { ref, constraint } = classifyRefOrConstraint(rawRef);
+
 	return {
 		type: "github-shorthand",
 		owner,
 		repo,
 		ref,
-		constraint: null,
+		constraint,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl: `https://github.com/${owner}/${repo}.git`,
 	};
