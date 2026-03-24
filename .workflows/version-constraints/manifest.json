@@ -45,12 +45,13 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "vc-1-4",
+          "task": "vc-1-5",
           "task_map": {
             "vc-1-1": "tick-cf403c",
             "version-constraints-1": "tick-5d7bbb",
             "vc-1-2": "tick-77a0b8",
-            "vc-1-3": "tick-f71b80"
+            "vc-1-3": "tick-f71b80",
+            "vc-1-4": "tick-ba2517"
           },
           "external_id": "tick-1f1525"
         }
