@@ -53,13 +53,13 @@ Nuke-and-reinstall: delete manifest `files`, re-clone at same ref, re-copy for s
 ## Testing
 
 ```bash
-pnpm test
+npm test
 ```
 
 ## Build
 
 ```bash
-pnpm build
+npm build
 ```
 
 Output: `dist/cli.js`

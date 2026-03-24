@@ -82,17 +82,48 @@
       "items": {
         "version-constraints": {
           "status": "in-progress",
-          "task_gate_mode": "gated",
-          "fix_gate_mode": "gated",
+          "task_gate_mode": "auto",
+          "fix_gate_mode": "auto",
           "analysis_gate_mode": "gated",
-          "fix_attempts": 0,
+          "fix_attempts": 1,
           "analysis_cycle": 0,
-          "linters": [],
-          "project_skills": [],
+          "linters": [
+            {
+              "name": "biome",
+              "command": "npx biome check --write"
+            },
+            {
+              "name": "tsc",
+              "command": "npx tsc --noEmit"
+            }
+          ],
+          "project_skills": [
+            ".claude/skills/typescript-expert",
+            ".claude/skills/typescript-advanced-types",
+            ".claude/skills/typescript-pro"
+          ],
           "current_phase": 1,
-          "current_task": "~"
+          "current_task": "~",
+          "completed_tasks": [
+            "vc-1-1"
+          ]
         }
-      }
+      },
+      "project_skills": [
+        ".claude/skills/typescript-expert",
+        ".claude/skills/typescript-advanced-types",
+        ".claude/skills/typescript-pro"
+      ],
+      "linters": [
+        {
+          "name": "biome",
+          "command": "npx biome check --write"
+        },
+        {
+          "name": "tsc",
+          "command": "npx tsc --noEmit"
+        }
+      ]
     }
   }
 }
