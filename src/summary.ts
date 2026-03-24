@@ -3,6 +3,18 @@ import { getDriver } from "./drivers/registry.js";
 import type { AgentId, AssetType } from "./drivers/types.js";
 import type { DetectedType } from "./type-detection.js";
 
+export function formatDroppedAgentsSuffix(
+	droppedAgents: string[],
+	style: "sentence" | "inline",
+): string {
+	if (droppedAgents.length === 0) return "";
+	const agents = droppedAgents.join(", ");
+	if (style === "sentence") {
+		return `. ${agents} support removed by plugin author.`;
+	}
+	return ` \u2014 ${agents} support removed by plugin author`;
+}
+
 export function capitalizeAgentName(id: string): string {
 	return id.charAt(0).toUpperCase() + id.slice(1);
 }
@@ -145,10 +157,10 @@ interface GitUpdateSummaryInput {
 export function renderGitUpdateSummary(input: GitUpdateSummaryInput): string {
 	const oldShort = input.oldCommit ? input.oldCommit.slice(0, 7) : "unknown";
 	const newShort = input.newCommit.slice(0, 7);
-	const droppedSuffix =
-		input.droppedAgents.length > 0
-			? `. ${input.droppedAgents.join(", ")} support removed by plugin author.`
-			: "";
+	const droppedSuffix = formatDroppedAgentsSuffix(
+		input.droppedAgents,
+		"sentence",
+	);
 	return `Updated ${input.key}: ${oldShort} -> ${newShort} — ${input.copiedFiles.length} file(s) for ${input.effectiveAgents.join(", ")}${droppedSuffix}`;
 }
 
@@ -162,10 +174,10 @@ interface LocalUpdateSummaryInput {
 export function renderLocalUpdateSummary(
 	input: LocalUpdateSummaryInput,
 ): string {
-	const droppedSuffix =
-		input.droppedAgents.length > 0
-			? `. ${input.droppedAgents.join(", ")} support removed by plugin author.`
-			: "";
+	const droppedSuffix = formatDroppedAgentsSuffix(
+		input.droppedAgents,
+		"sentence",
+	);
 	return `Refreshed ${input.key} — ${input.copiedFiles.length} file(s) for ${input.effectiveAgents.join(", ")}${droppedSuffix}`;
 }
 
@@ -187,17 +199,17 @@ export function renderUpdateOutcomeSummary(input: UpdateOutcomeInput): string {
 	if (input.type === "git-update") {
 		const oldShort = input.oldCommit ? input.oldCommit.slice(0, 7) : "unknown";
 		const newShort = input.newCommit.slice(0, 7);
-		const droppedSuffix =
-			input.droppedAgents.length > 0
-				? ` — ${input.droppedAgents.join(", ")} support removed by plugin author`
-				: "";
+		const droppedSuffix = formatDroppedAgentsSuffix(
+			input.droppedAgents,
+			"inline",
+		);
 		return `${input.key}: Updated ${oldShort} -> ${newShort}${droppedSuffix}`;
 	}
 
-	const droppedSuffix =
-		input.droppedAgents.length > 0
-			? ` — ${input.droppedAgents.join(", ")} support removed by plugin author`
-			: "";
+	const droppedSuffix = formatDroppedAgentsSuffix(
+		input.droppedAgents,
+		"inline",
+	);
 	return `${input.key}: Refreshed from local path${droppedSuffix}`;
 }
 

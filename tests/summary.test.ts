@@ -10,6 +10,7 @@ import type { AgentId, AssetType } from "../src/drivers/types.js";
 import {
 	capitalizeAgentName,
 	formatBareSkillSummary,
+	formatDroppedAgentsSuffix,
 	formatPluginSummary,
 	formatRefLabel,
 	renderAddSummary,
@@ -516,5 +517,36 @@ describe("edge cases", () => {
 			droppedAgents: ["codex", "cursor"],
 		});
 		expect(result).toContain("codex, cursor support removed by plugin author");
+	});
+});
+
+describe("formatDroppedAgentsSuffix", () => {
+	it("returns empty string when no agents dropped", () => {
+		expect(formatDroppedAgentsSuffix([], "sentence")).toBe("");
+		expect(formatDroppedAgentsSuffix([], "inline")).toBe("");
+	});
+
+	it("produces sentence style for single agent", () => {
+		expect(formatDroppedAgentsSuffix(["codex"], "sentence")).toBe(
+			". codex support removed by plugin author.",
+		);
+	});
+
+	it("produces sentence style for multiple agents", () => {
+		expect(formatDroppedAgentsSuffix(["claude", "codex"], "sentence")).toBe(
+			". claude, codex support removed by plugin author.",
+		);
+	});
+
+	it("produces inline style for single agent", () => {
+		expect(formatDroppedAgentsSuffix(["codex"], "inline")).toBe(
+			" \u2014 codex support removed by plugin author",
+		);
+	});
+
+	it("produces inline style for multiple agents", () => {
+		expect(formatDroppedAgentsSuffix(["claude", "codex"], "inline")).toBe(
+			" \u2014 claude, codex support removed by plugin author",
+		);
 	});
 });
