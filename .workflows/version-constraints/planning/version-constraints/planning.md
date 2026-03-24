@@ -52,7 +52,8 @@ approved_at: 2026-03-23
 - [ ] `git-clone` receives the resolved tag name (not the constraint expression) as the `--branch` argument
 
 ### Tasks
-status: draft
+status: approved
+approved_at: 2026-03-24
 
 | ID | Task | Edge Cases |
 |----|------|------------|
