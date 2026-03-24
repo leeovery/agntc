@@ -71,7 +71,13 @@
             "vc-4-1": "tick-0827bc",
             "vc-4-2": "tick-0fe4db",
             "vc-4-3": "tick-b65c0e",
-            "vc-4-4": "tick-2cf85b"
+            "vc-4-4": "tick-2cf85b",
+            "version-constraints-5": "tick-b7ed3d",
+            "vc-5-1": "tick-6d58d4",
+            "vc-5-2": "tick-9cb842",
+            "vc-5-3": "tick-7ad24f",
+            "vc-5-4": "tick-624857",
+            "vc-5-5": "tick-1e7212"
           },
           "external_id": "tick-1f1525"
         }
@@ -84,7 +90,7 @@
           "status": "in-progress",
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
-          "analysis_gate_mode": "gated",
+          "analysis_gate_mode": "auto",
           "fix_attempts": 0,
           "analysis_cycle": 1,
           "linters": [

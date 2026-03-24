@@ -116,3 +116,19 @@ approved_at: 2026-03-24
 | vc-4-2 | Constraint-aware status hints in list view | constrained-up-to-date with out-of-constraint info, constrained-no-match shows meaningful hint, non-constrained statuses unchanged |
 | vc-4-3 | Constraint-aware detail view actions | constrained-up-to-date with no out-of-constraint (no change-version), constrained-no-match (error info + remove/back only), non-constrained unchanged |
 | vc-4-4 | Change-version action removes constraint | entry already has no constraint (no-op), entry with constraint and user selects tag (constraint removed), works with new constrained status types |
+
+## Phase 5: Analysis (Cycle 1)
+status: open
+
+**Goal**: Address findings from Analysis (Cycle 1).
+
+### Tasks
+status: open
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-5-1 | Fix list update action to forward constrained update resolution | constrained-update-available status must include tag and commit fields, non-constrained updates unaffected |
+| vc-5-2 | Consolidate ls-remote tag parsing into a single shared function | annotated ^{} refs, empty lines, v-prefixed tags, duplicate versions |
+| vc-5-3 | Extract downgrade prevention helper with safe fallback | non-semver refs (branch names), null ref, pre-1.0 versions |
+| vc-5-4 | Extract cloneAndReinstall call-object builder in update.ts | local source with sourceDir, overrides present vs absent |
+| vc-5-5 | Extract droppedAgents suffix formatter in summary.ts | sentence vs inline style, single vs multiple agents |

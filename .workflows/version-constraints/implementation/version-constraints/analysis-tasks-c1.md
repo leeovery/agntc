@@ -6,7 +6,7 @@ total_proposed: 5
 # Analysis Tasks: Version Constraints (Cycle 1)
 
 ## Task 1: Fix list update action to forward constrained update resolution
-status: pending
+status: approved
 severity: high
 sources: architecture
 
@@ -32,7 +32,7 @@ sources: architecture
 - Unit test: `executeUpdateAction` without overrides behaves as before (no regression)
 
 ## Task 2: Consolidate ls-remote tag parsing into a single shared function
-status: pending
+status: approved
 severity: high
 sources: duplication, architecture
 
@@ -59,7 +59,7 @@ sources: duplication, architecture
 - Existing tests for `fetchRemoteTags`, `checkConstrained`, and `checkTag` continue to pass
 
 ## Task 3: Extract downgrade prevention helper with safe fallback
-status: pending
+status: approved
 severity: medium
 sources: duplication, architecture
 
@@ -87,7 +87,7 @@ sources: duplication, architecture
 - Unit test: `isAtOrAboveVersion(null, "v1.0.0")` returns false (null ref)
 
 ## Task 4: Extract cloneAndReinstall call-object builder in update.ts
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -111,7 +111,7 @@ sources: duplication
 - Existing update command tests continue to pass (this is a pure refactor)
 
 ## Task 5: Extract droppedAgents suffix formatter in summary.ts
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
