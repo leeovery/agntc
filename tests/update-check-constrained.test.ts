@@ -1,7 +1,7 @@
-import * as childProcess from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkForUpdate } from "../src/update-check.js";
 import { makeEntry } from "./helpers/factories.js";
+import { buildTagsOutput, mockExecFile } from "./helpers/git-mocks.js";
 
 vi.mock("node:child_process");
 
@@ -10,37 +10,6 @@ const SHA_B = "b".repeat(40);
 const SHA_C = "c".repeat(40);
 const SHA_D = "d".repeat(40);
 const SHA_E = "e".repeat(40);
-
-function mockExecFile(
-	impl: (
-		cmd: string,
-		args: readonly string[],
-		opts: object,
-		cb: (err: Error | null, stdout: string, stderr: string) => void,
-	) => void,
-): void {
-	vi.mocked(childProcess.execFile).mockImplementation(
-		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
-			if (typeof _opts === "function") {
-				cb = _opts;
-				_opts = {};
-			}
-			impl(
-				_cmd as string,
-				_args as readonly string[],
-				_opts as object,
-				cb as (err: Error | null, stdout: string, stderr: string) => void,
-			);
-			return {} as ReturnType<typeof childProcess.execFile>;
-		},
-	);
-}
-
-function buildTagsOutput(tags: Array<{ sha: string; tag: string }>): string {
-	return (
-		tags.map(({ sha, tag }) => `${sha}\trefs/tags/${tag}`).join("\n") + "\n"
-	);
-}
 
 beforeEach(() => {
 	vi.restoreAllMocks();
