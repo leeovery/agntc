@@ -58,6 +58,10 @@ vi.mock("../../src/drivers/registry.js", () => ({
 	getDriver: vi.fn(),
 }));
 
+vi.mock("../../src/git-utils.js", () => ({
+	fetchRemoteTags: vi.fn(),
+}));
+
 import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { readConfig } from "../../src/config.js";
@@ -65,6 +69,7 @@ import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
 import { getDriver } from "../../src/drivers/registry.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
+import { fetchRemoteTags } from "../../src/git-utils.js";
 import { addEntry, removeEntry, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { detectType } from "../../src/type-detection.js";
@@ -80,6 +85,7 @@ const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
+const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockSelect = vi.mocked(p.select);
 const mockIsCancel = vi.mocked(p.isCancel);
 const mockLog = vi.mocked(p.log);
@@ -528,6 +534,192 @@ describe("executeChangeVersionAction", () => {
 				"/fake/project",
 				expect.not.objectContaining({ "owner/repo": expect.anything() }),
 			);
+		});
+	});
+
+	describe("constrained entry change-version", () => {
+		it("fetches tags and strips constraint from manifest entry on constrained-update-available", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.2.0", constraint: "^1.0" });
+			const manifest = makeManifest(key, entry);
+			const updateStatus: UpdateCheckResult = {
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: "v2.0.0",
+			};
+
+			mockFetchRemoteTags.mockResolvedValue([
+				"v1.0.0",
+				"v1.2.0",
+				"v1.3.0",
+				"v2.0.0",
+			]);
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				updateStatus,
+			);
+
+			expect(result.changed).toBe(true);
+			expect(result.newEntry).toBeDefined();
+			expect(result.newEntry!.ref).toBe("v2.0.0");
+			expect(result.newEntry!.constraint).toBeUndefined();
+			expect(result.message).toBe("Changed owner/repo to v2.0.0");
+		});
+
+		it("fetches tags and strips constraint on constrained-up-to-date with outOfConstraint", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.3.0", constraint: "^1.0" });
+			const manifest = makeManifest(key, entry);
+			const updateStatus: UpdateCheckResult = {
+				status: "constrained-up-to-date",
+				latestOverall: "v2.0.0",
+			};
+
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.3.0", "v2.0.0"]);
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				updateStatus,
+			);
+
+			expect(result.changed).toBe(true);
+			expect(result.newEntry).toBeDefined();
+			expect(result.newEntry!.ref).toBe("v2.0.0");
+			expect(result.newEntry!.constraint).toBeUndefined();
+		});
+
+		it("presents fetched tags newest-first for constrained statuses", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.2.0", constraint: "^1.0" });
+			const manifest = makeManifest(key, entry);
+			const updateStatus: UpdateCheckResult = {
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: "v2.0.0",
+			};
+
+			mockFetchRemoteTags.mockResolvedValue([
+				"v1.0.0",
+				"v1.2.0",
+				"v1.3.0",
+				"v2.0.0",
+			]);
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				updateStatus,
+			);
+
+			expect(mockSelect).toHaveBeenCalledWith(
+				expect.objectContaining({
+					options: [
+						{ value: "v2.0.0", label: "v2.0.0" },
+						{ value: "v1.3.0", label: "v1.3.0" },
+						{ value: "v1.2.0", label: "v1.2.0" },
+						{ value: "v1.0.0", label: "v1.0.0" },
+					],
+				}),
+			);
+		});
+
+		it("non-constrained entry has no constraint field after change-version", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0" });
+			const manifest = makeManifest(key, entry);
+			const updateStatus = makeNewerTagsStatus(["v1.1.0", "v2.0.0"]);
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				updateStatus,
+			);
+
+			expect(result.changed).toBe(true);
+			expect(result.newEntry).toBeDefined();
+			expect(result.newEntry!.constraint).toBeUndefined();
+		});
+
+		it("does not call fetchRemoteTags for newer-tags status", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0" });
+			const manifest = makeManifest(key, entry);
+			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
+
+			mockSelect.mockResolvedValue("v1.1.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				updateStatus,
+			);
+
+			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
 		});
 	});
 });
