@@ -4,6 +4,11 @@ import { validateLocalSourcePath } from "../fs-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, writeManifest } from "../manifest.js";
 
+export interface UpdateActionOverrides {
+	newRef: string;
+	newCommit: string;
+}
+
 export interface UpdateActionResult {
 	success: boolean;
 	newEntry?: ManifestEntry;
@@ -15,8 +20,9 @@ export async function executeUpdateAction(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
+	overrides?: UpdateActionOverrides,
 ): Promise<UpdateActionResult> {
-	return runUpdate(key, entry, manifest, projectDir);
+	return runUpdate(key, entry, manifest, projectDir, overrides);
 }
 
 async function runUpdate(
@@ -24,6 +30,7 @@ async function runUpdate(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
+	overrides?: UpdateActionOverrides,
 ): Promise<UpdateActionResult> {
 	const isLocal = entry.commit === null;
 
@@ -44,6 +51,7 @@ async function runUpdate(
 			projectDir,
 			manifest,
 			...(isLocal ? { sourceDir: key } : {}),
+			...overrides,
 		});
 
 		if (result.status === "failed") {

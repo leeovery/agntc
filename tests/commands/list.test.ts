@@ -548,7 +548,101 @@ describe("runListLoop", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				undefined,
 			);
+		});
+
+		it("passes constrained-update overrides to executeUpdateAction", async () => {
+			const entry = makeEntry({
+				commit: "abc123",
+				ref: "v1.0.0",
+				constraint: "^1.0",
+			});
+			const manifest: Manifest = { "owner/skill": entry };
+			const constrainedCommit = "ccc123";
+			const constrainedStatus: UpdateCheckResult = {
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: constrainedCommit,
+				latestOverall: null,
+			};
+
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(
+				new Map([["owner/skill", constrainedStatus]]),
+			);
+			mockSelect.mockResolvedValueOnce("owner/skill");
+
+			// Inner loop iteration 1: re-read manifest, checkForUpdate returns constrained-update, render detail -> update
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce(constrainedStatus);
+			mockRenderDetailView.mockResolvedValueOnce("update");
+			mockExecuteUpdateAction.mockResolvedValueOnce({
+				success: true,
+				message: "Updated owner/skill",
+			});
+
+			// Inner loop iteration 2: re-read, back
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "constrained-up-to-date" as const,
+				latestOverall: null,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("back");
+
+			// Second outer iteration: Done
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
+			mockSelect.mockResolvedValueOnce("__done__");
+
+			await runListLoop();
+
+			expect(mockExecuteUpdateAction).toHaveBeenCalledWith(
+				"owner/skill",
+				entry,
+				manifest,
+				"/fake/project",
+				{ newRef: "v1.3.0", newCommit: constrainedCommit },
+			);
+		});
+
+		it("does not pass overrides for non-constrained update", async () => {
+			const entry = makeEntry({ commit: "abc123" });
+			const manifest: Manifest = { "owner/skill": entry };
+			const updateStatus: UpdateCheckResult = {
+				status: "update-available",
+				remoteCommit: "def456",
+			};
+
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(
+				new Map([["owner/skill", updateStatus]]),
+			);
+			mockSelect.mockResolvedValueOnce("owner/skill");
+
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce(updateStatus);
+			mockRenderDetailView.mockResolvedValueOnce("update");
+			mockExecuteUpdateAction.mockResolvedValueOnce({
+				success: true,
+				message: "Updated owner/skill",
+			});
+
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "up-to-date" as const,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("back");
+
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
+			mockSelect.mockResolvedValueOnce("__done__");
+
+			await runListLoop();
+
+			// 5th arg should be undefined (no overrides for non-constrained)
+			const callArgs = mockExecuteUpdateAction.mock.calls[0]!;
+			expect(callArgs[4]).toBeUndefined();
 		});
 
 		it("passes fresh entry and manifest to executeRemoveAction", async () => {

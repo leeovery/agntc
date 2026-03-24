@@ -154,11 +154,16 @@ export async function runListLoop(): Promise<void> {
 			}
 
 			if (action === "update") {
+				const overrides =
+					freshStatus.status === "constrained-update-available"
+						? { newRef: freshStatus.tag, newCommit: freshStatus.commit }
+						: undefined;
 				const result = await executeUpdateAction(
 					selectedKey,
 					freshEntry,
 					freshManifest,
 					projectDir,
+					overrides,
 				);
 				if (result.success) {
 					p.log.success(result.message);

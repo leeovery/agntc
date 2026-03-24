@@ -559,4 +559,73 @@ describe("executeUpdateAction", () => {
 			);
 		});
 	});
+
+	describe("constrained update overrides", () => {
+		it("forwards newRef and newCommit to cloneAndReinstall when overrides provided", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
+			const manifest = makeManifest(key, entry);
+			const overrideCommit = "c".repeat(40);
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: overrideCommit,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				{ newRef: "v1.2.0", newCommit: overrideCommit },
+			);
+
+			expect(result.success).toBe(true);
+			expect(mockCloneSource).toHaveBeenCalledWith(
+				expect.objectContaining({ ref: "v1.2.0" }),
+			);
+			expect(result.newEntry).toBeDefined();
+			expect(result.newEntry!.ref).toBe("v1.2.0");
+			expect(result.newEntry!.commit).toBe(overrideCommit);
+		});
+
+		it("behaves as before when no overrides provided", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
+			const manifest = makeManifest(key, entry);
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+			);
+
+			expect(result.success).toBe(true);
+			// Without overrides, cloneSource uses entry.ref
+			expect(mockCloneSource).toHaveBeenCalledWith(
+				expect.objectContaining({ ref: "v1.0.0" }),
+			);
+			expect(result.newEntry!.commit).toBe(REMOTE_SHA);
+		});
+	});
 });
