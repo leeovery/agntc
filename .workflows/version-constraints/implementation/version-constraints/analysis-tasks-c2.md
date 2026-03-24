@@ -6,7 +6,7 @@ total_proposed: 4
 # Analysis Tasks: Version Constraints (Cycle 2)
 
 ## Task 1: Extract shared test factories to tests/helpers/factories.ts
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -37,7 +37,7 @@ sources: duplication
 - Verify no local `makeEntry`/`fakeDriver`/`makeManifest` definitions remain in test files (grep check)
 
 ## Task 2: Extract shared git mock helpers to tests/helpers/git-mocks.ts
-status: pending
+status: approved
 severity: low
 sources: duplication
 
@@ -65,7 +65,7 @@ sources: duplication
 - Verify no local `mockExecFile`/`buildTagsOutput` definitions remain in the two test files (grep check)
 
 ## Task 3: Add fetchRemoteTagRefs to git-utils.ts to expose full TagRef data
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -95,7 +95,7 @@ sources: architecture
 - Verify `fetchRemoteTagRefs` is used by both `checkConstrained` and `checkTag`
 
 ## Task 4: Show constraint expression in detail view
-status: pending
+status: approved
 severity: low
 sources: architecture
 

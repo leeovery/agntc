@@ -132,3 +132,18 @@ status: open
 | vc-5-3 | Extract downgrade prevention helper with safe fallback | non-semver refs (branch names), null ref, pre-1.0 versions |
 | vc-5-4 | Extract cloneAndReinstall call-object builder in update.ts | local source with sourceDir, overrides present vs absent |
 | vc-5-5 | Extract droppedAgents suffix formatter in summary.ts | sentence vs inline style, single vs multiple agents |
+
+## Phase 6: Analysis (Cycle 2)
+status: open
+
+**Goal**: Address findings from Analysis (Cycle 2).
+
+### Tasks
+status: open
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-6-1 | Extract shared test factories to tests/helpers/factories.ts | existing tests must pass unchanged with shared factories, each test file still controls override values via partial-overrides pattern |
+| vc-6-2 | Extract shared git mock helpers to tests/helpers/git-mocks.ts | mockExecFile callback normalization must match original behavior, buildTagsOutput format must match ls-remote output exactly |
+| vc-6-3 | Add fetchRemoteTagRefs to git-utils.ts to expose full TagRef data | fetchRemoteTags must delegate to fetchRemoteTagRefs, update-check.ts must not call execGit directly for tag fetching |
+| vc-6-4 | Show constraint expression in detail view | constraint present displays line, constraint absent omits line, non-constrained entries display identically |

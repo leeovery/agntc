@@ -77,7 +77,12 @@
             "vc-5-2": "tick-9cb842",
             "vc-5-3": "tick-7ad24f",
             "vc-5-4": "tick-624857",
-            "vc-5-5": "tick-1e7212"
+            "vc-5-5": "tick-1e7212",
+            "version-constraints-6": "tick-df6214",
+            "vc-6-1": "tick-1cdca6",
+            "vc-6-2": "tick-daebc5",
+            "vc-6-3": "tick-86b22f",
+            "vc-6-4": "tick-af4b41"
           },
           "external_id": "tick-1f1525"
         }
