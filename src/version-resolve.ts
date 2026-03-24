@@ -1,4 +1,4 @@
-import { clean, maxSatisfying } from "semver";
+import { clean, gte, maxSatisfying } from "semver";
 
 export function normalizeTags(tags: string[]): Map<string, string> {
 	const result = new Map<string, string>();
@@ -50,4 +50,15 @@ export function resolveVersion(
 
 export function resolveLatestVersion(tags: string[]): ResolvedVersion | null {
 	return resolveVersion("*", tags);
+}
+
+export function isAtOrAboveVersion(
+	currentRef: string | null,
+	candidateTag: string,
+): boolean {
+	if (currentRef === null) return false;
+	const cleanedCurrent = clean(currentRef);
+	const cleanedCandidate = clean(candidateTag);
+	if (cleanedCurrent === null || cleanedCandidate === null) return false;
+	return gte(cleanedCurrent, cleanedCandidate);
 }

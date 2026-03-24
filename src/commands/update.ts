@@ -1,6 +1,5 @@
 import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { clean, gte } from "semver";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
@@ -22,6 +21,7 @@ import {
 } from "../summary.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import { checkForUpdate } from "../update-check.js";
+import { isAtOrAboveVersion } from "../version-resolve.js";
 
 type PluginOutcome =
 	| { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
@@ -152,10 +152,7 @@ async function runSingleUpdate(
 	}
 
 	if (result.status === "constrained-update-available") {
-		if (
-			entry.ref !== null &&
-			gte(clean(entry.ref) ?? "0.0.0", clean(result.tag) ?? "0.0.0")
-		) {
+		if (isAtOrAboveVersion(entry.ref, result.tag)) {
 			p.outro(`${key} is already up to date.`);
 			return { newEntry: null, outOfConstraint };
 		}
@@ -491,10 +488,7 @@ async function runAllUpdates(): Promise<void> {
 		if (result.status !== "constrained-update-available") continue;
 
 		// Never downgrade
-		if (
-			checked.entry.ref !== null &&
-			gte(clean(checked.entry.ref) ?? "0.0.0", clean(result.tag) ?? "0.0.0")
-		) {
+		if (isAtOrAboveVersion(checked.entry.ref, result.tag)) {
 			outcomes.push({
 				status: "up-to-date",
 				key: checked.key,
