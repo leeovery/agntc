@@ -28,7 +28,7 @@ import { detectType } from "../type-detection.js";
 import { checkUnmanagedConflicts } from "../unmanaged-check.js";
 import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
-import { resolveLatestVersion } from "../version-resolve.js";
+import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
 function deriveCloneUrlForManifest(
 	parsed: Awaited<ReturnType<typeof parseSource>>,
@@ -111,6 +111,19 @@ export async function runAdd(source: string): Promise<void> {
 				derivedConstraint = `^${latest.version}`;
 				parsed = { ...parsed, ref: latest.tag };
 			}
+		}
+
+		// 1b. Explicit constraint: resolve best matching tag within bounds
+		if (parsed.type !== "local-path" && parsed.constraint != null) {
+			const url = resolveCloneUrl(parsed);
+			const tags = await fetchRemoteTags(url);
+			const resolved = resolveVersion(parsed.constraint, tags);
+			if (resolved === null) {
+				throw new Error(
+					`No tags satisfy constraint ${parsed.constraint} for ${parsed.manifestKey}`,
+				);
+			}
+			parsed = { ...parsed, ref: resolved.tag };
 		}
 
 		// 2. Resolve source directory and commit
@@ -265,6 +278,7 @@ export async function runAdd(source: string): Promise<void> {
 		}
 
 		// 13. Write manifest
+		const constraintValue = parsed.constraint ?? derivedConstraint;
 		const entry = {
 			ref: parsed.ref,
 			commit,
@@ -272,9 +286,7 @@ export async function runAdd(source: string): Promise<void> {
 			agents: selectedAgents,
 			files: copiedFiles,
 			cloneUrl: deriveCloneUrlForManifest(parsed),
-			...(derivedConstraint !== undefined && {
-				constraint: derivedConstraint,
-			}),
+			...(constraintValue != null && { constraint: constraintValue }),
 		};
 		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
 		await writeManifest(projectDir, updated);

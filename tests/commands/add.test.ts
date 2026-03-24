@@ -49,6 +49,7 @@ vi.mock("../../src/git-utils.js", () => ({
 
 vi.mock("../../src/version-resolve.js", () => ({
 	resolveLatestVersion: vi.fn(),
+	resolveVersion: vi.fn(),
 }));
 
 vi.mock("../../src/config.js", () => ({
@@ -139,13 +140,17 @@ import { parseSource } from "../../src/source-parser.js";
 import { detectType } from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
-import { resolveLatestVersion } from "../../src/version-resolve.js";
+import {
+	resolveLatestVersion,
+	resolveVersion,
+} from "../../src/version-resolve.js";
 
 const mockParseSource = vi.mocked(parseSource);
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockResolveLatestVersion = vi.mocked(resolveLatestVersion);
+const mockResolveVersion = vi.mocked(resolveVersion);
 const mockReadConfig = vi.mocked(readConfig);
 const mockDetectType = vi.mocked(detectType);
 const mockGetDriver = vi.mocked(getDriver);
@@ -3256,6 +3261,209 @@ describe("add command", () => {
 			// Should be the actual tag name, not "^2.0.0"
 			expect(cloneCall.ref).toBe("v2.0.0");
 			expect(cloneCall.ref).not.toContain("^");
+		});
+	});
+
+	describe("explicit constraint — tag resolution", () => {
+		const CONSTRAINT_PARSED: ParsedSource = {
+			type: "github-shorthand",
+			owner: "owner",
+			repo: "my-skill",
+			ref: null,
+			constraint: "^1.0",
+			manifestKey: "owner/my-skill",
+			cloneUrl: "https://github.com/owner/my-skill.git",
+		};
+
+		function setupExplicitConstraint(): void {
+			setupHappyPath();
+			mockParseSource.mockReturnValue(CONSTRAINT_PARSED);
+		}
+
+		it("explicit caret constraint resolves best matching tag", async () => {
+			setupExplicitConstraint();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v2.0.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.1.0",
+				version: "1.1.0",
+			});
+
+			await runAdd("owner/my-skill@^1.0");
+
+			// cloneSource should receive resolved tag
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v1.1.0");
+
+			// manifest entry should have constraint and ref
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("v1.1.0");
+			expect(entry.constraint).toBe("^1.0");
+		});
+
+		it("explicit tilde constraint resolves best matching tag", async () => {
+			setupExplicitConstraint();
+			const tildeParsed: ParsedSource = {
+				...CONSTRAINT_PARSED,
+				constraint: "~1.0.0",
+			};
+			mockParseSource.mockReturnValue(tildeParsed);
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.0.5", "v1.1.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.0.5",
+				version: "1.0.5",
+			});
+
+			await runAdd("owner/my-skill@~1.0.0");
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v1.0.5");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("v1.0.5");
+			expect(entry.constraint).toBe("~1.0.0");
+		});
+
+		it("no tags satisfy constraint throws error", async () => {
+			setupExplicitConstraint();
+			const parsed: ParsedSource = {
+				...CONSTRAINT_PARSED,
+				constraint: "^2.0",
+			};
+			mockParseSource.mockReturnValue(parsed);
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v1.2.0"]);
+			mockResolveVersion.mockReturnValue(null);
+
+			await expect(runAdd("owner/my-skill@^2.0")).rejects.toThrow(ExitSignal);
+
+			// Should not clone
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("partial constraint resolves against full tags", async () => {
+			setupExplicitConstraint();
+			// ^1 is a partial constraint
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.2.3", "v2.0.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.2.3",
+				version: "1.2.3",
+			});
+
+			await runAdd("owner/my-skill@^1");
+
+			// resolveVersion called with original constraint and tags
+			expect(mockResolveVersion).toHaveBeenCalledWith("^1.0", [
+				"v1.0.0",
+				"v1.2.3",
+				"v2.0.0",
+			]);
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v1.2.3");
+		});
+
+		it("pre-1.0 caret semantics work correctly", async () => {
+			setupExplicitConstraint();
+			const parsed: ParsedSource = {
+				...CONSTRAINT_PARSED,
+				constraint: "^0.2.0",
+			};
+			mockParseSource.mockReturnValue(parsed);
+			mockFetchRemoteTags.mockResolvedValue([
+				"v0.1.0",
+				"v0.2.0",
+				"v0.2.5",
+				"v0.3.0",
+			]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v0.2.5",
+				version: "0.2.5",
+			});
+
+			await runAdd("owner/my-skill@^0.2.0");
+
+			expect(mockResolveVersion).toHaveBeenCalledWith("^0.2.0", [
+				"v0.1.0",
+				"v0.2.0",
+				"v0.2.5",
+				"v0.3.0",
+			]);
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v0.2.5");
+		});
+
+		it("explicit constraint stores original expression in manifest", async () => {
+			setupExplicitConstraint();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.5.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.5.0",
+				version: "1.5.0",
+			});
+
+			await runAdd("owner/my-skill@^1.0");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			// Stores original "^1.0", not normalized "^1.0.0"
+			expect(entry.constraint).toBe("^1.0");
+		});
+
+		it("explicit constraint on HTTPS URL works", async () => {
+			setupExplicitConstraint();
+			const httpsParsed: ParsedSource = {
+				type: "https-url",
+				owner: "owner",
+				repo: "my-skill",
+				ref: null,
+				constraint: "^1.0",
+				manifestKey: "owner/my-skill",
+				cloneUrl: "https://github.com/owner/my-skill.git",
+			};
+			mockParseSource.mockReturnValue(httpsParsed);
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.3.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.3.0",
+				version: "1.3.0",
+			});
+
+			await runAdd("https://github.com/owner/my-skill@^1.0");
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v1.3.0");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.constraint).toBe("^1.0");
+		});
+
+		it("explicit constraint on SSH URL works", async () => {
+			setupExplicitConstraint();
+			const sshParsed: ParsedSource = {
+				type: "ssh-url",
+				owner: "owner",
+				repo: "my-skill",
+				ref: null,
+				constraint: "^1.0",
+				manifestKey: "owner/my-skill",
+				cloneUrl: "git@github.com:owner/my-skill.git",
+			};
+			mockParseSource.mockReturnValue(sshParsed);
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.2.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.2.0",
+				version: "1.2.0",
+			});
+
+			await runAdd("git@github.com:owner/my-skill@^1.0");
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v1.2.0");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.constraint).toBe("^1.0");
 		});
 	});
 });
