@@ -37,7 +37,7 @@
     "planning": {
       "items": {
         "version-constraints": {
-          "status": "in-progress",
+          "status": "completed",
           "format": "tick",
           "spec_commit": "6f5c7a2f9fe19722d21a1555869f5fcb20884027",
           "task_list_gate_mode": "auto",
