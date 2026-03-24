@@ -80,6 +80,18 @@ approved_at: 2026-03-23
 - [ ] Batch update (`agntc update` with no key) handles mixed constrained and unconstrained plugins correctly
 - [ ] Update output UX matches spec: per-plugin results listed first, then collated informational section at end for out-of-constraint versions (section omitted entirely if none exist); info tone, not warning
 
+### Tasks
+status: approved
+approved_at: 2026-03-24
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-3-1 | Constrained update check in update-check | no tags satisfy constraint, current ref tag deleted from remote, all tags are pre-release (no out-of-constraint info), pre-1.0 constraint (^0.2.3), ls-remote failure |
+| vc-3-2 | Constraint-absent entries remain unchanged | tag ref without constraint uses old newer-tags logic, branch ref unaffected, HEAD-tracking unaffected, local entry unaffected |
+| vc-3-3 | Single-plugin constrained update execution | no-match triggers error without modifying manifest, cloneAndReinstall failure leaves entry untouched, constraint preserved through nuke-reinstall |
+| vc-3-4 | Batch update with mixed constrained and unconstrained plugins | all constrained, no constrained (pure backward compat), mix of constrained + branch + tag-pinned + local |
+| vc-3-5 | Out-of-constraint info section in update output | no out-of-constraint (section omitted), single plugin with out-of-constraint, multiple plugins, within-constraint best equals absolute latest |
+
 ## Phase 4: List Command Integration
 status: approved
 approved_at: 2026-03-23
