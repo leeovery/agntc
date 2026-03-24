@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import type { Manifest } from "../../src/manifest.js";
 import type { DetectedType } from "../../src/type-detection.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 
@@ -90,38 +90,16 @@ const mockSelect = vi.mocked(p.select);
 const mockIsCancel = vi.mocked(p.isCancel);
 const mockLog = vi.mocked(p.log);
 
+import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
+
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
-
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: "v1.0.0",
-		commit: INSTALLED_SHA,
-		installedAt: "2026-02-01T00:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
-
-function makeManifest(key: string, entry: ManifestEntry): Manifest {
-	return { [key]: entry };
-}
 
 function makeNewerTagsStatus(tags: string[]): UpdateCheckResult {
 	return { status: "newer-tags", tags };
 }
 
-const fakeDriver = {
-	detect: vi.fn().mockResolvedValue(true),
-	getTargetDir: vi.fn((assetType: string) => {
-		if (assetType === "skills") return ".claude/skills";
-		if (assetType === "agents") return ".claude/agents";
-		if (assetType === "hooks") return ".claude/hooks";
-		return null;
-	}),
-};
+const fakeDriver = makeFakeDriver();
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -145,7 +123,7 @@ describe("executeChangeVersionAction", () => {
 		it("presents tags newest-first via p.select options", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			// tags ordered oldest→newest from update-check
 			const updateStatus = makeNewerTagsStatus(["v1.1.0", "v1.2.0", "v2.0.0"]);
 
@@ -184,7 +162,7 @@ describe("executeChangeVersionAction", () => {
 		it("returns changed: false when user cancels", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			const cancelSymbol = Symbol("cancel");
@@ -209,7 +187,7 @@ describe("executeChangeVersionAction", () => {
 		it("clones at selected tag, nukes, copies, writes manifest, returns changed: true", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0", "v2.0.0"]);
 
 			mockSelect.mockResolvedValue("v2.0.0");
@@ -247,7 +225,7 @@ describe("executeChangeVersionAction", () => {
 		it("clones with selected tag ref", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -283,7 +261,7 @@ describe("executeChangeVersionAction", () => {
 		it("returns changed: false, does not nuke", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -309,7 +287,7 @@ describe("executeChangeVersionAction", () => {
 		it("returns changed: false, does not nuke", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ agents: ["codex"] });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -342,7 +320,7 @@ describe("executeChangeVersionAction", () => {
 		it("emits warning for partial drop", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ agents: ["claude", "codex"] });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -375,7 +353,7 @@ describe("executeChangeVersionAction", () => {
 		it("cleans up on success", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -403,7 +381,7 @@ describe("executeChangeVersionAction", () => {
 		it("cleans up on failure", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -432,7 +410,7 @@ describe("executeChangeVersionAction", () => {
 		it("writes manifest with new ref, not old ref", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -469,7 +447,7 @@ describe("executeChangeVersionAction", () => {
 		it("returns changed: false when status is up-to-date", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus: UpdateCheckResult = { status: "up-to-date" };
 
 			const result = await executeChangeVersionAction(
@@ -488,7 +466,7 @@ describe("executeChangeVersionAction", () => {
 		it("returns changed: false when status is local", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus: UpdateCheckResult = { status: "local" };
 
 			const result = await executeChangeVersionAction(
@@ -508,7 +486,7 @@ describe("executeChangeVersionAction", () => {
 		it("removes entry from manifest and returns changed: false with recovery hint", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");
@@ -541,7 +519,7 @@ describe("executeChangeVersionAction", () => {
 		it("fetches tags and strips constraint from manifest entry on constrained-update-available", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.2.0", constraint: "^1.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus: UpdateCheckResult = {
 				status: "constrained-update-available",
 				tag: "v1.3.0",
@@ -584,7 +562,7 @@ describe("executeChangeVersionAction", () => {
 		it("fetches tags and strips constraint on constrained-up-to-date with outOfConstraint", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.3.0", constraint: "^1.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus: UpdateCheckResult = {
 				status: "constrained-up-to-date",
 				latestOverall: "v2.0.0",
@@ -619,7 +597,7 @@ describe("executeChangeVersionAction", () => {
 		it("presents fetched tags newest-first for constrained statuses", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.2.0", constraint: "^1.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus: UpdateCheckResult = {
 				status: "constrained-update-available",
 				tag: "v1.3.0",
@@ -667,7 +645,7 @@ describe("executeChangeVersionAction", () => {
 		it("non-constrained entry has no constraint field after change-version", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0", "v2.0.0"]);
 
 			mockSelect.mockResolvedValue("v2.0.0");
@@ -697,7 +675,7 @@ describe("executeChangeVersionAction", () => {
 		it("does not call fetchRemoteTags for newer-tags status", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const updateStatus = makeNewerTagsStatus(["v1.1.0"]);
 
 			mockSelect.mockResolvedValue("v1.1.0");

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
-import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import type { Manifest } from "../../src/manifest.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
+import { makeEntry, makeManifest } from "../helpers/factories.js";
 
 vi.mock("@clack/prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@clack/prompts")>();
@@ -78,26 +79,6 @@ const mockRenderDetailView = vi.mocked(renderDetailView);
 const mockExecuteUpdateAction = vi.mocked(executeUpdateAction);
 const mockExecuteRemoveAction = vi.mocked(executeRemoveAction);
 const mockExecuteChangeVersionAction = vi.mocked(executeChangeVersionAction);
-
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: null,
-		commit: "abc123",
-		installedAt: "2026-01-15T10:00:00.000Z",
-		agents: ["claude"],
-		files: [],
-		cloneUrl: null,
-		...overrides,
-	};
-}
-
-function makeManifest(keys: string[]): Manifest {
-	const manifest: Manifest = {};
-	for (const key of keys) {
-		manifest[key] = makeEntry();
-	}
-	return manifest;
-}
 
 function setupCheckResults(
 	keys: string[],

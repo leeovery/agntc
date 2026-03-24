@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentId } from "../src/drivers/types.js";
-import type { Manifest, ManifestEntry } from "../src/manifest.js";
+import type { Manifest } from "../src/manifest.js";
 import type { DetectedType } from "../src/type-detection.js";
 
 vi.mock("@clack/prompts", () => ({
@@ -85,30 +85,12 @@ const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
 const mockLog = vi.mocked(p.log);
 
+import { makeEntry, makeFakeDriver } from "./helpers/factories.js";
+
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
 
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: null,
-		commit: INSTALLED_SHA,
-		installedAt: "2026-02-01T00:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
-
-const fakeDriver = {
-	detect: vi.fn().mockResolvedValue(true),
-	getTargetDir: vi.fn((assetType: string) => {
-		if (assetType === "skills") return ".claude/skills";
-		if (assetType === "agents") return ".claude/agents";
-		if (assetType === "hooks") return ".claude/hooks";
-		return null;
-	}),
-};
+const fakeDriver = makeFakeDriver();
 
 beforeEach(() => {
 	vi.clearAllMocks();

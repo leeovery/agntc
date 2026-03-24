@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import type { Manifest } from "../../src/manifest.js";
+import { makeEntry } from "../helpers/factories.js";
 
 vi.mock("@clack/prompts", () => ({
 	confirm: vi.fn(),
@@ -30,18 +31,6 @@ const mockWriteManifest = vi.mocked(writeManifest);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockConfirm = vi.mocked(p.confirm);
 const mockLog = vi.mocked(p.log);
-
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: "v1.0",
-		commit: "abc123",
-		installedAt: "2026-01-15T10:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
 
 beforeEach(() => {
 	vi.clearAllMocks();

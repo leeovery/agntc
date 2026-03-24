@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ManifestEntry } from "../src/manifest.js";
 import type { DetectedType } from "../src/type-detection.js";
+import { makeEntry, makeFakeDriver } from "./helpers/factories.js";
 
 vi.mock("../src/config.js", () => ({
 	readConfig: vi.fn(),
@@ -44,27 +44,7 @@ const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
 
-const fakeDriver = {
-	detect: vi.fn().mockResolvedValue(true),
-	getTargetDir: vi.fn((assetType: string) => {
-		if (assetType === "skills") return ".claude/skills";
-		if (assetType === "agents") return ".claude/agents";
-		if (assetType === "hooks") return ".claude/hooks";
-		return null;
-	}),
-};
-
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: null,
-		commit: "a".repeat(40),
-		installedAt: "2026-02-01T00:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
+const fakeDriver = makeFakeDriver();
 
 function makeOptions(
 	overrides: Partial<NukeReinstallOptions> = {},

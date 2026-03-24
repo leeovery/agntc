@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
 import type { UpdateCheckResult } from "../src/update-check.js";
+import { makeEntry } from "./helpers/factories.js";
 
 vi.mock("../src/update-check.js", () => ({
 	checkForUpdate: vi.fn(),
@@ -10,18 +11,6 @@ import { checkForUpdate } from "../src/update-check.js";
 import { checkAllForUpdates } from "../src/update-check-all.js";
 
 const mockCheckForUpdate = vi.mocked(checkForUpdate);
-
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: null,
-		commit: "a".repeat(40),
-		installedAt: "2026-02-01T00:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/test/"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
 
 beforeEach(() => {
 	vi.restoreAllMocks();

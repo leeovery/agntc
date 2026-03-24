@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManifestEntry } from "../../src/manifest.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
+import { makeEntry } from "../helpers/factories.js";
 
 vi.mock("@clack/prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@clack/prompts")>();
@@ -27,18 +28,6 @@ import {
 
 const mockSelect = vi.mocked(p.select);
 const mockLog = vi.mocked(p.log);
-
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: "v1.0.0",
-		commit: "abc1234567890def",
-		installedAt: "2026-01-15T10:30:45.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/SKILL.md"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
 
 function makeInput(
 	overrides: {

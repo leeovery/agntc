@@ -1,6 +1,6 @@
 import type { Stats } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import type { Manifest } from "../../src/manifest.js";
 import type { DetectedType } from "../../src/type-detection.js";
 
 vi.mock("@clack/prompts", () => ({
@@ -86,34 +86,12 @@ const mockGetDriver = vi.mocked(getDriver);
 const mockStat = vi.mocked(stat);
 const mockLog = vi.mocked(p.log);
 
+import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
+
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
 
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: null,
-		commit: INSTALLED_SHA,
-		installedAt: "2026-02-01T00:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
-
-function makeManifest(key: string, entry: ManifestEntry): Manifest {
-	return { [key]: entry };
-}
-
-const fakeDriver = {
-	detect: vi.fn().mockResolvedValue(true),
-	getTargetDir: vi.fn((assetType: string) => {
-		if (assetType === "skills") return ".claude/skills";
-		if (assetType === "agents") return ".claude/agents";
-		if (assetType === "hooks") return ".claude/hooks";
-		return null;
-	}),
-};
+const fakeDriver = makeFakeDriver();
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -136,7 +114,7 @@ describe("executeUpdateAction", () => {
 		it("clones, reads config, nukes, copies, writes manifest, returns success with newEntry", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -180,7 +158,7 @@ describe("executeUpdateAction", () => {
 		it("validates path, reads config, nukes, copies, writes manifest, returns success", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -217,7 +195,7 @@ describe("executeUpdateAction", () => {
 		it("returns failure, does not nuke, does not write manifest", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
@@ -240,7 +218,7 @@ describe("executeUpdateAction", () => {
 		it("returns failure, does not nuke, does not write manifest", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ agents: ["codex"] });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -270,7 +248,7 @@ describe("executeUpdateAction", () => {
 		it("returns failure, does not nuke", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null, agents: ["codex"] });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -295,7 +273,7 @@ describe("executeUpdateAction", () => {
 		it("emits warning for partial drop", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ agents: ["claude", "codex"] });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -331,7 +309,7 @@ describe("executeUpdateAction", () => {
 				ref: null,
 				agents: ["claude", "codex"],
 			});
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -360,7 +338,7 @@ describe("executeUpdateAction", () => {
 		it("cleans up on success", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -382,7 +360,7 @@ describe("executeUpdateAction", () => {
 		it("cleans up on failure", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -410,7 +388,7 @@ describe("executeUpdateAction", () => {
 		it("returns failure for remote plugin", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -433,7 +411,7 @@ describe("executeUpdateAction", () => {
 		it("returns failure for local plugin", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue(null);
@@ -458,7 +436,7 @@ describe("executeUpdateAction", () => {
 				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -503,7 +481,7 @@ describe("executeUpdateAction", () => {
 		it("removes entry from manifest and returns failure with recovery hint", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -535,7 +513,7 @@ describe("executeUpdateAction", () => {
 		it("removes entry from manifest and returns failure with recovery hint", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
@@ -564,7 +542,7 @@ describe("executeUpdateAction", () => {
 		it("forwards newRef and newCommit to cloneAndReinstall when overrides provided", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 			const overrideCommit = "c".repeat(40);
 
 			mockCloneSource.mockResolvedValue({
@@ -599,7 +577,7 @@ describe("executeUpdateAction", () => {
 		it("behaves as before when no overrides provided", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
-			const manifest = makeManifest(key, entry);
+			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",

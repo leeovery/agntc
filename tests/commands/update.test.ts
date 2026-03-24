@@ -111,30 +111,12 @@ const mockOutro = vi.mocked(p.outro);
 const mockLog = vi.mocked(p.log);
 const mockCancel = vi.mocked(p.cancel);
 
+import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
+
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
 
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: null,
-		commit: INSTALLED_SHA,
-		installedAt: "2026-02-01T00:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
-
-const fakeDriver = {
-	detect: vi.fn().mockResolvedValue(true),
-	getTargetDir: vi.fn((assetType: string) => {
-		if (assetType === "skills") return ".claude/skills";
-		if (assetType === "agents") return ".claude/agents";
-		if (assetType === "hooks") return ".claude/hooks";
-		return null;
-	}),
-};
+const fakeDriver = makeFakeDriver();
 
 beforeEach(() => {
 	vi.clearAllMocks();

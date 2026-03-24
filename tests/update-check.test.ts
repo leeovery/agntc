@@ -1,24 +1,12 @@
 import * as childProcess from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ManifestEntry } from "../src/manifest.js";
 import { checkForUpdate } from "../src/update-check.js";
+import { makeEntry } from "./helpers/factories.js";
 
 vi.mock("node:child_process");
 
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
-
-function makeEntry(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
-	return {
-		ref: null,
-		commit: INSTALLED_SHA,
-		installedAt: "2026-02-01T00:00:00.000Z",
-		agents: ["claude"],
-		files: [".claude/skills/my-skill/"],
-		cloneUrl: null,
-		...overrides,
-	};
-}
 
 function mockExecFile(
 	impl: (
