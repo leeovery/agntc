@@ -1,0 +1,20 @@
+AGENT: architecture
+FINDINGS:
+- FINDING: TagRef SHA not propagated from git-utils through fetchRemoteTags, forcing downstream to re-parse
+  SEVERITY: medium
+  FILES: src/git-utils.ts:49-54, src/update-check.ts:161-167
+  DESCRIPTION: fetchRemoteTags returns string[] (tag names only), discarding the SHA data already parsed by parseTagRefs. checkConstrained needs both tag names and SHAs, so it calls execGit + parseTagRefs directly to get the TagRef[] (line 165-167), building its own tagCommitMap. This means the consolidated parseTagRefs function is called from two entry points with different return shapes -- fetchRemoteTags strips SHAs for add/list-change-version-action callers, while update-check.ts must bypass fetchRemoteTags to get the full data. The parsing is consolidated (cycle 1 fix), but the API surface still forces callers that need SHAs to duplicate the execGit+parseTagRefs wiring. A fetchRemoteTagRefs(url): Promise<TagRef[]> that returns the full parsed data would let fetchRemoteTags derive from it (map to tag names) and let checkConstrained consume it directly without reaching through to execGit.
+  RECOMMENDATION: Add fetchRemoteTagRefs(url): Promise<TagRef[]> to git-utils.ts. Redefine fetchRemoteTags as fetchRemoteTagRefs(url).then(refs => refs.map(r => r.tag)). Have checkConstrained and checkTag call fetchRemoteTagRefs instead of raw execGit.
+
+- FINDING: resolveTagConstraint double-fetches remote tags for bare add with semver tags
+  SEVERITY: low
+  FILES: src/commands/add.ts:52-77
+  DESCRIPTION: For bare add (no ref, no constraint) when semver tags exist, the first block (lines 57-63) calls fetchRemoteTags to find the latest tag and derives a caret constraint. The second block (lines 67-77) then checks if updatedParsed.constraint is non-null. Because the bare-add block sets the constraint on the separate derivedConstraint variable (not on updatedParsed.constraint), the second block does not fire and no double-fetch occurs. However, if the first block were refactored to set constraint on updatedParsed (which would be the natural simplification), the second block would fire and call fetchRemoteTags a second time with the derived constraint. The mutual exclusion is correct but relies on a subtle data-flow contract between the two blocks. The cycle 1 finding flagged the fragility; the fix was to add a comment. The concern remains proportional -- the code works, but any future refactoring that unifies the constraint propagation path could inadvertently introduce the double-fetch.
+  RECOMMENDATION: No action needed beyond awareness. If this function is refactored in the future, add a guard or early return after the bare-add resolution to prevent the explicit-constraint block from running.
+
+- FINDING: Constraint display inconsistency in list formatLabel vs detail renderDetailView
+  SEVERITY: low
+  FILES: src/commands/list.ts:19-27, src/commands/list-detail.ts:116
+  DESCRIPTION: The list view's formatLabel (list.ts:19-27) shows constrained plugins as "key  ^1.0 -> v1.2.3" using the constraint arrow format, but the detail view (list-detail.ts:116) shows "Ref: v1.2.3" with no constraint information displayed alongside. A user selecting a constrained plugin from the list (which shows the constraint) enters a detail view that does not display the constraint expression or indicate it is a constrained install. The constraint is only surfaced indirectly through the update status hint and the "outside constraint" messages. This is not a bug but a minor UX seam -- the constraint context visible in the list vanishes in the detail view.
+  RECOMMENDATION: Add a "Constraint: ^1.0" info line in renderDetailView when entry.constraint is defined, keeping the constraint visible throughout the drill-down.
+SUMMARY: The cycle 1 fixes (ls-remote consolidation, list update action overrides, downgrade guard extraction) are cleanly integrated. The remaining architectural concerns are minor: the git-utils API surface still forces SHA-needing callers to bypass fetchRemoteTags, and the list detail view drops constraint context visible in the parent list view.
