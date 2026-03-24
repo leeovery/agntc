@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-24
 cycle: 1
 phase: Traceability Review
@@ -62,6 +62,6 @@ In vc-3-1 Edge Cases, add:
 - Older resolved tag (never downgrade): if the current ref is higher than the resolved within-constraint best (e.g., manually edited manifest or constraint narrowed after install), skip the update. The spec says this "should not occur" but "if it does, skip -- never downgrade." Defensive check using `semver.gt()`.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 

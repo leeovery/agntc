@@ -40,7 +40,8 @@ total: 5
   7. Determine out-of-constraint info: if `latestResult` exists and its cleaned version is higher than the within-constraint match's cleaned version (use `semver.gt(latest.cleaned, withinConstraint.cleaned)`), include `outOfConstraint: { latest: latestResult.original }` in the result
   8. Compare the resolved within-constraint tag name (`resolvedResult.original`) against `currentRef`:
      - If same tag name: return `{ status: "constrained-up-to-date", outOfConstraint? }`
-     - If different: fetch the commit SHA for the resolved tag via `execGit(["ls-remote", url, "refs/tags/" + resolvedResult.original])`, parse the SHA, and return `{ status: "constrained-update-available", tag: resolvedResult.original, commit: sha, outOfConstraint? }`
+     - If different and the resolved version is higher than the current version (use `semver.gt(resolvedResult.cleaned, semver.clean(currentRef) ?? "0.0.0")`): fetch the commit SHA for the resolved tag via `execGit(["ls-remote", url, "refs/tags/" + resolvedResult.original])`, parse the SHA, and return `{ status: "constrained-update-available", tag: resolvedResult.original, commit: sha, outOfConstraint? }`
+     - If different but the resolved version is not higher (defensive -- should not occur since maxSatisfying returns the highest match): return `{ status: "constrained-up-to-date", outOfConstraint? }` -- never downgrade
   9. Wrap the entire function in try/catch and return `{ status: "check-failed", reason: (err as Error).message }` on error
 - Export the updated `UpdateCheckResult` type so consumers (`update.ts`, `list.ts`) can use the new statuses
 
@@ -48,6 +49,7 @@ total: 5
 - [ ] `checkForUpdate` routes entries with `constraint` field to the new `checkConstrained` code path
 - [ ] Constrained entry with newer tag in bounds returns `"constrained-update-available"` with the tag name and commit
 - [ ] Constrained entry already at best tag returns `"constrained-up-to-date"`
+- [ ] Constrained entry where resolved tag is older than current ref returns `"constrained-up-to-date"` (never downgrade)
 - [ ] Constrained entry where no tags satisfy constraint returns `"constrained-no-match"` with the constraint string
 - [ ] Out-of-constraint detection: when absolute latest is higher than within-constraint best, `outOfConstraint.latest` is populated
 - [ ] Out-of-constraint detection: when within-constraint best equals absolute latest, `outOfConstraint` is absent
@@ -64,12 +66,14 @@ total: 5
 - `"constrained entry returns check-failed on ls-remote failure"` -- mock ls-remote to throw; entry has constraint "^1.0"; expect status "check-failed" with reason
 - `"constrained entry handles all tags being pre-release"` -- entry has constraint "^1.0"; ls-remote returns only v1.0.0-beta.1, v2.0.0-rc.1; expect constrained-no-match (maxSatisfying excludes pre-release by default)
 - `"constrained entry handles current ref tag deleted from remote"` -- entry has constraint "^1.0" and ref "v1.0.0"; ls-remote returns v1.1.0, v1.2.0 (v1.0.0 absent); expect constrained-update-available with tag "v1.2.0" (resolution works from available tags, not relative to current ref)
+- `"constrained entry never downgrades when resolved tag is older than current ref"` -- entry has constraint "^1.0" and ref "v1.5.0" (manually set higher than constraint would resolve); ls-remote returns v1.0.0, v1.3.0; maxSatisfying returns v1.3.0 which is lower than v1.5.0; expect status "constrained-up-to-date" (not constrained-update-available)
 - `"constrained entry with up-to-date and outOfConstraint"` -- entry has constraint "^1.0" and ref "v1.1.0"; ls-remote returns v1.0.0, v1.1.0, v2.0.0; expect status "constrained-up-to-date" with outOfConstraint.latest "v2.0.0"
 
 **Edge Cases**:
 - No tags satisfy constraint: return `constrained-no-match` with the constraint string for error messaging
 - Current ref tag deleted from remote: resolution uses `maxSatisfying` against available tags regardless of current ref -- if a satisfying tag exists, it compares the resolved tag name against `currentRef` to determine if update is needed. If the current ref is not in the list, the resolved tag is always "different" so an update is triggered.
 - All tags are pre-release: `maxSatisfying` with `^1.0` or `*` excludes pre-release tags by default, so both within-constraint and latest resolution return null -- treated as no-match
+- Older resolved tag (never downgrade): if the current ref is higher than the resolved within-constraint best (e.g., manually edited manifest or constraint narrowed after install), skip the update. The spec says this "should not occur" but "if it does, skip -- never downgrade." Defensive check using `semver.gt()`.
 - Pre-1.0 constraint (`^0.2.3`): handled by `semver.maxSatisfying` automatically -- `^0.2.3` means `>=0.2.3, <0.3.0`
 - `ls-remote` failure: caught in try/catch, returns `check-failed` with the error message
 
