@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { validRange } from "semver";
 
 interface GitHubShorthandSource {
 	type: "github-shorthand";
@@ -76,23 +77,28 @@ export async function parseSource(raw: string): Promise<ParsedSource> {
 		throw new Error("source cannot be empty");
 	}
 
-	if (isLocalPath(trimmed)) {
-		return parseLocalPath(trimmed);
-	}
+	let result: ParsedSource;
 
-	if (trimmed.startsWith("https://")) {
+	if (isLocalPath(trimmed)) {
+		result = await parseLocalPath(trimmed);
+	} else if (trimmed.startsWith("https://")) {
 		const withoutProtocol = trimmed.slice("https://".length);
 		if (hasTreePath(withoutProtocol)) {
-			return parseDirectPath(trimmed);
+			result = parseDirectPath(trimmed);
+		} else {
+			result = parseHttpsUrl(trimmed);
 		}
-		return parseHttpsUrl(trimmed);
+	} else if (trimmed.startsWith("git@")) {
+		result = parseSshUrl(trimmed);
+	} else {
+		result = parseGitHubShorthand(trimmed);
 	}
 
-	if (trimmed.startsWith("git@")) {
-		return parseSshUrl(trimmed);
+	if (result.constraint !== null) {
+		validateConstraint(result.constraint);
 	}
 
-	return parseGitHubShorthand(trimmed);
+	return result;
 }
 
 async function parseLocalPath(input: string): Promise<LocalPathSource> {
@@ -317,6 +323,12 @@ function extractRef(input: string): { urlPart: string; ref: string | null } {
 	}
 
 	return { urlPart: input.slice(0, atIndex), ref };
+}
+
+function validateConstraint(constraint: string): void {
+	if (validRange(constraint) === null) {
+		throw new Error(`invalid version constraint: ${constraint}`);
+	}
 }
 
 function isConstraintPrefix(suffix: string): boolean {

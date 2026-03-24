@@ -542,30 +542,16 @@ describe("parseSource", () => {
 				});
 			});
 
-			it("stores empty constraint after operator verbatim", async () => {
-				const result = await parseSource("owner/repo@^");
-				expect(result).toEqual({
-					type: "github-shorthand",
-					owner: "owner",
-					repo: "repo",
-					ref: null,
-					constraint: "^",
-					manifestKey: "owner/repo",
-					cloneUrl: "https://github.com/owner/repo.git",
-				});
+			it("rejects bare caret operator (^)", async () => {
+				await expect(parseSource("owner/repo@^")).rejects.toThrow(
+					"invalid version constraint: ^",
+				);
 			});
 
-			it("stores empty tilde constraint verbatim", async () => {
-				const result = await parseSource("owner/repo@~");
-				expect(result).toEqual({
-					type: "github-shorthand",
-					owner: "owner",
-					repo: "repo",
-					ref: null,
-					constraint: "~",
-					manifestKey: "owner/repo",
-					cloneUrl: "https://github.com/owner/repo.git",
-				});
+			it("rejects bare tilde operator (~)", async () => {
+				await expect(parseSource("owner/repo@~")).rejects.toThrow(
+					"invalid version constraint: ~",
+				);
 			});
 		});
 
@@ -651,6 +637,74 @@ describe("parseSource", () => {
 					cloneUrl: "git@github.com:owner/repo.git",
 				});
 			});
+		});
+	});
+
+	describe("constraint validation", () => {
+		it("rejects constraint with non-semver version (^abc)", async () => {
+			await expect(parseSource("owner/repo@^abc")).rejects.toThrow(
+				"invalid version constraint: ^abc",
+			);
+		});
+
+		it("rejects constraint with too many segments (^1.2.3.4)", async () => {
+			await expect(parseSource("owner/repo@^1.2.3.4")).rejects.toThrow(
+				"invalid version constraint: ^1.2.3.4",
+			);
+		});
+
+		it("accepts valid partial caret constraint (^1)", async () => {
+			const result = await parseSource("owner/repo@^1");
+			expect(result.constraint).toBe("^1");
+			expect(result.ref).toBeNull();
+		});
+
+		it("accepts valid partial caret constraint (^1.2)", async () => {
+			const result = await parseSource("owner/repo@^1.2");
+			expect(result.constraint).toBe("^1.2");
+			expect(result.ref).toBeNull();
+		});
+
+		it("accepts valid full caret constraint (^1.2.3)", async () => {
+			const result = await parseSource("owner/repo@^1.2.3");
+			expect(result.constraint).toBe("^1.2.3");
+			expect(result.ref).toBeNull();
+		});
+
+		it("accepts valid partial tilde constraint (~1)", async () => {
+			const result = await parseSource("owner/repo@~1");
+			expect(result.constraint).toBe("~1");
+			expect(result.ref).toBeNull();
+		});
+
+		it("accepts valid partial tilde constraint (~1.2)", async () => {
+			const result = await parseSource("owner/repo@~1.2");
+			expect(result.constraint).toBe("~1.2");
+			expect(result.ref).toBeNull();
+		});
+
+		it("accepts valid full tilde constraint (~1.2.3)", async () => {
+			const result = await parseSource("owner/repo@~1.2.3");
+			expect(result.constraint).toBe("~1.2.3");
+			expect(result.ref).toBeNull();
+		});
+
+		it("accepts pre-1.0 caret constraint (^0.2.3)", async () => {
+			const result = await parseSource("owner/repo@^0.2.3");
+			expect(result.constraint).toBe("^0.2.3");
+			expect(result.ref).toBeNull();
+		});
+
+		it("rejects constraint on HTTPS URL with invalid version", async () => {
+			await expect(
+				parseSource("https://github.com/owner/repo@^abc"),
+			).rejects.toThrow("invalid version constraint: ^abc");
+		});
+
+		it("rejects constraint on SSH URL with invalid version", async () => {
+			await expect(
+				parseSource("git@github.com:owner/repo.git@^abc"),
+			).rejects.toThrow("invalid version constraint: ^abc");
 		});
 	});
 
