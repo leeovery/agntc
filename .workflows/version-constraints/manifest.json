@@ -77,6 +77,22 @@
         }
       },
       "format": "tick"
+    },
+    "implementation": {
+      "items": {
+        "version-constraints": {
+          "status": "in-progress",
+          "task_gate_mode": "gated",
+          "fix_gate_mode": "gated",
+          "analysis_gate_mode": "gated",
+          "fix_attempts": 0,
+          "analysis_cycle": 0,
+          "linters": [],
+          "project_skills": [],
+          "current_phase": 1,
+          "current_task": "~"
+        }
+      }
     }
   }
 }
