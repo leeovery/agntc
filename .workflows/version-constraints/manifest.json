@@ -102,7 +102,7 @@
             ".claude/skills/typescript-advanced-types",
             ".claude/skills/typescript-pro"
           ],
-          "current_phase": 2,
+          "current_phase": 3,
           "current_task": "~",
           "completed_tasks": [
             "vc-1-1",
@@ -116,7 +116,8 @@
             "vc-2-2",
             "vc-2-3",
             "vc-2-4",
-            "vc-2-5"
+            "vc-2-5",
+            "vc-3-1"
           ],
           "completed_phases": [
             1,
