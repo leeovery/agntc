@@ -664,6 +664,94 @@ describe("runListLoop", () => {
 			expect(pluginOption!.label).toBe("owner/skill");
 		});
 
+		it("shows constraint arrow ref when constraint is present", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "v1.2.3", constraint: "^1.0" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map([["owner/skill", { status: "up-to-date" as const }]]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			const pluginOption = options.find((o) => o.value === "owner/skill");
+			expect(pluginOption!.label).toBe("owner/skill  ^1.0 \u2192 v1.2.3");
+		});
+
+		it("shows key@ref for non-constrained entry with tag ref", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "v1.2.3" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map([["owner/skill", { status: "up-to-date" as const }]]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			const pluginOption = options.find((o) => o.value === "owner/skill");
+			expect(pluginOption!.label).toBe("owner/skill@v1.2.3");
+		});
+
+		it("shows key@ref for non-constrained entry with branch ref", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "main" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map([["owner/skill", { status: "up-to-date" as const }]]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			const pluginOption = options.find((o) => o.value === "owner/skill");
+			expect(pluginOption!.label).toBe("owner/skill@main");
+		});
+
+		it("shows just key for non-constrained entry with no ref", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: null }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map([["owner/skill", { status: "up-to-date" as const }]]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			const pluginOption = options.find((o) => o.value === "owner/skill");
+			expect(pluginOption!.label).toBe("owner/skill");
+		});
+
 		it("shows correct status hints", async () => {
 			const manifest: Manifest = {
 				"owner/a": makeEntry(),
