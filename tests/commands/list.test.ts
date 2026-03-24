@@ -797,6 +797,164 @@ describe("runListLoop", () => {
 				"\u25CF Local",
 			);
 		});
+
+		it("shows constrained-update-available hint with target version", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "v1.0.0", constraint: "^1.0" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map<string, UpdateCheckResult>([
+					[
+						"owner/skill",
+						{
+							status: "constrained-update-available",
+							tag: "v1.3.0",
+							commit: "abc123",
+							latestOverall: null,
+						},
+					],
+				]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
+				"\u2191 Update available \u2192 v1.3.0",
+			);
+		});
+
+		it("shows constrained-up-to-date hint", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "v1.3.0", constraint: "^1.0" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map<string, UpdateCheckResult>([
+					[
+						"owner/skill",
+						{
+							status: "constrained-up-to-date",
+							latestOverall: null,
+						},
+					],
+				]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
+				"\u2713 Up to date",
+			);
+		});
+
+		it("shows constrained-up-to-date hint with out-of-constraint info", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "v1.3.0", constraint: "^1.0" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map<string, UpdateCheckResult>([
+					[
+						"owner/skill",
+						{
+							status: "constrained-up-to-date",
+							latestOverall: "v2.0.0",
+						},
+					],
+				]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
+				"\u2713 Up to date (v2.0.0 available outside constraint)",
+			);
+		});
+
+		it("shows constrained-update-available hint with out-of-constraint info", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "v1.0.0", constraint: "^1.0" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map<string, UpdateCheckResult>([
+					[
+						"owner/skill",
+						{
+							status: "constrained-update-available",
+							tag: "v1.3.0",
+							commit: "abc123",
+							latestOverall: "v2.0.0",
+						},
+					],
+				]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
+				"\u2191 Update available \u2192 v1.3.0 (v2.0.0 outside constraint)",
+			);
+		});
+
+		it("shows constrained-no-match error hint", async () => {
+			const manifest: Manifest = {
+				"owner/skill": makeEntry({ ref: "v1.0.0", constraint: "^2.0" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map<string, UpdateCheckResult>([
+					[
+						"owner/skill",
+						{
+							status: "constrained-no-match",
+						},
+					],
+				]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
+				"\u2717 No matching version",
+			);
+		});
 	});
 
 	describe("error handling", () => {

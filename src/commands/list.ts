@@ -26,6 +26,11 @@ function formatLabel(key: string, entry: ManifestEntry): string {
 	return key;
 }
 
+function formatOutOfConstraint(latestOverall: string | null): string {
+	if (latestOverall === null) return "";
+	return ` (${latestOverall} outside constraint)`;
+}
+
 function formatStatusHint(result: UpdateCheckResult): string {
 	switch (result.status) {
 		case "up-to-date":
@@ -38,6 +43,18 @@ function formatStatusHint(result: UpdateCheckResult): string {
 			return "\u2717 Check failed";
 		case "local":
 			return "\u25CF Local";
+		case "constrained-update-available": {
+			const suffix = formatOutOfConstraint(result.latestOverall);
+			return `\u2191 Update available \u2192 ${result.tag}${suffix}`;
+		}
+		case "constrained-up-to-date": {
+			if (result.latestOverall !== null) {
+				return `\u2713 Up to date (${result.latestOverall} available outside constraint)`;
+			}
+			return "\u2713 Up to date";
+		}
+		case "constrained-no-match":
+			return "\u2717 No matching version";
 	}
 }
 
