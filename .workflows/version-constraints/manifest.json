@@ -44,8 +44,8 @@
           "author_gate_mode": "auto",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
-          "phase": 4,
-          "task": "vc-4-4",
+          "phase": 5,
+          "task": "~",
           "task_map": {
             "vc-1-1": "tick-cf403c",
             "version-constraints-1": "tick-5d7bbb",
