@@ -45,7 +45,7 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 4,
-          "task": "vc-4-1",
+          "task": "vc-4-4",
           "task_map": {
             "vc-1-1": "tick-cf403c",
             "version-constraints-1": "tick-5d7bbb",
@@ -66,7 +66,12 @@
             "vc-3-2": "tick-9a3786",
             "vc-3-3": "tick-3a3a20",
             "vc-3-4": "tick-9afeec",
-            "vc-3-5": "tick-a097b8"
+            "vc-3-5": "tick-a097b8",
+            "version-constraints-4": "tick-0ebc65",
+            "vc-4-1": "tick-0827bc",
+            "vc-4-2": "tick-0fe4db",
+            "vc-4-3": "tick-b65c0e",
+            "vc-4-4": "tick-2cf85b"
           },
           "external_id": "tick-1f1525"
         }
