@@ -114,6 +114,9 @@ export async function renderDetailView(
 
 	p.log.info(`Plugin: ${key}`);
 	p.log.info(`Ref: ${formatRefLabel(entry.ref, entry.commit)}`);
+	if (entry.constraint) {
+		p.log.info(`Constraint: ${entry.constraint}`);
+	}
 	p.log.info(`Commit: ${formatCommit(entry)}`);
 	p.log.info(`Installed: ${formatDate(entry.installedAt)}`);
 	p.log.info(`Agents: ${entry.agents.join(", ")}`);

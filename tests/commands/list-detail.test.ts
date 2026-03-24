@@ -120,6 +120,26 @@ describe("renderDetailView", () => {
 
 			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude, codex");
 		});
+
+		it("displays constraint line when entry has constraint", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(makeInput({ entry: { constraint: "^1.0.0" } }));
+
+			expect(mockLog.info).toHaveBeenCalledWith("Constraint: ^1.0.0");
+		});
+
+		it("does not display constraint line when entry has no constraint", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(makeInput());
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const constraintLines = infoCalls.filter((line) =>
+				line.startsWith("Constraint:"),
+			);
+			expect(constraintLines).toHaveLength(0);
+		});
 	});
 
 	describe("asset counts", () => {
