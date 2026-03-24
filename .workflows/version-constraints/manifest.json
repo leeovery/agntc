@@ -45,7 +45,7 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 2,
-          "task": "vc-2-2",
+          "task": "vc-2-3",
           "task_map": {
             "vc-1-1": "tick-cf403c",
             "version-constraints-1": "tick-5d7bbb",
@@ -56,7 +56,8 @@
             "vc-1-6": "tick-7d8b6e",
             "vc-1-7": "tick-4c5375",
             "vc-2-1": "tick-8dc81b",
-            "version-constraints-2": "tick-f6def4"
+            "version-constraints-2": "tick-f6def4",
+            "vc-2-2": "tick-cef4e6"
           },
           "external_id": "tick-1f1525"
         }
