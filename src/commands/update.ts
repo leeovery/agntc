@@ -1,6 +1,10 @@
 import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
+import {
+	type CloneAndReinstallOptions,
+	cloneAndReinstall,
+	mapCloneFailure,
+} from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { validateLocalSourcePath } from "../fs-utils.js";
@@ -192,6 +196,26 @@ interface ConstrainedUpdateOverrides {
 	newCommit: string;
 }
 
+function buildReinstallInput(
+	key: string,
+	entry: ManifestEntry,
+	projectDir: string,
+	manifest?: Manifest,
+	overrides?: ConstrainedUpdateOverrides,
+): CloneAndReinstallOptions {
+	const isLocal = entry.commit === null;
+	return {
+		key,
+		entry,
+		projectDir,
+		...(manifest !== undefined ? { manifest } : {}),
+		...(isLocal ? { sourceDir: key } : {}),
+		...(overrides !== undefined
+			? { newRef: overrides.newRef, newCommit: overrides.newCommit }
+			: {}),
+	};
+}
+
 async function runSinglePluginUpdate(
 	key: string,
 	entry: ManifestEntry,
@@ -205,16 +229,9 @@ async function runSinglePluginUpdate(
 		await validateLocalPath(key);
 	}
 
-	const result = await cloneAndReinstall({
-		key,
-		entry,
-		projectDir,
-		manifest,
-		...(isLocal ? { sourceDir: key } : {}),
-		...(overrides !== undefined
-			? { newRef: overrides.newRef, newCommit: overrides.newCommit }
-			: {}),
-	});
+	const result = await cloneAndReinstall(
+		buildReinstallInput(key, entry, projectDir, manifest, overrides),
+	);
 
 	if (result.status === "failed") {
 		const noConfigMsg = isLocal
@@ -310,15 +327,9 @@ async function processUpdateForAll(
 			}
 		}
 
-		const result = await cloneAndReinstall({
-			key,
-			entry,
-			projectDir,
-			...(isLocal ? { sourceDir: key } : {}),
-			...(overrides !== undefined
-				? { newRef: overrides.newRef, newCommit: overrides.newCommit }
-				: {}),
-		});
+		const result = await cloneAndReinstall(
+			buildReinstallInput(key, entry, projectDir, undefined, overrides),
+		);
 
 		if (result.status === "failed") {
 			return mapCloneFailure(result, {
