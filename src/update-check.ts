@@ -1,4 +1,4 @@
-import { execGit, parseTagRefs } from "./git-utils.js";
+import { execGit, fetchRemoteTagRefs } from "./git-utils.js";
 import type { ManifestEntry } from "./manifest.js";
 import { deriveCloneUrlFromKey } from "./source-parser.js";
 import { resolveLatestVersion, resolveVersion } from "./version-resolve.js";
@@ -123,10 +123,8 @@ async function checkTag(
 	_installedCommit: string,
 ): Promise<UpdateCheckResult> {
 	try {
-		const { stdout } = await execGit(["ls-remote", "--tags", url], {
-			timeout: 15_000,
-		});
-		const allTags = parseTagRefs(stdout).map((r) => r.tag);
+		const allTagRefs = await fetchRemoteTagRefs(url);
+		const allTags = allTagRefs.map((r) => r.tag);
 		const newerTags = findNewerTags(allTags, tag);
 		if (newerTags === null) {
 			return {
@@ -159,10 +157,7 @@ async function checkConstrained(
 	constraint: string,
 ): Promise<UpdateCheckResult> {
 	try {
-		const { stdout } = await execGit(["ls-remote", "--tags", url], {
-			timeout: 15_000,
-		});
-		const parsed = parseTagRefs(stdout);
+		const parsed = await fetchRemoteTagRefs(url);
 		const tagCommitMap = new Map(parsed.map((r) => [r.tag, r.sha]));
 		const tags = parsed.map((r) => r.tag);
 

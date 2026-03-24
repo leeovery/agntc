@@ -46,9 +46,14 @@ export function parseTagRefs(stdout: string): TagRef[] {
 		});
 }
 
-export async function fetchRemoteTags(url: string): Promise<string[]> {
+export async function fetchRemoteTagRefs(url: string): Promise<TagRef[]> {
 	const { stdout } = await execGit(["ls-remote", "--tags", url], {
 		timeout: 15_000,
 	});
-	return parseTagRefs(stdout).map((r) => r.tag);
+	return parseTagRefs(stdout);
+}
+
+export async function fetchRemoteTags(url: string): Promise<string[]> {
+	const refs = await fetchRemoteTagRefs(url);
+	return refs.map((r) => r.tag);
 }
