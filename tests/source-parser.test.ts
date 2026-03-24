@@ -1,11 +1,19 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	expectTypeOf,
+	it,
+} from "vitest";
 import {
 	buildParsedSourceFromKey,
 	deriveCloneUrlFromKey,
 	getSourceDirFromKey,
+	type ParsedSource,
 	parseSource,
 	resolveCloneUrl,
 } from "../src/source-parser.js";
@@ -868,6 +876,18 @@ describe("parseSource", () => {
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
 		});
+
+		it("rejects tree URL with constraint-like caret suffix in path", async () => {
+			await expect(
+				parseSource("https://github.com/owner/repo/tree/main/plugin@^1.0"),
+			).rejects.toThrow("tree URLs cannot have @ref suffix");
+		});
+
+		it("rejects tree URL with tilde constraint-like suffix", async () => {
+			await expect(
+				parseSource("https://github.com/owner/repo/tree/main/plugin@~1.2"),
+			).rejects.toThrow("tree URLs cannot have @ref suffix");
+		});
 	});
 
 	describe("local path sources", () => {
@@ -1008,6 +1028,22 @@ describe("parseSource", () => {
 			if (result.type === "local-path") {
 				expect(result.resolvedPath).toBe(testDir);
 			}
+		});
+
+		it("treats @^ in local path as part of filesystem path, not constraint", async () => {
+			const pathWithConstraint = `./my-plugin@^1.0`;
+			const resolved = resolve(`./my-plugin@^1.0`);
+			await expect(parseSource(pathWithConstraint)).rejects.toThrow(
+				`Path ${resolved} does not exist or is not a directory`,
+			);
+		});
+
+		it("local path with tilde prefix is filesystem tilde expansion, not constraint", async () => {
+			const home = homedir();
+			const resolved = join(home, "my-plugin");
+			await expect(parseSource("~/my-plugin")).rejects.toThrow(
+				`Path ${resolved} does not exist or is not a directory`,
+			);
 		});
 	});
 });
@@ -1199,5 +1235,21 @@ describe("deriveCloneUrlFromKey", () => {
 			"git@github.com:owner/repo.git",
 		);
 		expect(result).toBe("git@github.com:owner/repo.git");
+	});
+});
+
+describe("constraint type guarantees", () => {
+	it("LocalPathSource.constraint is typed as literal null", () => {
+		const source: ParsedSource = {} as ParsedSource;
+		if (source.type === "local-path") {
+			expectTypeOf(source.constraint).toEqualTypeOf<null>();
+		}
+	});
+
+	it("DirectPathSource.constraint is typed as literal null", () => {
+		const source: ParsedSource = {} as ParsedSource;
+		if (source.type === "direct-path") {
+			expectTypeOf(source.constraint).toEqualTypeOf<null>();
+		}
 	});
 });
