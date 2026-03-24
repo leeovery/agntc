@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-24
 cycle: 1
 phase: Plan Integrity Review
@@ -103,7 +103,7 @@ Also update vc-1-7 Tests section correspondingly -- every test that calls `resol
 
 Also update vc-1-7 Context to note that callers in Phases 2-3 normalize externally and pass the result, so these functions must accept pre-normalized data.
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: This also requires a corresponding update to vc-1-6 to either change `normalizeTags` return type from `Map<string, string>` to `NormalizedTag[]`, or to add a conversion step in vc-1-7. The Map return type works for internal use but the array-of-objects pattern is cleaner for the callers. The vc-3-1 Do section references `resolvedResult.original` and `resolvedResult.cleaned` which already assumes this naming -- further evidence that the `original`/`cleaned` naming is the intended design.
 
 ---
@@ -206,7 +206,7 @@ Replace the tag extraction portion of vc-4-4 Do section with a clean, linear imp
 - Export `parseAllTags` from `src/update-check.ts` so it can be imported by the change-version action
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
@@ -308,5 +308,5 @@ Proposed:
 
 Update vc-1-6 Tests section correspondingly -- change Map assertions to array-of-objects assertions with `original`/`cleaned` fields.
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**: This finding is a prerequisite for Finding 1. The `NormalizedTag` type defined here is what `resolveVersion` and `resolveLatestVersion` accept in the updated vc-1-7 signatures.

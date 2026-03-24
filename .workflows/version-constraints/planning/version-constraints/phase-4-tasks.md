@@ -259,29 +259,7 @@ total: 4
     return { changed: false, message: "No tags available for version change" };
   }
   ```
-- Implement `extractTagsForChangeVersion` as a helper function:
-  ```typescript
-  function extractTagsForChangeVersion(status: UpdateCheckResult): string[] | null {
-    switch (status.status) {
-      case "newer-tags":
-        return status.tags;
-      case "constrained-update-available":
-      case "constrained-up-to-date":
-        // For constrained statuses, we need to fetch all tags
-        // However, the UpdateCheckResult for constrained statuses does not carry
-        // the full tag list -- only the resolved tag and outOfConstraint info.
-        // We need to pass the tag list through from the update check.
-        // See alternative approach below.
-        return null;
-      default:
-        return null;
-    }
-  }
-  ```
-  **Important consideration**: The constrained `UpdateCheckResult` types from Phase 3 (vc-3-1) do NOT carry a full tag list -- they only carry the resolved tag name and optional out-of-constraint info. The `newer-tags` status carries `tags: string[]` because the old `checkTag` path collects them. For the constrained change-version action to work, we need access to all available tags. There are two approaches:
-
-  **Approach A (preferred)**: Fetch tags directly in `executeChangeVersionAction` when the status is a constrained type. The function already has access to the manifest `key` from which the clone URL can be derived. Use `ls-remote --tags` to fetch all tags, similar to how `checkTag` does it. This keeps the `UpdateCheckResult` types clean and avoids passing large tag arrays through the status.
-
+- Implement a `fetchAllTags` helper in `src/commands/list-change-version-action.ts` that fetches all tags via ls-remote for constrained statuses (which do not carry a full tag list in their `UpdateCheckResult`):
   ```typescript
   async function fetchAllTags(key: string, cloneUrl: string | null): Promise<string[]> {
     const url = deriveCloneUrlFromKey(key, cloneUrl);
@@ -289,10 +267,8 @@ total: 4
     return parseAllTags(stdout);
   }
   ```
-
-  Import `deriveCloneUrlFromKey` from `../source-parser.js`, `execGit` from `../git-utils.js`. The `parseAllTags` helper is currently private in `update-check.ts` -- either export it or duplicate the simple parsing logic.
-
-- Rewrite the tag extraction logic:
+  Import `deriveCloneUrlFromKey` from `../source-parser.js`, `execGit` from `../git-utils.js`, and `parseAllTags` from `../update-check.js` (export it from `update-check.ts` if not already exported).
+- Replace the existing status guard at the top of `executeChangeVersionAction` with tag extraction logic that handles both old and new status types:
   ```typescript
   let tags: string[];
   if (updateStatus.status === "newer-tags") {

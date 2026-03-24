@@ -239,50 +239,51 @@ total: 7
 
 **Problem**: Git tags come in varied formats (`v1.2.3`, `1.2.3`, `release-1.0`, `latest`, tags with whitespace). The version resolver needs a clean pipeline that: (1) filters to semver-valid tags only, (2) normalizes format differences (`v1.2.3` -> `1.2.3`), (3) maps cleaned versions back to original tag names for use as git refs, and (4) handles duplicates where both `v1.2.3` and `1.2.3` exist.
 
-**Solution**: Create a new module `src/version-resolve.ts` with a `normalizeTags()` function that implements the tag normalization pipeline described in the spec. The function takes an array of raw tag strings (as returned from `git ls-remote --tags`) and returns a `Map<string, string>` mapping cleaned semver versions to their original tag names. This map is the input for `semver.maxSatisfying()` in the next task.
+**Solution**: Create a new module `src/version-resolve.ts` with a `normalizeTags()` function that implements the tag normalization pipeline described in the spec. The function takes an array of raw tag strings (as returned from `git ls-remote --tags`) and returns a `NormalizedTag[]` array where each entry pairs the original tag name with its cleaned semver version. This array is the input for `resolveVersion()` and `resolveLatestVersion()` in the next task.
 
-**Outcome**: `normalizeTags(["v1.2.3", "1.0.0", "release-candidate", "latest"])` returns a Map with entries `"1.2.3" -> "v1.2.3"` and `"1.0.0" -> "1.0.0"`. Non-semver tags are excluded. Duplicate versions prefer the `v`-prefixed form.
+**Outcome**: `normalizeTags(["v1.2.3", "1.0.0", "release-candidate", "latest"])` returns `[{ original: "v1.2.3", cleaned: "1.2.3" }, { original: "1.0.0", cleaned: "1.0.0" }]`. Non-semver tags are excluded. Duplicate versions prefer the `v`-prefixed form.
 
 **Do**:
 - Create `src/version-resolve.ts`
 - Import `clean` from `semver`
-- Implement `normalizeTags(tags: string[]): Map<string, string>` with this algorithm:
-  1. Create an empty `Map<string, string>` (cleaned version -> original tag)
+- Define `export interface NormalizedTag { original: string; cleaned: string }` in `src/version-resolve.ts`
+- Implement `normalizeTags(tags: string[]): NormalizedTag[]` with this algorithm:
+  1. Create an empty `Map<string, NormalizedTag>` (cleaned version -> NormalizedTag) as an intermediate deduplication structure
   2. For each tag in the input array:
      a. Call `semver.clean(tag)` -- this strips `v` prefix and whitespace (e.g., `v1.2.3` -> `"1.2.3"`, `" v1.2.3 "` -> `"1.2.3"`)
      b. If `clean()` returns `null`, skip this tag (not valid semver)
-     c. If the cleaned version is already in the map, apply the preference rule: prefer `v`-prefixed tags over non-prefixed. Specifically, if the new tag starts with `v` and the existing mapped tag does not, overwrite. Otherwise, keep the existing mapping
-     d. If the cleaned version is not in the map, add it
-  3. Return the map
-- Export `normalizeTags` for use in the resolver (task vc-1-7) and for direct testing
+     c. If the cleaned version is already in the map, apply the preference rule: prefer `v`-prefixed tags over non-prefixed. Specifically, if the new tag starts with `v` and the existing mapped tag does not, overwrite with `{ original: tag, cleaned }`. Otherwise, keep the existing entry
+     d. If the cleaned version is not in the map, add `{ original: tag, cleaned }`
+  3. Return `Array.from(map.values())`
+- Export `normalizeTags` and `NormalizedTag` for use in the resolver (task vc-1-7) and for direct testing
 - Create `tests/version-resolve.test.ts` for unit tests
 
 **Acceptance Criteria**:
-- [ ] `normalizeTags(["v1.2.3"])` returns Map `{ "1.2.3" => "v1.2.3" }`
-- [ ] `normalizeTags(["1.0.0"])` returns Map `{ "1.0.0" => "1.0.0" }`
-- [ ] `normalizeTags(["v1.2.3", "1.2.3"])` returns Map `{ "1.2.3" => "v1.2.3" }` (v-prefix preferred)
-- [ ] `normalizeTags(["1.2.3", "v1.2.3"])` returns Map `{ "1.2.3" => "v1.2.3" }` (v-prefix preferred regardless of order)
-- [ ] `normalizeTags(["release-candidate", "latest", "nope"])` returns empty Map
-- [ ] `normalizeTags([])` returns empty Map
-- [ ] `normalizeTags(["v1.0.0", "v2.0.0", "latest"])` returns Map with 2 entries (semver tags only)
+- [ ] `normalizeTags(["v1.2.3"])` returns `[{ original: "v1.2.3", cleaned: "1.2.3" }]`
+- [ ] `normalizeTags(["1.0.0"])` returns `[{ original: "1.0.0", cleaned: "1.0.0" }]`
+- [ ] `normalizeTags(["v1.2.3", "1.2.3"])` returns one entry with `original: "v1.2.3"` (v-prefix preferred)
+- [ ] `normalizeTags(["1.2.3", "v1.2.3"])` returns one entry with `original: "v1.2.3"` (v-prefix preferred regardless of order)
+- [ ] `normalizeTags(["release-candidate", "latest", "nope"])` returns empty array
+- [ ] `normalizeTags([])` returns empty array
+- [ ] `normalizeTags(["v1.0.0", "v2.0.0", "latest"])` returns 2 entries (semver tags only)
 - [ ] Non-semver tags like `release-candidate`, `latest`, `nope` are excluded
-- [ ] Tags with extra whitespace are cleaned (e.g., `" v1.2.3 "` -> `"1.2.3"`)
+- [ ] Tags with extra whitespace are cleaned (e.g., `" v1.2.3 "` -> cleaned: `"1.2.3"`)
 
 **Tests**:
-- `"it normalizes v-prefixed tag to clean semver"` -- `["v1.2.3"]` -> Map `{ "1.2.3" => "v1.2.3" }`
-- `"it keeps bare semver tag as-is"` -- `["1.0.0"]` -> Map `{ "1.0.0" => "1.0.0" }`
-- `"it prefers v-prefixed tag when duplicate versions exist"` -- `["v1.2.3", "1.2.3"]` -> maps to `"v1.2.3"`
-- `"it prefers v-prefixed tag regardless of input order"` -- `["1.2.3", "v1.2.3"]` -> maps to `"v1.2.3"`
-- `"it excludes non-semver tags"` -- `["release-candidate", "latest", "nope"]` -> empty Map
-- `"it handles empty tag list"` -- `[]` -> empty Map
-- `"it filters mixed semver and non-semver tags"` -- `["v1.0.0", "v2.0.0", "latest", "release-candidate"]` -> Map with `"1.0.0"` and `"2.0.0"` entries only
-- `"it handles no semver tags at all"` -- `["alpha", "beta", "rc1"]` -> empty Map
-- `"it strips whitespace from tags via clean()"` -- `[" v1.2.3 ", " 1.0.0 "]` -> Map `{ "1.2.3" => "v1.2.3", "1.0.0" => "1.0.0" }` (note: the original tag stored is the whitespace-trimmed version if `clean()` succeeds -- verify behavior)
-- `"it handles pre-release tags"` -- `["v1.0.0-beta.1", "v1.0.0"]` -> both are valid semver, both appear in the Map with their own cleaned versions
+- `"it normalizes v-prefixed tag to clean semver"` -- `["v1.2.3"]` -> `[{ original: "v1.2.3", cleaned: "1.2.3" }]`
+- `"it keeps bare semver tag as-is"` -- `["1.0.0"]` -> `[{ original: "1.0.0", cleaned: "1.0.0" }]`
+- `"it prefers v-prefixed tag when duplicate versions exist"` -- `["v1.2.3", "1.2.3"]` -> one entry with original `"v1.2.3"`
+- `"it prefers v-prefixed tag regardless of input order"` -- `["1.2.3", "v1.2.3"]` -> one entry with original `"v1.2.3"`
+- `"it excludes non-semver tags"` -- `["release-candidate", "latest", "nope"]` -> empty array
+- `"it handles empty tag list"` -- `[]` -> empty array
+- `"it filters mixed semver and non-semver tags"` -- `["v1.0.0", "v2.0.0", "latest", "release-candidate"]` -> 2 entries only
+- `"it handles no semver tags at all"` -- `["alpha", "beta", "rc1"]` -> empty array
+- `"it strips whitespace from tags via clean()"` -- `[" v1.2.3 ", " 1.0.0 "]` -> entries with cleaned `"1.2.3"` and `"1.0.0"`
+- `"it handles pre-release tags"` -- `["v1.0.0-beta.1", "v1.0.0"]` -> both valid semver, both appear as entries with their own cleaned versions
 
 **Edge Cases**:
 - Duplicate versions (`v1.2.3` and `1.2.3` both exist): prefer the `v`-prefixed form as the original tag name, since it's the dominant tagging convention
-- No semver tags at all: returns empty Map -- caller must handle this case
+- No semver tags at all: returns empty array -- caller must handle this case
 - Tags with extra whitespace: `semver.clean()` strips leading/trailing whitespace as part of its normalization
 - Non-semver tags mixed in (`release-candidate`, `latest`): `semver.clean()` returns `null` for these, so they are naturally excluded
 
@@ -297,38 +298,36 @@ total: 7
 
 **Problem**: Given a constraint expression (e.g., `^1.0`) and a list of remote tags, we need to find the best matching tag. This is the core resolution logic that connects tag normalization (vc-1-6) to the actual version selection. The resolver must handle cases where no tags match, where pre-1.0 caret semantics apply, and where partial constraints must match against full version tags.
 
-**Solution**: Add a `resolveVersion()` function to `src/version-resolve.ts` that takes a constraint string and an array of raw tags, runs the tag normalization pipeline, calls `semver.maxSatisfying()` with the cleaned versions and constraint, and maps the result back to the original tag name. Return a structured result indicating success (with the matched tag and cleaned version) or failure (no match).
+**Solution**: Add a `resolveVersion()` function to `src/version-resolve.ts` that takes pre-normalized tags (from `normalizeTags()`) and a constraint string, calls `semver.maxSatisfying()` with the cleaned versions and constraint, and maps the result back to the original tag name. Callers normalize once and pass the result to both `resolveVersion` and `resolveLatestVersion`. Return a structured result indicating success or failure (no match).
 
-**Outcome**: `resolveVersion("^1.0", ["v1.0.0", "v1.1.0", "v2.0.0"])` returns `{ tag: "v1.1.0", version: "1.1.0" }`. `resolveVersion("^3.0", ["v1.0.0", "v2.0.0"])` returns `null` (no match). Pre-1.0 caret semantics work correctly via `semver.maxSatisfying()`.
+**Outcome**: `resolveVersion(normalizeTags(["v1.0.0", "v1.1.0", "v2.0.0"]), "^1.0")` returns `{ original: "v1.1.0", cleaned: "1.1.0" }`. `resolveVersion(normalizeTags(["v1.0.0", "v2.0.0"]), "^3.0")` returns `null` (no match). Pre-1.0 caret semantics work correctly via `semver.maxSatisfying()`.
 
 **Do**:
-- In `src/version-resolve.ts`, define a result type: `interface ResolvedVersion { tag: string; version: string }` where `tag` is the original git tag name (for use as a ref in clone) and `version` is the cleaned semver string
-- Implement `resolveVersion(constraint: string, tags: string[]): ResolvedVersion | null` with this algorithm:
-  1. Call `normalizeTags(tags)` to get the `Map<string, string>` (cleaned version -> original tag)
-  2. Extract the cleaned versions as an array: `Array.from(map.keys())`
-  3. Call `semver.maxSatisfying(cleanedVersions, constraint)` -- this returns the highest version that satisfies the constraint, or `null`
-  4. If `maxSatisfying` returns `null`, return `null` (no match)
-  5. Look up the original tag name from the map using the matched version
-  6. Return `{ tag: originalTag, version: matchedVersion }`
-- Also implement `resolveLatestVersion(tags: string[]): ResolvedVersion | null` for the bare-add case (Phase 2 will use it, but it belongs in this module):
-  1. Call `normalizeTags(tags)` to get the map
-  2. Call `semver.maxSatisfying(cleanedVersions, "*")` -- `*` matches all stable versions, excluding pre-release
-  3. If null, return null
-  4. Map back to original tag and return `{ tag, version }`
-- Export both functions
+- In `src/version-resolve.ts`, define a result type: `interface ResolvedVersion { original: string; cleaned: string }` where `original` is the original git tag name (for use as a ref in clone) and `cleaned` is the cleaned semver string
+- Implement `resolveVersion(normalizedTags: NormalizedTag[], constraint: string): ResolvedVersion | null` with this algorithm:
+  1. Extract the cleaned versions as an array: `normalizedTags.map(t => t.cleaned)`
+  2. Call `semver.maxSatisfying(cleanedVersions, constraint)` -- this returns the highest version that satisfies the constraint, or `null`
+  3. If `maxSatisfying` returns `null`, return `null` (no match)
+  4. Find the normalized tag whose `cleaned` matches the result
+  5. Return `{ original: tag.original, cleaned: matchedVersion }`
+- Also implement `resolveLatestVersion(normalizedTags: NormalizedTag[]): ResolvedVersion | null` for the bare-add case (Phase 2 will use it, but it belongs in this module):
+  1. Call `semver.maxSatisfying(normalizedTags.map(t => t.cleaned), "*")` -- `*` matches all stable versions, excluding pre-release
+  2. If null, return null
+  3. Find the normalized tag whose `cleaned` matches and return `{ original, cleaned }`
+- Export both functions and the `ResolvedVersion` and `NormalizedTag` types
 - Add tests to `tests/version-resolve.test.ts`
 
 **Acceptance Criteria**:
-- [ ] `resolveVersion("^1.0", ["v1.0.0", "v1.1.0", "v2.0.0"])` returns `{ tag: "v1.1.0", version: "1.1.0" }`
-- [ ] `resolveVersion("~1.0.0", ["v1.0.0", "v1.0.5", "v1.1.0"])` returns `{ tag: "v1.0.5", version: "1.0.5" }`
-- [ ] `resolveVersion("^3.0", ["v1.0.0", "v2.0.0"])` returns `null`
-- [ ] `resolveVersion("^0.2.3", ["v0.2.3", "v0.2.5", "v0.3.0"])` returns `{ tag: "v0.2.5", version: "0.2.5" }` (pre-1.0 caret: `^0.2.3` -> `>=0.2.3, <0.3.0`)
-- [ ] `resolveVersion("^0.0.3", ["v0.0.3", "v0.0.4", "v0.1.0"])` returns `{ tag: "v0.0.3", version: "0.0.3" }` (pre-1.0 caret: `^0.0.3` -> `>=0.0.3, <0.0.4`)
-- [ ] `resolveVersion("^1", ["v1.0.0", "v1.5.0", "v2.0.0"])` returns `{ tag: "v1.5.0", version: "1.5.0" }` (partial constraint)
-- [ ] `resolveLatestVersion(["v1.0.0", "v2.0.0", "v2.0.0-beta.1"])` returns `{ tag: "v2.0.0", version: "2.0.0" }` (pre-release excluded)
-- [ ] `resolveLatestVersion(["alpha", "beta"])` returns `null` (no semver tags)
+- [ ] `resolveVersion(normalizeTags(["v1.0.0", "v1.1.0", "v2.0.0"]), "^1.0")` returns `{ original: "v1.1.0", cleaned: "1.1.0" }`
+- [ ] `resolveVersion(normalizeTags(["v1.0.0", "v1.0.5", "v1.1.0"]), "~1.0.0")` returns `{ original: "v1.0.5", cleaned: "1.0.5" }`
+- [ ] `resolveVersion(normalizeTags(["v1.0.0", "v2.0.0"]), "^3.0")` returns `null`
+- [ ] `resolveVersion(normalizeTags(["v0.2.3", "v0.2.5", "v0.3.0"]), "^0.2.3")` returns `{ original: "v0.2.5", cleaned: "0.2.5" }` (pre-1.0 caret)
+- [ ] `resolveVersion(normalizeTags(["v0.0.3", "v0.0.4", "v0.1.0"]), "^0.0.3")` returns `{ original: "v0.0.3", cleaned: "0.0.3" }` (pre-1.0 caret patch-bounded)
+- [ ] `resolveVersion(normalizeTags(["v1.0.0", "v1.5.0", "v2.0.0"]), "^1")` returns `{ original: "v1.5.0", cleaned: "1.5.0" }` (partial constraint)
+- [ ] `resolveLatestVersion(normalizeTags(["v1.0.0", "v2.0.0", "v2.0.0-beta.1"]))` returns `{ original: "v2.0.0", cleaned: "2.0.0" }` (pre-release excluded)
+- [ ] `resolveLatestVersion(normalizeTags(["alpha", "beta"]))` returns `null` (no semver tags -- normalizeTags returns empty)
 - [ ] Pre-release tags are excluded by `maxSatisfying` for non-pre-release constraints
-- [ ] The returned `tag` is the original git ref name (e.g., `"v1.1.0"`, not `"1.1.0"`)
+- [ ] The returned `original` is the original git ref name (e.g., `"v1.1.0"`, not `"1.1.0"`)
 
 **Tests**:
 - `"it resolves highest version within caret constraint"` -- `^1.0` against `[v1.0.0, v1.1.0, v2.0.0]` -> `v1.1.0`
@@ -339,9 +338,9 @@ total: 7
 - `"it handles pre-1.0 caret semantics (^0.0.3 is patch-bounded)"` -- `^0.0.3` against `[v0.0.3, v0.0.4, v0.1.0]` -> `v0.0.3`
 - `"it resolves partial constraint (^1) against full version tags"` -- `^1` against `[v1.0.0, v1.5.0, v2.0.0]` -> `v1.5.0`
 - `"it resolves partial constraint (~1.2) against full tags"` -- `~1.2` against `[v1.2.0, v1.2.5, v1.3.0]` -> `v1.2.5`
-- `"it returns original v-prefixed tag name, not cleaned version"` -- verify `tag` field is `"v1.1.0"` not `"1.1.0"`
+- `"it returns original v-prefixed tag name, not cleaned version"` -- verify `original` field is `"v1.1.0"` not `"1.1.0"`
 - `"it returns null for empty tag list"` -- `^1.0` against `[]` -> null
-- `"resolveLatestVersion finds highest stable version"` -- `[v1.0.0, v2.0.0, v3.0.0-rc.1]` -> `{ tag: "v2.0.0", version: "2.0.0" }`
+- `"resolveLatestVersion finds highest stable version"` -- `[v1.0.0, v2.0.0, v3.0.0-rc.1]` -> `{ original: "v2.0.0", cleaned: "2.0.0" }`
 - `"resolveLatestVersion returns null when no semver tags exist"` -- `["alpha", "latest"]` -> null
 - `"resolveLatestVersion excludes pre-release from latest"` -- `[v1.0.0-beta.1]` -> null (only pre-release, no stable)
 - `"it handles mixed v-prefixed and bare tags"` -- `^1.0` against `["v1.0.0", "1.1.0"]` -> returns the matched tag (whichever `normalizeTags` mapped)
@@ -351,7 +350,7 @@ total: 7
 - Pre-release tags excluded by `maxSatisfying`: `semver.maxSatisfying(versions, "^1.0")` does not match pre-release versions unless the constraint itself includes a pre-release identifier. This is default semver behavior
 - Pre-1.0 caret semantics (`^0.2.3`): `semver.maxSatisfying` handles this automatically -- `^0.2.3` means `>=0.2.3 <0.3.0`
 - Partial constraint (`^1`) against full tags: `semver.maxSatisfying` handles `^1` as `^1.0.0` which means `>=1.0.0 <2.0.0`
-- Empty tag list: `normalizeTags([])` returns empty Map, `maxSatisfying([], constraint)` returns `null`
+- Empty tag list: `normalizeTags([])` returns empty array, `maxSatisfying([], constraint)` returns `null`
 
 **Context**:
 > The spec's Resolution Algorithm: "1. Fetch all refs via ls-remote. 2. Filter to semver-valid tags using semver.valid(). 3. Use semver.clean() for normalizing tag formats. 4. Pass filtered tags and the constraint to semver.maxSatisfying(tags, constraint) to select the best match." And: "semver.maxSatisfying handles all pre-1.0 special casing (^0.x, ^0.0.x) automatically -- no custom logic needed." The "No Match" section: "If maxSatisfying returns null, report this to the user."
