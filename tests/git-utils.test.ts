@@ -1,6 +1,6 @@
 import * as childProcess from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { execGit } from "../src/git-utils.js";
+import { execGit, fetchRemoteTags } from "../src/git-utils.js";
 
 vi.mock("node:child_process");
 
@@ -129,5 +129,57 @@ describe("execGit", () => {
 		);
 
 		await expect(execGit(["status"])).rejects.toThrow("spawn ENOENT");
+	});
+});
+
+describe("fetchRemoteTags", () => {
+	it("parses ls-remote output into tag names", async () => {
+		const lsRemoteOutput = [
+			"abc123\trefs/tags/v1.0.0",
+			"def456\trefs/tags/v1.1.0",
+			"ghi789\trefs/tags/v2.0.0",
+		].join("\n");
+		mockExecFileSuccess(lsRemoteOutput);
+
+		const tags = await fetchRemoteTags("https://github.com/owner/repo.git");
+
+		expect(tags).toEqual(["v1.0.0", "v1.1.0", "v2.0.0"]);
+	});
+
+	it("filters out ^{} annotated tag refs", async () => {
+		const lsRemoteOutput = [
+			"abc123\trefs/tags/v1.0.0",
+			"abc124\trefs/tags/v1.0.0^{}",
+			"def456\trefs/tags/v2.0.0",
+			"def457\trefs/tags/v2.0.0^{}",
+		].join("\n");
+		mockExecFileSuccess(lsRemoteOutput);
+
+		const tags = await fetchRemoteTags("https://github.com/owner/repo.git");
+
+		expect(tags).toEqual(["v1.0.0", "v2.0.0"]);
+	});
+
+	it("returns empty array when no tags exist", async () => {
+		mockExecFileSuccess("");
+
+		const tags = await fetchRemoteTags("https://github.com/owner/repo.git");
+
+		expect(tags).toEqual([]);
+	});
+
+	it("calls git ls-remote --tags with correct url", async () => {
+		mockExecFileSuccess("");
+
+		await fetchRemoteTags("https://github.com/owner/repo.git");
+
+		const execFileMock = vi.mocked(childProcess.execFile);
+		const call = execFileMock.mock.calls[0]!;
+		expect(call[0]).toBe("git");
+		expect(call[1]).toEqual([
+			"ls-remote",
+			"--tags",
+			"https://github.com/owner/repo.git",
+		]);
 	});
 });

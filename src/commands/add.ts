@@ -17,6 +17,7 @@ import type { AgentId } from "../drivers/types.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
+import { fetchRemoteTags } from "../git-utils.js";
 import type { Manifest } from "../manifest.js";
 import { addEntry, readManifest, writeManifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
@@ -27,6 +28,7 @@ import { detectType } from "../type-detection.js";
 import { checkUnmanagedConflicts } from "../unmanaged-check.js";
 import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
+import { resolveLatestVersion } from "../version-resolve.js";
 
 function deriveCloneUrlForManifest(
 	parsed: Awaited<ReturnType<typeof parseSource>>,
@@ -93,7 +95,23 @@ export async function runAdd(source: string): Promise<void> {
 
 	try {
 		// 1. Parse source
-		const parsed = await parseSource(source);
+		let parsed = await parseSource(source);
+
+		// 1a. Bare add: resolve latest semver tag and auto-apply constraint
+		let derivedConstraint: string | undefined;
+		if (
+			parsed.type !== "local-path" &&
+			parsed.ref === null &&
+			parsed.constraint === null
+		) {
+			const url = resolveCloneUrl(parsed);
+			const tags = await fetchRemoteTags(url);
+			const latest = resolveLatestVersion(tags);
+			if (latest !== null) {
+				derivedConstraint = `^${latest.version}`;
+				parsed = { ...parsed, ref: latest.tag };
+			}
+		}
 
 		// 2. Resolve source directory and commit
 		const spin = p.spinner();
@@ -254,6 +272,9 @@ export async function runAdd(source: string): Promise<void> {
 			agents: selectedAgents,
 			files: copiedFiles,
 			cloneUrl: deriveCloneUrlForManifest(parsed),
+			...(derivedConstraint !== undefined && {
+				constraint: derivedConstraint,
+			}),
 		};
 		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
 		await writeManifest(projectDir, updated);

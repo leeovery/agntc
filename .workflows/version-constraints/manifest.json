@@ -85,7 +85,7 @@
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
           "analysis_gate_mode": "gated",
-          "fix_attempts": 1,
+          "fix_attempts": 0,
           "analysis_cycle": 0,
           "linters": [
             {
@@ -112,7 +112,8 @@
             "vc-1-5",
             "vc-1-6",
             "vc-1-7",
-            "vc-2-1"
+            "vc-2-1",
+            "vc-2-2"
           ],
           "completed_phases": [
             1

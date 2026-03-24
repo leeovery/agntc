@@ -25,3 +25,19 @@ export function execGit(
 		});
 	});
 }
+
+export async function fetchRemoteTags(url: string): Promise<string[]> {
+	const { stdout } = await execGit(["ls-remote", "--tags", url], {
+		timeout: 15_000,
+	});
+	const trimmed = stdout.trim();
+	if (trimmed === "") return [];
+	return trimmed
+		.split("\n")
+		.filter((line) => line.trim() !== "")
+		.filter((line) => !line.includes("^{}"))
+		.map((line) => {
+			const ref = line.split("\t")[1]?.trim() ?? "";
+			return ref.replace("refs/tags/", "");
+		});
+}

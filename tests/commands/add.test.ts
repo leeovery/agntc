@@ -43,6 +43,14 @@ vi.mock("../../src/git-clone.js", () => ({
 	cleanupTempDir: vi.fn(),
 }));
 
+vi.mock("../../src/git-utils.js", () => ({
+	fetchRemoteTags: vi.fn(),
+}));
+
+vi.mock("../../src/version-resolve.js", () => ({
+	resolveLatestVersion: vi.fn(),
+}));
+
 vi.mock("../../src/config.js", () => ({
 	readConfig: vi.fn(),
 	ConfigError: class ConfigError extends Error {
@@ -124,16 +132,20 @@ import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
 import { detectAgents } from "../../src/detect-agents.js";
 import { getDriver } from "../../src/drivers/registry.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
+import { fetchRemoteTags } from "../../src/git-utils.js";
 import { addEntry, readManifest, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { parseSource } from "../../src/source-parser.js";
 import { detectType } from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
+import { resolveLatestVersion } from "../../src/version-resolve.js";
 
 const mockParseSource = vi.mocked(parseSource);
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
+const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
+const mockResolveLatestVersion = vi.mocked(resolveLatestVersion);
 const mockReadConfig = vi.mocked(readConfig);
 const mockDetectType = vi.mocked(detectType);
 const mockGetDriver = vi.mocked(getDriver);
@@ -202,6 +214,8 @@ const UPDATED_MANIFEST: Manifest = {
 function setupHappyPath(): void {
 	mockParseSource.mockReturnValue(PARSED);
 	mockCloneSource.mockResolvedValue(CLONE_RESULT);
+	mockFetchRemoteTags.mockResolvedValue([]);
+	mockResolveLatestVersion.mockReturnValue(null);
 	mockReadConfig.mockResolvedValue(CONFIG);
 	mockDetectType.mockResolvedValue(BARE_SKILL);
 	mockDetectAgents.mockResolvedValue(["claude"]);
@@ -3077,6 +3091,171 @@ describe("add command", () => {
 					"resolveUnmanagedConflicts",
 				]);
 			});
+		});
+	});
+
+	describe("bare add — tag resolution", () => {
+		const BARE_PARSED: ParsedSource = {
+			type: "github-shorthand",
+			owner: "owner",
+			repo: "my-skill",
+			ref: null,
+			constraint: null,
+			manifestKey: "owner/my-skill",
+			cloneUrl: "https://github.com/owner/my-skill.git",
+		};
+
+		function setupBareAdd(): void {
+			setupHappyPath();
+			mockParseSource.mockReturnValue(BARE_PARSED);
+		}
+
+		it("bare add resolves latest semver tag and auto-applies caret constraint", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-skill");
+
+			// cloneSource should receive resolved tag, not constraint
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v2.0.0");
+
+			// manifest entry should have constraint and ref
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.ref).toBe("v2.0.0");
+			expect(entry.constraint).toBe("^2.0.0");
+		});
+
+		it("bare add falls back to HEAD when no semver tags exist", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue([]);
+			mockResolveLatestVersion.mockReturnValue(null);
+
+			await runAdd("owner/my-skill");
+
+			// cloneSource gets null ref (clone default branch)
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBeNull();
+
+			// no constraint in manifest
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.constraint).toBeUndefined();
+			expect(entry.ref).toBeNull();
+		});
+
+		it("bare add falls back to HEAD when only pre-release tags exist", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0-beta.1", "v2.0.0-rc.1"]);
+			mockResolveLatestVersion.mockReturnValue(null);
+
+			await runAdd("owner/my-skill");
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBeNull();
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.constraint).toBeUndefined();
+		});
+
+		it("bare add ignores non-semver tags", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue([
+				"latest",
+				"release-candidate",
+				"nope",
+			]);
+			mockResolveLatestVersion.mockReturnValue(null);
+
+			await runAdd("owner/my-skill");
+
+			// resolveLatestVersion was called with whatever fetchRemoteTags returned
+			expect(mockResolveLatestVersion).toHaveBeenCalledWith([
+				"latest",
+				"release-candidate",
+				"nope",
+			]);
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBeNull();
+		});
+
+		it("bare add with mixed semver and non-semver tags picks highest semver", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue([
+				"v1.0.0",
+				"latest",
+				"v2.0.0",
+				"beta",
+			]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-skill");
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			expect(cloneCall.ref).toBe("v2.0.0");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.constraint).toBe("^2.0.0");
+		});
+
+		it("bare add local path skips tag resolution", async () => {
+			setupHappyPath();
+			mockParseSource.mockReturnValue({
+				type: "local-path",
+				resolvedPath: "/Users/lee/Code/my-skill",
+				ref: null,
+				constraint: null,
+				manifestKey: "/Users/lee/Code/my-skill",
+			} satisfies ParsedSource);
+
+			await runAdd("./my-skill");
+
+			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
+			expect(mockResolveLatestVersion).not.toHaveBeenCalled();
+		});
+
+		it("bare add stores constraint in manifest entry", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-skill");
+
+			const addEntryCall = mockAddEntry.mock.calls[0]!;
+			const entry = addEntryCall[2] as ManifestEntry;
+			expect(entry.constraint).toBe("^2.0.0");
+			expect(entry.ref).toBe("v2.0.0");
+			expect(entry.commit).toBe("abc123def456");
+		});
+
+		it("bare add clones at resolved tag not constraint expression", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-skill");
+
+			const cloneCall = mockCloneSource.mock.calls[0]![0] as ParsedSource;
+			// Should be the actual tag name, not "^2.0.0"
+			expect(cloneCall.ref).toBe("v2.0.0");
+			expect(cloneCall.ref).not.toContain("^");
 		});
 	});
 });
