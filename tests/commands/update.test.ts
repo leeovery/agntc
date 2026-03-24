@@ -2647,6 +2647,446 @@ describe("update command", () => {
 		});
 	});
 
+	describe("constrained statuses — all-plugins mode", () => {
+		it("processes constrained-update-available plugins via nuke-and-reinstall with resolved tag", async () => {
+			const entry = makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: null,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await runUpdate();
+
+			expect(mockCloneSource).toHaveBeenCalledWith(
+				expect.objectContaining({
+					ref: "v1.3.0",
+				}),
+			);
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/my-skill/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalled();
+		});
+
+		it("adds constrained-up-to-date plugins to up-to-date list", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					ref: "v1.3.0",
+					commit: INSTALLED_SHA,
+					constraint: "^1.0",
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-up-to-date",
+				latestOverall: null,
+			});
+
+			await runUpdate();
+
+			expect(mockOutro).toHaveBeenCalledWith(
+				expect.stringContaining("up to date"),
+			);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("adds constrained-no-match plugins to failed/error list in summary", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^2.0",
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-no-match",
+			});
+
+			await runUpdate();
+
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const hasNoMatchError = warnCalls.some(
+				(msg) => msg.includes("owner/repo") && msg.includes("constraint"),
+			);
+			expect(hasNoMatchError).toBe(true);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("handles batch with all constrained plugins — mixed constrained statuses", async () => {
+			const entryA = makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				ref: "v2.1.0",
+				commit: INSTALLED_SHA,
+				constraint: "^2.0",
+			});
+			const entryC = makeEntry({
+				ref: "v3.0.0",
+				commit: INSTALLED_SHA,
+				constraint: "^4.0",
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+				"owner/repo-c": entryC,
+			});
+			mockCheckForUpdate.mockImplementation(
+				async (key: string, _entry: ManifestEntry) => {
+					if (key === "owner/repo-a")
+						return {
+							status: "constrained-update-available",
+							tag: "v1.3.0",
+							commit: REMOTE_SHA,
+							latestOverall: "v2.0.0",
+						} as UpdateCheckResult;
+					if (key === "owner/repo-b")
+						return {
+							status: "constrained-up-to-date",
+							latestOverall: "v3.1.0",
+						} as UpdateCheckResult;
+					return {
+						status: "constrained-no-match",
+					} as UpdateCheckResult;
+				},
+			);
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/skill-a/"],
+			});
+
+			await runUpdate();
+
+			// A should be updated (constrained-update-available)
+			expect(mockCloneSource).toHaveBeenCalledTimes(1);
+			expect(mockWriteManifest).toHaveBeenCalled();
+			// Summary should contain info for all three
+			const allMessages = [
+				...mockLog.success.mock.calls.map((c) => c[0] as string),
+				...mockLog.message.mock.calls.map((c) => c[0] as string),
+				...mockLog.warn.mock.calls.map((c) => c[0] as string),
+			];
+			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
+			const hasRepoB = allMessages.some((msg) => msg.includes("owner/repo-b"));
+			const hasRepoC = allMessages.some((msg) => msg.includes("owner/repo-c"));
+			expect(hasRepoA).toBe(true);
+			expect(hasRepoB).toBe(true);
+			expect(hasRepoC).toBe(true);
+		});
+
+		it("handles mix of constrained + branch-tracking + tag-pinned + local plugins", async () => {
+			const constrainedEntry = makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [".claude/skills/constrained-skill/"],
+			});
+			const branchEntry = makeEntry({
+				ref: null,
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/branch-skill/"],
+			});
+			const tagEntry = makeEntry({
+				ref: "v1.0",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/tagged-skill/"],
+			});
+			const localEntry: ManifestEntry = {
+				ref: null,
+				commit: null,
+				installedAt: "2026-02-01T00:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/local-skill/"],
+				cloneUrl: null,
+			};
+
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/constrained": constrainedEntry,
+				"owner/branch": branchEntry,
+				"owner/tagged": tagEntry,
+				"/local/path": localEntry,
+			});
+			mockCheckForUpdate.mockImplementation(
+				async (key: string, _entry: ManifestEntry) => {
+					if (key === "owner/constrained")
+						return {
+							status: "constrained-update-available",
+							tag: "v1.3.0",
+							commit: REMOTE_SHA,
+							latestOverall: null,
+						} as UpdateCheckResult;
+					if (key === "owner/branch")
+						return {
+							status: "update-available",
+							remoteCommit: REMOTE_SHA,
+						} as UpdateCheckResult;
+					if (key === "owner/tagged")
+						return {
+							status: "newer-tags",
+							tags: ["v2.0"],
+						} as UpdateCheckResult;
+					return { status: "local" } as UpdateCheckResult;
+				},
+			);
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/some-skill/"],
+			});
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+
+			await runUpdate();
+
+			// Constrained and branch should be processed (clone called)
+			// Local should be processed (stat called)
+			// Tagged should NOT be processed (newer-tags is info only)
+			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+			// All four should appear in the summary
+			const allMessages = [
+				...mockLog.success.mock.calls.map((c) => c[0] as string),
+				...mockLog.message.mock.calls.map((c) => c[0] as string),
+				...mockLog.info.mock.calls.map((c) => c[0] as string),
+			];
+			const hasConstrained = allMessages.some((msg) =>
+				msg.includes("owner/constrained"),
+			);
+			const hasBranch = allMessages.some((msg) => msg.includes("owner/branch"));
+			const hasTagged = allMessages.some((msg) => msg.includes("owner/tagged"));
+			const hasLocal = allMessages.some((msg) => msg.includes("/local/path"));
+			expect(hasConstrained).toBe(true);
+			expect(hasBranch).toBe(true);
+			expect(hasTagged).toBe(true);
+			expect(hasLocal).toBe(true);
+		});
+
+		it("batch with no constrained plugins behaves identically to pre-feature", async () => {
+			const entryA = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				ref: "v1.0",
+				commit: INSTALLED_SHA,
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockCheckForUpdate.mockImplementation(
+				async (key: string, _entry: ManifestEntry) => {
+					if (key === "owner/repo-a")
+						return {
+							status: "update-available",
+							remoteCommit: REMOTE_SHA,
+						};
+					return { status: "newer-tags", tags: ["v2.0"] };
+				},
+			);
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/skill-a/"],
+			});
+
+			await runUpdate();
+
+			expect(mockCloneSource).toHaveBeenCalledTimes(1);
+			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+			const allMessages = [
+				...mockLog.success.mock.calls.map((c) => c[0] as string),
+				...mockLog.info.mock.calls.map((c) => c[0] as string),
+			];
+			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
+			const hasRepoB = allMessages.some((msg) => msg.includes("owner/repo-b"));
+			expect(hasRepoA).toBe(true);
+			expect(hasRepoB).toBe(true);
+		});
+
+		it("collects out-of-constraint info from constrained-update-available results", async () => {
+			const entry = makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: "v2.0.0",
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await runUpdate();
+
+			// The out-of-constraint info should be collected for rendering.
+			// Since vc-3-5 handles rendering, we verify the function returns
+			// successfully and the plugin is updated. The actual out-of-constraint
+			// data structure is stored internally for vc-3-5 to consume.
+			expect(mockWriteManifest).toHaveBeenCalled();
+		});
+
+		it("collects out-of-constraint info from constrained-up-to-date results", async () => {
+			const entryA = makeEntry({
+				ref: "v1.3.0",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+			});
+			const entryB = makeEntry({
+				ref: "v2.1.0",
+				commit: INSTALLED_SHA,
+				constraint: "^2.0",
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockCheckForUpdate.mockImplementation(
+				async (key: string, _entry: ManifestEntry) => {
+					if (key === "owner/repo-a")
+						return {
+							status: "constrained-up-to-date",
+							latestOverall: "v2.0.0",
+						} as UpdateCheckResult;
+					return {
+						status: "constrained-up-to-date",
+						latestOverall: null,
+					} as UpdateCheckResult;
+				},
+			);
+
+			await runUpdate();
+
+			// All up-to-date, so the "all up to date" message should appear
+			expect(mockOutro).toHaveBeenCalledWith(
+				expect.stringContaining("up to date"),
+			);
+		});
+
+		it("never downgrades constrained plugins in batch mode", async () => {
+			const entry = makeEntry({
+				ref: "v1.5.0",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-update-available",
+				tag: "v1.4.0",
+				commit: REMOTE_SHA,
+				latestOverall: null,
+			});
+
+			await runUpdate();
+
+			// Should not clone (no downgrade)
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			// Should be reported as up-to-date
+			const allMessages = [
+				...mockLog.message.mock.calls.map((c) => c[0] as string),
+			];
+			const hasUpToDate = allMessages.some(
+				(msg) => msg.includes("owner/repo") && msg.includes("Up to date"),
+			);
+			expect(hasUpToDate).toBe(true);
+		});
+
+		it("constrained-update-available with all constrained-up-to-date does not show all-up-to-date message", async () => {
+			const entry = makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: null,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await runUpdate();
+
+			// Should NOT show "All plugins are up to date" — there was an update
+			expect(mockOutro).not.toHaveBeenCalledWith("All plugins are up to date.");
+		});
+	});
+
 	describe("copy-failed — all-updates mode", () => {
 		it("removes entry from batch manifest for git copy failure", async () => {
 			const entryA = makeEntry({

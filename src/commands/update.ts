@@ -33,7 +33,14 @@ type PluginOutcome =
 	| { status: "newer-tags"; key: string; summary: string }
 	| { status: "check-failed"; key: string; summary: string }
 	| { status: "failed"; key: string; summary: string }
-	| { status: "copy-failed"; key: string; summary: string };
+	| { status: "copy-failed"; key: string; summary: string }
+	| { status: "constrained-no-match"; key: string; summary: string };
+
+export interface OutOfConstraintInfo {
+	key: string;
+	latestOverall: string;
+	constraint: string;
+}
 
 export async function runUpdate(key?: string): Promise<void> {
 	if (key === undefined) {
@@ -248,6 +255,7 @@ async function processUpdateForAll(
 	key: string,
 	entry: ManifestEntry,
 	projectDir: string,
+	overrides?: ConstrainedUpdateOverrides,
 ): Promise<PluginOutcome> {
 	try {
 		const isLocal = entry.commit === null;
@@ -269,6 +277,9 @@ async function processUpdateForAll(
 			entry,
 			projectDir,
 			...(isLocal ? { sourceDir: key } : {}),
+			...(overrides !== undefined
+				? { newRef: overrides.newRef, newCommit: overrides.newCommit }
+				: {}),
 		});
 
 		if (result.status === "failed") {
@@ -376,6 +387,8 @@ async function runAllUpdates(): Promise<void> {
 	const newerTags: CheckedPlugin[] = [];
 	const upToDate: CheckedPlugin[] = [];
 	const checkFailed: CheckedPlugin[] = [];
+	const constrainedUpdateAvailable: CheckedPlugin[] = [];
+	const constrainedNoMatch: CheckedPlugin[] = [];
 
 	for (const checked of checkResults) {
 		switch (checked.checkResult.status) {
@@ -394,6 +407,33 @@ async function runAllUpdates(): Promise<void> {
 			case "check-failed":
 				checkFailed.push(checked);
 				break;
+			case "constrained-update-available":
+				constrainedUpdateAvailable.push(checked);
+				break;
+			case "constrained-up-to-date":
+				upToDate.push(checked);
+				break;
+			case "constrained-no-match":
+				constrainedNoMatch.push(checked);
+				break;
+		}
+	}
+
+	// Collect out-of-constraint info for downstream rendering (vc-3-5)
+	const outOfConstraintInfo: OutOfConstraintInfo[] = [];
+	for (const checked of checkResults) {
+		const result = checked.checkResult;
+		if (
+			(result.status === "constrained-update-available" ||
+				result.status === "constrained-up-to-date") &&
+			result.latestOverall !== null &&
+			checked.entry.constraint !== undefined
+		) {
+			outOfConstraintInfo.push({
+				key: checked.key,
+				latestOverall: result.latestOverall,
+				constraint: checked.entry.constraint,
+			});
 		}
 	}
 
@@ -405,6 +445,33 @@ async function runAllUpdates(): Promise<void> {
 			checked.key,
 			checked.entry,
 			projectDir,
+		);
+		outcomes.push(outcome);
+	}
+
+	// Process constrained-update-available plugins with overrides
+	for (const checked of constrainedUpdateAvailable) {
+		const result = checked.checkResult;
+		if (result.status !== "constrained-update-available") continue;
+
+		// Never downgrade
+		if (
+			checked.entry.ref !== null &&
+			gte(clean(checked.entry.ref) ?? "0.0.0", clean(result.tag) ?? "0.0.0")
+		) {
+			outcomes.push({
+				status: "up-to-date",
+				key: checked.key,
+				summary: `${checked.key}: Up to date`,
+			});
+			continue;
+		}
+
+		const outcome = await processUpdateForAll(
+			checked.key,
+			checked.entry,
+			projectDir,
+			{ newRef: result.tag, newCommit: result.commit },
 		);
 		outcomes.push(outcome);
 	}
@@ -467,12 +534,22 @@ async function runAllUpdates(): Promise<void> {
 		});
 	}
 
+	for (const checked of constrainedNoMatch) {
+		outcomes.push({
+			status: "constrained-no-match",
+			key: checked.key,
+			summary: `${checked.key}: No tags satisfy constraint — plugin left untouched`,
+		});
+	}
+
 	// If everything is up-to-date and nothing else happened
 	const allUpToDate =
 		updateAvailable.length === 0 &&
 		local.length === 0 &&
 		checkFailed.length === 0 &&
-		newerTags.length === 0;
+		newerTags.length === 0 &&
+		constrainedUpdateAvailable.length === 0 &&
+		constrainedNoMatch.length === 0;
 
 	if (allUpToDate) {
 		p.outro("All plugins are up to date.");
@@ -487,7 +564,8 @@ async function runAllUpdates(): Promise<void> {
 			p.log.error(outcome.summary);
 		} else if (
 			outcome.status === "failed" ||
-			outcome.status === "check-failed"
+			outcome.status === "check-failed" ||
+			outcome.status === "constrained-no-match"
 		) {
 			p.log.warn(outcome.summary);
 		} else if (outcome.status === "newer-tags") {
