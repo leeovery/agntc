@@ -469,6 +469,107 @@ describe("ManifestEntry fields", () => {
 	});
 });
 
+describe("constraint field", () => {
+	it("ManifestEntry accepts optional constraint field", () => {
+		const entry: ManifestEntry = {
+			ref: "v1.2.3",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/skill/"],
+			cloneUrl: null,
+			constraint: "^1.0",
+		};
+
+		expect(entry.constraint).toBe("^1.0");
+	});
+
+	it("ManifestEntry without constraint has undefined constraint", () => {
+		const entry: ManifestEntry = {
+			ref: "v1.2.3",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/skill/"],
+			cloneUrl: null,
+		};
+
+		expect(entry.constraint).toBeUndefined();
+	});
+
+	it("write/read round-trip preserves constraint field", async () => {
+		const manifest: Manifest = {
+			"owner/repo/skill": {
+				ref: "v1.2.3",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill/"],
+				cloneUrl: null,
+				constraint: "^1.0",
+			},
+		};
+
+		await writeManifest(testDir, manifest);
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/skill"]?.constraint).toBe("^1.0");
+	});
+
+	it("old manifest without constraint field reads correctly", async () => {
+		const oldManifest = {
+			"owner/repo/skill": {
+				ref: "v1.2.3",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill/"],
+				cloneUrl: null,
+			},
+		};
+		await mkdir(join(testDir, ".agntc"), { recursive: true });
+		await writeFile(
+			join(testDir, ".agntc", "manifest.json"),
+			JSON.stringify(oldManifest),
+		);
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/skill"]?.constraint).toBeUndefined();
+	});
+
+	it("JSON serialization omits undefined constraint", () => {
+		const entry: ManifestEntry = {
+			ref: "v1.2.3",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/skill/"],
+			cloneUrl: null,
+		};
+
+		const json = JSON.stringify(entry);
+
+		expect(json).not.toContain("constraint");
+	});
+
+	it("JSON serialization includes defined constraint", () => {
+		const entry: ManifestEntry = {
+			ref: "v1.2.3",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/skill/"],
+			cloneUrl: null,
+			constraint: "^1.0",
+		};
+
+		const parsed = JSON.parse(JSON.stringify(entry));
+
+		expect(parsed.constraint).toBe("^1.0");
+	});
+});
+
 describe("backward compatibility", () => {
 	it("defaults cloneUrl to null when reading manifest without cloneUrl field", async () => {
 		const oldManifest = {

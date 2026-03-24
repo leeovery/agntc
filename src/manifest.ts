@@ -13,6 +13,7 @@ export interface ManifestEntry {
 	agents: AgentId[];
 	files: string[];
 	cloneUrl: string | null;
+	constraint?: string;
 }
 
 export type Manifest = Record<string, ManifestEntry>;

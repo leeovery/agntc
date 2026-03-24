@@ -367,6 +367,51 @@ describe("executeNukeAndReinstall", () => {
 		});
 	});
 
+	describe("constraint preservation", () => {
+		it("preserves constraint from existing entry", async () => {
+			const options = makeOptions({
+				existingEntry: makeEntry({ constraint: "^1.0" }),
+			});
+
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeNukeAndReinstall(options);
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") return;
+
+			expect(result.entry.constraint).toBe("^1.0");
+		});
+
+		it("omits constraint key entirely when existing entry has no constraint", async () => {
+			const options = makeOptions({
+				existingEntry: makeEntry(),
+			});
+
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeNukeAndReinstall(options);
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") return;
+
+			expect(result.entry.constraint).toBeUndefined();
+			expect("constraint" in result.entry).toBe(false);
+		});
+	});
+
 	describe("agent+driver pair construction", () => {
 		it("builds agents with drivers from effective agents", async () => {
 			const options = makeOptions({

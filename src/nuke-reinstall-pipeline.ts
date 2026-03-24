@@ -139,6 +139,9 @@ export async function executeNukeAndReinstall(
 		agents: effectiveAgents,
 		files: copiedFiles,
 		cloneUrl: existingEntry.cloneUrl ?? null,
+		...(existingEntry.constraint !== undefined && {
+			constraint: existingEntry.constraint,
+		}),
 	};
 
 	return {
