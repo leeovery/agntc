@@ -1,5 +1,6 @@
 import * as p from "@clack/prompts";
 import { Command } from "commander";
+import { clean, gte } from "semver";
 import { cloneAndReinstall, mapCloneFailure } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
@@ -103,6 +104,32 @@ async function runSingleUpdate(
 		return null;
 	}
 
+	if (result.status === "constrained-up-to-date") {
+		p.outro(`${key} is already up to date.`);
+		return null;
+	}
+
+	if (result.status === "constrained-no-match") {
+		p.log.error(
+			`No tags satisfy the constraint for ${key}. Plugin left untouched.`,
+		);
+		throw new ExitSignal(1);
+	}
+
+	if (result.status === "constrained-update-available") {
+		if (
+			entry.ref !== null &&
+			gte(clean(entry.ref) ?? "0.0.0", clean(result.tag) ?? "0.0.0")
+		) {
+			p.outro(`${key} is already up to date.`);
+			return null;
+		}
+		return runSinglePluginUpdate(key, entry, manifest, projectDir, {
+			newRef: result.tag,
+			newCommit: result.commit,
+		});
+	}
+
 	// update-available or local — proceed with single plugin update
 	return runSinglePluginUpdate(key, entry, manifest, projectDir);
 }
@@ -115,11 +142,17 @@ async function validateLocalPath(sourcePath: string): Promise<void> {
 	}
 }
 
+interface ConstrainedUpdateOverrides {
+	newRef: string;
+	newCommit: string;
+}
+
 async function runSinglePluginUpdate(
 	key: string,
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
+	overrides?: ConstrainedUpdateOverrides,
 ): Promise<ManifestEntry | null> {
 	const isLocal = entry.commit === null;
 
@@ -133,6 +166,9 @@ async function runSinglePluginUpdate(
 		projectDir,
 		manifest,
 		...(isLocal ? { sourceDir: key } : {}),
+		...(overrides !== undefined
+			? { newRef: overrides.newRef, newCommit: overrides.newCommit }
+			: {}),
 	});
 
 	if (result.status === "failed") {
