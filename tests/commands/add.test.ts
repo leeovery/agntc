@@ -3655,4 +3655,263 @@ describe("add command", () => {
 			expect(cloneCall.constraint).toBeNull();
 		});
 	});
+
+	describe("collection constraint propagation", () => {
+		const COLLECTION_BARE_PARSED: ParsedSource = {
+			type: "github-shorthand",
+			owner: "owner",
+			repo: "my-collection",
+			ref: null,
+			constraint: null,
+			manifestKey: "owner/my-collection",
+			cloneUrl: "https://github.com/owner/my-collection.git",
+		};
+
+		const COLLECTION_CLONE_RESULT: CloneResult = {
+			tempDir: "/tmp/agntc-coll-constraint",
+			commit: "coll-constraint-abc",
+		};
+
+		const COLLECTION_DETECTED: DetectedType = {
+			type: "collection",
+			plugins: ["pluginA", "pluginB"],
+		};
+
+		const PLUGIN_CONFIG: AgntcConfig = { agents: ["claude"] };
+		const PLUGIN_BARE: DetectedType = { type: "bare-skill" };
+
+		function setupCollectionConstraintBase(): void {
+			mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+			mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+			mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
+			mockDetectAgents.mockResolvedValue(["claude"]);
+			mockGetDriver.mockReturnValue(FAKE_DRIVER);
+			mockSelectAgents.mockResolvedValue(["claude"]);
+			mockWriteManifest.mockResolvedValue(undefined);
+			mockCleanupTempDir.mockResolvedValue(undefined);
+			mockAddEntry.mockImplementation((manifest, key, entry) => ({
+				...manifest,
+				[key]: entry,
+			}));
+			mockComputeIncomingFiles.mockReturnValue([".claude/skills/pluginA/"]);
+			mockCheckFileCollisions.mockReturnValue(new Map());
+			mockCheckUnmanagedConflicts.mockResolvedValue([]);
+			mockResolveUnmanagedConflicts.mockResolvedValue({
+				approved: [],
+				cancelled: [],
+			});
+			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+
+			// Root readConfig returns null (no root agntc.json) — per-plugin returns config
+			mockReadConfig.mockImplementation(async (dir) => {
+				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+				return PLUGIN_CONFIG;
+			});
+			// Root detectType returns collection — per-plugin returns bare-skill
+			mockDetectType.mockImplementation(async (dir) => {
+				if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+				return PLUGIN_BARE;
+			});
+			mockCopyBareSkill
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+		}
+
+		it("collection bare add auto-applies same ^X.Y.Z to all selected plugins", async () => {
+			mockParseSource.mockReturnValue(COLLECTION_BARE_PARSED);
+			setupCollectionConstraintBase();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-collection");
+
+			const addEntryCalls = mockAddEntry.mock.calls;
+			expect(addEntryCalls.length).toBe(2);
+
+			const entryA = addEntryCalls[0]![2] as ManifestEntry;
+			const entryB = addEntryCalls[1]![2] as ManifestEntry;
+
+			expect(entryA.constraint).toBe("^2.0.0");
+			expect(entryA.ref).toBe("v2.0.0");
+			expect(entryB.constraint).toBe("^2.0.0");
+			expect(entryB.ref).toBe("v2.0.0");
+		});
+
+		it("collection with explicit constraint propagates to all plugins", async () => {
+			const explicitConstraintParsed: ParsedSource = {
+				...COLLECTION_BARE_PARSED,
+				constraint: "^1.0",
+			};
+			mockParseSource.mockReturnValue(explicitConstraintParsed);
+			setupCollectionConstraintBase();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v2.0.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.1.0",
+				version: "1.1.0",
+			});
+
+			await runAdd("owner/my-collection@^1.0");
+
+			const addEntryCalls = mockAddEntry.mock.calls;
+			expect(addEntryCalls.length).toBe(2);
+
+			const entryA = addEntryCalls[0]![2] as ManifestEntry;
+			const entryB = addEntryCalls[1]![2] as ManifestEntry;
+
+			expect(entryA.constraint).toBe("^1.0");
+			expect(entryA.ref).toBe("v1.1.0");
+			expect(entryB.constraint).toBe("^1.0");
+			expect(entryB.ref).toBe("v1.1.0");
+		});
+
+		it("collection with exact tag has no constraint on plugins", async () => {
+			const exactTagParsed: ParsedSource = {
+				...COLLECTION_BARE_PARSED,
+				ref: "v1.0.0",
+			};
+			mockParseSource.mockReturnValue(exactTagParsed);
+			setupCollectionConstraintBase();
+
+			await runAdd("owner/my-collection@v1.0.0");
+
+			const addEntryCalls = mockAddEntry.mock.calls;
+			expect(addEntryCalls.length).toBe(2);
+
+			const entryA = addEntryCalls[0]![2] as ManifestEntry;
+			const entryB = addEntryCalls[1]![2] as ManifestEntry;
+
+			expect("constraint" in entryA).toBe(false);
+			expect(entryA.ref).toBe("v1.0.0");
+			expect("constraint" in entryB).toBe(false);
+			expect(entryB.ref).toBe("v1.0.0");
+		});
+
+		it("collection with branch ref has no constraint on plugins", async () => {
+			const branchParsed: ParsedSource = {
+				...COLLECTION_BARE_PARSED,
+				ref: "main",
+			};
+			mockParseSource.mockReturnValue(branchParsed);
+			setupCollectionConstraintBase();
+
+			await runAdd("owner/my-collection@main");
+
+			const addEntryCalls = mockAddEntry.mock.calls;
+			expect(addEntryCalls.length).toBe(2);
+
+			const entryA = addEntryCalls[0]![2] as ManifestEntry;
+			const entryB = addEntryCalls[1]![2] as ManifestEntry;
+
+			expect("constraint" in entryA).toBe(false);
+			expect(entryA.ref).toBe("main");
+			expect("constraint" in entryB).toBe(false);
+			expect(entryB.ref).toBe("main");
+		});
+
+		it("collection bare add with no semver tags falls back to HEAD", async () => {
+			mockParseSource.mockReturnValue(COLLECTION_BARE_PARSED);
+			setupCollectionConstraintBase();
+			mockFetchRemoteTags.mockResolvedValue([]);
+			mockResolveLatestVersion.mockReturnValue(null);
+
+			await runAdd("owner/my-collection");
+
+			const addEntryCalls = mockAddEntry.mock.calls;
+			expect(addEntryCalls.length).toBe(2);
+
+			const entryA = addEntryCalls[0]![2] as ManifestEntry;
+			const entryB = addEntryCalls[1]![2] as ManifestEntry;
+
+			expect("constraint" in entryA).toBe(false);
+			expect(entryA.ref).toBeNull();
+			expect("constraint" in entryB).toBe(false);
+			expect(entryB.ref).toBeNull();
+		});
+
+		it("collection tag resolution happens once not per-plugin", async () => {
+			mockParseSource.mockReturnValue(COLLECTION_BARE_PARSED);
+			setupCollectionConstraintBase();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-collection");
+
+			// fetchRemoteTags should be called exactly once for the collection
+			expect(mockFetchRemoteTags).toHaveBeenCalledTimes(1);
+			expect(mockResolveLatestVersion).toHaveBeenCalledTimes(1);
+		});
+
+		it("collection direct-path add preserves existing behavior", async () => {
+			const directPathParsed: ParsedSource = {
+				type: "direct-path",
+				owner: "owner",
+				repo: "my-collection",
+				ref: "main",
+				constraint: null,
+				targetPlugin: "pluginA",
+				manifestKey: "owner/my-collection/pluginA",
+				cloneUrl: "https://github.com/owner/my-collection.git",
+			};
+			mockParseSource.mockReturnValue(directPathParsed);
+			setupCollectionConstraintBase();
+			// Direct-path skips multiselect and installs targetPlugin directly
+			mockDetectType.mockImplementation(async (dir) => {
+				if (dir === COLLECTION_CLONE_RESULT.tempDir) {
+					return {
+						type: "collection",
+						plugins: ["pluginA", "pluginB"],
+					} as DetectedType;
+				}
+				return PLUGIN_BARE;
+			});
+			mockCopyBareSkill.mockReset();
+			mockCopyBareSkill.mockResolvedValueOnce({
+				copiedFiles: [".claude/skills/pluginA/"],
+			});
+
+			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+			// direct-path has ref="main" (exact ref), no constraint resolution
+			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
+
+			const addEntryCalls = mockAddEntry.mock.calls;
+			expect(addEntryCalls.length).toBe(1);
+
+			const entry = addEntryCalls[0]![2] as ManifestEntry;
+			expect("constraint" in entry).toBe(false);
+			expect(entry.ref).toBe("main");
+		});
+
+		it("each plugin manifest entry is independent", async () => {
+			mockParseSource.mockReturnValue(COLLECTION_BARE_PARSED);
+			setupCollectionConstraintBase();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-collection");
+
+			const addEntryCalls = mockAddEntry.mock.calls;
+			expect(addEntryCalls.length).toBe(2);
+
+			// Each entry is for a different manifest key
+			const keyA = addEntryCalls[0]![1] as string;
+			const keyB = addEntryCalls[1]![1] as string;
+			expect(keyA).toBe("owner/my-collection/pluginA");
+			expect(keyB).toBe("owner/my-collection/pluginB");
+
+			// Each entry has its own installedAt, files, etc
+			const entryA = addEntryCalls[0]![2] as ManifestEntry;
+			const entryB = addEntryCalls[1]![2] as ManifestEntry;
+			expect(entryA).not.toBe(entryB);
+		});
+	});
 });

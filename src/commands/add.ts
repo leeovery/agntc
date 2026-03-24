@@ -37,6 +37,49 @@ function deriveCloneUrlForManifest(
 	return resolveCloneUrl(parsed);
 }
 
+interface TagResolutionResult {
+	parsed: Awaited<ReturnType<typeof parseSource>>;
+	constraint: string | undefined;
+}
+
+export async function resolveTagConstraint(
+	parsed: Awaited<ReturnType<typeof parseSource>>,
+): Promise<TagResolutionResult> {
+	let updatedParsed = parsed;
+	let derivedConstraint: string | undefined;
+
+	// Bare add: resolve latest semver tag and auto-apply constraint
+	if (
+		updatedParsed.type !== "local-path" &&
+		updatedParsed.ref === null &&
+		updatedParsed.constraint === null
+	) {
+		const url = resolveCloneUrl(updatedParsed);
+		const tags = await fetchRemoteTags(url);
+		const latest = resolveLatestVersion(tags);
+		if (latest !== null) {
+			derivedConstraint = `^${latest.version}`;
+			updatedParsed = { ...updatedParsed, ref: latest.tag };
+		}
+	}
+
+	// Explicit constraint: resolve best matching tag within bounds
+	if (updatedParsed.type !== "local-path" && updatedParsed.constraint != null) {
+		const url = resolveCloneUrl(updatedParsed);
+		const tags = await fetchRemoteTags(url);
+		const resolved = resolveVersion(updatedParsed.constraint, tags);
+		if (resolved === null) {
+			throw new Error(
+				`No tags satisfy constraint ${updatedParsed.constraint} for ${updatedParsed.manifestKey}`,
+			);
+		}
+		updatedParsed = { ...updatedParsed, ref: resolved.tag };
+	}
+
+	const constraint = updatedParsed.constraint ?? derivedConstraint;
+	return { parsed: updatedParsed, constraint: constraint ?? undefined };
+}
+
 interface ConflictCheckResult {
 	updatedManifest: Manifest;
 	proceed: boolean;
@@ -94,37 +137,11 @@ export async function runAdd(source: string): Promise<void> {
 	let tempDir: string | undefined;
 
 	try {
-		// 1. Parse source
-		let parsed = await parseSource(source);
-
-		// 1a. Bare add: resolve latest semver tag and auto-apply constraint
-		let derivedConstraint: string | undefined;
-		if (
-			parsed.type !== "local-path" &&
-			parsed.ref === null &&
-			parsed.constraint === null
-		) {
-			const url = resolveCloneUrl(parsed);
-			const tags = await fetchRemoteTags(url);
-			const latest = resolveLatestVersion(tags);
-			if (latest !== null) {
-				derivedConstraint = `^${latest.version}`;
-				parsed = { ...parsed, ref: latest.tag };
-			}
-		}
-
-		// 1b. Explicit constraint: resolve best matching tag within bounds
-		if (parsed.type !== "local-path" && parsed.constraint != null) {
-			const url = resolveCloneUrl(parsed);
-			const tags = await fetchRemoteTags(url);
-			const resolved = resolveVersion(parsed.constraint, tags);
-			if (resolved === null) {
-				throw new Error(
-					`No tags satisfy constraint ${parsed.constraint} for ${parsed.manifestKey}`,
-				);
-			}
-			parsed = { ...parsed, ref: resolved.tag };
-		}
+		// 1. Parse source and resolve tag constraint
+		const rawParsed = await parseSource(source);
+		const resolution = await resolveTagConstraint(rawParsed);
+		const parsed = resolution.parsed;
+		const resolvedConstraint = resolution.constraint;
 
 		// 2. Resolve source directory and commit
 		const spin = p.spinner();
@@ -168,6 +185,7 @@ export async function runAdd(source: string): Promise<void> {
 					detected,
 					onWarn,
 					spin,
+					constraint: resolvedConstraint,
 				});
 				return;
 			}
@@ -278,7 +296,6 @@ export async function runAdd(source: string): Promise<void> {
 		}
 
 		// 13. Write manifest
-		const constraintValue = parsed.constraint ?? derivedConstraint;
 		const entry = {
 			ref: parsed.ref,
 			commit,
@@ -286,7 +303,7 @@ export async function runAdd(source: string): Promise<void> {
 			agents: selectedAgents,
 			files: copiedFiles,
 			cloneUrl: deriveCloneUrlForManifest(parsed),
-			...(constraintValue != null && { constraint: constraintValue }),
+			...(resolvedConstraint != null && { constraint: resolvedConstraint }),
 		};
 		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
 		await writeManifest(projectDir, updated);
@@ -327,6 +344,7 @@ interface CollectionPipelineInput {
 	detected: Extract<DetectedType, { type: "collection" }>;
 	onWarn: (message: string) => void;
 	spin: ReturnType<typeof p.spinner>;
+	constraint: string | undefined;
 }
 
 interface PluginInstallResult {
@@ -341,7 +359,8 @@ interface PluginInstallResult {
 async function runCollectionPipeline(
 	input: CollectionPipelineInput,
 ): Promise<void> {
-	const { sourceDir, parsed, commit, detected, onWarn, spin } = input;
+	const { sourceDir, parsed, commit, detected, onWarn, spin, constraint } =
+		input;
 	const projectDir = process.cwd();
 
 	// 1. Read manifest
@@ -574,6 +593,7 @@ async function runCollectionPipeline(
 			agents: selectedAgents,
 			files: result.copiedFiles,
 			cloneUrl: deriveCloneUrlForManifest(parsed),
+			...(constraint != null && { constraint }),
 		};
 		updatedManifest = addEntry(updatedManifest, manifestKey, entry);
 	}
