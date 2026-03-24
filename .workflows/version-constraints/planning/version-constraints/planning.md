@@ -105,3 +105,14 @@ approved_at: 2026-03-23
 - [ ] Update status in list differentiates between "update available within constraint" and "newer version outside constraint"
 - [ ] Change-version action operates outside the constraint system — selecting a specific tag removes the constraint from the manifest entry (equivalent to exact pin re-add per spec)
 - [ ] Non-constrained plugins display and behave identically to current behavior (no regressions)
+
+### Tasks
+status: approved
+approved_at: 2026-03-24
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-4-1 | Constrained label formatting in list view | constraint present with null ref (defensive), non-constrained entries display identically |
+| vc-4-2 | Constraint-aware status hints in list view | constrained-up-to-date with out-of-constraint info, constrained-no-match shows meaningful hint, non-constrained statuses unchanged |
+| vc-4-3 | Constraint-aware detail view actions | constrained-up-to-date with no out-of-constraint (no change-version), constrained-no-match (error info + remove/back only), non-constrained unchanged |
+| vc-4-4 | Change-version action removes constraint | entry already has no constraint (no-op), entry with constraint and user selects tag (constraint removed), works with new constrained status types |
