@@ -41,12 +41,16 @@
           "format": "tick",
           "spec_commit": "6f5c7a2f9fe19722d21a1555869f5fcb20884027",
           "task_list_gate_mode": "auto",
-          "author_gate_mode": "gated",
+          "author_gate_mode": "auto",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "vc-1-1",
-          "task_map": {}
+          "task": "vc-1-2",
+          "task_map": {
+            "vc-1-1": "tick-cf403c",
+            "version-constraints-1": "tick-5d7bbb"
+          },
+          "external_id": "tick-1f1525"
         }
       },
       "format": "tick"
