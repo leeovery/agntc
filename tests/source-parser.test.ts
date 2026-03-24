@@ -18,6 +18,7 @@ describe("parseSource", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: null,
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -30,6 +31,7 @@ describe("parseSource", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "v2.0",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -42,6 +44,7 @@ describe("parseSource", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "main",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -59,6 +62,7 @@ describe("parseSource", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: null,
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -102,6 +106,7 @@ describe("parseSource", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "v2.0.0-beta.1",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -114,6 +119,7 @@ describe("parseSource", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "feat@special",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -127,6 +133,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
@@ -139,6 +146,7 @@ describe("parseSource", () => {
 				owner: "org",
 				repo: "project",
 				ref: null,
+				constraint: null,
 				manifestKey: "org/project",
 				cloneUrl: "https://gitlab.com/org/project.git",
 			});
@@ -151,6 +159,7 @@ describe("parseSource", () => {
 				owner: "team",
 				repo: "tools",
 				ref: null,
+				constraint: null,
 				manifestKey: "team/tools",
 				cloneUrl: "https://bitbucket.org/team/tools.git",
 			});
@@ -163,6 +172,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "v1.0",
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
@@ -175,6 +185,7 @@ describe("parseSource", () => {
 				owner: "org",
 				repo: "project",
 				ref: "main",
+				constraint: null,
 				manifestKey: "org/project",
 				cloneUrl: "https://gitlab.com/org/project.git",
 			});
@@ -187,6 +198,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
@@ -199,6 +211,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
@@ -211,6 +224,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
@@ -225,6 +239,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "v2.0",
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
@@ -244,6 +259,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
 			});
@@ -272,6 +288,7 @@ describe("parseSource", () => {
 				owner: "team",
 				repo: "project",
 				ref: null,
+				constraint: null,
 				manifestKey: "team/project",
 				cloneUrl: "https://git.mycompany.com/team/project.git",
 			});
@@ -286,6 +303,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
@@ -298,6 +316,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "v1.0",
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
@@ -310,6 +329,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "main",
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
@@ -322,6 +342,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
@@ -334,6 +355,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "v2.0",
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
@@ -346,6 +368,7 @@ describe("parseSource", () => {
 				owner: "org",
 				repo: "project",
 				ref: null,
+				constraint: null,
 				manifestKey: "org/project",
 				cloneUrl: "git@gitlab.com:org/project.git",
 			});
@@ -358,6 +381,7 @@ describe("parseSource", () => {
 				owner: "team",
 				repo: "tools",
 				ref: "v3.0",
+				constraint: null,
 				manifestKey: "team/tools",
 				cloneUrl: "git@bitbucket.org:team/tools.git",
 			});
@@ -372,6 +396,7 @@ describe("parseSource", () => {
 				owner: "team",
 				repo: "project",
 				ref: null,
+				constraint: null,
 				manifestKey: "team/project",
 				cloneUrl: "git@git.mycompany.com:team/project.git",
 			});
@@ -391,6 +416,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: null,
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
@@ -429,6 +455,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "v2.0.0-beta.1",
+				constraint: null,
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
@@ -469,6 +496,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "main",
+				constraint: null,
 				targetPlugin: "plugin-name",
 				manifestKey: "owner/repo/plugin-name",
 				cloneUrl: "https://github.com/owner/repo.git",
@@ -484,6 +512,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "v2.0",
+				constraint: null,
 				targetPlugin: "my-plugin",
 				manifestKey: "owner/repo/my-plugin",
 				cloneUrl: "https://github.com/owner/repo.git",
@@ -499,6 +528,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "develop",
+				constraint: null,
 				targetPlugin: "nested/plugin",
 				manifestKey: "owner/repo/nested/plugin",
 				cloneUrl: "https://github.com/owner/repo.git",
@@ -514,6 +544,7 @@ describe("parseSource", () => {
 				owner: "org",
 				repo: "project",
 				ref: "main",
+				constraint: null,
 				targetPlugin: "my-skill",
 				manifestKey: "org/project/my-skill",
 				cloneUrl: "https://gitlab.com/org/project.git",
@@ -529,6 +560,7 @@ describe("parseSource", () => {
 				owner: "team",
 				repo: "tools",
 				ref: "main",
+				constraint: null,
 				targetPlugin: "helper",
 				manifestKey: "team/tools/helper",
 				cloneUrl: "https://git.mycompany.com/team/tools.git",
@@ -550,6 +582,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "main",
+				constraint: null,
 				targetPlugin: "plugin",
 				manifestKey: "owner/repo/plugin",
 				cloneUrl: "https://user@github.com/owner/repo.git",
@@ -583,6 +616,7 @@ describe("parseSource", () => {
 				owner: "owner",
 				repo: "repo",
 				ref: "main",
+				constraint: null,
 				targetPlugin: "plugin-name",
 				manifestKey: "owner/repo/plugin-name",
 				cloneUrl: "https://github.com/owner/repo.git",
@@ -611,6 +645,7 @@ describe("parseSource", () => {
 				type: "local-path",
 				resolvedPath: testDir,
 				ref: null,
+				constraint: null,
 				manifestKey: testDir,
 			});
 		});
@@ -739,6 +774,7 @@ describe("buildParsedSourceFromKey", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "v1.0",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -751,6 +787,7 @@ describe("buildParsedSourceFromKey", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: null,
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -767,6 +804,7 @@ describe("buildParsedSourceFromKey", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "main",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -779,6 +817,7 @@ describe("buildParsedSourceFromKey", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "v2.0",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -795,6 +834,7 @@ describe("buildParsedSourceFromKey", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "v2.0",
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://gitlab.com/owner/repo.git",
 		});
@@ -828,6 +868,7 @@ describe("resolveCloneUrl", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: null,
+			constraint: null,
 			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
 		});
@@ -840,6 +881,7 @@ describe("resolveCloneUrl", () => {
 			owner: "org",
 			repo: "project",
 			ref: null,
+			constraint: null,
 			manifestKey: "org/project",
 			cloneUrl: "https://gitlab.com/org/project.git",
 		});
@@ -852,6 +894,7 @@ describe("resolveCloneUrl", () => {
 			owner: "team",
 			repo: "tools",
 			ref: null,
+			constraint: null,
 			manifestKey: "team/tools",
 			cloneUrl: "git@github.com:team/tools.git",
 		});
@@ -864,6 +907,7 @@ describe("resolveCloneUrl", () => {
 			owner: "owner",
 			repo: "repo",
 			ref: "main",
+			constraint: null,
 			targetPlugin: "plugin-name",
 			manifestKey: "owner/repo/plugin-name",
 			cloneUrl: "https://github.com/owner/repo.git",
@@ -877,6 +921,7 @@ describe("resolveCloneUrl", () => {
 				type: "local-path",
 				resolvedPath: "/Users/lee/Code/my-skill",
 				ref: null,
+				constraint: null,
 				manifestKey: "/Users/lee/Code/my-skill",
 			}),
 		).toThrow();

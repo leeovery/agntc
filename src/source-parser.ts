@@ -7,6 +7,7 @@ interface GitHubShorthandSource {
 	owner: string;
 	repo: string;
 	ref: string | null;
+	constraint: string | null;
 	manifestKey: string;
 	cloneUrl: string;
 }
@@ -16,6 +17,7 @@ interface HttpsUrlSource {
 	owner: string;
 	repo: string;
 	ref: string | null;
+	constraint: string | null;
 	manifestKey: string;
 	cloneUrl: string;
 }
@@ -25,6 +27,7 @@ interface SshUrlSource {
 	owner: string;
 	repo: string;
 	ref: string | null;
+	constraint: string | null;
 	manifestKey: string;
 	cloneUrl: string;
 }
@@ -34,6 +37,7 @@ interface DirectPathSource {
 	owner: string;
 	repo: string;
 	ref: string;
+	constraint: null;
 	targetPlugin: string;
 	manifestKey: string;
 	cloneUrl: string;
@@ -43,6 +47,7 @@ interface LocalPathSource {
 	type: "local-path";
 	resolvedPath: string;
 	ref: null;
+	constraint: null;
 	manifestKey: string;
 }
 
@@ -118,6 +123,7 @@ async function parseLocalPath(input: string): Promise<LocalPathSource> {
 		type: "local-path",
 		resolvedPath,
 		ref: null,
+		constraint: null,
 		manifestKey: resolvedPath,
 	};
 }
@@ -181,6 +187,7 @@ function parseDirectPath(input: string): DirectPathSource {
 		owner,
 		repo,
 		ref,
+		constraint: null,
 		targetPlugin,
 		manifestKey,
 		cloneUrl,
@@ -248,6 +255,7 @@ function parseSshUrl(input: string): SshUrlSource {
 		owner,
 		repo,
 		ref,
+		constraint: null,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl,
 	};
@@ -286,6 +294,7 @@ function parseHttpsUrl(input: string): HttpsUrlSource {
 		owner,
 		repo,
 		ref,
+		constraint: null,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl,
 	};
@@ -341,6 +350,7 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 		owner,
 		repo,
 		ref,
+		constraint: null,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl: `https://github.com/${owner}/${repo}.git`,
 	};
@@ -361,6 +371,7 @@ export function buildParsedSourceFromKey(
 			owner,
 			repo,
 			ref,
+			constraint: null,
 			manifestKey: `${owner}/${repo}`,
 			cloneUrl,
 		};
@@ -371,6 +382,7 @@ export function buildParsedSourceFromKey(
 		owner,
 		repo,
 		ref,
+		constraint: null,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl: `https://github.com/${owner}/${repo}.git`,
 	};
