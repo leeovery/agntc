@@ -383,6 +383,197 @@ describe("renderDetailView", () => {
 				{ value: "back", label: "Back" },
 			]);
 		});
+
+		it("constrained-update-available shows Update, Change version, Remove, Back", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					updateStatus: {
+						status: "constrained-update-available",
+						tag: "v1.3.0",
+						commit: "abc123",
+						latestOverall: null,
+					},
+				}),
+			);
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: DetailAction;
+				label: string;
+			}>;
+			expect(options).toEqual([
+				{ value: "update", label: "Update" },
+				{ value: "change-version", label: "Change version" },
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("constrained-up-to-date with latestOverall shows Change version, Remove, Back", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					updateStatus: {
+						status: "constrained-up-to-date",
+						latestOverall: "v2.0.0",
+					},
+				}),
+			);
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: DetailAction;
+				label: string;
+			}>;
+			expect(options).toEqual([
+				{ value: "change-version", label: "Change version" },
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("constrained-up-to-date without latestOverall shows Remove, Back", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					updateStatus: {
+						status: "constrained-up-to-date",
+						latestOverall: null,
+					},
+				}),
+			);
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: DetailAction;
+				label: string;
+			}>;
+			expect(options).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("constrained-no-match shows Remove, Back", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					updateStatus: { status: "constrained-no-match" },
+				}),
+			);
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: DetailAction;
+				label: string;
+			}>;
+			expect(options).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+	});
+
+	describe("contextual messages", () => {
+		it("constrained-no-match shows error with constraint expression", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { constraint: "^1.0.0" },
+					updateStatus: { status: "constrained-no-match" },
+				}),
+			);
+
+			expect(mockLog.error).toHaveBeenCalledWith(
+				'No matching version found for constraint "^1.0.0"',
+			);
+		});
+
+		it("constrained-up-to-date with latestOverall shows info about version outside constraint", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { constraint: "^1.0.0" },
+					updateStatus: {
+						status: "constrained-up-to-date",
+						latestOverall: "v2.0.0",
+					},
+				}),
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"v2.0.0 available (outside constraint)",
+			);
+		});
+
+		it("constrained-up-to-date without latestOverall shows no extra info", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { constraint: "^1.0.0" },
+					updateStatus: {
+						status: "constrained-up-to-date",
+						latestOverall: null,
+					},
+				}),
+			);
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const outsideConstraintCalls = infoCalls.filter((line) =>
+				line.includes("outside constraint"),
+			);
+			expect(outsideConstraintCalls).toHaveLength(0);
+		});
+
+		it("constrained-update-available with latestOverall shows info about version outside constraint", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { constraint: "^1.0.0" },
+					updateStatus: {
+						status: "constrained-update-available",
+						tag: "v1.3.0",
+						commit: "abc123",
+						latestOverall: "v2.0.0",
+					},
+				}),
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"v2.0.0 available (outside constraint)",
+			);
+		});
+
+		it("constrained-update-available without latestOverall shows no extra info", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { constraint: "^1.0.0" },
+					updateStatus: {
+						status: "constrained-update-available",
+						tag: "v1.3.0",
+						commit: "abc123",
+						latestOverall: null,
+					},
+				}),
+			);
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const outsideConstraintCalls = infoCalls.filter((line) =>
+				line.includes("outside constraint"),
+			);
+			expect(outsideConstraintCalls).toHaveLength(0);
+		});
 	});
 
 	describe("action selection", () => {

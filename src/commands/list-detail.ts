@@ -53,16 +53,35 @@ function formatAssetCounts(counts: AssetCounts): string {
 }
 
 function getActions(
-	status: UpdateCheckResult["status"],
+	updateResult: UpdateCheckResult,
 ): Array<{ value: DetailAction; label: string }> {
-	switch (status) {
+	switch (updateResult.status) {
 		case "update-available":
 			return [
 				{ value: "update", label: "Update" },
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			];
+		case "constrained-update-available":
+			return [
+				{ value: "update", label: "Update" },
+				{ value: "change-version", label: "Change version" },
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			];
 		case "up-to-date":
+			return [
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			];
+		case "constrained-up-to-date":
+			if (updateResult.latestOverall !== null) {
+				return [
+					{ value: "change-version", label: "Change version" },
+					{ value: "remove", label: "Remove" },
+					{ value: "back", label: "Back" },
+				];
+			}
 			return [
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
@@ -74,6 +93,7 @@ function getActions(
 				{ value: "back", label: "Back" },
 			];
 		case "check-failed":
+		case "constrained-no-match":
 			return [
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
@@ -111,7 +131,20 @@ export async function renderDetailView(
 		p.log.message(`  ${file}`);
 	}
 
-	const actions = getActions(updateStatus.status);
+	if (updateStatus.status === "constrained-no-match") {
+		p.log.error(
+			`No matching version found for constraint "${entry.constraint}"`,
+		);
+	}
+	if (
+		(updateStatus.status === "constrained-up-to-date" ||
+			updateStatus.status === "constrained-update-available") &&
+		updateStatus.latestOverall !== null
+	) {
+		p.log.info(`${updateStatus.latestOverall} available (outside constraint)`);
+	}
+
+	const actions = getActions(updateStatus);
 
 	const selected = await p.select<DetailAction>({
 		message: "Action",
