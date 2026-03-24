@@ -1,4 +1,4 @@
-import { clean } from "semver";
+import { clean, maxSatisfying } from "semver";
 
 export function normalizeTags(tags: string[]): Map<string, string> {
 	const result = new Map<string, string>();
@@ -21,4 +21,33 @@ export function normalizeTags(tags: string[]): Map<string, string> {
 	}
 
 	return result;
+}
+
+export interface ResolvedVersion {
+	tag: string;
+	version: string;
+}
+
+export function resolveVersion(
+	constraint: string,
+	tags: string[],
+): ResolvedVersion | null {
+	const normalized = normalizeTags(tags);
+	const cleanedVersions = [...normalized.keys()];
+
+	const matched = maxSatisfying(cleanedVersions, constraint);
+	if (matched === null) {
+		return null;
+	}
+
+	const tag = normalized.get(matched);
+	if (tag === undefined) {
+		return null;
+	}
+
+	return { tag, version: matched };
+}
+
+export function resolveLatestVersion(tags: string[]): ResolvedVersion | null {
+	return resolveVersion("*", tags);
 }
