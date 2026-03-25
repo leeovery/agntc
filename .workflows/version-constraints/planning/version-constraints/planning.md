@@ -173,3 +173,15 @@ status: open
 | vc-8-1 | Unify ConstrainedUpdateOverrides and UpdateActionOverrides into a single shared interface | duplication |
 | vc-8-2 | Remove duplicated mockExecFile from update-check.test.ts and use shared helper | duplication |
 | vc-8-3 | Restructure resolveTagConstraint to make bare-add / explicit-constraint mutual exclusion explicit | architecture |
+
+## Phase 9: Analysis (Cycle 2)
+status: open
+
+**Goal**: Address findings from Analysis (Cycle 2).
+
+### Tasks
+status: open
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-9-1 | Extract shared out-of-constraint predicate to update-check.ts | constrained-update-available status, constrained-up-to-date status, latestOverall null check, entry.constraint check remains at update.ts call site |
