@@ -1,33 +1,27 @@
 AGENT: duplication
 FINDINGS:
-- FINDING: ls-remote tag parsing duplicated between git-utils.ts and update-check.ts
-  SEVERITY: high
-  FILES: src/git-utils.ts:33-42, src/update-check.ts:36-47
-  DESCRIPTION: fetchRemoteTags (git-utils.ts) and parseAllTags (update-check.ts) contain near-identical logic for parsing git ls-remote --tags output. Both split on newlines, filter empty lines, filter ^{} annotated refs, split on tab, and strip refs/tags/ prefix. parseTagCommitMap (update-check.ts:162-176) is a third variant that also parses the same format but retains the SHA. Three separate implementations of ls-remote tag output parsing exist across two files, each written independently.
-  RECOMMENDATION: Extract a single shared parser in git-utils.ts that returns an array of { tag, sha } objects. fetchRemoteTags can map to tag names. parseAllTags and parseTagCommitMap in update-check.ts can be replaced by calling fetchRemoteTags (for tag names) or the new shared parser (for the map). This eliminates ~25 lines of duplicated parsing logic.
-
-- FINDING: Downgrade prevention logic duplicated within update.ts
+- FINDING: ConstrainedUpdateOverrides interface duplicated across update.ts and list-update-action.ts
   SEVERITY: medium
-  FILES: src/commands/update.ts:155-158, src/commands/update.ts:494-497
-  DESCRIPTION: The same downgrade-prevention check using gte(clean(entry.ref) ?? "0.0.0", clean(result.tag) ?? "0.0.0") appears in both runSingleUpdate (line 155-158) and runAllUpdates (line 494-497). Both check if the current ref is already >= the constrained update target and skip if so. The logic is identical but operates on slightly different variable shapes (entry vs checked.entry).
-  RECOMMENDATION: Extract a helper function like shouldSkipConstrainedUpdate(currentRef: string | null, targetTag: string): boolean in update.ts or version-resolve.ts. Both call sites can use this, eliminating the risk of one being updated without the other.
+  FILES: src/commands/update.ts:194-197, src/commands/list-update-action.ts:7-10
+  DESCRIPTION: Two identical interfaces define the same shape { newRef: string; newCommit: string }. ConstrainedUpdateOverrides in update.ts and UpdateActionOverrides in list-update-action.ts are structurally equivalent and serve the same purpose — overriding the ref/commit during a constrained update. The list.ts command also constructs this same shape inline at line 161-162 when passing to executeUpdateAction.
+  RECOMMENDATION: Define a single exported interface (e.g. VersionOverrides) in a shared location — either version-resolve.ts or a types module — and import it in both update.ts and list-update-action.ts. The list.ts inline construction can then be typed against the shared interface. This removes two independently-defined copies that must stay in sync.
 
-- FINDING: cloneAndReinstall call pattern with optional overrides duplicated in update.ts
+- FINDING: mockExecFile helper duplicated in update-check.test.ts despite shared helper existing
   SEVERITY: medium
-  FILES: src/commands/update.ts:210-220, src/commands/update.ts:315-324
-  DESCRIPTION: runSinglePluginUpdate and processUpdateForAll both construct nearly identical call objects for cloneAndReinstall, including the same conditional spread patterns: (isLocal ? { sourceDir: key } : {}) and (overrides !== undefined ? { newRef: overrides.newRef, newCommit: overrides.newCommit } : {}). The two functions share the same purpose (execute a single plugin update) but differ in error handling strategy (single-plugin throws ExitSignal, batch returns outcome objects).
-  RECOMMENDATION: Extract the common call-object construction into a helper like buildReinstallInput(key, entry, projectDir, overrides?, isLocal?) that returns the options object. Both functions call this helper, then diverge only in error handling. This removes ~10 lines of duplicated spread logic.
+  FILES: tests/update-check.test.ts:11-34, tests/helpers/git-mocks.ts:4-28
+  DESCRIPTION: update-check.test.ts defines a local mockExecFile function that is nearly identical to the shared mockExecFile in tests/helpers/git-mocks.ts. Both wrap vi.mocked(childProcess.execFile).mockImplementation with the same argument-shifting logic for the optional opts/cb parameters. The shared helper was extracted (likely during a previous remediation cycle) but update-check.test.ts was not migrated to use it. The local copy also defines mockLsRemoteSuccess and mockLsRemoteFailure convenience wrappers that could be added to the shared helper.
+  RECOMMENDATION: Remove the local mockExecFile from update-check.test.ts and import the shared one from tests/helpers/git-mocks.ts. Move mockLsRemoteSuccess/mockLsRemoteFailure to git-mocks.ts if they are useful to other test files, or keep them local but built on top of the shared mockExecFile.
 
-- FINDING: droppedSuffix formatting repeated four times in summary.ts
-  SEVERITY: medium
-  FILES: src/summary.ts:148-151, src/summary.ts:165-168, src/summary.ts:190-193, src/summary.ts:197-200
-  DESCRIPTION: Four instances of the droppedSuffix pattern exist in summary.ts: renderGitUpdateSummary, renderLocalUpdateSummary, and two branches within renderUpdateOutcomeSummary. Each constructs a suffix string from a droppedAgents array with minor wording variations (". X support removed by plugin author." vs " -- X support removed by plugin author").
-  RECOMMENDATION: Extract a formatDroppedAgentsSuffix(droppedAgents: string[], separator?: string) helper within summary.ts. The two wording variants (sentence-start with period vs dash-prefixed) can be parameterized. Reduces four ~3-line blocks to single-line calls.
-
-- FINDING: makeEntry test helper duplicated across five test files
+- FINDING: ManifestEntry construction with conditional constraint spread repeated three times
   SEVERITY: low
-  FILES: tests/commands/list-change-version-action.test.ts:96-106, tests/commands/list-detail.test.ts:31-41, tests/nuke-reinstall-pipeline.test.ts:57-67, tests/update-check-constrained.test.ts:14-24, tests/update-check-unconstrained-regression.test.ts:12-22
-  DESCRIPTION: Five test files independently define a makeEntry(overrides?: Partial<ManifestEntry>): ManifestEntry helper with the same structure (spread defaults + overrides). The default field values differ slightly between files (e.g., commit is "a".repeat(40) in some, "abc1234567890def" in others), but the pattern is identical.
-  RECOMMENDATION: Extract a shared makeEntry helper into a tests/helpers/ module. Each test file can import and optionally override defaults. This is low-severity because test helpers are inherently local, but with five copies the drift risk is real.
+  FILES: src/commands/add.ts:299-307, src/commands/add.ts:589-597, src/nuke-reinstall-pipeline.ts:135-145
+  DESCRIPTION: Three call sites construct ManifestEntry objects with the same structural pattern: base fields (ref, commit, installedAt, agents, files, cloneUrl) plus a conditional spread for the optional constraint field. The pattern `...(constraint != null && { constraint })` appears in all three. Each site sources its values from different contexts (add pipeline, collection pipeline, nuke-reinstall pipeline), so the inputs vary, but the construction shape is identical.
+  RECOMMENDATION: This is borderline — the three sites have sufficiently different input sources that a factory function would need many parameters. Worth monitoring but not urgent to extract unless a fourth instance appears. If extracted, a buildManifestEntry helper in manifest.ts accepting typed input would consolidate the conditional constraint logic.
 
-SUMMARY: The most impactful finding is the triplication of ls-remote tag output parsing across git-utils.ts and update-check.ts, where three separate functions parse the same git output format independently. The downgrade-prevention check and cloneAndReinstall call construction are duplicated within update.ts due to the single-plugin vs batch-update code paths being implemented independently. Summary formatting has four repeated droppedSuffix blocks. Test helper duplication is minor but present across five files.
+- FINDING: vi.mock() boilerplate blocks near-identical across four test files
+  SEVERITY: low
+  FILES: tests/commands/list-change-version-action.test.ts:6-63, tests/commands/list-update-action.test.ts:6-61, tests/clone-reinstall.test.ts:6-53, tests/commands/update.test.ts:13-74
+  DESCRIPTION: Four test files declare near-identical vi.mock() blocks for the same set of modules: @clack/prompts, manifest.js, git-clone.js, config.js, type-detection.js, nuke-files.js, copy-plugin-assets.js, copy-bare-skill.js, drivers/registry.js. Each file independently specifies the mock shape (e.g. cloneSource: vi.fn(), cleanupTempDir: vi.fn()) with the same return values. The mock variable declarations (mockCloneSource, mockReadConfig, etc.) are also duplicated.
+  RECOMMENDATION: This is a common test infrastructure concern. Extracting a shared setupMocks() helper in tests/helpers/ that registers the common mocks and returns typed mock references would reduce ~50 lines of boilerplate per file. However, vitest mock hoisting semantics make this nontrivial — vi.mock() calls must be at the top level. A more pragmatic approach is a shared mock-declarations module that each test re-exports, accepting that some repetition is inherent to vitest's design.
+
+SUMMARY: The most actionable finding is the duplicated ConstrainedUpdateOverrides/UpdateActionOverrides interface across update.ts and list-update-action.ts, which represents the same concept implemented independently by separate task executors. The mockExecFile duplication in update-check.test.ts is a leftover from a previous extraction that missed one consumer. The ManifestEntry construction and test mock boilerplate are lower-severity patterns worth monitoring.
