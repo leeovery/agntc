@@ -45,27 +45,24 @@ interface TagResolutionResult {
 export async function resolveTagConstraint(
 	parsed: Awaited<ReturnType<typeof parseSource>>,
 ): Promise<TagResolutionResult> {
+	if (parsed.type === "local-path") {
+		return { parsed, constraint: undefined };
+	}
+
 	let updatedParsed = parsed;
 	let derivedConstraint: string | undefined;
+	const url = resolveCloneUrl(updatedParsed);
 
-	// Bare add: resolve latest semver tag and auto-apply constraint
-	if (
-		updatedParsed.type !== "local-path" &&
-		updatedParsed.ref === null &&
-		updatedParsed.constraint === null
-	) {
-		const url = resolveCloneUrl(updatedParsed);
+	if (updatedParsed.ref === null && updatedParsed.constraint === null) {
+		// Bare add: resolve latest semver tag and auto-apply constraint
 		const tags = await fetchRemoteTags(url);
 		const latest = resolveLatestVersion(tags);
 		if (latest !== null) {
 			derivedConstraint = `^${latest.version}`;
 			updatedParsed = { ...updatedParsed, ref: latest.tag };
 		}
-	}
-
-	// Explicit constraint: resolve best matching tag within bounds
-	if (updatedParsed.type !== "local-path" && updatedParsed.constraint != null) {
-		const url = resolveCloneUrl(updatedParsed);
+	} else if (updatedParsed.constraint != null) {
+		// Explicit constraint: resolve best matching tag within bounds
 		const tags = await fetchRemoteTags(url);
 		const resolved = resolveVersion(updatedParsed.constraint, tags);
 		if (resolved === null) {

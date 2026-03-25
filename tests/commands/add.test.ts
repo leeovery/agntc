@@ -3262,6 +3262,19 @@ describe("add command", () => {
 			expect(cloneCall.ref).toBe("v2.0.0");
 			expect(cloneCall.ref).not.toContain("^");
 		});
+
+		it("bare add calls fetchRemoteTags exactly once", async () => {
+			setupBareAdd();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v2.0.0"]);
+			mockResolveLatestVersion.mockReturnValue({
+				tag: "v2.0.0",
+				version: "2.0.0",
+			});
+
+			await runAdd("owner/my-skill");
+
+			expect(mockFetchRemoteTags).toHaveBeenCalledTimes(1);
+		});
 	});
 
 	describe("explicit constraint — tag resolution", () => {
@@ -3464,6 +3477,19 @@ describe("add command", () => {
 			const addEntryCall = mockAddEntry.mock.calls[0]!;
 			const entry = addEntryCall[2] as ManifestEntry;
 			expect(entry.constraint).toBe("^1.0");
+		});
+
+		it("explicit constraint calls fetchRemoteTags exactly once", async () => {
+			setupExplicitConstraint();
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v2.0.0"]);
+			mockResolveVersion.mockReturnValue({
+				tag: "v1.1.0",
+				version: "1.1.0",
+			});
+
+			await runAdd("owner/my-skill@^1.0");
+
+			expect(mockFetchRemoteTags).toHaveBeenCalledTimes(1);
 		});
 	});
 

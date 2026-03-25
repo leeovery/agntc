@@ -99,7 +99,7 @@
       "items": {
         "version-constraints": {
           "status": "in-progress",
-          "task_gate_mode": "gated",
+          "task_gate_mode": "auto",
           "fix_gate_mode": "gated",
           "analysis_gate_mode": "auto",
           "fix_attempts": 0,
@@ -154,7 +154,8 @@
             "vc-6-4",
             "vc-7-1",
             "vc-8-1",
-            "vc-8-2"
+            "vc-8-2",
+            "vc-8-3"
           ],
           "completed_phases": [
             1,
@@ -163,7 +164,8 @@
             4,
             5,
             6,
-            7
+            7,
+            8
           ],
           "updated": "2026-03-25"
         }
