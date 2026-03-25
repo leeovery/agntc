@@ -159,3 +159,17 @@ status: open
 | ID | Task | Edge Cases |
 |----|------|------------|
 | vc-7-1 | Fix formatLabel constraint-with-null-ref edge case | constraint present with null ref returns key + constraint only, constraint present with ref returns full arrow format, non-constrained labels unchanged |
+
+## Phase 8: Analysis (Cycle 1)
+status: open
+
+**Goal**: Address findings from Analysis (Cycle 1).
+
+### Tasks
+status: open
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-8-1 | Unify ConstrainedUpdateOverrides and UpdateActionOverrides into a single shared interface | duplication |
+| vc-8-2 | Remove duplicated mockExecFile from update-check.test.ts and use shared helper | duplication |
+| vc-8-3 | Restructure resolveTagConstraint to make bare-add / explicit-constraint mutual exclusion explicit | architecture |
