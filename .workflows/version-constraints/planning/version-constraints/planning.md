@@ -147,3 +147,15 @@ status: open
 | vc-6-2 | Extract shared git mock helpers to tests/helpers/git-mocks.ts | mockExecFile callback normalization must match original behavior, buildTagsOutput format must match ls-remote output exactly |
 | vc-6-3 | Add fetchRemoteTagRefs to git-utils.ts to expose full TagRef data | fetchRemoteTags must delegate to fetchRemoteTagRefs, update-check.ts must not call execGit directly for tag fetching |
 | vc-6-4 | Show constraint expression in detail view | constraint present displays line, constraint absent omits line, non-constrained entries display identically |
+
+## Phase 7: Review Remediation (Cycle 1)
+status: open
+
+**Goal**: Address findings from Review Remediation (Cycle 1).
+
+### Tasks
+status: open
+
+| ID | Task | Edge Cases |
+|----|------|------------|
+| vc-7-1 | Fix formatLabel constraint-with-null-ref edge case | constraint present with null ref returns key + constraint only, constraint present with ref returns full arrow format, non-constrained labels unchanged |

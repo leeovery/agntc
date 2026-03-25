@@ -3,12 +3,12 @@ scope: version-constraints
 cycle: 1
 source: review
 total_proposed: 1
-gate_mode: gated
+gate_mode: auto
 ---
 # Review Tasks: Version Constraints (Cycle 1)
 
 ## Task 1: Fix formatLabel constraint-with-null-ref edge case
-status: pending
+status: approved
 severity: high
 sources: report-4-1, report.md
 
