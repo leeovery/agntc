@@ -1,8 +1,8 @@
 {
   "leeovery/agentic-workflows": {
-    "ref": "v0.1.0",
-    "commit": "af08b7f2c02e36be7babe72710658a7687f201b7",
-    "installedAt": "2026-03-25T17:51:17.974Z",
+    "ref": "v0.1.1",
+    "commit": "1998b031b62ab7d08caa8fc94175972ca2f76153",
+    "installedAt": "2026-03-25T19:08:50.359Z",
     "agents": [
       "claude"
     ],
@@ -274,7 +274,6 @@
       ".claude/skills/workflow-review-process/",
       ".claude/skills/workflow-review-process/SKILL.md",
       ".claude/skills/workflow-review-process/references/",
-      ".claude/skills/workflow-review-process/references/initialize-review.md",
       ".claude/skills/workflow-review-process/references/invoke-review-synthesizer.md",
       ".claude/skills/workflow-review-process/references/invoke-review-task-writer.md",
       ".claude/skills/workflow-review-process/references/invoke-task-verifiers.md",
