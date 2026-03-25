@@ -64,10 +64,11 @@ npm install -g agntc
 
 ```bash
 npx agntc init                        # scaffold a new plugin
-npx agntc add owner/repo              # install from GitHub
-npx agntc add owner/repo@v2.0         # specific version
+npx agntc add owner/repo              # install latest, auto-constrain to ^major
+npx agntc add owner/repo@^1.0         # install with semver constraint
+npx agntc add owner/repo@v2.0.0       # pin to exact tag
 npx agntc list                        # see installed + update status
-npx agntc update                      # update all
+npx agntc update                      # update all (respects constraints)
 npx agntc remove owner/repo           # remove plugin
 ```
 
@@ -99,20 +100,29 @@ npx agntc add <source>
 
 | Source Format | Example | Notes |
 |---|---|---|
-| GitHub shorthand | `owner/repo`, `owner/repo@v2.0` | Primary format |
+| GitHub shorthand | `owner/repo` | Auto-resolves latest semver tag, applies `^` constraint |
+| With constraint | `owner/repo@^1.0`, `owner/repo@~2.1` | Resolves best match within range |
+| Exact tag | `owner/repo@v2.0.0` | Pin to specific version, no constraint |
 | HTTPS URL | `https://github.com/owner/repo` | Any git host |
 | SSH URL | `git@github.com:owner/repo.git` | For SSH auth |
 | Local path | `./my-plugin`, `~/dev/plugin` | Local development |
 | Direct path | `https://github.com/owner/repo/tree/main/plugin-name` | Collection shortcut |
 
 ```bash
-npx agntc add leeovery/claude-technical-workflows
-npx agntc add leeovery/agent-skills@v1.0
+npx agntc add leeovery/claude-technical-workflows     # auto-constrain ^latest
+npx agntc add leeovery/agent-skills@^1.0              # semver constraint
+npx agntc add leeovery/agent-skills@v1.0.0            # exact tag
 npx agntc add ./local-plugin
 npx agntc add https://gitlab.com/org/repo
 ```
 
 The tool detects plugin type automatically, shows agent multiselect (pre-selecting detected agents), checks for conflicts, and copies assets to agent-specific directories.
+
+**Version constraint behaviour:**
+- Bare `owner/repo` — if the remote has semver tags, the latest is resolved and a `^major.minor.patch` constraint is auto-applied
+- `@^1.0` / `@~2.1` — explicit semver range; the best matching tag is installed
+- `@v2.0.0` — exact tag pin, no constraint stored
+- If no semver tags exist on the remote, the default branch HEAD is used with no constraint
 
 ### `remove`
 
@@ -156,7 +166,7 @@ npx agntc update                           # update all
 npx agntc update leeovery/claude-workflows
 ```
 
-Uses nuke-and-reinstall: deletes existing files, re-clones at same ref, re-copies for same agents. Tag-pinned plugins show available newer tags but don't auto-upgrade.
+Uses nuke-and-reinstall: deletes existing files, re-clones at same ref, re-copies for same agents. Constrained plugins update to the best match within their constraint range. Tag-pinned plugins show available newer tags but don't auto-upgrade.
 
 ### `list`
 
@@ -172,12 +182,15 @@ Shows all installed plugins with status indicators:
   leeovery/claude-technical-workflows@v2.1.6    ✓ Up to date
   leeovery/agent-skills/go                      ↑ Update available
   leeovery/agent-skills/python@v1.0             ⚑ Newer tags available
+  leeovery/my-plugin@v1.2.0 (^1.0)             ↑ Constrained update available
   leeovery/other-plugin                         ✗ Check failed
 
   Done
 ```
 
 Select a plugin for detail view with actions: Update, Remove, Change version, Back.
+
+The detail view shows constraint info when applicable and flags out-of-constraint versions. "Change version" lets you pick any available tag and strips the constraint (pins to exact tag).
 
 ## Plugin Types
 
@@ -271,12 +284,13 @@ Tracks installations at `.agntc/manifest.json`:
     "files": [
       ".claude/skills/technical-planning/",
       ".claude/agents/task-executor.md"
-    ]
+    ],
+    "constraint": "^2.1.6"
   }
 }
 ```
 
-The `files` array enables clean removal and nuke-and-reinstall updates.
+The `files` array enables clean removal and nuke-and-reinstall updates. The optional `constraint` field stores the semver range for constrained updates.
 
 ## License
 
