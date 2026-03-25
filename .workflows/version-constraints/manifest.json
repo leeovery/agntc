@@ -103,7 +103,7 @@
           "fix_gate_mode": "gated",
           "analysis_gate_mode": "auto",
           "fix_attempts": 0,
-          "analysis_cycle": 1,
+          "analysis_cycle": 2,
           "linters": [
             {
               "name": "biome",
