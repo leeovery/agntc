@@ -95,9 +95,9 @@
       "items": {
         "version-constraints": {
           "status": "in-progress",
-          "task_gate_mode": "auto",
-          "fix_gate_mode": "auto",
-          "analysis_gate_mode": "auto",
+          "task_gate_mode": "gated",
+          "fix_gate_mode": "gated",
+          "analysis_gate_mode": "gated",
           "fix_attempts": 0,
           "analysis_cycle": 0,
           "linters": [
@@ -115,7 +115,7 @@
             ".claude/skills/typescript-advanced-types",
             ".claude/skills/typescript-pro"
           ],
-          "current_phase": 6,
+          "current_phase": 7,
           "current_task": "~",
           "completed_tasks": [
             "vc-1-1",
@@ -147,7 +147,8 @@
             "vc-6-1",
             "vc-6-2",
             "vc-6-3",
-            "vc-6-4"
+            "vc-6-4",
+            "vc-7-1"
           ],
           "completed_phases": [
             1,
@@ -155,7 +156,8 @@
             3,
             4,
             5,
-            6
+            6,
+            7
           ],
           "updated": "2026-03-25"
         }

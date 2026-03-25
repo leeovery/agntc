@@ -17,8 +17,11 @@ import { executeUpdateAction } from "./list-update-action.js";
 const DONE_VALUE = "__done__";
 
 function formatLabel(key: string, entry: ManifestEntry): string {
-	if (entry.constraint && entry.ref !== null) {
-		return `${key}  ${entry.constraint} \u2192 ${entry.ref}`;
+	if (entry.constraint) {
+		if (entry.ref !== null) {
+			return `${key}  ${entry.constraint} \u2192 ${entry.ref}`;
+		}
+		return `${key}  ${entry.constraint}`;
 	}
 	if (entry.ref !== null) {
 		return `${key}@${entry.ref}`;

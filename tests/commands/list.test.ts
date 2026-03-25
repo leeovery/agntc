@@ -761,6 +761,28 @@ describe("runListLoop", () => {
 			expect(pluginOption!.label).toBe("owner/skill  ^1.0 \u2192 v1.2.3");
 		});
 
+		it("shows constraint without arrow when constraint is present but ref is null", async () => {
+			const manifest: Manifest = {
+				"owner/repo": makeEntry({ ref: null, constraint: "^1.0" }),
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockCheckAll.mockResolvedValue(
+				new Map([["owner/repo", { status: "constrained-no-match" as const }]]),
+			);
+			mockSelect.mockResolvedValue("__done__");
+
+			await runListLoop();
+
+			const selectCall = mockSelect.mock.calls[0]![0];
+			const options = selectCall.options as Array<{
+				value: string;
+				label: string;
+				hint: string;
+			}>;
+			const pluginOption = options.find((o) => o.value === "owner/repo");
+			expect(pluginOption!.label).toBe("owner/repo  ^1.0");
+		});
+
 		it("shows key@ref for non-constrained entry with tag ref", async () => {
 			const manifest: Manifest = {
 				"owner/skill": makeEntry({ ref: "v1.2.3" }),
