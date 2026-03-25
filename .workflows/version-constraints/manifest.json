@@ -94,8 +94,7 @@
           },
           "external_id": "tick-1f1525"
         }
-      },
-      "format": "tick"
+      }
     },
     "implementation": {
       "items": {
@@ -173,22 +172,7 @@
           ],
           "updated": "2026-03-25"
         }
-      },
-      "project_skills": [
-        ".claude/skills/typescript-expert",
-        ".claude/skills/typescript-advanced-types",
-        ".claude/skills/typescript-pro"
-      ],
-      "linters": [
-        {
-          "name": "biome",
-          "command": "npx biome check --write"
-        },
-        {
-          "name": "tsc",
-          "command": "npx tsc --noEmit"
-        }
-      ]
+      }
     },
     "review": {
       "items": {
