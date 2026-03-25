@@ -1,7 +1,7 @@
 {
   "name": "version-constraints",
   "work_type": "feature",
-  "status": "in-progress",
+  "status": "completed",
   "created": "2026-03-22",
   "description": "Composer-style version constraints for plugin installation and updates (e.g. ^1.0, ~1.0) to control major/minor/patch update scope",
   "phases": {
@@ -193,7 +193,7 @@
     "review": {
       "items": {
         "version-constraints": {
-          "status": "in-progress",
+          "status": "completed",
           "reviewed_tasks": [
             "vc-1-1",
             "vc-1-2",
@@ -224,7 +224,12 @@
             "vc-6-1",
             "vc-6-2",
             "vc-6-3",
-            "vc-6-4"
+            "vc-6-4",
+            "vc-7-1",
+            "vc-8-1",
+            "vc-8-2",
+            "vc-8-3",
+            "vc-9-1"
           ]
         }
       }
