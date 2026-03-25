@@ -23,6 +23,11 @@ export function normalizeTags(tags: string[]): Map<string, string> {
 	return result;
 }
 
+export interface VersionOverrides {
+	newRef: string;
+	newCommit: string;
+}
+
 export interface ResolvedVersion {
 	tag: string;
 	version: string;

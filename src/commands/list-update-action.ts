@@ -3,11 +3,7 @@ import { errorMessage } from "../errors.js";
 import { validateLocalSourcePath } from "../fs-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, writeManifest } from "../manifest.js";
-
-export interface UpdateActionOverrides {
-	newRef: string;
-	newCommit: string;
-}
+import type { VersionOverrides } from "../version-resolve.js";
 
 export interface UpdateActionResult {
 	success: boolean;
@@ -20,7 +16,7 @@ export async function executeUpdateAction(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
-	overrides?: UpdateActionOverrides,
+	overrides?: VersionOverrides,
 ): Promise<UpdateActionResult> {
 	return runUpdate(key, entry, manifest, projectDir, overrides);
 }
@@ -30,7 +26,7 @@ async function runUpdate(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
-	overrides?: UpdateActionOverrides,
+	overrides?: VersionOverrides,
 ): Promise<UpdateActionResult> {
 	const isLocal = entry.commit === null;
 

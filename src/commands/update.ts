@@ -25,7 +25,10 @@ import {
 } from "../summary.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import { checkForUpdate } from "../update-check.js";
-import { isAtOrAboveVersion } from "../version-resolve.js";
+import {
+	isAtOrAboveVersion,
+	type VersionOverrides,
+} from "../version-resolve.js";
 
 type PluginOutcome =
 	| { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
@@ -191,17 +194,12 @@ async function validateLocalPath(sourcePath: string): Promise<void> {
 	}
 }
 
-interface ConstrainedUpdateOverrides {
-	newRef: string;
-	newCommit: string;
-}
-
 function buildReinstallInput(
 	key: string,
 	entry: ManifestEntry,
 	projectDir: string,
 	manifest?: Manifest,
-	overrides?: ConstrainedUpdateOverrides,
+	overrides?: VersionOverrides,
 ): CloneAndReinstallOptions {
 	const isLocal = entry.commit === null;
 	return {
@@ -221,7 +219,7 @@ async function runSinglePluginUpdate(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
-	overrides?: ConstrainedUpdateOverrides,
+	overrides?: VersionOverrides,
 ): Promise<ManifestEntry | null> {
 	const isLocal = entry.commit === null;
 
@@ -310,7 +308,7 @@ async function processUpdateForAll(
 	key: string,
 	entry: ManifestEntry,
 	projectDir: string,
-	overrides?: ConstrainedUpdateOverrides,
+	overrides?: VersionOverrides,
 ): Promise<PluginOutcome> {
 	try {
 		const isLocal = entry.commit === null;
