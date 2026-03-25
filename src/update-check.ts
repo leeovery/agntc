@@ -18,6 +18,21 @@ export type UpdateCheckResult =
 	| { status: "constrained-no-match" }
 	| { status: "check-failed"; reason: string };
 
+type ConstrainedWithLatest = Extract<
+	UpdateCheckResult,
+	{ status: "constrained-update-available" | "constrained-up-to-date" }
+> & { latestOverall: string };
+
+export function hasOutOfConstraintVersion(
+	result: UpdateCheckResult,
+): result is ConstrainedWithLatest {
+	return (
+		(result.status === "constrained-update-available" ||
+			result.status === "constrained-up-to-date") &&
+		result.latestOverall !== null
+	);
+}
+
 // Heuristic: matches "v1...", "1...", etc. Does not match branch names like
 // "dev", "main", or "feature-x". Will misclassify tags that start with a
 // non-numeric, non-v prefix (e.g. "release-1.0").

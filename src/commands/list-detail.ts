@@ -2,7 +2,10 @@ import * as p from "@clack/prompts";
 import { identifyFileOwnership } from "../drivers/identify.js";
 import type { ManifestEntry } from "../manifest.js";
 import { formatRefLabel } from "../summary.js";
-import type { UpdateCheckResult } from "../update-check.js";
+import {
+	hasOutOfConstraintVersion,
+	type UpdateCheckResult,
+} from "../update-check.js";
 
 export type DetailAction = "update" | "remove" | "change-version" | "back";
 
@@ -139,11 +142,7 @@ export async function renderDetailView(
 			`No matching version found for constraint "${entry.constraint}"`,
 		);
 	}
-	if (
-		(updateStatus.status === "constrained-up-to-date" ||
-			updateStatus.status === "constrained-update-available") &&
-		updateStatus.latestOverall !== null
-	) {
+	if (hasOutOfConstraintVersion(updateStatus)) {
 		p.log.info(`${updateStatus.latestOverall} available (outside constraint)`);
 	}
 

@@ -36,9 +36,14 @@ vi.mock("../../src/manifest.js", () => ({
 	removeEntry: vi.fn(),
 }));
 
-vi.mock("../../src/update-check.js", () => ({
-	checkForUpdate: vi.fn(),
-}));
+vi.mock("../../src/update-check.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/update-check.js")>();
+	return {
+		checkForUpdate: vi.fn(),
+		hasOutOfConstraintVersion: actual.hasOutOfConstraintVersion,
+	};
+});
 
 vi.mock("../../src/git-clone.js", () => ({
 	cloneSource: vi.fn(),

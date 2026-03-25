@@ -24,7 +24,7 @@ import {
 	renderUpdateOutcomeSummary,
 } from "../summary.js";
 import type { UpdateCheckResult } from "../update-check.js";
-import { checkForUpdate } from "../update-check.js";
+import { checkForUpdate, hasOutOfConstraintVersion } from "../update-check.js";
 import {
 	isAtOrAboveVersion,
 	type VersionOverrides,
@@ -101,9 +101,7 @@ function extractOutOfConstraint(
 	checkResult: UpdateCheckResult,
 ): OutOfConstraintInfo | null {
 	if (
-		(checkResult.status === "constrained-update-available" ||
-			checkResult.status === "constrained-up-to-date") &&
-		checkResult.latestOverall !== null &&
+		hasOutOfConstraintVersion(checkResult) &&
 		entry.constraint !== undefined
 	) {
 		return {
