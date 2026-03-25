@@ -1,11 +1,11 @@
 # Implementation Review: Version Constraints
 
 **Plan**: version-constraints
-**QA Verdict**: Request Changes
+**QA Verdict**: Approve
 
 ## Summary
 
-Excellent implementation across 30 tasks in 6 phases. The version constraint system is comprehensive — parsing, resolution, add/update/list integration, and two analysis-driven refactoring phases are all solidly implemented with thorough test coverage. Out of 30 tasks verified, 29 passed cleanly with zero blocking issues. One task (vc-4-1: constrained label formatting in list view) has a defensive edge case gap that needs attention before approval.
+Comprehensive implementation across 35 tasks in 9 phases. The version constraint system covers the full surface — parsing, resolution, add/update/list integration, bug fix remediation, and three analysis-driven refactoring cycles. All 35 tasks verified with zero blocking issues. The previous review identified a formatLabel edge case (vc-4-1) which was remediated in Phase 7 (vc-7-1) and verified clean in this incremental review.
 
 ## QA Verification
 
@@ -28,30 +28,33 @@ No specification deviations detected.
 - [x] Phase 1: Constraint Parsing and Version Resolution (7/7 tasks)
 - [x] Phase 2: Add Command with Constraints (5/5 tasks)
 - [x] Phase 3: Constrained Update Flow (5/5 tasks)
-- [x] Phase 4: List Command Integration (4/4 tasks — 1 with issues)
+- [x] Phase 4: List Command Integration (4/4 tasks)
 - [x] Phase 5: Analysis Cycle 1 (5/5 tasks)
 - [x] Phase 6: Analysis Cycle 2 (4/4 tasks)
-- [x] All 30 tasks completed
+- [x] Phase 7: Review Remediation Cycle 1 (1/1 task)
+- [x] Phase 8: Analysis Cycle 1 (3/3 tasks)
+- [x] Phase 9: Analysis Cycle 2 (1/1 task)
+- [x] All 35 tasks completed
 - [x] No scope creep detected
 
 ### Code Quality
 
 No issues found. Implementation follows project conventions consistently:
 - Clean separation of concerns (parser, resolver, manifest, commands)
-- Shared helpers extracted during analysis phases (parseTagRefs, isAtOrAboveVersion, buildReinstallInput, formatDroppedAgentsSuffix)
+- Shared helpers extracted during analysis phases (parseTagRefs, isAtOrAboveVersion, buildReinstallInput, formatDroppedAgentsSuffix, hasOutOfConstraintVersion)
 - Test factories and git mock helpers consolidated into shared modules
 - Discriminated union types for UpdateCheckResult with constrained variants
+- Unified VersionOverrides interface eliminates duplicate type definitions
+- resolveTagConstraint uses explicit if/else-if chain preventing double fetchRemoteTags calls
 
 ### Test Quality
 
-Tests adequately verify requirements across all tasks with one exception:
-- **vc-4-1**: Missing test for constraint-present + ref-null edge case in formatLabel
+Tests adequately verify requirements across all 35 tasks. No under-testing or over-testing detected.
 
 ### Required Changes
 
-1. **formatLabel constraint-with-null-ref edge case** (`src/commands/list.ts:20-22`): When `entry.constraint` is truthy but `entry.ref` is null, the function returns just `key` instead of `key  ^1.0`. The condition `entry.constraint && entry.ref !== null` conflates two independent checks. Restructure to check `entry.constraint` first, then conditionally append arrow+ref. Add corresponding test.
+None.
 
 ## Recommendations
 
-- Consider exporting `formatLabel` as a named function and creating focused unit tests (avoids full `runListLoop` mock setup for pure-function tests)
-- A tilde constraint test for formatLabel (`~1.2 -> v1.2.5`) would document the behavior explicitly, though the implementation handles tilde identically to caret
+- Consider exporting `formatLabel` as a named function for focused unit tests (avoids full `runListLoop` mock setup for pure-function tests)
