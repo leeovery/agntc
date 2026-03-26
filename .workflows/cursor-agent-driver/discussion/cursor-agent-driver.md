@@ -22,6 +22,7 @@ The inbox idea includes research notes referencing `CURSOR-DRIVER-RESEARCH.md` a
 - [x] How should detection work for Cursor?
 - [x] What asset types should the Cursor driver support?
 - [x] Should the AgentId type be widened beyond a string literal union?
+- [x] Should agent selection be filtered to declared agents only?
 
 ---
 
@@ -99,3 +100,25 @@ Straightforward — the pattern is proven across both existing drivers and maps 
 ### Decision
 
 **Keep the explicit union.** Add `"cursor"` to `AgentId` and `KNOWN_AGENTS`. The union is small, the type safety is valuable, and designing for hypothetical plugin-based agents is premature.
+
+---
+
+## Should agent selection be filtered to declared agents only?
+
+### Context
+
+Currently `selectAgents()` in `src/agent-select.ts` shows all registered agents as options. Agents not declared in the plugin's `agntc.json` get a hint `"not declared by plugin"` — but this hint only appears when the option is highlighted (a `@clack/prompts` behavior). Users can still select undeclared agents.
+
+With three agents (adding Cursor), showing irrelevant options becomes more noticeable. A Claude-only plugin would show three options when only one is valid.
+
+### Journey
+
+Initially considered keeping undeclared agents visible for power users who might want to force-install a Claude skill into Codex (same SKILL.md format). But plugin authors declare specific agents intentionally — a Claude-only skill may use features like sub-agents that don't exist in other agents. Respecting the declaration is correct.
+
+### Decision
+
+**Filter to declared agents only.** `selectAgents()` should only show agents that are in the plugin's `declaredAgents` set. Undeclared agents are excluded entirely — no hint needed because they're not shown.
+
+For declared agents that aren't detected in the project, show a persistent hint like `"not detected in project"` — visible at all times, not just when highlighted. This gives useful context without offering unsupported options.
+
+Bundled into the cursor-agent-driver feature since it's a natural touchpoint — we're already modifying the agent selection surface.
