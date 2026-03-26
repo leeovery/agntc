@@ -167,3 +167,25 @@ If a plugin declares a single agent and that agent is detected locally, the mult
 - Multiple declared → always show prompt
 
 Only fires when completely unambiguous. The "not detected" edge case warrants user confirmation.
+
+---
+
+## Summary
+
+### Key Insights
+
+1. Cursor's native SKILL.md support makes this a thin driver addition — no format conversion needed
+2. The agent selection UX needed cleanup regardless of Cursor — adding a third agent just made the rough edges more visible
+3. Respecting plugin declarations (filtering, not warning) is the correct model — authors declare agents intentionally
+
+### Current State
+
+All questions resolved. Seven decisions made:
+
+- **Driver**: `.cursor/skills/`, skills only, three-tier detection, explicit `AgentId` union
+- **UX cleanup**: filter to declared agents, silent per-plugin skip in collections, auto-skip when unambiguous
+
+### Next Steps
+
+- [ ] Specification
+- [ ] Planning and implementation
