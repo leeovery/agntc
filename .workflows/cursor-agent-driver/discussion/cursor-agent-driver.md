@@ -19,10 +19,7 @@ The inbox idea includes research notes referencing `CURSOR-DRIVER-RESEARCH.md` a
 ## Questions
 
 - [x] Which target directory should the Cursor driver use for skills?
-- [ ] How should detection work for Cursor?
-      - Project-level `.cursor/` directory
-      - `which cursor` CLI check
-      - `~/.cursor/` home directory fallback
+- [x] How should detection work for Cursor?
 - [ ] What asset types should the Cursor driver support?
       - Cursor only supports skills — no agents or hooks
       - Similar to Codex which already lacks hooks support
@@ -55,4 +52,22 @@ Cursor auto-discovers skills from four directories: `.agents/skills/`, `.cursor/
 
 ### Decision
 
-**`.cursor/skills/`** — own namespace. Consistent with agntc's per-agent directory model. The disk cost of duplicating small SKILL.md files is negligible compared to the operational clarity of clean ownership boundaries. Verified that `.cursor/skills/` is a first-class Cursor skill directory per research and Cursor docs.
+**`.cursor/skills/`** — own namespace. Consistent with agntc's per-agent directory model. The disk cost of duplicating small SKILL.md files is negligible compared to the operational clarity of clean ownership boundaries. Verified that `.cursor/skills/` is a first-class Cursor skill directory per Cursor docs (confirmed via live fetch of cursor.com/docs/context/skills).
+
+---
+
+## How should detection work for Cursor?
+
+### Context
+
+Each existing driver uses a tiered detection strategy: project directory → CLI binary → home directory. The question is whether Cursor should follow the same pattern.
+
+### Decision
+
+Three-tier detection, matching the established pattern:
+
+1. `.cursor/` directory at project level
+2. `which cursor` CLI check
+3. `~/.cursor/` home directory fallback
+
+Straightforward — the pattern is proven across both existing drivers and maps directly to Cursor's filesystem presence. No debate needed.
