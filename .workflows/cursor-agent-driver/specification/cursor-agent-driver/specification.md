@@ -24,7 +24,7 @@ Skills only. Cursor has no agents or hooks system. `TARGET_DIRS` is `Partial<Rec
 
 ### Detection
 
-Three-tier detection, matching the established pattern used by Claude and Codex drivers:
+Three-tier detection, matching the Claude driver pattern (Codex uses two tiers — no home directory fallback):
 
 1. `.cursor/` directory at project level
 2. `which cursor` CLI check
@@ -46,7 +46,7 @@ Currently `selectAgents()` shows all registered agents as options. Agents not de
 
 `selectAgents()` filters the multiselect to only agents present in the plugin's `declaredAgents` set. Undeclared agents are excluded entirely — no hint needed because they're not shown.
 
-For declared agents that are **not detected** in the project, show a persistent hint `"(not detected in project)"` — visible at all times, not just when highlighted. This gives useful context without offering unsupported options.
+For declared agents that are **not detected** in the project, show a persistent hint `"(not detected in project)"` — visible at all times, not just when highlighted. Achieve this by embedding the hint directly in the option `label` (e.g., `"codex (not detected in project)"`) since `@clack/prompts` multiselect `hint` only renders when highlighted.
 
 ### Implementation
 
@@ -63,6 +63,8 @@ The collection pipeline (`add.ts`) unions all declared agents from selected plug
 ### Change
 
 When iterating plugins in the collection pipeline, filter `selectedAgents` to only those declared by each specific plugin before copying. No warning, no "at your own risk" — just don't copy files for agents the plugin doesn't support. The manifest entry for each plugin records only the agents it was actually installed for.
+
+If a plugin has zero applicable agents after filtering (none of the user's selected agents match its declarations), silently skip that plugin — no manifest entry, no copy, no summary line. This is expected when a collection contains plugins targeting different agents.
 
 ### Rationale
 
