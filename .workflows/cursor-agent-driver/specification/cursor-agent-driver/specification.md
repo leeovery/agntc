@@ -4,6 +4,8 @@
 
 ## Cursor Driver
 
+Cursor 2.4+ natively reads SKILL.md files — the same format used by Claude and Codex. No format conversion needed. Note: agntc does not gate on Cursor version, but skills won't function on versions below 2.4.
+
 ### Target Directory
 
 Skills install to `.cursor/skills/`. Each agent owns its directory — consistent with the existing model (Claude → `.claude/skills/`, Codex → `.agents/skills/`). `.cursor/skills/` is a first-class Cursor skill directory confirmed via Cursor documentation.

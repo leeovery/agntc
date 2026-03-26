@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-26
 cycle: 1
 phase: Input Review
@@ -53,5 +53,5 @@ Both the research document and discussion note that SKILL.md support requires Cu
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added Cursor 2.4+ context note at top of Cursor Driver section
