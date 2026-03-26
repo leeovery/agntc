@@ -34,7 +34,7 @@ Add `"cursor"` to the explicit `AgentId` union type (`"claude" | "codex" | "curs
 
 ### Implementation
 
-New file `src/drivers/cursor-driver.ts` implementing `AgentDriver` (detect + getTargetDir). Register in the driver registry (`src/drivers/registry.ts`). Update `AgentId` union in `src/drivers/types.ts` and `KNOWN_AGENTS` in `src/drivers/types.ts` (or wherever it's defined).
+New file `src/drivers/cursor-driver.ts` implementing `AgentDriver` (detect + getTargetDir). Register in the driver registry (`src/drivers/registry.ts`). Update `AgentId` union in `src/drivers/types.ts` and `KNOWN_AGENTS` in `src/config.ts`.
 
 ## Agent Selection: Filter to Declared Agents
 

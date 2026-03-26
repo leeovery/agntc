@@ -21,8 +21,8 @@ The specification says "Update ... `KNOWN_AGENTS` in `src/drivers/types.ts` (or 
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Corrected KNOWN_AGENTS location from types.ts to config.ts
 
 ---
 
