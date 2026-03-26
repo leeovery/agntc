@@ -11,16 +11,14 @@ The inbox idea includes research notes referencing `CURSOR-DRIVER-RESEARCH.md` a
 ### References
 
 - Inbox idea: `.workflows/.inbox/.archived/ideas/2026-03-26--cursor-agent-driver.md`
+- Research: `CURSOR-DRIVER-RESEARCH.md` (sources, directory listings, Vercel reference)
 - Existing drivers: `src/drivers/claude-driver.ts`, `src/drivers/codex-driver.ts`
 - Driver interface: `src/drivers/types.ts`
 - Registry: `src/drivers/registry.ts`
 
 ## Questions
 
-- [ ] Which target directory should the Cursor driver use for skills?
-      - `.cursor/skills/` (own namespace, consistent with Claude owning `.claude/skills/`)
-      - `.agents/skills/` (shared with Codex, how Vercel's skills CLI does it)
-      - Cursor reads from both locations
+- [x] Which target directory should the Cursor driver use for skills?
 - [ ] How should detection work for Cursor?
       - Project-level `.cursor/` directory
       - `which cursor` CLI check
@@ -31,3 +29,30 @@ The inbox idea includes research notes referencing `CURSOR-DRIVER-RESEARCH.md` a
 - [ ] Should the AgentId type be widened beyond a string literal union?
       - Currently `"claude" | "codex"` — adding `"cursor"` is straightforward
       - But as more agents are added, is the pattern sustainable?
+
+---
+
+## Which target directory should the Cursor driver use for skills?
+
+### Context
+
+Cursor auto-discovers skills from four directories: `.agents/skills/`, `.cursor/skills/`, `~/.cursor/skills/` (global), and `.claude/skills/` (legacy fallback). The question is which one agntc should target when installing skills for Cursor.
+
+### Options Considered
+
+**Option 1: `.cursor/skills/` (own namespace)**
+- Consistent with agntc's model where each agent owns its directory (Claude → `.claude/skills/`, Codex → `.agents/skills/`)
+- Clean file ownership — `identifyFileOwnership()` won't have ambiguous matches
+- Removing one agent doesn't affect another's files
+- Confirmed valid: Cursor reads from this directory as a first-class location
+
+**Option 2: `.agents/skills/` (shared with Codex)**
+- How Vercel's skills CLI does it
+- Avoids duplicate files on disk when both Codex and Cursor are installed
+- But creates implicit coupling — Codex removal could affect Cursor
+- `identifyFileOwnership()` would match whichever agent is checked first in the registry loop
+- Installing a skill for "cursor only" still writes to an `.agents/` path, which is confusing
+
+### Decision
+
+**`.cursor/skills/`** — own namespace. Consistent with agntc's per-agent directory model. The disk cost of duplicating small SKILL.md files is negligible compared to the operational clarity of clean ownership boundaries. Verified that `.cursor/skills/` is a first-class Cursor skill directory per research and Cursor docs.
