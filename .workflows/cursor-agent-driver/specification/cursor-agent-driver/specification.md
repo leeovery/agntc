@@ -46,6 +46,10 @@ Currently `selectAgents()` shows all registered agents as options. Agents not de
 
 For declared agents that are **not detected** in the project, show a persistent hint `"(not detected in project)"` — visible at all times, not just when highlighted. This gives useful context without offering unsupported options.
 
+### Implementation
+
+Modify `selectAgents()` in `src/agent-select.ts`.
+
 ### Rationale
 
 Plugin authors declare specific agents intentionally — a Claude-only skill may use features like sub-agents that don't exist in other agents. Respecting the declaration is correct. Adding a third agent makes showing irrelevant options more noticeable.
@@ -62,6 +66,10 @@ When iterating plugins in the collection pipeline, filter `selectedAgents` to on
 
 The warning-and-install-anyway model is wrong. If a plugin doesn't declare an agent, the correct behavior is to skip, not warn. The union approach for `selectAgents` already limits the prompt to agents declared by at least one plugin in the collection.
 
+### Implementation
+
+Modify the collection pipeline in `src/commands/add.ts` (lines 420-442 area).
+
 ## Agent Selection: Auto-Skip When Unambiguous
 
 If a plugin declares a single agent and that agent is detected locally, the multiselect prompt offers one pre-checked option — unnecessary friction.
@@ -73,6 +81,10 @@ Auto-skip the agent selection prompt when the result is unambiguous. Rules:
 - **One declared, detected** → auto-select, skip prompt, log which agent was selected
 - **One declared, NOT detected** → show prompt with `"(not detected in project)"` hint
 - **Multiple declared** → always show prompt
+
+### Implementation
+
+Modify `selectAgents()` in `src/agent-select.ts` — same function as the filtering change.
 
 ### Rationale
 
