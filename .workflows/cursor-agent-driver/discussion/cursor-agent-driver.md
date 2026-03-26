@@ -23,6 +23,8 @@ The inbox idea includes research notes referencing `CURSOR-DRIVER-RESEARCH.md` a
 - [x] What asset types should the Cursor driver support?
 - [x] Should the AgentId type be widened beyond a string literal union?
 - [x] Should agent selection be filtered to declared agents only?
+- [x] Should the collection pipeline per-plugin agent warning change?
+- [x] Should agent selection auto-skip when unambiguous?
 
 ---
 
@@ -122,3 +124,46 @@ Initially considered keeping undeclared agents visible for power users who might
 For declared agents that aren't detected in the project, show a persistent hint like `"not detected in project"` — visible at all times, not just when highlighted. This gives useful context without offering unsupported options.
 
 Bundled into the cursor-agent-driver feature since it's a natural touchpoint — we're already modifying the agent selection surface.
+
+---
+
+## Should the collection pipeline per-plugin agent warning change?
+
+### Context
+
+The collection pipeline (`add.ts` lines 420-442) unions all declared agents from selected plugins into a single `selectAgents` call. After selection, it warns per-plugin: "Plugin X does not declare support for Y. Installing at your own risk."
+
+With the filtering change above, the union approach already limits the prompt to agents declared by at least one plugin. But the per-plugin warning is wrong — it shouldn't warn and install anyway. If a plugin doesn't declare an agent, it should silently skip that agent for that plugin.
+
+### Decision
+
+**Silently skip undeclared agents per-plugin during copy.** When iterating plugins in the collection pipeline, filter `selectedAgents` to only those declared by each specific plugin before copying. No warning, no "at your own risk" — just don't copy files for agents the plugin doesn't support. The manifest entry for each plugin records only the agents it was actually installed for.
+
+---
+
+## Should agent selection auto-skip when unambiguous?
+
+### Context
+
+If a plugin declares a single agent and that agent is detected locally, the multiselect prompt offers one pre-checked option. This is unnecessary friction.
+
+### Options Considered
+
+**Always show prompt**
+- Consistent UX — user always sees the selection step
+- But a single pre-checked checkbox is just busywork
+
+**Auto-skip when single declared + detected**
+- Zero friction for the common case (e.g., Claude-only plugin in a Claude project)
+- Still shows prompt when declared agent is NOT detected — user consciously opts in
+- Still shows prompt when multiple agents are declared
+
+### Decision
+
+**Auto-skip when exactly one declared agent and it's detected.** Rules:
+
+- One declared, detected → auto-select, skip prompt, log which agent was selected
+- One declared, NOT detected → show prompt with `(not detected in project)` hint
+- Multiple declared → always show prompt
+
+Only fires when completely unambiguous. The "not detected" edge case warrants user confirmation.
