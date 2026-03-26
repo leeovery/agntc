@@ -20,12 +20,8 @@ The inbox idea includes research notes referencing `CURSOR-DRIVER-RESEARCH.md` a
 
 - [x] Which target directory should the Cursor driver use for skills?
 - [x] How should detection work for Cursor?
-- [ ] What asset types should the Cursor driver support?
-      - Cursor only supports skills — no agents or hooks
-      - Similar to Codex which already lacks hooks support
-- [ ] Should the AgentId type be widened beyond a string literal union?
-      - Currently `"claude" | "codex"` — adding `"cursor"` is straightforward
-      - But as more agents are added, is the pattern sustainable?
+- [x] What asset types should the Cursor driver support?
+- [x] Should the AgentId type be widened beyond a string literal union?
 
 ---
 
@@ -71,3 +67,35 @@ Three-tier detection, matching the established pattern:
 3. `~/.cursor/` home directory fallback
 
 Straightforward — the pattern is proven across both existing drivers and maps directly to Cursor's filesystem presence. No debate needed.
+
+---
+
+## What asset types should the Cursor driver support?
+
+### Decision
+
+**Skills only.** Cursor has no agents or hooks system. `TARGET_DIRS` will be `Partial<Record<AssetType, string>>` with just `skills: ".cursor/skills"` — identical in shape to `CodexDriver`. `getTargetDir()` returns `null` for unsupported types. No debate needed.
+
+---
+
+## Should the AgentId type be widened beyond a string literal union?
+
+### Context
+
+`AgentId` is currently `"claude" | "codex"`. Adding `"cursor"` makes it three members. Question is whether to keep the explicit union or move to something more dynamic.
+
+### Options Considered
+
+**Keep explicit union**
+- Three members is still small — adding a fourth is one line in `types.ts`, one in `config.ts`
+- Compile-time exhaustiveness checking on `switch` statements
+- `KNOWN_AGENTS` const array stays in sync naturally
+
+**Widen to string or make plugin-based**
+- Would support arbitrary user-defined agents
+- Loses compile-time safety
+- Premature — that's a different architecture entirely
+
+### Decision
+
+**Keep the explicit union.** Add `"cursor"` to `AgentId` and `KNOWN_AGENTS`. The union is small, the type safety is valuable, and designing for hypothetical plugin-based agents is premature.
