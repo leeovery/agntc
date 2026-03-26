@@ -36,6 +36,20 @@ Add `"cursor"` to the explicit `AgentId` union type (`"claude" | "codex" | "curs
 
 New file `src/drivers/cursor-driver.ts` implementing `AgentDriver` (detect + getTargetDir). Register in the driver registry (`src/drivers/registry.ts`). Update `AgentId` union in `src/drivers/types.ts` and `KNOWN_AGENTS` in `src/drivers/types.ts` (or wherever it's defined).
 
+## Agent Selection: Filter to Declared Agents
+
+Currently `selectAgents()` shows all registered agents as options. Agents not declared in the plugin's `agntc.json` get a hint `"not declared by plugin"` — but this hint only appears when the option is highlighted (a `@clack/prompts` behavior). Users can still select undeclared agents.
+
+### Change
+
+`selectAgents()` filters the multiselect to only agents present in the plugin's `declaredAgents` set. Undeclared agents are excluded entirely — no hint needed because they're not shown.
+
+For declared agents that are **not detected** in the project, show a persistent hint `"(not detected in project)"` — visible at all times, not just when highlighted. This gives useful context without offering unsupported options.
+
+### Rationale
+
+Plugin authors declare specific agents intentionally — a Claude-only skill may use features like sub-agents that don't exist in other agents. Respecting the declaration is correct. Adding a third agent makes showing irrelevant options more noticeable.
+
 ---
 
 ## Working Notes
