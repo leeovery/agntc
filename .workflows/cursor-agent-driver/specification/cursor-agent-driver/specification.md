@@ -50,6 +50,18 @@ For declared agents that are **not detected** in the project, show a persistent 
 
 Plugin authors declare specific agents intentionally — a Claude-only skill may use features like sub-agents that don't exist in other agents. Respecting the declaration is correct. Adding a third agent makes showing irrelevant options more noticeable.
 
+## Collection Pipeline: Silent Skip for Undeclared Agents
+
+The collection pipeline (`add.ts`) unions all declared agents from selected plugins into a single `selectAgents` call. After selection, it currently warns per-plugin: "Plugin X does not declare support for Y. Installing at your own risk."
+
+### Change
+
+When iterating plugins in the collection pipeline, filter `selectedAgents` to only those declared by each specific plugin before copying. No warning, no "at your own risk" — just don't copy files for agents the plugin doesn't support. The manifest entry for each plugin records only the agents it was actually installed for.
+
+### Rationale
+
+The warning-and-install-anyway model is wrong. If a plugin doesn't declare an agent, the correct behavior is to skip, not warn. The union approach for `selectAgents` already limits the prompt to agents declared by at least one plugin in the collection.
+
 ---
 
 ## Working Notes
