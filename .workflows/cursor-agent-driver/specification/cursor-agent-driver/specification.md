@@ -62,6 +62,22 @@ When iterating plugins in the collection pipeline, filter `selectedAgents` to on
 
 The warning-and-install-anyway model is wrong. If a plugin doesn't declare an agent, the correct behavior is to skip, not warn. The union approach for `selectAgents` already limits the prompt to agents declared by at least one plugin in the collection.
 
+## Agent Selection: Auto-Skip When Unambiguous
+
+If a plugin declares a single agent and that agent is detected locally, the multiselect prompt offers one pre-checked option — unnecessary friction.
+
+### Change
+
+Auto-skip the agent selection prompt when the result is unambiguous. Rules:
+
+- **One declared, detected** → auto-select, skip prompt, log which agent was selected
+- **One declared, NOT detected** → show prompt with `"(not detected in project)"` hint
+- **Multiple declared** → always show prompt
+
+### Rationale
+
+Only fires when completely unambiguous. The "not detected" edge case warrants user confirmation — the user should consciously opt in to installing for an agent not present in the project.
+
 ---
 
 ## Working Notes
