@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-27
 cycle: 1
 phase: Traceability Review
@@ -32,7 +32,7 @@ The specification explicitly states "agntc does not gate on Cursor version" as a
 > The CursorDriver follows the ClaudeDriver pattern (three-tier detection) rather than the CodexDriver pattern (two-tier, no home fallback). The spec explicitly states "Three-tier detection, matching the Claude driver pattern (Codex uses two tiers -- no home directory fallback)." TARGET_DIRS is `Partial<Record<AssetType, string>>` (not full `Record`) because Cursor only supports skills -- same shape as CodexDriver. Cursor 2.4+ natively reads SKILL.md files so no format conversion is needed. The `.cursor/skills/` path is a first-class Cursor skill directory confirmed via Cursor documentation. agntc does not gate on Cursor version -- the driver has no version checking logic. Skills won't function on Cursor versions below 2.4, but that is not agntc's concern.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
