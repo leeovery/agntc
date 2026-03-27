@@ -32,6 +32,24 @@ describe("identifyFileOwnership", () => {
 		expect(result).toEqual({ agentId: "codex", assetType: "skills" });
 	});
 
+	it("identifies .cursor/skills/foo as cursor skills", () => {
+		const result = identifyFileOwnership(".cursor/skills/foo");
+
+		expect(result).toEqual({ agentId: "cursor", assetType: "skills" });
+	});
+
+	it("identifies .cursor/skills/foo/SKILL.md as cursor skills", () => {
+		const result = identifyFileOwnership(".cursor/skills/foo/SKILL.md");
+
+		expect(result).toEqual({ agentId: "cursor", assetType: "skills" });
+	});
+
+	it("returns null for .cursor/agents/ path", () => {
+		const result = identifyFileOwnership(".cursor/agents/foo");
+
+		expect(result).toBeNull();
+	});
+
 	it("returns null for an unrecognized path", () => {
 		const result = identifyFileOwnership("some/random/file.txt");
 

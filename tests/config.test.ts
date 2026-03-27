@@ -6,8 +6,8 @@ import { ConfigError, KNOWN_AGENTS, readConfig } from "../src/config.js";
 vi.mock("node:fs/promises");
 
 describe("KNOWN_AGENTS", () => {
-	it("contains claude and codex", () => {
-		expect(KNOWN_AGENTS).toEqual(["claude", "codex"]);
+	it("contains claude, codex, and cursor", () => {
+		expect(KNOWN_AGENTS).toEqual(["claude", "codex", "cursor"]);
 	});
 });
 
@@ -42,6 +42,24 @@ describe("readConfig", () => {
 
 		const result = await readConfig("/some/dir");
 		expect(result).toEqual({ agents: ["claude", "codex"] });
+	});
+
+	it("parses valid config with cursor agent", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: ["cursor"] }),
+		);
+
+		const result = await readConfig("/some/dir");
+		expect(result).toEqual({ agents: ["cursor"] });
+	});
+
+	it("parses valid config with all three agents", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: ["claude", "codex", "cursor"] }),
+		);
+
+		const result = await readConfig("/some/dir");
+		expect(result).toEqual({ agents: ["claude", "codex", "cursor"] });
 	});
 
 	it("throws ConfigError for invalid JSON (truncated)", async () => {

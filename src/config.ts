@@ -7,7 +7,7 @@ export interface AgntcConfig {
 	agents: AgentId[];
 }
 
-export const KNOWN_AGENTS = ["claude", "codex"] as const;
+export const KNOWN_AGENTS = ["claude", "codex", "cursor"] as const;
 
 export interface ReadConfigOptions {
 	onWarn?: (message: string) => void;

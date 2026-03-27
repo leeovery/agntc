@@ -1,10 +1,12 @@
 import { ClaudeDriver } from "./claude-driver.js";
 import { CodexDriver } from "./codex-driver.js";
+import { CursorDriver } from "./cursor-driver.js";
 import type { AgentDriver, AgentId } from "./types.js";
 
 const DRIVER_REGISTRY: Record<AgentId, AgentDriver> = {
 	claude: new ClaudeDriver(),
 	codex: new CodexDriver(),
+	cursor: new CursorDriver(),
 };
 
 export function getDriver(id: AgentId): AgentDriver {

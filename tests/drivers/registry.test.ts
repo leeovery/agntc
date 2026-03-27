@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ClaudeDriver } from "../../src/drivers/claude-driver.js";
 import { CodexDriver } from "../../src/drivers/codex-driver.js";
+import { CursorDriver } from "../../src/drivers/cursor-driver.js";
 import {
 	getDriver,
 	getRegisteredAgentIds,
@@ -19,9 +20,15 @@ describe("driver registry", () => {
 		expect(driver).toBeInstanceOf(CodexDriver);
 	});
 
-	it("lists registered agent IDs including both claude and codex", () => {
+	it("returns cursor driver for 'cursor'", () => {
+		const driver = getDriver("cursor");
+
+		expect(driver).toBeInstanceOf(CursorDriver);
+	});
+
+	it("lists registered agent IDs including claude, codex, and cursor", () => {
 		const ids = getRegisteredAgentIds();
 
-		expect(ids).toEqual(["claude", "codex"]);
+		expect(ids).toEqual(["claude", "codex", "cursor"]);
 	});
 });

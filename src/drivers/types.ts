@@ -1,4 +1,4 @@
-export type AgentId = "claude" | "codex";
+export type AgentId = "claude" | "codex" | "cursor";
 
 export type AssetType = "skills" | "agents" | "hooks";
 
