@@ -1,7 +1,7 @@
 {
   "name": "cursor-agent-driver",
   "work_type": "feature",
-  "status": "in-progress",
+  "status": "completed",
   "created": "2026-03-26",
   "description": "Add Cursor as a third supported agent driver, leveraging its native SKILL.md support and auto-discovery from .cursor/skills/",
   "phases": {
