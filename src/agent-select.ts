@@ -1,5 +1,4 @@
 import { isCancel, log, multiselect } from "@clack/prompts";
-import { getRegisteredAgentIds } from "./drivers/registry.js";
 import type { AgentId } from "./drivers/types.js";
 
 interface SelectAgentsInput {
@@ -10,18 +9,19 @@ interface SelectAgentsInput {
 export async function selectAgents(
 	input: SelectAgentsInput,
 ): Promise<AgentId[]> {
-	const allAgents = getRegisteredAgentIds();
-	const declaredSet = new Set(input.declaredAgents);
+	if (input.declaredAgents.length === 0) {
+		return [];
+	}
+
 	const detectedSet = new Set(input.detectedAgents);
 
-	const initialValues = allAgents.filter(
-		(id) => declaredSet.has(id) && detectedSet.has(id),
+	const initialValues = input.declaredAgents.filter((id) =>
+		detectedSet.has(id),
 	);
 
-	const options = allAgents.map((id) => ({
+	const options = input.declaredAgents.map((id) => ({
 		value: id,
-		label: id,
-		...(declaredSet.has(id) ? {} : { hint: "not declared by plugin" }),
+		label: detectedSet.has(id) ? id : `${id} (not detected in project)`,
 	}));
 
 	const result = await multiselect<AgentId>({

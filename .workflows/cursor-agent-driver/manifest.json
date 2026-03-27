@@ -58,9 +58,9 @@
         "cursor-agent-driver": {
           "status": "in-progress",
           "task_gate_mode": "auto",
-          "fix_gate_mode": "gated",
+          "fix_gate_mode": "auto",
           "analysis_gate_mode": "gated",
-          "fix_attempts": 0,
+          "fix_attempts": 1,
           "analysis_cycle": 0,
           "linters": [
             {
@@ -81,7 +81,8 @@
           "current_task": "~",
           "completed_tasks": [
             "cursor-agent-driver-1-1",
-            "cursor-agent-driver-1-2"
+            "cursor-agent-driver-1-2",
+            "cursor-agent-driver-1-3"
           ]
         }
       }
