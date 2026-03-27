@@ -26,6 +26,26 @@
           }
         }
       }
+    },
+    "planning": {
+      "items": {
+        "cursor-agent-driver": {
+          "status": "in-progress",
+          "format": "tick",
+          "spec_commit": "b9de3a1061191310bb0e0de56d373c0a187d9029",
+          "task_list_gate_mode": "auto",
+          "author_gate_mode": "auto",
+          "finding_gate_mode": "gated",
+          "review_cycle": 0,
+          "phase": 1,
+          "task": "cursor-agent-driver-1-2",
+          "task_map": {
+            "cursor-agent-driver-1-1": "tick-3e07cf",
+            "cursor-agent-driver-1": "tick-4aab6b"
+          },
+          "external_id": "tick-e7bb52"
+        }
+      }
     }
   }
 }
