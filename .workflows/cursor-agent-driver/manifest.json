@@ -47,7 +47,9 @@
             "cursor-agent-driver-1-4": "tick-c8effd",
             "cursor-agent-driver-2-1": "tick-fa6767",
             "cursor-agent-driver-2": "tick-2c4780",
-            "cursor-agent-driver-2-2": "tick-f42ad3"
+            "cursor-agent-driver-2-2": "tick-f42ad3",
+            "cursor-agent-driver-3": "tick-6c5998",
+            "cursor-agent-driver-3-1": "tick-c9764e"
           },
           "external_id": "tick-e7bb52"
         }
@@ -59,7 +61,7 @@
           "status": "in-progress",
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
-          "analysis_gate_mode": "gated",
+          "analysis_gate_mode": "auto",
           "fix_attempts": 0,
           "analysis_cycle": 1,
           "linters": [

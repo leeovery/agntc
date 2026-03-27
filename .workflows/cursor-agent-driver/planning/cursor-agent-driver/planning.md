@@ -56,3 +56,17 @@ approved_at: 2026-03-27
 |-------------|------|------------|
 | cursor-agent-driver-2-1 | Per-Plugin Agent Filtering in Collection Pipeline | plugin declares exact same agents as selected (no-op filter), all plugins declare identical agents (behaves like current code minus warnings) |
 | cursor-agent-driver-2-2 | Silent Skip for Plugins With Zero Applicable Agents | all plugins in collection have zero match (nothing installs but no error), single-plugin collection with zero match, mix of installable and zero-match plugins in same collection |
+
+### Phase 3: Analysis (Cycle 1)
+status: approved
+approved_at: 2026-03-27
+
+**Goal**: Address findings from Analysis (Cycle 1).
+
+#### Tasks
+status: approved
+approved_at: 2026-03-27
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| cursor-agent-driver-3-1 | Deduplicate PluginInstallResult / CollectionPluginResult Interfaces | field mismatches between the two interfaces at implementation time, choosing the right home module for the shared type |
