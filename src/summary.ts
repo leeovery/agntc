@@ -102,6 +102,7 @@ interface CollectionPluginResult {
 	pluginName: string;
 	status: "installed" | "skipped" | "failed";
 	copiedFiles: string[];
+	agents: AgentId[];
 	assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
 	detectedType?: DetectedType;
 	errorMessage?: string;
@@ -111,7 +112,6 @@ interface CollectionAddSummaryInput {
 	manifestKey: string;
 	ref: string | null;
 	commit: string | null;
-	selectedAgents: AgentId[];
 	results: CollectionPluginResult[];
 }
 
@@ -126,8 +126,8 @@ export function renderCollectionAddSummary(
 	const pluginBlocks = installed.map((r) => {
 		const agentSummary =
 			r.detectedType?.type === "plugin" && r.assetCountsByAgent
-				? formatPluginSummary(input.selectedAgents, r.assetCountsByAgent)
-				: formatBareSkillSummary(input.selectedAgents, r.copiedFiles);
+				? formatPluginSummary(r.agents, r.assetCountsByAgent)
+				: formatBareSkillSummary(r.agents, r.copiedFiles);
 		return `\n${r.pluginName}:${agentSummary}`;
 	});
 

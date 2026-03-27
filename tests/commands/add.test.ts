@@ -1215,7 +1215,7 @@ describe("add command", () => {
 			});
 		});
 
-		describe("per-plugin agent compatibility warnings", () => {
+		describe("per-plugin agent filtering", () => {
 			function setupCollectionWithDifferentAgents(): void {
 				setupCollectionBase();
 				// pluginA declares claude only, pluginB declares codex only
@@ -1248,46 +1248,78 @@ describe("add command", () => {
 				});
 				mockCopyBareSkill
 					.mockResolvedValueOnce({
-						copiedFiles: [".claude/skills/pluginA/", ".agents/skills/pluginA/"],
+						copiedFiles: [".claude/skills/pluginA/"],
 					})
 					.mockResolvedValueOnce({
-						copiedFiles: [".claude/skills/pluginB/", ".agents/skills/pluginB/"],
+						copiedFiles: [".agents/skills/pluginB/"],
 					});
 				mockComputeIncomingFiles.mockReturnValue([]);
 				mockCheckFileCollisions.mockReturnValue(new Map());
 				mockCheckUnmanagedConflicts.mockResolvedValue([]);
 			}
 
-			it("shows unsupported warning for pluginA when codex selected but not declared", async () => {
+			it("filters selectedAgents to plugin's declared agents before copy -- pluginA (claude-only) receives only claude driver", async () => {
+				setupCollectionWithDifferentAgents();
+
+				await runAdd("owner/my-collection");
+
+				const copyCalls = mockCopyBareSkill.mock.calls;
+				expect(copyCalls).toHaveLength(2);
+				// pluginA copy call (first) should only have claude
+				const pluginAAgents = copyCalls[0]![0].agents.map(
+					(a: { id: AgentId }) => a.id,
+				);
+				expect(pluginAAgents).toEqual(["claude"]);
+			});
+
+			it("filters selectedAgents to plugin's declared agents before copy -- pluginB (codex-only) receives only codex driver", async () => {
+				setupCollectionWithDifferentAgents();
+
+				await runAdd("owner/my-collection");
+
+				const copyCalls = mockCopyBareSkill.mock.calls;
+				expect(copyCalls).toHaveLength(2);
+				// pluginB copy call (second) should only have codex
+				const pluginBAgents = copyCalls[1]![0].agents.map(
+					(a: { id: AgentId }) => a.id,
+				);
+				expect(pluginBAgents).toEqual(["codex"]);
+			});
+
+			it("manifest entry for each plugin records only its applicable agents", async () => {
+				setupCollectionWithDifferentAgents();
+
+				await runAdd("owner/my-collection");
+
+				const addEntryCalls = mockAddEntry.mock.calls;
+				expect(addEntryCalls).toHaveLength(2);
+				// pluginA manifest entry should only have claude
+				const pluginAEntry = addEntryCalls.find(
+					(c) => (c[1] as string) === "owner/my-collection/pluginA",
+				);
+				expect(pluginAEntry).toBeDefined();
+				expect(pluginAEntry![2].agents).toEqual(["claude"]);
+				// pluginB manifest entry should only have codex
+				const pluginBEntry = addEntryCalls.find(
+					(c) => (c[1] as string) === "owner/my-collection/pluginB",
+				);
+				expect(pluginBEntry).toBeDefined();
+				expect(pluginBEntry![2].agents).toEqual(["codex"]);
+			});
+
+			it("no 'does not declare support' warnings are logged", async () => {
 				setupCollectionWithDifferentAgents();
 
 				await runAdd("owner/my-collection");
 
 				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-				expect(warnCalls).toEqual(
-					expect.arrayContaining([expect.stringContaining("pluginA")]),
+				const compatWarnings = warnCalls.filter((msg) =>
+					msg.includes("does not declare support for"),
 				);
-				const pluginAWarning = warnCalls.find(
-					(msg) => msg.includes("pluginA") && msg.includes("codex"),
-				);
-				expect(pluginAWarning).toBeDefined();
-				expect(pluginAWarning).toMatch(/does not declare support for/i);
+				expect(compatWarnings).toHaveLength(0);
 			});
 
-			it("shows unsupported warning for pluginB when claude selected but not declared", async () => {
-				setupCollectionWithDifferentAgents();
-
-				await runAdd("owner/my-collection");
-
-				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-				const pluginBWarning = warnCalls.find(
-					(msg) => msg.includes("pluginB") && msg.includes("claude"),
-				);
-				expect(pluginBWarning).toBeDefined();
-				expect(pluginBWarning).toMatch(/does not declare support for/i);
-			});
-
-			it("no warnings when all plugins declare the same agents as selected", async () => {
+			it("plugin declaring exact same agents as selected receives all agents (no-op filter)", async () => {
 				setupCollectionBase();
 				// Both plugins declare claude and codex
 				mockReadConfig.mockImplementation(async (dir) => {
@@ -1314,6 +1346,39 @@ describe("add command", () => {
 					return codexDriver as any;
 				});
 				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginA/", ".agents/skills/pluginA/"],
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+
+				await runAdd("owner/my-collection");
+
+				const copyCalls = mockCopyBareSkill.mock.calls;
+				for (const call of copyCalls) {
+					const agentIds = call[0].agents.map(
+						(a: { id: AgentId }) => a.id,
+					);
+					expect(agentIds).toEqual(["claude", "codex"]);
+				}
+			});
+
+			it("all plugins declaring identical agents behaves like unfiltered code", async () => {
+				setupCollectionBase();
+				// Both plugins declare only claude, selectedAgents is also only claude
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return { agents: ["claude"] as AgentId[] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/pluginA/"],
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1322,39 +1387,51 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection");
 
-				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-				const compatWarnings = warnCalls.filter((msg) =>
-					msg.includes("does not declare support for"),
-				);
-				expect(compatWarnings).toHaveLength(0);
-			});
-
-			it("installs all selected agents for each plugin regardless of warnings (warn never block)", async () => {
-				setupCollectionWithDifferentAgents();
-
-				await runAdd("owner/my-collection");
-
-				// Both copy calls should receive agents for both claude and codex
 				const copyCalls = mockCopyBareSkill.mock.calls;
 				expect(copyCalls).toHaveLength(2);
 				for (const call of copyCalls) {
-					const agents = call[0].agents;
-					const agentIds = agents.map((a: { id: AgentId }) => a.id);
-					expect(agentIds).toContain("claude");
-					expect(agentIds).toContain("codex");
+					const agentIds = call[0].agents.map(
+						(a: { id: AgentId }) => a.id,
+					);
+					expect(agentIds).toEqual(["claude"]);
+				}
+				// Manifest entries also have only claude
+				const addEntryCalls = mockAddEntry.mock.calls;
+				for (const call of addEntryCalls) {
+					expect(call[2].agents).toEqual(["claude"]);
 				}
 			});
 
-			it("manifest agents field includes all selected agents for each plugin", async () => {
+			it("computeIncomingFiles receives per-plugin filtered agents", async () => {
 				setupCollectionWithDifferentAgents();
 
 				await runAdd("owner/my-collection");
 
-				const addEntryCalls = mockAddEntry.mock.calls;
-				for (const call of addEntryCalls) {
-					const entry = call[2];
-					expect(entry.agents).toEqual(["claude", "codex"]);
-				}
+				const computeCalls = mockComputeIncomingFiles.mock.calls;
+				expect(computeCalls).toHaveLength(2);
+				// pluginA: only claude agent
+				const pluginAInput = computeCalls[0]![0];
+				const pluginAAgentIds = pluginAInput.agents.map(
+					(a: { id: AgentId }) => a.id,
+				);
+				expect(pluginAAgentIds).toEqual(["claude"]);
+				// pluginB: only codex agent
+				const pluginBInput = computeCalls[1]![0];
+				const pluginBAgentIds = pluginBInput.agents.map(
+					(a: { id: AgentId }) => a.id,
+				);
+				expect(pluginBAgentIds).toEqual(["codex"]);
+			});
+
+			it("selectAgents still called with union of all declared agents across plugins", async () => {
+				setupCollectionWithDifferentAgents();
+
+				await runAdd("owner/my-collection");
+
+				expect(mockSelectAgents).toHaveBeenCalledWith({
+					declaredAgents: expect.arrayContaining(["claude", "codex"]),
+					detectedAgents: ["claude", "codex"],
+				});
 			});
 		});
 	});

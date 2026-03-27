@@ -190,6 +190,7 @@ describe("renderCollectionAddSummary", () => {
 				pluginName: "pluginA",
 				status: "installed" as const,
 				copiedFiles: [".claude/skills/pluginA/file1.md"],
+				agents: ["claude"] as AgentId[],
 				detectedType: { type: "bare-skill" as const },
 			},
 			{
@@ -199,6 +200,7 @@ describe("renderCollectionAddSummary", () => {
 					".claude/skills/pluginB/file1.md",
 					".codex/skills/pluginB/file1.md",
 				],
+				agents: ["claude", "codex"] as AgentId[],
 				detectedType: { type: "bare-skill" as const },
 			},
 		];
@@ -206,7 +208,6 @@ describe("renderCollectionAddSummary", () => {
 			manifestKey: "owner/my-collection",
 			ref: "main",
 			commit: "abc123",
-			selectedAgents: ["claude", "codex"],
 			results,
 		});
 		expect(result).toContain("Installed owner/my-collection@main");
@@ -222,19 +223,20 @@ describe("renderCollectionAddSummary", () => {
 				pluginName: "pluginA",
 				status: "installed" as const,
 				copiedFiles: [".claude/skills/pluginA/file1.md"],
+				agents: ["claude"] as AgentId[],
 				detectedType: { type: "bare-skill" as const },
 			},
 			{
 				pluginName: "pluginB",
 				status: "skipped" as const,
 				copiedFiles: [],
+				agents: [] as AgentId[],
 			},
 		];
 		const result = renderCollectionAddSummary({
 			manifestKey: "owner/my-collection",
 			ref: "main",
 			commit: "abc123",
-			selectedAgents: ["claude"],
 			results,
 		});
 		expect(result).toMatch(/1 skipped/);
@@ -246,6 +248,7 @@ describe("renderCollectionAddSummary", () => {
 				pluginName: "pluginA",
 				status: "failed" as const,
 				copiedFiles: [],
+				agents: [] as AgentId[],
 				errorMessage: "permission denied",
 			},
 		];
@@ -253,7 +256,6 @@ describe("renderCollectionAddSummary", () => {
 			manifestKey: "owner/my-collection",
 			ref: "main",
 			commit: "abc123",
-			selectedAgents: ["claude"],
 			results,
 		});
 		expect(result).toMatch(/pluginA: failed — permission denied/);
@@ -265,17 +267,20 @@ describe("renderCollectionAddSummary", () => {
 				pluginName: "pluginA",
 				status: "installed" as const,
 				copiedFiles: [".claude/skills/pluginA/file1.md"],
+				agents: ["claude"] as AgentId[],
 				detectedType: { type: "bare-skill" as const },
 			},
 			{
 				pluginName: "pluginB",
 				status: "skipped" as const,
 				copiedFiles: [],
+				agents: [] as AgentId[],
 			},
 			{
 				pluginName: "pluginC",
 				status: "failed" as const,
 				copiedFiles: [],
+				agents: [] as AgentId[],
 				errorMessage: "disk full",
 			},
 		];
@@ -283,7 +288,6 @@ describe("renderCollectionAddSummary", () => {
 			manifestKey: "owner/my-collection",
 			ref: "v1.0",
 			commit: "abc123",
-			selectedAgents: ["claude"],
 			results,
 		});
 		expect(result).toContain("pluginA:");
@@ -297,6 +301,7 @@ describe("renderCollectionAddSummary", () => {
 				pluginName: "pluginA",
 				status: "installed" as const,
 				copiedFiles: [],
+				agents: ["claude"] as AgentId[],
 				assetCountsByAgent: {
 					claude: { skills: 5, agents: 2 },
 				} as Partial<Record<AgentId, AssetCounts>>,
@@ -307,7 +312,6 @@ describe("renderCollectionAddSummary", () => {
 			manifestKey: "owner/my-collection",
 			ref: "main",
 			commit: "abc123",
-			selectedAgents: ["claude"],
 			results,
 		});
 		expect(result).toContain("pluginA:");
@@ -468,6 +472,7 @@ describe("edge cases", () => {
 				pluginName: "myPlugin",
 				status: "installed" as const,
 				copiedFiles: [".claude/skills/myPlugin/file1.md"],
+				agents: ["claude"] as AgentId[],
 				detectedType: { type: "bare-skill" as const },
 			},
 		];
@@ -475,7 +480,6 @@ describe("edge cases", () => {
 			manifestKey: "owner/my-collection",
 			ref: "main",
 			commit: "abc123",
-			selectedAgents: ["claude"],
 			results,
 		});
 		expect(result).toContain("myPlugin:");

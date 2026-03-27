@@ -13,7 +13,7 @@ import type { AssetCounts } from "../copy-plugin-assets.js";
 import { copyPluginAssets } from "../copy-plugin-assets.js";
 import { detectAgents } from "../detect-agents.js";
 import { getDriver } from "../drivers/registry.js";
-import type { AgentId } from "../drivers/types.js";
+import type { AgentId, AgentWithDriver } from "../drivers/types.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
@@ -348,6 +348,7 @@ interface PluginInstallResult {
 	pluginName: string;
 	status: "installed" | "skipped" | "failed";
 	copiedFiles: string[];
+	agents: AgentId[];
 	assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
 	detectedType?: DetectedType;
 	errorMessage?: string;
@@ -429,23 +430,6 @@ async function runCollectionPipeline(
 		throw new ExitSignal(0);
 	}
 
-	// 4a. Per-plugin agent compatibility warnings
-	for (const [pluginName, pluginConfig] of pluginConfigs) {
-		const declaredSet = new Set(pluginConfig.agents);
-		for (const agent of selectedAgents) {
-			if (!declaredSet.has(agent)) {
-				p.log.warn(
-					`Plugin ${pluginName} does not declare support for ${agent}. Installing at your own risk.`,
-				);
-			}
-		}
-	}
-
-	const agents = selectedAgents.map((id) => ({
-		id,
-		driver: getDriver(id),
-	}));
-
 	// 5. Per-plugin conflict checks + install
 	const results: PluginInstallResult[] = [];
 	let currentManifest: Manifest = manifest;
@@ -456,12 +440,19 @@ async function runCollectionPipeline(
 		pluginDir: string;
 		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
 		pluginManifestKey: string;
+		pluginAgents: AgentId[];
+		pluginAgentDrivers: AgentWithDriver[];
 	}> = [];
 
 	for (const pluginName of selectedPlugins) {
 		const pluginConfig = pluginConfigs.get(pluginName);
 		if (!pluginConfig) {
-			results.push({ pluginName, status: "skipped", copiedFiles: [] });
+			results.push({
+				pluginName,
+				status: "skipped",
+				copiedFiles: [],
+				agents: [],
+			});
 			continue;
 		}
 
@@ -473,15 +464,33 @@ async function runCollectionPipeline(
 
 		if (pluginDetected.type === "not-agntc") {
 			onWarn(`${pluginName}: not a valid agntc plugin — skipping`);
-			results.push({ pluginName, status: "skipped", copiedFiles: [] });
+			results.push({
+				pluginName,
+				status: "skipped",
+				copiedFiles: [],
+				agents: [],
+			});
 			continue;
 		}
 
 		if (pluginDetected.type === "collection") {
 			onWarn(`${pluginName}: nested collections not supported — skipping`);
-			results.push({ pluginName, status: "skipped", copiedFiles: [] });
+			results.push({
+				pluginName,
+				status: "skipped",
+				copiedFiles: [],
+				agents: [],
+			});
 			continue;
 		}
+
+		// Per-plugin agent filtering: intersect selectedAgents with plugin's declared agents
+		const declaredSet = new Set(pluginConfig.agents);
+		const pluginAgents = selectedAgents.filter((id) => declaredSet.has(id));
+		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
+			id,
+			driver: getDriver(id),
+		}));
 
 		// Nuke existing files if reinstalling this plugin
 		const pluginManifestKey =
@@ -494,7 +503,12 @@ async function runCollectionPipeline(
 				await nukeManifestFiles(projectDir, existingPluginEntry.files);
 			} catch {
 				onWarn(`${pluginName}: failed to remove old files — skipping`);
-				results.push({ pluginName, status: "skipped", copiedFiles: [] });
+				results.push({
+					pluginName,
+					status: "skipped",
+					copiedFiles: [],
+					agents: [],
+				});
 				continue;
 			}
 		}
@@ -506,9 +520,13 @@ async function runCollectionPipeline(
 						type: "plugin",
 						sourceDir: pluginDir,
 						assetDirs: pluginDetected.assetDirs,
-						agents,
+						agents: pluginAgentDrivers,
 					}
-				: { type: "bare-skill", sourceDir: pluginDir, agents },
+				: {
+						type: "bare-skill",
+						sourceDir: pluginDir,
+						agents: pluginAgentDrivers,
+					},
 		);
 
 		// Collision + unmanaged conflict checks
@@ -520,7 +538,12 @@ async function runCollectionPipeline(
 		});
 		currentManifest = conflictResult.updatedManifest;
 		if (!conflictResult.proceed) {
-			results.push({ pluginName, status: "skipped", copiedFiles: [] });
+			results.push({
+				pluginName,
+				status: "skipped",
+				copiedFiles: [],
+				agents: [],
+			});
 			continue;
 		}
 
@@ -529,24 +552,33 @@ async function runCollectionPipeline(
 			pluginDir,
 			pluginDetected,
 			pluginManifestKey,
+			pluginAgents,
+			pluginAgentDrivers,
 		});
 	}
 
 	// 5b. Copy all approved plugins (independent failure handling)
 	spin.start("Copying skill files...");
-	for (const { pluginName, pluginDir, pluginDetected } of pluginsToInstall) {
+	for (const {
+		pluginName,
+		pluginDir,
+		pluginDetected,
+		pluginAgents,
+		pluginAgentDrivers,
+	} of pluginsToInstall) {
 		try {
 			if (pluginDetected.type === "plugin") {
 				const pluginResult = await copyPluginAssets({
 					sourceDir: pluginDir,
 					assetDirs: pluginDetected.assetDirs,
-					agents,
+					agents: pluginAgentDrivers,
 					projectDir,
 				});
 				results.push({
 					pluginName,
 					status: "installed",
 					copiedFiles: pluginResult.copiedFiles,
+					agents: pluginAgents,
 					assetCountsByAgent: pluginResult.assetCountsByAgent,
 					detectedType: pluginDetected,
 				});
@@ -555,12 +587,13 @@ async function runCollectionPipeline(
 				const bareResult = await copyBareSkill({
 					sourceDir: pluginDir,
 					projectDir,
-					agents,
+					agents: pluginAgentDrivers,
 				});
 				results.push({
 					pluginName,
 					status: "installed",
 					copiedFiles: bareResult.copiedFiles,
+					agents: pluginAgents,
 					detectedType: pluginDetected,
 				});
 			}
@@ -569,6 +602,7 @@ async function runCollectionPipeline(
 				pluginName,
 				status: "failed",
 				copiedFiles: [],
+				agents: [],
 				errorMessage: errorMessage(err),
 			});
 		}
@@ -587,7 +621,7 @@ async function runCollectionPipeline(
 			ref: parsed.ref,
 			commit,
 			installedAt: new Date().toISOString(),
-			agents: selectedAgents,
+			agents: result.agents,
 			files: result.copiedFiles,
 			cloneUrl: deriveCloneUrlForManifest(parsed),
 			...(constraint != null && { constraint }),
@@ -602,7 +636,6 @@ async function runCollectionPipeline(
 			manifestKey: parsed.manifestKey,
 			ref: parsed.ref,
 			commit,
-			selectedAgents,
 			results,
 		}),
 	);
