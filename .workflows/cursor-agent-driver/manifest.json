@@ -30,7 +30,7 @@
     "planning": {
       "items": {
         "cursor-agent-driver": {
-          "status": "in-progress",
+          "status": "completed",
           "format": "tick",
           "spec_commit": "b9de3a1061191310bb0e0de56d373c0a187d9029",
           "task_list_gate_mode": "auto",
