@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-03-27
 cycle: 1
 phase: Plan Integrity Review
@@ -30,7 +30,7 @@ Do step 8 says "The `selectedAgents` field on `CollectionAddSummaryInput` can re
 8. In `renderCollectionAddSummary` in `src/summary.ts`, update the per-plugin summary to use the plugin's own agents rather than `input.selectedAgents`. Add an `agents` field (type `AgentId[]`) to the `CollectionPluginResult` interface, and pass `r.agents` instead of `input.selectedAgents` to `formatPluginSummary` and `formatBareSkillSummary`. Remove the `selectedAgents` field from `CollectionAddSummaryInput` — it is no longer used now that each plugin carries its own agents. If a compile error surfaces elsewhere, add the field back and note the usage.
 ```
 
-**Resolution**: Pending
+**Resolution**: Fixed
 **Notes**:
 
 ---
