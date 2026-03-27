@@ -38,12 +38,13 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "cursor-agent-driver-1-4",
+          "task": "~",
           "task_map": {
             "cursor-agent-driver-1-1": "tick-3e07cf",
             "cursor-agent-driver-1": "tick-4aab6b",
             "cursor-agent-driver-1-2": "tick-ecc95c",
-            "cursor-agent-driver-1-3": "tick-bc0ee4"
+            "cursor-agent-driver-1-3": "tick-bc0ee4",
+            "cursor-agent-driver-1-4": "tick-c8effd"
           },
           "external_id": "tick-e7bb52"
         }
