@@ -1,7 +1,8 @@
 # Plan: Cursor Agent Driver
 
 ## Phase 1: Cursor Driver and Agent Selection Overhaul
-status: draft
+status: approved
+approved_at: 2026-03-27
 
 **Goal**: Add the Cursor agent driver and rework agent selection to filter by declared agents, show persistent not-detected hints, and auto-skip when unambiguous.
 
@@ -21,7 +22,8 @@ status: draft
 - [ ] New CursorDriver unit tests cover all three detection tiers (project dir, which, home dir), early-return short-circuiting, and `getTargetDir` for skills/agents/hooks/unknown asset types
 
 ## Phase 2: Collection Pipeline Silent Skip for Undeclared Agents
-status: draft
+status: approved
+approved_at: 2026-03-27
 
 **Goal**: Replace the warn-and-install-anyway behavior in the collection pipeline with per-plugin agent filtering that silently skips undeclared agents.
 
