@@ -101,7 +101,7 @@
     "review": {
       "items": {
         "cursor-agent-driver": {
-          "status": "in-progress",
+          "status": "completed",
           "reviewed_tasks": [
             "cursor-agent-driver-1-1",
             "cursor-agent-driver-1-2",
