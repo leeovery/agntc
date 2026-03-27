@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-agntc is a CLI tool for installing AI agent skills from git repos. Supports Claude and Codex through a driver architecture.
+agntc is a CLI tool for installing AI agent skills from git repos. Supports Claude, Codex, and Cursor through a driver architecture.
 
 ## Commands
 
@@ -18,7 +18,7 @@ agntc is a CLI tool for installing AI agent skills from git repos. Supports Clau
 src/
   cli.ts              # Entry point, commander setup
   commands/           # add, remove, update, list, init
-  drivers/            # Agent drivers (claude, codex) + registry
+  drivers/            # Agent drivers (claude, codex, cursor) + registry
   init/               # Plugin scaffolding (skill, plugin, collection)
   source-parser.ts    # Parse owner/repo, URLs, local paths, tree URLs
   type-detection.ts   # Detect skill vs plugin vs collection
@@ -33,7 +33,7 @@ src/
 
 ## Key Types
 
-- `AgentId`: `"claude" | "codex"`
+- `AgentId`: `"claude" | "codex" | "cursor"`
 - `AgentDriver`: Detection + routing per agent
 - `PluginConfig`: Shape of `agntc.json`
 - `ManifestEntry`: Per-plugin tracking (ref, commit, agents, files, constraint)
@@ -42,11 +42,11 @@ src/
 
 ## Asset Routing
 
-| Asset | Claude | Codex |
-|-------|--------|-------|
-| skills | `.claude/skills/` | `.agents/skills/` |
-| agents | `.claude/agents/` | — |
-| hooks | `.claude/hooks/` | — |
+| Asset | Claude | Codex | Cursor |
+|-------|--------|-------|--------|
+| skills | `.claude/skills/` | `.agents/skills/` | `.cursor/skills/` |
+| agents | `.claude/agents/` | — | — |
+| hooks | `.claude/hooks/` | — | — |
 
 ## Version Constraints
 

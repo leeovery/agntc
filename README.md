@@ -16,7 +16,7 @@ A CLI that installs AI skills, agents, and hooks from git repos into projects,
 
 ---
 
-agntc is a standalone CLI for installing shareable AI capabilities (skills, agents, hooks) from git repositories into any project. It works with multiple AI coding agents through a driver architecture — same source repo, different target directories per agent.
+agntc is a standalone CLI for installing shareable AI capabilities (skills, agents, hooks) from git repositories into any project. It works with multiple AI coding agents (Claude, Codex, Cursor) through a driver architecture — same source repo, different target directories per agent.
 
 Everything is tracked in a manifest file, so you can update, remove, and list installed plugins without manual bookkeeping.
 
@@ -118,7 +118,7 @@ npx agntc@latest add ./local-plugin
 npx agntc@latest add https://gitlab.com/org/repo
 ```
 
-The tool detects plugin type automatically, shows agent multiselect (pre-selecting detected agents), checks for conflicts, and copies assets to agent-specific directories.
+The tool detects plugin type automatically, shows agent multiselect filtered to the plugin's declared agents (pre-selecting detected ones), checks for conflicts, and copies assets to agent-specific directories. When a plugin declares a single agent and it's detected locally, agent selection is auto-skipped.
 
 **Version constraint behaviour:**
 - Bare `owner/repo` — if the remote has semver tags, the latest is resolved and a `^major.minor.patch` constraint is auto-applied
@@ -234,7 +234,7 @@ Multiple installable units in one repo (no root `agntc.json`):
 my-collection/
   README.md
   go/
-    agntc.json        ← {"agents": ["claude", "codex"]}
+    agntc.json        ← {"agents": ["claude", "codex", "cursor"]}
     SKILL.md
   python/
     agntc.json        ← {"agents": ["claude"]}
@@ -253,7 +253,7 @@ Every installable unit requires an `agntc.json` at its root:
 
 ```json
 {
-  "agents": ["claude", "codex"]
+  "agents": ["claude", "codex", "cursor"]
 }
 ```
 
@@ -261,7 +261,7 @@ Every installable unit requires an `agntc.json` at its root:
 |---|---|---|---|
 | `agents` | `string[]` | Yes | Agent identifiers this plugin supports |
 
-Valid agents: `claude`, `codex`. Unknown values are warned but ignored.
+Valid agents: `claude`, `codex`, `cursor`. Unknown values are warned but ignored.
 
 ## Supported Agents
 
@@ -269,6 +269,7 @@ Valid agents: `claude`, `codex`. Unknown values are warned but ignored.
 |---|---|---|---|
 | Claude | `.claude/skills/` | `.claude/agents/` | `.claude/hooks/` |
 | Codex | `.agents/skills/` | — | — |
+| Cursor | `.cursor/skills/` | — | — |
 
 Adding new agents is config-only — implement a driver with detection and routing.
 
