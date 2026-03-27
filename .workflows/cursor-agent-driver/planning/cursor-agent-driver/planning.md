@@ -22,7 +22,8 @@ approved_at: 2026-03-27
 - [ ] New CursorDriver unit tests cover all three detection tiers (project dir, which, home dir), early-return short-circuiting, and `getTargetDir` for skills/agents/hooks/unknown asset types
 
 #### Tasks
-status: draft
+status: approved
+approved_at: 2026-03-27
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
