@@ -12,5 +12,8 @@
     "cursor-agent-driver": {
       "work_type": "feature"
     }
+  },
+  "defaults": {
+    "plan_format": "tick"
   }
 }
