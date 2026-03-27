@@ -111,9 +111,9 @@ npx agntc@latest add <source>
 | Direct path | `https://github.com/owner/repo/tree/main/plugin-name` | Collection shortcut |
 
 ```bash
-npx agntc@latest add leeovery/claude-technical-workflows     # auto-constrain ^latest
-npx agntc@latest add leeovery/agent-skills@^1.0              # semver constraint
-npx agntc@latest add leeovery/agent-skills@v1.0.0            # exact tag
+npx agntc@latest add leeovery/agentic-workflows     # auto-constrain ^latest
+npx agntc@latest add leeovery/agentic-workflows@^1.0              # semver constraint
+npx agntc@latest add leeovery/agentic-workflows@v1.0.0            # exact tag
 npx agntc@latest add ./local-plugin
 npx agntc@latest add https://gitlab.com/org/repo
 ```
