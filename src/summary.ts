@@ -98,7 +98,7 @@ export function renderAddSummary(input: AddSummaryInput): string {
 	return `Installed ${input.manifestKey}@${refLabel}${agentSummary}`;
 }
 
-interface CollectionPluginResult {
+export interface PluginInstallResult {
 	pluginName: string;
 	status: "installed" | "skipped" | "failed";
 	copiedFiles: string[];
@@ -112,7 +112,7 @@ interface CollectionAddSummaryInput {
 	manifestKey: string;
 	ref: string | null;
 	commit: string | null;
-	results: CollectionPluginResult[];
+	results: PluginInstallResult[];
 }
 
 export function renderCollectionAddSummary(

@@ -22,6 +22,7 @@ import type { Manifest } from "../manifest.js";
 import { addEntry, readManifest, writeManifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import { parseSource, resolveCloneUrl } from "../source-parser.js";
+import type { PluginInstallResult } from "../summary.js";
 import { renderAddSummary, renderCollectionAddSummary } from "../summary.js";
 import type { DetectedType } from "../type-detection.js";
 import { detectType } from "../type-detection.js";
@@ -342,16 +343,6 @@ interface CollectionPipelineInput {
 	onWarn: (message: string) => void;
 	spin: ReturnType<typeof p.spinner>;
 	constraint: string | undefined;
-}
-
-interface PluginInstallResult {
-	pluginName: string;
-	status: "installed" | "skipped" | "failed";
-	copiedFiles: string[];
-	agents: AgentId[];
-	assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
-	detectedType?: DetectedType;
-	errorMessage?: string;
 }
 
 async function runCollectionPipeline(
