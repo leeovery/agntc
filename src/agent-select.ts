@@ -15,6 +15,16 @@ export async function selectAgents(
 
 	const detectedSet = new Set(input.detectedAgents);
 
+	const singleAgent = input.declaredAgents[0];
+	if (
+		input.declaredAgents.length === 1 &&
+		singleAgent &&
+		detectedSet.has(singleAgent)
+	) {
+		log.info(`Auto-selected agent: ${singleAgent}`);
+		return [singleAgent];
+	}
+
 	const initialValues = input.declaredAgents.filter((id) =>
 		detectedSet.has(id),
 	);

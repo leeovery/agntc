@@ -35,13 +35,12 @@ describe("selectAgents", () => {
 		mockMultiselect.mockResolvedValue(["claude"]);
 
 		await selectAgents({
-			declaredAgents: ["claude"],
-			detectedAgents: ["claude", "codex"],
+			declaredAgents: ["claude", "codex"],
+			detectedAgents: ["claude", "codex", "cursor"],
 		});
 
 		const call = mockMultiselect.mock.calls[0]![0];
 		const values = call.options.map((o: { value: AgentId }) => o.value);
-		expect(values).not.toContain("codex");
 		expect(values).not.toContain("cursor");
 	});
 
@@ -115,7 +114,7 @@ describe("selectAgents", () => {
 		mockMultiselect.mockResolvedValue(Symbol("cancel"));
 
 		const result = await selectAgents({
-			declaredAgents: ["claude"],
+			declaredAgents: ["claude", "codex"],
 			detectedAgents: ["claude"],
 		});
 
@@ -126,7 +125,7 @@ describe("selectAgents", () => {
 		mockMultiselect.mockResolvedValue([]);
 
 		const result = await selectAgents({
-			declaredAgents: ["claude"],
+			declaredAgents: ["claude", "codex"],
 			detectedAgents: ["claude"],
 		});
 
@@ -145,5 +144,85 @@ describe("selectAgents", () => {
 		});
 
 		expect(result).toEqual(["claude", "codex"]);
+	});
+
+	it("auto-selects when one declared agent is detected", async () => {
+		const result = await selectAgents({
+			declaredAgents: ["claude"],
+			detectedAgents: ["claude"],
+		});
+
+		expect(result).toEqual(["claude"]);
+		expect(mockMultiselect).not.toHaveBeenCalled();
+	});
+
+	it("logs auto-selected agent name", async () => {
+		await selectAgents({
+			declaredAgents: ["codex"],
+			detectedAgents: ["codex", "claude"],
+		});
+
+		expect(vi.mocked(p.log.info)).toHaveBeenCalledWith(
+			"Auto-selected agent: codex",
+		);
+	});
+
+	it("shows prompt when one declared agent is not detected", async () => {
+		mockMultiselect.mockResolvedValue(["claude"]);
+
+		await selectAgents({
+			declaredAgents: ["claude"],
+			detectedAgents: [],
+		});
+
+		expect(mockMultiselect).toHaveBeenCalled();
+		const call = mockMultiselect.mock.calls[0]![0];
+		const claudeOption = call.options.find(
+			(o: { value: AgentId }) => o.value === "claude",
+		);
+		expect(claudeOption?.label).toBe("claude (not detected in project)");
+	});
+
+	it("shows prompt when multiple declared with one detected", async () => {
+		mockMultiselect.mockResolvedValue(["claude"]);
+
+		await selectAgents({
+			declaredAgents: ["claude", "codex"],
+			detectedAgents: ["claude"],
+		});
+
+		expect(mockMultiselect).toHaveBeenCalled();
+	});
+
+	it("shows prompt when multiple declared all detected", async () => {
+		mockMultiselect.mockResolvedValue(["claude", "codex"]);
+
+		await selectAgents({
+			declaredAgents: ["claude", "codex"],
+			detectedAgents: ["claude", "codex"],
+		});
+
+		expect(mockMultiselect).toHaveBeenCalled();
+	});
+
+	it("shows prompt when multiple declared none detected", async () => {
+		mockMultiselect.mockResolvedValue([]);
+
+		await selectAgents({
+			declaredAgents: ["claude", "codex"],
+			detectedAgents: [],
+		});
+
+		expect(mockMultiselect).toHaveBeenCalled();
+	});
+
+	it("returns empty array for zero declared agents without prompting", async () => {
+		const result = await selectAgents({
+			declaredAgents: [],
+			detectedAgents: ["claude", "codex"],
+		});
+
+		expect(result).toEqual([]);
+		expect(mockMultiselect).not.toHaveBeenCalled();
 	});
 });
