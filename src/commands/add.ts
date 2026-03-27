@@ -487,6 +487,7 @@ async function runCollectionPipeline(
 		// Per-plugin agent filtering: intersect selectedAgents with plugin's declared agents
 		const declaredSet = new Set(pluginConfig.agents);
 		const pluginAgents = selectedAgents.filter((id) => declaredSet.has(id));
+		if (pluginAgents.length === 0) continue;
 		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
 			id,
 			driver: getDriver(id),

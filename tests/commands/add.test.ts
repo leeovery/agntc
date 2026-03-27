@@ -1434,6 +1434,203 @@ describe("add command", () => {
 				});
 			});
 		});
+
+		describe("silent skip for plugins with zero applicable agents", () => {
+			function setupZeroMatchCollection(opts: {
+				pluginAAgents: AgentId[];
+				pluginBAgents: AgentId[];
+				selectedAgents: AgentId[];
+			}): void {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					if (dir.endsWith("/pluginA"))
+						return { agents: opts.pluginAAgents };
+					if (dir.endsWith("/pluginB"))
+						return { agents: opts.pluginBAgents };
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockDetectAgents.mockResolvedValue(["claude", "codex"]);
+				mockSelectAgents.mockResolvedValue(opts.selectedAgents);
+				const claudeDriver = {
+					detect: vi.fn().mockResolvedValue(true),
+					getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
+				};
+				const codexDriver = {
+					detect: vi.fn().mockResolvedValue(true),
+					getTargetDir: vi.fn().mockReturnValue(".agents/skills"),
+				};
+				mockGetDriver.mockImplementation((id: AgentId) => {
+					if (id === "claude") return claudeDriver as any;
+					return codexDriver as any;
+				});
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+			}
+
+			it("plugin with zero applicable agents is silently skipped -- no copy, no manifest entry", async () => {
+				// pluginA declares claude, pluginB declares codex; user selects only claude
+				// => pluginB has zero applicable agents and should be skipped entirely
+				setupZeroMatchCollection({
+					pluginAAgents: ["claude"],
+					pluginBAgents: ["codex"],
+					selectedAgents: ["claude"],
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// Only one copy call (pluginA), pluginB is skipped
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				// Only one manifest entry (pluginA)
+				expect(mockAddEntry).toHaveBeenCalledTimes(1);
+				expect(mockAddEntry).toHaveBeenCalledWith(
+					expect.anything(),
+					"owner/my-collection/pluginA",
+					expect.objectContaining({ agents: ["claude"] }),
+				);
+			});
+
+			it("zero-match plugin does not appear in summary output", async () => {
+				setupZeroMatchCollection({
+					pluginAAgents: ["claude"],
+					pluginBAgents: ["codex"],
+					selectedAgents: ["claude"],
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				// pluginA should appear in summary
+				expect(outroCall).toContain("pluginA");
+				// pluginB should NOT appear anywhere in summary
+				expect(outroCall).not.toContain("pluginB");
+			});
+
+			it("all plugins in collection have zero match -- nothing installs but no error thrown", async () => {
+				// pluginA declares codex, pluginB declares codex; user selects only claude
+				// => both plugins zero match
+				setupZeroMatchCollection({
+					pluginAAgents: ["codex"],
+					pluginBAgents: ["codex"],
+					selectedAgents: ["claude"],
+				});
+
+				// Should complete without error (no ExitSignal thrown)
+				await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+			});
+
+			it("all plugins zero match -- summary shows collection header with no plugin blocks", async () => {
+				setupZeroMatchCollection({
+					pluginAAgents: ["codex"],
+					pluginBAgents: ["codex"],
+					selectedAgents: ["claude"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// writeManifest is called but with unchanged manifest (no addEntry calls)
+				expect(mockAddEntry).not.toHaveBeenCalled();
+				expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+
+				// Summary has the collection header but no plugin blocks
+				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				expect(outroCall).toContain("owner/my-collection");
+				expect(outroCall).not.toContain("pluginA");
+				expect(outroCall).not.toContain("pluginB");
+			});
+
+			it("single-plugin collection with zero match -- no error, empty install", async () => {
+				setupCollectionBase();
+				const singlePluginCollection: DetectedType = {
+					type: "collection",
+					plugins: ["pluginA"],
+				};
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					if (dir.endsWith("/pluginA"))
+						return { agents: ["codex"] as AgentId[] };
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return singlePluginCollection;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockSelectCollectionPlugins.mockResolvedValue(["pluginA"]);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+
+				await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+				expect(mockAddEntry).not.toHaveBeenCalled();
+			});
+
+			it("mix of installable and zero-match plugins -- only installable plugins get manifest entries and summary lines", async () => {
+				setupZeroMatchCollection({
+					pluginAAgents: ["claude"],
+					pluginBAgents: ["codex"],
+					selectedAgents: ["claude"],
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// Only pluginA gets copied and manifest entry
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				expect(mockAddEntry).toHaveBeenCalledTimes(1);
+
+				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				expect(outroCall).toContain("pluginA");
+				expect(outroCall).not.toContain("pluginB");
+				// No "skipped" line for pluginB either
+				expect(outroCall).not.toContain("skipped");
+			});
+
+			it("zero-match skip does not log any warning", async () => {
+				setupZeroMatchCollection({
+					pluginAAgents: ["claude"],
+					pluginBAgents: ["codex"],
+					selectedAgents: ["claude"],
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// Check that no warning mentions pluginB being skipped or having zero agents
+				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+				const pluginBWarnings = warnCalls.filter(
+					(msg) =>
+						msg.includes("pluginB") ||
+						msg.includes("zero") ||
+						msg.includes("no applicable") ||
+						msg.includes("no agents"),
+				);
+				expect(pluginBWarnings).toHaveLength(0);
+			});
+		});
 	});
 
 	describe("plugin type", () => {
