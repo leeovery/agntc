@@ -47,3 +47,12 @@ approved_at: 2026-03-27
 - [ ] Plugins with zero applicable agents after filtering are silently skipped — no manifest entry, no file copy, no summary line
 - [ ] The union of declared agents across all selected plugins still drives the `selectAgents` prompt correctly (existing union behavior preserved)
 - [ ] Existing collection pipeline tests updated and passing; new tests cover the per-plugin filtering and silent-skip scenarios
+
+#### Tasks
+status: approved
+approved_at: 2026-03-27
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| cursor-agent-driver-2-1 | Per-Plugin Agent Filtering in Collection Pipeline | plugin declares exact same agents as selected (no-op filter), all plugins declare identical agents (behaves like current code minus warnings) |
+| cursor-agent-driver-2-2 | Silent Skip for Plugins With Zero Applicable Agents | all plugins in collection have zero match (nothing installs but no error), single-plugin collection with zero match, mix of installable and zero-match plugins in same collection |
