@@ -21,6 +21,16 @@ approved_at: 2026-03-27
 - [ ] All existing driver, registry, config, agent-select, and detect-agents tests pass (updated where they assert on the two-agent set)
 - [ ] New CursorDriver unit tests cover all three detection tiers (project dir, which, home dir), early-return short-circuiting, and `getTargetDir` for skills/agents/hooks/unknown asset types
 
+#### Tasks
+status: draft
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| cursor-agent-driver-1-1 | CursorDriver Implementation | home directory fallback (~/.cursor/), early-return short-circuiting on first successful detection tier, getTargetDir returns null for agents/hooks/unknown asset types |
+| cursor-agent-driver-1-2 | Integrate Cursor into Type System and Registry | identify.ts must recognize .cursor/skills/ paths, config readConfig must accept "cursor" in agntc.json agents array, Record<AgentId, AgentDriver> requires all three keys |
+| cursor-agent-driver-1-3 | Filter selectAgents to Declared Agents with Not-Detected Hint | empty declaredAgents yields zero options, all declared agents not detected shows all with hint, undeclared agents excluded entirely from multiselect |
+| cursor-agent-driver-1-4 | Auto-Skip Agent Selection When Unambiguous | one declared but not detected still shows prompt, multiple declared with only one detected still shows prompt, zero declared agents |
+
 ## Phase 2: Collection Pipeline Silent Skip for Undeclared Agents
 status: approved
 approved_at: 2026-03-27
