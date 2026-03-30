@@ -26,10 +26,6 @@ Both receive identical treatment: extract file list display, keep `select()` mes
 
 For long file lists, truncate display to the first 10 files. Append a summary line in the format `...and N more files` (e.g., `...and 5 more files`). Both files use the same format for consistency. This is secondary polish but in-scope since both files are already being modified.
 
-### Vertical Spacing
-
-Add vertical spacing between the file list display and the action prompt. Currently the file list runs directly into the prompt options with no visual separation.
-
 ### Verification
 
 - Collision prompt renders correctly with large file lists (20+ files) — no duplication on arrow key toggle
