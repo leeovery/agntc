@@ -26,6 +26,26 @@
           }
         }
       }
+    },
+    "planning": {
+      "items": {
+        "collision-prompt-duplicates-on-toggle": {
+          "status": "in-progress",
+          "format": "tick",
+          "spec_commit": "a878743a15aa924e656411642e8c32d46e7d3026",
+          "task_list_gate_mode": "auto",
+          "author_gate_mode": "auto",
+          "finding_gate_mode": "gated",
+          "review_cycle": 0,
+          "phase": 1,
+          "task": "collision-prompt-duplicates-on-toggle-1-2",
+          "task_map": {
+            "collision-prompt-duplicates-on-toggle-1-1": "tick-6b9858",
+            "collision-prompt-duplicates-on-toggle-1": "tick-99b478"
+          },
+          "external_id": "tick-86a235"
+        }
+      }
     }
   }
 }
