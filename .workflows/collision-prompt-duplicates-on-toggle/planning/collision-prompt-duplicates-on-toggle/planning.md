@@ -1,7 +1,8 @@
 # Plan: Collision Prompt Duplicates on Toggle
 
 ## Phase 1: Extract file list display and fix prompt duplication
-status: draft
+status: approved
+approved_at: 2026-03-30
 
 **Goal**: Eliminate prompt duplication on arrow-key toggle by moving file lists out of `select()` messages into `p.note()` panels in both `collision-resolve.ts` and `unmanaged-resolve.ts`, and add file list truncation for lists exceeding 10 files.
 
