@@ -50,32 +50,63 @@ Each arrow key press appends a new copy of the "How would you like to proceed?" 
 ### Initial Hypotheses
 
 - The collision prompt may be using a rendering approach that appends rather than re-renders in place (e.g., `console.log` instead of a proper interactive prompt library's re-render)
+- Updated after code trace: the issue is multiline strings in `@clack/prompts` `select` message breaking cursor repositioning
 
 ### Code Trace
 
-*To be completed during analysis*
+**Entry point:**
+`src/commands/add.ts:102` — calls `resolveCollisions()` when `collisions.size > 0`
+
+**Execution path:**
+1. `src/commands/add.ts:102` — `resolveCollisions(collisions, currentManifest, projectDir)`
+2. `src/collision-resolve.ts:33-45` — `select()` called with multiline message:
+   ```ts
+   message: `File collision with "${key}":\n${fileList}\nHow would you like to proceed?`
+   ```
+   The `fileList` variable itself contains newlines (one `\n` per colliding file).
+3. `@clack/core` `Prompt.restoreCursor()` — counts lines in previous frame via `wrap(prevFrame).split('\n').length - 1`, then moves cursor up that many lines.
+4. `@clack/core` `Prompt.render()` — uses `diffLines()` to find changed lines, then writes partial updates.
+
+**The bug:** `@clack/core`'s `restoreCursor()` relies on accurate line counting of the previous frame. When the `message` string contains embedded `\n` characters (the file list), the frame spans many more lines than a typical single-line message. The cursor-up calculation becomes unreliable — the cursor doesn't move back far enough, so instead of overwriting the previous frame, new content is appended below it. Each arrow key toggle triggers a re-render that duplicates the entire prompt block.
+
+**Key files involved:**
+- `src/collision-resolve.ts` — constructs the multiline message for `select()`
+- `src/unmanaged-resolve.ts` — same pattern, same bug (line 35)
+- `node_modules/@clack/core/dist/index.mjs` — rendering logic with `restoreCursor()` and `render()`
 
 ### Root Cause
 
-*To be completed during analysis*
+The `@clack/prompts` `select()` function's `message` parameter is intended for short, single-line messages. When a message containing many embedded newlines is passed (the collision file list), `@clack/core`'s terminal cursor management breaks. The `restoreCursor()` method miscalculates how far up to move the cursor, causing each re-render to append below the previous frame rather than overwriting it.
+
+**Why this happens:**
+The `render()` method in `@clack/core` uses `diffLines()` to optimize re-rendering — only changed lines are rewritten. But when the cursor isn't repositioned correctly (due to the multiline message), the diff-based writes land in the wrong terminal rows, causing duplication.
 
 ### Contributing Factors
 
-*To be completed during analysis*
+- The collision file list can be very long (two pages of files), making the message string span many terminal lines
+- `@clack/prompts` doesn't document or enforce single-line message constraints
+- The code dumps the full file list inline in the message rather than displaying it separately before the prompt
 
 ### Why It Wasn't Caught
 
-*To be completed during analysis*
+- The collision prompt is only triggered when re-installing over existing plugins — not a primary happy-path flow
+- Manual testing likely used small file lists that didn't trigger the rendering issue
+- No automated tests for interactive terminal rendering behavior
 
 ### Blast Radius
 
-*To be completed during analysis*
+**Directly affected:**
+- `src/collision-resolve.ts` — collision prompt (primary bug)
+- `src/unmanaged-resolve.ts` — unmanaged file prompt (same pattern, same bug)
+
+**Potentially affected:**
+- Any other `@clack/prompts` `select()` call with multiline messages (grep found only these two)
 
 ---
 
 ## Fix Direction
 
-*To be completed after analysis*
+*To be completed after findings review*
 
 ---
 
@@ -84,3 +115,4 @@ Each arrow key press appends a new copy of the "How would you like to proceed?" 
 Secondary issues noted for potential inclusion in fix:
 1. File list presentation: dense, cramped, two pages of colliding files dumped inline
 2. No vertical spacing between file list and action prompt
+3. `unmanaged-resolve.ts` has the identical multiline message pattern and will have the same duplication bug
