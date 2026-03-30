@@ -16,7 +16,7 @@
       "items": {
         "collision-prompt-duplicates-on-toggle": {
           "status": "in-progress",
-          "review_cycle": 2,
+          "review_cycle": 3,
           "finding_gate_mode": "auto",
           "date": "2026-03-30",
           "sources": {
