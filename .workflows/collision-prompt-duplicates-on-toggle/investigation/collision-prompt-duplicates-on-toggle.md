@@ -108,13 +108,38 @@ The terminal itself limits cursor-up movement to the top of the visible buffer. 
 
 ## Fix Direction
 
-*To be completed after findings review*
+### Chosen Approach
+
+Move the file list out of the `select()` message parameter. Display it separately before the prompt using `p.log.info()` or `p.note()`, then pass a short single-line message to `select()`. This keeps the interactive frame small (3-4 lines) regardless of file count, avoiding the scroll overflow entirely.
+
+**Deciding factor:** Directly addresses root cause by ensuring the interactive frame never exceeds terminal height, regardless of file count. Zero risk to resolution logic.
+
+### Options Explored
+
+Only one approach was discussed — it was the obvious fix given the root cause. Moving display content out of the interactive prompt parameter is the natural solution. No alternatives were considered necessary.
+
+### Discussion
+
+Straightforward fix. User confirmed findings and direction without concerns. The fix scope naturally includes the secondary polish items (file list truncation, vertical spacing) since those files are already being modified. Both `collision-resolve.ts` and `unmanaged-resolve.ts` get the same treatment.
+
+### Testing Recommendations
+
+- Test collision prompt renders correctly with large file lists (20+ files)
+- Test collision prompt renders correctly with small file lists (1-2 files)
+- Test unmanaged-conflict prompt with same scenarios
+- Verify arrow key toggle works without duplication in all cases
+
+### Risk Assessment
+
+- **Fix complexity:** Low
+- **Regression risk:** Low — only changes display format, not resolution logic
+- **Recommended approach:** Regular release
 
 ---
 
 ## Notes
 
-Secondary issues noted for potential inclusion in fix:
-1. File list presentation: dense, cramped, two pages of colliding files dumped inline
-2. No vertical spacing between file list and action prompt
-3. `unmanaged-resolve.ts` has the identical multiline message pattern and will have the same duplication bug
+Secondary polish included in fix scope:
+1. Truncate long file lists (e.g., show first 10, then "+N more")
+2. Add vertical spacing between file list and action prompt
+3. Both `collision-resolve.ts` and `unmanaged-resolve.ts` get the same fix
