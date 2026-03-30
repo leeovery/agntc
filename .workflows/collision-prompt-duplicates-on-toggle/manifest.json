@@ -11,6 +11,21 @@
           "status": "completed"
         }
       }
+    },
+    "specification": {
+      "items": {
+        "collision-prompt-duplicates-on-toggle": {
+          "status": "in-progress",
+          "review_cycle": 0,
+          "finding_gate_mode": "gated",
+          "date": "2026-03-30",
+          "sources": {
+            "collision-prompt-duplicates-on-toggle": {
+              "status": "pending"
+            }
+          }
+        }
+      }
     }
   }
 }
