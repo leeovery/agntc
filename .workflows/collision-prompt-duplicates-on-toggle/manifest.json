@@ -1,0 +1,16 @@
+{
+  "name": "collision-prompt-duplicates-on-toggle",
+  "work_type": "bugfix",
+  "status": "in-progress",
+  "created": "2026-03-30",
+  "description": "Collision prompt duplicates on arrow key toggle — each keypress appends a new copy of the prompt instead of re-rendering in place",
+  "phases": {
+    "investigation": {
+      "items": {
+        "collision-prompt-duplicates-on-toggle": {
+          "status": "in-progress"
+        }
+      }
+    }
+  }
+}
