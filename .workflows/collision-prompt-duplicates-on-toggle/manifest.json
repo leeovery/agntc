@@ -37,7 +37,7 @@
           "author_gate_mode": "auto",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
-          "phase": 1,
+          "phase": 2,
           "task": "~",
           "task_map": {
             "collision-prompt-duplicates-on-toggle-1-1": "tick-6b9858",
