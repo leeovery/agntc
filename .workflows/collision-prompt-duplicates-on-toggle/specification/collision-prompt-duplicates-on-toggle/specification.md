@@ -8,7 +8,9 @@ The `@clack/prompts` `select()` function's `message` parameter in both `src/coll
 
 ### Fix
 
-Move the file list out of the `select()` message parameter in both files. Display the file list separately before the prompt using `p.note()`. It renders a boxed panel which visually groups the files and provides clear separation from the subsequent `select()` prompt. Pass the plugin key as the title parameter (e.g., `p.note(fileList, \`File collision with "${key}"\``). Then pass a short single-line message to `select()`. This keeps the interactive frame small (3-4 lines) regardless of file count, avoiding the scroll overflow entirely.
+Move the file list out of the `select()` message parameter in both files. Display the file list separately before the prompt using `p.note()`. It renders a boxed panel which visually groups the files and provides clear separation from the subsequent `select()` prompt. Pass the plugin key as the title parameter:
+- Collision: `p.note(fileList, \`File collision with "${key}"\`)`
+- Unmanaged: `p.note(fileList, \`Unmanaged files for "${pluginKey}"\`)` Then pass a short single-line message to `select()`. This keeps the interactive frame small (3-4 lines) regardless of file count, avoiding the scroll overflow entirely.
 
 The replacement `select()` messages must still include the plugin key for context:
 - Collision: `message: \`How would you like to proceed with "${key}"?\``
