@@ -22,7 +22,8 @@ approved_at: 2026-03-30
 - [ ] Existing tests pass with no regressions
 
 ### Tasks
-status: draft
+status: approved
+approved_at: 2026-03-30
 
 | # | Internal ID | Task Name | Summary | Edge Cases |
 |---|-------------|-----------|---------|------------|
