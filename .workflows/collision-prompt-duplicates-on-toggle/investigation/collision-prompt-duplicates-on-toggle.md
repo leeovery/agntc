@@ -67,7 +67,9 @@ Each arrow key press appends a new copy of the "How would you like to proceed?" 
 3. `@clack/core` `Prompt.restoreCursor()` — counts lines in previous frame via `wrap(prevFrame).split('\n').length - 1`, then moves cursor up that many lines.
 4. `@clack/core` `Prompt.render()` — uses `diffLines()` to find changed lines, then writes partial updates.
 
-**The bug:** `@clack/core`'s `restoreCursor()` relies on accurate line counting of the previous frame. When the `message` string contains embedded `\n` characters (the file list), the frame spans many more lines than a typical single-line message. The cursor-up calculation becomes unreliable — the cursor doesn't move back far enough, so instead of overwriting the previous frame, new content is appended below it. Each arrow key toggle triggers a re-render that duplicates the entire prompt block.
+**The bug:** When the `message` string contains many embedded `\n` characters (the file list), the rendered frame spans many more terminal rows than typical. The most likely mechanism is **terminal scroll overflow**: when the frame exceeds terminal height, the initial render scrolls the terminal, pushing the top of the frame off-screen. On re-render, `restoreCursor()` emits ANSI cursor-up (`CSI nA`), but this is bounded by the top of the visible screen buffer — it cannot scroll backwards past content that has already scrolled off. The cursor lands partway through the frame, and subsequent writes append below rather than overwriting. Each arrow key toggle triggers a re-render that duplicates the entire prompt block.
+
+Note: `restoreCursor()` line counting arithmetic appears correct (double-wrapping is idempotent). The issue is the terminal's inability to cursor-up past scroll boundaries, not a miscalculation.
 
 **Key files involved:**
 - `src/collision-resolve.ts` — constructs the multiline message for `select()`
@@ -76,10 +78,10 @@ Each arrow key press appends a new copy of the "How would you like to proceed?" 
 
 ### Root Cause
 
-The `@clack/prompts` `select()` function's `message` parameter is intended for short, single-line messages. When a message containing many embedded newlines is passed (the collision file list), `@clack/core`'s terminal cursor management breaks. The `restoreCursor()` method miscalculates how far up to move the cursor, causing each re-render to append below the previous frame rather than overwriting it.
+The `@clack/prompts` `select()` function's `message` parameter is designed for short, single-line messages. When a message containing many embedded newlines is passed (the collision file list), the rendered frame can exceed terminal height. On re-render, `@clack/core`'s `restoreCursor()` emits ANSI cursor-up commands, but these are bounded by the visible screen buffer — the cursor cannot move past content that has scrolled off-screen. This causes the cursor to land partway through the frame, and subsequent writes append below the previous frame rather than overwriting it.
 
 **Why this happens:**
-The `render()` method in `@clack/core` uses `diffLines()` to optimize re-rendering — only changed lines are rewritten. But when the cursor isn't repositioned correctly (due to the multiline message), the diff-based writes land in the wrong terminal rows, causing duplication.
+The terminal itself limits cursor-up movement to the top of the visible buffer. When the initial render scrolls the terminal (because the frame is taller than terminal height), the scroll offset creates an uncorrectable gap between where the cursor needs to be and where it can actually go. The `diffLines()` optimization then writes changed lines at incorrect terminal positions, producing duplication.
 
 ### Contributing Factors
 

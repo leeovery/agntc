@@ -11,6 +11,9 @@
     },
     "cursor-agent-driver": {
       "work_type": "feature"
+    },
+    "collision-prompt-duplicates-on-toggle": {
+      "work_type": "bugfix"
     }
   },
   "defaults": {
