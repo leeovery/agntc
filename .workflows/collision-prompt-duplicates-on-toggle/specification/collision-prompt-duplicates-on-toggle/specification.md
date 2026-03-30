@@ -8,7 +8,11 @@ The `@clack/prompts` `select()` function's `message` parameter in both `src/coll
 
 ### Fix
 
-Move the file list out of the `select()` message parameter in both files. Display the file list separately before the prompt (using `p.note()` or `p.log.info()`), then pass a short single-line message to `select()`. This keeps the interactive frame small (3-4 lines) regardless of file count, avoiding the scroll overflow entirely.
+Move the file list out of the `select()` message parameter in both files. Display the file list separately before the prompt using `p.note()`. It renders a boxed panel which visually groups the files and provides clear separation from the subsequent `select()` prompt. Pass the plugin key as the title parameter (e.g., `p.note(fileList, \`File collision with "${key}"\``). Then pass a short single-line message to `select()`. This keeps the interactive frame small (3-4 lines) regardless of file count, avoiding the scroll overflow entirely.
+
+The replacement `select()` messages must still include the plugin key for context:
+- Collision: `message: \`How would you like to proceed with "${key}"?\``
+- Unmanaged: `message: \`How would you like to proceed with "${pluginKey}"?\``
 
 **Affected files:**
 - `src/collision-resolve.ts:33-34` — collision prompt. Currently: `message: \`File collision with "${key}":\n${fileList}\nHow would you like to proceed?\``
@@ -18,7 +22,7 @@ Both receive identical treatment: extract file list display, keep `select()` mes
 
 ### File List Truncation
 
-For long file lists, truncate display to the first 10 files with a "+N more" suffix. This is secondary polish but in-scope since both files are already being modified.
+For long file lists, truncate display to the first 10 files. Append a summary line in the format `...and N more files` (e.g., `...and 5 more files`). Both files use the same format for consistency. This is secondary polish but in-scope since both files are already being modified.
 
 ### Vertical Spacing
 
