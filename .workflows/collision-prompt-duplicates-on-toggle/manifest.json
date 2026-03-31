@@ -52,15 +52,31 @@
       "items": {
         "collision-prompt-duplicates-on-toggle": {
           "status": "in-progress",
-          "task_gate_mode": "gated",
+          "task_gate_mode": "auto",
           "fix_gate_mode": "gated",
           "analysis_gate_mode": "gated",
           "fix_attempts": 0,
           "analysis_cycle": 0,
-          "linters": [],
-          "project_skills": [],
+          "linters": [
+            {
+              "name": "biome",
+              "command": "npx biome check --fix src/"
+            },
+            {
+              "name": "tsc",
+              "command": "npx tsc --noEmit"
+            }
+          ],
+          "project_skills": [
+            ".claude/skills/typescript-expert",
+            ".claude/skills/typescript-advanced-types",
+            ".claude/skills/typescript-pro"
+          ],
           "current_phase": 1,
-          "current_task": "~"
+          "current_task": "~",
+          "completed_tasks": [
+            "collision-prompt-duplicates-on-toggle-1-1"
+          ]
         }
       }
     }

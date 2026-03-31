@@ -5,6 +5,7 @@ vi.mock("@clack/prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@clack/prompts")>();
 	return {
 		...actual,
+		note: vi.fn(),
 		select: vi.fn(),
 		confirm: vi.fn(),
 		isCancel: vi.fn((value: unknown) => typeof value === "symbol"),
@@ -15,6 +16,7 @@ import * as p from "@clack/prompts";
 import type { UnmanagedPluginConflicts } from "../src/unmanaged-resolve.js";
 import { resolveUnmanagedConflicts } from "../src/unmanaged-resolve.js";
 
+const mockedNote = vi.mocked(p.note);
 const mockedSelect = vi.mocked(p.select);
 const mockedConfirm = vi.mocked(p.confirm);
 
@@ -206,6 +208,77 @@ describe("resolveUnmanagedConflicts", () => {
 			".claude/agents/agent-b.md",
 			".claude/hooks/hook-c.sh",
 		]);
+	});
+
+	it("calls note with file list and unmanaged title before select", async () => {
+		const conflicts: UnmanagedPluginConflicts[] = [
+			{
+				pluginKey: "owner/repo-a",
+				files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
+			},
+		];
+
+		mockedSelect.mockResolvedValueOnce("cancel");
+
+		await resolveUnmanagedConflicts(conflicts);
+
+		expect(mockedNote).toHaveBeenCalledWith(
+			"  - .claude/skills/my-skill/\n  - .claude/agents/executor.md",
+			'Unmanaged files for "owner/repo-a"',
+		);
+		// note() must be called before select()
+		const noteOrder = mockedNote.mock.invocationCallOrder[0];
+		const selectOrder = mockedSelect.mock.invocationCallOrder[0];
+		expect(noteOrder).toBeLessThan(selectOrder!);
+	});
+
+	it("select message is single-line with plugin key (unmanaged)", async () => {
+		const conflicts: UnmanagedPluginConflicts[] = [
+			{
+				pluginKey: "owner/repo-a",
+				files: [".claude/skills/my-skill/"],
+			},
+		];
+
+		mockedSelect.mockResolvedValueOnce("cancel");
+
+		await resolveUnmanagedConflicts(conflicts);
+
+		const call = mockedSelect.mock.calls[0]!;
+		const { message } = call[0] as { message: string };
+		expect(message).toBe('How would you like to proceed with "owner/repo-a"?');
+		expect(message).not.toContain("\n");
+	});
+
+	it("calls note for each conflict in collection resolution", async () => {
+		const conflicts: UnmanagedPluginConflicts[] = [
+			{
+				pluginKey: "owner/repo/plugin-a",
+				files: [".claude/skills/skill-a/"],
+			},
+			{
+				pluginKey: "owner/repo/plugin-b",
+				files: [".claude/skills/skill-b/"],
+			},
+		];
+
+		mockedSelect.mockResolvedValueOnce("overwrite");
+		mockedConfirm.mockResolvedValueOnce(true);
+		mockedSelect.mockResolvedValueOnce("cancel");
+
+		await resolveUnmanagedConflicts(conflicts);
+
+		expect(mockedNote).toHaveBeenCalledTimes(2);
+		expect(mockedNote).toHaveBeenNthCalledWith(
+			1,
+			"  - .claude/skills/skill-a/",
+			'Unmanaged files for "owner/repo/plugin-a"',
+		);
+		expect(mockedNote).toHaveBeenNthCalledWith(
+			2,
+			"  - .claude/skills/skill-b/",
+			'Unmanaged files for "owner/repo/plugin-b"',
+		);
 	});
 
 	it("select options offer only overwrite and cancel", async () => {

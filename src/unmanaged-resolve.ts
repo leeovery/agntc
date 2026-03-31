@@ -1,4 +1,4 @@
-import { confirm, isCancel, select } from "@clack/prompts";
+import { confirm, isCancel, note, select } from "@clack/prompts";
 
 export interface UnmanagedPluginConflicts {
 	pluginKey: string;
@@ -31,8 +31,10 @@ export async function resolveUnmanagedConflicts(
 	for (const { pluginKey, files } of conflicts) {
 		const fileList = files.map((f) => `  - ${f}`).join("\n");
 
+		note(fileList, `Unmanaged files for "${pluginKey}"`);
+
 		const choice = await select({
-			message: `Unmanaged files found for "${pluginKey}":\n${fileList}\nHow would you like to proceed?`,
+			message: `How would you like to proceed with "${pluginKey}"?`,
 			options: [
 				{
 					value: "overwrite" as const,

@@ -1,4 +1,4 @@
-import { isCancel, select } from "@clack/prompts";
+import { isCancel, note, select } from "@clack/prompts";
 import type { Manifest } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 
@@ -30,8 +30,10 @@ export async function resolveCollisions(
 	for (const [key, files] of collisions) {
 		const fileList = files.map((f) => `  - ${f}`).join("\n");
 
+		note(fileList, `File collision with "${key}"`);
+
 		const choice = await select({
-			message: `File collision with "${key}":\n${fileList}\nHow would you like to proceed?`,
+			message: `How would you like to proceed with "${key}"?`,
 			options: [
 				{
 					value: "remove" as const,

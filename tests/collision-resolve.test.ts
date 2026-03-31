@@ -6,6 +6,7 @@ vi.mock("@clack/prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@clack/prompts")>();
 	return {
 		...actual,
+		note: vi.fn(),
 		select: vi.fn(),
 		isCancel: vi.fn((value: unknown) => typeof value === "symbol"),
 	};
@@ -20,6 +21,7 @@ import * as p from "@clack/prompts";
 import { resolveCollisions } from "../src/collision-resolve.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 
+const mockedNote = vi.mocked(p.note);
 const mockedSelect = vi.mocked(p.select);
 const mockedNuke = vi.mocked(nukeManifestFiles);
 
@@ -228,6 +230,98 @@ describe("resolveCollisions", () => {
 
 		expect(result.resolved).toBe(false);
 		expect(mockedNuke).not.toHaveBeenCalled();
+	});
+
+	it("calls note with file list and collision title before select", async () => {
+		const manifest: Manifest = {
+			"owner/repo-a": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/", ".claude/agents/executor.md"],
+			},
+		};
+		const collisions = new Map<string, string[]>([
+			["owner/repo-a", [".claude/skills/skill-a/", ".claude/agents/executor.md"]],
+		]);
+
+		mockedSelect.mockResolvedValueOnce("remove");
+
+		await resolveCollisions(collisions, manifest, "/project");
+
+		expect(mockedNote).toHaveBeenCalledWith(
+			"  - .claude/skills/skill-a/\n  - .claude/agents/executor.md",
+			'File collision with "owner/repo-a"',
+		);
+		// note() must be called before select()
+		const noteOrder = mockedNote.mock.invocationCallOrder[0];
+		const selectOrder = mockedSelect.mock.invocationCallOrder[0];
+		expect(noteOrder).toBeLessThan(selectOrder!);
+	});
+
+	it("select message is single-line with plugin key (collision)", async () => {
+		const manifest: Manifest = {
+			"owner/repo-a": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			},
+		};
+		const collisions = new Map<string, string[]>([
+			["owner/repo-a", [".claude/skills/skill-a/"]],
+		]);
+
+		mockedSelect.mockResolvedValueOnce("cancel");
+
+		await resolveCollisions(collisions, manifest, "/project");
+
+		const call = mockedSelect.mock.calls[0]!;
+		const { message } = call[0] as { message: string };
+		expect(message).toBe('How would you like to proceed with "owner/repo-a"?');
+		expect(message).not.toContain("\n");
+	});
+
+	it("calls note for each collision in sequential resolution", async () => {
+		const manifest: Manifest = {
+			"owner/repo-a": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			},
+			"owner/repo-b": {
+				ref: null,
+				commit: "def456",
+				installedAt: "2026-01-16T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/agents/my-agent.md"],
+			},
+		};
+		const collisions = new Map<string, string[]>([
+			["owner/repo-a", [".claude/skills/skill-a/"]],
+			["owner/repo-b", [".claude/agents/my-agent.md"]],
+		]);
+
+		mockedSelect.mockResolvedValueOnce("remove");
+		mockedSelect.mockResolvedValueOnce("remove");
+
+		await resolveCollisions(collisions, manifest, "/project");
+
+		expect(mockedNote).toHaveBeenCalledTimes(2);
+		expect(mockedNote).toHaveBeenNthCalledWith(
+			1,
+			"  - .claude/skills/skill-a/",
+			'File collision with "owner/repo-a"',
+		);
+		expect(mockedNote).toHaveBeenNthCalledWith(
+			2,
+			"  - .claude/agents/my-agent.md",
+			'File collision with "owner/repo-b"',
+		);
 	});
 
 	it("does not offer install-anyway option", async () => {
