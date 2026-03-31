@@ -30,7 +30,7 @@
     "planning": {
       "items": {
         "collision-prompt-duplicates-on-toggle": {
-          "status": "in-progress",
+          "status": "completed",
           "format": "tick",
           "spec_commit": "a878743a15aa924e656411642e8c32d46e7d3026",
           "task_list_gate_mode": "auto",
