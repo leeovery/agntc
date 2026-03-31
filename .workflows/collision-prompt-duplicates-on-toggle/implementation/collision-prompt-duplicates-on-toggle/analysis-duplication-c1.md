@@ -1,0 +1,3 @@
+AGENT: duplication
+FINDINGS: none
+SUMMARY: No significant duplication detected across implementation files. The shared file-list formatting logic was already properly extracted into `format-file-list.ts` and consumed by both `collision-resolve.ts` and `unmanaged-resolve.ts`. The remaining structural similarities between the two resolve modules (note + select + cancel-check) are thin UI idioms (3 lines each) with fundamentally different control flow, return types, and options -- not worth extracting. Test mock boilerplate is conventional per-file setup with slight differences in mocked function sets.
