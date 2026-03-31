@@ -1,4 +1,5 @@
 import { isCancel, note, select } from "@clack/prompts";
+import { formatFileList } from "./format-file-list.js";
 import type { Manifest } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 
@@ -28,7 +29,7 @@ export async function resolveCollisions(
 	let updatedManifest = { ...manifest };
 
 	for (const [key, files] of collisions) {
-		const fileList = files.map((f) => `  - ${f}`).join("\n");
+		const fileList = formatFileList(files);
 
 		note(fileList, `File collision with "${key}"`);
 

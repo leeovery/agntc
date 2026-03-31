@@ -1,4 +1,5 @@
 import { confirm, isCancel, note, select } from "@clack/prompts";
+import { formatFileList } from "./format-file-list.js";
 
 export interface UnmanagedPluginConflicts {
 	pluginKey: string;
@@ -29,7 +30,7 @@ export async function resolveUnmanagedConflicts(
 	}
 
 	for (const { pluginKey, files } of conflicts) {
-		const fileList = files.map((f) => `  - ${f}`).join("\n");
+		const fileList = formatFileList(files);
 
 		note(fileList, `Unmanaged files for "${pluginKey}"`);
 

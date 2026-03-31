@@ -75,7 +75,11 @@
           "current_phase": 1,
           "current_task": "~",
           "completed_tasks": [
-            "collision-prompt-duplicates-on-toggle-1-1"
+            "collision-prompt-duplicates-on-toggle-1-1",
+            "collision-prompt-duplicates-on-toggle-1-2"
+          ],
+          "completed_phases": [
+            1
           ]
         }
       }
