@@ -110,6 +110,25 @@ Cross-cutting sub-decisions feeding all three: where agent selection lives (auth
 
 These trade-offs are the discussion-phase agenda. Research's job is to have surfaced them, not pick.
 
+## User's leading direction (captured — convergence, for discussion phase)
+
+The user articulated a clear preferred model (this is a *decision*, parked for discussion, not picked in research):
+
+- **Config optional, and when present it only *constrains*.** No `agntc.json` → the skill is installable for everything; at install agntc shows its supported-agents list and the user picks which to install for. Config present → the author has restricted target agents; agntc honours that list. (This is synthesis option 2 — "optional-override".)
+- **`agntc.json` should arguably have been optional from the start.**
+
+### Hard principle: NO install-command flags
+
+Confirmed against the knowledge base — the `init` spec states *"No arguments. No flags. All configuration happens through interactive prompts."* and `add` today takes only `<source>`. Flagless, prompt-driven install is a documented design principle, and a direct reaction against Vercel's flag-heavy UX (`--skill`, `-a`, `-g`, `--all`, `--full-depth`, `-y`).
+
+**Tension to resolve in discussion:** the discovery seed for *this* feature says "use flags to disambiguate the harder cases" — which collides with the no-flags principle. Proposed resolution (keeps Vercel's disambiguation power without flags):
+- **Interactive prompts** for "which skill(s) from this collection?" (agntc already does this via `selectCollectionPlugins`).
+- **Selector encoded in the source string, not a flag** — `owner/repo`, `owner/repo@skill`, or `tree/<branch>/<path>` URLs (agntc's `parseSource` already turns tree-URLs into a target). So "install a nested skill" need not be a flag.
+
+### Version tracking — agntc already has its own "skill lock"
+
+No need for Vercel's `.skill-lock.json`. agntc's `.agntc/manifest.json` (`ManifestEntry`) records per install: `ref` (tag), `commit` (SHA), `constraint` (semver range, e.g. `^1.2.0`), `agents`, `files` (for precise remove/update), `cloneUrl`. Resolution uses the `semver` package (`maxSatisfying` over `ls-remote` tags). Richer than Vercel's (semver constraints, not just pins). **Remaining sub-decision:** an untagged configless repo (no semver tags) gets a `commit` but no meaningful `constraint` — `update` semantics for that case need defining (pin to branch HEAD? to commit?).
+
 ## Open questions (carried forward)
 
 Surfaced by the review agent (set 001), not yet explored in conversation:
