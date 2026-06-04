@@ -189,6 +189,17 @@ agntc's value over a one-shot `cp` is *lifecycle* — `update` (nuke-and-reinsta
 - **Derive-before-delete.** On `update`, validate the unit can still be reinstalled as its recorded type *before* removing any existing files. Never delete first and discover failure — that's the exact way the user got stranded before.
 - **Irreconcilable change → abort + loud alert, existing install left intact.** If the tree no longer supports the recorded type (unit/path gone, structure incompatible — e.g. was a bare skill, now a collection), do **not** try to save it or auto-migrate. Abort that unit's update, keep what's installed, emit a clear error describing what changed. The user's remedy is manual (`remove` then `add`, their call). Treated as an edge case: correctness and clarity over cleverness.
 
+### Legacy backfill (pre-`type` manifest entries)
+
+Existing manifests predate the `type` field, so the first `update` after this feature has nothing to replay and must derive type once, then fix it into the manifest.
+
+**Decision: backfill via config-aware (v1) derivation, trust it, record it.**
+
+- The whole pre-existing install base is **universally config-bearing** — configless install is net-new, so *no configless legacy install can exist for any user*. Every legacy entry's source repo carries `agntc.json` (or child configs for collection members).
+- Therefore legacy type derivation can use the v1 config-gated rule ("config present + asset dirs → plugin; config + root `SKILL.md` → skill"), which **never hits the new skills-only→collection default** — the one case that could flip is structurally unreachable for config-bearing repos.
+- Installed *shapes* don't change between install and first update in practice, so the convention/derivation holds. No need to reconcile against the installed `files` as a separate source of truth — the deduction (legacy ⇒ config-bearing ⇒ v1-derivable ⇒ no flip) closes the risk on its own.
+- This also covers most of the *Backward-Compat / Migration* subtopic's update concern.
+
 ### Open (deferred — depends on Identity)
 
 - The exact manifest **key** for a configless single-skill repo and a configless nested/collection unit — does it stay `owner/repo[/unit]` (dir-basename) or key on frontmatter `name`? → *Identity & Naming*.
