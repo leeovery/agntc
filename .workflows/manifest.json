@@ -14,6 +14,9 @@
     },
     "collision-prompt-duplicates-on-toggle": {
       "work_type": "bugfix"
+    },
+    "configless-install": {
+      "work_type": "feature"
     }
   },
   "defaults": {
