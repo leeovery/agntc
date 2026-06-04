@@ -25,14 +25,14 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
 
 ### Map
 
-  Discussion Map — Configless Install (10 subtopics — 6 decided · 4 pending)
+  Discussion Map — Configless Install (10 subtopics — 7 decided · 3 pending)
 
   ┌─ ✓ Config Model (Keep+Fallback / Optional-Override / Supersede) [decided]
   ├─ ✓ Structural Type Detection (Bare / Plugin / Collection From Structure) [decided]
   ├─ ✓ Identity & Naming (Dir-Basename Vs Frontmatter `name`) [decided]
   ├─ ✓ Manifest Keying & Lifecycle (Update/Remove For Configless) [decided]
   ├─ ✓ Agent Selection Rework (Installer-Side, KNOWN_AGENTS) [decided]
-  ├─ ○ Multi-Skill Collection Prompt Flow (No Flags, Source Selectors) [pending]
+  ├─ ✓ Multi-Skill Collection Prompt Flow (No Flags, Source Selectors) [decided]
   ├─ ✓ Frontmatter-`name` Collision / Namespacing Policy [decided]
   ├─ ○ Version Pinning For Untagged Repos [pending]
   ├─ ○ Copy-Safety Hardening (Recursive Cp Of Untrusted Clone) [pending]
@@ -165,6 +165,18 @@ Rationale: the common third-party path (Vercel menu repos) works flag-free and c
 
 **Open for the next subtopic**: making `update`/`remove` *replay the resolved type* rather than re-detect (so a default or a repo-shape change can't silently flip an install's type — the user's original lifecycle pain).
 
+### Clarifications (single path; precedence; no config fallback)
+
+Pinned down while resolving the collection flow:
+
+- **One detection path — always structural.** Config is *never* a fallback or a second way to detect type. The config `type` is a single narrow *override input* to the one structurally-ambiguous case (skills-only); it is not a parallel detection mechanism. "Config just becomes config" — `agents` + the optional `type` disambiguator, nothing more.
+- **Detection precedence at the root** (resolves "is `skills/` a plugin part or a collection member?"):
+  1. root `SKILL.md` → bare skill
+  2. root **asset-kind dirs** (`skills/`/`agents/`/`hooks/`) recognised as plugin parts → plugin (with the skills-only→collection exception). *Checked before any member scan*, so `skills/` is never mistaken for "a collection of skills."
+  3. otherwise, scan **non-asset-kind child dirs** as potential collection members
+  4. else reject
+- **Consequence**: `agentic-workflows` (multi-asset: `skills/` + `agents/`/`hooks/`) is a plugin by structure and needs **no** `type: plugin` in config. `type: plugin` is reserved strictly for a *pure skills-only* repo the author wants bundled.
+
 ---
 
 ## Manifest Keying & Lifecycle
@@ -296,6 +308,27 @@ The user's instinct (hard block) matches the existing decision. Configless does 
   Rationale: an invalid/unusable `agents` declaration carries no usable author intent, so it's treated identically to no config at all. No hard errors for config problems — `readConfig` treats parse failures as "no usable config" and we fall back to default.
 
 **Trade-off accepted**: a malformed config silently falls back to "all agents" rather than erroring, which could mask an author's typo (their Claude-only intent silently becomes all-agents). Judged acceptable for leniency/simplicity — the installer still chooses, and detection pre-ticks sensibly. Confidence: high.
+
+---
+
+## Multi-Skill Collection Prompt Flow
+
+### Context
+
+A configless collection's children carry no `agntc.json`. But the current collection pipeline (`add.ts`) enumerates installable members *by scanning immediate child dirs for `agntc.json`* — and reads each child's config for its agents too. With no child config, that enumeration has nothing to find. So: what defines "a selectable member" of a configless collection, and how is selection driven (without flags)?
+
+### Decision
+
+**Collection membership = "a child dir that structurally resolves to a unit." Recurse the same structural detection one level down; drive selection with the existing prompt + source-string selector. No flags.**
+
+- For each immediate child dir, run the *same* structural detection: child has `SKILL.md` → bare-skill member; child has asset-kind dirs → plugin member; child has neither → not a member, skip it. The pickable list comes from this structural scan, replacing the "has `agntc.json`" enumeration (resolves the review's F2 — the pipeline's child-config dependency at `add.ts:388,394`).
+- **Per-child agents**: child config when present (constrains, per the agent-selection rules) → otherwise the configless default (all `KNOWN_AGENTS`, installer picks). Config-bearing and configless members coexist in one collection.
+- **Selection UX is unchanged and flag-free**: the existing `selectCollectionPlugins` interactive prompt for "which member(s)?", plus the source-string selector (`owner/repo@unit`, or a `tree/<branch>/<path>` URL) to pick a member directly without prompting. This is the no-flags resolution research proposed, now confirmed.
+- **Nested collections remain unsupported** (`add.ts:467` already skips them) — a collection member that is itself a collection is not recursed into. Membership detection goes exactly one level.
+
+### Confidence
+
+High. This is the structural-detection decision applied one level down — no new concepts, and it removes the child-`agntc.json` dependency that blocked configless collections.
 
 ---
 
