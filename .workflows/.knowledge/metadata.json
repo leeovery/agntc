@@ -1,0 +1,8 @@
+{
+  "provider": "openai",
+  "model": "text-embedding-3-small",
+  "dimensions": 1536,
+  "last_indexed": "2026-06-04T11:11:35.083Z",
+  "pending": [],
+  "pending_removals": []
+}
