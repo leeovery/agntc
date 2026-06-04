@@ -25,15 +25,15 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
 
 ### Map
 
-  Discussion Map — Configless Install (10 subtopics — 2 decided · 1 converging · 7 pending)
+  Discussion Map — Configless Install (10 subtopics — 5 decided · 5 pending)
 
   ┌─ ✓ Config Model (Keep+Fallback / Optional-Override / Supersede) [decided]
   ├─ ✓ Structural Type Detection (Bare / Plugin / Collection From Structure) [decided]
-  ├─ ○ Identity & Naming (Dir-Basename Vs Frontmatter `name`) [pending]
-  ├─ → Manifest Keying & Lifecycle (Update/Remove For Configless) [converging]
+  ├─ ✓ Identity & Naming (Dir-Basename Vs Frontmatter `name`) [decided]
+  ├─ ✓ Manifest Keying & Lifecycle (Update/Remove For Configless) [decided]
   ├─ ○ Agent Selection Rework (Installer-Side, KNOWN_AGENTS) [pending]
   ├─ ○ Multi-Skill Collection Prompt Flow (No Flags, Source Selectors) [pending]
-  ├─ ○ Frontmatter-`name` Collision / Namespacing Policy [pending]
+  ├─ ✓ Frontmatter-`name` Collision / Namespacing Policy [decided]
   ├─ ○ Version Pinning For Untagged Repos [pending]
   ├─ ○ Copy-Safety Hardening (Recursive Cp Of Untrusted Clone) [pending]
   └─ ○ Backward-Compat / Migration (Init Scaffolder, Collection Pipeline) [pending]
@@ -200,14 +200,65 @@ Existing manifests predate the `type` field, so the first `update` after this fe
 - Installed *shapes* don't change between install and first update in practice, so the convention/derivation holds. No need to reconcile against the installed `files` as a separate source of truth — the deduction (legacy ⇒ config-bearing ⇒ v1-derivable ⇒ no flip) closes the risk on its own.
 - This also covers most of the *Backward-Compat / Migration* subtopic's update concern.
 
-### Open (deferred — depends on Identity)
+### Keying (resolved by Identity & Naming)
 
-- The exact manifest **key** for a configless single-skill repo and a configless nested/collection unit — does it stay `owner/repo[/unit]` (dir-basename) or key on frontmatter `name`? → *Identity & Naming*.
-- Whether a collection grouping is recorded for bulk `remove` (research noted "unit vs collection granularity" in the remove flow). Minor; revisit only if the keying decision forces it.
+Identity is **dir-basename** (see that subtopic), so manifest keys are unchanged from today: `owner/repo` for a standalone bare skill or plugin, `owner/repo/<unit-dir>` for a collection member. No frontmatter-derived keys. Configless install adds no new keying scheme — it reuses the existing one.
+
+Whether a collection grouping is recorded for bulk `remove` (research noted "unit vs collection granularity") stays a minor open thread — not forced by the keying decision; revisit only if the remove UX needs it.
 
 ### Confidence
 
-High on the lifecycle *mechanism* (record-type, replay, derive-before-delete, abort-loudly). The manifest *key* itself is pending the Identity decision.
+High — both the lifecycle mechanism (record-type, replay, derive-before-delete, abort-loudly) and the keying (basename, unchanged) are settled.
+
+---
+
+## Identity & Naming
+
+### Context
+
+When agntc installs a configless skill, what name does the installed unit take — the directory basename (today's behaviour) or the `SKILL.md` frontmatter `name` (Vercel's model)? This drives the install folder, the manifest key, dedup, and update-matching.
+
+### Verified current behaviour (code)
+
+`copyBareSkill` (`copy-bare-skill.ts:20,30`) sets the installed folder to `basename(sourceDir)` — the repo name for a bare-skill repo, the subdir name for a nested skill — and **never opens `SKILL.md`**. agntc parses no frontmatter anywhere; detection only checks the file *exists*.
+
+The anchor `refero_skill` makes the divergence concrete: folder/manifest-key would be `refero_skill` (basename) while the SKILL.md self-declares `name: refero-design`.
+
+### Journey
+
+The initial framing leaned toward frontmatter `name` (one source of truth, matches Claude's own skill identity and Vercel). But the user cut through it: **the agent loads a skill by its frontmatter `name`, so the install folder is just storage** — its name is functionally irrelevant to how the skill is invoked. "The repository *is* the skill" for a bare skill, so the repo/directory name is the natural folder name. Whatever the frontmatter calls itself is the skill's own implementation detail, not agntc's concern.
+
+This also dispatched two adjacent questions: agntc does **not** need a YAML-frontmatter parser (nothing reads frontmatter), and it does **not** need Vercel's "validate name+description" gate (the user explicitly doesn't want skill validation). The whole install is a recursive copy of the unit's directory — we keep everything (scripts, references) because we can't know what the skill needs.
+
+### Decision
+
+**Identity = directory basename, throughout. No frontmatter parsing, no validation.**
+
+- Bare skill → installed folder + manifest key = repo name.
+- Plugin → install its asset directories; each skill keeps its own repo directory name.
+- Collection → pick units; each installs under its repo directory name. Same principle.
+- Frontmatter `name` is the skill's business; agntc neither reads nor reconciles it.
+
+**Trade-off accepted**: for third-party repos where repo name ≠ frontmatter name, the on-disk folder and agntc's key differ from what the agent calls the skill (the "three names" situation). Judged immaterial — the agent resolves by frontmatter regardless, and the folder name carries no functional weight. Confidence: high.
+
+---
+
+## Frontmatter-`name` Collision / Namespacing Policy
+
+### Context
+
+If two installed skills declared the same identity, how does agntc namespace/dedup them?
+
+### Decision
+
+**Dissolved by the Identity decision — no frontmatter-name policy needed.**
+
+Because agntc keys on **directory basename**, not frontmatter `name`:
+
+- **agntc-level collisions are directory collisions** — two installs landing in the same `.claude/skills/<name>` path. These are already detected and handled by the existing conflict flow (overwrite/skip prompt). Configless changes nothing here.
+- **Agent-level collisions** — two skills in different folders that *self-declare* the same frontmatter `name` — are invisible to agntc and out of scope. That's the skills' own problem (and the agent's), consistent with "frontmatter name is an implementation detail." Noted as an accepted limitation, not a feature to build.
+
+Confidence: high (follows directly from Identity).
 
 ---
 
