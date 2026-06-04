@@ -25,12 +25,12 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
 
 ### Map
 
-  Discussion Map — Configless Install (10 subtopics — 2 decided · 8 pending)
+  Discussion Map — Configless Install (10 subtopics — 2 decided · 1 converging · 7 pending)
 
   ┌─ ✓ Config Model (Keep+Fallback / Optional-Override / Supersede) [decided]
   ├─ ✓ Structural Type Detection (Bare / Plugin / Collection From Structure) [decided]
   ├─ ○ Identity & Naming (Dir-Basename Vs Frontmatter `name`) [pending]
-  ├─ ○ Manifest Keying & Lifecycle (Update/Remove For Configless) [pending]
+  ├─ → Manifest Keying & Lifecycle (Update/Remove For Configless) [converging]
   ├─ ○ Agent Selection Rework (Installer-Side, KNOWN_AGENTS) [pending]
   ├─ ○ Multi-Skill Collection Prompt Flow (No Flags, Source Selectors) [pending]
   ├─ ○ Frontmatter-`name` Collision / Namespacing Policy [pending]
@@ -164,6 +164,39 @@ Rationale: the common third-party path (Vercel menu repos) works flag-free and c
 **Trade-offs accepted**: re-admits a `type` config field (deliberately removed in v1) and one install flag (against the documented no-flags principle) — both scoped strictly to resolving the skills-only ambiguity, justified because structure provably can't. Confidence: high.
 
 **Open for the next subtopic**: making `update`/`remove` *replay the resolved type* rather than re-detect (so a default or a repo-shape change can't silently flip an install's type — the user's original lifecycle pain).
+
+---
+
+## Manifest Keying & Lifecycle
+
+### Context
+
+agntc's value over a one-shot `cp` is *lifecycle* — `update` (nuke-and-reinstall) and `remove`. The user's original pain was a lifecycle failure (un-updatable skills after a lock file broke). Configless must not regress this. The type-detection decision created a specific new hazard: `update` re-clones and re-runs detection, so an install could re-resolve to a *different* type or skill-set than was originally installed.
+
+### Verified current behaviour (code, not memory)
+
+- `ManifestEntry` (`manifest.ts:9`) today carries `ref, commit, installedAt, agents, files, cloneUrl, constraint` — **no `type` field**.
+- Manifest is a flat `Record<string, ManifestEntry>`, keyed `owner/repo` (standalone) or `owner/repo/<unit>` (collection member — `add.ts:490,608`).
+- **A collection is a transport, not a stored unit**: `runCollectionPipeline` records *each selected child as its own entry*. No collection-level entry exists. (Confirms the user's recollection.)
+- **Nested collections already explicitly unsupported** (`add.ts:467` — skipped with a warning), bounding recursion.
+
+### Decision
+
+**Record the resolved type at install time; `update` replays it; never silently morph.**
+
+- **Add a `type` field to `ManifestEntry`**, values `"skill" | "plugin"` only (collection is never stored — its selected children persist as their own skill/plugin entries keyed `owner/repo/<unit>`). However the type was derived — structure, config `type`, or the `--plugin` flag — the *resolved* value is what's persisted. The three derivation paths collapse to one recorded fact.
+- **`update` replays the recorded type**, not blind re-detection. Reinstalling the recorded unit re-copies whatever is in the tree now, so benign additions (e.g. the author adds an `agents/` dir to an existing plugin) are picked up *without* changing the recorded type. This is why "adding an agents dir changes nothing" — we're replaying "plugin," not re-deriving it.
+- **Derive-before-delete.** On `update`, validate the unit can still be reinstalled as its recorded type *before* removing any existing files. Never delete first and discover failure — that's the exact way the user got stranded before.
+- **Irreconcilable change → abort + loud alert, existing install left intact.** If the tree no longer supports the recorded type (unit/path gone, structure incompatible — e.g. was a bare skill, now a collection), do **not** try to save it or auto-migrate. Abort that unit's update, keep what's installed, emit a clear error describing what changed. The user's remedy is manual (`remove` then `add`, their call). Treated as an edge case: correctness and clarity over cleverness.
+
+### Open (deferred — depends on Identity)
+
+- The exact manifest **key** for a configless single-skill repo and a configless nested/collection unit — does it stay `owner/repo[/unit]` (dir-basename) or key on frontmatter `name`? → *Identity & Naming*.
+- Whether a collection grouping is recorded for bulk `remove` (research noted "unit vs collection granularity" in the remove flow). Minor; revisit only if the keying decision forces it.
+
+### Confidence
+
+High on the lifecycle *mechanism* (record-type, replay, derive-before-delete, abort-loudly). The manifest *key* itself is pending the Identity decision.
 
 ---
 
