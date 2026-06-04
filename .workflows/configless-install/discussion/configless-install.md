@@ -25,13 +25,13 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
 
 ### Map
 
-  Discussion Map — Configless Install (10 subtopics — 5 decided · 5 pending)
+  Discussion Map — Configless Install (10 subtopics — 6 decided · 4 pending)
 
   ┌─ ✓ Config Model (Keep+Fallback / Optional-Override / Supersede) [decided]
   ├─ ✓ Structural Type Detection (Bare / Plugin / Collection From Structure) [decided]
   ├─ ✓ Identity & Naming (Dir-Basename Vs Frontmatter `name`) [decided]
   ├─ ✓ Manifest Keying & Lifecycle (Update/Remove For Configless) [decided]
-  ├─ ○ Agent Selection Rework (Installer-Side, KNOWN_AGENTS) [pending]
+  ├─ ✓ Agent Selection Rework (Installer-Side, KNOWN_AGENTS) [decided]
   ├─ ○ Multi-Skill Collection Prompt Flow (No Flags, Source Selectors) [pending]
   ├─ ✓ Frontmatter-`name` Collision / Namespacing Policy [decided]
   ├─ ○ Version Pinning For Untagged Repos [pending]
@@ -259,6 +259,43 @@ Because agntc keys on **directory basename**, not frontmatter `name`:
 - **Agent-level collisions** — two skills in different folders that *self-declare* the same frontmatter `name` — are invisible to agntc and out of scope. That's the skills' own problem (and the agent's), consistent with "frontmatter name is an implementation detail." Noted as an accepted limitation, not a feature to build.
 
 Confidence: high (follows directly from Identity).
+
+---
+
+## Agent Selection Rework
+
+### Context
+
+With config now optional, where does agent selection live, and what happens when there's no author declaration? Research framed this as "the single biggest design consequence." On inspection, most of it is already decided — configless forces only a small mechanical change.
+
+### Prior decisions (verified — code + KB)
+
+The constraint model is **already settled and stays unchanged**:
+
+- **Declared agents are a hard ceiling.** `cursor-agent-driver` decided "filter to declared agents only" — undeclared agents are excluded from the prompt entirely (superseding the earlier "warn, don't block"). Code confirms: `selectAgents` (`agent-select.ts:32`) builds options purely from `declaredAgents`. A Codex user is simply never offered a Claude-only unit for Codex.
+- **Auto-select** when a single declared agent is detected (`agent-select.ts:18-26`).
+- **Per-plugin silent skip** in collections — undeclared agents are dropped per-plugin during copy, no warning (`cursor-agent-driver` decision).
+
+The user's instinct (hard block) matches the existing decision. Configless does not revisit any of this.
+
+### The one configless delta
+
+`selectAgents` currently returns `[]` when `declaredAgents` is empty (`agent-select.ts:12`) — "install for nobody." Correct under v1 (config mandatory → empty = misconfigured), wrong under configless where "no declaration" is a legitimate, common state meaning **"installable for anything."**
+
+### Decision
+
+**Constraint model unchanged. The only rework: source the candidate list from `KNOWN_AGENTS` when there is no valid author declaration.**
+
+- Valid, non-empty `agents` in config → hard ceiling, exactly as today.
+- **No valid constraint → offer all `KNOWN_AGENTS` (claude/codex/cursor), pre-tick detected, user picks.** This replaces the `return []` footgun.
+- **"No valid constraint" is unified across three cases — all fall back to the same default:**
+  - config **absent** (configless)
+  - config present but `agents: []` (empty — "a skill for nothing" makes no sense)
+  - config **malformed** (unparseable)
+
+  Rationale: an invalid/unusable `agents` declaration carries no usable author intent, so it's treated identically to no config at all. No hard errors for config problems — `readConfig` treats parse failures as "no usable config" and we fall back to default.
+
+**Trade-off accepted**: a malformed config silently falls back to "all agents" rather than erroring, which could mask an author's typo (their Claude-only intent silently becomes all-agents). Judged acceptable for leniency/simplicity — the installer still chooses, and detection pre-ticks sensibly. Confidence: high.
 
 ---
 
