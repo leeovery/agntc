@@ -27,6 +27,7 @@ Set the work unit status to completed:
 
 ```bash
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit} status completed
+node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit} completed_at $(date +%Y-%m-%d)
 ```
 
 Commit: `workflow({work_unit}): complete quick-fix pipeline`
@@ -73,6 +74,7 @@ Set the work unit status to completed:
 
 ```bash
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit} status completed
+node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit} completed_at $(date +%Y-%m-%d)
 ```
 
 Commit: `workflow({work_unit}): complete quick-fix pipeline (review skipped)`
@@ -139,11 +141,11 @@ Check if there are completed phases earlier in the pipeline that the user could 
 · · · · · · · · · · · ·
 Which phase would you like to revisit?
 
-1. {phase:(titlecase)} — completed
-2. ...
-{N}. Back
+- **`1`** — {phase:(titlecase)} — completed
+- **`2`** — ...
+- **`{N}`** — Back
 
-Select an option (enter number):
+Select an option:
 · · · · · · · · · · · ·
 ```
 

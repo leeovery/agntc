@@ -1,7 +1,7 @@
 ---
 name: workflow-review-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs), Bash(mkdir -p .workflows/.inbox)
 ---
 
 # Review Process
@@ -17,6 +17,23 @@ Follows implementation. Verify plan tasks were implemented, tested adequately, a
 - **Review scope** (required) - single, multi, or all
 - **Plan content** (required) - Tasks and acceptance criteria to verify against (one or more plans)
 - **Specification content** (required) - The specification from the prior phase, for design decision context
+
+---
+
+## Instructions
+
+Follow these steps EXACTLY as written. Do not skip steps or combine them.
+
+**CRITICAL**: This guidance is mandatory.
+
+- After each user interaction, STOP and wait for their response before proceeding
+- Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
+- Complete each step fully before moving to the next
 
 ---
 
@@ -142,7 +159,7 @@ Set `unreviewed_tasks` = `[{list of unreviewed internal IDs}]`.
 
 **If all tasks reviewed:**
 
-→ Proceed to **Step 6**.
+→ Proceed to **Step 7**.
 
 **Otherwise** (no tracking data):
 
@@ -241,7 +258,30 @@ Load **[load-project-skills.md](references/load-project-skills.md)** and follow 
 
 ---
 
-## Step 4: QA Verification
+## Step 4: Knowledge Usage
+
+> *Output the next fenced block as a code block:*
+
+```
+── Knowledge Usage ──────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Loading the usage guide for the knowledge base. Review verifies
+> against the current spec — that's in scope without the KB. The guide
+> documents the narrow case where a cross-work-unit consistency check
+> is warranted.
+```
+
+Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
+
+→ Proceed to **Step 5**.
+
+---
+
+## Step 5: QA Verification
 
 > *Output the next fenced block as a code block:*
 
@@ -259,11 +299,13 @@ Load **[load-project-skills.md](references/load-project-skills.md)** and follow 
 
 Load **[invoke-task-verifiers.md](references/invoke-task-verifiers.md)** and follow its instructions as written.
 
-→ Proceed to **Step 5**.
+*Knowledge-base nudge — use only for cross-work-unit consistency checks ("does this mirror how similar decisions were made elsewhere?"). Consistency with the current spec is already in scope — no KB needed. See **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)**.*
+
+→ Proceed to **Step 6**.
 
 ---
 
-## Step 5: Produce Review
+## Step 6: Produce Review
 
 > *Output the next fenced block as a code block:*
 
@@ -280,11 +322,11 @@ Load **[invoke-task-verifiers.md](references/invoke-task-verifiers.md)** and fol
 
 Load **[produce-review.md](references/produce-review.md)** and follow its instructions as written.
 
-→ Proceed to **Step 6**.
+→ Proceed to **Step 7**.
 
 ---
 
-## Step 6: Present Review
+## Step 7: Present Review
 
 > *Output the next fenced block as a code block:*
 
@@ -301,11 +343,11 @@ Load **[produce-review.md](references/produce-review.md)** and follow its instru
 
 Load **[present-review.md](references/present-review.md)** and follow its instructions as written.
 
-→ Proceed to **Step 7**.
+→ Proceed to **Step 8**.
 
 ---
 
-## Step 7: Compliance Self-Check
+## Step 8: Compliance Self-Check
 
 > *Output the next fenced block as a code block:*
 
@@ -321,11 +363,11 @@ Load **[present-review.md](references/present-review.md)** and follow its instru
 
 Load **[compliance-check.md](../workflow-shared/references/compliance-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 8**.
+→ Proceed to **Step 9**.
 
 ---
 
-## Step 8: Review Actions
+## Step 9: Review Actions
 
 > *Output the next fenced block as a code block:*
 

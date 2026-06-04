@@ -35,6 +35,8 @@ Plan Task (acceptance criteria)
     Verify Tests (adequate, not over/under tested)
     ↓
     Check Code Quality (readable, conventions)
+    ↓
+    Categorize Non-Blocking Notes (do-now/quickfix/idea/bug)
 ```
 
 ### Step 1: Understand the Task
@@ -61,6 +63,8 @@ Search the codebase:
 
 ### Step 4: Verify Tests
 
+You assess tests by **reading** them — you have no shell access and running tests is not your job. Do not attempt to execute the suite.
+
 Evaluate test coverage critically:
 - Is there a test for this task?
 - Does the test actually verify the acceptance criteria?
@@ -84,6 +88,19 @@ Review the implementation as a senior architect would:
 - **Readability**: Code is self-documenting, intent is clear
 - **Security**: No obvious vulnerabilities (injection, exposure, etc.)
 - **Performance**: No obvious inefficiencies (N+1 queries, unnecessary loops, etc.)
+
+### Step 6: Categorize Non-Blocking Notes
+
+First, apply the floor: a note must propose a concrete change (add X, remove Y, rename Z, document W). Drop pure observations that propose no action ("worth confirming", "relies on env inheritance", "acceptable as-is") — they are not findings. If an observation is genuinely load-bearing, convert it to a concrete action; otherwise discard it.
+
+Tag each surviving note by the next step required to act on it:
+
+- **`[do-now]`** — Zero risk, no logic impact, applyable on the spot: documentation and comment edits, wording and link fixes, mechanical renames, small test-assertion additions (safe as long as they pass). Small and inline (single file), or trivially mechanical even across files (e.g. a doc-reference sweep). Acting on it needs no decision and touches no executable logic.
+- **`[quickfix]`** — Mechanical but touches code or test logic, or is larger than an inline edit: extract a helper, dedupe, a small refactor, a behavioural test. No design decision, but it carries enough risk to route through the pipeline rather than apply on the spot.
+- **`[idea]`** — Requires genuine decision or design judgment: how or whether to do it, architectural trade-offs, new functionality, scope. If the next step is "decide how" or "decide whether", it is an idea.
+- **`[bug]`** — Something is broken or incorrect but non-blocking. Latent bugs, unhandled edge cases, incorrect error mapping. Do not place these in BLOCKING ISSUES.
+
+Decide by the next step — apply-now-zero-risk → `[do-now]`; concrete mechanical edit that touches logic → `[quickfix]`; decide-how-or-whether → `[idea]`; fix-incorrect-behaviour → `[bug]`. When torn between `[do-now]` and `[quickfix]`, choose `[quickfix]` — only tag `[do-now]` when there is genuinely zero chance of breaking logic. When torn between `[quickfix]` and `[idea]`, choose `[quickfix]` if there is a concrete edit at a known location, `[idea]` otherwise.
 
 ## Output File Format
 
@@ -120,7 +137,7 @@ BLOCKING ISSUES:
 - [List any issues that must be fixed]
 
 NON-BLOCKING NOTES:
-- [Suggestions for improvement]
+- [{do-now|quickfix|idea|bug}] {file:line} — {concrete change}
 ```
 
 ## Your Output
@@ -140,4 +157,5 @@ SUMMARY: {1 sentence}
 3. **Be specific** — include file paths and line numbers
 4. **Balanced test review** — flag both under-testing AND over-testing
 5. **Report findings** — don't fix anything, just report what you find
+6. **No test execution** — you have no shell. Judge test adequacy by reading the test code; never try to run the suite
 6. **No git writes** — writing the output file is your only file write

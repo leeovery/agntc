@@ -236,7 +236,7 @@ Update `status: approved` in the staging file.
 > *Output the next fenced block as a code block:*
 
 ```
-Task {current} of {total}: {title} — approved (auto).
+Task {current} of {total}: {title} — approved [auto].
 ```
 
 → Return to **D. Process Task**.
@@ -342,7 +342,6 @@ For each plan that received new tasks:
 1. Update the manifest via CLI:
    - `node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} status in-progress`
    - `node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} updated {today's date}`
-   - `node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} analysis_cycle 0`
 2. Commit tracking changes:
 
 ```
@@ -373,8 +372,9 @@ Review findings have been synthesized into {N} implementation tasks.
 
 ## How to proceed
 
-Clear context and continue. Claude will start implementation
-and pick up the new review remediation tasks automatically.
+Clear context and continue. The fresh session will start
+implementation and pick up the new review remediation tasks
+automatically.
 ```
 
 Exit plan mode. The user will approve and clear context, and the fresh session will pick up with the implementation entry skill routing to the new tasks.

@@ -1,7 +1,7 @@
 ---
 name: workflow-planning-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs)
 ---
 
 # Planning Process
@@ -21,6 +21,23 @@ Follows specification. Transform the validated specification into actionable pha
 - **Output format preference** (optional) - Will ask if not specified
 - **Work type** (required) — `epic`, `feature`, or `bugfix`. Determines which context-specific guidance is loaded during phase and task design.
 - **Cross-cutting references** (optional) - Cross-cutting specifications that inform technical decisions in this plan
+
+---
+
+## Instructions
+
+Follow these steps EXACTLY as written. Do not skip steps or combine them.
+
+**CRITICAL**: This guidance is mandatory.
+
+- After each user interaction, STOP and wait for their response before proceeding
+- Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
+- Complete each step fully before moving to the next
 
 ---
 
@@ -204,7 +221,29 @@ Load **[planning-principles.md](references/planning-principles.md)** and follow 
 
 ---
 
-## Step 4: Verify Source Material
+## Step 4: Knowledge Usage
+
+> *Output the next fenced block as a code block:*
+
+```
+── Knowledge Usage ──────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Loading the usage guide for the knowledge base. Planning operates
+> from the spec as the golden source — the guide documents the narrow
+> cases where a KB query is warranted, and those where it is not.
+```
+
+Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
+
+→ Proceed to **Step 5**.
+
+---
+
+## Step 5: Verify Source Material
 
 > *Output the next fenced block as a code block:*
 
@@ -221,11 +260,11 @@ Load **[planning-principles.md](references/planning-principles.md)** and follow 
 
 Load **[verify-source-material.md](references/verify-source-material.md)** and follow its instructions as written.
 
-→ Proceed to **Step 5**.
+→ Proceed to **Step 6**.
 
 ---
 
-## Step 5: Plan Construction
+## Step 6: Plan Construction
 
 > *Output the next fenced block as a code block:*
 
@@ -243,11 +282,11 @@ Load **[verify-source-material.md](references/verify-source-material.md)** and f
 
 Load **[plan-construction.md](references/plan-construction.md)** and follow its instructions as written.
 
-→ Proceed to **Step 6**.
+→ Proceed to **Step 7**.
 
 ---
 
-## Step 6: Analyze Task Graph
+## Step 7: Analyze Task Graph
 
 > *Output the next fenced block as a code block:*
 
@@ -264,11 +303,11 @@ Load **[plan-construction.md](references/plan-construction.md)** and follow its 
 
 Load **[analyze-task-graph.md](references/analyze-task-graph.md)** and follow its instructions as written.
 
-→ Proceed to **Step 7**.
+→ Proceed to **Step 8**.
 
 ---
 
-## Step 7: Resolve External Dependencies
+## Step 8: Resolve External Dependencies
 
 > *Output the next fenced block as a code block:*
 
@@ -285,17 +324,17 @@ Load **[analyze-task-graph.md](references/analyze-task-graph.md)** and follow it
 
 #### If work_type is not `epic`
 
-→ Proceed to **Step 8**.
+→ Proceed to **Step 9**.
 
 #### Otherwise
 
 Load **[resolve-dependencies.md](references/resolve-dependencies.md)** and follow its instructions as written.
 
-→ Proceed to **Step 8**.
+→ Proceed to **Step 9**.
 
 ---
 
-## Step 8: Plan Review
+## Step 9: Plan Review
 
 > *Output the next fenced block as a code block:*
 
@@ -313,11 +352,11 @@ Load **[resolve-dependencies.md](references/resolve-dependencies.md)** and follo
 
 Load **[plan-review.md](references/plan-review.md)** and follow its instructions as written.
 
-→ Proceed to **Step 9**.
+→ Proceed to **Step 10**.
 
 ---
 
-## Step 9: Compliance Self-Check
+## Step 10: Compliance Self-Check
 
 > *Output the next fenced block as a code block:*
 
@@ -333,11 +372,11 @@ Load **[plan-review.md](references/plan-review.md)** and follow its instructions
 
 Load **[compliance-check.md](../workflow-shared/references/compliance-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 10**.
+→ Proceed to **Step 11**.
 
 ---
 
-## Step 10: Conclude the Plan
+## Step 11: Conclude the Plan
 
 > *Output the next fenced block as a code block:*
 

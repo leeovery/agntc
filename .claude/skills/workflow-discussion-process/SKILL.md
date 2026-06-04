@@ -1,7 +1,7 @@
 ---
 name: workflow-discussion-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs), Bash(node .claude/skills/workflow-discovery/scripts/discovery.cjs)
 ---
 
 # Discussion Process
@@ -17,6 +17,23 @@ Follows research (or starts the pipeline for features). Debate technical decisio
 - **Topic** (required) - What technical area to discuss/document
 - **Context** (optional) - Prior research, constraints, existing decisions
 - **Seed concerns** (optional) - Initial subtopics or architectural questions to explore
+
+---
+
+## Instructions
+
+Follow these steps EXACTLY as written. Do not skip steps or combine them.
+
+**CRITICAL**: This guidance is mandatory.
+
+- After each user interaction, STOP and wait for their response before proceeding
+- Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
+- Complete each step fully before moving to the next
 
 ---
 
@@ -126,7 +143,49 @@ Load **[discussion-guidelines.md](references/discussion-guidelines.md)** and fol
 
 ---
 
-## Step 3: Discussion Session
+## Step 3: Knowledge Usage
+
+> *Output the next fenced block as a code block:*
+
+```
+── Knowledge Usage ──────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Loading the usage guide for the knowledge base so
+> proactive querying is available throughout the discussion.
+```
+
+Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
+
+→ Proceed to **Step 4**.
+
+---
+
+## Step 4: Contextual Query
+
+> *Output the next fenced block as a code block:*
+
+```
+── Contextual Query ─────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Checking the knowledge base for prior work that relates
+> to this discussion topic before the session begins.
+```
+
+Load **[contextual-query.md](../workflow-knowledge/references/contextual-query.md)** and follow its instructions as written.
+
+→ Proceed to **Step 5**.
+
+---
+
+## Step 5: Discussion Session
 
 > *Output the next fenced block as a code block:*
 
@@ -144,11 +203,55 @@ Load **[discussion-guidelines.md](references/discussion-guidelines.md)** and fol
 
 Load **[discussion-session.md](references/discussion-session.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+*Knowledge-base nudge — before committing to a direction on a new subtopic, or when a decision might echo one made elsewhere, run a quick query. See **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)**.*
+
+→ Proceed to **Step 6**.
 
 ---
 
-## Step 4: Compliance Self-Check
+## Step 6: Final Gap Review
+
+> *Output the next fenced block as a code block:*
+
+```
+── Final Gap Review ─────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Before concluding, checking whether a fresh review is needed
+> to catch any gaps that may have emerged since the last review.
+```
+
+Load **[final-review.md](references/final-review.md)** and follow its instructions as written.
+
+→ Proceed to **Step 7**.
+
+---
+
+## Step 7: Document Review
+
+> *Output the next fenced block as a code block:*
+
+```
+── Document Review ──────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Reconciling the session conversation against the discussion file
+> to catch substance that was discussed but never captured.
+```
+
+Load **[document-review.md](references/document-review.md)** and follow its instructions as written.
+
+→ Proceed to **Step 8**.
+
+---
+
+## Step 8: Compliance Self-Check
 
 > *Output the next fenced block as a code block:*
 
@@ -164,11 +267,11 @@ Load **[discussion-session.md](references/discussion-session.md)** and follow it
 
 Load **[compliance-check.md](../workflow-shared/references/compliance-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 5**.
+→ Proceed to **Step 9**.
 
 ---
 
-## Step 5: Conclude Discussion
+## Step 9: Conclude Discussion
 
 > *Output the next fenced block as a code block:*
 

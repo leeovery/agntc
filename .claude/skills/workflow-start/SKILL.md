@@ -1,7 +1,7 @@
 ---
 name: workflow-start
 disable-model-invocation: true
-allowed-tools: Bash(node .claude/skills/workflow-start/scripts/discovery.cjs), Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-start/scripts/discovery.cjs), Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs), Bash(mkdir -p .workflows/), Bash(mv .workflows/.inbox/), Bash(git add), Bash(git commit), Bash(git rm)
 ---
 
 Unified workflow entry point. Discovers state, shows all active work, and routes to start or continue skills.
@@ -16,6 +16,11 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 
 - After each user interaction, STOP and wait for their response before proceeding
 - Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
 - Complete each step fully before moving to the next
 
 ---
@@ -48,18 +53,31 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 ── Initialisation ───────────────────────────────
 ```
 
+### Step 0.1: Casing Conventions
+
+Load **[casing-conventions.md](../workflow-shared/references/casing-conventions.md)** and follow its instructions as written.
+
+→ Proceed to **Step 0.2**.
+
+### Step 0.2: Migrations
+
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
 > Running migrations to keep workflow files in sync.
-> This ensures everything is up to date before we proceed.
 ```
-
-Load **[casing-conventions.md](../workflow-shared/references/casing-conventions.md)** and follow its instructions as written.
 
 **Run migrations — this is mandatory. You must complete it before proceeding.**
 
 Invoke the `/workflow-migrate` skill and follow its instructions exactly — if it issues a STOP gate, you must stop.
+
+**CRITICAL**: When the migrate skill returns (either after committing changes or reporting no changes needed), you MUST continue to **Step 0.3**. Do not stop after migration completes.
+
+→ Proceed to **Step 0.3**.
+
+### Step 0.3: Knowledge Check
+
+Load **[knowledge-check.md](../workflow-knowledge/references/knowledge-check.md)** and follow its instructions as written.
 
 → Proceed to **Step 1**.
 
@@ -106,7 +124,8 @@ Parse the output to understand the current workflow state:
 **From `inbox` section (only present when inbox items exist):**
 - `ideas` — slug, date, title for each idea
 - `bugs` — slug, date, title for each bug
-- `idea_count`, `bug_count`, `total_count`
+- `quickfixes` — slug, date, title for each quick-fix
+- `idea_count`, `bug_count`, `quickfix_count`, `total_count`
 
 **From `state` section:**
 - Counts for each work type, `has_any_work` flag

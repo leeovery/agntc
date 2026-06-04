@@ -4,58 +4,7 @@
 
 ---
 
-## A. Research Scope
-
-#### If work_type is `epic` and no topic resolved
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Do you have a specific topic to research, or explore openly?
-
-- **`s`/`specific`** — Name a focused topic to research
-- **`e`/`explore`** — Open exploration, follow tangents, see where it goes
-· · · · · · · · · · · ·
-```
-
-**STOP.** Wait for user response.
-
-**If `specific`:**
-
-> *Output the next fenced block as a code block:*
-
-```
-What topic would you like to research?
-```
-
-**STOP.** Wait for user response.
-
-User provides topic name → `resolved_filename = {topic:(kebabcase)}.md`
-
-→ Proceed to **B. Seed Idea**.
-
-**If `explore`:**
-
-`resolved_filename = exploration.md`
-
-→ Proceed to **B. Seed Idea**.
-
-#### If work_type is `feature`
-
-No question needed. `resolved_filename = {topic}.md`
-
-→ Proceed to **B. Seed Idea**.
-
-#### If topic already resolved
-
-Epic with topic provided via `$2` argument. `resolved_filename = {topic}.md`
-
-→ Proceed to **B. Seed Idea**.
-
----
-
-## B. Seed Idea
+## A. Seed Idea
 
 Ask each question below **one at a time**. After each, **STOP** and wait for the user's response before proceeding.
 
@@ -70,11 +19,11 @@ What's on your mind?
 
 **STOP.** Wait for user response.
 
-→ Proceed to **C. Current Knowledge**.
+→ Proceed to **B. Current Knowledge**.
 
 ---
 
-## C. Current Knowledge
+## B. Current Knowledge
 
 > *Output the next fenced block as a code block:*
 
@@ -87,11 +36,11 @@ What do you already know?
 
 **STOP.** Wait for user response.
 
-→ Proceed to **D. Starting Point**.
+→ Proceed to **C. Starting Point**.
 
 ---
 
-## D. Starting Point
+## C. Starting Point
 
 > *Output the next fenced block as a code block:*
 
@@ -104,11 +53,11 @@ Where should we start?
 
 **STOP.** Wait for user response.
 
-→ Proceed to **E. Final Context**.
+→ Proceed to **D. Final Context**.
 
 ---
 
-## E. Final Context
+## D. Final Context
 
 > *Output the next fenced block as a code block:*
 

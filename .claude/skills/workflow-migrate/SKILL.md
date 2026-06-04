@@ -8,6 +8,23 @@ allowed-tools: Bash(.claude/skills/workflow-migrate/scripts/migrate.sh), Bash(gi
 
 Keeps your workflow files up to date with how the system is designed to work. Runs all pending migrations automatically.
 
+## Instructions
+
+Follow these steps EXACTLY as written. Do not skip steps or combine them.
+
+**CRITICAL**: This guidance is mandatory.
+
+- After each user interaction, STOP and wait for their response before proceeding
+- Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
+- Complete each step fully before moving to the next
+
+---
+
 ## Step 1: Run Migrations
 
 Run the migration script with sandbox disabled (migrations may need to modify `.claude/settings.json`):
@@ -45,6 +62,8 @@ Migrations Applied
 ```
 All documents up to date.
 ```
+
+**Do not stop here.** No migrations were needed — continue executing the calling skill immediately.
 
 → Return to caller.
 

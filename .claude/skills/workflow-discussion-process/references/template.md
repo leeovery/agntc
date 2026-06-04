@@ -26,28 +26,27 @@ What this is about, why we're discussing it, the problem or opportunity, current
 
 ## Discussion Map
 
-A living index of subtopics tracked during the discussion. This is the structural backbone — it grows as the conversation branches, and converges as decisions land. Claude maintains this section throughout.
+A living index of subtopics tracked during the discussion. This is the structural backbone — it grows as the conversation branches, and converges as decisions land. You maintain this section throughout.
 
 ### States
 
-- **pending** — identified but not yet explored
-- **exploring** — actively being discussed
-- **converging** — narrowing toward a decision
-- **decided** — decision reached with rationale documented
+- **pending** (`○`) — identified but not yet explored
+- **exploring** (`◐`) — actively being discussed
+- **converging** (`→`) — narrowing toward a decision
+- **decided** (`✓`) — decision reached with rationale documented
 
 ### Map
 
-  {Subtopic A} (decided)
-  ├─ {Child subtopic} (decided)
-  └─ {Child subtopic} (converging)
+  Discussion Map — {Topic} ({total} subtopics{state_breakdown})
 
-  {Subtopic B} (exploring)
-  ├─ {Child subtopic} (exploring)
-  └─ {Child subtopic} (pending)
-
-  {Subtopic C} (pending)
-
-  → Elevated: {sibling-topic} — discovered during discussion, seeded as separate topic
+  ┌─ ✓ {Subtopic A} [decided]
+  │  ├─ ✓ {Child subtopic} [decided]
+  │  └─ → {Child subtopic} [converging]
+  ├─ ◐ {Subtopic B} [exploring]
+  │  ├─ ◐ {Child subtopic} [exploring]
+  │  └─ ○ {Child subtopic} [pending]
+  ├─ ↑ Elevated: {Sibling Topic}
+  └─ ○ {Subtopic C} [pending]
 
 ---
 
@@ -129,8 +128,8 @@ What we chose, why, the deciding factor, trade-offs accepted, confidence level.
 **Discussion Map maintenance**:
 - Update states as the conversation progresses
 - New child subtopics can be added under parents
-- The map is the user's visibility into discussion shape and Claude's tracking mechanism
-- Elevated topics (siblings that became their own discussion) are noted with `→ Elevated:` on the map
+- The map is the user's visibility into discussion shape and your tracking mechanism
+- Elevated topics (siblings that became their own discussion) are noted with `↑ Elevated:` on the map, occupying the same slot in the tree as the original subtopic
 
 **Flexibility**: Not every subtopic needs all sections. Some have clear options with pros/cons. Some have heated debate worth capturing. Some are straightforward. Document what naturally came up — don't force structure onto a simple discussion.
 

@@ -35,7 +35,18 @@
 1. [Specific actionable change]
 
 ## Recommendations
-[Combined non-blocking suggestions]
+
+### Do now
+[Zero-risk, no-logic items to apply immediately — omit section if none]
+
+### Quick-fixes
+[Mechanical, logic-touching items for the pipeline — omit section if none]
+
+### Ideas
+[Items requiring discussion or design — omit section if none]
+
+### Bugs
+[Non-blocking broken behavior — omit section if none]
 ```
 
 ## Verdict Guidelines

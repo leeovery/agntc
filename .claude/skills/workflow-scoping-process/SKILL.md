@@ -1,7 +1,7 @@
 ---
 name: workflow-scoping-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs)
 ---
 
 # Scoping Process
@@ -17,6 +17,23 @@ Scope a mechanical change — gather context, write a specification, and produce
 - **Work unit description** (required) - From the manifest, summarising the mechanical change
 - **Topic name** (required) - Same as work_unit for quick-fix
 - **Output format preference** (optional) - Will ask if not specified
+
+---
+
+## Instructions
+
+Follow these steps EXACTLY as written. Do not skip steps or combine them.
+
+**CRITICAL**: This guidance is mandatory.
+
+- After each user interaction, STOP and wait for their response before proceeding
+- Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
+- Complete each step fully before moving to the next
 
 ---
 
@@ -89,11 +106,11 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase {work_unit
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.scoping.{topic} status completed
 ```
 
-→ Proceed to **Step 6**.
+→ Proceed to **Step 8**.
 
 **Otherwise:**
 
-→ Proceed to **Step 1** (spec exists but plan is incomplete — resume from format selection).
+→ Proceed to **Step 6** (spec exists but plan is incomplete — resume from format selection).
 
 #### If specification does not exist
 
@@ -101,7 +118,28 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.scopi
 
 ---
 
-## Step 1: Gather Context
+## Step 1: Knowledge Usage
+
+> *Output the next fenced block as a code block:*
+
+```
+── Knowledge Usage ──────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Loading the usage guide for the knowledge base so
+> proactive querying is available while scoping the change.
+```
+
+Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
+
+→ Proceed to **Step 2**.
+
+---
+
+## Step 2: Gather Context
 
 > *Output the next fenced block as a code block:*
 
@@ -118,11 +156,34 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.scopi
 
 Load **[gather-context.md](references/gather-context.md)** and follow its instructions as written.
 
-→ Proceed to **Step 2**.
+*Knowledge-base nudge — if the change touches an area with prior discussions, investigations, or specs, query the knowledge base while gathering context. A "mechanical change" often has a history. See **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)**.*
+
+→ Proceed to **Step 3**.
 
 ---
 
-## Step 2: Complexity Check
+## Step 3: Contextual Query
+
+> *Output the next fenced block as a code block:*
+
+```
+── Contextual Query ─────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Checking the knowledge base for prior discussions, investigations,
+> or specs that touch the area being changed.
+```
+
+Load **[contextual-query.md](../workflow-knowledge/references/contextual-query.md)** and follow its instructions as written.
+
+→ Proceed to **Step 4**.
+
+---
+
+## Step 4: Complexity Check
 
 > *Output the next fenced block as a code block:*
 
@@ -139,11 +200,11 @@ Load **[gather-context.md](references/gather-context.md)** and follow its instru
 
 Load **[complexity-check.md](references/complexity-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 3**.
+→ Proceed to **Step 5**.
 
 ---
 
-## Step 3: Write Specification
+## Step 5: Write Specification
 
 > *Output the next fenced block as a code block:*
 
@@ -160,11 +221,11 @@ Load **[complexity-check.md](references/complexity-check.md)** and follow its in
 
 Load **[write-specification.md](references/write-specification.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+→ Proceed to **Step 6**.
 
 ---
 
-## Step 4: Select Output Format
+## Step 6: Select Output Format
 
 > *Output the next fenced block as a code block:*
 
@@ -180,11 +241,11 @@ Load **[write-specification.md](references/write-specification.md)** and follow 
 
 Load **[select-format.md](references/select-format.md)** and follow its instructions as written.
 
-→ Proceed to **Step 5**.
+→ Proceed to **Step 7**.
 
 ---
 
-## Step 5: Write Tasks
+## Step 7: Write Tasks
 
 > *Output the next fenced block as a code block:*
 
@@ -201,11 +262,11 @@ Load **[select-format.md](references/select-format.md)** and follow its instruct
 
 Load **[write-tasks.md](references/write-tasks.md)** and follow its instructions as written.
 
-→ Proceed to **Step 6**.
+→ Proceed to **Step 8**.
 
 ---
 
-## Step 6: Conclude Scoping
+## Step 8: Conclude Scoping
 
 > *Output the next fenced block as a code block:*
 

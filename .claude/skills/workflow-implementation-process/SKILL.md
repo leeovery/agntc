@@ -1,7 +1,7 @@
 ---
 name: workflow-implementation-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs)
 ---
 
 # Implementation Process
@@ -21,6 +21,23 @@ Follows planning. Execute the plan task by task — an executor implements via s
 
 ---
 
+## Instructions
+
+Follow these steps EXACTLY as written. Do not skip steps or combine them.
+
+**CRITICAL**: This guidance is mandatory.
+
+- After each user interaction, STOP and wait for their response before proceeding
+- Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
+- Complete each step fully before moving to the next
+
+---
+
 ## Resuming After Context Refresh
 
 Context refresh (compaction) summarizes the conversation, losing procedural detail. When you detect a context refresh has occurred — the conversation feels abruptly shorter, you lack memory of recent steps, or a summary precedes this message — follow this recovery protocol:
@@ -31,7 +48,7 @@ Context refresh (compaction) summarizes the conversation, losing procedural deta
    ```bash
    node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{topic}
    ```
-   Check `task_gate_mode`, `fix_gate_mode`, `analysis_gate_mode`, `fix_attempts`, and `analysis_cycle` — if gates are `auto`, the user previously opted out. If `fix_attempts` > 0, you're mid-fix-loop for the current task. If `analysis_cycle` > 0, you've completed analysis cycles — check for findings files on disk (`analysis-*-c{cycle-number}.md` in the implementation directory) to determine mid-analysis state.
+   Check `task_gate_mode`, `fix_gate_mode`, `analysis_gate_mode`, `fix_attempts`, and `analysis_cycle_total` — if gates are `auto`, the user previously opted out. If `fix_attempts` > 0, you're mid-fix-loop for the current task. If `analysis_cycle_total` > 0, you've completed analysis cycles — check for findings files on disk (`analysis-*-c{cycle-number}.md` in the implementation directory) to determine mid-analysis state.
 4. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
 5. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
 
@@ -83,8 +100,10 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.imple
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} fix_gate_mode gated
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} analysis_gate_mode gated
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} fix_attempts 0
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} analysis_cycle 0
+node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} analysis_cycle_session 0
 ```
+
+Reset `analysis_cycle_session` only — never reset `analysis_cycle_total`.
 
 → Proceed to **Step 1**.
 
@@ -195,7 +214,30 @@ Load **[linter-setup.md](references/linter-setup.md)** and follow its instructio
 
 ---
 
-## Step 6: Task Loop
+## Step 6: Knowledge Usage
+
+> *Output the next fenced block as a code block:*
+
+```
+── Knowledge Usage ──────────────────────────────
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Loading the usage guide for the knowledge base. Implementation reads
+> the code as the source of truth for *what* exists — the guide
+> documents the rare cases where the KB is useful for the *why*
+> behind an existing pattern.
+```
+
+Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
+
+→ Proceed to **Step 7**.
+
+---
+
+## Step 7: Task Loop
 
 > *Output the next fenced block as a code block:*
 
@@ -213,21 +255,23 @@ Load **[linter-setup.md](references/linter-setup.md)** and follow its instructio
 
 Load **[task-loop.md](references/task-loop.md)** and follow its instructions as written.
 
+*Knowledge-base nudge — code is the source of truth for *what* exists; read it rather than query. Reach for the KB only when you need the *why* behind an existing pattern (rare). Never to fill spec gaps — those are blockers. See **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)**.*
+
 After the loop completes:
 
 #### If the task loop exited early (user chose `stop`)
 
-→ Proceed to **Step 8**.
+→ Proceed to **Step 9**.
 
 #### Otherwise
 
-**CRITICAL**: This routing applies on **every** task loop completion — including after returning from Step 7 with analysis-created tasks. Step 6 and Step 7 form a mandatory cycle: tasks execute → analysis runs → new tasks may be created → tasks execute again → analysis runs again. Never skip Step 7 after a task loop completes.
+**CRITICAL**: This routing applies on **every** task loop completion — including after returning from Step 8 with analysis-created tasks. Step 7 and Step 8 form a mandatory cycle: tasks execute → analysis runs → new tasks may be created → tasks execute again → analysis runs again. Never skip Step 8 after a task loop completes.
 
-→ Proceed to **Step 7**.
+→ Proceed to **Step 8**.
 
 ---
 
-## Step 7: Analysis Loop
+## Step 8: Analysis Loop
 
 > *Output the next fenced block as a code block:*
 
@@ -247,15 +291,15 @@ Load **[analysis-loop.md](references/analysis-loop.md)** and follow its instruct
 
 #### If new tasks were created in the plan
 
-→ Return to **Step 6**.
+→ Return to **Step 7**.
 
 #### If no tasks were created
 
-→ Proceed to **Step 8**.
+→ Proceed to **Step 9**.
 
 ---
 
-## Step 8: Compliance Self-Check
+## Step 9: Compliance Self-Check
 
 > *Output the next fenced block as a code block:*
 
@@ -271,11 +315,11 @@ Load **[analysis-loop.md](references/analysis-loop.md)** and follow its instruct
 
 Load **[compliance-check.md](../workflow-shared/references/compliance-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 9**.
+→ Proceed to **Step 10**.
 
 ---
 
-## Step 9: Mark Implementation Complete
+## Step 10: Mark Implementation Complete
 
 > *Output the next fenced block as a code block:*
 

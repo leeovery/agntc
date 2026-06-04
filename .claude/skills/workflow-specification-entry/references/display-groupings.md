@@ -30,7 +30,7 @@ Spec status: show actual status with extraction count `({X} of {Y} sources extra
 **Regressed sources:** After processing the grouping's discussions, check the spec's
 `sources` array from discovery. For any source where `discussion_status` is neither
 `completed` nor `not-found`, and the source is not already in the grouping:
-- Add it to the discussion tree with status `(extracted, reopened)`
+- Add it to the discussion tree with status `[extracted, reopened]`
 
 These represent sources that were incorporated but whose discussions have since
 regressed to in-progress. Sources with `discussion_status: "not-found"` (deleted
@@ -62,9 +62,9 @@ All items are first-class — every grouping (including single-discussion entrie
 Recommended breakdown for specifications with their source discussions.
 
 1. {grouping_name:(titlecase)}
-   └─ Spec: @if(has_spec) {spec_status:[in-progress|completed]} ({extraction_summary}) @else (no spec) @endif
+   └─ Spec: @if(has_spec) {spec_status:[in-progress|completed]} ({extraction_summary}) @else [no spec] @endif
    └─ Discussions:
-      ├─ {discussion} ({status:[extracted|pending|ready|reopened]})
+      ├─ {discussion} [{status:[extracted|pending|ready|reopened]}]
       └─ ...
 
 2. ...
@@ -75,9 +75,9 @@ Recommended breakdown for specifications with their source discussions.
 > *Output the next fenced block as a code block:*
 
 ```
-Discussions not ready for specification:
-These discussions are still in progress and must be completed
-before they can be included in a specification.
+⚑ Discussions not ready for specification:
+  These discussions are still in progress and must be completed
+  before they can be included in a specification.
 
   • {discussion-name}
 ```
@@ -138,17 +138,17 @@ After all grouping entries, append meta options:
 
 ```
 · · · · · · · · · · · ·
-1. Start "Auth Flow" — 2 ready discussions
-2. Continue "Data Model" — 1 source(s) pending extraction
-3. Unify all into single specification
+- **`1`** — Start "Auth Flow" — 2 ready discussions
+- **`2`** — Continue "Data Model" — 1 source(s) pending extraction
+- **`3`** — Unify all into single specification
    `All discussions are combined into one specification. Existing`
    `specifications are incorporated and superseded.`
-4. Re-analyze groupings
+- **`4`** — Re-analyze groupings
    `Current groupings are discarded and rebuilt. Existing`
    `specification names are preserved. You can provide guidance`
    `in the next step.`
 
-Select an option (enter number):
+Select an option:
 · · · · · · · · · · · ·
 ```
 

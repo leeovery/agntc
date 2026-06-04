@@ -4,9 +4,17 @@
 
 ---
 
-Select an inbox item and route to the appropriate start skill.
+Select inbox items to work on, or manage what's been archived. Selecting one or more items builds a working set that carries into discovery; the folder pre-seeds a work-type hint (bugs → bugfix, quickfixes → quick-fix, ideas → none) and discovery confirms the shape.
 
-## A. Display Inbox Items
+## A. Display and Menu
+
+Run discovery for the current inbox state — re-run on every entry so archive and unarchive changes are reflected:
+
+```bash
+node .claude/skills/workflow-start/scripts/discovery.cjs
+```
+
+Read the `=== INBOX ===` and `=== STATE ===` sections.
 
 > *Output the next fenced block as a code block:*
 
@@ -16,19 +24,27 @@ Select an inbox item and route to the appropriate start skill.
 ●───────────────────────────────────────────────●
 
 @foreach(item in inbox_items sorted by date)
-{N}. {item.title} ({item.type}, {item.date})
+  {N}. {item.title} ({item.type}, {item.date})
 @endforeach
 ```
 
-Build a numbered list combining all ideas, bugs, and quick-fixes, sorted by date (oldest first). Each shows title, type (idea/bug/quick-fix), and date.
+Build a numbered list combining all ideas, bugs, and quick-fixes, sorted by date (oldest first). Hold the number → item mapping (each item's type, slug, and date) for the selection.
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
 · · · · · · · · · · · ·
-Select an item (enter number, or **`b`/`back`** to return):
+What would you like to do?
+
+- **`1`–`{N}`** — Select item(s) to work on (comma-separated for several)
+@if(has_archived)
+- **`a`/`archived`** — View archived items (restore or delete)
+@endif
+- **`b`/`back`** — Return
 · · · · · · · · · · · ·
 ```
+
+`{N}` is the inbox item count (`state.inbox_count`). Show the `a`/`archived` option only when `state.has_archived` is true.
 
 **STOP.** Wait for user response.
 
@@ -36,64 +52,16 @@ Select an item (enter number, or **`b`/`back`** to return):
 
 → Return to caller.
 
-#### If user chose a number
+#### If user chose `a`/`archived`
 
-→ Proceed to **B. Load and Route**.
+→ Load **[inbox-archived.md](inbox-archived.md)** and follow its instructions as written.
 
-## B. Load and Route
+→ Return to **A. Display and Menu**.
 
-Read the full content of the selected inbox file.
+#### If user chose one or more numbers
 
-#### If selected item is a bug
+Build the **working set** from the chosen numbers. For each, resolve the inbox path `.workflows/.inbox/{folder}/{date}--{slug}.md` — `{folder}` is `ideas` / `bugs` / `quickfixes` by type — and hold its type and path.
 
-Invoke `/start-bugfix` with the inbox file path as positional argument:
+→ Load **[inbox-working-set.md](inbox-working-set.md)** and follow its instructions as written.
 
-`/start-bugfix .workflows/.inbox/bugs/{file}`
-
-This skill ends. The invoked skill handles archival. Terminal.
-
-#### If selected item is a quick-fix
-
-Invoke `/start-quickfix` with the inbox file path as positional argument:
-
-`/start-quickfix .workflows/.inbox/quickfixes/{file}`
-
-This skill ends. The invoked skill handles archival. Terminal.
-
-#### If selected item is an idea
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Choose based on scope. Feature for a single focused piece of work,
-> epic if it'll need multiple discussion topics, cross-cutting if it
-> defines patterns that other work will follow.
-
-· · · · · · · · · · · ·
-What type of work unit?
-
-- **`f`/`feature`** — Single-topic, linear pipeline
-- **`e`/`epic`** — Multiple topics, multi-session
-- **`c`/`cross-cutting`** — Patterns or policies that inform other work
-· · · · · · · · · · · ·
-```
-
-**STOP.** Wait for user response.
-
-**If `f`/`feature`:**
-
-Invoke `/start-feature .workflows/.inbox/ideas/{file}`.
-
-This skill ends. The invoked skill handles archival. Terminal.
-
-**If `e`/`epic`:**
-
-Invoke `/start-epic .workflows/.inbox/ideas/{file}`.
-
-This skill ends. The invoked skill handles archival. Terminal.
-
-**If `c`/`cross-cutting`:**
-
-Invoke `/start-cross-cutting .workflows/.inbox/ideas/{file}`.
-
-This skill ends. The invoked skill handles archival. Terminal.
+→ Return to **A. Display and Menu**.

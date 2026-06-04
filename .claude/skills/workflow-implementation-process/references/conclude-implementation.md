@@ -19,15 +19,13 @@ Ready to mark implementation as completed?
 
 #### If `no`
 
-→ Return to **[the skill](../SKILL.md)** for **Step 6**.
+→ Return to **[the skill](../SKILL.md)** for **Step 7**.
 
 #### If `yes`
 
 Update implementation status via manifest CLI:
 ```bash
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} status completed
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} analysis_cycle 0
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} fix_attempts 0
 ```
 
 Commit: `impl({work_unit}): complete implementation`

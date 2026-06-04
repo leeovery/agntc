@@ -4,7 +4,7 @@
 
 ---
 
-Manage an in-progress work unit's lifecycle. Self-contained four-step flow.
+Manage an in-progress work unit's lifecycle.
 
 ## A. Select
 
@@ -77,35 +77,53 @@ Store the selected work unit.
 
 Default `implementation_completed` = false, `has_plan` = false.
 
-Check whether the planning phase exists:
+Check whether the planning phase exists and store the result as `has_plan`:
 
 ```bash
 node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {selected.name}.planning
 ```
 
-If the result is `true`, set `has_plan` = true.
+#### If `selected.work_type` is `feature`
 
-Check whether the implementation phase exists:
+Default `has_spec` = false, `has_discussion` = false, `has_in_progress_epics` = false.
+
+Check whether the specification phase exists and store the result as `has_spec`:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {selected.name}.implementation
+node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {selected.name}.specification
 ```
 
-#### If the result is `false`
+Check whether the discussion phase exists and store the result as `has_discussion`:
 
-→ Proceed to **D. Action Menu**.
+```bash
+node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {selected.name}.discussion
+```
 
-#### If the result is `true`
+List in-progress epics:
 
-→ Proceed to **C. Completion Check**.
+```bash
+node .claude/skills/workflow-manifest/scripts/manifest.cjs list --status in-progress --work-type epic
+```
 
-## C. Completion Check
+If the result is a non-empty JSON array, set `has_in_progress_epics` = true and store the array as `available_epics`.
+
+→ Proceed to **C. Implementation Check**.
+
+#### Otherwise
+
+→ Proceed to **C. Implementation Check**.
+
+## C. Implementation Check
+
+Read all topic statuses in the implementation phase:
 
 ```bash
 node .claude/skills/workflow-manifest/scripts/manifest.cjs get '{selected.name}.implementation.*' status
 ```
 
-This returns all topic statuses in the implementation phase.
+#### If output is empty (no implementation phase)
+
+→ Proceed to **D. Action Menu**.
 
 #### If any result has `"value": "completed"`
 
@@ -124,7 +142,8 @@ Set `implementation_completed` = true.
 ```
 > Lifecycle actions for this work unit. Done marks it finished,
 > cancel abandons it, pivot converts a feature to an epic when the
-> scope grows beyond a single topic.
+> scope grows beyond a single topic, absorb merges a feature's
+> discussion into an existing epic.
 
 · · · · · · · · · · · ·
 **{selected.name:(titlecase)}** ({selected.work_type})
@@ -134,6 +153,9 @@ Set `implementation_completed` = true.
 @endif
 @if(selected.work_type == 'feature')
 - **`p`/`pivot`** — Convert to epic (enables multiple topics)
+@endif
+@if(selected.work_type == 'feature' and !has_spec and has_discussion and has_in_progress_epics)
+- **`a`/`absorb`** — Merge into an existing epic
 @endif
 @if(has_plan)
 - **`v`/`view-plan`** — View the implementation plan
@@ -150,6 +172,7 @@ Set `implementation_completed` = true.
 
 ```bash
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {selected.name} status completed
+node .claude/skills/workflow-manifest/scripts/manifest.cjs set {selected.name} completed_at $(date +%Y-%m-%d)
 ```
 
 Commit: `workflow({selected.name}): mark as completed`
@@ -168,6 +191,10 @@ Commit: `workflow({selected.name}): mark as completed`
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {selected.name} work_type epic
 ```
 
+Re-index all completed artifacts so their chunks carry the new `work_type: epic`:
+
+Load **[reindex-work-unit.md](../../workflow-knowledge/references/reindex-work-unit.md)** with work_unit = `{selected.name}`.
+
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
@@ -183,9 +210,17 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {selected.name} w
 
 **If user chose `c`/`continue`:**
 
-Invoke the `/continue-epic` skill. This is terminal — do not return to the caller.
+Invoke the `/workflow-continue-epic` skill.
+
+**STOP.** Do not proceed — terminal condition.
 
 **If user chose `b`/`back`:**
+
+→ Return to caller.
+
+#### If user chose `a`/`absorb`
+
+→ Load **[absorb-into-epic.md](absorb-into-epic.md)** and follow its instructions as written.
 
 → Return to caller.
 
@@ -199,6 +234,22 @@ Invoke the `/continue-epic` skill. This is terminal — do not return to the cal
 
 ```bash
 node .claude/skills/workflow-manifest/scripts/manifest.cjs set {selected.name} status cancelled
+```
+
+Remove the cancelled work unit's chunks from the knowledge base:
+
+```bash
+node .claude/skills/workflow-knowledge/scripts/knowledge.cjs remove --work-unit {selected.name}
+```
+
+If the remove command fails, display the error but do not block — the cancellation itself is already recorded:
+
+> *Output the next fenced block as a code block:*
+
+```
+⚑ Knowledge removal warning
+  {error details}
+  The work unit is cancelled. The removal has been queued and will retry automatically on the next `knowledge remove` or `knowledge compact` call.
 ```
 
 Commit: `workflow({selected.name}): mark as cancelled`

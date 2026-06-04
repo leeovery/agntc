@@ -10,15 +10,11 @@ Act as **precise intake coordinator**. Follow each step literally without interp
 
 ## Workflow Context
 
-This is **Phase 1** of the bugfix pipeline:
+You are in the **Investigation** phase of the bugfix pipeline:
 
-| Phase              | Focus                                              | You    |
-|--------------------|----------------------------------------------------|--------|
-| **Investigation**  | Symptom gathering + code analysis → root cause     | ◀ HERE |
-| 2. Specification   | REFINE - validate into fix specification           |        |
-| 3. Planning        | HOW - phases, tasks, acceptance criteria           |        |
-| 4. Implementation  | DOING - tests first, then code                     |        |
-| 5. Review          | VALIDATING - check work against artifacts          |        |
+**Investigation** → Specification → Planning → Implementation → Review
+
+Investigation gathers symptoms and traces code to find the root cause before any fix is written.
 
 **Stay in your lane**: Investigate the bug — gather symptoms, trace code, find root cause. Don't jump to fixing or implementing. This is the time for deep analysis.
 
@@ -32,6 +28,11 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 
 - After each user interaction, STOP and wait for their response before proceeding
 - Never assume or anticipate user choices
+- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
+- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
+- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
+- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
+- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
 - Complete each step fully before moving to the next
 
 ---
@@ -116,9 +117,9 @@ Load **[validate-phase.md](references/validate-phase.md)** and follow its instru
 > how it manifests, and any initial context.
 ```
 
-#### If bug context is already available in conversation
+#### If a discovery session log exists for this work unit
 
-The caller already gathered bug context (expected/actual behavior, initial context). Do not re-ask.
+The bug was shaped in discovery. Read the durable carrier as the seed — the manifest `description` and the latest discovery session log (`.workflows/{work_unit}/discovery/session-NNN.md`, highest-numbered) — and seed the investigation from it. Do not re-ask; live conversation context, when present, supplements the carrier.
 
 > *Output the next fenced block as a code block:*
 
