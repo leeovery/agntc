@@ -41,4 +41,4 @@ A tangential operational task surfaced — reinstalling the skills the user lost
 
 ## Conclusion
 
-(none)
+Routed to research.
