@@ -25,7 +25,7 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
 
 ### Map
 
-  Discussion Map — Configless Install (10 subtopics — 7 decided · 3 pending)
+  Discussion Map — Configless Install (10 subtopics — 8 decided · 2 pending)
 
   ┌─ ✓ Config Model (Keep+Fallback / Optional-Override / Supersede) [decided]
   ├─ ✓ Structural Type Detection (Bare / Plugin / Collection From Structure) [decided]
@@ -34,7 +34,7 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
   ├─ ✓ Agent Selection Rework (Installer-Side, KNOWN_AGENTS) [decided]
   ├─ ✓ Multi-Skill Collection Prompt Flow (No Flags, Source Selectors) [decided]
   ├─ ✓ Frontmatter-`name` Collision / Namespacing Policy [decided]
-  ├─ ○ Version Pinning For Untagged Repos [pending]
+  ├─ ✓ Version Pinning For Untagged Repos [decided]
   ├─ ○ Copy-Safety Hardening (Recursive Cp Of Untrusted Clone) [pending]
   └─ ○ Backward-Compat / Migration (Init Scaffolder, Collection Pipeline) [pending]
 
@@ -329,6 +329,32 @@ A configless collection's children carry no `agntc.json`. But the current collec
 ### Confidence
 
 High. This is the structural-detection decision applied one level down — no new concepts, and it removes the child-`agntc.json` dependency that blocked configless collections.
+
+---
+
+## Version Pinning For Untagged Repos
+
+### Context
+
+agntc's version model is tag/semver-based, added after launch (originally it only tracked a branch HEAD). A configless repo like `refero_skill` has **zero tags** — so what ref/constraint does it pin to, and how does `update` behave with no semver anchor?
+
+### Verified current behaviour (code)
+
+The tagless case is **already handled** — configless doesn't introduce it:
+
+- Bare `owner/repo` install: `resolveLatestVersion(tags)` (`add.ts:60`) returns `null` when there are no tags, so the `ref = latest.tag` assignment is skipped. The entry lands as `ref: null`, `commit: <SHA>`, **no constraint**.
+- `checkForUpdate` (`update-check.ts:71`) sees `ref === null` → routes to **`checkHead`**, a SHA-diff against the remote default-branch HEAD. So a tagless repo already *tracks HEAD and stays updatable*.
+- Tagged repos: `^major.minor.patch` auto-constraint, npm/Composer-style — minor/patch auto-apply, `0.x` and out-of-range majors shown but require explicit bump. Unchanged.
+
+### Decision
+
+**Reuse the existing tagless→HEAD tracking; add one small polish to record the branch name.**
+
+- Untagged install (including every configless tagless repo) → no constraint, track the repo's default branch by SHA. Mechanism already exists; configless flows through the identical path.
+- **Polish (accepted):** on a tagless install, record the resolved **default-branch name** as `ref` so `update` routes through `checkBranch` (not bare `checkHead`) and `list` can show "tracking `main`@`abc1234`" instead of a bare commit. Small code add, clearer visibility.
+- Explicit `#ref` / `@tag` still pin exactly as today.
+
+**Trade-off accepted**: branch-tracking has no semver gate, so "latest" could ship a breaking change — but the author published no versions to gate on, and the SHA move is visible in `list`/`update` before it's applied. Confidence: high.
 
 ---
 
