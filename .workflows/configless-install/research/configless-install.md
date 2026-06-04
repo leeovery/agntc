@@ -21,13 +21,14 @@ What we know so far:
 
 *Added after a review agent caught that the initial research studied only the Vercel comparator and never opened agntc's own source. Verified directly against the code. This reframes the feature.*
 
-**The "v1 made `agntc.json` mandatory / no convention fallback" premise is the v1 *spec ideal* — the shipped code already diverged from it.** `readConfig` (src/config.ts) returns `null` (not an error) when no `agntc.json` exists, and `add.ts:172` explicitly handles `config === null` by running `detectType(…, { hasConfig: false })`. So a **no-config install path already ships today.**
+**Truly configless install does not exist today. Every installable unit still requires an `agntc.json`.** This is *consistent* with the v1 spec, not a divergence from it. v1 decided two complementary things: "every **installable unit** must have `agntc.json`" AND "a collection is just a container, not an installable unit — so it has no root config."
 
-The catch — and the *actual* gap — is what that path recognizes (`detectWithoutConfig`, src/type-detection.ts:89):
-- It scans immediate child dirs for `agntc.json` → if any, returns `collection`.
-- Anything else — including a repo whose root is a bare `SKILL.md` with no `agntc.json` — returns `not-agntc`, and `add.ts:193` rejects it: *"Not an agntc source — no agntc.json found and no collection detected."*
+The `detectWithoutConfig` path (src/type-detection.ts:89) implements only the *second* rule — it is **not** a configless-install fallback (an earlier draft of this finding wrongly called it one):
+- `readConfig` returns `null` (not an error) when no root `agntc.json` exists, and `add.ts:172` then runs `detectType(…, { hasConfig: false })`.
+- That detect scans immediate child dirs for `agntc.json`. If any → `collection`. So a collection *container* can lack root config — **but every child you actually install still carries its own `agntc.json`.** The config didn't disappear; it moved down a level.
+- Anything else — including a repo whose root is a bare `SKILL.md` with no config — returns `not-agntc`, and `add.ts:193` rejects it: *"Not an agntc source — no agntc.json found and no collection detected."*
 
-So the feature is **not** "add configless install / walk back v1 wholesale." It is **surgical**: extend `detectWithoutConfig` to also recognize (a) a root bare `SKILL.md` repo, and (b) a collection whose children are identified by `SKILL.md` rather than `agntc.json`. The exact thing `referodesign/refero_skill` needs is the single missing branch.
+So the feature is **net-new** for the only cases that count, and **surgical** in detection terms: extend `detectWithoutConfig` to recognize (a) a root bare `SKILL.md` repo, and (b) a collection whose children are identified by `SKILL.md` rather than `agntc.json`. The exact thing `referodesign/refero_skill` needs is that missing branch.
 
 But that small detection change drags three non-trivial integration problems that the comparator study glossed (it assumed "agntc owns the hard parts"):
 
