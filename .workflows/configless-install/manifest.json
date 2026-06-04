@@ -11,6 +11,13 @@
           "status": "completed"
         }
       }
+    },
+    "discussion": {
+      "items": {
+        "configless-install": {
+          "status": "in-progress"
+        }
+      }
     }
   }
 }
