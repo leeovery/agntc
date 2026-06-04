@@ -138,6 +138,16 @@ This is the case where config legitimately *should* exist: multi-asset, delibera
 
 No need for Vercel's `.skill-lock.json`. agntc's `.agntc/manifest.json` (`ManifestEntry`) records per install: `ref` (tag), `commit` (SHA), `constraint` (semver range, e.g. `^1.2.0`), `agents`, `files` (for precise remove/update), `cloneUrl`. Resolution uses the `semver` package (`maxSatisfying` over `ls-remote` tags). Richer than Vercel's (semver constraints, not just pins). **Remaining sub-decision:** an untagged configless repo (no semver tags) gets a `commit` but no meaningful `constraint` — `update` semantics for that case need defining (pin to branch HEAD? to commit?).
 
+## Factual closures (final-review follow-up, verified against code)
+
+Three final-review items were *facts*, not decisions — closed here against agntc's source so discussion starts from measured ground:
+
+- **Copy-safety exposure is real and pre-existing.** `cloneSource` (src/git-clone.ts) does `git clone --depth 1` into a temp dir with a 60s timeout and retries — **no size cap, no symlink handling**. `copyBareSkill` then `cp(sourceDir, destDir, { recursive: true })` the entire clone and deletes `agntc.json`. So agntc **already** clones and recursively copies untrusted repo contents today (symlinks, executables, arbitrary tree size — all ungated); the *only* current trust signal is "has an `agntc.json`." Configless introduces no new copy mechanism — it **removes that single trust gate**, widening an aperture already open. Vercel's YAML-only-frontmatter floor is moot until/unless agntc starts parsing frontmatter (it currently parses none). Implication for discussion: copy-safety is a *pre-existing* hardening item; configless amplifies it but doesn't create it.
+- **The "surgical detection" claim holds for only one of the two extension points.** `add.ts:172` routes `config === null` to `detectType(hasConfig:false)`; a `collection` result runs `runCollectionPipeline`, which reads each child's `agntc.json` both to enumerate plugins *and* to get per-child `agents` (`add.ts:388,394`). So: bare-root-`SKILL.md` is a genuinely surgical add; a **SKILL.md-keyed collection has no path today and the existing pipeline depends on child config at two points** — that case is a deeper rework, not a parallel one-liner. (Corrects the earlier "two surgical extensions" framing.)
+- **Agent default is resolved by the user's own model.** `detectAgents` (src/detect-agents.ts) keys per driver on project markers (`.claude/`, `claude` on PATH, `~/.claude`, etc.). When nothing is detected, selection isn't blocked — the user can still pick. The reviewer's "assumes Claude default" worry dissolves: the model isn't "default to Claude," it's **show `KNOWN_AGENTS` (claude/codex/cursor), user picks, detection only pre-ticks.** No hard dependency on detection or a Claude fallback. (`selectAgents` still needs reworking to *source* its candidate list from `KNOWN_AGENTS` rather than `declaredAgents` when config is absent.)
+
+Remaining genuinely decision-shaped items (multi-skill configless-collection prompt flow; frontmatter-`name` collision/namespacing policy) are left for discussion — they are choices, not findings.
+
 ## Open questions (carried forward)
 
 Surfaced by the review agent (set 001), not yet explored in conversation:
