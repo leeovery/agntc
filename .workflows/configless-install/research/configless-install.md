@@ -126,6 +126,12 @@ Confirmed against the knowledge base — the `init` spec states *"No arguments. 
 - **Interactive prompts** for "which skill(s) from this collection?" (agntc already does this via `selectCollectionPlugins`).
 - **Selector encoded in the source string, not a flag** — `owner/repo`, `owner/repo@skill`, or `tree/<branch>/<path>` URLs (agntc's `parseSource` already turns tree-URLs into a target). So "install a nested skill" need not be a flag.
 
+### Concrete example — config still earns its keep (`agentic-workflows`)
+
+Ran agntc's detection against the `agentic-workflows` repo: root `agntc.json` = `{ "agents": ["claude"] }`, asset dirs `skills/` (32) + `agents/` (23), no root `SKILL.md` → classified as a **plugin**, installed as one Claude-only unit (skills → `.claude/skills/`, agents → `.claude/agents/`).
+
+This is the case where config legitimately *should* exist: multi-asset, deliberately Claude-only, 50+ items bundled as one coherent install — intent that can't be inferred from structure alone. It's the counterweight to `refero_skill` (a single bare `SKILL.md` that needs no config at all). Together they argue for **option 2 (config optional, not abolished)** over option 3 (supersede entirely): configless for the simple case, config for the constrained/complex case, both coexisting.
+
 ### Version tracking — agntc already has its own "skill lock"
 
 No need for Vercel's `.skill-lock.json`. agntc's `.agntc/manifest.json` (`ManifestEntry`) records per install: `ref` (tag), `commit` (SHA), `constraint` (semver range, e.g. `^1.2.0`), `agents`, `files` (for precise remove/update), `cloneUrl`. Resolution uses the `semver` package (`maxSatisfying` over `ls-remote` tags). Richer than Vercel's (semver constraints, not just pins). **Remaining sub-decision:** an untagged configless repo (no semver tags) gets a `commit` but no meaningful `constraint` — `update` semantics for that case need defining (pin to branch HEAD? to commit?).
