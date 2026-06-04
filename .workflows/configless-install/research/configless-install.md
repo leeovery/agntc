@@ -17,6 +17,32 @@ What we know so far:
 
 ---
 
+## Finding 0 — agntc's ACTUAL current state (corrects the premise)
+
+*Added after a review agent caught that the initial research studied only the Vercel comparator and never opened agntc's own source. Verified directly against the code. This reframes the feature.*
+
+**The "v1 made `agntc.json` mandatory / no convention fallback" premise is the v1 *spec ideal* — the shipped code already diverged from it.** `readConfig` (src/config.ts) returns `null` (not an error) when no `agntc.json` exists, and `add.ts:172` explicitly handles `config === null` by running `detectType(…, { hasConfig: false })`. So a **no-config install path already ships today.**
+
+The catch — and the *actual* gap — is what that path recognizes (`detectWithoutConfig`, src/type-detection.ts:89):
+- It scans immediate child dirs for `agntc.json` → if any, returns `collection`.
+- Anything else — including a repo whose root is a bare `SKILL.md` with no `agntc.json` — returns `not-agntc`, and `add.ts:193` rejects it: *"Not an agntc source — no agntc.json found and no collection detected."*
+
+So the feature is **not** "add configless install / walk back v1 wholesale." It is **surgical**: extend `detectWithoutConfig` to also recognize (a) a root bare `SKILL.md` repo, and (b) a collection whose children are identified by `SKILL.md` rather than `agntc.json`. The exact thing `referodesign/refero_skill` needs is the single missing branch.
+
+But that small detection change drags three non-trivial integration problems that the comparator study glossed (it assumed "agntc owns the hard parts"):
+
+1. **Identity / naming.** `copyBareSkill` (src/copy-bare-skill.ts:20) sets the installed skill dir to `basename(sourceDir)` — the repo/dir name — and never reads `SKILL.md` frontmatter. agntc **does not parse SKILL.md frontmatter at all** (`detectType` only checks the file *exists*). Vercel's whole model keys on the frontmatter `name`. Adopting that = a new YAML-frontmatter parse + validation path (net-new dep/code), and a decision: dir-basename identity vs frontmatter-`name` identity. This affects manifest keys, dedup, and update-matching.
+2. **Manifest keying & lifecycle.** The manifest keys on `owner/repo` (or `owner/repo/plugin`). What's the key for a configless single-skill repo? a configless nested skill? a SKILL.md-keyed collection (which produces no `plugins[]` under current code)? And since agntc's value over a one-shot copy is *lifecycle* — `update` (nuke-and-reinstall) and `remove` — re-running detection on a fresh clone could discover a *different* skill set than originally installed. The user's original pain was a **lifecycle** failure (un-updatable skills); configless lifecycle is the part that must not regress.
+3. **Agent selection.** `selectAgents` (src/agent-select.ts:12) returns `[]` (install for nobody) when `declaredAgents` is empty, and builds its prompt options *from* `declaredAgents`. With no `agntc.json` there are no declared agents, so this isn't a clean swap to installer-side selection — it requires reworking `selectAgents` to seed from *detected* agents plus a default (Claude), and deciding behaviour when none is detected.
+
+Plus two more the review flagged, both real:
+- **Version constraints on untagged repos.** `add` auto-resolves the latest semver tag and stores `^x.y.z`. A single-skill repo like `refero_skill` plausibly has *no tags*. What ref/constraint does a configless install pin to (commit? branch?), and how does `update` behave with none?
+- **Security of recursive copy.** `copyBareSkill` does `cp(sourceDir, destDir, { recursive: true })` of an entire arbitrary clone, then deletes `agntc.json`. Configless removes even the config gate. Path-traversal, symlinks, hook/executable files, huge trees — currently unguarded. Vercel's YAML-only-frontmatter (no `---js` eval) and `isSubpathSafe` are the floor to match.
+
+**Net:** detection is a small extension to existing code; the feature's weight is in identity, manifest/lifecycle, agent-selection rework, version pinning, and copy-safety. The discussion-phase model choice (below) still stands, but its real cost lives in items 1–3, not in detection mechanics.
+
+---
+
 ## Finding 1 — How Vercel `skills` installs configless (source reverse-engineered)
 
 Cloned `vercel-labs/skills` @ v1.5.10 (single runtime dep: `yaml`; bin `skills`/`add-skill`). The whole tool runs against arbitrary repos with **no per-skill config file** — and the inspected installed skills (`typescript-pro` et al.) confirm it: a skill is just a directory with a `SKILL.md`.
@@ -72,7 +98,9 @@ Two locks: a **global** lock at `$XDG_STATE_HOME/skills/.skill-lock.json` or fal
 
 ## Synthesis so far (options, not decisions)
 
-The feature is clearly **technically feasible** — Vercel is an existence proof of a whole configless ecosystem keyed purely off `SKILL.md` frontmatter, and agntc already owns the hard parts (source parsing, git clone, driver routing, manifest). The real work isn't detection mechanics; it's a **model decision** the discovery seed already anticipated:
+The feature is clearly **technically feasible** — Vercel is an existence proof, and agntc already ships a partial no-config path (Finding 0). Detection is a *small* extension (`detectWithoutConfig` gains a bare-`SKILL.md` branch). The real work is **integration**, not detection: identity/naming (dir-basename vs frontmatter `name`, requiring a new frontmatter parser), manifest keying, configless lifecycle (`update`/`remove` must not regress — that was the user's actual pain), agent-selection rework, version pinning for untagged repos, and copy-safety. *(Earlier draft overstated "agntc owns the hard parts" — Finding 0 corrects it.)*
+
+Sitting above that integration work is a **model decision** the discovery seed anticipated:
 
 1. **Keep `agntc.json`, add a configless fallback** — repos with config behave as today; repos without fall back to `SKILL.md`-frontmatter detection. Agent selection: declared when config exists, install-side when it doesn't. *Two code paths, backward compatible, but two mental models.*
 2. **Make `agntc.json` optional-everywhere** — always detect from structure; `agntc.json`, when present, only *overrides* (e.g. pins agents). *One path, config is pure override.*
@@ -81,3 +109,16 @@ The feature is clearly **technically feasible** — Vercel is an existence proof
 Cross-cutting sub-decisions feeding all three: where agent selection lives (author vs installer), whether to mirror the `@skill` selector syntax, and what the security posture is for parsing untrusted repos (Vercel's YAML-only stance is a floor).
 
 These trade-offs are the discussion-phase agenda. Research's job is to have surfaced them, not pick.
+
+## Open questions (carried forward)
+
+Surfaced by the review agent (set 001), not yet explored in conversation:
+
+- **Identity:** does configless install key on `SKILL.md` frontmatter `name` (Vercel model, needs a parser) or keep dir-basename? Impacts dedup, manifest key, update-matching.
+- **Manifest keying:** what key for a single-skill repo / nested skill / SKILL.md-keyed collection (no per-child `agntc.json` to enumerate)?
+- **Lifecycle:** how does `update` (nuke-and-reinstall) re-resolve a configless install without re-discovering a *different* skill set? How does `remove` target it? (This is the user's original pain — must not regress.)
+- **Nested-skill selection:** is the "skill in a subdir" case already covered by agntc's existing `tree/<branch>/<path>` → `direct-path`/`targetPlugin` parsing, or does it need a Vercel-style `@skill` selector or a new flag? How does `targetPlugin` behave pointed at a bare `SKILL.md` dir?
+- **Version constraints:** what ref/constraint for an untagged repo? Pin to commit/branch? How does constrained `update` behave with no semver tags?
+- **Backward-compat / migration:** what happens to existing `agntc.json` installs, the `init` scaffolder that emits `agntc.json`, and the collection pipeline that depends on child `agntc.json`, under each synthesis option?
+- **Disambiguation UX:** concrete flag surface — agntc's `add` is currently flagless and prompt-driven (`selectCollectionPlugins`, `selectAgents`). How do new flags name/interact, vs Vercel's `@skill` selector + `--full-depth`?
+- **Copy safety:** assess agntc's actual exposure (recursive `cp` of an untrusted clone) — path traversal, symlinks, hooks/executables, tree size — against Vercel's floor (YAML-only frontmatter, `isSubpathSafe`).
