@@ -104,7 +104,6 @@
           "fix_gate_mode": "gated",
           "analysis_gate_mode": "auto",
           "fix_attempts": 0,
-          "analysis_cycle": 0,
           "linters": [
             {
               "name": "biome",
@@ -170,7 +169,9 @@
             8,
             9
           ],
-          "updated": "2026-03-25"
+          "updated": "2026-03-25",
+          "analysis_cycle_total": 3,
+          "analysis_cycle_session": 0
         }
       }
     },
@@ -218,5 +219,6 @@
         }
       }
     }
-  }
+  },
+  "completed_at": "2026-03-25"
 }

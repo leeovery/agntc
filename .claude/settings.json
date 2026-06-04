@@ -1,3 +1,9 @@
 {
-  "showClearContextOnPlanAccept": true
+  "showClearContextOnPlanAccept": true,
+  "permissions": {
+    "allow": [
+      "Write(.workflows/**)",
+      "Edit(.workflows/**)"
+    ]
+  }
 }
