@@ -25,7 +25,7 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
 
 ### Map
 
-  Discussion Map — Configless Install (10 subtopics — 8 decided · 2 pending)
+  Discussion Map — Configless Install (10 subtopics — 9 decided · 1 pending)
 
   ┌─ ✓ Config Model (Keep+Fallback / Optional-Override / Supersede) [decided]
   ├─ ✓ Structural Type Detection (Bare / Plugin / Collection From Structure) [decided]
@@ -35,7 +35,7 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
   ├─ ✓ Multi-Skill Collection Prompt Flow (No Flags, Source Selectors) [decided]
   ├─ ✓ Frontmatter-`name` Collision / Namespacing Policy [decided]
   ├─ ✓ Version Pinning For Untagged Repos [decided]
-  ├─ ○ Copy-Safety Hardening (Recursive Cp Of Untrusted Clone) [pending]
+  ├─ ✓ Copy-Safety Hardening (Recursive Cp Of Untrusted Clone) [decided]
   └─ ○ Backward-Compat / Migration (Init Scaffolder, Collection Pipeline) [pending]
 
 ---
@@ -355,6 +355,32 @@ The tagless case is **already handled** — configless doesn't introduce it:
 - Explicit `#ref` / `@tag` still pin exactly as today.
 
 **Trade-off accepted**: branch-tracking has no semver gate, so "latest" could ship a breaking change — but the author published no versions to gate on, and the SHA move is visible in `list`/`update` before it's applied. Confidence: high.
+
+---
+
+## Copy-Safety Hardening
+
+### Context
+
+A *pre-existing* exposure that configless **widens, not creates**. `cloneSource` (`git-clone.ts`) does `git clone --depth 1` with no size cap and no symlink handling; `copyBareSkill` (`copy-bare-skill.ts:32`) does `cp(sourceDir, destDir, { recursive: true })` of the whole clone, then deletes `agntc.json`. agntc already copies untrusted repo contents today — the *only* current trust gate is "the repo shipped an `agntc.json`," and configless removes exactly that gate, so the input becomes genuinely arbitrary third-party repos.
+
+The Identity decision keeps the copy mechanism itself (recursive `cp`, keep everything — we can't know what a skill needs). So this is about not letting a repo read/write *outside* the directory it's meant to land in — distinct from skill *validation*, which the user explicitly doesn't want.
+
+### Decision
+
+**Fold the cheap boundary-level floor into this feature; defer deeper hardening to a logged idea.**
+
+In scope for configless-install:
+1. **Path-traversal guard** — validate any source-supplied subpath/selector (`@unit`, tree path, `#ref@skill`) resolves *within* the clone before copying. Mirrors Vercel's `isSubpathSafe`. Cheapest, highest value.
+2. **Symlink-escape guard** — `cp` runs with `dereference: false`, so repo symlinks land verbatim; reject/skip any symlink that doesn't resolve inside the unit's own directory.
+
+Deferred (logged together as one inbox idea — `.inbox/ideas/2026-06-05--untrusted-repo-copy-hardening.md`):
+3. Tree size / file-count / depth caps.
+4. Executable / hook safety (a configless plugin's `hooks/` = code that runs on the agent's next invocation).
+
+Rationale: #1 and #2 are the true security boundary (escape prevention) and are cheap; configless is precisely what makes the input untrusted, so they belong here. #3 and #4 are broader hardening that applies to agntc's copy path regardless of configless — better discussed on their own than bolted on.
+
+Confidence: high.
 
 ---
 
