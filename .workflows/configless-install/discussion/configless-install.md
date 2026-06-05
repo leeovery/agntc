@@ -374,7 +374,7 @@ In scope for configless-install:
 1. **Path-traversal guard** — validate any source-supplied subpath/selector (`@unit`, tree path, `#ref@skill`) resolves *within* the clone before copying. Mirrors Vercel's `isSubpathSafe`. Cheapest, highest value.
 2. **Symlink-escape guard** — `cp` runs with `dereference: false`, so repo symlinks land verbatim; reject/skip any symlink that doesn't resolve inside the unit's own directory.
 
-Deferred (logged together as one inbox idea — `.inbox/ideas/2026-06-05--untrusted-repo-copy-hardening.md`):
+Deferred into a general **validation** inbox idea (`.inbox/ideas/2026-06-05--validation.md`) — which also collects other validation concerns surfaced here (skill-validity gate, untrusted-frontmatter parsing safety, config-schema validation depth, agent-level identity collisions):
 3. Tree size / file-count / depth caps.
 4. Executable / hook safety (a configless plugin's `hooks/` = code that runs on the agent's next invocation).
 
