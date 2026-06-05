@@ -213,6 +213,7 @@ Existing manifests predate the `type` field, so the first `update` after this fe
 - The whole pre-existing install base is **universally config-bearing** — configless install is net-new, so *no configless legacy install can exist for any user*. Every legacy entry's source repo carries `agntc.json` (or child configs for collection members).
 - Therefore legacy type derivation can use the v1 config-gated rule ("config present + asset dirs → plugin; config + root `SKILL.md` → skill"), which **never hits the new skills-only→collection default** — the one case that could flip is structurally unreachable for config-bearing repos.
 - Installed *shapes* don't change between install and first update in practice, so the convention/derivation holds. No need to reconcile against the installed `files` as a separate source of truth — the deduction (legacy ⇒ config-bearing ⇒ v1-derivable ⇒ no flip) closes the risk on its own.
+- **Backfill is per manifest entry, and an entry is always a unit (skill/plugin) — never a collection** (review 002 / F3). Collections are transport-only and never stored. A legacy collection-member entry (`owner/repo/<unit>`) backfills from its *own* subdir; legacy members were config-bearing, so each resolves as skill-or-plugin in isolation. No collection type is ever derived or stored — the member sub-case is just "backfill each unit entry," not "re-derive the set."
 - This also covers most of the *Backward-Compat / Migration* subtopic's update concern.
 
 ### Keying (resolved by Identity & Naming)
