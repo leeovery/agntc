@@ -379,6 +379,8 @@ In scope for configless-install:
 1. **Path-traversal guard** — validate any source-supplied subpath/selector (`@unit`, tree path, `#ref@skill`) resolves *within* the clone before copying. Mirrors Vercel's `isSubpathSafe`. Cheapest, highest value.
 2. **Symlink-escape guard** — `cp` runs with `dereference: false`, so repo symlinks land verbatim; reject any symlink that doesn't resolve inside the unit's own directory.
 
+**Guard scope** (review 002 / F5): the two guards are *complementary*. Path-traversal protects **source resolution** (selectors/subpaths — where we copy *from*) and is a no-op for a no-selector whole-repo copy like the `refero_skill` bare-skill case. The symlink guard protects **copied content** (what lands on disk) and runs on *every* install, bare skills included. So the headline bare-skill case is covered by the symlink guard; path-traversal simply has nothing to check there.
+
 **Guard timing** (review 002 / F2): both guards run as a **pre-flight scan of the unit tree *before* any copy**. Walk the tree, validate selectors resolve within the clone and no symlink escapes the unit dir; on violation, **error before writing anything**. The single recursive `cp` (Identity decision) then runs only on a verified-clean tree. Pre-flight (not post-copy scan-and-remove) leaves no on-disk window where escaping symlinks exist, and matches the derive-before-delete principle: validate before you mutate.
 
 Deferred into a general **validation** inbox idea (`.inbox/ideas/2026-06-05--validation.md`) — which also collects other validation concerns surfaced here (skill-validity gate, untrusted-frontmatter parsing safety, config-schema validation depth, agent-level identity collisions):
