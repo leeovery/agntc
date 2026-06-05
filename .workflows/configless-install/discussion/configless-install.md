@@ -353,10 +353,11 @@ The tagless case is **already handled** — configless doesn't introduce it:
 
 ### Decision
 
-**Reuse the existing tagless→HEAD tracking; add one small polish to record the branch name.**
+**Reuse the existing tagless→HEAD tracking unchanged; `ref: null` is the canonical tagless representation.**
 
-- Untagged install (including every configless tagless repo) → no constraint, track the repo's default branch by SHA. Mechanism already exists; configless flows through the identical path.
-- **Polish (accepted):** on a tagless install, record the resolved **default-branch name** as `ref` so `update` routes through `checkBranch` (not bare `checkHead`) and `list` can show "tracking `main`@`abc1234`" instead of a bare commit. Small code add, clearer visibility.
+- Untagged install (including every configless tagless repo) → `ref: null`, `commit: <SHA>`, no constraint → `update` routes to `checkHead`, SHA-diffing the remote's default-branch HEAD. Mechanism already exists; configless flows through the identical path — **no new code**.
+- **No branch-name polish** (revised per review 003 / F2). Recording the default-branch *name* as `ref` (→ `checkBranch`) was considered for `list` visibility but **rejected**: (a) it bifurcates the manifest — new tagless entries `ref: <branch>` vs legacy `ref: null` — two shapes for one concept; (b) `checkBranch` *pins a named branch* that breaks on a default-branch rename (`master`→`main`), whereas `checkHead` follows the symbolic default HEAD and is **more robust**. `ref: null` is **not vestigial**: `ref` records *user intent* (tag / branch / none), and `null` = "no explicit ref → follow default HEAD," comparing by the stored `commit`. (Confirmed against `version-constraints` history — this was a deliberate prior decision.)
+- If `list` wants to show the branch name, **resolve it at display time** — do not store it.
 - Explicit `#ref` / `@tag` still pin exactly as today.
 
 **Trade-off accepted**: branch-tracking has no semver gate, so "latest" could ship a breaking change — but the author published no versions to gate on, and the SHA move is visible in `list`/`update` before it's applied. Confidence: high.
