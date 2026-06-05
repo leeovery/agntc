@@ -25,7 +25,7 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
 
 ### Map
 
-  Discussion Map — Configless Install (10 subtopics — 9 decided · 1 pending)
+  Discussion Map — Configless Install (10 subtopics)
 
   ┌─ ✓ Config Model (Keep+Fallback / Optional-Override / Supersede) [decided]
   ├─ ✓ Structural Type Detection (Bare / Plugin / Collection From Structure) [decided]
@@ -36,7 +36,7 @@ This discussion resolves the parked decisions; research deliberately surfaced tr
   ├─ ✓ Frontmatter-`name` Collision / Namespacing Policy [decided]
   ├─ ✓ Version Pinning For Untagged Repos [decided]
   ├─ ✓ Copy-Safety Hardening (Recursive Cp Of Untrusted Clone) [decided]
-  └─ ○ Backward-Compat / Migration (Init Scaffolder, Collection Pipeline) [pending]
+  └─ ✓ Backward-Compat / Migration (Init Scaffolder, Collection Pipeline) [decided]
 
 ---
 
@@ -176,6 +176,8 @@ Pinned down while resolving the collection flow:
   3. otherwise, scan **non-asset-kind child dirs** as potential collection members
   4. else reject
 - **Consequence**: `agentic-workflows` (multi-asset: `skills/` + `agents/`/`hooks/`) is a plugin by structure and needs **no** `type: plugin` in config. `type: plugin` is reserved strictly for a *pure skills-only* repo the author wants bundled.
+- **Config *presence* never signals type — only an explicit `type` *property* does.** This is the v1 boundary-marker behaviour ("config present → plugin; no root config → collection") staying dead. A config carrying only `agents` has zero effect on type. (Refines the amendment above: config-`type` is kept; config-*presence* as a type signal is not.)
+- **`type`/flag resolve only the one ambiguous (skills-only) case; a declared type that contradicts an unambiguous structure is a hard error.** It does real work for skills-only (plugin-bundle vs collection-menu, even with a single skill). But `type: plugin` on a member-dirs collection, `type: plugin` on a bare skill, or `type: collection` on a multi-asset plugin is *unrealizable* — agntc errors rather than forcing an impossible interpretation. Deliberate asymmetry with the agents rule: **missing info → default (lenient); contradictory info → error (loud).**
 
 ---
 
@@ -384,16 +386,43 @@ Confidence: high.
 
 ---
 
+## Backward-Compat / Migration
+
+### Context
+
+The model changes (structure-authoritative type, config demoted, configless installs) ripple across existing installs, the `init` scaffolder, the config schema, and the collection pipeline. Most resolved while deciding other subtopics; this collects the remainder (review F1, F9).
+
+### Decision
+
+- **Existing installs** — covered by *legacy backfill* (Manifest Keying & Lifecycle): first `update` of a pre-`type` entry derives type once via config-aware (v1) derivation and records it. Universally config-bearing (configless is net-new), so no skills-only flip. No separate migration step.
+- **`init` scaffolder stays agents-only.** Every path it offers (skill / plugin / collection) scaffolds a *structurally unambiguous* layout, so it never needs to emit `type`. `type` remains a hand-authored field for the rare skills-only bundle. (`init` is unchanged by this feature.)
+- **Config schema** — `{ agents, type? }`. **Unknown keys are ignored** (lenient), so older/newer agntc versions don't choke on each other's configs.
+- **Config *presence* is no longer a type signal** (see Structural Type Detection clarifications) — only an explicit `type` property is read. This is the v1 boundary-marker behaviour staying removed.
+- **Collection with a stray root `agntc.json`** (review F9): structure decides it's a collection regardless. Root config with **no `type`** → ignored. Root config declaring **`type: plugin`** on a member-dirs structure → **hard error** (unrealizable, per the type-vs-structure conflict rule). Presence alone never reclassifies it.
+- **Collection pipeline's child-`agntc.json` dependency** (research, `add.ts:388,394`) — resolved by *Multi-Skill Collection Prompt Flow*: membership comes from structural detection per child; child config is read only for agents when present.
+
+### Confidence
+
+High. No standalone migration tooling needed — backfill + lenient schema + structure-authoritative detection cover the surface.
+
+---
+
 ## Summary
 
 ### Key Insights
 
-*(to be filled as the discussion progresses)*
+1. **Config's only irreducible job is author agent-restriction.** Type, identity, and installability are structural. This extends v1's `config-file-simplification` — but goes further: config *presence* no longer signals type at all; only an explicit `type` property is read, and only to disambiguate one case.
+2. **The single hard problem configless creates is the skills-only repo.** A root `skills/` dir is structurally ambiguous because agntc (plugin = install-as-one) and Vercel (menu = pick each) assign it opposite meanings. Resolved by: default → collection/menu (Vercel-compatible, the common third-party path), with two overrides — author `type: plugin` and installer `--plugin`.
+3. **Detection is the small part; integration is the weight** — and most of it reuses machinery agntc already has: tagless→HEAD tracking, the agent hard-ceiling, collection-as-transport keying, dir-basename identity, the conflict-prompt for dir collisions.
+4. **Lifecycle safety is the spine** (the user's original pain): record the resolved type, *replay* it on `update` rather than re-detect, derive-before-delete, and abort loudly on irreconcilable change — never silently morph an install's type.
+5. **"Missing info → lenient default; contradictory info → loud error"** emerged as a consistent posture (empty/malformed config → all agents; declared type vs structure mismatch → error).
 
 ### Open Threads
 
-*(to be filled as the discussion progresses)*
+- **Validation** (skill-validity gate, untrusted-frontmatter parsing safety, tree/file/hook limits, config-schema depth, agent-level frontmatter-`name` collisions) — deferred to `.inbox/ideas/2026-06-05--validation.md` for a separate discussion.
+- **Collection grouping for bulk `remove`** — minor; revisit only if the remove UX calls for it.
+- **Ecosystem directions out of scope** (research Findings 4 + expanded surface): `.well-known` skill indices, hosted registry (`skills.sh`), and new verbs (`use`/`find`/`check`) — candidates to log separately, not part of this feature.
 
 ### Current State
 
-- Nothing decided yet — session just initialized.
+All 10 subtopics decided. Feature shape: structural type detection (with the skills-only override pair); config = `{ agents, type? }` where presence ≠ type-signal and a type-vs-structure conflict errors; dir-basename identity (no frontmatter parsing); record-type lifecycle (replay, derive-before-delete, abort-loudly) with config-aware legacy backfill; installer-side agent selection over `KNOWN_AGENTS` with the declared-agents hard ceiling; structural collection membership + flag-free selection; tagless default-branch tracking with branch-name recorded; copy-safety floor (path-traversal + symlink-escape guards) with deeper hardening deferred to the validation idea.
