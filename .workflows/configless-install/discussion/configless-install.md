@@ -403,7 +403,7 @@ The model changes (structure-authoritative type, config demoted, configless inst
 
 ### Decision
 
-- **Existing installs** — covered by *legacy backfill* (Manifest Keying & Lifecycle): first `update` of a pre-`type` entry derives type once via config-aware (v1) derivation and records it. Universally config-bearing (configless is net-new), so no skills-only flip. No separate migration step.
+- **Existing installs** — covered by *legacy backfill* (Manifest Keying & Lifecycle): first `update` of a pre-`type` entry derives type once **from the recorded `files`** (local install = ground truth) and records it. Immune to the remote dropping config or reshaping between install and first update. No separate migration step.
 - **`init` scaffolder stays agents-only.** Every path it offers (skill / plugin / collection) scaffolds a *structurally unambiguous* layout, so it never needs to emit `type`. `type` remains a hand-authored field for the rare skills-only bundle. (`init` is unchanged by this feature.)
 - **Config schema** — `{ agents, type? }`. **Unknown keys are ignored** (lenient), so older/newer agntc versions don't choke on each other's configs.
 - **Config *presence* is no longer a type signal** (see Structural Type Detection clarifications) — only an explicit `type` property is read. This is the v1 boundary-marker behaviour staying removed.
@@ -434,4 +434,4 @@ High. No standalone migration tooling needed — backfill + lenient schema + str
 
 ### Current State
 
-All 10 subtopics decided. Feature shape: structural type detection (with the skills-only override pair); config = `{ agents, type? }` where presence ≠ type-signal and a type-vs-structure conflict errors; dir-basename identity (no frontmatter parsing); record-type lifecycle (replay, derive-before-delete, abort-loudly) with config-aware legacy backfill; installer-side agent selection over `KNOWN_AGENTS` with the declared-agents hard ceiling; structural collection membership + flag-free selection; tagless default-branch tracking with branch-name recorded; copy-safety floor (path-traversal + symlink-escape guards) with deeper hardening deferred to the validation idea.
+All 10 subtopics decided. Feature shape: structural type detection (with the skills-only override pair); config = `{ agents, type? }` where presence ≠ type-signal and a type-vs-structure conflict errors; dir-basename identity (no frontmatter parsing); record-type lifecycle (replay, derive-before-delete, abort-loudly) with `files`-derived legacy backfill; installer-side agent selection over `KNOWN_AGENTS` with the declared-agents hard ceiling; structural collection membership + flag-free selection; tagless tracking via canonical `ref: null`/`checkHead` (branch-name resolved at display time, not stored); copy-safety floor (path-traversal + symlink-escape guards) with deeper hardening deferred to the validation idea.
