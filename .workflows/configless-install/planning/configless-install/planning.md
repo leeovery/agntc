@@ -50,6 +50,16 @@ approved_at: 2026-06-06
 - [ ] A tree-path URL selector (`.../tree/<ref>/<subpath>`) installs the unit at `<subpath>` keyed `owner/repo/<subpath>`; `@`-suffixes remain version refs only and are rejected on tree URLs.
 - [ ] Config-bearing standalone installs (declared-agents ceiling, auto-select) behave exactly as before; full suite green.
 
+#### Tasks
+status: approved
+approved_at: 2026-06-06
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-2-1 | Configless standalone detect-and-install wiring | null config bare skill (refero_skill shape), null config multi-asset plugin, config-bearing standalone unchanged, detected collection still dispatches, not-agntc exits cleanly, dead ConfigError catch removed, agents sourced from config?.agents ?? [] |
+| configless-install-2-2 | `--plugin` installer-override flag surface and forwarding | --plugin bundles skills-only repo, --plugin on bare skill -> hard error (non-zero, named), --plugin on member-dirs collection -> hard error, --plugin redundant no-op on multi-asset plugin, flag absent unchanged, TypeConflictError message names source identity |
+| configless-install-2-3 | Tree-path subpath as standalone unit selector | tree URL installs unit at subpath keyed owner/repo/<subpath>, identity = subpath basename folder, @-suffix on tree URL rejected, --plugin orthogonal to selector on skills-only subpath, subpath unit that is not-agntc exits cleanly |
+
 ### Phase 3: Structural collection membership and selection
 status: approved
 approved_at: 2026-06-06
