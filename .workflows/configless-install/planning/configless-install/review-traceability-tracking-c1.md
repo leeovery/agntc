@@ -151,7 +151,7 @@ Additionally, the task's **Tests**, **Edge Cases**, and **Context** for task 1-1
 
 - In **Context**, the closing note "an authorless `type`-only file is not a usable config" must be removed/inverted to state that a `type`-only config **is** usable per *Config Model → Config shape* (`agents` optional) and *Structural Type Detection → Skills-only resolution* ("config `type: plugin` bundles it, even a single skill"), since `type` is reserved for exactly the configless skills-only bundle.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: Applied verbatim to phase-1-tasks.md (Solution/Outcome/Do/Acceptance/Tests/Edge Cases/Context) and the tick task tick-7f9ea4. Beneficial cascade: with a `type`-only config now retained, task 3-5's stray-root `type:"plugin"` on a member-dirs collection correctly forwards `configType:"plugin"` to detection and fires the `TypeConflictError` — which the prior (null-dropping) behaviour would have silently swallowed.
 
 ---

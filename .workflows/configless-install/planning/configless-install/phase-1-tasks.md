@@ -10,23 +10,26 @@ total: 5
 
 **Problem**: Today `readConfig` throws on malformed JSON, on a missing `agents` key, and on an empty `agents` array. Under configless this is wrong: config is optional and any unparseable/unusable config must be treated as "no usable config" (lenient default), never an error. The governing posture is "missing/invalid info → lenient default" for config reading. The config must also begin carrying the optional `type` disambiguator and tolerate unknown keys.
 
-**Solution**: Rewrite `readConfig` so the *only* outcomes are (a) a usable `AgntcConfig` (`{ agents, type? }`) or (b) `null` ("no usable config"). Missing file, malformed JSON, missing/empty/non-array `agents`, and an all-unknown `agents` list all collapse to `null` (the empty-after-filtering case stays as the spec's "no valid constraint" condition — see note below). Non-permission/non-ENOENT IO errors still propagate. Read the optional `type` property; pass its raw value through untouched (recognition/validation belongs to detection in task 1-4, not here). Unknown keys are ignored.
+**Solution**: Rewrite `readConfig` so the *only* outcomes are (a) a usable `AgntcConfig` (`{ agents, type? }`) or (b) `null` ("no usable config"). A config is **usable** if it parses to an object that yields *either* a usable (non-empty, ≥1 known) `agents` list *or* a recognised `type` value — so a `type`-only config (the configless skills-only bundle the spec reserves `type` for) is retained even with no `agents`. Missing file, malformed JSON, and an object that yields **neither** a usable `agents` list **nor** a `type` property collapse to `null`. Non-permission/non-ENOENT IO errors still propagate. Read the optional `type` property; pass its raw value through untouched (recognition of `"plugin"` vs. unrecognised values belongs to detection in task 1-4, not here). Unknown keys are ignored. When a config is retained on the strength of `type` alone, its `agents` is the empty list `[]` — which downstream (task 1-5 / Phase 2 wiring) resolves to the `KNOWN_AGENTS` default (no agent restriction), exactly matching "a configless skills-only repo bundled for any agent."
 
-**Outcome**: `readConfig` never throws a `ConfigError`. A bare-`SKILL.md` repo with no `agntc.json` (the `refero_skill` shape) yields `null`. A config of `{agents:[claude]}` yields `{agents:["claude"]}`. A config of `{agents:["claude"], type:"plugin"}` yields `{agents:["claude"], type:"plugin"}`. Malformed JSON yields `null` (with a warning), not a throw.
+**Outcome**: `readConfig` never throws a `ConfigError`. A bare-`SKILL.md` repo with no `agntc.json` (the `refero_skill` shape) yields `null`. A config of `{agents:[claude]}` yields `{agents:["claude"]}`. A config of `{agents:["claude"], type:"plugin"}` yields `{agents:["claude"], type:"plugin"}`. A config of `{type:"plugin"}` with no `agents` yields `{agents:[], type:"plugin"}` (the bundle intent survives to detection; agents fall through to the `KNOWN_AGENTS` default). A config with neither usable `agents` nor a `type` (e.g. `{}`, `{agents:[]}`, all-unknown agents and no `type`) yields `null`. Malformed JSON yields `null` (with a warning), not a throw.
 
 **Do**:
 - In `src/config.ts`, extend the `AgntcConfig` interface to `{ agents: AgentId[]; type?: string }`. Keep `type` as a raw `string` (or `string | undefined`) — do **not** narrow to a union here; recognition of `"plugin"` vs. unrecognised values is detection's job (task 1-4). This keeps `readConfig` purely lenient.
 - Change the `JSON.parse` failure branch (currently `throw new ConfigError(...)`) to call `options?.onWarn?.(...)` with a message like `Ignoring malformed agntc.json: <detail>` and `return null`.
-- Change the "not an object / no `agents`" branch (currently throws "agents field is required") to `return null` (optionally warn). A config object that exists but has no usable `agents` is "no usable config."
-- Change the "`agents` not an array or empty" branch (currently throws "agents must not be empty") to `return null`.
-- Keep the existing unknown-agent filtering loop (warn per unknown agent, keep known ones). After filtering, if the resulting `agents` array is **empty** (all entries were unknown), `return null` — an all-unknown declaration carries no usable author intent, identical to no config (spec: *Agent Selection → "No valid constraint" — unified across three cases*, and the all-unknown case reduces to the empty case). Update the existing test `"returns empty known agents when all unknown"` accordingly (it must now expect `null`).
+- Change the "not an object" branch (currently throws "agents field is required") to `return null` (optionally warn) — a non-object JSON is "no usable config."
+- For an object that parses: compute the filtered known-`agents` list (keep the existing unknown-agent filtering loop, warning per unknown agent) and read the `type` property (when present and a string). Then:
+  - If the filtered `agents` is non-empty → return `{ agents: filtered, ...(type ? { type } : {}) }`.
+  - Else if a `type` property is present (a string) → return `{ agents: [], type }` — the `type`-only configless-bundle case is **usable**; its empty `agents` means "no restriction" (resolves to the `KNOWN_AGENTS` default downstream). Do **not** discard the `type`.
+  - Else (no usable `agents` **and** no `type` — missing `agents`, `agents: []`, non-array `agents`, or all-unknown `agents` with no `type`) → `return null`. An object carrying neither a usable agent declaration nor a `type` disambiguator carries no usable author intent, identical to no config (spec: *Agent Selection → "No valid constraint" — unified across three cases*).
 - Read `type` from the parsed object when present and a string; attach it to the returned config as-is. Ignore any other (unknown) keys silently.
 - Keep the ENOENT branch returning `null`. Keep the non-ENOENT IO error (e.g. `EACCES`) re-throwing the raw error unchanged (it must **not** be wrapped or swallowed — a real filesystem failure is not "no usable config").
 - The `ConfigError` class may become unused; remove its export only if no other module imports it (grep first — it is imported in `src/commands/add.ts`). If still imported, leave the class defined but stop throwing it from `readConfig`; note in task wiring that add.ts's `ConfigError` catch becomes dead in Phase 2. To keep the build green in Phase 1, leave the `ConfigError` class exported.
 
 **Acceptance Criteria**:
-- [ ] `readConfig` returns `null` (never throws `ConfigError`) for: missing file (ENOENT), malformed JSON, non-object JSON, object with no `agents`, `agents` not an array, empty `agents` array, and `agents` containing only unknown agents.
+- [ ] `readConfig` returns `null` (never throws `ConfigError`) for: missing file (ENOENT), malformed JSON, non-object JSON, and an object that yields **neither** a usable `agents` list **nor** a `type` property (object with no `agents` and no `type`; `agents` not an array and no `type`; empty `agents` array and no `type`; only-unknown `agents` and no `type`).
 - [ ] `readConfig` returns `{ agents: [...known], type?: <raw> }` for a config with at least one known agent; unknown agents are filtered with a per-agent warning; the optional `type` value is passed through verbatim.
+- [ ] A config carrying a recognised-or-unrecognised `type` but **no usable `agents`** (e.g. `{type:"plugin"}`) is **retained** as `{ agents: [], type: <raw> }` — the `type` disambiguator survives to detection and the empty `agents` resolves to the `KNOWN_AGENTS` default. This is the configless skills-only bundle the spec reserves `type` for.
 - [ ] Unknown/extra top-level keys are ignored (do not appear on the returned object, do not cause warnings).
 - [ ] A non-ENOENT, non-parse IO error (e.g. `EACCES`) propagates unchanged and is **not** an instance of `ConfigError`.
 - [ ] Existing config-bearing behaviour is preserved: `{agents:["claude"]}` still yields `{agents:["claude"]}` (the `agentic-workflows` Claude-only case).
@@ -34,10 +37,12 @@ total: 5
 **Tests** (extend `tests/config.test.ts`):
 - `"returns null when agntc.json does not exist"` (existing, unchanged)
 - `"returns null for malformed JSON instead of throwing"` (rewrite of the two existing `throws ConfigError for invalid JSON` cases; assert `null` and an `onWarn` call)
-- `"returns null when agents field is missing"` (rewrite of `throws when agents field missing entirely`)
-- `"returns null when agents is an empty array"` (rewrite of `throws when agents is empty array`)
-- `"returns null when agents is not an array"`
-- `"returns null when all agents are unknown"` (rewrite of `returns empty known agents when all unknown` — now expects `null` and warns per unknown agent)
+- `"returns null when agents field is missing and no type is present"` (rewrite of `throws when agents field missing entirely`)
+- `"returns null when agents is an empty array and no type is present"` (rewrite of `throws when agents is empty array`)
+- `"returns null when agents is not an array and no type is present"`
+- `"returns null when all agents are unknown and no type is present"` (rewrite of `returns empty known agents when all unknown` — now expects `null` and warns per unknown agent)
+- `"retains a type-only config with empty agents (configless skills-only bundle)"` — `{type:"plugin"}` → `{agents:[], type:"plugin"}` (the bundle intent survives; not `null`)
+- `"retains a type-bearing config even when agents is missing/empty/all-unknown"` — asserts `{agents:[], type:"plugin"}` is returned in each such case
 - `"parses valid config with known agents"` (existing happy-path cases retained)
 - `"reads optional type property when present"` — `{agents:["claude"], type:"plugin"}` → `{agents:["claude"], type:"plugin"}`
 - `"passes through an unrecognised type value verbatim"` — `{agents:["claude"], type:"weird"}` → `type:"weird"` (recognition is detection's job)
@@ -48,14 +53,17 @@ total: 5
 
 **Edge Cases**:
 - Malformed JSON → `null` + warn (not throw).
-- `{agents:[]}` → `null` (empty array is "no usable config").
-- `{agents:["unknown1","unknown2"]}` → `null` (all-unknown reduces to empty after filtering).
-- `{type:"plugin"}` with no `agents` → `null` (no usable `agents` ⇒ no usable config; the `type` is irrelevant without a unit to install — detection reads `type` from config only when the config is usable; an authorless `type`-only file is not a usable config). Note this in the test.
+- `{agents:[]}` with no `type` → `null` (empty array and no disambiguator is "no usable config").
+- `{agents:["unknown1","unknown2"]}` with no `type` → `null` (all-unknown reduces to empty after filtering, and no `type`).
+- `{type:"plugin"}` with no `agents` → `{agents:[], type:"plugin"}` (**usable**: the `type` disambiguator is the spec's reserved configless-bundle case; empty `agents` resolves to the `KNOWN_AGENTS` default downstream). The raw `type` survives to detection (task 1-4 decides recognition).
+- `{}` / `{agents:[]}` / all-unknown agents, **no** `type` → `null` (neither usable `agents` nor a `type`).
 - `EACCES`/other IO error → propagate raw.
 
 **Context**:
-> Spec — *Config Model → Recognised `type` values and the leniency-vs-error boundary*: "Config *reading* is lenient. A missing `agntc.json`, a syntactically malformed one, or one missing/empty `agents` is treated as 'no usable config' — no error... (This changes today's `readConfig`, which throws on parse failure / missing `agents`.)" and "Unknown config keys are ignored (lenient)." The recognised-value/error boundary (`type:"plugin"` realizability) is **not** enforced here — it lives in detection (task 1-4). `readConfig` only surfaces the raw `type`.
-> Spec — *Agent Selection → "No valid constraint" — unified across three cases*: config absent, `agents:[]`, and malformed config all reduce to the same "no usable config" state.
+> Spec — *Config Model → Config shape*: `agents` is **optional**; `type` is "Reserved strictly for a pure skills-only repo the author wants bundled as a plugin." A config carrying only `type` is therefore a usable config (its `agents` simply defaults to no-restriction / `KNOWN_AGENTS`).
+> Spec — *Structural Type Detection → Skills-only resolution*: "Author override → config `type: plugin` bundles it (even a single skill)." For that override to reach detection, `readConfig` must **retain** a `type`-only config rather than discard it.
+> Spec — *Config Model → Recognised `type` values and the leniency-vs-error boundary*: "Config *reading* is lenient." The recognised-value/error boundary (`type:"plugin"` realizability) is **not** enforced here — it lives in detection (task 1-4). `readConfig` only surfaces the raw `type`; it must not throw away a `type`-only config.
+> Spec — *Agent Selection → "No valid constraint" — unified across three cases*: config absent, `agents:[]`, and malformed config all reduce to the same "no usable config" / `KNOWN_AGENTS`-default state. A `type`-only config takes the empty-`agents` (no-restriction) path, not the `null` path.
 
 **Spec Reference**: `.workflows/configless-install/specification/configless-install/specification.md` — *Config Model*, *Agent Selection*.
 
