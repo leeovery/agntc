@@ -45,7 +45,7 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 3,
-          "task": "configless-install-3-5",
+          "task": "configless-install-3-6",
           "task_map": {
             "configless-install-1-1": "tick-7f9ea4",
             "configless-install-1": "tick-ab15ba",
@@ -61,7 +61,8 @@
             "configless-install-3": "tick-2ad533",
             "configless-install-3-2": "tick-d2ec07",
             "configless-install-3-3": "tick-70de56",
-            "configless-install-3-4": "tick-f369f0"
+            "configless-install-3-4": "tick-f369f0",
+            "configless-install-3-5": "tick-21a300"
           },
           "external_id": "tick-15d5f6"
         }
