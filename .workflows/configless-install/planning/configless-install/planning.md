@@ -138,3 +138,14 @@ approved_at: 2026-06-06
 - [ ] The symlink-escape guard rejects any symlink whose target resolves outside the cloned repository root (absolute paths, `..`-escapes), runs on every install including bare skills, and allows symlinks resolving anywhere inside the clone.
 - [ ] Broken (nonexistent-target) symlinks are evaluated lexically: lexical escape above the clone root → reject; otherwise copied verbatim.
 - [ ] The single recursive `cp` runs only on a verified-clean tree; the copy mechanism itself (recursive copy, keep everything, post-copy `agntc.json` deletion) is otherwise unchanged; full suite green.
+
+#### Tasks
+status: approved
+approved_at: 2026-06-06
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-5-1 | Path-traversal guard utility (subpath-within-clone containment) | empty/no subpath is a no-op, ..-escape above clone root rejected, absolute subpath rejected, subpath equal to clone root allowed, nested-but-contained subpath allowed, resolves real path before containment, trailing-slash/dot/redundant segments normalised |
+| configless-install-5-2 | Symlink-escape pre-flight scan utility (clone-root boundary) | absolute-target symlink rejected, ..-escape-above-clone-root symlink rejected, symlink resolving inside clone allowed, symlink to sibling dir inside clone allowed, broken symlink lexically inside clone copied verbatim, broken symlink lexically escaping clone root rejected, deeply-nested symlink found, symlink-to-directory traversed without recursion blow-up, non-symlink tree is a clean no-op, error names the offending relative path/unit |
+| configless-install-5-3 | Wire path-traversal + symlink guards as the add copy pre-flight | whole-repo bare skill (traversal no-op, symlink scan still runs), selector subpath escaping clone errors pre-flight non-zero before any copy, valid subpath but escaping symlink errors, collection members each scanned independently before their copy, configless plugin tree scanned, violation names offending unit/path, no manifest write or copy on violation |
+| configless-install-5-4 | Wire the symlink-escape guard into update's re-copy pre-flight | clone-mode update scans against the tempDir clone root, local-path update scans against the provided sourceDir root, escaping symlink aborts before nukeManifestFiles (install left intact), member subdir scanned against its own clone root, violation surfaced as a pre-flight failure that exits non-zero, no nuke or copy on violation |
