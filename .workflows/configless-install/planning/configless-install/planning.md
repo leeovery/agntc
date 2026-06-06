@@ -77,6 +77,19 @@ approved_at: 2026-06-06
 - [ ] Select-all installs every member; the tree-path selector targets a single member directly without prompting; nested collection members are skipped with a warning (one level only).
 - [ ] Existing collection behaviour for config-bearing collections still works; full suite green.
 
+#### Tasks
+status: approved
+approved_at: 2026-06-06
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-3-1 | Structural member enumeration without config dependency | configless member (null config) no longer skipped, config-bearing and configless members coexist, member dropped only by structural re-detect not missing config, member re-detect uses Phase 1 options shape (no hasConfig), all-configless collection installs members |
+| configless-install-3-2 | Per-member agent resolution replacing the union prompt | configless member sources KNOWN_AGENTS default, config-bearing member keeps declared ceiling, mixed members resolve agents independently, member with zero applicable agents silently skipped, declared-single-detected auto-select per member, per-member manifest records only its agents |
+| configless-install-3-3 | Remove dead ConfigError handling from the collection pipeline | ConfigError catch removed, ConfigError import dropped from add.ts once no live reference, build and full suite stay green |
+| configless-install-3-4 | Nested-collection member skipped with a pipeline warning (one level only) | nested-collection child skipped with warning, sibling members still install, member re-detecting not-agntc skipped, one-level-only recursion, warning emitted by pipeline not detector |
+| configless-install-3-5 | Stray root agntc.json does not reclassify a member-dirs collection | root config with no type ignored (still collection), root type:"plugin" on member-dirs -> TypeConflictError pre-flight non-zero, container config never read as installable unit, configless-root collection unchanged |
+| configless-install-3-6 | Select-all and tree-path selector target structural members | select-all installs every structural member, tree-path selector installs single member without prompting, selector member keyed owner/repo/<unit>, selector target absent from structural list -> clear error, config-bearing collection selection flow unchanged |
+
 ### Phase 4: Manifest type lifecycle — record, replay, derive-before-delete, legacy backfill
 status: approved
 approved_at: 2026-06-06
