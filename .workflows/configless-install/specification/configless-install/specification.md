@@ -235,4 +235,40 @@ A malformed config silently falls back to "all agents" rather than erroring, whi
 
 ---
 
+## Collection Membership & Selection Flow
+
+The current collection pipeline enumerates installable members by scanning immediate child dirs for `agntc.json` and reads each child's config for its agents. With configless members carrying no config, that enumeration finds nothing. This section redefines membership structurally.
+
+### Decision
+
+**Collection membership = "a child dir that structurally resolves to a unit." Recurse the same structural detection one level down; drive selection with the existing prompt + source-string selector. No flags.**
+
+### Membership (structural, one level down)
+
+For each immediate child dir, run the *same* structural detection used at the root:
+
+- child has `SKILL.md` → **bare-skill member**
+- child has asset-kind dirs (`skills/` / `agents/` / `hooks/`) → **plugin member**
+- child has neither → **not a member, skip it**
+
+The pickable list comes from this structural scan, **replacing** the "has `agntc.json`" enumeration.
+
+### Per-child agents
+
+- child config present → constrains, per the *Agent Selection* rules.
+- child config absent → the configless default (all `KNOWN_AGENTS`, installer picks).
+- Config-bearing and configless members coexist in one collection.
+
+### Selection UX (unchanged, flag-free)
+
+- The existing interactive prompt for "which member(s)?" (one / some / all).
+- A source-string selector — `owner/repo@unit`, or a `tree/<branch>/<path>` URL — to pick a member directly without prompting.
+- **"Install every member" is select-all in the prompt**, not `--plugin` (which only resolves a unit's skills-only ambiguity).
+
+### Nested collections
+
+Remain **unsupported** — a collection member that is itself a collection is not recursed into. Membership detection goes exactly **one level** down.
+
+---
+
 ## Working Notes
