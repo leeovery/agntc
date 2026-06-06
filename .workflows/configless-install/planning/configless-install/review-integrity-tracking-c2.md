@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 2
 phase: Plan Integrity Review
@@ -61,7 +61,7 @@ The fix is to make all three recap surfaces describe the pinned call shape. The 
 
 > - `"calls detectType once with configType forwarded and no hasConfig"` — assert `mockDetectType` call count is 1, the options arg includes `configType: config?.type`, and it has no `hasConfig` key.
 
-**Resolution**: Pending
-**Notes**: The authoritative "Do" second bullet (already pinned in cycle 1) is correct and unchanged by this finding; only task 2-1's Solution sentence, the call-shape Acceptance Criterion, and the call-shape Tests line are brought into agreement with it. The tick task mirroring 2-1 (cycle-1 notes reference tick-e6e0d2) should be updated to match if approved.
+**Resolution**: Fixed
+**Notes**: Applied all three recap-surface edits to phase-2-tasks.md task 2-1 (Solution clause, call-shape Acceptance Criterion, call-shape Tests line) and synced the mirroring tick task tick-e6e0d2. The authoritative "Do" bullet was already correct and is unchanged.
 
 ---
