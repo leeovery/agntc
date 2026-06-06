@@ -299,4 +299,42 @@ Branch-tracking has no semver gate, so "latest" could ship a breaking change —
 
 ---
 
+## Copy-Safety Hardening
+
+A pre-existing exposure that configless **widens, not creates**. Cloning does `git clone --depth 1` with no size cap and no symlink handling; the bare-skill copy does a recursive `cp` of the whole clone, then deletes `agntc.json`. agntc already copies untrusted repo contents today — the *only* current trust gate is "the repo shipped an `agntc.json`," and configless removes exactly that gate, so the input becomes genuinely arbitrary third-party repos.
+
+This is about not letting a repo read/write *outside* the directory it's meant to land in — distinct from skill *validation*, which is out of scope. The copy mechanism itself is unchanged (recursive `cp`, keep everything — see *Identity & Naming*).
+
+### In scope for configless-install
+
+1. **Path-traversal guard** — validate any source-supplied subpath/selector (`@unit`, tree path, `#ref@skill`) resolves *within* the clone before copying. Mirrors Vercel's `isSubpathSafe`. Cheapest, highest value.
+2. **Symlink-escape guard** — repo symlinks otherwise land verbatim (`cp` with `dereference: false`); reject any symlink that doesn't resolve inside the unit's own directory.
+
+### Guard scope (complementary)
+
+- **Path-traversal** protects **source resolution** (selectors/subpaths — where we copy *from*). It is a no-op for a no-selector whole-repo copy like the `refero_skill` bare-skill case.
+- **Symlink-escape** protects **copied content** (what lands on disk) and runs on *every* install, bare skills included.
+- So the headline bare-skill case is covered by the symlink guard; path-traversal simply has nothing to check there.
+
+### Guard timing (pre-flight, before any copy)
+
+Both guards run as a **pre-flight scan of the unit tree *before* any copy**:
+
+- Walk the tree, validate selectors resolve within the clone and no symlink escapes the unit dir.
+- On violation, **error before writing anything**.
+- The single recursive `cp` then runs only on a verified-clean tree.
+
+Pre-flight (not post-copy scan-and-remove) leaves no on-disk window where escaping symlinks exist, and matches the derive-before-delete principle: validate before you mutate.
+
+### Deferred (out of scope → validation idea)
+
+Logged to `.inbox/ideas/2026-06-05--validation.md`, which also collects other validation concerns surfaced here (skill-validity gate, untrusted-frontmatter parsing safety, config-schema validation depth, agent-level identity collisions):
+
+3. Tree size / file-count / depth caps.
+4. Executable / hook safety (a configless plugin's `hooks/` = code that runs on the agent's next invocation).
+
+Rationale: #1 and #2 are the true security boundary (escape prevention) and are cheap; configless is precisely what makes the input untrusted, so they belong here. #3 and #4 are broader hardening that applies to agntc's copy path regardless of configless — better discussed on their own.
+
+---
+
 ## Working Notes
