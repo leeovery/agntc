@@ -39,7 +39,7 @@
         "configless-install": {
           "status": "in-progress",
           "format": "tick",
-          "spec_commit": "20fd503f5e9d410fc7ba93d8c5b284eaec8936af",
+          "spec_commit": "eefe3cc78c8a29820761d08b9f88974bd29d778e",
           "task_list_gate_mode": "gated",
           "author_gate_mode": "gated",
           "finding_gate_mode": "gated",
