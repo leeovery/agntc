@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 1
 phase: Plan Integrity Review
@@ -40,7 +40,7 @@ This is a polish/clarity improvement, not a correctness gap — the plan as writ
 
 > - **Replace** the step-5 standalone `detectType(sourceDir, { hasConfig: true, onWarn })` (lines ~198–202) with a single call **before** any type branch: `const detected = await detectType(sourceDir, { onWarn, configType: config?.type });` (Phase 1 dropped `hasConfig`; do not pass it). This one call serves every type. Forward the root config's optional `type` as `configType` now — `readConfig` (task 1-1) already surfaces it and `detectType` (task 1-4) already consumes it; recognition (`"plugin"` vs. ignored) is centralised in detection. This pins the canonical call shape: task 2-2 adds only `forcePlugin`, and task 3-5's `configType` forwarding becomes a no-op verification of an already-established seam rather than a conditional edit. (A root config with no `type` passes `configType: undefined` → structure stands.)
 
-**Resolution**: Pending
-**Notes**: If accepted, task 3-5's "Do" first bullet and "Note on `detectType` config-`type` input" can be lightly reworded from "if not already added, add it" to "verify 2-1 forwards `configType: config?.type`" — but that reword is optional cosmetic follow-through, not required for correctness. Task 2-2's `detectType` call (`{ onWarn, forcePlugin: options?.forcePlugin }`) should also carry `configType: config?.type` for the same single-source-of-truth reason if this is applied.
+**Resolution**: Fixed
+**Notes**: Applied to phase-2-tasks.md (task 2-1 unified call now pins `configType: config?.type`; task 2-2 call now `{ onWarn, configType: config?.type, forcePlugin: options?.forcePlugin }`) and phase-3-tasks.md (task 3-5's "Note on detectType config-type input" and "Do" first bullet reworded from conditional "if not already added, add it" to a no-op verification of the 2-1-pinned seam). Corresponding tick tasks tick-e6e0d2 (2-1), tick-144941 (2-2), tick-21a300 (3-5) updated to match.
 
 ---
