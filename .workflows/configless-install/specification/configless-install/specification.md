@@ -337,4 +337,44 @@ Rationale: #1 and #2 are the true security boundary (escape prevention) and are 
 
 ---
 
+## Backward-Compat / Migration & Config Schema
+
+The model changes (structure-authoritative type, config demoted, configless installs) ripple across existing installs, the `init` scaffolder, the config schema, and the collection pipeline. Most resolved elsewhere; this collects the remainder.
+
+### Existing installs
+
+Covered by *legacy backfill* (see *Manifest Keying & Lifecycle*): the first `update` of a pre-`type` entry derives type once **from the recorded `files`** (local install = ground truth) and records it. Immune to the remote dropping config or reshaping between install and first update. **No separate migration step or tooling.**
+
+### `init` scaffolder
+
+**Stays agents-only and is unchanged by this feature.** Every path it offers (skill / plugin / collection) scaffolds a *structurally unambiguous* layout, so it never needs to emit `type`. `type` remains a hand-authored field for the rare skills-only bundle.
+
+### Config schema
+
+- Shape is `{ agents, type? }`.
+- **Unknown keys are ignored** (lenient), so older/newer agntc versions don't choke on each other's configs.
+- **Config *presence* is no longer a type signal** — only an explicit `type` property is read. (The v1 boundary-marker behaviour stays removed.)
+
+### Collection with a stray root `agntc.json`
+
+Structure decides it's a collection regardless of the stray config:
+
+- Root config with **no `type`** → ignored.
+- Root config declaring **`type: plugin`** on a member-dirs structure → **hard error** (unrealizable, per the type-vs-structure conflict rule).
+- Presence alone never reclassifies it.
+
+### Collection pipeline's child-`agntc.json` dependency
+
+Resolved by *Collection Membership & Selection Flow*: membership comes from structural detection per child; child config is read only for agents when present.
+
+---
+
+## Out of Scope / Deferred
+
+- **Validation** (skill-validity gate, untrusted-frontmatter parsing safety, tree/file/hook limits, config-schema depth, agent-level frontmatter-`name` collisions) — deferred to `.inbox/ideas/2026-06-05--validation.md` for a separate discussion.
+- **Collection grouping for bulk `remove`** — minor; revisit only if the remove UX calls for it.
+- **Ecosystem directions** — `.well-known` skill indices, hosted registry (`skills.sh`), and new verbs (`use`/`find`/`check`) — candidates to log separately, not part of this feature.
+
+---
+
 ## Working Notes
