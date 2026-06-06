@@ -124,4 +124,38 @@ So `@unit --plugin` reads as "install `unit`, resolve *its* ambiguity as plugin.
 
 ---
 
+## Identity & Naming
+
+### Decision
+
+**Identity = directory basename, throughout. No frontmatter parsing, no validation.**
+
+- **Bare skill** → installed folder + manifest key = repo name (the directory basename).
+- **Plugin** → install its asset directories; each skill keeps its own repo directory name.
+- **Collection** → pick units; each installs under its repo directory name. Same principle.
+- Frontmatter `name` is the skill's own business; agntc neither reads nor reconciles it.
+
+### Rationale
+
+The agent loads a skill by its frontmatter `name`, so the install folder is just storage — its name is functionally irrelevant to how the skill is invoked. For a bare skill, "the repository *is* the skill," so the repo/directory name is the natural folder name. Whatever the frontmatter calls itself is the skill's own implementation detail, not agntc's concern.
+
+### Consequences
+
+- **agntc needs no YAML-frontmatter parser** — nothing reads frontmatter; detection only checks that `SKILL.md` *exists*.
+- **agntc needs no name+description validation gate** (Vercel's model) — skill validation is explicitly out of scope.
+- **The install is a recursive copy of the unit's directory** — keep everything (scripts, references); agntc can't know what the skill needs.
+
+### Trade-off accepted
+
+For third-party repos where repo name ≠ frontmatter name (e.g. `refero_skill` on disk, `name: refero-design` in frontmatter), the on-disk folder and agntc's manifest key differ from what the agent calls the skill (the "three names" situation). Judged immaterial — the agent resolves by frontmatter regardless, and the folder name carries no functional weight.
+
+### Frontmatter-name collisions (dissolved)
+
+Because agntc keys on directory basename, no frontmatter-name namespacing policy is needed:
+
+- **agntc-level collisions are directory collisions** — two installs landing in the same `.claude/skills/<name>` path. Already detected and handled by the existing conflict flow (overwrite/skip prompt). Configless changes nothing here.
+- **Agent-level collisions** — two skills in different folders that self-declare the same frontmatter `name` — are invisible to agntc and **out of scope**. That's the skills' (and the agent's) problem. Accepted limitation, not a feature to build.
+
+---
+
 ## Working Notes
