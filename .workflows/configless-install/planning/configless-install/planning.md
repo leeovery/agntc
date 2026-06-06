@@ -108,6 +108,20 @@ approved_at: 2026-06-06
 - [ ] Legacy `type`-less entries backfill in-memory on manifest read from `files` (asset-target/multi-skill-under-one-key → plugin; single skills dir → skill), persisted on next write; reading legacy manifests never errors; backfill derives from local `files`, never a re-clone.
 - [ ] Tagless `ref: null` → HEAD tracking and existing tagged-constraint behaviour are unchanged; commands reading the manifest (`list`, `remove`) tolerate and benefit from the backfilled `type`; full suite green.
 
+#### Tasks
+status: approved
+approved_at: 2026-06-06
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-4-1 | Add optional type field and persist on standalone install | bare-skill maps to "skill", plugin maps to "plugin", field optional so absent-type readers tolerate it, direct-path standalone subpath records own resolved type, --plugin/config-type-derived plugin records "plugin" |
+| configless-install-4-2 | Persist resolved type on each collection member entry | mixed skill/plugin members each record own type, configless and config-bearing members both record type, no collection container entry written, direct-path single member keyed owner/repo/<unit> records its type |
+| configless-install-4-3 | Legacy backfill of type from files on manifest read | single skills dir → skill (single-skill ambiguity accepted), agents/hooks targets → plugin, multiple skill dirs under one key → plugin, entry already has type not overwritten, per-agent skills target paths, empty files array, reading legacy manifest never errors, list/remove benefit from backfilled type |
+| configless-install-4-4 | Update replays recorded skill type with derive-before-delete validation | recorded skill + SKILL.md present re-copies unit dir, benign added asset dirs ignored not re-derived, SKILL.md vanished → abort before nuke, member subpath vanished → abort, validation runs before nukeManifestFiles |
+| configless-install-4-5 | Update replays recorded plugin type with the plugin predicate | recorded plugin + ≥1 asset dir re-copies present dirs, benign added asset dir picked up, all asset dirs gone (now bare skill/member-dirs collection) → abort, member subpath no longer supports plugin → abort, validation before nuke |
+| configless-install-4-6 | Surface irreconcilable-change abort intact through update reporting | install files left fully intact (no nuke ran), message names recorded type vs current structure, manual remove+add remedy present, "aborted" report, single-key update exits non-zero, distinct from copy-failed-after-nuke residual |
+| configless-install-4-7 | Per-entry abort granularity and partial-success exit status | one member aborts while siblings update, plugin abort whole-entry atomic, each aborted entry reported with own reason, exit non-zero on partial abort, all-updates summary lists per-unit outcomes, no collection-level coherence rollback |
+
 ### Phase 5: Copy-safety hardening — path-traversal and symlink-escape guards
 status: approved
 approved_at: 2026-06-06
