@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 4
 phase: Plan Integrity Review
@@ -48,7 +48,7 @@ The fix is to restate the Solution's not-agntc clause as the loud non-zero pre-f
 
 > **Solution**: Collapse the `config === null` collection-gate and the separate config-present standalone path into a single flow: clone, read config leniently (`AgntcConfig | null`), run `detectType(sourceDir, { onWarn, configType: config?.type })` **once** (structure is the sole authority — config presence is not an input; the root config's optional `type` is forwarded as `configType` so detection alone owns recognition, per the "Do" step), then branch on the *detected type*. `collection` → existing `runCollectionPipeline` dispatch (untouched — Phase 3 owns its rework). `not-agntc` → loud pre-flight failure: a source-named `p.cancel` and a **non-zero** exit (`ExitSignal(1)`), per spec *Error & Abort Behaviour → Hard errors* (the silent exit-0 clean-exit behaviour is deliberately replaced — see the "Do" step). `bare-skill` / `plugin` → the standalone install, sourcing declared agents from `config?.agents ?? []` so a configless unit falls through to the Phase 1 `KNOWN_AGENTS` default inside `selectAgents`. Update both `detectType` call sites in `runAdd` to the Phase 1 options shape and remove the dead `ConfigError` machinery.
 
-**Resolution**: Pending
-**Notes**: The authoritative "Do" not-agntc branch (line 22), Outcome (line 15), the not-agntc Acceptance Criterion (line 34), the two not-agntc Tests lines (lines 45–46), and Edge Cases (line 56) are already correct (`ExitSignal(1)` / loud source-named `p.cancel`) and need no change — only the Solution recap clause is stale. The mirroring tick task (tick-e6e0d2) should be synced if its Solution carries the same "clean exit" phrasing.
+**Resolution**: Fixed
+**Notes**: Updated task 2-1's Solution recap clause in phase-2-tasks.md to state the loud non-zero pre-flight failure (source-named `p.cancel` + `ExitSignal(1)`), matching the task's authoritative Do/Outcome/Acceptance/Tests/Edge Cases. A full sweep across all plan files and tick tasks (tick-e6e0d2, tick-f8f897) confirmed no remaining not-agntc exit-0 residue; the tick 2-1 summary does not carry the "clean exit" phrasing, so no tick sync was needed.
 
 ---
