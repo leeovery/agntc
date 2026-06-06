@@ -45,7 +45,7 @@ approved_at: 2026-06-06
 
 **Acceptance**:
 - [ ] `agntc add referodesign/refero_skill` (bare `SKILL.md`, no config, untagged) installs the skill under its repo-basename folder/manifest key, with no `agntc.json` left on disk, agents chosen from the `KNOWN_AGENTS` default.
-- [ ] The `add` path no longer treats null config as "must be a collection" — a configless bare skill or configless multi-asset plugin installs standalone; not-agntc still exits cleanly.
+- [ ] The `add` path no longer treats null config as "must be a collection" — a configless bare skill or configless multi-asset plugin installs standalone; a not-agntc source fails pre-flight loudly (source-named `p.cancel`, non-zero exit), per the spec's *Error & Abort Behaviour → Hard errors* contract.
 - [ ] `--plugin` is accepted by the `add` command and forwarded as the skills-only override; it bundles a skills-only repo and is a hard error (non-zero, named conflict) on a bare skill or member-dirs collection.
 - [ ] A tree-path URL selector (`.../tree/<ref>/<subpath>`) installs the unit at `<subpath>` keyed `owner/repo/<subpath>`; `@`-suffixes remain version refs only and are rejected on tree URLs.
 - [ ] Config-bearing standalone installs (declared-agents ceiling, auto-select) behave exactly as before; full suite green.

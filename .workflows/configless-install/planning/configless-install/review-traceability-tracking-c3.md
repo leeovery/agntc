@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 3
 phase: Traceability Review
@@ -175,7 +175,7 @@ identity-prefixed `p.cancel` + `ExitSignal(1)` shape task 2-2 already establishe
 
 > - [ ] The `add` path no longer treats null config as "must be a collection" — a configless bare skill or configless multi-asset plugin installs standalone; a not-agntc source fails pre-flight loudly (source-named `p.cancel`, non-zero exit), per the spec's *Error & Abort Behaviour → Hard errors* contract.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: Verified against spec line 454 (Error & Abort Behaviour → Hard errors) — "a not-agntc source" is explicitly listed among the loud non-zero pre-flight failures. Applied all edits to phase-2-tasks.md task 2-1 (Outcome, Do bullet, Acceptance, two Tests, Edge Case), task 2-3 (Outcome, Acceptance, Test, Edge Case), and the Phase 2 acceptance bullet in planning.md. Synced mirroring tick tasks tick-e6e0d2 (2-1) and tick-f8f897 (2-3). Scope is top-level/standalone (incl. subpath) not-agntc only; the collection-member not-agntc re-detect skip (task 3-4) is unchanged.
 
 ---
