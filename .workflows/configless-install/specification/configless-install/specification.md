@@ -271,4 +271,32 @@ Remain **unsupported** — a collection member that is itself a collection is no
 
 ---
 
+## Version Pinning for Untagged Repos
+
+A configless repo like `refero_skill` has zero tags. The tagless case is **already handled** — configless doesn't introduce it and adds no new code here.
+
+### Current behaviour (baseline, reused unchanged)
+
+- Bare `owner/repo` install: latest-version resolution returns `null` when there are no tags, so the `ref = latest.tag` assignment is skipped. The entry lands as `ref: null`, `commit: <SHA>`, **no constraint**.
+- The update check sees `ref === null` → routes to **`checkHead`**, a SHA-diff against the remote default-branch HEAD. So a tagless repo already tracks HEAD and stays updatable.
+- Tagged repos: `^major.minor.patch` auto-constraint (npm/Composer-style) — minor/patch auto-apply; `0.x` and out-of-range majors shown but require an explicit bump. Unchanged.
+
+### Decision
+
+**Reuse the existing tagless→HEAD tracking unchanged; `ref: null` is the canonical tagless representation.**
+
+- Untagged install (including every configless tagless repo) → `ref: null`, `commit: <SHA>`, no constraint → `update` routes to `checkHead`, SHA-diffing the remote's default-branch HEAD. Mechanism already exists; configless flows through the identical path — **no new code**.
+- **No branch-name stored.** Recording the default-branch *name* as `ref` (→ `checkBranch`) was considered for `list` visibility but rejected:
+  - it bifurcates the manifest — new tagless entries `ref: <branch>` vs legacy `ref: null` — two shapes for one concept;
+  - `checkBranch` pins a *named* branch that breaks on a default-branch rename (`master`→`main`), whereas `checkHead` follows the symbolic default HEAD and is more robust.
+- **`ref: null` is not vestigial:** `ref` records *user intent* (tag / branch / none), and `null` = "no explicit ref → follow default HEAD," comparing by the stored `commit`.
+- If `list` wants to show the branch name, **resolve it at display time** — do not store it.
+- Explicit `#ref` / `@tag` still pin exactly as today.
+
+### Trade-off accepted
+
+Branch-tracking has no semver gate, so "latest" could ship a breaking change — but the author published no versions to gate on, and the SHA move is visible in `list`/`update` before it's applied.
+
+---
+
 ## Working Notes
