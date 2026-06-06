@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 5
 phase: Plan Integrity Review
@@ -78,7 +78,5 @@ This is an **omission**, not a contradiction — unlike the c2/c3/c4 findings, n
 > - [ ] A collection-`add` in which any member hard-errors (e.g. an escaping-symlink violation, or the pre-existing per-member copy failure) commits the successful members, renders the per-unit summary, and then exits **non-zero** (`ExitSignal(1)`); a `skipped` member (not-agntc / nested-collection) is non-fatal — the multi-member-install analogue of the Phase 4 `update` partial-success exit, per spec *Error & Abort Behaviour → Partial outcomes for collections*.
 > - [ ] The single recursive `cp` runs only on a verified-clean tree; the copy mechanism itself (recursive copy, keep everything, post-copy `agntc.json` deletion) is otherwise unchanged; full suite green.
 
-**Resolution**: Pending
-**Notes**:
-
----
+**Resolution**: Fixed
+**Notes**: Added the collection-`add` partial-failure non-zero-exit behaviour to both plan-level recap surfaces in planning.md — the 5-3 task-table Edge Cases cell and a new Phase 5 acceptance bullet — bringing them into parity with task 5-3's authoritative body and matching the 5-3 / 4-7 partial-failure-exit symmetry. No tick change needed (this is plan-level recap only; the tick 5-3 task already carries the behaviour).
