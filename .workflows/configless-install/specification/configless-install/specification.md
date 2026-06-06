@@ -118,7 +118,8 @@ This is consistent with the existing `detectType` behaviour (`foundAssetDirs.len
 
 - Source resolves to a **skills-only** unit (whole repo, or a selected member) → `--plugin` bundles it as a plugin. This is its valid use.
 - Source resolves to an **unambiguous member-dirs collection** (no selector, installed via the prompt) → `--plugin` is a **hard error** (an attempt to bundle a non-bundleable collection, per the type-vs-structure conflict rule). To install every member, use **select-all in the prompt**, not `--plugin`.
-- Source resolves to an unambiguous bare skill or multi-asset plugin → `--plugin` agrees (redundant, no-op) or contradicts (hard error), per the conflict rule.
+- Source resolves to an unambiguous **multi-asset plugin** → `--plugin` agrees (redundant, no-op) — it already is a plugin.
+- Source resolves to an unambiguous **bare skill** → `--plugin` is a **hard error** (it would force `skill`→`plugin`, exactly as `type: plugin` on a bare skill errors).
 
 ### Skills-only resolution (the ambiguous case)
 
@@ -133,14 +134,15 @@ This is consistent with the existing `detectType` behaviour (`foundAssetDirs.len
 
 - `type: plugin` on a member-dirs collection → error.
 - `type: plugin` on a bare skill → error.
-- `type: collection` on a multi-asset plugin → error.
 - `--plugin` on a member-dirs collection (or any non-bundleable structure) → error, exactly as `type: plugin` would. The flag's *only* extra power is winning the tie in the ambiguous case — it cannot realize an impossible structure.
+
+(The realizability error applies only to the recognised value `type: "plugin"`. `type: "collection"` and any other value are unrecognised and silently ignored — see *Config Model → Recognised `type` values* — so they never reach this error path.)
 
 This is the deliberate asymmetry of the governing posture: **missing info → default (lenient); contradictory info → error (loud).**
 
 ### Selector / `--plugin` orthogonality
 
-A source selector (`owner/repo@unit`, tree path) and `--plugin` are orthogonal axes:
+A source selector (the tree-path URL — see *Source selector grammar*) and `--plugin` are orthogonal axes:
 
 - **Selector = *which* unit** to install.
 - **`--plugin` = *how to resolve the selected unit's* skills-only ambiguity.**
@@ -371,8 +373,8 @@ This is about not letting a repo read/write *outside* the directory it's meant t
 
 ### In scope for configless-install
 
-1. **Path-traversal guard** — validate any source-supplied subpath/selector (`@unit`, tree path, `#ref@skill`) resolves *within* the clone before copying. Mirrors Vercel's `isSubpathSafe`. Cheapest, highest value.
-2. **Symlink-escape guard** — repo symlinks otherwise land verbatim (`cp` with `dereference: false`); reject any symlink that doesn't resolve inside the unit's own directory.
+1. **Path-traversal guard** — validate any source-supplied subpath (the tree-path URL's `<subpath>` — see *Source selector grammar*) resolves *within* the clone before copying. Mirrors Vercel's `isSubpathSafe`. Cheapest, highest value.
+2. **Symlink-escape guard** — repo symlinks otherwise land verbatim (`cp` with `dereference: false`); reject any symlink that doesn't resolve inside the clone (the cloned repository root — see *Symlink guard: boundary* below for the precise predicate).
 
 ### Guard scope (complementary)
 

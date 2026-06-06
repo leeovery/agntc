@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 2
 phase: Gap Analysis
@@ -36,11 +36,8 @@ The fix is to remove the `type: collection` line from the conflict list so it al
 > - `type: collection` on a multi-asset plugin → error.
 > - `--plugin` on a member-dirs collection (or any non-bundleable structure) → error, exactly as `type: plugin` would. The flag's *only* extra power is winning the tie in the ambiguous case — it cannot realize an impossible structure.
 
-**Proposed Addition**:
-{leave blank until discussed}
-
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Stale prose aligned with the authoritative cycle-1 subsection.
 
 ---
 
@@ -65,11 +62,8 @@ Suggested reconciliation: split the bullet so that `--plugin` on a multi-asset p
 **Current**:
 > - Source resolves to an unambiguous bare skill or multi-asset plugin → `--plugin` agrees (redundant, no-op) or contradicts (hard error), per the conflict rule.
 
-**Proposed Addition**:
-{leave blank until discussed}
-
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Stale prose aligned with the authoritative cycle-1 subsection.
 
 ---
 
@@ -91,11 +85,8 @@ These are materially different predicates: "inside the unit's own directory" wou
 **Current**:
 > 2. **Symlink-escape guard** — repo symlinks otherwise land verbatim (`cp` with `dereference: false`); reject any symlink that doesn't resolve inside the unit's own directory.
 
-**Proposed Addition**:
-{leave blank until discussed}
-
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Stale prose aligned with the authoritative cycle-1 subsection.
 
 ---
 
@@ -121,10 +112,7 @@ and
 
 > 1. **Path-traversal guard** — validate any source-supplied subpath/selector (`@unit`, tree path, `#ref@skill`) resolves *within* the clone before copying. Mirrors Vercel's `isSubpathSafe`. Cheapest, highest value.
 
-**Proposed Addition**:
-{leave blank until discussed}
-
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Stale prose aligned with the authoritative cycle-1 subsection.
 
 ---
