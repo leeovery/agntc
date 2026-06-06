@@ -3,7 +3,8 @@
 ## Phases
 
 ### Phase 1: Configless detection foundation — structural type, lenient config, agent default
-status: draft
+status: approved
+approved_at: 2026-06-06
 
 **Goal**: Make type/identity/installability derive from directory structure alone and demote config to its two narrow jobs (`agents`, `type?`). Establish the governing posture (missing info → lenient default; contradictory info → loud error) in the lowest-level modules that every install path consumes: `type-detection.ts`, `config.ts`, and `agent-select.ts`.
 
@@ -21,7 +22,8 @@ status: draft
 - [ ] Existing detection/config/agent-selection behaviour for config-bearing repos (e.g. `agentic-workflows` Claude-only) is preserved; full suite green.
 
 ### Phase 2: Configless standalone install through `add`
-status: draft
+status: approved
+approved_at: 2026-06-06
 
 **Goal**: Wire the Phase 1 primitives through the `runAdd` standalone path so a configless bare skill or plugin installs end-to-end: detect structurally, select agents via the new default, copy, and persist. Add the `--plugin` installer override and the tree-path subpath as the unit selector, keeping identity = directory basename throughout.
 
@@ -37,7 +39,8 @@ status: draft
 - [ ] Config-bearing standalone installs (declared-agents ceiling, auto-select) behave exactly as before; full suite green.
 
 ### Phase 3: Structural collection membership and selection
-status: draft
+status: approved
+approved_at: 2026-06-06
 
 **Goal**: Redefine collection membership as "a child dir that structurally resolves to a unit" by recursing Phase 1 detection one level down, replacing the `has-agntc.json` enumeration. Drive selection with the existing prompt and tree-path selector; read child config only for agents when present; keep nested collections unsupported.
 
@@ -53,7 +56,8 @@ status: draft
 - [ ] Existing collection behaviour for config-bearing collections still works; full suite green.
 
 ### Phase 4: Manifest type lifecycle — record, replay, derive-before-delete, legacy backfill
-status: draft
+status: approved
+approved_at: 2026-06-06
 
 **Goal**: Add `type?: "skill" | "plugin"` to `ManifestEntry`, persist the resolved type on install, and make `update` replay the recorded type rather than blind re-detection — with derive-before-delete validation, irreconcilable-change abort that leaves the install intact, per-entry abort granularity, and in-memory legacy backfill from `files` on manifest read.
 
@@ -70,7 +74,8 @@ status: draft
 - [ ] Tagless `ref: null` → HEAD tracking and existing tagged-constraint behaviour are unchanged; commands reading the manifest (`list`, `remove`) tolerate and benefit from the backfilled `type`; full suite green.
 
 ### Phase 5: Copy-safety hardening — path-traversal and symlink-escape guards
-status: draft
+status: approved
+approved_at: 2026-06-06
 
 **Goal**: Add the two pre-flight guards the configless input demands: a path-traversal guard validating any source-supplied subpath resolves within the clone, and a symlink-escape guard rejecting any symlink whose target resolves outside the cloned repository root. Both run as a pre-flight scan of the unit tree before any copy, on both `add` and `update`'s re-copy.
 
