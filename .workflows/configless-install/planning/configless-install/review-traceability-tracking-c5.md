@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 5
 phase: Traceability Review
@@ -97,7 +97,5 @@ Add the following **Test** to task configless-install-5-3:
 
 > - `"a collection add with a failed member exits non-zero after committing siblings"` — member-a scan throws (`status: "failed"`), member-b clean (`status: "installed"`); assert `writeManifest` is called with member-b's entry (and **not** member-a's), the summary is rendered, and `ExitSignal(1)` is thrown **after** the write/summary; assert a run where the only non-success outcome is a `skipped` member does **not** throw `ExitSignal(1)`.
 
-**Resolution**: Pending
-**Notes**:
-
----
+**Resolution**: Fixed
+**Notes**: Verified against spec lines 460–466 (Error & Abort Behaviour → Partial outcomes for collections — explicitly "`update` **and multi-member installs**", "non-zero if any unit hard-errored or aborted"). Applied to phase-5-tasks.md task 5-3: split the collection-member-violation Do step into two (per-member failure reporting + a new non-zero-exit-on-partial-failure step throwing `ExitSignal(1)` after the manifest write and summary when any member is `status: "failed"`), removed the incorrect forward-reference to 4-7, and added the matching acceptance criterion and test. Synced the mirroring tick task tick-a7815f. `skipped` members (task 3-4) remain non-fatal.
