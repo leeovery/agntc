@@ -56,9 +56,9 @@ approved_at: 2026-06-06
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
-| configless-install-2-1 | Configless standalone detect-and-install wiring | null config bare skill (refero_skill shape), null config multi-asset plugin, config-bearing standalone unchanged, detected collection still dispatches, not-agntc exits cleanly, dead ConfigError catch removed, agents sourced from config?.agents ?? [] |
+| configless-install-2-1 | Configless standalone detect-and-install wiring | null config bare skill (refero_skill shape), null config multi-asset plugin, config-bearing standalone unchanged, detected collection still dispatches, not-agntc fails pre-flight loudly (source-named p.cancel, ExitSignal(1)), dead ConfigError catch removed, agents sourced from config?.agents ?? [] |
 | configless-install-2-2 | `--plugin` installer-override flag surface and forwarding | --plugin bundles skills-only repo, --plugin on bare skill -> hard error (non-zero, named), --plugin on member-dirs collection -> hard error, --plugin redundant no-op on multi-asset plugin, flag absent unchanged, TypeConflictError message names source identity |
-| configless-install-2-3 | Tree-path subpath as standalone unit selector | tree URL installs unit at subpath keyed owner/repo/<subpath>, identity = subpath basename folder, @-suffix on tree URL rejected, --plugin orthogonal to selector on skills-only subpath, subpath unit that is not-agntc exits cleanly |
+| configless-install-2-3 | Tree-path subpath as standalone unit selector | tree URL installs unit at subpath keyed owner/repo/<subpath>, identity = subpath basename folder, @-suffix on tree URL rejected, --plugin orthogonal to selector on skills-only subpath, subpath unit that is not-agntc fails pre-flight loudly (source-named p.cancel, ExitSignal(1)) |
 
 ### Phase 3: Structural collection membership and selection
 status: approved

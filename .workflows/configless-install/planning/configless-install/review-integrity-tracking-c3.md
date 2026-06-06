@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-06-06
 cycle: 3
 phase: Plan Integrity Review
@@ -66,7 +66,7 @@ All three are recap/edge-case framing rather than the primary contract, but #1 i
 
 > | configless-install-2-3 | Tree-path subpath as standalone unit selector | tree URL installs unit at subpath keyed owner/repo/<subpath>, identity = subpath basename folder, @-suffix on tree URL rejected, --plugin orthogonal to selector on skills-only subpath, subpath unit that is not-agntc fails pre-flight loudly (source-named p.cancel, ExitSignal(1)) |
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Fixed
+**Notes**: Applied all three edits — phase-2-tasks.md task 2-3 "Do" routing bullet (now states the shared loud `ExitSignal(1)` handling), and the two planning.md Phase 2 task-table Edge Cases cells (2-1 and 2-3). The mirroring tick tasks (tick-e6e0d2, tick-f8f897) were already synced in cycle 3's traceability pass and carry no exit-0 residue.
 
 ---
