@@ -57,4 +57,71 @@ Config is demoted to two narrow, irreducible jobs: author agent-restriction (`ag
 
 ---
 
+## Structural Type Detection
+
+Type is detected from structure alone, by a single detection path, with a two-level override resolving the one irreducibly-ambiguous shape.
+
+### The four structural shapes
+
+| Structure | Type | Ambiguous? |
+|---|---|---|
+| `SKILL.md` at root | bare skill | no |
+| `skills/` **+** (`agents/` or `hooks/`) | plugin (atomic) | no — Vercel has no multi-asset shape; `agentic-workflows` lands here |
+| named member dirs, each a unit (`SKILL.md` or its own `skills/`) | collection | no |
+| **`skills/`-only at root** | **plugin or collection** | **yes — the only ambiguous case** |
+| nothing reachable | not-agntc (reject) | no |
+
+### Why skills-only is ambiguous
+
+A root `skills/` dir means opposite things in the two ecosystems: "one plugin / install-as-one" (agntc author intent) vs "a menu of N independently-installable skills" (Vercel convention, and therefore most third-party repos). Structure alone cannot resolve it because the same shape carries opposite meanings. Vercel's `discoverSkills` walks one level into a root `skills/` dir and returns every `SKILL.md` as independently installable — it has no atomic-bundle concept at all.
+
+### Detection precedence (resolution order)
+
+1. **Install flag `--plugin`** — force the *selected* source to install as one atomic bundle. Highest precedence.
+2. **Config `type`** (when `agntc.json` present and declares it) — author's call.
+3. **Structure** (default).
+
+### Single structural detection path (at the root)
+
+There is **one** detection path and it is always structural. Config `type` and `--plugin` are *override inputs* to the ambiguous case only — never a parallel or fallback detection mechanism.
+
+1. root `SKILL.md` → **bare skill**
+2. root **asset-kind dirs** (`skills/` / `agents/` / `hooks/`) recognised as plugin parts → **plugin** — *checked before any member scan*, so `skills/` is never mistaken for "a collection of skills." Exception: `skills/`-only (no `agents/`/`hooks/`) → falls to the skills-only ambiguous case.
+3. otherwise, scan **non-asset-kind child dirs** as potential collection members → **collection**
+4. else **reject** as not-agntc
+
+### Skills-only resolution (the ambiguous case)
+
+- **Default → collection (menu)** — Vercel-compatible, the common third-party path. Works flag-free.
+- **Author override** → config `type: plugin` bundles it (even a single skill).
+- **Installer override** → `--plugin` flag bundles it.
+- On disagreement between the two overrides in this case, **`--plugin` beats config `type`** (precedence above).
+
+### Type-vs-structure conflict → hard error
+
+`type`/`--plugin` resolve **only** the skills-only case. A declared type (or flag) that contradicts an *unambiguous* structure is **unrealizable → hard error**, not a forced interpretation:
+
+- `type: plugin` on a member-dirs collection → error.
+- `type: plugin` on a bare skill → error.
+- `type: collection` on a multi-asset plugin → error.
+- `--plugin` on a member-dirs collection (or any non-bundleable structure) → error, exactly as `type: plugin` would. The flag's *only* extra power is winning the tie in the ambiguous case — it cannot realize an impossible structure.
+
+This is the deliberate asymmetry of the governing posture: **missing info → default (lenient); contradictory info → error (loud).**
+
+### Selector / `--plugin` orthogonality
+
+A source selector (`owner/repo@unit`, tree path) and `--plugin` are orthogonal axes:
+
+- **Selector = *which* unit** to install.
+- **`--plugin` = *how to resolve the selected unit's* skills-only ambiguity.**
+
+So `@unit --plugin` reads as "install `unit`, resolve *its* ambiguity as plugin." If the selected `unit` isn't skills-only/bundleable, the type-vs-structure conflict rule applies (agrees → redundant/no-op; contradicts → error). There is no bespoke selector+flag combination rule.
+
+### Consequences
+
+- `agentic-workflows` (multi-asset: `skills/` + `agents/`/`hooks/`) is a plugin by structure and needs **no** `type: plugin`. `type: plugin` is reserved strictly for a pure skills-only repo the author wants bundled.
+- The resolved type — however derived (structure, config `type`, or `--plugin`) — is what gets recorded in the manifest (see *Manifest Keying & Lifecycle*).
+
+---
+
 ## Working Notes
