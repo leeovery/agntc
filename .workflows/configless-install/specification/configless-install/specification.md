@@ -51,6 +51,18 @@ A clean split of responsibilities replaces v1's "config means I am installable" 
 - **Unknown config keys are ignored** (lenient) — older/newer agntc versions don't choke on each other's configs.
 - **No install-command flags for type or unit selection**, except the single narrow `--plugin` installer override defined in *Structural Type Detection*. Unit selection from a collection is via interactive prompt or a source-string selector.
 
+### Recognised `type` values and the leniency-vs-error boundary
+
+Two leniency rules coexist and must be reconciled explicitly:
+
+- **Config *reading* is lenient.** A missing `agntc.json`, a syntactically malformed one, or one missing/empty `agents` is treated as "no usable config" — no error (see *Agent Selection*). (This changes today's `readConfig`, which throws on parse failure / missing `agents`.)
+- **A *well-formed, recognised* `type` that contradicts an unambiguous structure is a hard error** (see *Structural Type Detection*). The error path fires only after the config parses successfully and yields a recognised `type`.
+
+So the boundary is: **unparseable / unusable config → lenient (ignored); well-formed config with a recognised `type` that can't be realized → loud error.**
+
+- **The only recognised `type` value is `"plugin"`.** It is the skills-only bundle disambiguator.
+- **Any other `type` value — including `"collection"` — is unrecognised and ignored** (lenient, like any unknown key). `"collection"` is *not* a supported declaration; structure already expresses collection, so an author never needs it. (This supersedes the discussion's incidental "`type: collection` on a multi-asset plugin → error" example — that value simply isn't honoured; the realizability error applies to `type: "plugin"` on a non-bundleable structure.)
+
 ### Rationale
 
 Config is demoted to two narrow, irreducible jobs: author agent-restriction (`agents`) and author bundle-intent for the one ambiguous shape (`type`). Both are genuine author intent that structure cannot express. Everything else about a repo is read from its structure.
@@ -90,6 +102,24 @@ There is **one** detection path and it is always structural. Config `type` and `
 3. otherwise, scan **non-asset-kind child dirs** as potential collection members → **collection**
 4. else **reject** as not-agntc
 
+### Canonical plugin rule (reconciles the table and prose)
+
+A **plugin** is structurally: *a root containing one or more asset-kind dirs (`skills/`, `agents/`, `hooks/`), with the single skills-only exception.* The four-shapes table's `skills/` **+** (`agents/` or `hooks/`) is the common illustrative case, **not** the exhaustive rule. Concretely:
+
+- `skills/` + `agents/` and/or `hooks/` → **plugin**
+- `agents/`-only, `hooks/`-only, or `agents/` + `hooks/` (no `skills/`) → **plugin** (≥1 asset dir, not skills-only)
+- `skills/`-only (no other asset dir) → **the skills-only ambiguous case** (default collection; see resolution above)
+
+This is consistent with the existing `detectType` behaviour (`foundAssetDirs.length > 0 → plugin`). The same rule applies one level down for collection membership (a child with ≥1 asset-kind dir is a plugin member).
+
+### `--plugin` scope (which thing it acts on)
+
+`--plugin` acts on the **resolved unit being installed**, and resolves *only* a skills-only ambiguity:
+
+- Source resolves to a **skills-only** unit (whole repo, or a selected member) → `--plugin` bundles it as a plugin. This is its valid use.
+- Source resolves to an **unambiguous member-dirs collection** (no selector, installed via the prompt) → `--plugin` is a **hard error** (an attempt to bundle a non-bundleable collection, per the type-vs-structure conflict rule). To install every member, use **select-all in the prompt**, not `--plugin`.
+- Source resolves to an unambiguous bare skill or multi-asset plugin → `--plugin` agrees (redundant, no-op) or contradicts (hard error), per the conflict rule.
+
 ### Skills-only resolution (the ambiguous case)
 
 - **Default → collection (menu)** — Vercel-compatible, the common third-party path. Works flag-free.
@@ -115,7 +145,18 @@ A source selector (`owner/repo@unit`, tree path) and `--plugin` are orthogonal a
 - **Selector = *which* unit** to install.
 - **`--plugin` = *how to resolve the selected unit's* skills-only ambiguity.**
 
-So `@unit --plugin` reads as "install `unit`, resolve *its* ambiguity as plugin." If the selected `unit` isn't skills-only/bundleable, the type-vs-structure conflict rule applies (agrees → redundant/no-op; contradicts → error). There is no bespoke selector+flag combination rule.
+So a selector + `--plugin` reads as "install the selected unit, resolve *its* ambiguity as plugin." If the selected unit isn't skills-only/bundleable, the type-vs-structure conflict rule applies (agrees → redundant/no-op; contradicts → error). There is no bespoke selector+flag combination rule.
+
+### Source selector grammar (canonical)
+
+The discussion referred informally to `owner/repo@unit` for member selection, but the existing source parser already assigns `@` a different meaning. To stay implementable and internally consistent, the canonical grammar is:
+
+- **`@<ref>` / `#`-style suffix = version ref or constraint only.** A bare-shorthand or URL suffix `@v1.2.0`, `@main`, `@^1.2`, `@~1.2` selects a tag/branch (or semver constraint). `@` is **never** a unit selector. (This is the existing `parseSource` behaviour — `classifyRefOrConstraint`.)
+- **Unit / member selection = the GitHub tree-path URL** `https://<host>/<owner>/<repo>/tree/<ref>/<subpath>`. This is the existing `DirectPathSource`: it yields `ref = <ref>`, `targetPlugin = <subpath>`, and manifest key `owner/repo/<subpath>`. The `<subpath>` is the in-repo path of the unit to install (a collection member, or any nested unit). Tree URLs **cannot** also carry an `@ref` suffix (the parser rejects it; the ref lives in the URL path).
+- **No `owner/repo@unit` shorthand is introduced** — it would be indistinguishable from `owner/repo@ref`. Direct member targeting without prompting uses the tree-path URL.
+- Whole-repo install (no selector) uses bare shorthand / plain HTTPS / SSH URL / local path, exactly as today.
+
+The **path-traversal guard** (see *Copy-Safety*) validates that a selector's `<subpath>` resolves *within* the clone before any copy.
 
 ### Consequences
 
@@ -186,7 +227,24 @@ Existing manifests predate the `type` field, so the first `update` after this fe
 - **Why not re-derive from the remote:** backfill runs at the first `update`, which re-clones the *current* remote — and an author may have dropped `agntc.json` by then (the exact configless migration this feature enables). A shape-unchanged but now config-absent skills-only repo would re-derive as `collection`, silently flipping a `plugin` install. Config-presence (not shape) was the load-bearing assumption, and config-presence is precisely what this feature encourages authors to change.
 - **How `files` encode the type:** an entry that wrote to `agents/`/`hooks/` targets, or holds multiple skill dirs under one key → `plugin`; a single `.claude/skills/<name>/` → bare skill. Backfill reads `files`, records `type`, and is therefore immune to any drift in the remote's current config or shape. `update` preserves the identity of *what the user installed*, not a re-interpretation of a remote that may have changed underneath them.
 - **Backfill is per manifest entry, and an entry is always a unit (skill/plugin) — never a collection.** A legacy collection-member entry (`owner/repo/<unit>`) backfills from its own `files` like any other unit. No collection type is ever derived or stored.
+- **Single-skill ambiguity is accepted collateral.** A legacy entry whose `files` are a single `.claude/skills/<name>/` (or the equivalent per-agent skills dir) with no `agents/`/`hooks/` targets backfills as `skill`, even if it was originally bundled as a single-skill plugin — the two are indistinguishable from `files` alone. This is safe: replay behaviour is identical (both re-copy the one skill dir). The only divergence is if the author later adds an `agents/`/`hooks/` dir — replaying `skill` would not pick it up; the user's remedy is the standard manual `remove` + `add`. No tiebreaker is introduced; legacy backfill favours the common case (bare skill) over the rare one.
 - This also covers the *Backward-Compat / Migration* update concern — no separate migration step.
+
+### `type` field: optionality and backfill timing
+
+- **`type` is optional on the `ManifestEntry` interface** (`type?: "skill" | "plugin"`). It must be optional so legacy manifests (which predate the field) still parse; every reader must tolerate its absence.
+- **Backfill happens in-memory on manifest *read*** — mirroring the existing inline `cloneUrl` backfill in `readManifest`. When a legacy entry lacking `type` is read, its type is derived from `files` (per the rules above) and populated on the in-memory entry, then **persisted on the next manifest write**. This makes `type` available uniformly to *all* commands that read the manifest (`list`, `remove`, `update`), not only `update`, and removes any "only at first update" ambiguity.
+- Reading legacy manifests never errors on the missing field; backfill is total (every `files` shape maps to exactly one of `skill`/`plugin`).
+
+### Derive-before-delete validation predicate (per recorded type)
+
+`update` replays the recorded type and validates the re-cloned tree *supports* it **before** nuking files. The concrete pass/fail predicate, by recorded type:
+
+- **Recorded `skill`** → the unit's root `SKILL.md` must still exist. If present, replay as a bare skill (re-copy the unit dir) regardless of any newly-added asset dirs — the *recorded* type is authoritative, not a re-derivation. If `SKILL.md` is gone → **abort**.
+- **Recorded `plugin`** → at least one asset-kind dir (`skills/`/`agents/`/`hooks/`) must still exist at the unit root. If so, re-copy whatever asset dirs are present now (benign additions picked up). If no asset dir remains (e.g. now a bare skill or member-dirs collection) → **abort**.
+- **Member entries** apply the *same* per-type predicate to their own subdir (`owner/repo/<unit>`). A vanished subdir is the common abort trigger, but a subdir that still exists yet no longer supports its recorded type aborts identically. (This refines the looser "only a vanished member subdir aborts" wording to stay consistent with the root-level rule.)
+
+Validation runs entirely against the re-cloned tree before any file removal; on failure the existing install is left intact (see *Error & Abort Behaviour*).
 
 ### Keying
 
@@ -229,6 +287,12 @@ All three fall back to the same default (offer all `KNOWN_AGENTS`):
 
 Rationale: an invalid/unusable `agents` declaration carries no usable author intent, so it is treated identically to no config at all. **No hard errors for config problems** — config reading treats parse failures as "no usable config" and falls back to the default.
 
+### Agent detection signal and auto-select interaction
+
+- **"Detected agents"** are determined by the existing `detectAgents` path — each registered driver's `.detect(projectDir)` (e.g. presence of the agent's project dir/marker). Configless reuses this unchanged; it is the signal used to pre-tick options.
+- **Pre-tick, always prompt** in the no-constraint default: candidates = all `KNOWN_AGENTS`, detected ones pre-ticked, the user always picks. There is **no auto-select** in this path — a multi-candidate list always warrants a choice.
+- **Auto-select stays scoped to the declared-single-agent case only**: when config declares exactly one agent and it is detected, install proceeds without a prompt (today's behaviour, unchanged). The configless default never auto-selects even if exactly one agent is detected, because the ceiling (all `KNOWN_AGENTS`) is not a single-agent declaration.
+
 ### Trade-off accepted
 
 A malformed config silently falls back to "all agents" rather than erroring, which could mask an author's typo (their Claude-only intent silently becomes all-agents). Judged acceptable for leniency/simplicity — the installer still chooses, and detection pre-ticks sensibly. (Note the deliberate asymmetry with type detection: for *agents*, missing/invalid info → lenient default; for *type*, contradictory info → loud error.)
@@ -262,7 +326,7 @@ The pickable list comes from this structural scan, **replacing** the "has `agntc
 ### Selection UX (unchanged, flag-free)
 
 - The existing interactive prompt for "which member(s)?" (one / some / all).
-- A source-string selector — `owner/repo@unit`, or a `tree/<branch>/<path>` URL — to pick a member directly without prompting.
+- A source-string selector — the GitHub tree-path URL `https://<host>/<owner>/<repo>/tree/<ref>/<subpath>` (see *Source selector grammar*) — to pick a member directly without prompting. (`@` remains a version ref, not a member selector.)
 - **"Install every member" is select-all in the prompt**, not `--plugin` (which only resolves a unit's skills-only ambiguity).
 
 ### Nested collections
@@ -326,6 +390,16 @@ Both guards run as a **pre-flight scan of the unit tree *before* any copy**:
 
 Pre-flight (not post-copy scan-and-remove) leaves no on-disk window where escaping symlinks exist, and matches the derive-before-delete principle: validate before you mutate.
 
+### Symlink guard: boundary, broken links, and update coverage
+
+- **Boundary = the cloned repository root.** A symlink is rejected only if its target resolves *outside the clone* (e.g. absolute paths like `/etc/...` or `..`-escapes above the clone root). Symlinks resolving anywhere *inside* the clone are allowed — this avoids rejecting a skill that legitimately points at a shared script elsewhere in the repo. ("Inside the unit's own directory" from the discussion is widened to "inside the clone" because the true security boundary is the untrusted clone, and a multi-dir plugin spans more than one dir.)
+- **Broken symlinks** (target nonexistent) are evaluated **lexically**: if the link's target path lexically escapes the clone root → reject; otherwise it is copied verbatim (it is not an escape).
+- **The guard runs on every copy that ingests cloned content — both `add` and `update`'s re-copy.** Since `update` re-clones the current (arbitrary) remote, its copy path is routed through the identical pre-flight guard before nuking/replacing files.
+
+### Installed units never carry `agntc.json`
+
+The current bare-skill copy deletes `agntc.json` from the destination after copying. This is **retained and generalised**: `agntc.json` is an author/install-time input, never a runtime artifact, so no installed unit (bare skill, plugin skill dirs, or collection member) ships `agntc.json` on disk. For plugins/members where only asset dirs are copied, a root `agntc.json` is naturally never copied; where a whole unit dir is copied (bare skill), the post-copy deletion removes it. Replay on `update` re-reads config from the freshly-cloned source, not from the installed tree, so removing it on disk has no lifecycle impact.
+
 ### Deferred (out of scope → validation idea)
 
 Logged to `.inbox/ideas/2026-06-05--validation.md`, which also collects other validation concerns surfaced here (skill-validity gate, untrusted-frontmatter parsing safety, config-schema validation depth, agent-level identity collisions):
@@ -366,6 +440,32 @@ Structure decides it's a collection regardless of the stray config:
 ### Collection pipeline's child-`agntc.json` dependency
 
 Resolved by *Collection Membership & Selection Flow*: membership comes from structural detection per child; child config is read only for agents when present.
+
+---
+
+## Error & Abort Behaviour
+
+The governing posture's "loud" paths are the spec's primary behavioural contract, so their observable shape is defined here (acceptance criteria for hard errors, aborts, and partial collection outcomes).
+
+### Hard errors (detection-time, before any write)
+
+Type-vs-structure conflicts, `--plugin` on a non-bundleable structure, a not-agntc source, and a path-traversal/symlink-escape violation are **pre-flight failures**: nothing is written, the command exits **non-zero**, and the message names the offending source/unit and what conflicted (e.g. "`owner/repo` declares `type: plugin` but its structure is a collection of N members — cannot bundle"). These fire before any clone content is copied.
+
+### `update` abort (irreconcilable change)
+
+When derive-before-delete fails for a unit, that unit's existing install is **left intact** (no files removed), a clear message describes what changed (recorded type vs current structure) and states the manual remedy (`remove` then `add`), and the entry's `update` is reported as **aborted**.
+
+### Partial outcomes for collections
+
+`update` and multi-member installs operate **per manifest entry**:
+
+- A single unit (bare skill / plugin) is one entry → atomic: it wholly succeeds, wholly aborts, or hard-errors.
+- Collection members are independent entries → each is processed on its own; a member that aborts or errors does **not** stop its siblings. Each failed member is reported loudly with its own reason.
+- **Command exit status**: the command exits **non-zero if any unit hard-errored or aborted**, even when other units succeeded (partial success). The summary reports per-unit outcomes (succeeded / aborted / errored) so the user sees exactly what changed and what didn't.
+
+### Copy failure after nuke (residual, acknowledged)
+
+Derive-before-delete eliminates the *type-incompatibility* stranding case, but a copy that fails *after* files are nuked (I/O error mid-reinstall) remains possible. As today, this is reported with a recovery hint ("the unit is currently uninstalled; run `agntc update <key>` to retry"). Not expanded by this feature.
 
 ---
 
