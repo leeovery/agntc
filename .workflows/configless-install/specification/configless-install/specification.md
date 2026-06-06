@@ -158,4 +158,44 @@ Because agntc keys on directory basename, no frontmatter-name namespacing policy
 
 ---
 
+## Manifest Keying & Lifecycle
+
+agntc's value over a one-shot `cp` is *lifecycle* — `update` (nuke-and-reinstall) and `remove`. Type detection created a new hazard: `update` re-clones and re-runs detection, so an install could re-resolve to a *different* type or skill-set than was originally installed. The lifecycle rules below prevent that.
+
+### Current behaviour (baseline)
+
+- `ManifestEntry` today carries `ref, commit, installedAt, agents, files, cloneUrl, constraint` — **no `type` field**.
+- The manifest is a flat `Record<string, ManifestEntry>`, keyed `owner/repo` (standalone) or `owner/repo/<unit>` (collection member).
+- **A collection is a transport, not a stored unit** — the collection pipeline records *each selected child as its own entry*. No collection-level entry exists.
+- **Nested collections are explicitly unsupported** (skipped with a warning), bounding recursion.
+
+### Decision: record the resolved type, replay it, never silently morph
+
+- **Add a `type` field to `ManifestEntry`**, values `"skill" | "plugin"` only. A collection is never stored — its selected children persist as their own skill/plugin entries keyed `owner/repo/<unit>`. However the type was derived (structure, config `type`, or `--plugin`), the *resolved* value is what's persisted. The three derivation paths collapse to one recorded fact.
+- **`update` replays the recorded type**, not blind re-detection. Reinstalling the recorded unit re-copies whatever is in the tree now, so benign additions (e.g. the author adds an `agents/` dir to an existing plugin) are picked up *without* changing the recorded type — we're replaying "plugin," not re-deriving it.
+- **Derive-before-delete.** On `update`, validate the unit can still be reinstalled as its recorded type *before* removing any existing files. Never delete first and discover failure.
+- **Irreconcilable change → abort + loud alert, existing install left intact.** If the tree no longer supports the recorded type (unit/path gone, structure incompatible — e.g. was a bare skill, now a collection), do **not** try to save it or auto-migrate. Abort that unit's update, keep what's installed, emit a clear error describing what changed. The remedy is manual (`remove` then `add` — the user's call).
+- **Member entries replay by path, not by repo re-classification.** A collection member persists as `owner/repo/<unit>` with its own recorded type, and `update` re-copies *its own subdir*. A later root-level reshape of the source repo (e.g. skills-only → plugin once the author adds an `agents/` dir) does **not** reach into or retroactively bundle existing member entries — they stay independent units as originally chosen. Only a vanished member subdir trips the abort path.
+- **Per-member abort granularity.** `update` operates per manifest entry. A plugin is one entry → atomic (abort = the whole plugin stays). Collection members are **independent entries by construction** — that independence is what makes it a collection and not a plugin — so one member aborting while siblings advance is correct, not a coherence hazard. agntc owes **no** collection-level coherence guarantee (lockstep is what `plugin` is for; there is deliberately no collection record). Each aborted entry is reported loudly.
+
+### Legacy backfill (pre-`type` manifest entries)
+
+Existing manifests predate the `type` field, so the first `update` after this feature has nothing to replay and must establish a type once, then fix it into the manifest.
+
+- **Backfill `type` from the recorded `files`** (the local install is ground truth) — **not** from a fresh re-clone or re-detection.
+- **Why not re-derive from the remote:** backfill runs at the first `update`, which re-clones the *current* remote — and an author may have dropped `agntc.json` by then (the exact configless migration this feature enables). A shape-unchanged but now config-absent skills-only repo would re-derive as `collection`, silently flipping a `plugin` install. Config-presence (not shape) was the load-bearing assumption, and config-presence is precisely what this feature encourages authors to change.
+- **How `files` encode the type:** an entry that wrote to `agents/`/`hooks/` targets, or holds multiple skill dirs under one key → `plugin`; a single `.claude/skills/<name>/` → bare skill. Backfill reads `files`, records `type`, and is therefore immune to any drift in the remote's current config or shape. `update` preserves the identity of *what the user installed*, not a re-interpretation of a remote that may have changed underneath them.
+- **Backfill is per manifest entry, and an entry is always a unit (skill/plugin) — never a collection.** A legacy collection-member entry (`owner/repo/<unit>`) backfills from its own `files` like any other unit. No collection type is ever derived or stored.
+- This also covers the *Backward-Compat / Migration* update concern — no separate migration step.
+
+### Keying
+
+Identity is dir-basename (see *Identity & Naming*), so manifest keys are **unchanged from today**: `owner/repo` for a standalone bare skill or plugin, `owner/repo/<unit-dir>` for a collection member. No frontmatter-derived keys. Configless adds no new keying scheme — it reuses the existing one.
+
+### Deferred
+
+- **Collection grouping for bulk `remove`** (unit-vs-collection granularity) stays a minor open thread — not forced by the keying decision; revisit only if the remove UX calls for it.
+
+---
+
 ## Working Notes
