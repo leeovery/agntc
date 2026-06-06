@@ -198,4 +198,41 @@ Identity is dir-basename (see *Identity & Naming*), so manifest keys are **uncha
 
 ---
 
+## Agent Selection
+
+The constraint model is already settled and stays unchanged. Configless forces only one small mechanical change.
+
+### Constraint model (unchanged)
+
+- **Declared agents are a hard ceiling.** Undeclared agents are excluded from the selection prompt entirely. A Codex user is never offered a Claude-only unit for Codex.
+- **Auto-select** when a single declared agent is detected.
+- **Per-plugin silent skip** in collections — undeclared agents are dropped per-plugin during copy, no warning.
+
+### The one configless delta
+
+Today agent selection returns `[]` ("install for nobody") when there is no declared-agents list. Correct under v1 (config mandatory → empty = misconfigured), wrong under configless where "no declaration" is a legitimate, common state meaning **"installable for anything."**
+
+### Decision
+
+**Constraint model unchanged. The only rework: source the candidate list from `KNOWN_AGENTS` when there is no valid author declaration.**
+
+- **Valid, non-empty `agents` in config** → hard ceiling, exactly as today.
+- **No valid constraint** → offer all `KNOWN_AGENTS` (claude / codex / cursor), pre-tick detected agents, user picks. This replaces the `return []` footgun.
+
+### "No valid constraint" — unified across three cases
+
+All three fall back to the same default (offer all `KNOWN_AGENTS`):
+
+1. config **absent** (configless)
+2. config present but `agents: []` (empty — "a skill for nothing" makes no sense)
+3. config **malformed** (unparseable)
+
+Rationale: an invalid/unusable `agents` declaration carries no usable author intent, so it is treated identically to no config at all. **No hard errors for config problems** — config reading treats parse failures as "no usable config" and falls back to the default.
+
+### Trade-off accepted
+
+A malformed config silently falls back to "all agents" rather than erroring, which could mask an author's typo (their Claude-only intent silently becomes all-agents). Judged acceptable for leniency/simplicity — the installer still chooses, and detection pre-ticks sensibly. (Note the deliberate asymmetry with type detection: for *agents*, missing/invalid info → lenient default; for *type*, contradictory info → loud error.)
+
+---
+
 ## Working Notes
