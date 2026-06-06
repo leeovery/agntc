@@ -21,6 +21,17 @@ approved_at: 2026-06-06
 - [ ] `selectAgents` sources candidates from `KNOWN_AGENTS` (pre-ticking detected agents, always prompting) when there is no valid declaration; a valid non-empty `agents` list remains a hard ceiling with single-detected-agent auto-select unchanged. The `return []` "install for nobody" path is gone.
 - [ ] Existing detection/config/agent-selection behaviour for config-bearing repos (e.g. `agentic-workflows` Claude-only) is preserved; full suite green.
 
+#### Tasks
+status: draft
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-1-1 | Lenient config reading with optional type | missing file, malformed JSON, missing agents key, empty agents array, all-unknown agents, unknown extra keys, unrecognised type value, non-permission IO errors still propagate |
+| configless-install-1-2 | Single structural detection path | bare SKILL.md no config (refero_skill shape), SKILL.md alongside asset dirs, skills-only defaults to collection, agents/hooks-only is plugin, one-level child scan, empty/unreadable dir, files-only root |
+| configless-install-1-3 | Structural collection membership (one level down) | configless members, mixed config-bearing and configless members, child with neither SKILL.md nor asset dir skipped, nested-collection child not recursed, no qualifying children -> not-agntc |
+| configless-install-1-4 | Two-level type override and conflict hard error | type:"plugin" bundles skills-only, --plugin bundles skills-only, --plugin beats config type, redundant no-op on multi-asset plugin, type:"plugin"/--plugin on bare skill -> error, type:"plugin"/--plugin on member-dirs collection -> error, type:"collection" ignored, unknown type ignored |
+| configless-install-1-5 | KNOWN_AGENTS default in selectAgents | no declaration -> all KNOWN_AGENTS, empty declaration -> all KNOWN_AGENTS, default never auto-selects with one detected, detected pre-ticked, valid ceiling unchanged, single-declared-detected auto-selects, cancel/zero-selection returns [] |
+
 ### Phase 2: Configless standalone install through `add`
 status: approved
 approved_at: 2026-06-06
