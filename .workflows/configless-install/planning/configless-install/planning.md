@@ -22,7 +22,8 @@ approved_at: 2026-06-06
 - [ ] Existing detection/config/agent-selection behaviour for config-bearing repos (e.g. `agentic-workflows` Claude-only) is preserved; full suite green.
 
 #### Tasks
-status: draft
+status: approved
+approved_at: 2026-06-06
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
