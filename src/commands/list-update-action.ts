@@ -1,6 +1,10 @@
-import { buildFailureMessage, cloneAndReinstall } from "../clone-reinstall.js";
+import {
+	buildAbortMessage,
+	cloneAndReinstall,
+	mapCloneFailure,
+	prepareReinstall,
+} from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
-import { validateLocalSourcePath } from "../fs-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, writeManifest } from "../manifest.js";
 import type { VersionOverrides } from "../version-resolve.js";
@@ -31,37 +35,32 @@ async function runUpdate(
 	const isLocal = entry.commit === null;
 
 	try {
-		if (isLocal) {
-			const pathResult = await validateLocalSourcePath(key);
-			if (!pathResult.valid) {
-				return {
-					success: false,
-					message: `Path ${key} does not exist or is not a directory`,
-				};
-			}
-		}
-
-		const result = await cloneAndReinstall({
-			key,
-			entry,
-			projectDir,
+		const prepared = await prepareReinstall(key, entry, projectDir, {
 			manifest,
-			...(isLocal ? { sourceDir: key } : {}),
 			...overrides,
 		});
-
-		if (result.status === "failed") {
-			const message = buildFailureMessage(result, key);
-			return { success: false, message };
-		}
-
-		if (result.status === "aborted") {
-			// Structured abort plumbed from derive-before-delete; full message +
-			// remedy assembled by reporting (configless-install 4-6).
+		if (!prepared.ok) {
 			return {
 				success: false,
-				message: `${key} update aborted: ${result.reason}. Existing install left intact.`,
+				message: `Path ${key} does not exist or is not a directory`,
 			};
+		}
+
+		const result = await cloneAndReinstall(prepared.options);
+
+		if (result.status === "failed" || result.status === "aborted") {
+			return mapCloneFailure<UpdateActionResult>(result, {
+				onCloneFailed: (msg) => ({ success: false, message: msg }),
+				onNoAgents: (msg) => ({ success: false, message: msg }),
+				onCopyFailed: (msg) => ({ success: false, message: msg }),
+				onUnknown: (msg) => ({ success: false, message: msg }),
+				// Derive-before-delete abort: full recorded-vs-current message +
+				// remove+add remedy via the canonical builder. Install intact.
+				onAborted: (recordedType, reason) => ({
+					success: false,
+					message: buildAbortMessage(key, recordedType, reason),
+				}),
+			});
 		}
 
 		const updated = addEntry(manifest, key, result.manifestEntry);

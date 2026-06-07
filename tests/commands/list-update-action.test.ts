@@ -558,6 +558,42 @@ describe("executeUpdateAction", () => {
 		});
 	});
 
+	describe("aborted (derive-before-delete)", () => {
+		it("renders the canonical buildAbortMessage with recordedType + remove+add remedy, leaves install intact", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+			const manifest: Manifest = { [key]: entry };
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			// Recorded skill's SKILL.md is gone in the re-clone → abort.
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+			);
+
+			expect(result.success).toBe(false);
+			expect(result.message).toContain("installed as a skill");
+			expect(result.message).toContain("unchanged");
+			expect(result.message).toContain("npx agntc remove owner/repo");
+			expect(result.message).toContain("npx agntc add owner/repo");
+			expect(result.newEntry).toBeUndefined();
+			// Install intact: no nuke, no manifest write.
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("constrained update overrides", () => {
 		it("forwards newRef and newCommit to cloneAndReinstall when overrides provided", async () => {
 			const key = "owner/repo";

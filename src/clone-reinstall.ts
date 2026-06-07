@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
+import { validateLocalSourcePath } from "./fs-utils.js";
 import { cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry, writeManifest } from "./manifest.js";
@@ -20,6 +21,59 @@ export interface CloneAndReinstallOptions {
 	sourceDir?: string;
 	/** When provided, copy-failed will automatically remove the entry and write the manifest. */
 	manifest?: Manifest;
+}
+
+/**
+ * Per-call inputs the four reinstall entry points layer on top of the shared
+ * key/entry/projectDir triple: an optional `manifest` (enables copy-failed
+ * removal), and version overrides (`newRef`/`newCommit`) for constrained or
+ * change-version flows.
+ */
+export interface PrepareReinstallOpts {
+	manifest?: Manifest;
+	newRef?: string;
+	newCommit?: string;
+}
+
+export type PrepareReinstallResult =
+	| { ok: true; options: CloneAndReinstallOptions }
+	| { ok: false; reason: string };
+
+/**
+ * Shared preparation for the four update entry points (update single, update
+ * all, list update action, list change-version action). Detects local vs remote
+ * from `entry.commit === null`, validates the local source path when local, and
+ * assembles the {@link CloneAndReinstallOptions} object (including the
+ * `sourceDir: key` spread for local installs). On a failed local-path check it
+ * returns `{ ok: false }` carrying the validation reason; callers map that to
+ * their own presentation channel.
+ */
+export async function prepareReinstall(
+	key: string,
+	entry: ManifestEntry,
+	projectDir: string,
+	opts: PrepareReinstallOpts = {},
+): Promise<PrepareReinstallResult> {
+	const isLocal = entry.commit === null;
+
+	if (isLocal) {
+		const pathResult = await validateLocalSourcePath(key);
+		if (!pathResult.valid) {
+			return { ok: false, reason: pathResult.reason };
+		}
+	}
+
+	const options: CloneAndReinstallOptions = {
+		key,
+		entry,
+		projectDir,
+		...(opts.manifest !== undefined ? { manifest: opts.manifest } : {}),
+		...(isLocal ? { sourceDir: key } : {}),
+		...(opts.newRef !== undefined ? { newRef: opts.newRef } : {}),
+		...(opts.newCommit !== undefined ? { newCommit: opts.newCommit } : {}),
+	};
+
+	return { ok: true, options };
 }
 
 interface CloneReinstallSuccess {

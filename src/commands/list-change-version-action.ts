@@ -1,5 +1,10 @@
 import * as p from "@clack/prompts";
-import { buildFailureMessage, cloneAndReinstall } from "../clone-reinstall.js";
+import {
+	buildAbortMessage,
+	cloneAndReinstall,
+	mapCloneFailure,
+	prepareReinstall,
+} from "../clone-reinstall.js";
 import { fetchRemoteTags } from "../git-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, writeManifest } from "../manifest.js";
@@ -81,26 +86,32 @@ export async function executeChangeVersionAction(
 		return { changed: false, message: "Already on this version" };
 	}
 
-	const result = await cloneAndReinstall({
-		key,
-		entry,
-		projectDir,
-		newRef: selectedTag,
+	const prepared = await prepareReinstall(key, entry, projectDir, {
 		manifest,
+		newRef: selectedTag,
 	});
-
-	if (result.status === "failed") {
-		const message = buildFailureMessage(result, key);
-		return { changed: false, message };
-	}
-
-	if (result.status === "aborted") {
-		// Structured abort plumbed from derive-before-delete; full message +
-		// remedy assembled by reporting (configless-install 4-6).
+	if (!prepared.ok) {
 		return {
 			changed: false,
-			message: `${key} version change aborted: ${result.reason}. Existing install left intact.`,
+			message: `Path ${key} does not exist or is not a directory`,
 		};
+	}
+
+	const result = await cloneAndReinstall(prepared.options);
+
+	if (result.status === "failed" || result.status === "aborted") {
+		return mapCloneFailure<ChangeVersionResult>(result, {
+			onCloneFailed: (msg) => ({ changed: false, message: msg }),
+			onNoAgents: (msg) => ({ changed: false, message: msg }),
+			onCopyFailed: (msg) => ({ changed: false, message: msg }),
+			onUnknown: (msg) => ({ changed: false, message: msg }),
+			// Derive-before-delete abort: full recorded-vs-current message +
+			// remove+add remedy via the canonical builder. Install intact.
+			onAborted: (recordedType, reason) => ({
+				changed: false,
+				message: buildAbortMessage(key, recordedType, reason),
+			}),
+		});
 	}
 
 	const finalEntry = stripConstraint(result.manifestEntry);

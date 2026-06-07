@@ -2,13 +2,12 @@ import * as p from "@clack/prompts";
 import { Command } from "commander";
 import {
 	buildAbortMessage,
-	type CloneAndReinstallOptions,
 	cloneAndReinstall,
 	mapCloneFailure,
+	prepareReinstall,
 } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
-import { validateLocalSourcePath } from "../fs-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import {
 	addEntry,
@@ -187,34 +186,6 @@ async function runSingleUpdate(
 	return { newEntry, outOfConstraint };
 }
 
-async function validateLocalPath(sourcePath: string): Promise<void> {
-	const result = await validateLocalSourcePath(sourcePath);
-	if (!result.valid) {
-		p.log.error(`Path ${sourcePath} does not exist or is not a directory.`);
-		throw new ExitSignal(1);
-	}
-}
-
-function buildReinstallInput(
-	key: string,
-	entry: ManifestEntry,
-	projectDir: string,
-	manifest?: Manifest,
-	overrides?: VersionOverrides,
-): CloneAndReinstallOptions {
-	const isLocal = entry.commit === null;
-	return {
-		key,
-		entry,
-		projectDir,
-		...(manifest !== undefined ? { manifest } : {}),
-		...(isLocal ? { sourceDir: key } : {}),
-		...(overrides !== undefined
-			? { newRef: overrides.newRef, newCommit: overrides.newCommit }
-			: {}),
-	};
-}
-
 async function runSinglePluginUpdate(
 	key: string,
 	entry: ManifestEntry,
@@ -224,13 +195,16 @@ async function runSinglePluginUpdate(
 ): Promise<ManifestEntry | null> {
 	const isLocal = entry.commit === null;
 
-	if (isLocal) {
-		await validateLocalPath(key);
+	const prepared = await prepareReinstall(key, entry, projectDir, {
+		manifest,
+		...overrides,
+	});
+	if (!prepared.ok) {
+		p.log.error(`Path ${key} does not exist or is not a directory.`);
+		throw new ExitSignal(1);
 	}
 
-	const result = await cloneAndReinstall(
-		buildReinstallInput(key, entry, projectDir, manifest, overrides),
-	);
+	const result = await cloneAndReinstall(prepared.options);
 
 	if (result.status === "failed" || result.status === "aborted") {
 		return mapCloneFailure(result, {
@@ -306,21 +280,18 @@ async function processUpdateForAll(
 	try {
 		const isLocal = entry.commit === null;
 
-		// Local path validation
-		if (isLocal) {
-			const pathResult = await validateLocalSourcePath(key);
-			if (!pathResult.valid) {
-				return {
-					status: "failed",
-					key,
-					summary: `${key}: Failed — ${pathResult.reason}`,
-				};
-			}
+		const prepared = await prepareReinstall(key, entry, projectDir, {
+			...overrides,
+		});
+		if (!prepared.ok) {
+			return {
+				status: "failed",
+				key,
+				summary: `${key}: Failed — ${prepared.reason}`,
+			};
 		}
 
-		const result = await cloneAndReinstall(
-			buildReinstallInput(key, entry, projectDir, undefined, overrides),
-		);
+		const result = await cloneAndReinstall(prepared.options);
 
 		if (result.status === "failed" || result.status === "aborted") {
 			return mapCloneFailure<PluginOutcome>(result, {
