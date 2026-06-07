@@ -2405,6 +2405,129 @@ describe("add command", () => {
 			});
 		});
 
+		// Phase 3 task 3-6: pipeline selection targets the STRUCTURAL member set
+		// (detected.plugins via Phase 1 qualifiesAsMember). After the Phase 2 task
+		// 2-3 reroute a tree URL detects against unitDir = sourceDir/targetPlugin,
+		// so the pipeline's direct-path branch is reached ONLY when that SUBPATH
+		// itself re-detects as a collection. In that branch membership is checked
+		// against the structural list; a selector naming a non-member errors
+		// clearly with no install, and a member selector installs the single unit
+		// without prompting, keyed parsed.manifestKey (owner/repo/<subpath>).
+		describe("pipeline selection over the structural member set", () => {
+			// A direct-path source whose subpath re-detects as a collection: the
+			// pipeline runs with sourceDir = unitDir (root/<targetPlugin>) and its
+			// members live one level below that.
+			const TREE_PARSED: ParsedSource = {
+				type: "direct-path",
+				owner: "owner",
+				repo: "my-collection",
+				ref: "main",
+				targetPlugin: "pluginA",
+				manifestKey: "owner/my-collection/pluginA",
+				cloneUrl: "https://github.com/owner/my-collection.git",
+			};
+			const UNIT_DIR = `${COLLECTION_CLONE_RESULT.tempDir}/pluginA`;
+
+			function setupTreeCollection(plugins: string[]): void {
+				mockParseSource.mockReturnValue(TREE_PARSED);
+				mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				// unitDir re-detects as a collection of `plugins`; the targeted member
+				// itself is a bare skill one level below unitDir.
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === UNIT_DIR) {
+						return { type: "collection", plugins } as DetectedType;
+					}
+					return { type: "bare-skill" } as DetectedType;
+				});
+			}
+
+			it("tree-path selector targeting a non-member errors clearly with no install", async () => {
+				// targetPlugin "pluginA" is NOT in the subpath collection's structural
+				// member list [alpha, beta] -> the direct-path branch throws naming the
+				// missing target and listing the structural members; outer catch maps
+				// to exit 1 with no copy and no manifest write.
+				setupTreeCollection(["alpha", "beta"]);
+
+				const err = await runAdd(
+					"https://github.com/owner/my-collection/tree/main/pluginA",
+				).catch((e) => e);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				const cancelMsgs = mockCancel.mock.calls.map((c) => c[0] as string);
+				expect(cancelMsgs.some((m) => m.includes("pluginA"))).toBe(true);
+				expect(cancelMsgs.some((m) => m.includes("alpha"))).toBe(true);
+				expect(cancelMsgs.some((m) => m.includes("beta"))).toBe(true);
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
+				expect(mockAddEntry).not.toHaveBeenCalled();
+			});
+
+			it("tree-path selector installs the single targeted member without prompting, keyed parsed.manifestKey", async () => {
+				// targetPlugin "pluginA" IS a structural member of the subpath
+				// collection -> the direct-path branch selects exactly that member, no
+				// prompt, and keys it parsed.manifestKey (owner/repo/<subpath>).
+				setupTreeCollection(["pluginA", "other"]);
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd(
+					"https://github.com/owner/my-collection/tree/main/pluginA",
+				);
+
+				expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				expect(mockAddEntry).toHaveBeenCalledTimes(1);
+				expect(mockAddEntry.mock.calls[0]![1]).toBe("owner/my-collection/pluginA");
+			});
+
+			it("select-all (non-direct-path) presents the structural list and installs every member", async () => {
+				// detected.plugins IS the structural member set; select-all returns all
+				// members and the per-member loop installs each, keyed owner/repo/<unit>.
+				setupCollectionBase();
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+
+				await runAdd("owner/my-collection");
+
+				expect(mockSelectCollectionPlugins).toHaveBeenCalledWith({
+					plugins: COLLECTION_DETECTED.plugins,
+					manifest: EMPTY_MANIFEST,
+					manifestKeyPrefix: "owner/my-collection",
+				});
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual([
+					"owner/my-collection/pluginA",
+					"owner/my-collection/pluginB",
+				]);
+			});
+		});
+
 		// Phase 3 task 3-5: a stray root agntc.json must never reclassify a
 		// member-dirs collection. Structure decides; the root config is never read
 		// as an installable unit config. A root type:plugin contradicts the
