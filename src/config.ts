@@ -14,13 +14,6 @@ export interface ReadConfigOptions {
 	onWarn?: (message: string) => void;
 }
 
-export class ConfigError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = "ConfigError";
-	}
-}
-
 export async function readConfig(
 	dir: string,
 	options?: ReadConfigOptions,

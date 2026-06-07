@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ConfigError, KNOWN_AGENTS, readConfig } from "../src/config.js";
+import { KNOWN_AGENTS, readConfig } from "../src/config.js";
 
 vi.mock("node:fs/promises");
 
@@ -84,7 +84,7 @@ describe("readConfig", () => {
 		);
 	});
 
-	it("does not throw ConfigError for malformed JSON", async () => {
+	it("does not throw for malformed JSON (returns null)", async () => {
 		vi.mocked(fs.readFile).mockResolvedValue("{bad json}");
 
 		const result = await readConfig("/some/dir");
@@ -177,19 +177,19 @@ describe("readConfig", () => {
 		expect(onWarn).not.toHaveBeenCalled();
 	});
 
-	it("propagates permission denied errors unchanged (not ConfigError)", async () => {
+	it("propagates permission denied errors unchanged (raw error)", async () => {
 		const err = Object.assign(new Error("EACCES: permission denied"), {
 			code: "EACCES",
 		});
 		vi.mocked(fs.readFile).mockRejectedValue(err);
 
-		await expect(readConfig("/some/dir")).rejects.toThrow(
-			"EACCES: permission denied",
-		);
-		// Should NOT be wrapped in ConfigError - propagate as-is
-		await expect(readConfig("/some/dir")).rejects.not.toBeInstanceOf(
-			ConfigError,
-		);
+		// Non-ENOENT IO errors propagate raw — the exact thrown error instance,
+		// not swallowed (null) and not wrapped in another error type.
+		await expect(readConfig("/some/dir")).rejects.toBe(err);
+		await expect(readConfig("/some/dir")).rejects.toMatchObject({
+			message: "EACCES: permission denied",
+			code: "EACCES",
+		});
 	});
 
 	it("reads from correct path", async () => {

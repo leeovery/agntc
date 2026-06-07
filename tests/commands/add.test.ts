@@ -57,12 +57,6 @@ vi.mock("../../src/version-resolve.js", () => ({
 
 vi.mock("../../src/config.js", () => ({
 	readConfig: vi.fn(),
-	ConfigError: class ConfigError extends Error {
-		constructor(message: string) {
-			super(message);
-			this.name = "ConfigError";
-		}
-	},
 }));
 
 vi.mock("../../src/type-detection.js", () => ({
@@ -1091,9 +1085,9 @@ describe("add command", () => {
 		});
 
 		it("invalid agntc.json no longer skips a member — it installs configless", async () => {
-			// Under lenient readConfig an unusable member config returns null (never a
-			// ConfigError), so the member installs via the configless default rather
-			// than being skipped.
+			// Under lenient readConfig an unusable member config returns null (it
+			// never throws for config problems), so the member installs via the
+			// configless default rather than being skipped.
 			setupCollectionBase();
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
@@ -1977,7 +1971,7 @@ describe("add command", () => {
 				expect(outroCall).toMatch(/1 skipped/);
 			});
 
-			it("a child IO error still propagates (not swallowed by ConfigError catch)", async () => {
+			it("a child IO error still propagates (not swallowed by config leniency)", async () => {
 				setupCollectionBase();
 				// A genuine non-ENOENT IO error (EACCES) from a member's readConfig is
 				// NOT a config-leniency case — it must abort the whole pipeline via the
