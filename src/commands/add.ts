@@ -614,6 +614,14 @@ async function runCollectionPipeline(
 	let updatedManifest: Manifest = currentManifest;
 	for (const result of results) {
 		if (result.status !== "installed") continue;
+		const memberType = result.detectedType?.type;
+		// An installed member always resolves to a standalone unit (bare-skill or
+		// plugin); collection/not-agntc are filtered earlier in the per-member loop.
+		if (memberType !== "bare-skill" && memberType !== "plugin") {
+			throw new Error(
+				`Installed collection member "${result.pluginName}" is missing a resolved type`,
+			);
+		}
 		const manifestKey =
 			parsed.type === "direct-path"
 				? parsed.manifestKey
@@ -624,6 +632,7 @@ async function runCollectionPipeline(
 			installedAt: new Date().toISOString(),
 			agents: result.agents,
 			files: result.copiedFiles,
+			type: manifestTypeFromDetected(memberType),
 			cloneUrl: deriveCloneUrlForManifest(parsed),
 			...(constraint != null && { constraint }),
 		};

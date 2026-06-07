@@ -1228,6 +1228,147 @@ describe("add command", () => {
 			expect(outroCall).toMatch(/1.*skipped/i);
 		});
 
+		describe("recorded type (per member)", () => {
+			function entryForKey(key: string): ManifestEntry | undefined {
+				const call = mockAddEntry.mock.calls.find((c) => c[1] === key);
+				return call?.[2] as ManifestEntry | undefined;
+			}
+
+			it("each member records its resolved type (bare-skill -> skill, plugin -> plugin)", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return { agents: ["claude"] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "bare-skill" } as DetectedType;
+					return { type: "plugin", assetDirs: ["skills"] } as DetectedType;
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+				mockCopyPluginAssets.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/planning/"],
+					assetCountsByAgent: { claude: { skills: 1 } },
+				});
+
+				await runAdd("owner/my-collection");
+
+				expect(entryForKey("owner/my-collection/pluginA")?.type).toBe("skill");
+				expect(entryForKey("owner/my-collection/pluginB")?.type).toBe("plugin");
+			});
+
+			it("configless member and config-bearing member both record structural type", async () => {
+				setupCollectionBase();
+				// pluginA: configless (null) bare skill; pluginB: config-bearing plugin.
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					if (dir.endsWith("/pluginA")) return null;
+					return { agents: ["claude"] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "bare-skill" } as DetectedType;
+					return { type: "plugin", assetDirs: ["skills"] } as DetectedType;
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+				mockCopyPluginAssets.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/planning/"],
+					assetCountsByAgent: { claude: { skills: 1 } },
+				});
+
+				await runAdd("owner/my-collection");
+
+				expect(entryForKey("owner/my-collection/pluginA")?.type).toBe("skill");
+				expect(entryForKey("owner/my-collection/pluginB")?.type).toBe("plugin");
+			});
+
+			it("does not write a collection-container entry (owner/my-collection)", async () => {
+				setupCollectionBareSkills();
+				mockCopyBareSkill
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+
+				await runAdd("owner/my-collection");
+
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).not.toContain("owner/my-collection");
+			});
+
+			it("skipped member produces no entry and no type", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return { agents: ["claude"] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					// pluginA skipped (not-agntc); pluginB installs as bare skill.
+					if (dir.endsWith("/pluginA"))
+						return { type: "not-agntc" } as DetectedType;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginB/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).not.toContain("owner/my-collection/pluginA");
+				expect(entryForKey("owner/my-collection/pluginB")?.type).toBe("skill");
+			});
+
+			it("direct-path single member records its resolved type under owner/repo/<unit>", async () => {
+				// Tree URL whose subpath re-detects as a collection; the targeted member
+				// installs via the pipeline's direct-path branch, keyed parsed.manifestKey.
+				const TREE_PARSED: ParsedSource = {
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "pluginA",
+					manifestKey: "owner/my-collection/pluginA",
+					cloneUrl: "https://github.com/owner/my-collection.git",
+				};
+				const unitDir = `${COLLECTION_CLONE_RESULT.tempDir}/pluginA`;
+				mockParseSource.mockReturnValue(TREE_PARSED);
+				mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === unitDir) {
+						return { type: "collection", plugins: ["pluginA"] } as DetectedType;
+					}
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+				expect(entryForKey("owner/my-collection/pluginA")?.type).toBe("skill");
+			});
+		});
+
 		describe("nested-collection member backstop (one level only)", () => {
 			it("skips a member re-detecting collection with pipeline warning and installs siblings", async () => {
 				setupCollectionBase();
