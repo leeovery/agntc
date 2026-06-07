@@ -171,6 +171,31 @@ export function mapCloneFailure<T>(
 	}
 }
 
+/**
+ * Collapses any {@link CloneReinstallFailure} to a single user-facing message,
+ * shared by the two `list` actions (update + change-version) whose failure tails
+ * were otherwise byte-identical. Implemented in terms of {@link mapCloneFailure}
+ * so the dispatch logic isn't re-authored: clone-failed/copy-failed/unknown and
+ * the lenient no-agents skip pass through the failure's own message, `aborted`
+ * routes through {@link buildAbortMessage} and `blocked` through
+ * {@link buildCopySafetyMessage}. A new failure variant is a single edit here;
+ * the list actions can't drift. update.ts keeps its richer per-status handler.
+ */
+export function failureMessage(
+	result: CloneReinstallFailure,
+	key: string,
+): string {
+	return mapCloneFailure<string>(result, {
+		onCloneFailed: (msg) => msg,
+		onNoAgents: (msg) => msg,
+		onCopyFailed: (msg) => msg,
+		onUnknown: (msg) => msg,
+		onAborted: (recordedType, reason) =>
+			buildAbortMessage(key, recordedType, reason),
+		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
+	});
+}
+
 export function buildFailureMessage(
 	result: CloneReinstallFailed | CloneReinstallNoAgents,
 	key: string,

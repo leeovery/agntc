@@ -1,10 +1,8 @@
 import * as p from "@clack/prompts";
 import {
-	buildAbortMessage,
-	buildCopySafetyMessage,
 	cloneAndReinstall,
+	failureMessage,
 	isCloneReinstallFailure,
-	mapCloneFailure,
 	prepareReinstall,
 } from "../clone-reinstall.js";
 import { fetchRemoteTags } from "../git-utils.js";
@@ -102,24 +100,7 @@ export async function executeChangeVersionAction(
 	const result = await cloneAndReinstall(prepared.options);
 
 	if (isCloneReinstallFailure(result)) {
-		return mapCloneFailure<ChangeVersionResult>(result, {
-			onCloneFailed: (msg) => ({ changed: false, message: msg }),
-			onNoAgents: (msg) => ({ changed: false, message: msg }),
-			onCopyFailed: (msg) => ({ changed: false, message: msg }),
-			onUnknown: (msg) => ({ changed: false, message: msg }),
-			// Derive-before-delete abort: full recorded-vs-current message +
-			// remove+add remedy via the canonical builder. Install intact.
-			onAborted: (recordedType, reason) => ({
-				changed: false,
-				message: buildAbortMessage(key, recordedType, reason),
-			}),
-			// Symlink-escape copy-safety block: describes the escaping symlink,
-			// no remove+add remedy. Install intact.
-			onBlocked: (reason) => ({
-				changed: false,
-				message: buildCopySafetyMessage(key, reason),
-			}),
-		});
+		return { changed: false, message: failureMessage(result, key) };
 	}
 
 	const finalEntry = stripConstraint(result.manifestEntry);

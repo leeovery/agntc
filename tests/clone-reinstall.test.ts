@@ -77,6 +77,7 @@ import {
 	buildCopySafetyMessage,
 	buildFailureMessage,
 	cloneAndReinstall,
+	failureMessage,
 	formatAgentsDroppedWarning,
 	isCloneReinstallFailure,
 	mapCloneFailure,
@@ -1250,6 +1251,64 @@ describe("buildFailureMessage", () => {
 				"Plugin owner/repo no longer supports any of your installed agents",
 			);
 		});
+	});
+});
+
+describe("failureMessage", () => {
+	it("returns the failure's own message for clone-failed", () => {
+		const msg = failureMessage(
+			{
+				status: "failed",
+				failureReason: "clone-failed",
+				message: "network error",
+			},
+			"owner/repo",
+		);
+		expect(msg).toBe("network error");
+	});
+
+	it("returns the failure's own message for copy-failed", () => {
+		const msg = failureMessage(
+			{
+				status: "failed",
+				failureReason: "copy-failed",
+				message: "disk full hint",
+			},
+			"owner/repo",
+		);
+		expect(msg).toBe("disk full hint");
+	});
+
+	it("returns the failure's own message for unknown", () => {
+		const msg = failureMessage(
+			{ status: "failed", failureReason: "unknown", message: "something" },
+			"owner/repo",
+		);
+		expect(msg).toBe("something");
+	});
+
+	it("returns the failure's own message for no-agents", () => {
+		const msg = failureMessage(
+			{ status: "no-agents", message: "no agents here" },
+			"owner/repo",
+		);
+		expect(msg).toBe("no agents here");
+	});
+
+	it("returns buildAbortMessage output for aborted", () => {
+		const reason = "SKILL.md is no longer present in the source";
+		const msg = failureMessage(
+			{ status: "aborted", recordedType: "skill", reason },
+			"owner/repo",
+		);
+		expect(msg).toBe(buildAbortMessage("owner/repo", "skill", reason));
+	});
+
+	it("returns buildCopySafetyMessage output for blocked", () => {
+		const reason =
+			'symlink "evil-link" points outside the clone (target: /etc/passwd)';
+		const msg = failureMessage({ status: "blocked", reason }, "owner/repo");
+		expect(msg).toBe(buildCopySafetyMessage("owner/repo", reason));
 	});
 });
 

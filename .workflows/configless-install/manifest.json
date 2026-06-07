@@ -107,7 +107,7 @@
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
           "analysis_gate_mode": "auto",
-          "fix_attempts": 0,
+          "fix_attempts": 1,
           "analysis_cycle_total": 3,
           "analysis_cycle_session": 3,
           "linters": [
@@ -166,7 +166,8 @@
             "configless-install-analysis-2-5",
             "configless-install-analysis-2-6",
             "configless-install-analysis-2-7",
-            "configless-install-analysis-3-1"
+            "configless-install-analysis-3-1",
+            "configless-install-analysis-3-2"
           ],
           "completed_phases": [
             1,
@@ -175,7 +176,8 @@
             4,
             5,
             6,
-            7
+            7,
+            8
           ]
         }
       }

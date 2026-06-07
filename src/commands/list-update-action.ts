@@ -1,9 +1,7 @@
 import {
-	buildAbortMessage,
-	buildCopySafetyMessage,
 	cloneAndReinstall,
+	failureMessage,
 	isCloneReinstallFailure,
-	mapCloneFailure,
 	prepareReinstall,
 } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
@@ -51,24 +49,7 @@ async function runUpdate(
 		const result = await cloneAndReinstall(prepared.options);
 
 		if (isCloneReinstallFailure(result)) {
-			return mapCloneFailure<UpdateActionResult>(result, {
-				onCloneFailed: (msg) => ({ success: false, message: msg }),
-				onNoAgents: (msg) => ({ success: false, message: msg }),
-				onCopyFailed: (msg) => ({ success: false, message: msg }),
-				onUnknown: (msg) => ({ success: false, message: msg }),
-				// Derive-before-delete abort: full recorded-vs-current message +
-				// remove+add remedy via the canonical builder. Install intact.
-				onAborted: (recordedType, reason) => ({
-					success: false,
-					message: buildAbortMessage(key, recordedType, reason),
-				}),
-				// Symlink-escape copy-safety block: describes the escaping symlink,
-				// no remove+add remedy. Install intact.
-				onBlocked: (reason) => ({
-					success: false,
-					message: buildCopySafetyMessage(key, reason),
-				}),
-			});
+			return { success: false, message: failureMessage(result, key) };
 		}
 
 		const updated = addEntry(manifest, key, result.manifestEntry);
