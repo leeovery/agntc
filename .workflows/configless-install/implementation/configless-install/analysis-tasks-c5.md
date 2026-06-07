@@ -8,7 +8,7 @@ total_proposed: 1
 standards + architecture returned clean. One grouped LOW consolidation task from the 2 duplication findings (both behaviour-preserving residues in add.ts/runCollectionPipeline sharing the same drift risk).
 
 ## Task 1: Consolidate add.ts manifest-entry literal and collection member-key ternary
-status: pending
+status: approved
 severity: low
 sources: duplication
 

@@ -203,3 +203,13 @@ approved_at: 2026-06-06
 |-------------|------|------------|
 | configless-install-analysis-4-1 | Remove dead buildFailureMessage paralleling the centralised failureMessage | dead function deleted, no production caller, no-agents sentence single source of truth across clone-reinstall.ts:434 + update.ts:216 + failureMessage, buildFailureMessage tests removed/migrated, no behaviour change |
 | configless-install-analysis-4-2 | Consolidate the symlink-escape scan-and-narrow block across the three install/replay sites | single copy-safety helper returns discriminated ok result, three call sites drop instanceof narrowing, standalone cancel+ExitSignal(1) / member failed-result+continue / pipeline blocked-status preserved, non-SymlinkEscapeError errors still propagate, scan boundaries unchanged |
+
+### Phase 10: Analysis (Cycle 5)
+
+**Goal**: Address findings from Analysis (Cycle 5).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-5-1 | Consolidate add.ts manifest-entry literal and collection member-key ternary | buildManifestEntry literal authored at one site, both former call sites invoke the helper, member-key ternary authored once and reused by 5a + step-6, manifest entries and keys byte-for-byte identical for standalone and collection paths, helpers stay local to add.ts, npm test passes unchanged |
