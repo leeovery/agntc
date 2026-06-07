@@ -1,4 +1,16 @@
-import { isAbsolute, relative, resolve } from "node:path";
+import { readdir, readlink } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+
+/**
+ * Pure lexical containment predicate: does `candidate` resolve at or below
+ * `root`? Boundary-correct (relative()-based, never startsWith) so sibling
+ * directories sharing a prefix (`/clone` vs `/clone-evil`) are NOT contained.
+ * No filesystem access.
+ */
+function isContained(root: string, candidate: string): boolean {
+	const rel = relative(resolve(root), candidate);
+	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
 
 export class PathTraversalError extends Error {
 	constructor(subpath: string) {
@@ -26,12 +38,84 @@ export function assertSubpathWithinClone(
 		return;
 	}
 
-	const root = resolve(cloneRoot);
-	const resolved = resolve(cloneRoot, subpath);
-	const rel = relative(root, resolved);
-	const contained = rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-
-	if (!contained) {
+	if (!isContained(cloneRoot, resolve(cloneRoot, subpath))) {
 		throw new PathTraversalError(subpath);
+	}
+}
+
+export class SymlinkEscapeError extends Error {
+	constructor(relPath: string, target: string) {
+		super(`symlink "${relPath}" points outside the clone (target: ${target})`);
+		this.name = "SymlinkEscapeError";
+	}
+}
+
+/**
+ * Recursive pre-flight scan that rejects any symlink in `unitDir` whose target
+ * resolves outside `cloneRoot` (the boundary). Read-only: no filesystem writes.
+ *
+ * `unitDir` is the tree to copy (bare-skill dir, plugin/unit dir, or member
+ * subdir); `cloneRoot` is the containment boundary. A symlink may legitimately
+ * point anywhere inside the clone (e.g. a sibling unit dir in a multi-dir
+ * plugin), so the boundary is the clone root, NOT the unit dir.
+ *
+ * Symlinks are detected (dirent.isSymbolicLink) but never followed: symlinked
+ * directories are validated and NOT descended into, so symlink-to-dir cycles
+ * (a link to an ancestor) cannot be traversed and the walk visits only the
+ * finite real directory tree. Recursion descends into REAL subdirectories at
+ * any depth.
+ *
+ * Target containment is evaluated LEXICALLY via path.resolve (no realpath/stat
+ * on the target): this both implements the spec's broken-link semantics
+ * (a dangling link is judged by where it points lexically) and avoids
+ * following symlink chains. Throws {@link SymlinkEscapeError} on the FIRST
+ * escaping symlink (fail fast). Pure: throw only, no logging or process.exit.
+ */
+export async function scanForEscapingSymlinks(
+	unitDir: string,
+	cloneRoot: string,
+): Promise<void> {
+	const root = resolve(cloneRoot);
+	const unitRoot = resolve(unitDir);
+	await scanDir(unitRoot, root, unitRoot);
+}
+
+async function scanDir(
+	dir: string,
+	cloneRoot: string,
+	unitRoot: string,
+): Promise<void> {
+	const entries = await readdir(dir, { withFileTypes: true });
+
+	for (const entry of entries) {
+		const entryPath = join(dir, entry.name);
+
+		if (entry.isSymbolicLink()) {
+			await assertSymlinkContained(entryPath, cloneRoot, unitRoot);
+			// Validated but NOT descended into — prevents infinite loops on
+			// symlink-to-dir cycles (link to an ancestor).
+			continue;
+		}
+
+		if (entry.isDirectory()) {
+			await scanDir(entryPath, cloneRoot, unitRoot);
+		}
+	}
+}
+
+async function assertSymlinkContained(
+	linkPath: string,
+	cloneRoot: string,
+	unitRoot: string,
+): Promise<void> {
+	const target = await readlink(linkPath);
+	// Resolve relative + absolute targets against the link's directory
+	// (absolute targets ignore the base). lexical against clone root — no
+	// realpath/stat, so broken links are judged by the same predicate.
+	const resolvedTarget = resolve(dirname(linkPath), target);
+
+	if (!isContained(cloneRoot, resolvedTarget)) {
+		const relPath = relative(unitRoot, linkPath);
+		throw new SymlinkEscapeError(relPath, target);
 	}
 }

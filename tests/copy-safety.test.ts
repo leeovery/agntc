@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertSubpathWithinClone,
 	PathTraversalError,
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
 
 // Interpretation note (per task 5-1 / spec Copy-Safety Hardening):
@@ -115,5 +120,137 @@ describe("assertSubpathWithinClone", () => {
 				expect((err as PathTraversalError).name).toBe("PathTraversalError");
 			}
 		});
+	});
+});
+
+describe("scanForEscapingSymlinks", () => {
+	// Real temp-dir fixtures: clone root with a unit subtree containing real
+	// files/dirs plus symlinks. The boundary is the CLONE ROOT, not the unit dir.
+	let cloneRoot: string;
+	let unitDir: string;
+
+	beforeEach(async () => {
+		cloneRoot = await mkdtemp(join(tmpdir(), "agntc-symlink-test-"));
+		unitDir = join(cloneRoot, "unit");
+		await mkdir(unitDir, { recursive: true });
+	});
+
+	afterEach(async () => {
+		await rm(cloneRoot, { recursive: true, force: true });
+	});
+
+	it("clean no-op on a tree with no symlinks (no false positives)", async () => {
+		await writeFile(join(unitDir, "a.txt"), "a");
+		await mkdir(join(unitDir, "sub"), { recursive: true });
+		await writeFile(join(unitDir, "sub", "b.txt"), "b");
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).resolves.toBeUndefined();
+	});
+
+	it("rejects an absolute-target symlink (-> /etc/passwd)", async () => {
+		await symlink("/etc/passwd", join(unitDir, "leak"));
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).rejects.toBeInstanceOf(SymlinkEscapeError);
+	});
+
+	it("rejects a ..-escape symlink resolving above the clone root", async () => {
+		await symlink("../../../../etc/passwd", join(unitDir, "leak"));
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).rejects.toBeInstanceOf(SymlinkEscapeError);
+	});
+
+	it("allows a symlink resolving inside the clone", async () => {
+		await writeFile(join(cloneRoot, "shared.txt"), "shared");
+		await symlink("../shared.txt", join(unitDir, "link"));
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).resolves.toBeUndefined();
+	});
+
+	it("allows a symlink to a sibling dir inside the clone (multi-dir plugin)", async () => {
+		const siblingDir = join(cloneRoot, "other-unit");
+		await mkdir(siblingDir, { recursive: true });
+		await writeFile(join(siblingDir, "c.txt"), "c");
+		await symlink("../other-unit", join(unitDir, "sibling-link"));
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).resolves.toBeUndefined();
+	});
+
+	it("allows a broken symlink that is lexically inside the clone (copied verbatim)", async () => {
+		await symlink("./does-not-exist.txt", join(unitDir, "dangling"));
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).resolves.toBeUndefined();
+	});
+
+	it("rejects a broken symlink that is lexically escaping the clone root", async () => {
+		await symlink(
+			"../../../nonexistent-outside.txt",
+			join(unitDir, "dangling"),
+		);
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).rejects.toBeInstanceOf(SymlinkEscapeError);
+	});
+
+	it("finds a deeply-nested escaping symlink (recursion at any depth)", async () => {
+		const deep = join(unitDir, "a", "b", "c", "d");
+		await mkdir(deep, { recursive: true });
+		await symlink("/etc/passwd", join(deep, "leak"));
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).rejects.toBeInstanceOf(SymlinkEscapeError);
+	});
+
+	it("does not infinite-loop on a symlink-to-directory cycle (link to ancestor)", async () => {
+		// symlink inside unitDir pointing back at unitDir (its own ancestor).
+		// Target is inside the clone, so it must be ALLOWED and the scan must
+		// terminate without descending into the symlinked dir.
+		await symlink(unitDir, join(unitDir, "cycle"));
+
+		await expect(
+			scanForEscapingSymlinks(unitDir, cloneRoot),
+		).resolves.toBeUndefined();
+	});
+
+	it("validates symlinked dirs without descending into them", async () => {
+		// A real escaping symlink-to-dir must be flagged on the link itself,
+		// not by walking through it.
+		const outside = await mkdtemp(join(tmpdir(), "agntc-outside-"));
+		try {
+			await symlink(outside, join(unitDir, "escape-dir"));
+			await expect(
+				scanForEscapingSymlinks(unitDir, cloneRoot),
+			).rejects.toBeInstanceOf(SymlinkEscapeError);
+		} finally {
+			await rm(outside, { recursive: true, force: true });
+		}
+	});
+
+	it("names the offending relative path and target in the error", async () => {
+		await symlink("/etc/passwd", join(unitDir, "leak"));
+
+		try {
+			await scanForEscapingSymlinks(unitDir, cloneRoot);
+			expect.unreachable("expected throw");
+		} catch (err) {
+			expect(err).toBeInstanceOf(SymlinkEscapeError);
+			expect((err as SymlinkEscapeError).name).toBe("SymlinkEscapeError");
+			const message = (err as SymlinkEscapeError).message;
+			expect(message).toContain("leak");
+			expect(message).toContain("/etc/passwd");
+		}
 	});
 });
