@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { access, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AssetType } from "./drivers/types.js";
 import { pathExists } from "./fs-utils.js";
@@ -107,15 +107,6 @@ export async function detectType(
 	}
 }
 
-async function exists(path: string): Promise<boolean> {
-	try {
-		await access(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
 /**
  * Scans {@link ASSET_DIRS} directly under `root` and returns those present, in
  * ASSET_DIRS iteration order. The single source of the "which asset-kind dirs
@@ -123,11 +114,8 @@ async function exists(path: string): Promise<boolean> {
  * membership, and recorded-plugin replay — keeping the scan loop (and its
  * ordering) authored once.
  *
- * Uses {@link pathExists} (fs-utils) — the same existence primitive the replay
- * call site already used — so centralising the scan preserves replay behaviour
- * exactly. The local {@link exists} (still used for the SKILL.md checks) and
- * pathExists are byte-identical today; unifying the two primitives is task 1-5,
- * deliberately not pre-empted here.
+ * Uses {@link pathExists} (fs-utils), the codebase's single fs-existence
+ * primitive, also used for the SKILL.md checks below.
  */
 export async function findPresentAssetDirs(root: string): Promise<AssetType[]> {
 	const present: AssetType[] = [];
@@ -145,7 +133,7 @@ async function classifyStructure(
 ): Promise<StructuralKind> {
 	const foundAssetDirs = await findPresentAssetDirs(dir);
 
-	const hasSkillMd = await exists(join(dir, "SKILL.md"));
+	const hasSkillMd = await pathExists(join(dir, "SKILL.md"));
 	const skillsOnly =
 		foundAssetDirs.length === 1 && foundAssetDirs[0] === "skills";
 
@@ -211,7 +199,7 @@ async function scanCollectionMembers(dir: string): Promise<StructuralKind> {
  * unsupported).
  */
 async function qualifiesAsMember(childDir: string): Promise<boolean> {
-	if (await exists(join(childDir, "SKILL.md"))) {
+	if (await pathExists(join(childDir, "SKILL.md"))) {
 		return true;
 	}
 	return (await findPresentAssetDirs(childDir)).length > 0;

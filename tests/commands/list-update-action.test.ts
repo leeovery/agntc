@@ -21,7 +21,8 @@ vi.mock("@clack/prompts", () => ({
 	cancel: vi.fn(),
 }));
 
-vi.mock("../../src/manifest.js", () => ({
+vi.mock("../../src/manifest.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/manifest.js")>()),
 	writeManifest: vi.fn(),
 	addEntry: vi.fn(),
 	removeEntry: vi.fn(),

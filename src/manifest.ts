@@ -22,6 +22,31 @@ export interface ManifestEntry {
 export type Manifest = Record<string, ManifestEntry>;
 
 /**
+ * Fields a call site supplies to {@link buildManifestEntry}: everything in
+ * {@link ManifestEntry} except the `installedAt` stamp, which the factory owns.
+ * `constraint` stays optional so the factory can omit it from the literal when
+ * absent (preserving the byte-identical entry shape).
+ */
+export type ManifestEntryInput = Omit<ManifestEntry, "installedAt">;
+
+/**
+ * Single constructor for {@link ManifestEntry}, owning the `installedAt`
+ * `new Date().toISOString()` stamp and the conditional `constraint` spread so a
+ * shape change is made once. `constraint` is included only when defined; an
+ * absent or `undefined` value is omitted from the literal (matching every call
+ * site's prior `constraint != null` behaviour, given constraints are always
+ * `string | undefined`).
+ */
+export function buildManifestEntry(fields: ManifestEntryInput): ManifestEntry {
+	const { constraint, ...rest } = fields;
+	return {
+		...rest,
+		installedAt: new Date().toISOString(),
+		...(constraint !== undefined && { constraint }),
+	};
+}
+
+/**
  * Maps the resolved {@link DetectedType} of a standalone-installable unit to the
  * value persisted in {@link ManifestEntry.type}. Only the two standalone
  * variants reach the manifest write point (collection/not-agntc are routed or

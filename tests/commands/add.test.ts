@@ -93,14 +93,14 @@ vi.mock("../../src/copy-plugin-assets.js", () => ({
 	copyPluginAssets: vi.fn(),
 }));
 
-vi.mock("../../src/manifest.js", () => ({
+vi.mock("../../src/manifest.js", async (importOriginal) => ({
+	// Keep real pure helpers (manifestTypeFromDetected, buildManifestEntry) so the
+	// write point records the correct resolved type and a byte-identical entry
+	// shape; override only the impure persistence/query functions.
+	...(await importOriginal<typeof import("../../src/manifest.js")>()),
 	readManifest: vi.fn(),
 	writeManifest: vi.fn(),
 	addEntry: vi.fn(),
-	// Pure mapping helper — keep the real behaviour so the write point records
-	// the correct resolved type.
-	manifestTypeFromDetected: (t: "bare-skill" | "plugin") =>
-		t === "bare-skill" ? "skill" : "plugin",
 }));
 
 vi.mock("../../src/nuke-files.js", () => ({

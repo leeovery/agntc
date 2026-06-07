@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../src/exit-signal.js";
 import {
 	addEntry,
+	buildManifestEntry,
 	type Manifest,
 	type ManifestEntry,
 	manifestTypeFromDetected,
@@ -1044,5 +1045,126 @@ describe("readManifestOrExit", () => {
 		const result = await readManifestOrExit(join(testDir, "nonexistent"));
 
 		expect(result).toEqual({});
+	});
+});
+
+describe("buildManifestEntry", () => {
+	const FIXED = "2026-01-01T00:00:00.000Z";
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(FIXED));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("stamps installedAt from the clock at call time", () => {
+		const entry = buildManifestEntry({
+			ref: "v1.0.0",
+			commit: "abc123",
+			agents: ["claude"],
+			files: ["a.md"],
+			type: "skill",
+			cloneUrl: "https://example.com/repo.git",
+		});
+
+		expect(entry.installedAt).toBe(FIXED);
+	});
+
+	it("installedAt is a valid ISO string", () => {
+		const entry = buildManifestEntry({
+			ref: null,
+			commit: null,
+			agents: ["claude"],
+			files: [],
+			type: "plugin",
+			cloneUrl: null,
+		});
+
+		expect(new Date(entry.installedAt).toISOString()).toBe(entry.installedAt);
+	});
+
+	it("includes constraint when provided", () => {
+		const entry = buildManifestEntry({
+			ref: "v2.0.0",
+			commit: "sha",
+			agents: ["claude", "codex"],
+			files: ["x"],
+			type: "plugin",
+			cloneUrl: "https://example.com/repo.git",
+			constraint: "^2.0.0",
+		});
+
+		expect(entry).toEqual({
+			ref: "v2.0.0",
+			commit: "sha",
+			installedAt: FIXED,
+			agents: ["claude", "codex"],
+			files: ["x"],
+			type: "plugin",
+			cloneUrl: "https://example.com/repo.git",
+			constraint: "^2.0.0",
+		});
+		expect("constraint" in entry).toBe(true);
+	});
+
+	it("omits constraint when undefined", () => {
+		const entry = buildManifestEntry({
+			ref: "v2.0.0",
+			commit: "sha",
+			agents: ["claude"],
+			files: ["x"],
+			type: "plugin",
+			cloneUrl: null,
+			constraint: undefined,
+		});
+
+		expect("constraint" in entry).toBe(false);
+		expect(entry).toEqual({
+			ref: "v2.0.0",
+			commit: "sha",
+			installedAt: FIXED,
+			agents: ["claude"],
+			files: ["x"],
+			type: "plugin",
+			cloneUrl: null,
+		});
+	});
+
+	it("omits constraint when the field is not passed at all", () => {
+		const entry = buildManifestEntry({
+			ref: null,
+			commit: null,
+			agents: ["claude"],
+			files: [],
+			type: "skill",
+			cloneUrl: null,
+		});
+
+		expect("constraint" in entry).toBe(false);
+	});
+
+	it("supports local (commit null) entries with a sha distinct from null", () => {
+		const local = buildManifestEntry({
+			ref: null,
+			commit: null,
+			agents: ["claude"],
+			files: ["s"],
+			type: "skill",
+			cloneUrl: null,
+		});
+		const remote = buildManifestEntry({
+			ref: "v1.0.0",
+			commit: "deadbeef",
+			agents: ["claude"],
+			files: ["s"],
+			type: "skill",
+			cloneUrl: "https://example.com/repo.git",
+		});
+
+		expect(local.commit).toBeNull();
+		expect(remote.commit).toBe("deadbeef");
 	});
 });

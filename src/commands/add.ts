@@ -27,6 +27,7 @@ import { fetchRemoteTags } from "../git-utils.js";
 import type { Manifest } from "../manifest.js";
 import {
 	addEntry,
+	buildManifestEntry,
 	manifestTypeFromDetected,
 	readManifest,
 	writeManifest,
@@ -369,16 +370,15 @@ export async function runAdd(
 		}
 
 		// 13. Write manifest
-		const entry = {
+		const entry = buildManifestEntry({
 			ref: parsed.ref,
 			commit,
-			installedAt: new Date().toISOString(),
 			agents: selectedAgents,
 			files: copiedFiles,
 			type: manifestTypeFromDetected(detected.type),
 			cloneUrl: deriveCloneUrlForManifest(parsed),
-			...(resolvedConstraint != null && { constraint: resolvedConstraint }),
-		};
+			constraint: resolvedConstraint,
+		});
 		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
 		await writeManifest(projectDir, updated);
 
@@ -711,16 +711,15 @@ async function runCollectionPipeline(
 			parsed.type === "direct-path"
 				? parsed.manifestKey
 				: `${parsed.manifestKey}/${result.pluginName}`;
-		const entry = {
+		const entry = buildManifestEntry({
 			ref: parsed.ref,
 			commit,
-			installedAt: new Date().toISOString(),
 			agents: result.agents,
 			files: result.copiedFiles,
 			type: manifestTypeFromDetected(memberType),
 			cloneUrl: deriveCloneUrlForManifest(parsed),
-			...(constraint != null && { constraint }),
-		};
+			constraint,
+		});
 		updatedManifest = addEntry(updatedManifest, manifestKey, entry);
 	}
 	await writeManifest(projectDir, updatedManifest);

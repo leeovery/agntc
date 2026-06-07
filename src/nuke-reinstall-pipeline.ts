@@ -8,7 +8,7 @@ import { getDriver } from "./drivers/registry.js";
 import type { AgentId, AgentWithDriver } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { pathExists } from "./fs-utils.js";
-import type { ManifestEntry } from "./manifest.js";
+import { buildManifestEntry, type ManifestEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import { findPresentAssetDirs } from "./type-detection.js";
 
@@ -262,18 +262,15 @@ function buildSuccess(
 	const { options, effectiveAgents, droppedAgents, ref, commit } = ctx;
 	const { existingEntry } = options;
 
-	const entry: ManifestEntry = {
+	const entry = buildManifestEntry({
 		ref: ref ?? null,
 		commit: commit ?? null,
-		installedAt: new Date().toISOString(),
 		agents: effectiveAgents,
 		files: copiedFiles,
 		type,
 		cloneUrl: existingEntry.cloneUrl ?? null,
-		...(existingEntry.constraint !== undefined && {
-			constraint: existingEntry.constraint,
-		}),
-	};
+		constraint: existingEntry.constraint,
+	});
 
 	return {
 		status: "success",
