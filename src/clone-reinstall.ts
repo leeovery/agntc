@@ -85,7 +85,20 @@ interface CloneReinstallSuccess {
 
 export interface CloneReinstallFailed {
 	status: "failed";
-	failureReason: "clone-failed" | "no-agents" | "copy-failed" | "unknown";
+	failureReason: "clone-failed" | "copy-failed" | "unknown";
+	message: string;
+}
+
+/**
+ * The lenient no-agents skip: the re-cloned tree's config narrows the entry's
+ * agents to zero. Per the spec's lenient agent posture this is a *skip, not a
+ * failure* — the existing install is left intact, nothing is nuked, and the
+ * command must NOT exit non-zero on its account. It carries its own
+ * non-`failed` status so the type mirrors that intent; {@link mapCloneFailure}
+ * still routes it through `onNoAgents`, preserving the exact downstream outcome.
+ */
+export interface CloneReinstallNoAgents {
+	status: "no-agents";
 	message: string;
 }
 
@@ -97,31 +110,42 @@ export interface CloneFailureHandlers<T> {
 	onUnknown: (msg: string) => T;
 }
 
+/**
+ * Routes a non-success clone-reinstall result to the matching handler. `status`
+ * is the single cross-boundary discriminator for the two structurally-distinct
+ * cases — `aborted` (derive-before-delete / symlink escape, install intact) and
+ * `no-agents` (lenient skip) — each dispatched on `status` alone. The remaining
+ * `failed` family (clone-failed / copy-failed / unknown) is refined by
+ * `failureReason`.
+ */
 export function mapCloneFailure<T>(
-	result: CloneReinstallFailed | CloneReinstallAborted,
+	result: CloneReinstallFailed | CloneReinstallNoAgents | CloneReinstallAborted,
 	handlers: CloneFailureHandlers<T>,
 ): T {
+	if (result.status === "aborted") {
+		return handlers.onAborted(result.recordedType, result.reason);
+	}
+	if (result.status === "no-agents") {
+		return handlers.onNoAgents(result.message);
+	}
 	switch (result.failureReason) {
 		case "clone-failed":
 			return handlers.onCloneFailed(result.message);
-		case "no-agents":
-			return handlers.onNoAgents(result.message);
 		case "copy-failed":
 			return handlers.onCopyFailed(result.message);
-		case "aborted":
-			return handlers.onAborted(result.recordedType, result.reason);
 		case "unknown":
 			return handlers.onUnknown(result.message);
 	}
 }
 
 export function buildFailureMessage(
-	result: CloneReinstallFailed,
+	result: CloneReinstallFailed | CloneReinstallNoAgents,
 	key: string,
 ): string {
+	if (result.status === "no-agents") {
+		return `Plugin ${key} no longer supports any of your installed agents`;
+	}
 	switch (result.failureReason) {
-		case "no-agents":
-			return `Plugin ${key} no longer supports any of your installed agents`;
 		case "clone-failed":
 		case "copy-failed":
 		case "unknown":
@@ -134,14 +158,14 @@ export function buildFailureMessage(
  * re-cloned tree no longer supports the entry's recorded type, so no files were
  * removed and the existing install is left intact. Carries the structured cause
  * ({@link recordedType} + {@link reason}); the user-facing message and manual
- * remedy are assembled by the reporting layer. The `failureReason: "aborted"`
- * discriminator lets {@link mapCloneFailure} dispatch it via `onAborted` while
- * the distinct `status: "aborted"` keeps it from being conflated with the
- * `status: "failed"` reasons (notably copy-failed, which removes the entry).
+ * remedy are assembled by the reporting layer. The distinct `status: "aborted"`
+ * is the single discriminator: {@link mapCloneFailure} dispatches it via
+ * `onAborted` on `status` alone, keeping it separate from the `status: "failed"`
+ * reasons (notably copy-failed, which removes the entry) without a redundant
+ * second tag.
  */
 export interface CloneReinstallAborted {
 	status: "aborted";
-	failureReason: "aborted";
 	recordedType: "skill" | "plugin";
 	reason: string;
 }
@@ -149,6 +173,7 @@ export interface CloneReinstallAborted {
 export type CloneReinstallResult =
 	| CloneReinstallSuccess
 	| CloneReinstallFailed
+	| CloneReinstallNoAgents
 	| CloneReinstallAborted;
 
 /**
@@ -311,8 +336,7 @@ async function runPipeline(
 
 	if (pipelineResult.status === "no-agents") {
 		return {
-			status: "failed",
-			failureReason: "no-agents",
+			status: "no-agents",
 			message: `Plugin ${key} no longer supports any of your installed agents`,
 		};
 	}
@@ -328,7 +352,6 @@ async function runPipeline(
 	if (pipelineResult.status === "aborted") {
 		return {
 			status: "aborted",
-			failureReason: "aborted",
 			recordedType: pipelineResult.recordedType,
 			reason: pipelineResult.reason,
 		};

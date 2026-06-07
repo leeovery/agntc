@@ -99,7 +99,11 @@ export async function executeChangeVersionAction(
 
 	const result = await cloneAndReinstall(prepared.options);
 
-	if (result.status === "failed" || result.status === "aborted") {
+	if (
+		result.status === "failed" ||
+		result.status === "aborted" ||
+		result.status === "no-agents"
+	) {
 		return mapCloneFailure<ChangeVersionResult>(result, {
 			onCloneFailed: (msg) => ({ changed: false, message: msg }),
 			onNoAgents: (msg) => ({ changed: false, message: msg }),

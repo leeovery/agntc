@@ -326,7 +326,7 @@ describe("cloneAndReinstall", () => {
 	});
 
 	describe("no-agents status", () => {
-		it("returns failed with no-agents message", async () => {
+		it("returns the dedicated no-agents status (not a failure) with the message", async () => {
 			const entry = makeEntry({ agents: ["codex"] });
 
 			mockCloneSource.mockResolvedValue({
@@ -342,9 +342,8 @@ describe("cloneAndReinstall", () => {
 				projectDir: "/fake/project",
 			});
 
-			expect(result.status).toBe("failed");
-			if (result.status === "failed") {
-				expect(result.failureReason).toBe("no-agents");
+			expect(result.status).toBe("no-agents");
+			if (result.status === "no-agents") {
 				expect(result.message).toContain(
 					"no longer supports any of your installed agents",
 				);
@@ -397,7 +396,7 @@ describe("cloneAndReinstall", () => {
 			}
 		});
 
-		it("carries failureReason 'aborted' alongside recordedType and reason", async () => {
+		it("carries status 'aborted' (the single discriminator) alongside recordedType and reason", async () => {
 			const entry = makeEntry({
 				type: "skill",
 				files: [".claude/skills/my-skill/"],
@@ -418,7 +417,6 @@ describe("cloneAndReinstall", () => {
 
 			expect(result.status).toBe("aborted");
 			if (result.status === "aborted") {
-				expect(result.failureReason).toBe("aborted");
 				expect(result.recordedType).toBe("skill");
 				expect(result.reason).toContain("SKILL.md");
 			}
@@ -895,7 +893,6 @@ describe("cloneAndReinstall", () => {
 
 				expect(result.status).toBe("aborted");
 				if (result.status === "aborted") {
-					expect(result.failureReason).toBe("aborted");
 					expect(result.reason).toContain("evil-link");
 				}
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -1069,9 +1066,9 @@ describe("mapCloneFailure", () => {
 		expect(result).toBe("clone-failed: network error");
 	});
 
-	it("dispatches no-agents to onNoAgents handler", () => {
+	it("dispatches no-agents (via its own status) to onNoAgents handler", () => {
 		const result = mapCloneFailure(
-			{ status: "failed", failureReason: "no-agents", message: "no agents" },
+			{ status: "no-agents", message: "no agents" },
 			makeHandlers(),
 		);
 		expect(result).toBe("no-agents: no agents");
@@ -1093,11 +1090,10 @@ describe("mapCloneFailure", () => {
 		expect(result).toBe("unknown: something");
 	});
 
-	it("dispatches aborted to onAborted handler with recordedType and reason", () => {
+	it("dispatches aborted (via status, no failureReason) to onAborted handler with recordedType and reason", () => {
 		const result = mapCloneFailure(
 			{
 				status: "aborted",
-				failureReason: "aborted",
 				recordedType: "skill",
 				reason: "SKILL.md is no longer present in the source",
 			},
@@ -1117,7 +1113,7 @@ describe("mapCloneFailure", () => {
 			onUnknown: () => 6,
 		};
 		const result = mapCloneFailure(
-			{ status: "failed", failureReason: "no-agents", message: "test" },
+			{ status: "no-agents", message: "test" },
 			handlers,
 		);
 		expect(result).toBe(3);
@@ -1161,7 +1157,7 @@ describe("buildFailureMessage", () => {
 	describe("no-agents", () => {
 		it("returns standard no-agents message", () => {
 			const msg = buildFailureMessage(
-				makeFailed("no-agents", "ignored"),
+				{ status: "no-agents", message: "ignored" },
 				"owner/repo",
 			);
 			expect(msg).toBe(

@@ -48,7 +48,11 @@ async function runUpdate(
 
 		const result = await cloneAndReinstall(prepared.options);
 
-		if (result.status === "failed" || result.status === "aborted") {
+		if (
+			result.status === "failed" ||
+			result.status === "aborted" ||
+			result.status === "no-agents"
+		) {
 			return mapCloneFailure<UpdateActionResult>(result, {
 				onCloneFailed: (msg) => ({ success: false, message: msg }),
 				onNoAgents: (msg) => ({ success: false, message: msg }),

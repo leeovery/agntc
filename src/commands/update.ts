@@ -206,7 +206,11 @@ async function runSinglePluginUpdate(
 
 	const result = await cloneAndReinstall(prepared.options);
 
-	if (result.status === "failed" || result.status === "aborted") {
+	if (
+		result.status === "failed" ||
+		result.status === "aborted" ||
+		result.status === "no-agents"
+	) {
 		return mapCloneFailure(result, {
 			onNoAgents: () => {
 				p.log.warn(
@@ -293,7 +297,11 @@ async function processUpdateForAll(
 
 		const result = await cloneAndReinstall(prepared.options);
 
-		if (result.status === "failed" || result.status === "aborted") {
+		if (
+			result.status === "failed" ||
+			result.status === "aborted" ||
+			result.status === "no-agents"
+		) {
 			return mapCloneFailure<PluginOutcome>(result, {
 				onNoAgents: () => ({
 					// Benign skip (lenient agent posture): the re-cloned tree no longer
