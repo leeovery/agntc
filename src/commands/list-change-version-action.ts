@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import {
 	buildAbortMessage,
 	cloneAndReinstall,
+	isCloneReinstallFailure,
 	mapCloneFailure,
 	prepareReinstall,
 } from "../clone-reinstall.js";
@@ -99,11 +100,7 @@ export async function executeChangeVersionAction(
 
 	const result = await cloneAndReinstall(prepared.options);
 
-	if (
-		result.status === "failed" ||
-		result.status === "aborted" ||
-		result.status === "no-agents"
-	) {
+	if (isCloneReinstallFailure(result)) {
 		return mapCloneFailure<ChangeVersionResult>(result, {
 			onCloneFailed: (msg) => ({ changed: false, message: msg }),
 			onNoAgents: (msg) => ({ changed: false, message: msg }),

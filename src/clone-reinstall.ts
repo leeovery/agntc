@@ -102,6 +102,17 @@ export interface CloneReinstallNoAgents {
 	message: string;
 }
 
+/**
+ * The non-success clone-reinstall outcomes: the union {@link mapCloneFailure}
+ * accepts and {@link isCloneReinstallFailure} narrows to. Defined once here,
+ * beside its mapper, so a new non-success status is a single-site change that
+ * propagates the narrowing to every call site.
+ */
+export type CloneReinstallFailure =
+	| CloneReinstallFailed
+	| CloneReinstallNoAgents
+	| CloneReinstallAborted;
+
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
 	onNoAgents: (msg: string) => T;
@@ -118,8 +129,24 @@ export interface CloneFailureHandlers<T> {
  * `failed` family (clone-failed / copy-failed / unknown) is refined by
  * `failureReason`.
  */
+/**
+ * Narrows a {@link CloneReinstallResult} to the non-success
+ * {@link CloneReinstallFailure} union — the exact set {@link mapCloneFailure}
+ * accepts. Co-locates the failure-status set with its mapper so the four
+ * reinstall entry points share one definition.
+ */
+export function isCloneReinstallFailure(
+	result: CloneReinstallResult,
+): result is CloneReinstallFailure {
+	return (
+		result.status === "failed" ||
+		result.status === "aborted" ||
+		result.status === "no-agents"
+	);
+}
+
 export function mapCloneFailure<T>(
-	result: CloneReinstallFailed | CloneReinstallNoAgents | CloneReinstallAborted,
+	result: CloneReinstallFailure,
 	handlers: CloneFailureHandlers<T>,
 ): T {
 	if (result.status === "aborted") {

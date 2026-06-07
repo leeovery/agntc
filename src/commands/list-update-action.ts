@@ -1,6 +1,7 @@
 import {
 	buildAbortMessage,
 	cloneAndReinstall,
+	isCloneReinstallFailure,
 	mapCloneFailure,
 	prepareReinstall,
 } from "../clone-reinstall.js";
@@ -48,11 +49,7 @@ async function runUpdate(
 
 		const result = await cloneAndReinstall(prepared.options);
 
-		if (
-			result.status === "failed" ||
-			result.status === "aborted" ||
-			result.status === "no-agents"
-		) {
+		if (isCloneReinstallFailure(result)) {
 			return mapCloneFailure<UpdateActionResult>(result, {
 				onCloneFailed: (msg) => ({ success: false, message: msg }),
 				onNoAgents: (msg) => ({ success: false, message: msg }),

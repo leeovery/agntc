@@ -70,11 +70,13 @@ import * as p from "@clack/prompts";
 import type {
 	CloneFailureHandlers,
 	CloneReinstallFailed,
+	CloneReinstallResult,
 } from "../src/clone-reinstall.js";
 import {
 	buildFailureMessage,
 	cloneAndReinstall,
 	formatAgentsDroppedWarning,
+	isCloneReinstallFailure,
 	mapCloneFailure,
 } from "../src/clone-reinstall.js";
 import { readConfig } from "../src/config.js";
@@ -1117,6 +1119,62 @@ describe("mapCloneFailure", () => {
 			handlers,
 		);
 		expect(result).toBe(3);
+	});
+});
+
+describe("isCloneReinstallFailure", () => {
+	it("returns true for a failed result", () => {
+		const result: CloneReinstallResult = {
+			status: "failed",
+			failureReason: "clone-failed",
+			message: "network error",
+		};
+		expect(isCloneReinstallFailure(result)).toBe(true);
+	});
+
+	it("returns true for a no-agents result", () => {
+		const result: CloneReinstallResult = {
+			status: "no-agents",
+			message: "no agents",
+		};
+		expect(isCloneReinstallFailure(result)).toBe(true);
+	});
+
+	it("returns true for an aborted result", () => {
+		const result: CloneReinstallResult = {
+			status: "aborted",
+			recordedType: "skill",
+			reason: "SKILL.md is no longer present in the source",
+		};
+		expect(isCloneReinstallFailure(result)).toBe(true);
+	});
+
+	it("returns false for a success result", () => {
+		const result: CloneReinstallResult = {
+			status: "success",
+			manifestEntry: makeEntry(),
+			copiedFiles: [".claude/skills/my-skill/"],
+			droppedAgents: [],
+		};
+		expect(isCloneReinstallFailure(result)).toBe(false);
+	});
+
+	it("narrows result to the failure union accepted by mapCloneFailure", () => {
+		const result: CloneReinstallResult = {
+			status: "no-agents",
+			message: "no agents",
+		};
+		// Type-level: after the guard, result must satisfy mapCloneFailure's param.
+		if (isCloneReinstallFailure(result)) {
+			const mapped = mapCloneFailure(result, {
+				onCloneFailed: () => "clone",
+				onNoAgents: () => "no-agents",
+				onCopyFailed: () => "copy",
+				onAborted: () => "aborted",
+				onUnknown: () => "unknown",
+			});
+			expect(mapped).toBe("no-agents");
+		}
 	});
 });
 

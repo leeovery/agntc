@@ -3,6 +3,7 @@ import { Command } from "commander";
 import {
 	buildAbortMessage,
 	cloneAndReinstall,
+	isCloneReinstallFailure,
 	mapCloneFailure,
 	prepareReinstall,
 } from "../clone-reinstall.js";
@@ -206,11 +207,7 @@ async function runSinglePluginUpdate(
 
 	const result = await cloneAndReinstall(prepared.options);
 
-	if (
-		result.status === "failed" ||
-		result.status === "aborted" ||
-		result.status === "no-agents"
-	) {
+	if (isCloneReinstallFailure(result)) {
 		return mapCloneFailure(result, {
 			onNoAgents: () => {
 				p.log.warn(
@@ -297,11 +294,7 @@ async function processUpdateForAll(
 
 		const result = await cloneAndReinstall(prepared.options);
 
-		if (
-			result.status === "failed" ||
-			result.status === "aborted" ||
-			result.status === "no-agents"
-		) {
+		if (isCloneReinstallFailure(result)) {
 			return mapCloneFailure<PluginOutcome>(result, {
 				onNoAgents: () => ({
 					// Benign skip (lenient agent posture): the re-cloned tree no longer
