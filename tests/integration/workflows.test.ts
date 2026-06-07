@@ -1,4 +1,12 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,18 +14,24 @@ import { checkFileCollisions } from "../../src/collision-check.js";
 import { computeIncomingFiles } from "../../src/compute-incoming-files.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
+import {
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
+} from "../../src/copy-safety.js";
 import { ClaudeDriver } from "../../src/drivers/claude-driver.js";
 import { CodexDriver } from "../../src/drivers/codex-driver.js";
 import type { AgentWithDriver } from "../../src/drivers/types.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import {
 	addEntry,
+	manifestTypeFromDetected,
 	readManifest,
 	removeEntry,
 	writeManifest,
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { executeNukeAndReinstall } from "../../src/nuke-reinstall-pipeline.js";
+import { detectType } from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 
 // Real drivers -- the integration point
@@ -55,6 +69,19 @@ async function createJson(
 ): Promise<void> {
 	await mkdir(base, { recursive: true });
 	await writeFile(join(base, fileName), JSON.stringify(data, null, 2));
+}
+
+/**
+ * Reads the manifest file straight off disk, bypassing readManifest's
+ * read-time backfill — so a "type" present here was genuinely persisted by a
+ * writeManifest, not derived in memory on read.
+ */
+async function readRawManifest(projectDir: string): Promise<Manifest> {
+	const raw = await readFile(
+		join(projectDir, ".agntc", "manifest.json"),
+		"utf-8",
+	);
+	return JSON.parse(raw) as Manifest;
 }
 
 describe("integration: core workflows", () => {
@@ -416,6 +443,344 @@ describe("integration: core workflows", () => {
 			const finalManifest = await readManifest(projectDir);
 			expect(finalManifest["owner/workflow-plugin"]).toBeUndefined();
 			expect(Object.keys(finalManifest)).toHaveLength(0);
+		});
+	});
+
+	describe("configless install: detection drives manifest type", () => {
+		it("(a) installs a configless bare skill and persists type 'skill'", async () => {
+			// Source dir: root SKILL.md, NO agntc.json.
+			const skillDir = join(sourceDir, "configless-skill");
+			await createFile(skillDir, "SKILL.md");
+			await createFile(skillDir, "references", "guide.md");
+
+			const agents = [claudeAgent()];
+
+			// Real type detection drives the manifest `type` write (no agntc.json).
+			const detected = await detectType(skillDir, {});
+			expect(detected.type).toBe("bare-skill");
+			if (detected.type !== "bare-skill") throw new Error("unexpected");
+
+			// Copy via the bare-skill path (real driver routing).
+			const copyResult = await copyBareSkill({
+				sourceDir: skillDir,
+				projectDir,
+				agents,
+			});
+
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/configless-skill/SKILL.md"),
+				),
+			).toBe(true);
+
+			// Write manifest with the detection-derived type.
+			const entry: ManifestEntry = {
+				ref: null,
+				commit: null,
+				installedAt: new Date().toISOString(),
+				agents: ["claude"],
+				files: copyResult.copiedFiles,
+				type: manifestTypeFromDetected(detected.type),
+				cloneUrl: null,
+			};
+			const manifest = addEntry({}, "owner/configless-skill", entry);
+			await writeManifest(projectDir, manifest);
+
+			// Read the manifest back from disk and assert the persisted type.
+			const saved = await readRawManifest(projectDir);
+			expect(saved["owner/configless-skill"]!.type).toBe("skill");
+			expect(saved["owner/configless-skill"]!.files).toEqual([
+				".claude/skills/configless-skill/",
+			]);
+		});
+
+		it("(b) installs a configless multi-asset plugin and persists type 'plugin'", async () => {
+			// Source dir: skills/ + agents/ asset dirs, NO agntc.json.
+			const pluginDir = join(sourceDir, "configless-plugin");
+			await createFile(pluginDir, "skills", "planning", "SKILL.md");
+			await createFile(pluginDir, "agents", "executor.md");
+
+			const agents = [claudeAgent()];
+
+			// Real type detection classifies multi-asset structure as plugin.
+			const detected = await detectType(pluginDir, {});
+			expect(detected.type).toBe("plugin");
+			if (detected.type !== "plugin") throw new Error("unexpected");
+			expect(detected.assetDirs).toEqual(["skills", "agents"]);
+
+			// Copy via the plugin path (real driver routing).
+			const copyResult = await copyPluginAssets({
+				sourceDir: pluginDir,
+				assetDirs: detected.assetDirs,
+				agents,
+				projectDir,
+			});
+
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/agents/executor.md")),
+			).toBe(true);
+
+			// Write manifest with the detection-derived type.
+			const entry: ManifestEntry = {
+				ref: null,
+				commit: null,
+				installedAt: new Date().toISOString(),
+				agents: ["claude"],
+				files: copyResult.copiedFiles,
+				type: manifestTypeFromDetected(detected.type),
+				cloneUrl: null,
+			};
+			const manifest = addEntry({}, "owner/configless-plugin", entry);
+			await writeManifest(projectDir, manifest);
+
+			// Read the manifest back from disk and assert the persisted type.
+			const saved = await readRawManifest(projectDir);
+			expect(saved["owner/configless-plugin"]!.type).toBe("plugin");
+		});
+	});
+
+	describe("legacy type backfill round-trip", () => {
+		it("(c) derives type on read for a typeless legacy entry and persists it on next write", async () => {
+			// Write a legacy manifest with NO `type` field. The files imply a plugin
+			// (agents/ ownership), so the backfill must derive `plugin`.
+			const legacyManifest = {
+				"owner/legacy-plugin": {
+					ref: "v1.0",
+					commit: "legacyhash",
+					installedAt: new Date().toISOString(),
+					agents: ["claude"],
+					files: [".claude/skills/planning/", ".claude/agents/executor.md"],
+					cloneUrl: null,
+				},
+			};
+			await createJson(
+				join(projectDir, ".agntc"),
+				"manifest.json",
+				legacyManifest,
+			);
+
+			// Sanity: the on-disk file genuinely has no `type` before any read.
+			const before = await readRawManifest(projectDir);
+			expect("type" in before["owner/legacy-plugin"]!).toBe(false);
+
+			// readManifest derives the type in memory.
+			const read = await readManifest(projectDir);
+			expect(read["owner/legacy-plugin"]!.type).toBe("plugin");
+
+			// The next write persists the backfilled in-memory manifest.
+			await writeManifest(projectDir, read);
+
+			// Read the raw file back and assert the derived type is PERSISTED.
+			const after = await readRawManifest(projectDir);
+			expect(after["owner/legacy-plugin"]!.type).toBe("plugin");
+		});
+
+		it("(c2) backfills a single-skill legacy entry to type 'skill' and persists it", async () => {
+			const legacyManifest = {
+				"owner/legacy-skill": {
+					ref: null,
+					commit: null,
+					installedAt: new Date().toISOString(),
+					agents: ["claude"],
+					files: [".claude/skills/go-development/"],
+					cloneUrl: null,
+				},
+			};
+			await createJson(
+				join(projectDir, ".agntc"),
+				"manifest.json",
+				legacyManifest,
+			);
+
+			const read = await readManifest(projectDir);
+			expect(read["owner/legacy-skill"]!.type).toBe("skill");
+
+			await writeManifest(projectDir, read);
+
+			const after = await readRawManifest(projectDir);
+			expect(after["owner/legacy-skill"]!.type).toBe("skill");
+		});
+	});
+
+	describe("derive-before-delete abort leaves install intact", () => {
+		it("(d) aborts update when a recorded plugin's source no longer has any asset dir", async () => {
+			// Install a recorded plugin (skills/ + agents/).
+			const pluginDir = join(sourceDir, "reshaped-plugin");
+			await createFile(pluginDir, "skills", "planning", "SKILL.md");
+			await createFile(pluginDir, "agents", "executor.md");
+
+			const agents = [claudeAgent()];
+			const copyResult = await copyPluginAssets({
+				sourceDir: pluginDir,
+				assetDirs: ["skills", "agents"],
+				agents,
+				projectDir,
+			});
+
+			const entry: ManifestEntry = {
+				ref: "v1.0",
+				commit: "v1hash",
+				installedAt: new Date().toISOString(),
+				agents: ["claude"],
+				files: copyResult.copiedFiles,
+				type: "plugin",
+				cloneUrl: null,
+			};
+			const manifest = addEntry({}, "owner/reshaped-plugin", entry);
+			await writeManifest(projectDir, manifest);
+
+			// Reshape the source so NO asset dir remains (recorded-plugin predicate
+			// fails): a fresh tree with only a root SKILL.md.
+			const reshapedDir = join(sourceDir, "reshaped-plugin-v2");
+			await createFile(reshapedDir, "SKILL.md");
+
+			const result = await executeNukeAndReinstall({
+				key: "owner/reshaped-plugin",
+				sourceDir: reshapedDir,
+				cloneRoot: reshapedDir,
+				existingEntry: entry,
+				projectDir,
+				newCommit: "v2hash",
+				onWarn: () => {},
+			});
+
+			// Aborted, not removed.
+			expect(result.status).toBe("aborted");
+			if (result.status !== "aborted") throw new Error("unexpected");
+			expect(result.recordedType).toBe("plugin");
+
+			// Existing install intact on disk.
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/agents/executor.md")),
+			).toBe(true);
+
+			// Manifest entry unchanged (not removed, original commit/type preserved).
+			const saved = await readManifest(projectDir);
+			const savedEntry = saved["owner/reshaped-plugin"];
+			expect(savedEntry).toBeDefined();
+			expect(savedEntry!.commit).toBe("v1hash");
+			expect(savedEntry!.type).toBe("plugin");
+			expect(savedEntry!.files).toEqual(entry.files);
+		});
+
+		it("(d2) aborts update when a recorded skill's source no longer has a root SKILL.md", async () => {
+			const skillDir = join(sourceDir, "reshaped-skill");
+			await createFile(skillDir, "SKILL.md");
+
+			const agents = [claudeAgent()];
+			const copyResult = await copyBareSkill({
+				sourceDir: skillDir,
+				projectDir,
+				agents,
+			});
+
+			const entry: ManifestEntry = {
+				ref: "v1.0",
+				commit: "v1hash",
+				installedAt: new Date().toISOString(),
+				agents: ["claude"],
+				files: copyResult.copiedFiles,
+				type: "skill",
+				cloneUrl: null,
+			};
+			const manifest = addEntry({}, "owner/reshaped-skill", entry);
+			await writeManifest(projectDir, manifest);
+
+			// Reshape: source now has asset dirs and NO root SKILL.md.
+			const reshapedDir = join(sourceDir, "reshaped-skill-v2");
+			await createFile(reshapedDir, "skills", "planning", "SKILL.md");
+
+			const result = await executeNukeAndReinstall({
+				key: "owner/reshaped-skill",
+				sourceDir: reshapedDir,
+				cloneRoot: reshapedDir,
+				existingEntry: entry,
+				projectDir,
+				newCommit: "v2hash",
+				onWarn: () => {},
+			});
+
+			expect(result.status).toBe("aborted");
+			if (result.status !== "aborted") throw new Error("unexpected");
+			expect(result.recordedType).toBe("skill");
+
+			// Install intact.
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/reshaped-skill/SKILL.md"),
+				),
+			).toBe(true);
+
+			// Manifest entry unchanged.
+			const saved = await readManifest(projectDir);
+			expect(saved["owner/reshaped-skill"]).toBeDefined();
+			expect(saved["owner/reshaped-skill"]!.commit).toBe("v1hash");
+			expect(saved["owner/reshaped-skill"]!.files).toEqual(entry.files);
+		});
+	});
+
+	describe("copy-safety pre-flight gates a real copy", () => {
+		it("(e) aborts before any copy when a source symlink escapes the clone root", async () => {
+			// A secret outside the clone root.
+			const secretDir = join(testDir, "secret");
+			await createFile(secretDir, "credentials.txt");
+
+			// Source dir with a root SKILL.md and a symlink escaping the clone.
+			const skillDir = join(sourceDir, "evil-skill");
+			await createFile(skillDir, "SKILL.md");
+			await symlink(
+				join(secretDir, "credentials.txt"),
+				join(skillDir, "leak.txt"),
+			);
+
+			const agents = [claudeAgent()];
+
+			// Pre-flight scan is the gate: cloneRoot is the source root.
+			let aborted = false;
+			let copied = false;
+			try {
+				await scanForEscapingSymlinks(skillDir, sourceDir);
+				// Only reached if the gate passed — would proceed to copy.
+				await copyBareSkill({ sourceDir: skillDir, projectDir, agents });
+				copied = true;
+			} catch (err) {
+				if (err instanceof SymlinkEscapeError) {
+					aborted = true;
+				} else {
+					throw err;
+				}
+			}
+
+			expect(aborted).toBe(true);
+			expect(copied).toBe(false);
+
+			// Nothing copied to the destination, no manifest written.
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/evil-skill/SKILL.md"),
+				),
+			).toBe(false);
+			expect(await fileExists(join(projectDir, ".agntc/manifest.json"))).toBe(
+				false,
+			);
+		});
+
+		it("(e2) permits a within-clone symlink so the copy proceeds", async () => {
+			// Control case: a symlink that stays inside the clone root passes the
+			// gate, proving the pre-flight gates on escape, not on symlink presence.
+			const skillDir = join(sourceDir, "safe-skill");
+			await createFile(skillDir, "SKILL.md");
+			await createFile(skillDir, "real.txt");
+			await symlink(join(skillDir, "real.txt"), join(skillDir, "alias.txt"));
+
+			// Should not throw.
+			await scanForEscapingSymlinks(skillDir, sourceDir);
 		});
 	});
 });
