@@ -403,22 +403,16 @@ async function runCollectionPipeline(
 	// 3. Read each selected member's config ONLY for its declared agents. The
 	// member set is selectedPlugins (populated structurally upstream via Phase 1
 	// qualifiesAsMember) — config presence is NOT membership. A null config is a
-	// legitimate configless member, stored as null (never a skip reason). The
-	// union of declared agents seeds the single agent prompt; configless members
-	// contribute nothing to the union and fall back to the configless default.
+	// legitimate configless member, stored as null (never a skip reason). Agent
+	// resolution is per-member (step 5a): each member runs the Phase 1 selectAgents
+	// contract against its own declared ceiling, so there is no cross-member union.
 	const pluginConfigs = new Map<string, AgntcConfig | null>();
-	const allDeclaredAgents = new Set<AgentId>();
 
 	for (const pluginName of selectedPlugins) {
 		const pluginDir = join(sourceDir, pluginName);
 		try {
 			const pluginConfig = await readConfig(pluginDir, { onWarn });
 			pluginConfigs.set(pluginName, pluginConfig);
-			if (pluginConfig !== null) {
-				for (const agent of pluginConfig.agents) {
-					allDeclaredAgents.add(agent);
-				}
-			}
 		} catch (err) {
 			if (err instanceof ConfigError) {
 				onWarn(`${pluginName}: ${err.message} — skipping`);
@@ -428,17 +422,9 @@ async function runCollectionPipeline(
 		}
 	}
 
-	// 4. Detect agents + select once
+	// 4. Detect agents once for the whole collection (member-independent signal
+	// used to pre-tick options in every per-member prompt).
 	const detectedAgents = await detectAgents(projectDir);
-	const selectedAgents = await selectAgents({
-		declaredAgents: [...allDeclaredAgents],
-		detectedAgents,
-	});
-
-	if (selectedAgents.length === 0) {
-		p.cancel("Cancelled — no agents selected");
-		throw new ExitSignal(0);
-	}
 
 	// 5. Per-plugin conflict checks + install
 	const results: PluginInstallResult[] = [];
@@ -496,14 +482,18 @@ async function runCollectionPipeline(
 			continue;
 		}
 
-		// Per-plugin agent filtering: a config-bearing member intersects
-		// selectedAgents with its declared agents; a configless member (null
-		// config) has no declaration to filter by, so it takes the configless
-		// default — every selected agent.
-		const pluginAgents =
-			pluginConfig === null
-				? selectedAgents
-				: selectedAgents.filter((id) => new Set(pluginConfig.agents).has(id));
+		// Per-member agent resolution via the Phase 1 selectAgents contract. A
+		// config-bearing member passes its declared ceiling; a configless member
+		// (null config) passes [] -> KNOWN_AGENTS default (all three, detected
+		// pre-ticked, always prompt, no auto-select). Each member resolves
+		// independently — no union, no cross-member coupling.
+		const pluginAgents = await selectAgents({
+			declaredAgents: pluginConfig?.agents ?? [],
+			detectedAgents,
+		});
+		// Zero resolution (declared ceiling matched nothing, or the installer
+		// deselected all in the configless default) is a silent per-member skip:
+		// no copy, no manifest entry, no warning, absent from summary.
 		if (pluginAgents.length === 0) continue;
 		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
 			id,

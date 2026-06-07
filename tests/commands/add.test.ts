@@ -834,7 +834,7 @@ describe("add command", () => {
 			expect(keys).toContain("owner/my-collection/pluginB");
 		});
 
-		it("agent multiselect called once for all plugins", async () => {
+		it("agent multiselect called once per retained member", async () => {
 			setupCollectionBareSkills();
 			mockCopyBareSkill
 				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
@@ -842,10 +842,11 @@ describe("add command", () => {
 
 			await runAdd("owner/my-collection");
 
-			expect(mockSelectAgents).toHaveBeenCalledTimes(1);
+			// Two retained members => one selectAgents call each.
+			expect(mockSelectAgents).toHaveBeenCalledTimes(2);
 		});
 
-		it("agent multiselect uses union of declared agents from all selected plugins", async () => {
+		it("calls selectAgents per member with that member's declared agents and shared detectedAgents", async () => {
 			setupCollectionBase();
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
@@ -868,18 +869,70 @@ describe("add command", () => {
 				if (id === "claude") return claudeDriver as any;
 				return codexDriver as any;
 			});
-			mockSelectAgents.mockResolvedValue(["claude", "codex"]);
+			mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
+				...declaredAgents,
+			]);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/pluginA/"],
 			});
 
 			await runAdd("owner/my-collection");
 
-			expect(mockSelectAgents).toHaveBeenCalledWith(
-				expect.objectContaining({
-					declaredAgents: expect.arrayContaining(["claude", "codex"]),
-				}),
+			// pluginA: declared claude only
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: ["claude"],
+				detectedAgents: ["claude", "codex"],
+			});
+			// pluginB: declared claude + codex
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: ["claude", "codex"],
+				detectedAgents: ["claude", "codex"],
+			});
+		});
+
+		it("configless member sources KNOWN_AGENTS default — selectAgents called with declaredAgents:[]", async () => {
+			setupCollectionBase();
+			// pluginA configless (null), pluginB config-bearing
+			mockReadConfig.mockImplementation(async (dir) => {
+				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+				if (dir.endsWith("/pluginA")) return null;
+				if (dir.endsWith("/pluginB")) return { agents: ["codex"] };
+				return null;
+			});
+			mockDetectType.mockImplementation(async (dir) => {
+				if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+				return { type: "bare-skill" } as DetectedType;
+			});
+			mockDetectAgents.mockResolvedValue(["claude"]);
+			mockGetDriver.mockReturnValue(FAKE_DRIVER);
+			mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
+				declaredAgents.length > 0 ? [...declaredAgents] : ["claude"],
 			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/pluginA/"],
+			});
+			mockComputeIncomingFiles.mockReturnValue([]);
+			mockCheckFileCollisions.mockReturnValue(new Map());
+			mockCheckUnmanagedConflicts.mockResolvedValue([]);
+
+			await runAdd("owner/my-collection");
+
+			// Configless member passes declaredAgents:[] -> KNOWN_AGENTS default path
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: [],
+				detectedAgents: ["claude"],
+			});
+		});
+
+		it("detectAgents called once for the whole collection (member-independent)", async () => {
+			setupCollectionBareSkills();
+			mockCopyBareSkill
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+
+			await runAdd("owner/my-collection");
+
+			expect(mockDetectAgents).toHaveBeenCalledTimes(1);
 		});
 
 		it("invalid agntc.json skips plugin with warning", async () => {
@@ -995,9 +1048,10 @@ describe("add command", () => {
 			);
 		});
 
-		it("empty agent selection cancels cleanly", async () => {
+		it("every member resolving to zero agents installs nothing without cancelling", async () => {
+			// No top-level union prompt anymore: each member resolves independently
+			// and a zero resolution is a silent per-member skip, not a global cancel.
 			setupCollectionBase();
-			// Read configs to get past the config phase
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
 				return { agents: ["claude"] };
@@ -1006,12 +1060,17 @@ describe("add command", () => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
 				return { type: "bare-skill" } as DetectedType;
 			});
+			mockComputeIncomingFiles.mockReturnValue([]);
+			mockCheckFileCollisions.mockReturnValue(new Map());
+			mockCheckUnmanagedConflicts.mockResolvedValue([]);
+			// User deselects everything for every member.
 			mockSelectAgents.mockResolvedValue([]);
 
-			const err = await runAdd("owner/my-collection").catch((e) => e);
-			expect(err).toBeInstanceOf(ExitSignal);
-			expect((err as ExitSignal).code).toBe(0);
-			expect(mockCancel).toHaveBeenCalledWith(expect.stringMatching(/cancel/i));
+			await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+
+			expect(mockCancel).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockAddEntry).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(
 				COLLECTION_CLONE_RESULT.tempDir,
 			);
@@ -1374,7 +1433,10 @@ describe("add command", () => {
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockDetectAgents.mockResolvedValue(["claude", "codex"]);
-				mockSelectAgents.mockResolvedValue(["claude", "codex"]);
+				// Per-member selectAgents returns that member's declared ceiling.
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
+					...declaredAgents,
+				]);
 				const claudeDriver = {
 					detect: vi.fn().mockResolvedValue(true),
 					getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
@@ -1473,7 +1535,9 @@ describe("add command", () => {
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockDetectAgents.mockResolvedValue(["claude", "codex"]);
-				mockSelectAgents.mockResolvedValue(["claude", "codex"]);
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
+					...declaredAgents,
+				]);
 				const claudeDriver = {
 					detect: vi.fn().mockResolvedValue(true),
 					getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
@@ -1497,9 +1561,7 @@ describe("add command", () => {
 
 				const copyCalls = mockCopyBareSkill.mock.calls;
 				for (const call of copyCalls) {
-					const agentIds = call[0].agents.map(
-						(a: { id: AgentId }) => a.id,
-					);
+					const agentIds = call[0].agents.map((a: { id: AgentId }) => a.id);
 					expect(agentIds).toEqual(["claude", "codex"]);
 				}
 			});
@@ -1517,7 +1579,9 @@ describe("add command", () => {
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockDetectAgents.mockResolvedValue(["claude"]);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
+					...declaredAgents,
+				]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/pluginA/"],
@@ -1531,9 +1595,7 @@ describe("add command", () => {
 				const copyCalls = mockCopyBareSkill.mock.calls;
 				expect(copyCalls).toHaveLength(2);
 				for (const call of copyCalls) {
-					const agentIds = call[0].agents.map(
-						(a: { id: AgentId }) => a.id,
-					);
+					const agentIds = call[0].agents.map((a: { id: AgentId }) => a.id);
 					expect(agentIds).toEqual(["claude"]);
 				}
 				// Manifest entries also have only claude
@@ -1564,15 +1626,134 @@ describe("add command", () => {
 				expect(pluginBAgentIds).toEqual(["codex"]);
 			});
 
-			it("selectAgents still called with union of all declared agents across plugins", async () => {
+			it("calls selectAgents per member with that member's declared ceiling (no union)", async () => {
 				setupCollectionWithDifferentAgents();
 
 				await runAdd("owner/my-collection");
 
+				// Each member resolves independently from its own declaration.
+				expect(mockSelectAgents).toHaveBeenCalledTimes(2);
 				expect(mockSelectAgents).toHaveBeenCalledWith({
-					declaredAgents: expect.arrayContaining(["claude", "codex"]),
+					declaredAgents: ["claude"],
 					detectedAgents: ["claude", "codex"],
 				});
+				expect(mockSelectAgents).toHaveBeenCalledWith({
+					declaredAgents: ["codex"],
+					detectedAgents: ["claude", "codex"],
+				});
+				// No call carried the union of both members' declarations.
+				for (const call of mockSelectAgents.mock.calls) {
+					expect(call[0].declaredAgents).not.toEqual(
+						expect.arrayContaining(["claude", "codex"]),
+					);
+				}
+			});
+
+			it("config-bearing single-declared-detected member auto-selects (no prompt) via Phase 1 contract", async () => {
+				setupCollectionBase();
+				// Single-plugin collection: declares claude only, claude detected.
+				const singlePluginCollection: DetectedType = {
+					type: "collection",
+					plugins: ["pluginA"],
+				};
+				mockSelectCollectionPlugins.mockResolvedValue(["pluginA"]);
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					if (dir.endsWith("/pluginA"))
+						return { agents: ["claude"] as AgentId[] };
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return singlePluginCollection;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				// selectAgents auto-selects: returns the single declared agent.
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+
+				await runAdd("owner/my-collection");
+
+				// The member's declared ceiling (single detected agent) is forwarded so
+				// the Phase 1 contract can auto-select.
+				expect(mockSelectAgents).toHaveBeenCalledWith({
+					declaredAgents: ["claude"],
+					detectedAgents: ["claude"],
+				});
+				const addEntryCalls = mockAddEntry.mock.calls;
+				const pluginAEntry = addEntryCalls.find(
+					(c) => (c[1] as string) === "owner/my-collection/pluginA",
+				);
+				expect(pluginAEntry![2].agents).toEqual(["claude"]);
+			});
+
+			it("mixed members resolve independently — one auto-selects, another resolves from configless default", async () => {
+				setupCollectionBase();
+				// pluginA: config-bearing single declared+detected (auto-select claude).
+				// pluginB: configless -> KNOWN_AGENTS default, user picks codex.
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					if (dir.endsWith("/pluginA"))
+						return { agents: ["claude"] as AgentId[] };
+					if (dir.endsWith("/pluginB")) return null;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				const claudeDriver = {
+					detect: vi.fn().mockResolvedValue(true),
+					getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
+				};
+				const codexDriver = {
+					detect: vi.fn().mockResolvedValue(true),
+					getTargetDir: vi.fn().mockReturnValue(".agents/skills"),
+				};
+				mockGetDriver.mockImplementation((id: AgentId) => {
+					if (id === "claude") return claudeDriver as any;
+					return codexDriver as any;
+				});
+				// pluginA (declared claude) auto-selects claude; pluginB (configless,
+				// declaredAgents:[]) -> user picks codex from the KNOWN_AGENTS default.
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
+					declaredAgents.length > 0 ? ["claude"] : ["codex"],
+				);
+				mockCopyBareSkill
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+					.mockResolvedValueOnce({ copiedFiles: [".agents/skills/pluginB/"] });
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+
+				await runAdd("owner/my-collection");
+
+				expect(mockSelectAgents).toHaveBeenCalledWith({
+					declaredAgents: ["claude"],
+					detectedAgents: ["claude"],
+				});
+				expect(mockSelectAgents).toHaveBeenCalledWith({
+					declaredAgents: [],
+					detectedAgents: ["claude"],
+				});
+				const addEntryCalls = mockAddEntry.mock.calls;
+				const pluginAEntry = addEntryCalls.find(
+					(c) => (c[1] as string) === "owner/my-collection/pluginA",
+				);
+				const pluginBEntry = addEntryCalls.find(
+					(c) => (c[1] as string) === "owner/my-collection/pluginB",
+				);
+				expect(pluginAEntry![2].agents).toEqual(["claude"]);
+				expect(pluginBEntry![2].agents).toEqual(["codex"]);
 			});
 		});
 
@@ -1585,10 +1766,8 @@ describe("add command", () => {
 				setupCollectionBase();
 				mockReadConfig.mockImplementation(async (dir) => {
 					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
-					if (dir.endsWith("/pluginA"))
-						return { agents: opts.pluginAAgents };
-					if (dir.endsWith("/pluginB"))
-						return { agents: opts.pluginBAgents };
+					if (dir.endsWith("/pluginA")) return { agents: opts.pluginAAgents };
+					if (dir.endsWith("/pluginB")) return { agents: opts.pluginBAgents };
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
@@ -1597,7 +1776,13 @@ describe("add command", () => {
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockDetectAgents.mockResolvedValue(["claude", "codex"]);
-				mockSelectAgents.mockResolvedValue(opts.selectedAgents);
+				// Per-member resolution: a member resolves to the intersection of its
+				// declared ceiling with what the user actually selects. A member whose
+				// declared agents are all deselected resolves to [] -> silent skip.
+				const selected = new Set(opts.selectedAgents);
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
+					declaredAgents.filter((id) => selected.has(id)),
+				);
 				const claudeDriver = {
 					detect: vi.fn().mockResolvedValue(true),
 					getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
@@ -1714,7 +1899,8 @@ describe("add command", () => {
 				});
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				// pluginA declares codex only but user selects nothing matching -> []
+				mockSelectAgents.mockResolvedValue([]);
 				mockComputeIncomingFiles.mockReturnValue([]);
 				mockCheckFileCollisions.mockReturnValue(new Map());
 				mockCheckUnmanagedConflicts.mockResolvedValue([]);
@@ -1782,7 +1968,8 @@ describe("add command", () => {
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1809,7 +1996,8 @@ describe("add command", () => {
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1822,9 +2010,9 @@ describe("add command", () => {
 				await runAdd("owner/my-collection");
 
 				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-				expect(
-					warnCalls.some((m) => m.includes("no agntc.json found")),
-				).toBe(false);
+				expect(warnCalls.some((m) => m.includes("no agntc.json found"))).toBe(
+					false,
+				);
 			});
 
 			it("all-configless collection does not exit with 'No valid plugins to install'", async () => {
@@ -1834,7 +2022,8 @@ describe("add command", () => {
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1861,7 +2050,8 @@ describe("add command", () => {
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1887,7 +2077,8 @@ describe("add command", () => {
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					if (dir.endsWith("/pluginA"))
 						return { type: "not-agntc" } as DetectedType;
 					return { type: "bare-skill" } as DetectedType;
@@ -1914,7 +2105,8 @@ describe("add command", () => {
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1944,7 +2136,8 @@ describe("add command", () => {
 					return null;
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
