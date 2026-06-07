@@ -37,7 +37,7 @@
     "planning": {
       "items": {
         "configless-install": {
-          "status": "in-progress",
+          "status": "completed",
           "format": "tick",
           "spec_commit": "eefe3cc78c8a29820761d08b9f88974bd29d778e",
           "task_list_gate_mode": "auto",
