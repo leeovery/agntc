@@ -2,6 +2,7 @@ import type { Dirent } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AssetType } from "./drivers/types.js";
+import { pathExists } from "./fs-utils.js";
 
 export const ASSET_DIRS = [
 	"skills",
@@ -115,16 +116,34 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
+/**
+ * Scans {@link ASSET_DIRS} directly under `root` and returns those present, in
+ * ASSET_DIRS iteration order. The single source of the "which asset-kind dirs
+ * exist under this root" query consumed by structure classification, collection
+ * membership, and recorded-plugin replay — keeping the scan loop (and its
+ * ordering) authored once.
+ *
+ * Uses {@link pathExists} (fs-utils) — the same existence primitive the replay
+ * call site already used — so centralising the scan preserves replay behaviour
+ * exactly. The local {@link exists} (still used for the SKILL.md checks) and
+ * pathExists are byte-identical today; unifying the two primitives is task 1-5,
+ * deliberately not pre-empted here.
+ */
+export async function findPresentAssetDirs(root: string): Promise<AssetType[]> {
+	const present: AssetType[] = [];
+	for (const assetDir of ASSET_DIRS) {
+		if (await pathExists(join(root, assetDir))) {
+			present.push(assetDir);
+		}
+	}
+	return present;
+}
+
 async function classifyStructure(
 	dir: string,
 	onWarn?: (message: string) => void,
 ): Promise<StructuralKind> {
-	const foundAssetDirs: AssetType[] = [];
-	for (const assetDir of ASSET_DIRS) {
-		if (await exists(join(dir, assetDir))) {
-			foundAssetDirs.push(assetDir);
-		}
-	}
+	const foundAssetDirs = await findPresentAssetDirs(dir);
 
 	const hasSkillMd = await exists(join(dir, "SKILL.md"));
 	const skillsOnly =
@@ -195,10 +214,5 @@ async function qualifiesAsMember(childDir: string): Promise<boolean> {
 	if (await exists(join(childDir, "SKILL.md"))) {
 		return true;
 	}
-	for (const assetDir of ASSET_DIRS) {
-		if (await exists(join(childDir, assetDir))) {
-			return true;
-		}
-	}
-	return false;
+	return (await findPresentAssetDirs(childDir)).length > 0;
 }

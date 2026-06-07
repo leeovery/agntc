@@ -5,12 +5,12 @@ import { copyBareSkill } from "./copy-bare-skill.js";
 import { copyPluginAssets } from "./copy-plugin-assets.js";
 import { SymlinkEscapeError, scanForEscapingSymlinks } from "./copy-safety.js";
 import { getDriver } from "./drivers/registry.js";
-import type { AgentId, AgentWithDriver, AssetType } from "./drivers/types.js";
+import type { AgentId, AgentWithDriver } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { pathExists } from "./fs-utils.js";
 import type { ManifestEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
-import { ASSET_DIRS } from "./type-detection.js";
+import { findPresentAssetDirs } from "./type-detection.js";
 
 export interface NukeReinstallOptions {
 	key: string;
@@ -201,12 +201,7 @@ async function replayRecordedPlugin(
 	const { options, agents } = ctx;
 	const { sourceDir, projectDir, existingEntry } = options;
 
-	const presentAssetDirs: AssetType[] = [];
-	for (const dir of ASSET_DIRS) {
-		if (await pathExists(join(sourceDir, dir))) {
-			presentAssetDirs.push(dir);
-		}
-	}
+	const presentAssetDirs = await findPresentAssetDirs(sourceDir);
 
 	if (presentAssetDirs.length === 0) {
 		return {

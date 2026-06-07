@@ -60,6 +60,7 @@ vi.mock("../../src/type-detection.js", async (importOriginal) => {
 	return {
 		detectType: vi.fn(),
 		ASSET_DIRS: actual.ASSET_DIRS,
+		findPresentAssetDirs: actual.findPresentAssetDirs,
 	};
 });
 

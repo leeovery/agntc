@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	ASSET_DIRS,
 	detectType,
+	findPresentAssetDirs,
 	TypeConflictError,
 } from "../src/type-detection.js";
 
@@ -24,6 +25,41 @@ async function createFile(...segments: string[]): Promise<void> {
 describe("ASSET_DIRS", () => {
 	it("contains skills, agents, and hooks", () => {
 		expect(ASSET_DIRS).toEqual(["skills", "agents", "hooks"]);
+	});
+});
+
+describe("findPresentAssetDirs", () => {
+	beforeEach(async () => {
+		testDir = await mkdtemp(join(tmpdir(), "agntc-test-"));
+	});
+
+	afterEach(async () => {
+		await rm(testDir, { recursive: true, force: true });
+	});
+
+	it("returns [] when no asset dirs are present", async () => {
+		const result = await findPresentAssetDirs(testDir);
+
+		expect(result).toEqual([]);
+	});
+
+	it("returns the single present asset dir", async () => {
+		await createDir("agents");
+
+		const result = await findPresentAssetDirs(testDir);
+
+		expect(result).toEqual(["agents"]);
+	});
+
+	it("returns multiple present asset dirs in ASSET_DIRS order", async () => {
+		// Create out of order; result must follow ASSET_DIRS order.
+		await createDir("hooks");
+		await createDir("skills");
+		await createDir("agents");
+
+		const result = await findPresentAssetDirs(testDir);
+
+		expect(result).toEqual(["skills", "agents", "hooks"]);
 	});
 });
 
