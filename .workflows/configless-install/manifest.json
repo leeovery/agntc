@@ -142,7 +142,8 @@
             "configless-install-5-2",
             "configless-install-5-3",
             "configless-install-5-4",
-            "configless-install-analysis-1-1"
+            "configless-install-analysis-1-1",
+            "configless-install-analysis-1-2"
           ],
           "completed_phases": [
             1,

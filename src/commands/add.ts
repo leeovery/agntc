@@ -181,13 +181,35 @@ export async function runAdd(
 		// 2b. Resolve the unit directory. For a direct-path (tree URL) source the
 		// subpath is a standalone unit selector: detection, config, and copy all
 		// target join(sourceDir, parsed.targetPlugin), not the repo root (task
-		// 2-3). Every other source has unitDir === sourceDir (no-op). The
-		// within-clone path-traversal/containment guard for targetPlugin is
-		// EXPLICITLY DEFERRED TO PHASE 5.
+		// 2-3). Every other source has unitDir === sourceDir (no-op). The lexical
+		// within-clone containment guard for targetPlugin runs immediately below
+		// at step 2c, before unitDir is first read.
 		const unitDir =
 			parsed.type === "direct-path"
 				? join(sourceDir, parsed.targetPlugin)
 				: sourceDir;
+
+		// 2c. Lexical path-traversal guard on the selector subpath (analysis 1-2).
+		// This is the cheap, pure containment check, gated BEFORE the FIRST use of
+		// the joined unitDir: readConfig (step 3) and detectType (step 4) both
+		// read the filesystem at that joined path, so the guard must precede them
+		// so an attacker-controlled `..`-escaped selector is rejected pre-flight
+		// before any read at the joined path. No-op for a whole-repo install
+		// (subpath undefined). The symlink scan (content validation that must
+		// precede copy) stays at step 9b. A violation surfaces as the same
+		// identity-prefixed cancel + non-zero exit as the 9b handling.
+		try {
+			assertSubpathWithinClone(
+				sourceDir,
+				parsed.type === "direct-path" ? parsed.targetPlugin : undefined,
+			);
+		} catch (err) {
+			if (err instanceof PathTraversalError) {
+				p.cancel(`${parsed.manifestKey}: ${err.message}`);
+				throw new ExitSignal(1);
+			}
+			throw err;
+		}
 
 		// 3. Read config (lenient — never throws; null when absent/empty)
 		const onWarn = (message: string) => p.log.warn(message);
@@ -260,25 +282,19 @@ export async function runAdd(
 			driver: getDriver(id),
 		}));
 
-		// 9b. Copy-safety pre-flight (Phase 5). The clone root is the clone/source
-		// root (tempDir for a remote clone, the resolved local path otherwise) —
-		// NOT the per-unit unitDir, so a within-clone symlink in a multi-dir plugin
-		// is allowed. The traversal guard validates a tree-path selector subpath
-		// and is a no-op for a whole-repo install. Both run BEFORE any nuke/copy/
-		// manifest write, so a violation leaves no on-disk window. A violation maps
-		// to an identity-prefixed cancel + non-zero exit (mirrors the
-		// TypeConflictError pre-flight above).
+		// 9b. Copy-safety pre-flight (Phase 5). The symlink scan is content
+		// validation that must precede the copy: it rejects any symlink whose
+		// target escapes the clone root (tempDir for a remote clone, the resolved
+		// local path otherwise) — NOT the per-unit unitDir, so a within-clone
+		// symlink in a multi-dir plugin is allowed. It runs BEFORE any nuke/copy/
+		// manifest write, so a violation leaves no on-disk window. The lexical
+		// selector traversal guard already ran pre-read at step 2c (analysis 1-2);
+		// it is not repeated here. A violation maps to an identity-prefixed cancel
+		// + non-zero exit (mirrors the TypeConflictError pre-flight above).
 		try {
-			assertSubpathWithinClone(
-				sourceDir,
-				parsed.type === "direct-path" ? parsed.targetPlugin : undefined,
-			);
 			await scanForEscapingSymlinks(unitDir, sourceDir);
 		} catch (err) {
-			if (
-				err instanceof PathTraversalError ||
-				err instanceof SymlinkEscapeError
-			) {
+			if (err instanceof SymlinkEscapeError) {
 				p.cancel(`${parsed.manifestKey}: ${err.message}`);
 				throw new ExitSignal(1);
 			}
@@ -545,20 +561,15 @@ async function runCollectionPipeline(
 
 		// Copy-safety pre-flight per member (Phase 5). Each member is scanned
 		// independently against the clone root (NOT the unit dir) BEFORE its own
-		// nuke/copy. A direct-path collection also validates the selector subpath
-		// against the clone root. A violation fails THIS member loudly (recorded
-		// failed, no nuke/copy/entry) but does NOT abort siblings — the non-zero
-		// exit is deferred to the end of the run.
+		// nuke/copy. The direct-path selector subpath was already validated
+		// lexically pre-read at runAdd step 2c (analysis 1-2), so it is not
+		// re-checked here. A violation fails THIS member loudly (recorded failed,
+		// no nuke/copy/entry) but does NOT abort siblings — the non-zero exit is
+		// deferred to the end of the run.
 		try {
-			if (parsed.type === "direct-path") {
-				assertSubpathWithinClone(cloneRoot, parsed.targetPlugin);
-			}
 			await scanForEscapingSymlinks(pluginDir, cloneRoot);
 		} catch (err) {
-			if (
-				err instanceof PathTraversalError ||
-				err instanceof SymlinkEscapeError
-			) {
+			if (err instanceof SymlinkEscapeError) {
 				results.push({
 					pluginName,
 					status: "failed",

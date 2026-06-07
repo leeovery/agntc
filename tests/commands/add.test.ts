@@ -6131,6 +6131,92 @@ describe("add command", () => {
 
 				expect(order).toEqual(["scan", "nuke"]);
 			});
+
+			it("lexical traversal guard fires BEFORE readConfig/detectType for a direct-path source (analysis 1-2)", async () => {
+				const UNIT_DIR = `${CLONE_RESULT.tempDir}/pluginA`;
+				mockParseSource.mockReturnValue({
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "pluginA",
+					manifestKey: "owner/my-collection/pluginA",
+					cloneUrl: "https://github.com/owner/my-collection.git",
+				});
+				const order: string[] = [];
+				mockAssertSubpathWithinClone.mockImplementation(() => {
+					order.push("guard");
+				});
+				mockReadConfig.mockImplementation(async () => {
+					order.push("readConfig");
+					return null;
+				});
+				mockDetectType.mockImplementation(async () => {
+					order.push("detectType");
+					return BARE_SKILL;
+				});
+
+				await runAdd(
+					"https://github.com/owner/my-collection/tree/main/pluginA",
+				);
+
+				// Guard validated the selector subpath against the clone root first.
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					CLONE_RESULT.tempDir,
+					"pluginA",
+				);
+				// Scan still ran with unitDir vs clone root boundary.
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					UNIT_DIR,
+					CLONE_RESULT.tempDir,
+				);
+				// The lexical guard precedes the FIRST read of the joined subpath.
+				expect(order[0]).toBe("guard");
+				expect(order.indexOf("guard")).toBeLessThan(
+					order.indexOf("readConfig"),
+				);
+				expect(order.indexOf("guard")).toBeLessThan(
+					order.indexOf("detectType"),
+				);
+			});
+
+			it("escaping direct-path selector aborts BEFORE readConfig/detectType touch the joined path (analysis 1-2)", async () => {
+				mockParseSource.mockReturnValue({
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "../evil",
+					manifestKey: "owner/my-collection/../evil",
+					cloneUrl: "https://github.com/owner/my-collection.git",
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+				mockAssertSubpathWithinClone.mockImplementation(() => {
+					throw new PathTraversalError("../evil");
+				});
+
+				const err = await runAdd(
+					"https://github.com/owner/my-collection/tree/main/../evil",
+				).catch((e) => e);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				// Identity-prefixed cancel with the guard message.
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("owner/my-collection/../evil"),
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("resolves outside the clone root"),
+				);
+				// No filesystem read at the joined (escaped) path occurred.
+				expect(mockReadConfig).not.toHaveBeenCalled();
+				expect(mockDetectType).not.toHaveBeenCalled();
+				// And no on-disk mutation.
+				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
+			});
 		});
 
 		describe("collection", () => {
@@ -6340,6 +6426,50 @@ describe("add command", () => {
 					COLLECTION_CLONE_RESULT.tempDir,
 					"pluginA",
 				);
+			});
+
+			it("escaping direct-path selector aborts BEFORE runCollectionPipeline reads member configs (analysis 1-2)", async () => {
+				const unitDir = `${COLLECTION_CLONE_RESULT.tempDir}/../evil`;
+				mockParseSource.mockReturnValue({
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "../evil",
+					manifestKey: "owner/my-collection/../evil",
+					cloneUrl: "https://github.com/owner/my-collection.git",
+				});
+				mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				// Were the joined path read, it would route into the pipeline.
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === unitDir) {
+						return { type: "collection", plugins: ["pluginA"] } as DetectedType;
+					}
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockAssertSubpathWithinClone.mockImplementation(() => {
+					throw new PathTraversalError("../evil");
+				});
+
+				const err = await runAdd(
+					"https://github.com/owner/my-collection/tree/main/../evil",
+				).catch((e) => e);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("owner/my-collection/../evil"),
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("resolves outside the clone root"),
+				);
+				// Pipeline never entered: no member config read, no select, no write.
+				expect(mockReadConfig).not.toHaveBeenCalled();
+				expect(mockDetectType).not.toHaveBeenCalled();
+				expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
 			});
 		});
 	});
