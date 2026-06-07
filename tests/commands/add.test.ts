@@ -1130,6 +1130,224 @@ describe("add command", () => {
 			expect(outroCall).toMatch(/1.*skipped/i);
 		});
 
+		describe("nested-collection member backstop (one level only)", () => {
+			it("skips a member re-detecting collection with pipeline warning and installs siblings", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return null;
+				});
+				// pluginA installs (bare-skill); pluginB re-detects as a nested
+				// collection => skipped with the pipeline warning.
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "bare-skill" } as DetectedType;
+					return { type: "collection", plugins: ["nested"] } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// Pipeline-emitted warning names the member and the nested reason.
+				expect(mockLog.warn).toHaveBeenCalledWith(
+					"pluginB: nested collections not supported — skipping",
+				);
+				// Sibling still installs (skip does not abort the run).
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual(["owner/my-collection/pluginA"]);
+				// One level only: the pipeline never re-enters member selection for the
+				// nested member (no recursive dispatch / second selection pass).
+				expect(mockSelectCollectionPlugins).toHaveBeenCalledTimes(1);
+			});
+
+			it("skips a member re-detecting not-agntc with pipeline warning and installs siblings", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "not-agntc" } as DetectedType;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginB/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				expect(mockLog.warn).toHaveBeenCalledWith(
+					"pluginA: not a valid agntc plugin — skipping",
+				);
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual(["owner/my-collection/pluginB"]);
+			});
+
+			it("nested-collection warning is emitted by the pipeline, not the detector", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockResolvedValue(null);
+				// detectType (the detector) stays SILENT for the nested member — it
+				// never calls its onWarn with the nested message. The pipeline must
+				// still surface the warning.
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "collection", plugins: ["nested"] } as DetectedType;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginB/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// The detector mock was never asked to emit the nested message via its
+				// onWarn callback; the warning came solely from the pipeline.
+				const nestedWarns = mockLog.warn.mock.calls
+					.map((c) => c[0] as string)
+					.filter((m) => m.includes("nested collections not supported"));
+				expect(nestedWarns).toEqual([
+					"pluginA: nested collections not supported — skipping",
+				]);
+			});
+
+			it("recurses one level only — no second selection pass for the nested member", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "collection", plugins: ["nested"] } as DetectedType;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginB/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// One pipeline pass: selection happens exactly once and detectType is
+				// never called on the nested member's grandchildren.
+				expect(mockSelectCollectionPlugins).toHaveBeenCalledTimes(1);
+				const detectedDirs = mockDetectType.mock.calls.map(([dir]) => dir);
+				expect(detectedDirs.some((d) => d.endsWith("/nested"))).toBe(false);
+			});
+
+			it("summary counts a skipped nested-collection member as skipped", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "bare-skill" } as DetectedType;
+					return { type: "collection", plugins: ["nested"] } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				expect(outroCall).toContain("pluginA");
+				expect(outroCall).toMatch(/1.*skipped/i);
+			});
+
+			it("all members nested/not-agntc are all skipped with no install and no error", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "collection", plugins: ["nested"] } as DetectedType;
+					return { type: "not-agntc" } as DetectedType;
+				});
+
+				await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+				expect(mockAddEntry).not.toHaveBeenCalled();
+				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+				expect(warnCalls).toContain(
+					"pluginA: nested collections not supported — skipping",
+				);
+				expect(warnCalls).toContain(
+					"pluginB: not a valid agntc plugin — skipping",
+				);
+			});
+
+			it("tree-path selector pointing at a member that is itself a collection skips with the nested warning", async () => {
+				const treeParsed: ParsedSource = {
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "pluginB",
+					manifestKey: "owner/my-collection/pluginB",
+				};
+				mockParseSource.mockReturnValue(treeParsed);
+				mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				// Root unitDir resolves to the selected member dir (direct-path); it is
+				// detected as a collection, so the pipeline runs with the member as the
+				// single selected plugin, which then re-detects as a collection.
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir.endsWith("/pluginB/pluginB"))
+						return { type: "collection", plugins: ["nested"] } as DetectedType;
+					return {
+						type: "collection",
+						plugins: ["pluginB"],
+					} as DetectedType;
+				});
+
+				await runAdd("owner/my-collection");
+
+				expect(mockLog.warn).toHaveBeenCalledWith(
+					"pluginB: nested collections not supported — skipping",
+				);
+				expect(mockAddEntry).not.toHaveBeenCalled();
+			});
+		});
+
 		it("cleanup on collection success", async () => {
 			setupCollectionBareSkills();
 			mockCopyBareSkill.mockResolvedValue({
