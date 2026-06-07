@@ -36,9 +36,14 @@ vi.mock("../../src/config.js", () => ({
 	readConfig: vi.fn(),
 }));
 
-vi.mock("../../src/type-detection.js", () => ({
-	detectType: vi.fn(),
-}));
+vi.mock("../../src/type-detection.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/type-detection.js")>();
+	return {
+		detectType: vi.fn(),
+		ASSET_DIRS: actual.ASSET_DIRS,
+	};
+});
 
 vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
@@ -58,9 +63,10 @@ vi.mock("../../src/drivers/registry.js", () => ({
 
 vi.mock("node:fs/promises", () => ({
 	stat: vi.fn(),
+	access: vi.fn(),
 }));
 
-import { stat } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { readConfig } from "../../src/config.js";
@@ -84,6 +90,7 @@ const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
 const mockStat = vi.mocked(stat);
+const mockAccess = vi.mocked(access);
 const mockLog = vi.mocked(p.log);
 
 import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
@@ -99,6 +106,9 @@ beforeEach(() => {
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockGetDriver.mockReturnValue(fakeDriver);
+	// Default: the recorded structural unit still exists in the re-clone, so the
+	// derive-before-delete gate passes (pathExists -> access resolves).
+	mockAccess.mockResolvedValue(undefined);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -384,10 +394,10 @@ describe("executeUpdateAction", () => {
 		});
 	});
 
-	describe("config null (no agntc.json)", () => {
-		it("returns failure for remote plugin", async () => {
+	describe("config null (no agntc.json = no agent restriction)", () => {
+		it("proceeds for a remote recorded skill whose SKILL.md is still present", async () => {
 			const key = "owner/repo";
-			const entry = makeEntry();
+			const entry = makeEntry({ type: "skill" });
 			const manifest: Manifest = { [key]: entry };
 
 			mockCloneSource.mockResolvedValue({
@@ -395,6 +405,9 @@ describe("executeUpdateAction", () => {
 				commit: REMOTE_SHA,
 			});
 			mockReadConfig.mockResolvedValue(null);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
 
 			const result = await executeUpdateAction(
 				key,
@@ -403,18 +416,21 @@ describe("executeUpdateAction", () => {
 				"/fake/project",
 			);
 
-			expect(result.success).toBe(false);
-			expect(result.message).toContain("no agntc.json");
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(result.success).toBe(true);
+			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
+			expect(mockNukeManifestFiles).toHaveBeenCalled();
 		});
 
-		it("returns failure for local plugin", async () => {
+		it("proceeds for a local recorded skill whose SKILL.md is still present", async () => {
 			const key = "/Users/lee/Code/my-plugin";
-			const entry = makeEntry({ commit: null, ref: null });
+			const entry = makeEntry({ type: "skill", commit: null, ref: null });
 			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue(null);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
 
 			const result = await executeUpdateAction(
 				key,
@@ -423,9 +439,9 @@ describe("executeUpdateAction", () => {
 				"/fake/project",
 			);
 
-			expect(result.success).toBe(false);
-			expect(result.message).toContain("no agntc.json");
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(result.success).toBe(true);
+			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
+			expect(mockNukeManifestFiles).toHaveBeenCalled();
 		});
 	});
 
@@ -433,6 +449,7 @@ describe("executeUpdateAction", () => {
 		it("resolves sourceDir correctly for collection plugin", async () => {
 			const key = "owner/repo/go";
 			const entry = makeEntry({
+				type: "skill",
 				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
@@ -443,9 +460,6 @@ describe("executeUpdateAction", () => {
 				commit: REMOTE_SHA,
 			});
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
@@ -465,15 +479,12 @@ describe("executeUpdateAction", () => {
 					repo: "repo",
 				}),
 			);
-			// readConfig and detectType use the subdir
+			// readConfig and the recorded-skill validation gate use the subdir
 			expect(mockReadConfig).toHaveBeenCalledWith(
 				"/tmp/agntc-clone/go",
 				expect.anything(),
 			);
-			expect(mockDetectType).toHaveBeenCalledWith(
-				"/tmp/agntc-clone/go",
-				expect.anything(),
-			);
+			expect(mockAccess).toHaveBeenCalledWith("/tmp/agntc-clone/go/SKILL.md");
 		});
 	});
 

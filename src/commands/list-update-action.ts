@@ -51,9 +51,7 @@ async function runUpdate(
 		});
 
 		if (result.status === "failed") {
-			const message = buildFailureMessage(result, key, {
-				isChangeVersion: !isLocal,
-			});
+			const message = buildFailureMessage(result, key);
 			return { success: false, message };
 		}
 

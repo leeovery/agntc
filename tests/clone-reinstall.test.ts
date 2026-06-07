@@ -234,13 +234,14 @@ describe("cloneAndReinstall", () => {
 		});
 
 		it("cleans up temp dir on failure", async () => {
-			const entry = makeEntry();
+			const entry = makeEntry({ type: "skill" });
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue(null);
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
 
 			await cloneAndReinstall({
 				key: "owner/repo",
@@ -281,15 +282,19 @@ describe("cloneAndReinstall", () => {
 		});
 	});
 
-	describe("no-config status", () => {
-		it("returns failed with no-config message for remote", async () => {
-			const entry = makeEntry();
+	describe("null config (no agntc.json)", () => {
+		it("proceeds for a recorded skill whose SKILL.md is still present (null config = no restriction)", async () => {
+			const entry = makeEntry({ type: "skill" });
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
 			mockReadConfig.mockResolvedValue(null);
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
 
 			const result = await cloneAndReinstall({
 				key: "owner/repo",
@@ -297,11 +302,8 @@ describe("cloneAndReinstall", () => {
 				projectDir: "/fake/project",
 			});
 
-			expect(result.status).toBe("failed");
-			if (result.status === "failed") {
-				expect(result.failureReason).toBe("no-config");
-				expect(result.message).toContain("no agntc.json");
-			}
+			expect(result.status).toBe("success");
+			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
 		});
 	});
 
@@ -347,33 +349,6 @@ describe("cloneAndReinstall", () => {
 			});
 
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("invalid-type status", () => {
-		it("returns failed with invalid-type message", async () => {
-			const entry = makeEntry();
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "not-agntc",
-			} as DetectedType);
-
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
-
-			expect(result.status).toBe("failed");
-			if (result.status === "failed") {
-				expect(result.failureReason).toBe("invalid-type");
-				expect(result.message).toContain("not a valid plugin");
-			}
 		});
 	});
 
@@ -778,9 +753,7 @@ describe("mapCloneFailure", () => {
 	function makeHandlers(): CloneFailureHandlers<string> {
 		return {
 			onCloneFailed: (msg) => `clone-failed: ${msg}`,
-			onNoConfig: (msg) => `no-config: ${msg}`,
 			onNoAgents: (msg) => `no-agents: ${msg}`,
-			onInvalidType: (msg) => `invalid-type: ${msg}`,
 			onCopyFailed: (msg) => `copy-failed: ${msg}`,
 			onUnknown: (msg) => `unknown: ${msg}`,
 		};
@@ -798,32 +771,12 @@ describe("mapCloneFailure", () => {
 		expect(result).toBe("clone-failed: network error");
 	});
 
-	it("dispatches no-config to onNoConfig handler", () => {
-		const result = mapCloneFailure(
-			{
-				status: "failed",
-				failureReason: "no-config",
-				message: "no agntc.json",
-			},
-			makeHandlers(),
-		);
-		expect(result).toBe("no-config: no agntc.json");
-	});
-
 	it("dispatches no-agents to onNoAgents handler", () => {
 		const result = mapCloneFailure(
 			{ status: "failed", failureReason: "no-agents", message: "no agents" },
 			makeHandlers(),
 		);
 		expect(result).toBe("no-agents: no agents");
-	});
-
-	it("dispatches invalid-type to onInvalidType handler", () => {
-		const result = mapCloneFailure(
-			{ status: "failed", failureReason: "invalid-type", message: "not valid" },
-			makeHandlers(),
-		);
-		expect(result).toBe("invalid-type: not valid");
 	});
 
 	it("dispatches copy-failed to onCopyFailed handler", () => {
@@ -845,17 +798,15 @@ describe("mapCloneFailure", () => {
 	it("returns the typed result from handler", () => {
 		const handlers: CloneFailureHandlers<number> = {
 			onCloneFailed: () => 1,
-			onNoConfig: () => 2,
 			onNoAgents: () => 3,
-			onInvalidType: () => 4,
 			onCopyFailed: () => 5,
 			onUnknown: () => 6,
 		};
 		const result = mapCloneFailure(
-			{ status: "failed", failureReason: "no-config", message: "test" },
+			{ status: "failed", failureReason: "no-agents", message: "test" },
 			handlers,
 		);
-		expect(result).toBe(2);
+		expect(result).toBe(3);
 	});
 });
 
@@ -894,7 +845,7 @@ describe("buildFailureMessage", () => {
 	});
 
 	describe("no-agents", () => {
-		it("returns standard message regardless of isChangeVersion", () => {
+		it("returns standard no-agents message", () => {
 			const msg = buildFailureMessage(
 				makeFailed("no-agents", "ignored"),
 				"owner/repo",
@@ -902,59 +853,6 @@ describe("buildFailureMessage", () => {
 			expect(msg).toBe(
 				"Plugin owner/repo no longer supports any of your installed agents",
 			);
-		});
-
-		it("returns same message with isChangeVersion true", () => {
-			const msg = buildFailureMessage(
-				makeFailed("no-agents", "ignored"),
-				"owner/repo",
-				{ isChangeVersion: true },
-			);
-			expect(msg).toBe(
-				"Plugin owner/repo no longer supports any of your installed agents",
-			);
-		});
-	});
-
-	describe("no-config without isChangeVersion", () => {
-		it("returns plain message", () => {
-			const msg = buildFailureMessage(
-				makeFailed("no-config", "ignored"),
-				"owner/repo",
-			);
-			expect(msg).toBe("owner/repo has no agntc.json");
-		});
-	});
-
-	describe("no-config with isChangeVersion", () => {
-		it("returns prefixed message", () => {
-			const msg = buildFailureMessage(
-				makeFailed("no-config", "ignored"),
-				"owner/repo",
-				{ isChangeVersion: true },
-			);
-			expect(msg).toBe("New version of owner/repo has no agntc.json");
-		});
-	});
-
-	describe("invalid-type without isChangeVersion", () => {
-		it("returns plain message", () => {
-			const msg = buildFailureMessage(
-				makeFailed("invalid-type", "ignored"),
-				"owner/repo",
-			);
-			expect(msg).toBe("owner/repo is not a valid plugin");
-		});
-	});
-
-	describe("invalid-type with isChangeVersion", () => {
-		it("returns prefixed message", () => {
-			const msg = buildFailureMessage(
-				makeFailed("invalid-type", "ignored"),
-				"owner/repo",
-				{ isChangeVersion: true },
-			);
-			expect(msg).toBe("New version of owner/repo is not a valid plugin");
 		});
 	});
 });

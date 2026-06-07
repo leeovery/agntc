@@ -4,12 +4,12 @@ import { readConfig } from "./config.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
 import { copyPluginAssets } from "./copy-plugin-assets.js";
 import { getDriver } from "./drivers/registry.js";
-import type { AgentId, AgentWithDriver } from "./drivers/types.js";
+import type { AgentId, AgentWithDriver, AssetType } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { pathExists } from "./fs-utils.js";
 import type { ManifestEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
-import { detectType } from "./type-detection.js";
+import { ASSET_DIRS } from "./type-detection.js";
 
 export interface NukeReinstallOptions {
 	key: string;
@@ -29,16 +29,8 @@ interface NukeReinstallSuccess {
 	droppedAgents: AgentId[];
 }
 
-interface NukeReinstallNoConfig {
-	status: "no-config";
-}
-
 interface NukeReinstallNoAgents {
 	status: "no-agents";
-}
-
-interface NukeReinstallInvalidType {
-	status: "invalid-type";
 }
 
 interface NukeReinstallCopyFailed {
@@ -62,9 +54,7 @@ interface NukeReinstallAborted {
 
 export type NukeReinstallResult =
 	| NukeReinstallSuccess
-	| NukeReinstallNoConfig
 	| NukeReinstallNoAgents
-	| NukeReinstallInvalidType
 	| NukeReinstallCopyFailed
 	| NukeReinstallAborted;
 
@@ -77,15 +67,19 @@ export async function executeNukeAndReinstall(
 	const commit =
 		options.newCommit !== undefined ? options.newCommit : existingEntry.commit;
 
-	// Read config from source. Under configless replay, a missing config is
-	// normal (recorded skills carry no agntc.json): null means "no agent
-	// restriction" (effective agents unchanged), not abort. Legacy/plugin entries
-	// (type derivation reworked in 4-5) still treat a missing config as a failure.
+	// Read config from source. Under configless replay a missing config is normal
+	// (recorded units carry no agntc.json): null means "no agent restriction"
+	// (effective agents unchanged), not abort. Both recorded skills and recorded
+	// plugins replay by their persisted type, so neither bails on null config — the
+	// type is authoritative and is never re-derived from a present/absent config.
 	const config = await readConfig(sourceDir, { onWarn });
 
-	if (config === null && existingEntry.type !== "skill") {
-		return { status: "no-config" };
-	}
+	// The recorded type selects the replay predicate. 4-3 backfills `type` on
+	// manifest read, so every entry reaching the pipeline in production carries a
+	// concrete type; the `?? "skill"` is a defensive, non-throwing fallback for a
+	// typeless entry (the lenient single-skill default, matching the backfill's own
+	// derivation rule). The type is recorded, never re-derived from the clone.
+	const recordedType: "skill" | "plugin" = existingEntry.type ?? "skill";
 
 	const agentResolution = resolveAgents(existingEntry.agents, config?.agents);
 	if (agentResolution.status === "no-agents") {
@@ -111,12 +105,9 @@ export async function executeNukeAndReinstall(
 		commit,
 	};
 
-	if (existingEntry.type === "skill") {
-		return replayRecordedSkill(ctx);
-	}
-
-	// Recorded plugin (and legacy fallthrough) — type derivation reworked in 4-5.
-	return replayViaDetection(ctx);
+	return recordedType === "skill"
+		? replayRecordedSkill(ctx)
+		: replayRecordedPlugin(ctx);
 }
 
 interface ReplayContext {
@@ -165,45 +156,52 @@ async function replayRecordedSkill(
 }
 
 /**
- * Legacy detection-based path retained for recorded `plugin` entries until the
- * plugin derive-before-delete predicate lands (4-5). Does not gate on SKILL.md.
+ * Derive-before-delete replay for a recorded `plugin`: at least one asset-kind
+ * dir (`skills`/`agents`/`hooks`) must still exist in the re-cloned tree. The
+ * scan runs BEFORE nuking; zero present dirs (the unit is now a bare skill or a
+ * members collection) aborts with the install left intact. The recorded type is
+ * authoritative — the scan only chooses *which* present dirs to copy, never
+ * re-derives the type, so a benign newly-added asset dir is picked up and an
+ * added root SKILL.md is ignored while any asset dir remains.
  */
-async function replayViaDetection(
+async function replayRecordedPlugin(
 	ctx: ReplayContext,
 ): Promise<NukeReinstallResult> {
 	const { options, agents } = ctx;
-	const { sourceDir, projectDir, existingEntry, onWarn } = options;
+	const { sourceDir, projectDir, existingEntry } = options;
 
-	const detected = await detectType(sourceDir, { onWarn });
-	if (detected.type === "not-agntc" || detected.type === "collection") {
-		return { status: "invalid-type" };
+	const presentAssetDirs: AssetType[] = [];
+	for (const dir of ASSET_DIRS) {
+		if (await pathExists(join(sourceDir, dir))) {
+			presentAssetDirs.push(dir);
+		}
+	}
+
+	if (presentAssetDirs.length === 0) {
+		return {
+			status: "aborted",
+			recordedType: "plugin",
+			reason:
+				"recorded as plugin but no asset dir (skills/agents/hooks) remains in the source",
+		};
 	}
 
 	await nukeManifestFiles(projectDir, existingEntry.files);
 
 	let copiedFiles: string[];
 	try {
-		if (detected.type === "plugin") {
-			const pluginResult = await copyPluginAssets({
-				sourceDir,
-				assetDirs: detected.assetDirs,
-				agents,
-				projectDir,
-			});
-			copiedFiles = pluginResult.copiedFiles;
-		} else {
-			const bareResult = await copyBareSkill({ sourceDir, projectDir, agents });
-			copiedFiles = bareResult.copiedFiles;
-		}
+		const pluginResult = await copyPluginAssets({
+			sourceDir,
+			assetDirs: presentAssetDirs,
+			agents,
+			projectDir,
+		});
+		copiedFiles = pluginResult.copiedFiles;
 	} catch (err: unknown) {
 		return copyFailed(options.key, err);
 	}
 
-	return buildSuccess(
-		ctx,
-		copiedFiles,
-		detected.type === "plugin" ? "plugin" : "skill",
-	);
+	return buildSuccess(ctx, copiedFiles, "plugin");
 }
 
 type AgentResolution =

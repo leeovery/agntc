@@ -230,29 +230,13 @@ async function runSinglePluginUpdate(
 	);
 
 	if (result.status === "failed") {
-		const noConfigMsg = isLocal
-			? `${key} has no agntc.json — aborting.`
-			: `New version of ${key} has no agntc.json — aborting.`;
-
-		const invalidTypeMsg = isLocal
-			? `${key} is not a valid plugin — aborting.`
-			: `New version of ${key} is not a valid plugin — aborting.`;
-
 		return mapCloneFailure(result, {
-			onNoConfig: () => {
-				p.log.error(noConfigMsg);
-				throw new ExitSignal(1);
-			},
 			onNoAgents: () => {
 				p.log.warn(
 					`Plugin ${key} no longer supports any of your installed agents. ` +
 						`No update performed. Run npx agntc remove ${key} to clean up.`,
 				);
 				return null;
-			},
-			onInvalidType: () => {
-				p.log.error(invalidTypeMsg);
-				throw new ExitSignal(1);
 			},
 			onCopyFailed: (msg) => {
 				p.log.error(msg);
@@ -338,24 +322,10 @@ async function processUpdateForAll(
 
 		if (result.status === "failed") {
 			return mapCloneFailure(result, {
-				onNoConfig: () => ({
-					status: "failed" as const,
-					key,
-					summary: isLocal
-						? `${key}: Failed — no agntc.json`
-						: `${key}: Failed — no agntc.json in new version`,
-				}),
 				onNoAgents: () => ({
 					status: "failed" as const,
 					key,
 					summary: `${key}: Skipped — no longer supports installed agents`,
-				}),
-				onInvalidType: () => ({
-					status: "failed" as const,
-					key,
-					summary: isLocal
-						? `${key}: Failed — not a valid plugin`
-						: `${key}: Failed — not a valid plugin in new version`,
 				}),
 				onCopyFailed: (msg) => ({
 					status: "copy-failed" as const,

@@ -38,8 +38,17 @@ vi.mock("../../src/config.js", () => ({
 	readConfig: vi.fn(),
 }));
 
-vi.mock("../../src/type-detection.js", () => ({
-	detectType: vi.fn(),
+vi.mock("../../src/type-detection.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/type-detection.js")>();
+	return {
+		detectType: vi.fn(),
+		ASSET_DIRS: actual.ASSET_DIRS,
+	};
+});
+
+vi.mock("node:fs/promises", () => ({
+	access: vi.fn(),
 }));
 
 vi.mock("../../src/nuke-files.js", () => ({
@@ -62,6 +71,7 @@ vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
 }));
 
+import { access } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { readConfig } from "../../src/config.js";
@@ -86,6 +96,7 @@ const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
+const mockAccess = vi.mocked(access);
 const mockSelect = vi.mocked(p.select);
 const mockIsCancel = vi.mocked(p.isCancel);
 const mockLog = vi.mocked(p.log);
@@ -107,6 +118,9 @@ beforeEach(() => {
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockGetDriver.mockReturnValue(fakeDriver);
+	// Default: the recorded structural unit still exists in the re-clone, so the
+	// derive-before-delete gate passes (pathExists -> access resolves).
+	mockAccess.mockResolvedValue(undefined);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,

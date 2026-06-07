@@ -31,21 +31,13 @@ interface CloneReinstallSuccess {
 
 export interface CloneReinstallFailed {
 	status: "failed";
-	failureReason:
-		| "clone-failed"
-		| "no-config"
-		| "no-agents"
-		| "invalid-type"
-		| "copy-failed"
-		| "unknown";
+	failureReason: "clone-failed" | "no-agents" | "copy-failed" | "unknown";
 	message: string;
 }
 
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
-	onNoConfig: (msg: string) => T;
 	onNoAgents: (msg: string) => T;
-	onInvalidType: (msg: string) => T;
 	onCopyFailed: (msg: string) => T;
 	onUnknown: (msg: string) => T;
 }
@@ -57,12 +49,8 @@ export function mapCloneFailure<T>(
 	switch (result.failureReason) {
 		case "clone-failed":
 			return handlers.onCloneFailed(result.message);
-		case "no-config":
-			return handlers.onNoConfig(result.message);
 		case "no-agents":
 			return handlers.onNoAgents(result.message);
-		case "invalid-type":
-			return handlers.onInvalidType(result.message);
 		case "copy-failed":
 			return handlers.onCopyFailed(result.message);
 		case "unknown":
@@ -73,16 +61,10 @@ export function mapCloneFailure<T>(
 export function buildFailureMessage(
 	result: CloneReinstallFailed,
 	key: string,
-	opts?: { isChangeVersion?: boolean },
 ): string {
-	const prefix = opts?.isChangeVersion ? `New version of ${key}` : key;
 	switch (result.failureReason) {
-		case "no-config":
-			return `${prefix} has no agntc.json`;
 		case "no-agents":
 			return `Plugin ${key} no longer supports any of your installed agents`;
-		case "invalid-type":
-			return `${prefix} is not a valid plugin`;
 		case "clone-failed":
 		case "copy-failed":
 		case "unknown":
@@ -236,27 +218,11 @@ async function runPipeline(
 		onWarn,
 	});
 
-	if (pipelineResult.status === "no-config") {
-		return {
-			status: "failed",
-			failureReason: "no-config",
-			message: `${key} has no agntc.json`,
-		};
-	}
-
 	if (pipelineResult.status === "no-agents") {
 		return {
 			status: "failed",
 			failureReason: "no-agents",
 			message: `Plugin ${key} no longer supports any of your installed agents`,
-		};
-	}
-
-	if (pipelineResult.status === "invalid-type") {
-		return {
-			status: "failed",
-			failureReason: "invalid-type",
-			message: `${key} is not a valid plugin`,
 		};
 	}
 

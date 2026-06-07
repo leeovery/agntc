@@ -54,9 +54,14 @@ vi.mock("../../src/config.js", () => ({
 	readConfig: vi.fn(),
 }));
 
-vi.mock("../../src/type-detection.js", () => ({
-	detectType: vi.fn(),
-}));
+vi.mock("../../src/type-detection.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/type-detection.js")>();
+	return {
+		detectType: vi.fn(),
+		ASSET_DIRS: actual.ASSET_DIRS,
+	};
+});
 
 vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
@@ -76,9 +81,10 @@ vi.mock("../../src/drivers/registry.js", () => ({
 
 vi.mock("node:fs/promises", () => ({
 	stat: vi.fn(),
+	access: vi.fn(),
 }));
 
-import { stat } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import { runUpdate } from "../../src/commands/update.js";
 import { readConfig } from "../../src/config.js";
@@ -112,6 +118,7 @@ const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
 const mockStat = vi.mocked(stat);
+const mockAccess = vi.mocked(access);
 const mockOutro = vi.mocked(p.outro);
 const mockLog = vi.mocked(p.log);
 const mockCancel = vi.mocked(p.cancel);
@@ -130,6 +137,9 @@ beforeEach(() => {
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockGetDriver.mockReturnValue(fakeDriver);
+	// Default: the recorded structural unit still exists in the re-clone, so the
+	// derive-before-delete gate passes (pathExists -> access resolves).
+	mockAccess.mockResolvedValue(undefined);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -750,6 +760,7 @@ describe("update command", () => {
 
 		it("copies from temp dir after nuke", async () => {
 			const entry = makeEntry({
+				type: "plugin",
 				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
@@ -763,10 +774,6 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "plugin",
-				assetDirs: ["skills"],
-			} as DetectedType);
 			mockCopyPluginAssets.mockResolvedValue({
 				copiedFiles: [".claude/skills/new-skill/"],
 				assetCountsByAgent: { claude: { skills: 1 } },
@@ -1376,6 +1383,7 @@ describe("update command", () => {
 	describe("plugin type detection — plugin with asset dirs", () => {
 		it("uses copyPluginAssets for plugin type", async () => {
 			const entry = makeEntry({
+				type: "plugin",
 				agents: ["claude"],
 				files: [".claude/skills/old-skill/", ".claude/agents/executor.md"],
 			});
@@ -1389,10 +1397,12 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "plugin",
-				assetDirs: ["skills", "agents"],
-			} as DetectedType);
+			// Recorded plugin: skills/ and agents/ remain, hooks/ does not.
+			mockAccess.mockImplementation(async (path) => {
+				if (String(path).endsWith("/hooks")) {
+					throw new Error("ENOENT");
+				}
+			});
 			mockCopyPluginAssets.mockResolvedValue({
 				copiedFiles: [
 					".claude/skills/new-skill/",
@@ -1814,30 +1824,39 @@ describe("update command", () => {
 			expect(mockCleanupTempDir).not.toHaveBeenCalled();
 		});
 
-		it("errors when config is null (no agntc.json)", async () => {
+		it("proceeds when config is null (no agntc.json = no agent restriction)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue(null);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-plugin/"],
+			});
 
-			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+			await runUpdate(LOCAL_KEY);
 
-			expect(err).toBeInstanceOf(ExitSignal);
-			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("no agntc.json"),
+			// Recorded skill whose SKILL.md is still present replays via copyBareSkill;
+			// null config imposes no agent restriction, so the recorded agents are kept.
+			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
+			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(mockOutro).toHaveBeenCalledWith(
+				expect.stringContaining("Refreshed"),
 			);
 		});
 
-		it("uses copyPluginAssets when type is plugin", async () => {
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
+		it("uses copyPluginAssets when recorded type is plugin", async () => {
+			const pluginEntry: ManifestEntry = { ...LOCAL_ENTRY, type: "plugin" };
+			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: pluginEntry });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "plugin",
-				assetDirs: ["skills", "agents"],
-			} as DetectedType);
+			// Recorded plugin: derive-before-delete scans for present asset dirs.
+			// skills/ and agents/ remain, hooks/ does not.
+			mockAccess.mockImplementation(async (path) => {
+				if (String(path).endsWith("/hooks")) {
+					throw new Error("ENOENT");
+				}
+			});
 			mockCopyPluginAssets.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				assetCountsByAgent: { claude: { skills: 1, agents: 1 } },
@@ -1859,6 +1878,7 @@ describe("update command", () => {
 	describe("collection plugin key", () => {
 		it("resolves collection key and clones from owner/repo", async () => {
 			const entry = makeEntry({
+				type: "skill",
 				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
@@ -1873,9 +1893,6 @@ describe("update command", () => {
 			});
 			// readConfig for the subdir go/
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
@@ -1889,15 +1906,13 @@ describe("update command", () => {
 					repo: "repo",
 				}),
 			);
-			// readConfig and detectType use the subdir
+			// readConfig and the recorded-skill validation gate use the subdir
 			expect(mockReadConfig).toHaveBeenCalledWith(
 				"/tmp/agntc-clone/go",
 				expect.anything(),
 			);
-			expect(mockDetectType).toHaveBeenCalledWith(
-				"/tmp/agntc-clone/go",
-				expect.anything(),
-			);
+			expect(mockAccess).toHaveBeenCalledWith("/tmp/agntc-clone/go/SKILL.md");
+			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
 		});
 	});
 

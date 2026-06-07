@@ -90,9 +90,7 @@ export async function executeChangeVersionAction(
 	});
 
 	if (result.status === "failed") {
-		const message = buildFailureMessage(result, key, {
-			isChangeVersion: true,
-		});
+		const message = buildFailureMessage(result, key);
 		return { changed: false, message };
 	}
 

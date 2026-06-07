@@ -123,6 +123,217 @@ describe("executeNukeAndReinstall", () => {
 		});
 	});
 
+	describe("recorded-plugin replay", () => {
+		it("replays recorded plugin: scans present asset dirs, nukes, copies via copyPluginAssets", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			// SKILL.md absent; skills/ present, agents/ absent, hooks/ absent.
+			mockPathExists.mockImplementation(async (p: string) => {
+				if (p === "/tmp/source/skills") return true;
+				return false;
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+				assetCountsByAgent: {},
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					existingEntry: makeEntry({
+						type: "plugin",
+						files: [".claude/skills/foo/"],
+					}),
+				}),
+			);
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") return;
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/foo/",
+			]);
+			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sourceDir: "/tmp/source",
+					projectDir: "/fake/project",
+					assetDirs: ["skills"],
+				}),
+			);
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(result.entry.type).toBe("plugin");
+		});
+
+		it("picks up benign added asset dir: assetDirs includes newly-present agents/", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockImplementation(async (p: string) => {
+				if (p === "/tmp/source/skills") return true;
+				if (p === "/tmp/source/agents") return true;
+				return false;
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+				assetCountsByAgent: {},
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+			);
+
+			expect(result.status).toBe("success");
+			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
+				expect.objectContaining({ assetDirs: ["skills", "agents"] }),
+			);
+		});
+
+		it("ignores added root SKILL.md while >=1 asset dir present: still plugin", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockImplementation(async (p: string) => {
+				if (p === "/tmp/source/skills") return true;
+				if (p === "/tmp/source/SKILL.md") return true;
+				return false;
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+				assetCountsByAgent: {},
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+			);
+
+			expect(result.status).toBe("success");
+			expect(mockCopyPluginAssets).toHaveBeenCalledOnce();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("scans asset dirs BEFORE nukeManifestFiles (success ordering)", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+
+			const callOrder: string[] = [];
+			mockPathExists.mockImplementation(async (p: string) => {
+				callOrder.push(`scan:${p}`);
+				return p === "/tmp/source/skills";
+			});
+			mockNukeManifestFiles.mockImplementation(async () => {
+				callOrder.push("nuke");
+				return { removed: [], skipped: [] };
+			});
+			mockCopyPluginAssets.mockImplementation(async () => {
+				callOrder.push("copy");
+				return { copiedFiles: [], assetCountsByAgent: {} };
+			});
+
+			await executeNukeAndReinstall(
+				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+			);
+
+			const nukeIdx = callOrder.indexOf("nuke");
+			const lastScanIdx = callOrder.lastIndexOf(
+				callOrder.filter((c) => c.startsWith("scan:")).at(-1) as string,
+			);
+			expect(nukeIdx).toBeGreaterThan(lastScanIdx);
+			expect(callOrder.indexOf("copy")).toBeGreaterThan(nukeIdx);
+		});
+
+		it("configless recorded-plugin update proceeds (null config, no abort)", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockPathExists.mockImplementation(async (p: string) => {
+				return p === "/tmp/source/skills";
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+				assetCountsByAgent: {},
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					existingEntry: makeEntry({ type: "plugin", agents: ["claude"] }),
+				}),
+			);
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") return;
+			expect(mockCopyPluginAssets).toHaveBeenCalledOnce();
+			expect(result.entry.agents).toEqual(["claude"]);
+		});
+	});
+
+	describe("recorded-plugin abort (no asset dir remains)", () => {
+		it("aborts when zero asset dirs present: no nuke, no copy", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+			);
+
+			expect(result.status).toBe("aborted");
+			if (result.status !== "aborted") return;
+			expect(result.recordedType).toBe("plugin");
+			expect(result.reason.length).toBeGreaterThan(0);
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("aborts when source became a bare skill (SKILL.md only, no asset dir)", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockImplementation(async (p: string) => {
+				return p === "/tmp/source/SKILL.md";
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+			);
+
+			expect(result.status).toBe("aborted");
+			if (result.status !== "aborted") return;
+			expect(result.recordedType).toBe("plugin");
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+		});
+
+		it("asset-dir scan runs BEFORE nukeManifestFiles on abort (nuke count 0)", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			const callOrder: string[] = [];
+			mockPathExists.mockImplementation(async () => {
+				callOrder.push("scan");
+				return false;
+			});
+			mockNukeManifestFiles.mockImplementation(async () => {
+				callOrder.push("nuke");
+				return { removed: [], skipped: [] };
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+			);
+
+			expect(result.status).toBe("aborted");
+			expect(callOrder).not.toContain("nuke");
+		});
+
+		it("member plugin whose subdir vanished aborts (zero asset dirs in its sourceDir)", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/go",
+					sourceDir: "/tmp/source/go",
+					existingEntry: makeEntry({
+						type: "plugin",
+						files: [".claude/skills/go/", ".claude/agents/go.md"],
+					}),
+				}),
+			);
+
+			expect(result.status).toBe("aborted");
+			if (result.status !== "aborted") return;
+			expect(result.recordedType).toBe("plugin");
+			expect(mockPathExists).toHaveBeenCalledWith("/tmp/source/go/skills");
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("derive-before-delete abort (recorded skill, SKILL.md gone)", () => {
 		it("returns aborted and does NOT nuke or copy when SKILL.md is absent", async () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
