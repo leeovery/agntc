@@ -62,55 +62,74 @@ describe("readConfig", () => {
 		expect(result).toEqual({ agents: ["claude", "codex", "cursor"] });
 	});
 
-	it("throws ConfigError for invalid JSON (truncated)", async () => {
+	it("returns null and warns for malformed JSON (truncated)", async () => {
 		vi.mocked(fs.readFile).mockResolvedValue('{"agents":');
+		const onWarn = vi.fn();
 
-		await expect(readConfig("/some/dir")).rejects.toThrow(ConfigError);
-		await expect(readConfig("/some/dir")).rejects.toThrow(
-			/Invalid agntc\.json/,
+		const result = await readConfig("/some/dir", { onWarn });
+		expect(result).toBeNull();
+		expect(onWarn).toHaveBeenCalledWith(
+			expect.stringContaining("Ignoring malformed agntc.json:"),
 		);
 	});
 
-	it("throws ConfigError for invalid JSON (trailing comma)", async () => {
+	it("returns null and warns for malformed JSON (trailing comma)", async () => {
 		vi.mocked(fs.readFile).mockResolvedValue('{"agents": ["claude"],}');
+		const onWarn = vi.fn();
 
-		await expect(readConfig("/some/dir")).rejects.toThrow(ConfigError);
-		await expect(readConfig("/some/dir")).rejects.toThrow(
-			/Invalid agntc\.json/,
+		const result = await readConfig("/some/dir", { onWarn });
+		expect(result).toBeNull();
+		expect(onWarn).toHaveBeenCalledWith(
+			expect.stringContaining("Ignoring malformed agntc.json:"),
 		);
 	});
 
-	it("throws ConfigError with parse error detail", async () => {
+	it("does not throw ConfigError for malformed JSON", async () => {
 		vi.mocked(fs.readFile).mockResolvedValue("{bad json}");
 
-		try {
-			await readConfig("/some/dir");
-			expect.unreachable("should have thrown");
-		} catch (err) {
-			expect(err).toBeInstanceOf(ConfigError);
-			const msg = (err as ConfigError).message;
-			expect(msg).toMatch(/^Invalid agntc\.json: /);
-			// The message should include the original parse error detail after the prefix
-			expect(msg.length).toBeGreaterThan("Invalid agntc.json: ".length);
-		}
+		const result = await readConfig("/some/dir");
+		expect(result).toBeNull();
 	});
 
-	it("throws when agents field missing entirely", async () => {
+	it("returns null when agents field missing and no type present", async () => {
 		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ name: "test" }));
 
-		await expect(readConfig("/some/dir")).rejects.toThrow(ConfigError);
-		await expect(readConfig("/some/dir")).rejects.toThrow(
-			"Invalid agntc.json: agents field is required",
-		);
+		const result = await readConfig("/some/dir");
+		expect(result).toBeNull();
 	});
 
-	it("throws when agents is empty array", async () => {
+	it("returns null when agents is empty array and no type present", async () => {
 		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ agents: [] }));
 
-		await expect(readConfig("/some/dir")).rejects.toThrow(ConfigError);
-		await expect(readConfig("/some/dir")).rejects.toThrow(
-			"Invalid agntc.json: agents must not be empty",
+		const result = await readConfig("/some/dir");
+		expect(result).toBeNull();
+	});
+
+	it("returns null when JSON is not an object and no type present", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify("just a string"));
+
+		const result = await readConfig("/some/dir");
+		expect(result).toBeNull();
+	});
+
+	it("returns null when agents is non-array and no type present", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: "claude" }),
 		);
+
+		const result = await readConfig("/some/dir");
+		expect(result).toBeNull();
+	});
+
+	it("returns null when all agents unknown and no type present", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: ["unknown1", "unknown2"] }),
+		);
+		const onWarn = vi.fn();
+
+		const result = await readConfig("/some/dir", { onWarn });
+		expect(result).toBeNull();
+		expect(onWarn).toHaveBeenCalledTimes(2);
 	});
 
 	it("warns for unknown agent and filters it out", async () => {
@@ -148,17 +167,6 @@ describe("readConfig", () => {
 		expect(onWarn).toHaveBeenCalledWith(expect.stringContaining("bad2"));
 	});
 
-	it("returns empty known agents when all unknown (warns for each)", async () => {
-		vi.mocked(fs.readFile).mockResolvedValue(
-			JSON.stringify({ agents: ["unknown1", "unknown2"] }),
-		);
-		const onWarn = vi.fn();
-
-		const result = await readConfig("/some/dir", { onWarn });
-		expect(result).toEqual({ agents: [] });
-		expect(onWarn).toHaveBeenCalledTimes(2);
-	});
-
 	it("does not call onWarn when all agents known", async () => {
 		vi.mocked(fs.readFile).mockResolvedValue(
 			JSON.stringify({ agents: ["claude", "codex"] }),
@@ -169,7 +177,7 @@ describe("readConfig", () => {
 		expect(onWarn).not.toHaveBeenCalled();
 	});
 
-	it("propagates permission denied errors", async () => {
+	it("propagates permission denied errors unchanged (not ConfigError)", async () => {
 		const err = Object.assign(new Error("EACCES: permission denied"), {
 			code: "EACCES",
 		});
@@ -194,5 +202,81 @@ describe("readConfig", () => {
 			path.join("/my/repo", "agntc.json"),
 			"utf-8",
 		);
+	});
+
+	it("retains a type-only config with empty agents (configless skills-only bundle)", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ type: "plugin" }),
+		);
+
+		const result = await readConfig("/some/dir");
+		expect(result).toEqual({ agents: [], type: "plugin" });
+	});
+
+	it("retains a type-bearing config when agents is empty array", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ type: "plugin", agents: [] }),
+		);
+
+		const result = await readConfig("/some/dir");
+		expect(result).toEqual({ agents: [], type: "plugin" });
+	});
+
+	it("retains a type-bearing config when all agents are unknown", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ type: "plugin", agents: ["unknown1", "unknown2"] }),
+		);
+		const onWarn = vi.fn();
+
+		const result = await readConfig("/some/dir", { onWarn });
+		expect(result).toEqual({ agents: [], type: "plugin" });
+		expect(onWarn).toHaveBeenCalledTimes(2);
+	});
+
+	it("reads optional type when present alongside known agents", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: ["claude"], type: "plugin" }),
+		);
+
+		const result = await readConfig("/some/dir");
+		expect(result).toEqual({ agents: ["claude"], type: "plugin" });
+	});
+
+	it("passes through unrecognised type verbatim", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: ["claude"], type: "something-unknown" }),
+		);
+
+		const result = await readConfig("/some/dir");
+		expect(result).toEqual({ agents: ["claude"], type: "something-unknown" });
+	});
+
+	it("ignores unknown extra top-level keys without warning", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: ["claude"], name: "test", extra: 42 }),
+		);
+		const onWarn = vi.fn();
+
+		const result = await readConfig("/some/dir", { onWarn });
+		expect(result).toEqual({ agents: ["claude"] });
+		expect(onWarn).not.toHaveBeenCalled();
+	});
+
+	it("filters unknown agents but keeps known ones with type", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(
+			JSON.stringify({ agents: ["claude", "unknown1"], type: "plugin" }),
+		);
+		const onWarn = vi.fn();
+
+		const result = await readConfig("/some/dir", { onWarn });
+		expect(result).toEqual({ agents: ["claude"], type: "plugin" });
+		expect(onWarn).toHaveBeenCalledTimes(1);
+	});
+
+	it("ignores a non-string type when no usable agents present", async () => {
+		vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify({ type: 123 }));
+
+		const result = await readConfig("/some/dir");
+		expect(result).toBeNull();
 	});
 });

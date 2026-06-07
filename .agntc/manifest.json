@@ -1,8 +1,8 @@
 {
   "leeovery/agentic-workflows": {
-    "ref": "v0.4.22",
-    "commit": "d428529fc03cfacd768f80ad9f3343e3bb213ff7",
-    "installedAt": "2026-06-04T11:08:49.579Z",
+    "ref": "v0.4.24",
+    "commit": "0375bc7d2fc45bff585503d743618e2983651025",
+    "installedAt": "2026-06-07T09:42:44.612Z",
     "agents": [
       "claude"
     ],
@@ -234,6 +234,7 @@
       ".claude/skills/workflow-migrate/scripts/migrations/040-rename-inception-to-discovery.sh",
       ".claude/skills/workflow-migrate/scripts/migrations/041-split-analysis-cycle-counter.sh",
       ".claude/skills/workflow-migrate/scripts/migrations/042-allow-workflows-writes.sh",
+      ".claude/skills/workflow-migrate/scripts/migrations/043-handled-umbrellas-and-restamp-caches.sh",
       ".claude/skills/workflow-planning-entry/",
       ".claude/skills/workflow-planning-entry/SKILL.md",
       ".claude/skills/workflow-planning-entry/references/",
@@ -352,6 +353,7 @@
       ".claude/skills/workflow-scoping-process/references/write-tasks.md",
       ".claude/skills/workflow-shared/",
       ".claude/skills/workflow-shared/references/",
+      ".claude/skills/workflow-shared/references/analysis-approval-gate.md",
       ".claude/skills/workflow-shared/references/background-agent-surfacing.md",
       ".claude/skills/workflow-shared/references/casing-conventions.md",
       ".claude/skills/workflow-shared/references/compliance-check.md",

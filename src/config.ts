@@ -5,6 +5,7 @@ import { errorMessage, isNodeError } from "./errors.js";
 
 export interface AgntcConfig {
 	agents: AgentId[];
+	type?: string;
 }
 
 export const KNOWN_AGENTS = ["claude", "codex", "cursor"] as const;
@@ -40,17 +41,39 @@ export async function readConfig(
 	try {
 		parsed = JSON.parse(raw);
 	} catch (err: unknown) {
-		throw new ConfigError(`Invalid agntc.json: ${errorMessage(err)}`);
+		options?.onWarn?.(`Ignoring malformed agntc.json: ${errorMessage(err)}`);
+		return null;
 	}
 
-	if (typeof parsed !== "object" || parsed === null || !("agents" in parsed)) {
-		throw new ConfigError("Invalid agntc.json: agents field is required");
+	if (typeof parsed !== "object" || parsed === null) {
+		return null;
 	}
 
-	const { agents } = parsed as { agents: unknown };
+	const { agents, type } = parsed as { agents?: unknown; type?: unknown };
 
-	if (!Array.isArray(agents) || agents.length === 0) {
-		throw new ConfigError("Invalid agntc.json: agents must not be empty");
+	const filtered = filterKnownAgents(agents, options);
+	const rawType = typeof type === "string" ? type : undefined;
+
+	if (filtered.length > 0) {
+		return {
+			agents: filtered,
+			...(rawType !== undefined ? { type: rawType } : {}),
+		};
+	}
+
+	if (rawType !== undefined) {
+		return { agents: [], type: rawType };
+	}
+
+	return null;
+}
+
+function filterKnownAgents(
+	agents: unknown,
+	options?: ReadConfigOptions,
+): AgentId[] {
+	if (!Array.isArray(agents)) {
+		return [];
 	}
 
 	const knownSet = new Set<string>(KNOWN_AGENTS);
@@ -64,5 +87,5 @@ export async function readConfig(
 		}
 	}
 
-	return { agents: filtered };
+	return filtered;
 }
