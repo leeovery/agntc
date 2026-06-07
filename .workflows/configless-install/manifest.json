@@ -89,7 +89,7 @@
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
           "analysis_gate_mode": "gated",
-          "fix_attempts": 1,
+          "fix_attempts": 0,
           "analysis_cycle_total": 0,
           "analysis_cycle_session": 0,
           "linters": [
@@ -107,7 +107,7 @@
             ".claude/skills/typescript-advanced-types",
             ".claude/skills/typescript-pro"
           ],
-          "current_phase": 4,
+          "current_phase": 5,
           "current_task": "~",
           "completed_tasks": [
             "configless-install-1-1",
@@ -130,7 +130,8 @@
             "configless-install-4-4",
             "configless-install-4-5",
             "configless-install-4-6",
-            "configless-install-4-7"
+            "configless-install-4-7",
+            "configless-install-5-1"
           ],
           "completed_phases": [
             1,
