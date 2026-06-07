@@ -8,7 +8,7 @@ total_proposed: 2
 Discarded (with reasons): per-unit install-tail extraction [med] — hot-path refactor risk > value, sub-pieces already shared (buildManifestEntry/toComputeInput/copyUnit), paths legitimately diverge; forcePlugin-overload [med] — design clarity on a cycle-2-verified seam, edge case unrealizable (gated by memberHasAssetDirs), no current bug; check-failed exit divergence [low] — spec-unenumerated, already out-of-scope at 4-7, behaviour-changing; detectType standalone-invariant [low] — author-marked optional, benign/correct today.
 
 ## Task 1: Remove dead buildFailureMessage paralleling the centralised failureMessage
-status: pending
+status: approved
 severity: low
 sources: duplication
 
@@ -35,7 +35,7 @@ sources: duplication
 - A test asserting the no-agents helper returns the expected sentence for a given key.
 
 ## Task 2: Consolidate the symlink-escape scan-and-narrow block across the three install/replay sites
-status: pending
+status: approved
 severity: medium
 sources: duplication
 

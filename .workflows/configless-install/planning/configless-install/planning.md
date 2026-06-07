@@ -192,3 +192,14 @@ approved_at: 2026-06-06
 |-------------|------|------------|
 | configless-install-analysis-3-1 | Give update's symlink-escape its own copy-safety outcome and message | escaping symlink on update yields copy-safety/blocked message (no "type no longer supported" / remove+add), install + manifest left intact, aborted/buildAbortMessage reserved for genuine recorded-type mismatches, add and update describe the violation with consistent copy-safety framing |
 | configless-install-analysis-3-2 | Extract a shared CloneReinstallFailure-to-message helper for the two list actions | both list actions surface the same helper-produced message for every CloneReinstallFailure variant, change-version success still strips constraint while update success does not, success discriminators (success vs changed) + messages unchanged, processUpdateForAll untouched, no duplicated mapCloneFailure handler object remains |
+
+### Phase 9: Analysis (Cycle 4)
+
+**Goal**: Address findings from Analysis (Cycle 4).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-4-1 | Remove dead buildFailureMessage paralleling the centralised failureMessage | dead function deleted, no production caller, no-agents sentence single source of truth across clone-reinstall.ts:434 + update.ts:216 + failureMessage, buildFailureMessage tests removed/migrated, no behaviour change |
+| configless-install-analysis-4-2 | Consolidate the symlink-escape scan-and-narrow block across the three install/replay sites | single copy-safety helper returns discriminated ok result, three call sites drop instanceof narrowing, standalone cancel+ExitSignal(1) / member failed-result+continue / pipeline blocked-status preserved, non-SymlinkEscapeError errors still propagate, scan boundaries unchanged |
