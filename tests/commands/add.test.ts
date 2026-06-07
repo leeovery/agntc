@@ -3875,12 +3875,12 @@ describe("add command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockCancel).toHaveBeenCalledWith(
-				expect.stringContaining("owner/my-collection/pluginA"),
-			);
-			expect(mockCancel).toHaveBeenCalledWith(
-				expect.stringContaining("cannot bundle"),
-			);
+			const message = mockCancel.mock.calls[0]![0] as string;
+			expect(message).toContain("owner/my-collection/pluginA");
+			// Conflict triggered by the --plugin flag → flag-attributed message.
+			expect(message).toContain("--plugin flag");
+			expect(message).not.toContain("declares type plugin");
+			expect(message).toContain("cannot bundle");
 			expect(mockAddEntry).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
@@ -6173,7 +6173,8 @@ describe("add command", () => {
 			expect(mockCancel).not.toHaveBeenCalled();
 		});
 
-		it("--plugin on a bare skill is a hard error naming the source (no copy, no manifest)", async () => {
+		it("--plugin on a bare skill is a hard error attributing the conflict to the flag (no copy, no manifest)", async () => {
+			// No config type:plugin — the conflict is triggered by the --plugin flag.
 			mockReadConfig.mockResolvedValue(null);
 			mockDetectType.mockRejectedValue(
 				new TypeConflictError("the source is a bare skill — cannot bundle"),
@@ -6185,19 +6186,22 @@ describe("add command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockCancel).toHaveBeenCalledWith(
-				expect.stringContaining("owner/my-skill"),
-			);
-			expect(mockCancel).toHaveBeenCalledWith(
-				expect.stringContaining("cannot bundle"),
-			);
+			const message = mockCancel.mock.calls[0]![0] as string;
+			// Names the source (manifestKey).
+			expect(message).toContain("owner/my-skill");
+			// Attributes to the --plugin flag, not a config declaration.
+			expect(message).toContain("--plugin flag");
+			expect(message).not.toContain("declares type plugin");
+			// Keeps the structural half from err.message.
+			expect(message).toContain("the source is a bare skill — cannot bundle");
 			expect(mockAddEntry).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
 		});
 
-		it("--plugin on a member-dirs collection is a hard error and never enters the pipeline", async () => {
+		it("--plugin on a member-dirs collection is a hard error attributing the conflict to the flag, never enters the pipeline", async () => {
+			// No config type:plugin — the conflict is triggered by the --plugin flag.
 			mockReadConfig.mockResolvedValue(null);
 			mockDetectType.mockRejectedValue(
 				new TypeConflictError(
@@ -6211,16 +6215,39 @@ describe("add command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockCancel).toHaveBeenCalledWith(
-				expect.stringContaining("owner/my-skill"),
-			);
-			expect(mockCancel).toHaveBeenCalledWith(
-				expect.stringContaining("cannot bundle"),
+			const message = mockCancel.mock.calls[0]![0] as string;
+			expect(message).toContain("owner/my-skill");
+			expect(message).toContain("--plugin flag");
+			expect(message).not.toContain("declares type plugin");
+			expect(message).toContain(
+				"its structure is a collection of 3 members — cannot bundle",
 			);
 			// Collection pipeline must not be entered.
 			expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
 			expect(mockAddEntry).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("config type:plugin (no --plugin flag) on a conflicting structure attributes the conflict to the config declaration", async () => {
+			// Config declares type:plugin; NO --plugin flag — config triggers the conflict.
+			mockReadConfig.mockResolvedValue({ agents: ["claude"], type: "plugin" });
+			mockDetectType.mockRejectedValue(
+				new TypeConflictError("the source is a bare skill — cannot bundle"),
+			);
+
+			const err = await runAdd("owner/my-skill").catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			const message = mockCancel.mock.calls[0]![0] as string;
+			expect(message).toContain("owner/my-skill");
+			expect(message).toContain("declares type plugin but");
+			expect(message).not.toContain("--plugin flag");
+			expect(message).toContain("the source is a bare skill — cannot bundle");
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
 		});
 
 		it("--plugin on a multi-asset plugin is a redundant no-op and installs normally", async () => {

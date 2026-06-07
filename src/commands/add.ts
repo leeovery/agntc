@@ -231,12 +231,19 @@ export async function runAdd(
 			});
 		} catch (err) {
 			if (err instanceof TypeConflictError) {
-				// Detector supplies the structural half; prepend the source identity
-				// so the message names the offending source (spec: hard errors name
-				// the source). Pre-flight, non-zero, before any copy/manifest write.
-				p.cancel(
-					`${parsed.manifestKey} declares type plugin but ${err.message}`,
-				);
+				// Detector supplies the structural half (err.message); prepend the
+				// source identity so the message names the offending source (spec: hard
+				// errors name the source). Pre-flight, non-zero, before any copy/manifest
+				// write. detectType raises this for EITHER override origin — the
+				// --plugin flag or a config `type: plugin` — so attribute it to the one
+				// that actually triggered it. The flag is the explicit user action and
+				// the higher-precedence override, so when set it owns the conflict; only
+				// otherwise did the config declaration trigger it.
+				const conflictMessage =
+					options?.forcePlugin === true
+						? `${parsed.manifestKey}: the --plugin flag cannot bundle this source — ${err.message}`
+						: `${parsed.manifestKey} declares type plugin but ${err.message}`;
+				p.cancel(conflictMessage);
 				throw new ExitSignal(1);
 			}
 			throw err;
