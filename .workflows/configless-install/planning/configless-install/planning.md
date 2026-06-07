@@ -181,3 +181,14 @@ approved_at: 2026-06-06
 | configless-install-analysis-2-5 | selectAgents must distinguish cancellation from deliberate empty-selection | discriminated cancelled|selected result, standalone emits single accurate cancel message (no emit-then-overwrite), collection-member empty-selection still skips per-member, assertions updated for new return shape |
 | configless-install-analysis-2-6 | Type-conflict error message must not attribute a --plugin-flag conflict to a config type plugin declaration | --plugin conflict on bare skill/members-collection names the flag, config type:plugin conflict names the config, non-zero pre-flight exit unchanged for both |
 | configless-install-analysis-2-7 | Remove the dead ConfigError class | ConfigError class + export removed from config.ts, no remaining references in codebase, config module exposes no error type, type-check + leniency tests pass |
+
+### Phase 8: Analysis (Cycle 3)
+
+**Goal**: Address findings from Analysis (Cycle 3).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-3-1 | Give update's symlink-escape its own copy-safety outcome and message | escaping symlink on update yields copy-safety/blocked message (no "type no longer supported" / remove+add), install + manifest left intact, aborted/buildAbortMessage reserved for genuine recorded-type mismatches, add and update describe the violation with consistent copy-safety framing |
+| configless-install-analysis-3-2 | Extract a shared CloneReinstallFailure-to-message helper for the two list actions | both list actions surface the same helper-produced message for every CloneReinstallFailure variant, change-version success still strips constraint while update success does not, success discriminators (success vs changed) + messages unchanged, processUpdateForAll untouched, no duplicated mapCloneFailure handler object remains |

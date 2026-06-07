@@ -8,7 +8,7 @@ total_proposed: 2
 Discarded (low, report-level): symlink scan+catch 3-site DRY (borderline rule-of-three, defer until a 4th site); config non-object returns null without onWarn (observability-only, spec-correct); manifestTypeFromDetected vs deriveTypeFromFiles two-site drift (real but low, spec-acceptable, no current defect).
 
 ## Task 1: Give update's symlink-escape its own copy-safety outcome and message
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -37,7 +37,7 @@ sources: architecture
 - Regression: add path symlink-escape still cancels with its identity-prefixed message; add and update framings are consistent.
 
 ## Task 2: Extract a shared CloneReinstallFailure-to-message helper for the two list actions
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
