@@ -935,29 +935,33 @@ describe("add command", () => {
 			expect(mockDetectAgents).toHaveBeenCalledTimes(1);
 		});
 
-		it("invalid agntc.json skips plugin with warning", async () => {
+		it("invalid agntc.json no longer skips a member — it installs configless", async () => {
+			// Under lenient readConfig an unusable member config returns null (never a
+			// ConfigError), so the member installs via the configless default rather
+			// than being skipped.
 			setupCollectionBase();
-			const { ConfigError } = await import("../../src/config.js");
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
-				if (dir.endsWith("/pluginA")) throw new ConfigError("bad json");
+				if (dir.endsWith("/pluginA")) return null;
 				return { agents: ["claude"] };
 			});
 			mockDetectType.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
 				return { type: "bare-skill" } as DetectedType;
 			});
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/pluginB/"],
-			});
+			mockComputeIncomingFiles.mockReturnValue([]);
+			mockCheckFileCollisions.mockReturnValue(new Map());
+			mockCheckUnmanagedConflicts.mockResolvedValue([]);
+			mockCopyBareSkill
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
 
 			await runAdd("owner/my-collection");
 
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("pluginA"),
-			);
-			// Only pluginB should be copied
-			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+			// pluginA (null config) is not skipped — both members install.
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			expect(warnCalls.some((m) => m.includes("skipping"))).toBe(false);
+			expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
 		});
 
 		it("missing agntc.json no longer skips a member — it installs configless", async () => {
@@ -1013,15 +1017,15 @@ describe("add command", () => {
 			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
 		});
 
-		it("all members skipped (ConfigError) completes without error, no manifest entries", async () => {
+		it("all members skipped (not-agntc) completes without error, no manifest entries", async () => {
 			setupCollectionBase();
-			const { ConfigError } = await import("../../src/config.js");
-			mockReadConfig.mockImplementation(async (dir) => {
-				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
-				throw new ConfigError("bad config");
+			mockReadConfig.mockResolvedValue(null);
+			// Every member detects as not-agntc => skipped (the only remaining
+			// per-member skip reason; config problems are lenient, never a skip).
+			mockDetectType.mockImplementation(async (dir) => {
+				if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+				return { type: "not-agntc" } as DetectedType;
 			});
-			// detectType still called for root
-			mockDetectType.mockResolvedValue(COLLECTION_DETECTED);
 
 			// Gate removed: all-skipped flows to summary like all-zero-match (no exit)
 			await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
@@ -1104,14 +1108,15 @@ describe("add command", () => {
 
 		it("notes skipped plugins in summary", async () => {
 			setupCollectionBase();
-			const { ConfigError } = await import("../../src/config.js");
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
-				if (dir.endsWith("/pluginA")) throw new ConfigError("bad config");
 				return { agents: ["claude"] };
 			});
 			mockDetectType.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+				// pluginA detects as not-agntc => skipped; pluginB installs.
+				if (dir.endsWith("/pluginA"))
+					return { type: "not-agntc" } as DetectedType;
 				return { type: "bare-skill" } as DetectedType;
 			});
 			mockCopyBareSkill.mockResolvedValue({
@@ -1329,14 +1334,12 @@ describe("add command", () => {
 				expect(outroCall).not.toMatch(/skipped/);
 			});
 
-			it("one plugin skipped (ConfigError) and another fails during copy — both tracked in summary", async () => {
+			it("one plugin skipped (not-agntc) and another fails during copy — both tracked in summary", async () => {
 				setupCollectionBase();
-				const { ConfigError } = await import("../../src/config.js");
-				// pluginA: ConfigError during readConfig => skipped
+				// pluginA: detects as not-agntc => skipped
 				// pluginB: succeeds readConfig but fails during copy
 				mockReadConfig.mockImplementation(async (dir) => {
 					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
-					if (dir.endsWith("/pluginA")) throw new ConfigError("invalid schema");
 					if (dir.endsWith("/pluginB")) return PLUGIN_B_CONFIG;
 					return null;
 				});
@@ -1368,7 +1371,6 @@ describe("add command", () => {
 					plugins: ["pluginA", "pluginB", "pluginC"],
 				};
 				setupCollectionBase();
-				const { ConfigError } = await import("../../src/config.js");
 				mockSelectCollectionPlugins.mockResolvedValue([
 					"pluginA",
 					"pluginB",
@@ -1377,14 +1379,16 @@ describe("add command", () => {
 				mockDetectType.mockImplementation(async (dir) => {
 					if (dir === COLLECTION_CLONE_RESULT.tempDir)
 						return THREE_PLUGIN_DETECTED;
+					// pluginC detects as not-agntc => skipped.
+					if (dir.endsWith("/pluginC"))
+						return { type: "not-agntc" } as DetectedType;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				// pluginA: valid config, will be installed
 				// pluginB: valid config, copy will fail
-				// pluginC: ConfigError => skipped
+				// pluginC: not-agntc => skipped
 				mockReadConfig.mockImplementation(async (dir) => {
 					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
-					if (dir.endsWith("/pluginC")) throw new ConfigError("malformed json");
 					return { agents: ["claude"] };
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1412,6 +1416,32 @@ describe("add command", () => {
 				expect(outroCall).toContain("pluginA");
 				expect(outroCall).toMatch(/pluginB: failed — disk full/);
 				expect(outroCall).toMatch(/1 skipped/);
+			});
+
+			it("a child IO error still propagates (not swallowed by ConfigError catch)", async () => {
+				setupCollectionBase();
+				// A genuine non-ENOENT IO error (EACCES) from a member's readConfig is
+				// NOT a config-leniency case — it must abort the whole pipeline via the
+				// outer catch (exit 1), never be swallowed as a per-member skip.
+				const ioError = Object.assign(new Error("permission denied"), {
+					code: "EACCES",
+				});
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					if (dir.endsWith("/pluginA")) throw ioError;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				expect(mockAddEntry).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
 			});
 		});
 

@@ -7,7 +7,7 @@ import { checkFileCollisions } from "../collision-check.js";
 import { resolveCollisions } from "../collision-resolve.js";
 import { computeIncomingFiles } from "../compute-incoming-files.js";
 import type { AgntcConfig } from "../config.js";
-import { ConfigError, readConfig } from "../config.js";
+import { readConfig } from "../config.js";
 import { copyBareSkill } from "../copy-bare-skill.js";
 import type { AssetCounts } from "../copy-plugin-assets.js";
 import { copyPluginAssets } from "../copy-plugin-assets.js";
@@ -402,24 +402,19 @@ async function runCollectionPipeline(
 
 	// 3. Read each selected member's config ONLY for its declared agents. The
 	// member set is selectedPlugins (populated structurally upstream via Phase 1
-	// qualifiesAsMember) — config presence is NOT membership. A null config is a
-	// legitimate configless member, stored as null (never a skip reason). Agent
+	// qualifiesAsMember) — config presence is NOT membership. readConfig is total:
+	// it returns AgntcConfig for a valid config and null for a missing or unusable
+	// one (a legitimate configless member, never a skip reason). It never throws for
+	// config problems; only a genuine non-ENOENT IO error propagates, and that
+	// SHOULD abort the whole pipeline (surfaced via runAdd's outer catch). Agent
 	// resolution is per-member (step 5a): each member runs the Phase 1 selectAgents
 	// contract against its own declared ceiling, so there is no cross-member union.
 	const pluginConfigs = new Map<string, AgntcConfig | null>();
 
 	for (const pluginName of selectedPlugins) {
 		const pluginDir = join(sourceDir, pluginName);
-		try {
-			const pluginConfig = await readConfig(pluginDir, { onWarn });
-			pluginConfigs.set(pluginName, pluginConfig);
-		} catch (err) {
-			if (err instanceof ConfigError) {
-				onWarn(`${pluginName}: ${err.message} — skipping`);
-				continue;
-			}
-			throw err;
-		}
+		const pluginConfig = await readConfig(pluginDir, { onWarn });
+		pluginConfigs.set(pluginName, pluginConfig);
 	}
 
 	// 4. Detect agents once for the whole collection (member-independent signal
@@ -441,18 +436,10 @@ async function runCollectionPipeline(
 	}> = [];
 
 	for (const pluginName of selectedPlugins) {
-		// A configless member is present in the map with a null config and must
-		// proceed (configless default). Only genuine read failures (ConfigError,
-		// owned by 3-3) leave a member absent from the map — those stay skipped.
-		if (!pluginConfigs.has(pluginName)) {
-			results.push({
-				pluginName,
-				status: "skipped",
-				copiedFiles: [],
-				agents: [],
-			});
-			continue;
-		}
+		// Every selected member is present in the map after step 3 (readConfig is
+		// total — it never throws for config problems, so no member is ever absent).
+		// A null config is a legitimate configless member that proceeds via the
+		// configless default; it is never a skip reason here.
 		const pluginConfig = pluginConfigs.get(pluginName) ?? null;
 
 		const pluginDir = join(sourceDir, pluginName);
