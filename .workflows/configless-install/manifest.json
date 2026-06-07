@@ -132,7 +132,8 @@
             "configless-install-4-6",
             "configless-install-4-7",
             "configless-install-5-1",
-            "configless-install-5-2"
+            "configless-install-5-2",
+            "configless-install-5-3"
           ],
           "completed_phases": [
             1,

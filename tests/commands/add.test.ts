@@ -131,6 +131,26 @@ vi.mock("../../src/unmanaged-resolve.js", () => ({
 	resolveUnmanagedConflicts: vi.fn(),
 }));
 
+vi.mock("../../src/copy-safety.js", () => ({
+	assertSubpathWithinClone: vi.fn(),
+	scanForEscapingSymlinks: vi.fn(),
+	// Real throwable classes so `instanceof` in the add command's catch works.
+	PathTraversalError: class PathTraversalError extends Error {
+		constructor(subpath: string) {
+			super(`subpath "${subpath}" resolves outside the clone root`);
+			this.name = "PathTraversalError";
+		}
+	},
+	SymlinkEscapeError: class SymlinkEscapeError extends Error {
+		constructor(relPath: string, target: string) {
+			super(
+				`symlink "${relPath}" points outside the clone (target: ${target})`,
+			);
+			this.name = "SymlinkEscapeError";
+		}
+	},
+}));
+
 import * as p from "@clack/prompts";
 import { selectAgents } from "../../src/agent-select.js";
 import { selectCollectionPlugins } from "../../src/collection-select.js";
@@ -141,6 +161,12 @@ import { computeIncomingFiles } from "../../src/compute-incoming-files.js";
 import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
+import {
+	assertSubpathWithinClone,
+	PathTraversalError,
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
+} from "../../src/copy-safety.js";
 import { detectAgents } from "../../src/detect-agents.js";
 import { getDriver } from "../../src/drivers/registry.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
@@ -179,6 +205,8 @@ const mockCheckFileCollisions = vi.mocked(checkFileCollisions);
 const mockResolveCollisions = vi.mocked(resolveCollisions);
 const mockCheckUnmanagedConflicts = vi.mocked(checkUnmanagedConflicts);
 const mockResolveUnmanagedConflicts = vi.mocked(resolveUnmanagedConflicts);
+const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
+const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockIntro = vi.mocked(p.intro);
 const mockOutro = vi.mocked(p.outro);
 const mockSpinner = vi.mocked(p.spinner);
@@ -254,6 +282,8 @@ function setupHappyPath(): void {
 		cancelled: [],
 	});
 	mockCleanupTempDir.mockResolvedValue(undefined);
+	mockAssertSubpathWithinClone.mockReturnValue(undefined);
+	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 }
 
 let mockCwd: ReturnType<typeof vi.spyOn>;
@@ -723,7 +753,10 @@ describe("add command", () => {
 			});
 
 			it("config type plugin records type plugin", async () => {
-				mockReadConfig.mockResolvedValue({ agents: ["claude"], type: "plugin" });
+				mockReadConfig.mockResolvedValue({
+					agents: ["claude"],
+					type: "plugin",
+				});
 				mockDetectType.mockResolvedValue({
 					type: "plugin",
 					assetDirs: ["skills"],
@@ -1241,7 +1274,8 @@ describe("add command", () => {
 					return { agents: ["claude"] };
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					if (dir.endsWith("/pluginA"))
 						return { type: "bare-skill" } as DetectedType;
 					return { type: "plugin", assetDirs: ["skills"] } as DetectedType;
@@ -1269,7 +1303,8 @@ describe("add command", () => {
 					return { agents: ["claude"] };
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					if (dir.endsWith("/pluginA"))
 						return { type: "bare-skill" } as DetectedType;
 					return { type: "plugin", assetDirs: ["skills"] } as DetectedType;
@@ -1307,7 +1342,8 @@ describe("add command", () => {
 					return { agents: ["claude"] };
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					// pluginA skipped (not-agntc); pluginB installs as bare skill.
 					if (dir.endsWith("/pluginA"))
 						return { type: "not-agntc" } as DetectedType;
@@ -1363,7 +1399,9 @@ describe("add command", () => {
 					copiedFiles: [".claude/skills/pluginA/"],
 				});
 
-				await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+				await runAdd(
+					"https://github.com/owner/my-collection/tree/main/pluginA",
+				);
 
 				expect(entryForKey("owner/my-collection/pluginA")?.type).toBe("skill");
 			});
@@ -1676,7 +1714,11 @@ describe("add command", () => {
 						copiedFiles: [".claude/skills/pluginB/"],
 					});
 
-				await runAdd("owner/my-collection");
+				// A failed member now exits non-zero AFTER committing siblings (spec:
+				// Partial outcomes — multi-member install exit-status contract).
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
 
 				// addEntry should only be called for pluginB
 				expect(mockAddEntry).toHaveBeenCalledTimes(1);
@@ -1689,12 +1731,14 @@ describe("add command", () => {
 				);
 			});
 
-			it("all plugin copies fail — no manifest entries, exits 0, summary shows failures", async () => {
+			it("all plugin copies fail — no manifest entries, exits non-zero after summary", async () => {
 				setupCollectionForFailure();
 				mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-				// Should not throw — exits 0 with summary
-				await runAdd("owner/my-collection");
+				// A failed member exits non-zero, but only after the write + summary.
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
 
 				// No addEntry calls for failed plugins
 				expect(mockAddEntry).not.toHaveBeenCalled();
@@ -1714,7 +1758,7 @@ describe("add command", () => {
 						copiedFiles: [".claude/skills/pluginB/"],
 					});
 
-				await runAdd("owner/my-collection");
+				await runAdd("owner/my-collection").catch(() => {});
 
 				// pluginB was still copied despite pluginA failing
 				expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
@@ -1732,7 +1776,7 @@ describe("add command", () => {
 						copiedFiles: [".claude/skills/pluginB/"],
 					});
 
-				await runAdd("owner/my-collection");
+				await runAdd("owner/my-collection").catch(() => {});
 
 				expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			});
@@ -1745,7 +1789,7 @@ describe("add command", () => {
 						copiedFiles: [".claude/skills/pluginB/"],
 					});
 
-				await runAdd("owner/my-collection");
+				await runAdd("owner/my-collection").catch(() => {});
 
 				const outroCall = mockOutro.mock.calls[0]![0] as string;
 				expect(outroCall).toMatch(/pluginA: failed — ENOSPC: no space left/);
@@ -1811,7 +1855,11 @@ describe("add command", () => {
 				mockCheckUnmanagedConflicts.mockResolvedValue([]);
 				mockCopyBareSkill.mockRejectedValueOnce(new Error("permission denied"));
 
-				await runAdd("owner/my-collection");
+				// A failed member (pluginB) exits non-zero; a skipped member alone
+				// would not. Side effects (summary, no entries) still hold.
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
 
 				// No manifest entries — one skipped, one failed
 				expect(mockAddEntry).not.toHaveBeenCalled();
@@ -1857,7 +1905,10 @@ describe("add command", () => {
 					})
 					.mockRejectedValueOnce(new Error("disk full"));
 
-				await runAdd("owner/my-collection");
+				// pluginB failed -> non-zero exit after committing pluginA + summary.
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
 
 				// Only pluginA should get a manifest entry
 				expect(mockAddEntry).toHaveBeenCalledTimes(1);
@@ -2732,7 +2783,9 @@ describe("add command", () => {
 				expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
 				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
 				expect(mockAddEntry).toHaveBeenCalledTimes(1);
-				expect(mockAddEntry.mock.calls[0]![1]).toBe("owner/my-collection/pluginA");
+				expect(mockAddEntry.mock.calls[0]![1]).toBe(
+					"owner/my-collection/pluginA",
+				);
 			});
 
 			it("select-all (non-direct-path) presents the structural list and installs every member", async () => {
@@ -2741,7 +2794,8 @@ describe("add command", () => {
 				setupCollectionBase();
 				mockReadConfig.mockResolvedValue(null);
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -2820,7 +2874,8 @@ describe("add command", () => {
 					return { agents: ["claude"] };
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" };
 				});
 
@@ -2851,7 +2906,8 @@ describe("add command", () => {
 					return { agents: ["claude"] };
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" };
 				});
 
@@ -2957,7 +3013,8 @@ describe("add command", () => {
 					return { agents: ["claude"] };
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" };
 				});
 
@@ -2979,7 +3036,8 @@ describe("add command", () => {
 					return { agents: ["claude"] };
 				});
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" };
 				});
 
@@ -3004,7 +3062,8 @@ describe("add command", () => {
 				// configType:"collection" is not "plugin" → detectType lets structure
 				// stand (no conflict). Root call returns the collection.
 				mockDetectType.mockImplementation(async (dir) => {
-					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
 					return { type: "bare-skill" };
 				});
 
@@ -5916,6 +5975,372 @@ describe("add command", () => {
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 			// Temp dir still cleaned up.
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+		});
+	});
+
+	describe("copy-safety pre-flight", () => {
+		describe("standalone", () => {
+			it("whole-repo bare skill runs symlink scan over unit dir + no-op traversal guard", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+
+				await runAdd("owner/my-skill");
+
+				// Symlink scan: unitDir === cloneRoot === sourceDir (tempDir).
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					CLONE_RESULT.tempDir,
+					CLONE_RESULT.tempDir,
+				);
+				// Traversal guard runs but with no selector (no-op).
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					CLONE_RESULT.tempDir,
+					undefined,
+				);
+				expect(mockCopyBareSkill).toHaveBeenCalled();
+			});
+
+			it("local-path source scans with cloneRoot = resolved local path", async () => {
+				mockParseSource.mockReturnValue({
+					type: "local-path",
+					resolvedPath: "/Users/lee/Code/my-skill",
+					ref: null,
+					manifestKey: "/Users/lee/Code/my-skill",
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+
+				await runAdd("/Users/lee/Code/my-skill");
+
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					"/Users/lee/Code/my-skill",
+					"/Users/lee/Code/my-skill",
+				);
+			});
+
+			it("standalone symlink scan boundary is clone root, not unit dir, for a tree-path unit", async () => {
+				const UNIT_DIR = `${CLONE_RESULT.tempDir}/pluginA`;
+				mockParseSource.mockReturnValue({
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "pluginA",
+					manifestKey: "owner/my-collection/pluginA",
+					cloneUrl: "https://github.com/owner/my-collection.git",
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+
+				await runAdd(
+					"https://github.com/owner/my-collection/tree/main/pluginA",
+				);
+
+				// unitDir is the subdir; boundary stays the clone root (tempDir).
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					UNIT_DIR,
+					CLONE_RESULT.tempDir,
+				);
+				// Traversal guard validates the selector subpath against the clone root.
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					CLONE_RESULT.tempDir,
+					"pluginA",
+				);
+			});
+
+			it("selector subpath escaping clone errors pre-flight before any copy/nuke/write", async () => {
+				mockParseSource.mockReturnValue({
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "../evil",
+					manifestKey: "owner/my-collection/../evil",
+					cloneUrl: "https://github.com/owner/my-collection.git",
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+				mockAssertSubpathWithinClone.mockImplementation(() => {
+					throw new PathTraversalError("../evil");
+				});
+
+				const err = await runAdd(
+					"https://github.com/owner/my-collection/tree/main/../evil",
+				).catch((e) => e);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				// Identity-prefixed cancel with the guard message.
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("owner/my-collection/../evil"),
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("resolves outside the clone root"),
+				);
+				// No mutation.
+				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
+			});
+
+			it("valid subpath but escaping symlink errors pre-flight before any copy/nuke/write", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+				mockScanForEscapingSymlinks.mockRejectedValue(
+					new SymlinkEscapeError("bad-link", "/etc/passwd"),
+				);
+
+				const err = await runAdd("owner/my-skill").catch((e) => e);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("owner/my-skill"),
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("points outside the clone"),
+				);
+				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
+			});
+
+			it("scan runs BEFORE nukeManifestFiles on reinstall", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+				const existing: Manifest = {
+					"owner/my-skill": {
+						ref: "main",
+						commit: "old",
+						installedAt: "2026-01-01T00:00:00.000Z",
+						agents: ["claude"],
+						files: [".claude/skills/my-skill/"],
+					},
+				};
+				mockReadManifest.mockResolvedValue(existing);
+				const order: string[] = [];
+				mockScanForEscapingSymlinks.mockImplementation(async () => {
+					order.push("scan");
+				});
+				mockNukeManifestFiles.mockImplementation(async () => {
+					order.push("nuke");
+					return { removed: [], skipped: [] };
+				});
+
+				await runAdd("owner/my-skill");
+
+				expect(order).toEqual(["scan", "nuke"]);
+			});
+		});
+
+		describe("collection", () => {
+			const COLLECTION_PARSED: ParsedSource = {
+				type: "github-shorthand",
+				owner: "owner",
+				repo: "my-collection",
+				ref: "main",
+				manifestKey: "owner/my-collection",
+			};
+			const COLLECTION_CLONE_RESULT: CloneResult = {
+				tempDir: "/tmp/agntc-coll123",
+				commit: "coll123def456",
+			};
+			const COLLECTION_DETECTED: DetectedType = {
+				type: "collection",
+				plugins: ["pluginA", "pluginB"],
+			};
+
+			function setupCollection(): void {
+				mockParseSource.mockReturnValue(COLLECTION_PARSED);
+				mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/x/"],
+				});
+			}
+
+			it("scans each member independently against the clone root before its copy", async () => {
+				setupCollection();
+
+				await runAdd("owner/my-collection");
+
+				// Each member dir scanned with the clone root as boundary (not unitDir).
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					`${COLLECTION_CLONE_RESULT.tempDir}/pluginA`,
+					COLLECTION_CLONE_RESULT.tempDir,
+				);
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					`${COLLECTION_CLONE_RESULT.tempDir}/pluginB`,
+					COLLECTION_CLONE_RESULT.tempDir,
+				);
+			});
+
+			it("member with escaping symlink reported failed while siblings install", async () => {
+				setupCollection();
+				mockScanForEscapingSymlinks.mockImplementation(async (unitDir) => {
+					if (unitDir === `${COLLECTION_CLONE_RESULT.tempDir}/pluginA`) {
+						throw new SymlinkEscapeError("bad-link", "/etc/passwd");
+					}
+				});
+
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+
+				// pluginB installs, pluginA does not.
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toContain("owner/my-collection/pluginB");
+				expect(keys).not.toContain("owner/my-collection/pluginA");
+				// Manifest still written (siblings commit).
+				expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+				// Summary rendered.
+				expect(mockOutro).toHaveBeenCalled();
+				// Non-zero exit after the write + summary.
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				// Failed member surfaced in the summary.
+				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				expect(outroCall).toContain("pluginA");
+				expect(outroCall).toMatch(/failed/i);
+			});
+
+			it("write + summary happen BEFORE the non-zero exit on a failed member", async () => {
+				setupCollection();
+				mockScanForEscapingSymlinks.mockImplementation(async (unitDir) => {
+					if (unitDir === `${COLLECTION_CLONE_RESULT.tempDir}/pluginA`) {
+						throw new SymlinkEscapeError("bad-link", "/etc/passwd");
+					}
+				});
+				const order: string[] = [];
+				mockWriteManifest.mockImplementation(async () => {
+					order.push("write");
+				});
+				mockOutro.mockImplementation(() => {
+					order.push("summary");
+				});
+
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect(order).toEqual(["write", "summary"]);
+			});
+
+			it("member scan runs BEFORE that member's nuke on reinstall", async () => {
+				setupCollection();
+				mockReadManifest.mockResolvedValue({
+					"owner/my-collection/pluginA": {
+						ref: "main",
+						commit: "old",
+						installedAt: "2026-01-01T00:00:00.000Z",
+						agents: ["claude"],
+						files: [".claude/skills/pluginA/"],
+					},
+				});
+				const order: string[] = [];
+				mockScanForEscapingSymlinks.mockImplementation(async (unitDir) => {
+					if (unitDir === `${COLLECTION_CLONE_RESULT.tempDir}/pluginA`) {
+						order.push("scan-A");
+					}
+				});
+				mockNukeManifestFiles.mockImplementation(async () => {
+					order.push("nuke-A");
+					return { removed: [], skipped: [] };
+				});
+
+				await runAdd("owner/my-collection").catch(() => {});
+
+				expect(order[0]).toBe("scan-A");
+				expect(order).toContain("nuke-A");
+				expect(order.indexOf("scan-A")).toBeLessThan(order.indexOf("nuke-A"));
+			});
+
+			it("a run whose only non-success outcome is skipped does NOT exit non-zero", async () => {
+				setupCollection();
+				// pluginA detects not-agntc (skipped); pluginB installs.
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "not-agntc" } as DetectedType;
+					return { type: "bare-skill" } as DetectedType;
+				});
+
+				await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+
+				expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+			});
+
+			it("direct-path collection member runs the traversal guard against the clone root", async () => {
+				const TREE_PARSED: ParsedSource = {
+					type: "direct-path",
+					owner: "owner",
+					repo: "my-collection",
+					ref: "main",
+					targetPlugin: "pluginA",
+					manifestKey: "owner/my-collection/pluginA",
+					cloneUrl: "https://github.com/owner/my-collection.git",
+				};
+				const unitDir = `${COLLECTION_CLONE_RESULT.tempDir}/pluginA`;
+				mockParseSource.mockReturnValue(TREE_PARSED);
+				mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				mockDetectType.mockImplementation(async (dir) => {
+					// The unit re-detects as a collection routing into the pipeline.
+					if (dir === unitDir) {
+						return { type: "collection", plugins: ["pluginA"] } as DetectedType;
+					}
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+
+				await runAdd(
+					"https://github.com/owner/my-collection/tree/main/pluginA",
+				);
+
+				// Boundary for the member scan is the true clone root (tempDir), not unitDir.
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					`${unitDir}/pluginA`,
+					COLLECTION_CLONE_RESULT.tempDir,
+				);
+				// Traversal guard validated the selector against the clone root.
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					COLLECTION_CLONE_RESULT.tempDir,
+					"pluginA",
+				);
+			});
 		});
 	});
 });

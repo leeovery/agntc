@@ -11,6 +11,12 @@ import { readConfig } from "../config.js";
 import { copyBareSkill } from "../copy-bare-skill.js";
 import type { AssetCounts } from "../copy-plugin-assets.js";
 import { copyPluginAssets } from "../copy-plugin-assets.js";
+import {
+	assertSubpathWithinClone,
+	PathTraversalError,
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
+} from "../copy-safety.js";
 import { detectAgents } from "../detect-agents.js";
 import { getDriver } from "../drivers/registry.js";
 import type { AgentId, AgentWithDriver } from "../drivers/types.js";
@@ -214,6 +220,7 @@ export async function runAdd(
 		if (detected.type === "collection") {
 			await runCollectionPipeline({
 				sourceDir: unitDir,
+				cloneRoot: sourceDir,
 				parsed,
 				commit,
 				detected,
@@ -252,6 +259,31 @@ export async function runAdd(
 			id,
 			driver: getDriver(id),
 		}));
+
+		// 9b. Copy-safety pre-flight (Phase 5). The clone root is the clone/source
+		// root (tempDir for a remote clone, the resolved local path otherwise) —
+		// NOT the per-unit unitDir, so a within-clone symlink in a multi-dir plugin
+		// is allowed. The traversal guard validates a tree-path selector subpath
+		// and is a no-op for a whole-repo install. Both run BEFORE any nuke/copy/
+		// manifest write, so a violation leaves no on-disk window. A violation maps
+		// to an identity-prefixed cancel + non-zero exit (mirrors the
+		// TypeConflictError pre-flight above).
+		try {
+			assertSubpathWithinClone(
+				sourceDir,
+				parsed.type === "direct-path" ? parsed.targetPlugin : undefined,
+			);
+			await scanForEscapingSymlinks(unitDir, sourceDir);
+		} catch (err) {
+			if (
+				err instanceof PathTraversalError ||
+				err instanceof SymlinkEscapeError
+			) {
+				p.cancel(`${parsed.manifestKey}: ${err.message}`);
+				throw new ExitSignal(1);
+			}
+			throw err;
+		}
 
 		// 10. Read manifest and nuke existing files if reinstalling
 		const manifest = await readManifest(projectDir);
@@ -365,6 +397,11 @@ export async function runAdd(
 
 interface CollectionPipelineInput {
 	sourceDir: string;
+	// The TRUE clone/source root (tempDir for a remote clone, resolved local path
+	// otherwise). Distinct from sourceDir, which for a direct-path collection is
+	// the unit dir (join(cloneRoot, targetPlugin)) per task 2-3. The symlink
+	// boundary is always the clone root, never the unit dir.
+	cloneRoot: string;
 	parsed: Awaited<ReturnType<typeof parseSource>>;
 	commit: string | null;
 	detected: Extract<DetectedType, { type: "collection" }>;
@@ -376,8 +413,16 @@ interface CollectionPipelineInput {
 async function runCollectionPipeline(
 	input: CollectionPipelineInput,
 ): Promise<void> {
-	const { sourceDir, parsed, commit, detected, onWarn, spin, constraint } =
-		input;
+	const {
+		sourceDir,
+		cloneRoot,
+		parsed,
+		commit,
+		detected,
+		onWarn,
+		spin,
+		constraint,
+	} = input;
 	const projectDir = process.cwd();
 
 	// 1. Read manifest
@@ -493,11 +538,40 @@ async function runCollectionPipeline(
 			driver: getDriver(id),
 		}));
 
-		// Nuke existing files if reinstalling this plugin
 		const pluginManifestKey =
 			parsed.type === "direct-path"
 				? parsed.manifestKey
 				: `${parsed.manifestKey}/${pluginName}`;
+
+		// Copy-safety pre-flight per member (Phase 5). Each member is scanned
+		// independently against the clone root (NOT the unit dir) BEFORE its own
+		// nuke/copy. A direct-path collection also validates the selector subpath
+		// against the clone root. A violation fails THIS member loudly (recorded
+		// failed, no nuke/copy/entry) but does NOT abort siblings — the non-zero
+		// exit is deferred to the end of the run.
+		try {
+			if (parsed.type === "direct-path") {
+				assertSubpathWithinClone(cloneRoot, parsed.targetPlugin);
+			}
+			await scanForEscapingSymlinks(pluginDir, cloneRoot);
+		} catch (err) {
+			if (
+				err instanceof PathTraversalError ||
+				err instanceof SymlinkEscapeError
+			) {
+				results.push({
+					pluginName,
+					status: "failed",
+					copiedFiles: [],
+					agents: [],
+					errorMessage: err.message,
+				});
+				continue;
+			}
+			throw err;
+		}
+
+		// Nuke existing files if reinstalling this plugin
 		const existingPluginEntry = currentManifest[pluginManifestKey];
 		if (existingPluginEntry) {
 			try {
@@ -649,6 +723,15 @@ async function runCollectionPipeline(
 			results,
 		}),
 	);
+
+	// 8. Non-zero exit on partial failure (spec: Partial outcomes — the exit-status
+	// contract covers multi-member installs). Deferred to AFTER the write + summary
+	// so siblings commit and the full report is shown first (mirrors 4-7). A skipped
+	// member (nested-collection / not-agntc) is NON-fatal; only a failed member
+	// (a copy-safety violation, or a copy failure) triggers the non-zero exit.
+	if (results.some((r) => r.status === "failed")) {
+		throw new ExitSignal(1);
+	}
 }
 
 export const addCommand = new Command("add")
