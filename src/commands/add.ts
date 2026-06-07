@@ -171,7 +171,6 @@ export async function runAdd(source: string): Promise<void> {
 		// 4. Handle null config — detect if collection
 		if (config === null) {
 			const detected = await detectType(sourceDir, {
-				hasConfig: false,
 				onWarn,
 			});
 
@@ -197,7 +196,6 @@ export async function runAdd(source: string): Promise<void> {
 
 		// 5. Detect type (standalone)
 		const detected = await detectType(sourceDir, {
-			hasConfig: true,
 			onWarn,
 		});
 
@@ -449,7 +447,6 @@ async function runCollectionPipeline(
 
 		const pluginDir = join(sourceDir, pluginName);
 		const pluginDetected = await detectType(pluginDir, {
-			hasConfig: true,
 			onWarn,
 		});
 

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,69 +33,72 @@ describe("detectType", () => {
 	});
 
 	describe("bare-skill", () => {
-		it("returns bare-skill when hasConfig=true and SKILL.md exists with no asset dirs", async () => {
+		it("returns bare-skill from root SKILL.md with no config", async () => {
 			await createFile("SKILL.md");
 
-			const result = await detectType(testDir, { hasConfig: true });
+			const result = await detectType(testDir, {});
 
 			expect(result).toEqual({ type: "bare-skill" });
 		});
 
-		it("returns bare-skill with non-asset dirs alongside SKILL.md", async () => {
+		it("returns bare-skill with non-asset sibling dirs alongside SKILL.md", async () => {
 			await createFile("SKILL.md");
 			await createDir("references");
 			await createDir("examples");
 
-			const result = await detectType(testDir, { hasConfig: true });
+			const result = await detectType(testDir, {});
 
 			expect(result).toEqual({ type: "bare-skill" });
 		});
 	});
 
 	describe("plugin", () => {
-		it("returns plugin with skills dir", async () => {
+		it("returns plugin from skills + agents", async () => {
 			await createDir("skills");
-
-			const result = await detectType(testDir, { hasConfig: true });
-
-			expect(result).toEqual({ type: "plugin", assetDirs: ["skills"] });
-		});
-
-		it("returns plugin with agents dir", async () => {
 			await createDir("agents");
 
-			const result = await detectType(testDir, { hasConfig: true });
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({
+				type: "plugin",
+				assetDirs: ["skills", "agents"],
+			});
+		});
+
+		it("returns plugin from agents-only", async () => {
+			await createDir("agents");
+
+			const result = await detectType(testDir, {});
 
 			expect(result).toEqual({ type: "plugin", assetDirs: ["agents"] });
 		});
 
-		it("returns plugin with hooks dir", async () => {
+		it("returns plugin from hooks-only", async () => {
 			await createDir("hooks");
 
-			const result = await detectType(testDir, { hasConfig: true });
+			const result = await detectType(testDir, {});
 
 			expect(result).toEqual({ type: "plugin", assetDirs: ["hooks"] });
 		});
 
-		it("returns plugin with all three asset dirs", async () => {
-			await createDir("skills");
+		it("returns plugin from agents + hooks", async () => {
 			await createDir("agents");
 			await createDir("hooks");
 
-			const result = await detectType(testDir, { hasConfig: true });
+			const result = await detectType(testDir, {});
 
 			expect(result).toEqual({
 				type: "plugin",
-				assetDirs: ["skills", "agents", "hooks"],
+				assetDirs: ["agents", "hooks"],
 			});
 		});
 
-		it("warns when SKILL.md coexists with asset dirs", async () => {
+		it("warns and returns plugin when SKILL.md coexists with an asset dir", async () => {
 			await createFile("SKILL.md");
-			await createDir("skills");
+			await createDir("agents");
 			const onWarn = vi.fn();
 
-			const result = await detectType(testDir, { hasConfig: true, onWarn });
+			const result = await detectType(testDir, { onWarn });
 
 			expect(result.type).toBe("plugin");
 			expect(onWarn).toHaveBeenCalledOnce();
@@ -103,72 +106,65 @@ describe("detectType", () => {
 		});
 	});
 
-	describe("not-agntc (with config)", () => {
-		it("returns not-agntc with warning when config but no SKILL.md or asset dirs", async () => {
-			const onWarn = vi.fn();
+	describe("skills-only (ambiguous)", () => {
+		it("defaults skills-only root to collection", async () => {
+			await createDir("skills");
 
-			const result = await detectType(testDir, { hasConfig: true, onWarn });
+			const result = await detectType(testDir, {});
 
-			expect(result).toEqual({ type: "not-agntc" });
-			expect(onWarn).toHaveBeenCalledOnce();
+			expect(result).toEqual({ type: "collection", plugins: [] });
 		});
 	});
 
-	describe("collection", () => {
-		it("returns collection with multiple subdirs having agntc.json", async () => {
-			await createFile("plugin-a/agntc.json");
-			await createFile("plugin-b/agntc.json");
-
-			const result = await detectType(testDir, { hasConfig: false });
-
-			expect(result.type).toBe("collection");
-			if (result.type === "collection") {
-				expect(result.plugins.sort()).toEqual(["plugin-a", "plugin-b"]);
-			}
-		});
-
-		it("skips subdirs without agntc.json", async () => {
-			await createFile("plugin-a/agntc.json");
-			await createDir("not-a-plugin");
-
-			const result = await detectType(testDir, { hasConfig: false });
-
-			expect(result.type).toBe("collection");
-			if (result.type === "collection") {
-				expect(result.plugins).toEqual(["plugin-a"]);
-			}
-		});
-
-		it("scan checks immediate subdirs only — not recursive", async () => {
-			await createFile("sub/nested/agntc.json");
-
-			const result = await detectType(testDir, { hasConfig: false });
-
-			expect(result).toEqual({ type: "not-agntc" });
-		});
-
-		it("scan ignores files (only checks directories)", async () => {
-			await createFile("some-file.txt");
-
-			const result = await detectType(testDir, { hasConfig: false });
-
-			expect(result).toEqual({ type: "not-agntc" });
-		});
-	});
-
-	describe("not-agntc (no config)", () => {
-		it("returns not-agntc when no config and no subdirs have config", async () => {
-			await createDir("random-dir");
-
-			const result = await detectType(testDir, { hasConfig: false });
-
-			expect(result).toEqual({ type: "not-agntc" });
-		});
-
+	describe("not-agntc", () => {
 		it("returns not-agntc for empty directory", async () => {
-			const result = await detectType(testDir, { hasConfig: false });
+			const result = await detectType(testDir, {});
 
 			expect(result).toEqual({ type: "not-agntc" });
+		});
+
+		it("returns not-agntc for a root with only loose files", async () => {
+			await createFile("readme.txt");
+			await createFile("notes.md");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "not-agntc" });
+		});
+
+		it("returns not-agntc for an unreadable directory without throwing", async () => {
+			const unreadable = join(testDir, "locked");
+			await mkdir(unreadable);
+			await chmod(unreadable, 0o000);
+
+			try {
+				const result = await detectType(unreadable, {});
+				expect(result).toEqual({ type: "not-agntc" });
+			} finally {
+				await chmod(unreadable, 0o755);
+			}
+		});
+	});
+
+	describe("config presence ignored", () => {
+		it("detects bare-skill identically with or without config", async () => {
+			await createFile("SKILL.md");
+
+			const withConfig = await detectType(testDir, { configType: "plugin" });
+			const withoutConfig = await detectType(testDir, {});
+
+			expect(withConfig).toEqual({ type: "bare-skill" });
+			expect(withoutConfig).toEqual({ type: "bare-skill" });
+		});
+
+		it("detects plugin identically with or without config", async () => {
+			await createDir("agents");
+
+			const withConfig = await detectType(testDir, { configType: "plugin" });
+			const withoutConfig = await detectType(testDir, {});
+
+			expect(withConfig).toEqual({ type: "plugin", assetDirs: ["agents"] });
+			expect(withoutConfig).toEqual({ type: "plugin", assetDirs: ["agents"] });
 		});
 	});
 });

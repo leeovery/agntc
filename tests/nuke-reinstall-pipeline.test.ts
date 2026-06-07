@@ -84,7 +84,6 @@ describe("executeNukeAndReinstall", () => {
 				onWarn: undefined,
 			});
 			expect(mockDetectType).toHaveBeenCalledWith("/tmp/source", {
-				hasConfig: true,
 				onWarn: undefined,
 			});
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [

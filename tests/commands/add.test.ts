@@ -267,7 +267,6 @@ describe("add command", () => {
 			expect(mockDetectType).toHaveBeenCalledWith(
 				CLONE_RESULT.tempDir,
 				expect.objectContaining({
-					hasConfig: true,
 					onWarn: expect.any(Function),
 				}),
 			);
@@ -2410,7 +2409,6 @@ describe("add command", () => {
 			expect(mockDetectType).toHaveBeenCalledWith(
 				"/Users/dev/my-plugin",
 				expect.objectContaining({
-					hasConfig: true,
 					onWarn: expect.any(Function),
 				}),
 			);

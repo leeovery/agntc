@@ -30,21 +30,46 @@ interface NotAgntc {
 export type DetectedType = BareSkill | Plugin | Collection | NotAgntc;
 
 export interface DetectTypeOptions {
-	hasConfig: boolean;
+	configType?: string;
+	forcePlugin?: boolean;
 	onWarn?: (message: string) => void;
 }
+
+/**
+ * Internal structural classification of a directory, richer than the public
+ * {@link DetectedType} union. The `skills-only` kind captures the structurally
+ * ambiguous case (a root containing only `skills/`) so the override layer
+ * (task 1-4) can decide between bundling it as a plugin or treating it as a
+ * collection. The public union stays stable; mapping happens in detectType.
+ */
+type StructuralKind =
+	| { kind: "skills-only" }
+	| { kind: "plugin"; assetDirs: AssetType[] }
+	| { kind: "bare-skill" }
+	| { kind: "members"; plugins: string[] }
+	| { kind: "none" };
 
 export async function detectType(
 	dir: string,
 	options: DetectTypeOptions,
 ): Promise<DetectedType> {
-	const { hasConfig, onWarn } = options;
+	const { onWarn } = options;
+	const structure = await classifyStructure(dir, onWarn);
 
-	if (hasConfig) {
-		return detectWithConfig(dir, onWarn);
+	switch (structure.kind) {
+		case "plugin":
+			return { type: "plugin", assetDirs: structure.assetDirs };
+		case "bare-skill":
+			return { type: "bare-skill" };
+		case "skills-only":
+			// Ambiguous: defaults to collection until the override layer (task 1-4)
+			// applies configType/forcePlugin to bundle it as a plugin.
+			return { type: "collection", plugins: [] };
+		case "members":
+			return { type: "collection", plugins: structure.plugins };
+		default:
+			return { type: "not-agntc" };
 	}
-
-	return detectWithoutConfig(dir);
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -56,10 +81,10 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
-async function detectWithConfig(
+async function classifyStructure(
 	dir: string,
 	onWarn?: (message: string) => void,
-): Promise<DetectedType> {
+): Promise<StructuralKind> {
 	const foundAssetDirs: AssetType[] = [];
 	for (const assetDir of ASSET_DIRS) {
 		if (await exists(join(dir, assetDir))) {
@@ -68,34 +93,44 @@ async function detectWithConfig(
 	}
 
 	const hasSkillMd = await exists(join(dir, "SKILL.md"));
+	const skillsOnly =
+		foundAssetDirs.length === 1 && foundAssetDirs[0] === "skills";
 
-	if (foundAssetDirs.length > 0) {
+	// Plugin: ≥1 asset dir that is not the skills-only case.
+	if (foundAssetDirs.length > 0 && !skillsOnly) {
 		if (hasSkillMd) {
 			onWarn?.(
 				"SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored",
 			);
 		}
-		return { type: "plugin", assetDirs: foundAssetDirs };
+		return { kind: "plugin", assetDirs: foundAssetDirs };
+	}
+
+	// Skills-only: structurally ambiguous, resolved by the override layer (1-4).
+	if (skillsOnly) {
+		return { kind: "skills-only" };
 	}
 
 	if (hasSkillMd) {
-		return { type: "bare-skill" };
+		return { kind: "bare-skill" };
 	}
 
-	onWarn?.("agntc.json present but no SKILL.md or asset dirs found");
-	return { type: "not-agntc" };
+	return scanCollectionMembers(dir);
 }
 
-async function detectWithoutConfig(dir: string): Promise<DetectedType> {
+/**
+ * Placeholder for the collection-membership scan implemented in task 1-3.
+ * Preserves the current not-agntc outcome when no qualifying children exist.
+ */
+async function scanCollectionMembers(dir: string): Promise<StructuralKind> {
 	let entries: Dirent[];
 	try {
 		entries = await readdir(dir, { withFileTypes: true });
 	} catch {
-		return { type: "not-agntc" };
+		return { kind: "none" };
 	}
 
 	const plugins: string[] = [];
-
 	for (const entry of entries) {
 		if (!entry.isDirectory()) {
 			continue;
@@ -106,8 +141,8 @@ async function detectWithoutConfig(dir: string): Promise<DetectedType> {
 	}
 
 	if (plugins.length > 0) {
-		return { type: "collection", plugins };
+		return { kind: "members", plugins };
 	}
 
-	return { type: "not-agntc" };
+	return { kind: "none" };
 }

@@ -83,7 +83,6 @@ export async function executeNukeAndReinstall(
 
 	// Detect type
 	const detected = await detectType(sourceDir, {
-		hasConfig: true,
 		onWarn,
 	});
 
