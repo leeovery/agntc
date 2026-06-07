@@ -88,14 +88,97 @@ describe("selectAgents", () => {
 		}
 	});
 
-	it("empty declaredAgents yields zero options", async () => {
+	it("offers all KNOWN_AGENTS when no declaration", async () => {
+		mockMultiselect.mockResolvedValue(["claude"]);
+
+		await selectAgents({
+			declaredAgents: [],
+			detectedAgents: ["claude"],
+		});
+
+		expect(mockMultiselect).toHaveBeenCalled();
+		const call = mockMultiselect.mock.calls[0]![0];
+		const values = call.options.map((o: { value: AgentId }) => o.value);
+		expect(values).toEqual(["claude", "codex", "cursor"]);
+	});
+
+	it("pre-ticks detected agents in no-declaration default", async () => {
+		mockMultiselect.mockResolvedValue(["claude"]);
+
+		await selectAgents({
+			declaredAgents: [],
+			detectedAgents: ["cursor", "claude"],
+		});
+
+		const call = mockMultiselect.mock.calls[0]![0];
+		expect(call.initialValues).toEqual(["claude", "cursor"]);
+	});
+
+	it("never auto-selects in no-declaration default even with one detected", async () => {
+		mockMultiselect.mockResolvedValue(["claude"]);
+
+		const result = await selectAgents({
+			declaredAgents: [],
+			detectedAgents: ["claude"],
+		});
+
+		expect(mockMultiselect).toHaveBeenCalled();
+		expect(result).toEqual(["claude"]);
+	});
+
+	it("returns user pick from KNOWN_AGENTS prompt", async () => {
+		mockMultiselect.mockResolvedValue(["codex", "cursor"]);
+
+		const result = await selectAgents({
+			declaredAgents: [],
+			detectedAgents: ["claude"],
+		});
+
+		expect(result).toEqual(["codex", "cursor"]);
+	});
+
+	it("no-declaration default labels undetected KNOWN_AGENTS with hint", async () => {
+		mockMultiselect.mockResolvedValue([]);
+
+		await selectAgents({
+			declaredAgents: [],
+			detectedAgents: ["claude"],
+		});
+
+		const call = mockMultiselect.mock.calls[0]![0];
+		const claudeOption = call.options.find(
+			(o: { value: AgentId }) => o.value === "claude",
+		);
+		const codexOption = call.options.find(
+			(o: { value: AgentId }) => o.value === "codex",
+		);
+		expect(claudeOption?.label).toBe("claude");
+		expect(codexOption?.label).toBe("codex (not detected in project)");
+	});
+
+	it("no-declaration default returns [] on cancel", async () => {
+		mockMultiselect.mockResolvedValue(Symbol("cancel"));
+
 		const result = await selectAgents({
 			declaredAgents: [],
 			detectedAgents: ["claude"],
 		});
 
 		expect(result).toEqual([]);
-		expect(mockMultiselect).not.toHaveBeenCalled();
+	});
+
+	it("no-declaration default returns [] on zero selection with info log", async () => {
+		mockMultiselect.mockResolvedValue([]);
+
+		const result = await selectAgents({
+			declaredAgents: [],
+			detectedAgents: ["claude"],
+		});
+
+		expect(result).toEqual([]);
+		expect(vi.mocked(p.log.info)).toHaveBeenCalledWith(
+			"No agents selected — skipping",
+		);
 	});
 
 	it("pre-selects declared AND detected agents", async () => {
@@ -216,13 +299,15 @@ describe("selectAgents", () => {
 		expect(mockMultiselect).toHaveBeenCalled();
 	});
 
-	it("returns empty array for zero declared agents without prompting", async () => {
+	it("prompts over KNOWN_AGENTS for zero declared agents instead of returning early", async () => {
+		mockMultiselect.mockResolvedValue(["claude", "codex"]);
+
 		const result = await selectAgents({
 			declaredAgents: [],
 			detectedAgents: ["claude", "codex"],
 		});
 
-		expect(result).toEqual([]);
-		expect(mockMultiselect).not.toHaveBeenCalled();
+		expect(mockMultiselect).toHaveBeenCalled();
+		expect(result).toEqual(["claude", "codex"]);
 	});
 });

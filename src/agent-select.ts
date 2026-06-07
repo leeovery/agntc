@@ -1,4 +1,5 @@
 import { isCancel, log, multiselect } from "@clack/prompts";
+import { KNOWN_AGENTS } from "./config.js";
 import type { AgentId } from "./drivers/types.js";
 
 interface SelectAgentsInput {
@@ -9,15 +10,17 @@ interface SelectAgentsInput {
 export async function selectAgents(
 	input: SelectAgentsInput,
 ): Promise<AgentId[]> {
-	if (input.declaredAgents.length === 0) {
-		return [];
-	}
+	const hasDeclaration = input.declaredAgents.length > 0;
+	const candidates: AgentId[] = hasDeclaration
+		? input.declaredAgents
+		: [...KNOWN_AGENTS];
 
 	const detectedSet = new Set(input.detectedAgents);
 
-	const singleAgent = input.declaredAgents[0];
+	const singleAgent = candidates[0];
 	if (
-		input.declaredAgents.length === 1 &&
+		hasDeclaration &&
+		candidates.length === 1 &&
 		singleAgent &&
 		detectedSet.has(singleAgent)
 	) {
@@ -25,11 +28,9 @@ export async function selectAgents(
 		return [singleAgent];
 	}
 
-	const initialValues = input.declaredAgents.filter((id) =>
-		detectedSet.has(id),
-	);
+	const initialValues = candidates.filter((id) => detectedSet.has(id));
 
-	const options = input.declaredAgents.map((id) => ({
+	const options = candidates.map((id) => ({
 		value: id,
 		label: detectedSet.has(id) ? id : `${id} (not detected in project)`,
 	}));
