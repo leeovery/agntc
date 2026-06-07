@@ -379,6 +379,33 @@ describe("cloneAndReinstall", () => {
 			}
 		});
 
+		it("carries failureReason 'aborted' alongside recordedType and reason", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(result.status).toBe("aborted");
+			if (result.status === "aborted") {
+				expect(result.failureReason).toBe("aborted");
+				expect(result.recordedType).toBe("skill");
+				expect(result.reason).toContain("SKILL.md");
+			}
+		});
+
 		it("does not nuke files when aborted", async () => {
 			const entry = makeEntry({
 				type: "skill",
@@ -755,6 +782,8 @@ describe("mapCloneFailure", () => {
 			onCloneFailed: (msg) => `clone-failed: ${msg}`,
 			onNoAgents: (msg) => `no-agents: ${msg}`,
 			onCopyFailed: (msg) => `copy-failed: ${msg}`,
+			onAborted: (recordedType, reason) =>
+				`aborted: ${recordedType} — ${reason}`,
 			onUnknown: (msg) => `unknown: ${msg}`,
 		};
 	}
@@ -795,11 +824,27 @@ describe("mapCloneFailure", () => {
 		expect(result).toBe("unknown: something");
 	});
 
+	it("dispatches aborted to onAborted handler with recordedType and reason", () => {
+		const result = mapCloneFailure(
+			{
+				status: "aborted",
+				failureReason: "aborted",
+				recordedType: "skill",
+				reason: "SKILL.md is no longer present in the source",
+			},
+			makeHandlers(),
+		);
+		expect(result).toBe(
+			"aborted: skill — SKILL.md is no longer present in the source",
+		);
+	});
+
 	it("returns the typed result from handler", () => {
 		const handlers: CloneFailureHandlers<number> = {
 			onCloneFailed: () => 1,
 			onNoAgents: () => 3,
 			onCopyFailed: () => 5,
+			onAborted: () => 7,
 			onUnknown: () => 6,
 		};
 		const result = mapCloneFailure(

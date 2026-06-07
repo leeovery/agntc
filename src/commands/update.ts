@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import { Command } from "commander";
 import {
+	buildAbortMessage,
 	type CloneAndReinstallOptions,
 	cloneAndReinstall,
 	mapCloneFailure,
@@ -43,6 +44,7 @@ type PluginOutcome =
 	| { status: "check-failed"; key: string; summary: string }
 	| { status: "failed"; key: string; summary: string }
 	| { status: "copy-failed"; key: string; summary: string }
+	| { status: "aborted"; key: string; summary: string }
 	| { status: "constrained-no-match"; key: string; summary: string };
 
 interface SingleUpdateResult {
@@ -229,7 +231,7 @@ async function runSinglePluginUpdate(
 		buildReinstallInput(key, entry, projectDir, manifest, overrides),
 	);
 
-	if (result.status === "failed") {
+	if (result.status === "failed" || result.status === "aborted") {
 		return mapCloneFailure(result, {
 			onNoAgents: () => {
 				p.log.warn(
@@ -242,6 +244,14 @@ async function runSinglePluginUpdate(
 				p.log.error(msg);
 				throw new ExitSignal(1);
 			},
+			onAborted: (recordedType, reason) => {
+				// Derive-before-delete abort: install fully intact (no nuke, entry
+				// untouched). Loud report names recorded-vs-current + remove+add
+				// remedy; single-key update exits non-zero. Distinct from copy-failed
+				// (entry removed, currently-uninstalled retry hint).
+				p.log.error(buildAbortMessage(key, recordedType, reason));
+				throw new ExitSignal(1);
+			},
 			onCloneFailed: (msg) => {
 				if (!isLocal) p.cancel(msg);
 				throw new ExitSignal(1);
@@ -251,15 +261,6 @@ async function runSinglePluginUpdate(
 				throw new ExitSignal(1);
 			},
 		});
-	}
-
-	if (result.status === "aborted") {
-		// Structured abort plumbed from derive-before-delete; full user-facing
-		// message + remedy assembled by reporting (configless-install 4-6).
-		p.log.error(
-			`Update of ${key} aborted: ${result.reason}. Existing install left intact.`,
-		);
-		throw new ExitSignal(1);
 	}
 
 	if (isLocal) {
@@ -320,8 +321,8 @@ async function processUpdateForAll(
 			buildReinstallInput(key, entry, projectDir, undefined, overrides),
 		);
 
-		if (result.status === "failed") {
-			return mapCloneFailure(result, {
+		if (result.status === "failed" || result.status === "aborted") {
+			return mapCloneFailure<PluginOutcome>(result, {
 				onNoAgents: () => ({
 					status: "failed" as const,
 					key,
@@ -331,6 +332,15 @@ async function processUpdateForAll(
 					status: "copy-failed" as const,
 					key,
 					summary: msg,
+				}),
+				onAborted: (recordedType, reason) => ({
+					// Derive-before-delete abort: dedicated outcome, distinct from
+					// copy-failed. Install intact (no nuke, entry untouched); the
+					// manifest-build loop must leave aborted entries alone. Loud
+					// per-unit message names recorded-vs-current + remove+add remedy.
+					status: "aborted" as const,
+					key,
+					summary: buildAbortMessage(key, recordedType, reason),
 				}),
 				onCloneFailed: (msg) => ({
 					status: "failed" as const,
@@ -343,17 +353,6 @@ async function processUpdateForAll(
 					summary: `${key}: Failed — ${msg}`,
 				}),
 			});
-		}
-
-		if (result.status === "aborted") {
-			// Structured abort plumbed from derive-before-delete; reported as a
-			// per-unit failure (non-zero exit, install intact). Dedicated aborted
-			// outcome + remedy wording assembled by reporting (configless-install 4-6).
-			return {
-				status: "failed",
-				key,
-				summary: `${key}: Aborted — ${result.reason}. Existing install left intact.`,
-			};
 		}
 
 		if (isLocal) {
@@ -588,7 +587,10 @@ async function runAllUpdates(): Promise<void> {
 	for (const outcome of outcomes) {
 		if (outcome.status === "updated" || outcome.status === "refreshed") {
 			p.log.success(outcome.summary);
-		} else if (outcome.status === "copy-failed") {
+		} else if (
+			outcome.status === "copy-failed" ||
+			outcome.status === "aborted"
+		) {
 			p.log.error(outcome.summary);
 		} else if (
 			outcome.status === "failed" ||

@@ -39,11 +39,12 @@ export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
 	onNoAgents: (msg: string) => T;
 	onCopyFailed: (msg: string) => T;
+	onAborted: (recordedType: "skill" | "plugin", reason: string) => T;
 	onUnknown: (msg: string) => T;
 }
 
 export function mapCloneFailure<T>(
-	result: CloneReinstallFailed,
+	result: CloneReinstallFailed | CloneReinstallAborted,
 	handlers: CloneFailureHandlers<T>,
 ): T {
 	switch (result.failureReason) {
@@ -53,6 +54,8 @@ export function mapCloneFailure<T>(
 			return handlers.onNoAgents(result.message);
 		case "copy-failed":
 			return handlers.onCopyFailed(result.message);
+		case "aborted":
+			return handlers.onAborted(result.recordedType, result.reason);
 		case "unknown":
 			return handlers.onUnknown(result.message);
 	}
@@ -77,10 +80,14 @@ export function buildFailureMessage(
  * re-cloned tree no longer supports the entry's recorded type, so no files were
  * removed and the existing install is left intact. Carries the structured cause
  * ({@link recordedType} + {@link reason}); the user-facing message and manual
- * remedy are assembled by the reporting layer (4-6).
+ * remedy are assembled by the reporting layer. The `failureReason: "aborted"`
+ * discriminator lets {@link mapCloneFailure} dispatch it via `onAborted` while
+ * the distinct `status: "aborted"` keeps it from being conflated with the
+ * `status: "failed"` reasons (notably copy-failed, which removes the entry).
  */
 export interface CloneReinstallAborted {
 	status: "aborted";
+	failureReason: "aborted";
 	recordedType: "skill" | "plugin";
 	reason: string;
 }
@@ -89,6 +96,25 @@ export type CloneReinstallResult =
 	| CloneReinstallSuccess
 	| CloneReinstallFailed
 	| CloneReinstallAborted;
+
+/**
+ * The user-facing report for a derive-before-delete abort: names the recorded
+ * type and how the current source structure diverges from it ({@link reason}),
+ * affirms the existing install is unchanged, and states the manual remove+add
+ * remedy. Distinct from the copy-failed report, which tells the user the unit is
+ * currently uninstalled and to re-run update — here nothing was touched.
+ */
+export function buildAbortMessage(
+	key: string,
+	recordedType: "skill" | "plugin",
+	reason: string,
+): string {
+	return (
+		`${key} was installed as a ${recordedType}, but its source no longer ` +
+		`supports that type (${reason}). The existing install is unchanged. ` +
+		`To migrate: npx agntc remove ${key} then npx agntc add ${key}`
+	);
+}
 
 export function formatAgentsDroppedWarning(
 	key: string,
@@ -237,6 +263,7 @@ async function runPipeline(
 	if (pipelineResult.status === "aborted") {
 		return {
 			status: "aborted",
+			failureReason: "aborted",
 			recordedType: pipelineResult.recordedType,
 			reason: pipelineResult.reason,
 		};
