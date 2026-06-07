@@ -269,6 +269,15 @@ async function runSinglePluginUpdate(
 		});
 	}
 
+	if (result.status === "aborted") {
+		// Structured abort plumbed from derive-before-delete; full user-facing
+		// message + remedy assembled by reporting (configless-install 4-6).
+		p.log.error(
+			`Update of ${key} aborted: ${result.reason}. Existing install left intact.`,
+		);
+		throw new ExitSignal(1);
+	}
+
 	if (isLocal) {
 		p.outro(
 			renderLocalUpdateSummary({
@@ -364,6 +373,17 @@ async function processUpdateForAll(
 					summary: `${key}: Failed — ${msg}`,
 				}),
 			});
+		}
+
+		if (result.status === "aborted") {
+			// Structured abort plumbed from derive-before-delete; reported as a
+			// per-unit failure (non-zero exit, install intact). Dedicated aborted
+			// outcome + remedy wording assembled by reporting (configless-install 4-6).
+			return {
+				status: "failed",
+				key,
+				summary: `${key}: Aborted — ${result.reason}. Existing install left intact.`,
+			};
 		}
 
 		if (isLocal) {

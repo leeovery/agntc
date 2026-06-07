@@ -90,7 +90,23 @@ export function buildFailureMessage(
 	}
 }
 
-export type CloneReinstallResult = CloneReinstallSuccess | CloneReinstallFailed;
+/**
+ * The unit's update was aborted by the derive-before-delete validation gate: the
+ * re-cloned tree no longer supports the entry's recorded type, so no files were
+ * removed and the existing install is left intact. Carries the structured cause
+ * ({@link recordedType} + {@link reason}); the user-facing message and manual
+ * remedy are assembled by the reporting layer (4-6).
+ */
+export interface CloneReinstallAborted {
+	status: "aborted";
+	recordedType: "skill" | "plugin";
+	reason: string;
+}
+
+export type CloneReinstallResult =
+	| CloneReinstallSuccess
+	| CloneReinstallFailed
+	| CloneReinstallAborted;
 
 export function formatAgentsDroppedWarning(
 	key: string,
@@ -249,6 +265,14 @@ async function runPipeline(
 			status: "failed",
 			failureReason: "copy-failed",
 			message: pipelineResult.recoveryHint,
+		};
+	}
+
+	if (pipelineResult.status === "aborted") {
+		return {
+			status: "aborted",
+			recordedType: pipelineResult.recordedType,
+			reason: pipelineResult.reason,
 		};
 	}
 

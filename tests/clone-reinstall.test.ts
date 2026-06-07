@@ -40,6 +40,10 @@ vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
+vi.mock("../src/fs-utils.js", () => ({
+	pathExists: vi.fn(),
+}));
+
 vi.mock("../src/copy-plugin-assets.js", () => ({
 	copyPluginAssets: vi.fn(),
 }));
@@ -67,6 +71,7 @@ import { readConfig } from "../src/config.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
 import { getDriver } from "../src/drivers/registry.js";
+import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { removeEntry, writeManifest } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
@@ -83,6 +88,7 @@ const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
+const mockPathExists = vi.mocked(pathExists);
 const mockLog = vi.mocked(p.log);
 
 import { makeEntry, makeFakeDriver } from "./helpers/factories.js";
@@ -97,6 +103,7 @@ beforeEach(() => {
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockGetDriver.mockReturnValue(fakeDriver);
+	mockPathExists.mockResolvedValue(true);
 	mockWriteManifest.mockResolvedValue(undefined);
 	mockRemoveEntry.mockImplementation((manifest, key) => {
 		const { [key]: _, ...rest } = manifest;
@@ -367,6 +374,156 @@ describe("cloneAndReinstall", () => {
 				expect(result.failureReason).toBe("invalid-type");
 				expect(result.message).toContain("not a valid plugin");
 			}
+		});
+	});
+
+	describe("aborted status (derive-before-delete)", () => {
+		it("plumbs aborted up with recordedType and reason when recorded skill SKILL.md is gone", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(result.status).toBe("aborted");
+			if (result.status === "aborted") {
+				expect(result.recordedType).toBe("skill");
+				expect(result.reason).toContain("SKILL.md");
+			}
+		});
+
+		it("does not nuke files when aborted", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			await cloneAndReinstall({
+				key: "owner/repo",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("does not remove the manifest entry when aborted (install intact)", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+			const manifest: Manifest = { "owner/repo": entry };
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			await cloneAndReinstall({
+				key: "owner/repo",
+				entry,
+				projectDir: "/fake/project",
+				manifest,
+			});
+
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("cleans up temp dir on abort", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			await cloneAndReinstall({
+				key: "owner/repo",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
+		});
+
+		it("member subdir vanished aborts (recorded skill, own subdir lacks SKILL.md)", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/go/"],
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(false);
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo/go",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(result.status).toBe("aborted");
+			expect(mockPathExists).toHaveBeenCalledWith(
+				"/tmp/agntc-clone/go/SKILL.md",
+			);
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("configless recorded-skill update proceeds (null config, copyBareSkill)", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue(null);
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(result.status).toBe("success");
+			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
 		});
 	});
 

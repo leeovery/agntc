@@ -96,6 +96,15 @@ export async function executeChangeVersionAction(
 		return { changed: false, message };
 	}
 
+	if (result.status === "aborted") {
+		// Structured abort plumbed from derive-before-delete; full message +
+		// remedy assembled by reporting (configless-install 4-6).
+		return {
+			changed: false,
+			message: `${key} version change aborted: ${result.reason}. Existing install left intact.`,
+		};
+	}
+
 	const finalEntry = stripConstraint(result.manifestEntry);
 	const updated = addEntry(manifest, key, finalEntry);
 	await writeManifest(projectDir, updated);

@@ -1,4 +1,4 @@
-import { readdir, stat } from "node:fs/promises";
+import { access, readdir, stat } from "node:fs/promises";
 
 export interface DirEntry {
 	name: string;
@@ -20,6 +20,16 @@ export async function validateLocalSourcePath(
 		return { valid: true };
 	} catch {
 		return { valid: false, reason: "path does not exist" };
+	}
+}
+
+/** Resolves to true when `path` exists (file or dir), false otherwise. */
+export async function pathExists(path: string): Promise<boolean> {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
 	}
 }
 

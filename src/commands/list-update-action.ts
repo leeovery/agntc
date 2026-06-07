@@ -57,6 +57,15 @@ async function runUpdate(
 			return { success: false, message };
 		}
 
+		if (result.status === "aborted") {
+			// Structured abort plumbed from derive-before-delete; full message +
+			// remedy assembled by reporting (configless-install 4-6).
+			return {
+				success: false,
+				message: `${key} update aborted: ${result.reason}. Existing install left intact.`,
+			};
+		}
+
 		const updated = addEntry(manifest, key, result.manifestEntry);
 		await writeManifest(projectDir, updated);
 
