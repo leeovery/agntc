@@ -15,7 +15,7 @@ interface PluginInput {
 	agents: AgentWithDriver[];
 }
 
-type ComputeInput = BareSkillInput | PluginInput;
+export type ComputeInput = BareSkillInput | PluginInput;
 
 /**
  * Predicts the file paths that would be produced by copy operations,

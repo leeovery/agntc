@@ -8,15 +8,14 @@ import { resolveCollisions } from "../collision-resolve.js";
 import { computeIncomingFiles } from "../compute-incoming-files.js";
 import type { AgntcConfig } from "../config.js";
 import { readConfig } from "../config.js";
-import { copyBareSkill } from "../copy-bare-skill.js";
 import type { AssetCounts } from "../copy-plugin-assets.js";
-import { copyPluginAssets } from "../copy-plugin-assets.js";
 import {
 	assertSubpathWithinClone,
 	PathTraversalError,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../copy-safety.js";
+import { copyUnit, toComputeInput } from "../copy-unit.js";
 import { detectAgents } from "../detect-agents.js";
 import { getDriver } from "../drivers/registry.js";
 import type { AgentId, AgentWithDriver } from "../drivers/types.js";
@@ -315,14 +314,7 @@ export async function runAdd(
 
 		// 10a. Compute incoming files (against the resolved unit directory)
 		const incomingFiles = await computeIncomingFiles(
-			detected.type === "plugin"
-				? {
-						type: "plugin",
-						sourceDir: unitDir,
-						assetDirs: detected.assetDirs,
-						agents,
-					}
-				: { type: "bare-skill", sourceDir: unitDir, agents },
+			toComputeInput(detected, unitDir, agents),
 		);
 
 		// 10b. Collision + unmanaged conflict checks
@@ -344,23 +336,13 @@ export async function runAdd(
 
 		spin.start("Copying skill files...");
 		try {
-			if (detected.type === "plugin") {
-				const pluginResult = await copyPluginAssets({
-					sourceDir: unitDir,
-					assetDirs: detected.assetDirs,
-					agents,
-					projectDir,
-				});
-				copiedFiles = pluginResult.copiedFiles;
-				assetCountsByAgent = pluginResult.assetCountsByAgent;
-			} else {
-				const bareResult = await copyBareSkill({
-					sourceDir: unitDir,
-					projectDir,
-					agents,
-				});
-				copiedFiles = bareResult.copiedFiles;
-			}
+			const copyResult = await copyUnit(detected, {
+				sourceDir: unitDir,
+				agents,
+				projectDir,
+			});
+			copiedFiles = copyResult.copiedFiles;
+			assetCountsByAgent = copyResult.assetCountsByAgent;
 		} catch (err) {
 			spin.stop("Copy failed");
 			throw err;
@@ -622,18 +604,7 @@ async function runCollectionPipeline(
 
 		// Compute incoming files
 		const incomingFiles = await computeIncomingFiles(
-			pluginDetected.type === "plugin"
-				? {
-						type: "plugin",
-						sourceDir: pluginDir,
-						assetDirs: pluginDetected.assetDirs,
-						agents: pluginAgentDrivers,
-					}
-				: {
-						type: "bare-skill",
-						sourceDir: pluginDir,
-						agents: pluginAgentDrivers,
-					},
+			toComputeInput(pluginDetected, pluginDir, pluginAgentDrivers),
 		);
 
 		// Collision + unmanaged conflict checks
@@ -674,36 +645,19 @@ async function runCollectionPipeline(
 		pluginAgentDrivers,
 	} of pluginsToInstall) {
 		try {
-			if (pluginDetected.type === "plugin") {
-				const pluginResult = await copyPluginAssets({
-					sourceDir: pluginDir,
-					assetDirs: pluginDetected.assetDirs,
-					agents: pluginAgentDrivers,
-					projectDir,
-				});
-				results.push({
-					pluginName,
-					status: "installed",
-					copiedFiles: pluginResult.copiedFiles,
-					agents: pluginAgents,
-					assetCountsByAgent: pluginResult.assetCountsByAgent,
-					detectedType: pluginDetected,
-				});
-			} else {
-				// bare-skill
-				const bareResult = await copyBareSkill({
-					sourceDir: pluginDir,
-					projectDir,
-					agents: pluginAgentDrivers,
-				});
-				results.push({
-					pluginName,
-					status: "installed",
-					copiedFiles: bareResult.copiedFiles,
-					agents: pluginAgents,
-					detectedType: pluginDetected,
-				});
-			}
+			const copyResult = await copyUnit(pluginDetected, {
+				sourceDir: pluginDir,
+				agents: pluginAgentDrivers,
+				projectDir,
+			});
+			results.push({
+				pluginName,
+				status: "installed",
+				copiedFiles: copyResult.copiedFiles,
+				agents: pluginAgents,
+				assetCountsByAgent: copyResult.assetCountsByAgent,
+				detectedType: pluginDetected,
+			});
 		} catch (err) {
 			results.push({
 				pluginName,
