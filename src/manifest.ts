@@ -7,6 +7,7 @@ import { getDriver } from "./drivers/registry.js";
 import type { AgentId } from "./drivers/types.js";
 import { errorMessage, isNodeError } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
+import type { DetectedType } from "./type-detection.js";
 
 export interface ManifestEntry {
 	ref: string | null;
@@ -50,14 +51,15 @@ export function buildManifestEntry(fields: ManifestEntryInput): ManifestEntry {
  * Maps the resolved {@link DetectedType} of a standalone-installable unit to the
  * value persisted in {@link ManifestEntry.type}. Only the two standalone
  * variants reach the manifest write point (collection/not-agntc are routed or
- * exit earlier), so the narrowed param avoids importing DetectedType here. The
- * `bare-skill` -> `skill` mapping is the seam: the manifest never stores the
- * literal `bare-skill`.
+ * exit earlier), so the param is the narrowed {@link DetectedType} variant —
+ * anchoring the mapping to the union so a future structural variant forces a
+ * compile error here. The `bare-skill` -> `skill` mapping is the seam: the
+ * manifest never stores the literal `bare-skill`.
  */
 export function manifestTypeFromDetected(
-	t: "bare-skill" | "plugin",
+	t: Extract<DetectedType, { type: "bare-skill" | "plugin" }>,
 ): "skill" | "plugin" {
-	return t === "bare-skill" ? "skill" : "plugin";
+	return t.type === "bare-skill" ? "skill" : "plugin";
 }
 
 const AGNTC_DIR = ".agntc";

@@ -156,7 +156,8 @@
             "configless-install-analysis-1-4",
             "configless-install-analysis-1-5",
             "configless-install-analysis-1-6",
-            "configless-install-analysis-2-1"
+            "configless-install-analysis-2-1",
+            "configless-install-analysis-2-2"
           ],
           "completed_phases": [
             1,

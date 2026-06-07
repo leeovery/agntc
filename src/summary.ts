@@ -98,15 +98,33 @@ export function renderAddSummary(input: AddSummaryInput): string {
 	return `Installed ${input.manifestKey}@${refLabel}${agentSummary}`;
 }
 
-export interface PluginInstallResult {
-	pluginName: string;
-	status: "installed" | "skipped" | "failed";
-	copiedFiles: string[];
-	agents: AgentId[];
-	assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
-	detectedType?: DetectedType;
-	errorMessage?: string;
-}
+/**
+ * Per-member outcome of a collection install, discriminated on `status`.
+ *
+ * The `installed` variant carries a REQUIRED `detectedType` narrowed to the two
+ * standalone variants — every installed member resolved to a bare-skill or
+ * plugin (collection/not-agntc members are filtered to `skipped` before any
+ * installed result is produced), so the type system guarantees the manifest
+ * loop never needs a runtime "missing type" guard. The `skipped`/`failed`
+ * variant omits `detectedType` (and `assetCountsByAgent`); `failed` additionally
+ * carries the `errorMessage`.
+ */
+export type PluginInstallResult =
+	| {
+			pluginName: string;
+			status: "installed";
+			copiedFiles: string[];
+			agents: AgentId[];
+			assetCountsByAgent?: Partial<Record<AgentId, AssetCounts>>;
+			detectedType: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
+	  }
+	| {
+			pluginName: string;
+			status: "skipped" | "failed";
+			copiedFiles: string[];
+			agents: AgentId[];
+			errorMessage?: string;
+	  };
 
 interface CollectionAddSummaryInput {
 	manifestKey: string;
@@ -119,13 +137,19 @@ export function renderCollectionAddSummary(
 	input: CollectionAddSummaryInput,
 ): string {
 	const refLabel = formatRefLabel(input.ref, input.commit);
-	const installed = input.results.filter((r) => r.status === "installed");
+	const installed = input.results.filter(
+		(r): r is Extract<PluginInstallResult, { status: "installed" }> =>
+			r.status === "installed",
+	);
 	const skipped = input.results.filter((r) => r.status === "skipped");
-	const failed = input.results.filter((r) => r.status === "failed");
+	const failed = input.results.filter(
+		(r): r is Extract<PluginInstallResult, { status: "skipped" | "failed" }> =>
+			r.status === "failed",
+	);
 
 	const pluginBlocks = installed.map((r) => {
 		const agentSummary =
-			r.detectedType?.type === "plugin" && r.assetCountsByAgent
+			r.detectedType.type === "plugin" && r.assetCountsByAgent
 				? formatPluginSummary(r.agents, r.assetCountsByAgent)
 				: formatBareSkillSummary(r.agents, r.copiedFiles);
 		return `\n${r.pluginName}:${agentSummary}`;

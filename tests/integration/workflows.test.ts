@@ -480,7 +480,7 @@ describe("integration: core workflows", () => {
 				installedAt: new Date().toISOString(),
 				agents: ["claude"],
 				files: copyResult.copiedFiles,
-				type: manifestTypeFromDetected(detected.type),
+				type: manifestTypeFromDetected(detected),
 				cloneUrl: null,
 			};
 			const manifest = addEntry({}, "owner/configless-skill", entry);
@@ -530,7 +530,7 @@ describe("integration: core workflows", () => {
 				installedAt: new Date().toISOString(),
 				agents: ["claude"],
 				files: copyResult.copiedFiles,
-				type: manifestTypeFromDetected(detected.type),
+				type: manifestTypeFromDetected(detected),
 				cloneUrl: null,
 			};
 			const manifest = addEntry({}, "owner/configless-plugin", entry);

@@ -663,16 +663,20 @@ describe("type field", () => {
 });
 
 describe("manifestTypeFromDetected", () => {
-	it("maps bare-skill to skill", () => {
-		expect(manifestTypeFromDetected("bare-skill")).toBe("skill");
+	it("maps bare-skill variant to skill", () => {
+		expect(manifestTypeFromDetected({ type: "bare-skill" })).toBe("skill");
 	});
 
-	it("maps plugin to plugin", () => {
-		expect(manifestTypeFromDetected("plugin")).toBe("plugin");
+	it("maps plugin variant to plugin", () => {
+		expect(
+			manifestTypeFromDetected({ type: "plugin", assetDirs: ["skills"] }),
+		).toBe("plugin");
 	});
 
 	it("never returns the literal bare-skill", () => {
-		expect(manifestTypeFromDetected("bare-skill")).not.toBe("bare-skill");
+		expect(manifestTypeFromDetected({ type: "bare-skill" })).not.toBe(
+			"bare-skill",
+		);
 	});
 });
 

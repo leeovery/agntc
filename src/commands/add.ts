@@ -379,7 +379,7 @@ export async function runAdd(
 			commit,
 			agents: selectedAgents,
 			files: copiedFiles,
-			type: manifestTypeFromDetected(detected.type),
+			type: manifestTypeFromDetected(detected),
 			cloneUrl: deriveCloneUrlForManifest(parsed),
 			constraint: resolvedConstraint,
 		});
@@ -720,14 +720,10 @@ async function runCollectionPipeline(
 	let updatedManifest: Manifest = currentManifest;
 	for (const result of results) {
 		if (result.status !== "installed") continue;
-		const memberType = result.detectedType?.type;
-		// An installed member always resolves to a standalone unit (bare-skill or
-		// plugin); collection/not-agntc are filtered earlier in the per-member loop.
-		if (memberType !== "bare-skill" && memberType !== "plugin") {
-			throw new Error(
-				`Installed collection member "${result.pluginName}" is missing a resolved type`,
-			);
-		}
+		// `status === "installed"` narrows `result` to the installed variant, whose
+		// `detectedType` is statically a standalone (bare-skill | plugin) unit —
+		// collection/not-agntc never reach an installed result (filtered earlier in
+		// the per-member loop), so no runtime narrowing guard is needed here.
 		const manifestKey =
 			parsed.type === "direct-path"
 				? parsed.manifestKey
@@ -737,7 +733,7 @@ async function runCollectionPipeline(
 			commit,
 			agents: result.agents,
 			files: result.copiedFiles,
-			type: manifestTypeFromDetected(memberType),
+			type: manifestTypeFromDetected(result.detectedType),
 			cloneUrl: deriveCloneUrlForManifest(parsed),
 			constraint,
 		});
