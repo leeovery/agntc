@@ -22,7 +22,7 @@ import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
 import { fetchRemoteTags } from "../git-utils.js";
-import type { Manifest } from "../manifest.js";
+import type { Manifest, ManifestEntry } from "../manifest.js";
 import {
 	addEntry,
 	buildManifestEntry,
@@ -50,6 +50,47 @@ function deriveCloneUrlForManifest(
 ): string | null {
 	if (parsed.type === "local-path") return null;
 	return resolveCloneUrl(parsed);
+}
+
+/**
+ * Assembles the {@link buildManifestEntry} input shared by the standalone
+ * install tail and the collection per-member write loop — owning the single
+ * field literal plus the {@link manifestTypeFromDetected} and
+ * {@link deriveCloneUrlForManifest} calls so the two sites cannot drift. The
+ * ref/commit/cloneUrl derive from `parsed`/`commit`; the per-call inputs are the
+ * narrowed detected unit, its resolved agents/files, and the constraint.
+ */
+function buildAddEntry(opts: {
+	detected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
+	agents: AgentId[];
+	files: string[];
+	parsed: Awaited<ReturnType<typeof parseSource>>;
+	commit: string | null;
+	constraint: string | undefined;
+}): ManifestEntry {
+	return buildManifestEntry({
+		ref: opts.parsed.ref,
+		commit: opts.commit,
+		agents: opts.agents,
+		files: opts.files,
+		type: manifestTypeFromDetected(opts.detected),
+		cloneUrl: deriveCloneUrlForManifest(opts.parsed),
+		constraint: opts.constraint,
+	});
+}
+
+/**
+ * Derives a collection member's manifest key — the single source for the
+ * `direct-path ? manifestKey : ${manifestKey}/${pluginName}` rule shared by the
+ * 5a conflict/nuke pass and the step-6 write loop, so the two cannot diverge.
+ */
+function memberKey(
+	parsed: Awaited<ReturnType<typeof parseSource>>,
+	pluginName: string,
+): string {
+	return parsed.type === "direct-path"
+		? parsed.manifestKey
+		: `${parsed.manifestKey}/${pluginName}`;
 }
 
 interface TagResolutionResult {
@@ -366,13 +407,12 @@ export async function runAdd(
 		}
 
 		// 13. Write manifest
-		const entry = buildManifestEntry({
-			ref: parsed.ref,
-			commit,
+		const entry = buildAddEntry({
+			detected,
 			agents: selectedAgents,
 			files: copiedFiles,
-			type: manifestTypeFromDetected(detected),
-			cloneUrl: deriveCloneUrlForManifest(parsed),
+			parsed,
+			commit,
 			constraint: resolvedConstraint,
 		});
 		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
@@ -573,10 +613,7 @@ async function runCollectionPipeline(
 			driver: getDriver(id),
 		}));
 
-		const pluginManifestKey =
-			parsed.type === "direct-path"
-				? parsed.manifestKey
-				: `${parsed.manifestKey}/${pluginName}`;
+		const pluginManifestKey = memberKey(parsed, pluginName);
 
 		// Copy-safety pre-flight per member (Phase 5). Each member is scanned
 		// independently against the clone root (NOT the unit dir) BEFORE its own
@@ -693,17 +730,13 @@ async function runCollectionPipeline(
 		// `detectedType` is statically a standalone (bare-skill | plugin) unit —
 		// collection/not-agntc never reach an installed result (filtered earlier in
 		// the per-member loop), so no runtime narrowing guard is needed here.
-		const manifestKey =
-			parsed.type === "direct-path"
-				? parsed.manifestKey
-				: `${parsed.manifestKey}/${result.pluginName}`;
-		const entry = buildManifestEntry({
-			ref: parsed.ref,
-			commit,
+		const manifestKey = memberKey(parsed, result.pluginName);
+		const entry = buildAddEntry({
+			detected: result.detectedType,
 			agents: result.agents,
 			files: result.copiedFiles,
-			type: manifestTypeFromDetected(result.detectedType),
-			cloneUrl: deriveCloneUrlForManifest(parsed),
+			parsed,
+			commit,
 			constraint,
 		});
 		updatedManifest = addEntry(updatedManifest, manifestKey, entry);
