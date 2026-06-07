@@ -164,48 +164,37 @@ export async function runAdd(source: string): Promise<void> {
 			commit = cloneResult.commit;
 		}
 
-		// 3. Read config
+		// 3. Read config (lenient — never throws; null when absent/empty)
 		const onWarn = (message: string) => p.log.warn(message);
 		const config = await readConfig(sourceDir, { onWarn });
 
-		// 4. Handle null config — detect if collection
-		if (config === null) {
-			const detected = await detectType(sourceDir, {
-				onWarn,
-			});
-
-			if (detected.type === "collection") {
-				await runCollectionPipeline({
-					sourceDir,
-					parsed,
-					commit,
-					detected,
-					onWarn,
-					spin,
-					constraint: resolvedConstraint,
-				});
-				return;
-			}
-
-			// Not a collection — not-agntc
-			p.cancel(
-				"Not an agntc source — no agntc.json found and no collection detected",
-			);
-			throw new ExitSignal(0);
-		}
-
-		// 5. Detect type (standalone)
+		// 4. Detect type ONCE — structure is sole authority; optional root config
+		// type is forwarded so detection owns recognition.
 		const detected = await detectType(sourceDir, {
 			onWarn,
+			configType: config?.type,
 		});
 
-		// 6. Handle unsupported types
-		if (detected.type === "not-agntc") {
-			throw new ExitSignal(0);
+		// 5. Branch on detected type
+		if (detected.type === "collection") {
+			await runCollectionPipeline({
+				sourceDir,
+				parsed,
+				commit,
+				detected,
+				onWarn,
+				spin,
+				constraint: resolvedConstraint,
+			});
+			return;
 		}
 
-		if (detected.type === "collection") {
-			throw new ExitSignal(0);
+		if (detected.type === "not-agntc") {
+			// Loud non-zero pre-flight failure (spec: Error & Abort — Hard errors).
+			p.cancel(
+				`${parsed.manifestKey}: Not an agntc source — no SKILL.md, asset dirs, or collection members found`,
+			);
+			throw new ExitSignal(1);
 		}
 
 		// 7. Detect agents
@@ -214,7 +203,7 @@ export async function runAdd(source: string): Promise<void> {
 
 		// 8. Select agents
 		const selectedAgents = await selectAgents({
-			declaredAgents: config.agents,
+			declaredAgents: config?.agents ?? [],
 			detectedAgents,
 		});
 

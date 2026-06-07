@@ -526,18 +526,143 @@ describe("add command", () => {
 		});
 	});
 
-	describe("error: invalid config", () => {
-		it("shows error, cleans up, and exits 1", async () => {
-			const { ConfigError } = await import("../../src/config.js");
-			mockReadConfig.mockRejectedValue(
-				new ConfigError("Invalid agntc.json: agents must not be empty"),
+	describe("configless standalone install", () => {
+		it("installs configless bare skill standalone (copyBareSkill, manifest keyed owner/repo)", async () => {
+			// refero_skill shape: no agntc.json, root SKILL.md
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue(BARE_SKILL);
+
+			await runAdd("owner/my-skill");
+
+			expect(mockCopyBareSkill).toHaveBeenCalled();
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				EMPTY_MANIFEST,
+				"owner/my-skill",
+				expect.objectContaining({ files: [".claude/skills/my-skill/"] }),
 			);
+			// No "no agntc.json" cancel
+			expect(mockCancel).not.toHaveBeenCalled();
+		});
+
+		it("sources agents from KNOWN_AGENTS default — selectAgents called with declaredAgents:[]", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue(BARE_SKILL);
+
+			await runAdd("owner/my-skill");
+
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: [],
+				detectedAgents: ["claude"],
+			});
+		});
+
+		it("installs configless multi-asset plugin via copyPluginAssets", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue({
+				type: "plugin",
+				assetDirs: ["skills", "agents"],
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/planning/"],
+				assetCountsByAgent: { claude: { skills: 1 } },
+			});
+
+			await runAdd("owner/my-skill");
+
+			expect(mockCopyPluginAssets).toHaveBeenCalledWith({
+				sourceDir: CLONE_RESULT.tempDir,
+				assetDirs: ["skills", "agents"],
+				agents: [{ id: "claude", driver: FAKE_DRIVER }],
+				projectDir: "/fake/project",
+			});
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: [],
+				detectedAgents: ["claude"],
+			});
+		});
+
+		it("config-bearing standalone passes declared agents as ceiling", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue(BARE_SKILL);
+
+			await runAdd("owner/my-skill");
+
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: ["claude"],
+				detectedAgents: ["claude"],
+			});
+		});
+
+		it("calls detectType exactly once with configType forwarded and no hasConfig", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"], type: "plugin" });
+			mockDetectType.mockResolvedValue({
+				type: "plugin",
+				assetDirs: ["skills"],
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/planning/"],
+				assetCountsByAgent: { claude: { skills: 1 } },
+			});
+
+			await runAdd("owner/my-skill");
+
+			expect(mockDetectType).toHaveBeenCalledTimes(1);
+			expect(mockDetectType).toHaveBeenCalledWith(CLONE_RESULT.tempDir, {
+				onWarn: expect.any(Function),
+				configType: "plugin",
+			});
+			const firstCall = mockDetectType.mock.calls[0];
+			const opts = firstCall?.[1] as Record<string, unknown>;
+			expect(opts).not.toHaveProperty("hasConfig");
+		});
+
+		it("configless collection still dispatches to pipeline and returns", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue({
+				type: "collection",
+				plugins: ["pluginA"],
+			});
+			mockSelectCollectionPlugins.mockResolvedValue([]);
 
 			const err = await runAdd("owner/my-skill").catch((e) => e);
+
+			// reached the collection pipeline (plugin selection)
+			expect(mockSelectCollectionPlugins).toHaveBeenCalled();
+			expect(err).toBeInstanceOf(ExitSignal);
+		});
+
+		it("configless not-agntc fails pre-flight: source-named cancel, non-zero exit, no manifest/copy", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue({ type: "not-agntc" });
+
+			const err = await runAdd("owner/my-skill").catch((e) => e);
+
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockCancel).toHaveBeenCalled();
-			expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("owner/my-skill"),
+			);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("Not an agntc source"),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+		});
+
+		it("config-bearing not-agntc fails pre-flight non-zero", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "not-agntc" });
+
+			const err = await runAdd("owner/my-skill").catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("owner/my-skill"),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalled();
 		});
 	});
 
@@ -1887,7 +2012,7 @@ describe("add command", () => {
 	});
 
 	describe("not-agntc with config", () => {
-		it("shows warning, cleans up, and exits 0", async () => {
+		it("fails pre-flight with source-named cancel, cleans up, exits non-zero", async () => {
 			mockDetectType.mockImplementation(async (_dir, options) => {
 				options.onWarn?.(
 					"agntc.json present but no SKILL.md or asset dirs found",
@@ -1897,9 +2022,9 @@ describe("add command", () => {
 
 			const err = await runAdd("owner/my-skill").catch((e) => e);
 			expect(err).toBeInstanceOf(ExitSignal);
-			expect((err as ExitSignal).code).toBe(0);
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				"agntc.json present but no SKILL.md or asset dirs found",
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("owner/my-skill"),
 			);
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
 		});
@@ -2610,9 +2735,12 @@ describe("add command", () => {
 				const err = await runAdd("./my-plugin").catch((e) => e);
 
 				expect(err).toBeInstanceOf(ExitSignal);
-				expect((err as ExitSignal).code).toBe(0);
+				expect((err as ExitSignal).code).toBe(1);
 				expect(mockCancel).toHaveBeenCalledWith(
 					expect.stringContaining("Not an agntc source"),
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("/Users/dev/my-plugin"),
 				);
 				expect(mockCloneSource).not.toHaveBeenCalled();
 				expect(mockCleanupTempDir).not.toHaveBeenCalled();
