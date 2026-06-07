@@ -150,3 +150,18 @@ approved_at: 2026-06-06
 | configless-install-5-2 | Symlink-escape pre-flight scan utility (clone-root boundary) | absolute-target symlink rejected, ..-escape-above-clone-root symlink rejected, symlink resolving inside clone allowed, symlink to sibling dir inside clone allowed, broken symlink lexically inside clone copied verbatim, broken symlink lexically escaping clone root rejected, deeply-nested symlink found, symlink-to-directory traversed without recursion blow-up, non-symlink tree is a clean no-op, error names the offending relative path/unit |
 | configless-install-5-3 | Wire path-traversal + symlink guards as the add copy pre-flight | whole-repo bare skill (traversal no-op, symlink scan still runs), selector subpath escaping clone errors pre-flight non-zero before any copy, valid subpath but escaping symlink errors, collection members each scanned independently before their copy, configless plugin tree scanned, violation names offending unit/path, no manifest write or copy on violation, collection-add with a failed member exits non-zero (ExitSignal(1)) after committing siblings + rendering the summary, skipped member (not-agntc/nested-collection) non-fatal |
 | configless-install-5-4 | Wire the symlink-escape guard into update's re-copy pre-flight | clone-mode update scans against the tempDir clone root, local-path update scans against the provided sourceDir root, escaping symlink aborts before nukeManifestFiles (install left intact), member subdir scanned against its own clone root, violation surfaced as a pre-flight failure that exits non-zero, no nuke or copy on violation |
+
+### Phase 6: Analysis (Cycle 1)
+
+**Goal**: Address findings from Analysis (Cycle 1).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-1-1 | Consolidate the clone-and-reinstall flow across the four update entry points | local vs remote entry prep via prepareReinstall, list-action abort output includes recordedType + remedy, all four flows behaviourally unchanged |
+| configless-install-analysis-1-2 | Move the lexical path-traversal subpath check ahead of detection/config reads | escaping single-plugin subpath rejected before reads, escaping collection member aborts before runCollectionPipeline reads configs, valid in-bounds subpath still installs, symlink scan remains pre-copy |
+| configless-install-analysis-1-3 | Add integration coverage for the configless cross-task seams | configless bare-skill detect->copy->write->read type:skill, legacy entry without type backfill persists derived type, recorded-plugin reshaped to bare-skill abort with files intact, escaping-symlink source aborts before nuke |
+| configless-install-analysis-1-4 | De-duplicate the asset-dir presence scan | findPresentAssetDirs for zero/one/many dirs, detection/membership/replay consumers unchanged, single existence primitive |
+| configless-install-analysis-1-5 | De-duplicate the fs-existence helper and the ManifestEntry construction | buildManifestEntry with/without constraint and cloneUrl, no local exists, three sites produce byte-identical entries |
+| configless-install-analysis-1-6 | Simplify the clone-reinstall failure-status modelling | mapCloneFailure aborted via status and failed variants via failureReason, no-agents single-key returns null/exit 0 untouched, all-updates non-fatal skip unchanged |

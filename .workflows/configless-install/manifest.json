@@ -76,7 +76,14 @@
             "configless-install-5": "tick-3da0af",
             "configless-install-5-2": "tick-cec7f8",
             "configless-install-5-3": "tick-a7815f",
-            "configless-install-5-4": "tick-7c65df"
+            "configless-install-5-4": "tick-7c65df",
+            "configless-install-analysis-1": "tick-b9ac86",
+            "configless-install-analysis-1-1": "tick-ef2924",
+            "configless-install-analysis-1-2": "tick-1b82be",
+            "configless-install-analysis-1-3": "tick-0dfe4d",
+            "configless-install-analysis-1-4": "tick-be4da7",
+            "configless-install-analysis-1-5": "tick-72119f",
+            "configless-install-analysis-1-6": "tick-eec832"
           },
           "external_id": "tick-15d5f6"
         }
@@ -88,7 +95,7 @@
           "status": "in-progress",
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
-          "analysis_gate_mode": "gated",
+          "analysis_gate_mode": "auto",
           "fix_attempts": 0,
           "analysis_cycle_total": 1,
           "analysis_cycle_session": 1,

@@ -5,7 +5,7 @@
 ---
 
 ## Task 1: Consolidate the clone-and-reinstall flow across the four update entry points
-status: pending
+status: approved
 severity: high
 sources: duplication
 
@@ -24,7 +24,7 @@ sources: duplication
 ---
 
 ## Task 2: Move the lexical path-traversal subpath check ahead of detection/config reads
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -43,7 +43,7 @@ sources: architecture
 ---
 
 ## Task 3: Add integration coverage for the configless cross-task seams
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -62,7 +62,7 @@ sources: architecture
 ---
 
 ## Task 4: De-duplicate the asset-dir presence scan
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -81,7 +81,7 @@ sources: duplication
 ---
 
 ## Task 5: De-duplicate the fs-existence helper and the ManifestEntry construction
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -100,7 +100,7 @@ sources: duplication
 ---
 
 ## Task 6: Simplify the clone-reinstall failure-status modelling
-status: pending
+status: approved
 severity: low
 sources: standards, architecture
 
