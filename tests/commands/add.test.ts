@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CollisionResolution } from "../../src/collision-resolve.js";
 import type { AgntcConfig } from "../../src/config.js";
 import type { CopyBareSkillResult } from "../../src/copy-bare-skill.js";
@@ -64,6 +67,12 @@ vi.mock("../../src/config.js", () => ({
 
 vi.mock("../../src/type-detection.js", () => ({
 	detectType: vi.fn(),
+	// Per-member membership probe used by the collection pipeline to resolve a
+	// skills-only member (≥1 asset dir at its own root) as a plugin member.
+	// Defaults to [] so existing mocked-detectType tests are unaffected (their
+	// detectType mock ignores the forwarded forcePlugin); REAL-path tests
+	// override it to delegate to the actual implementation.
+	findPresentAssetDirs: vi.fn(async () => []),
 	// Real throwable class so `instanceof` in the add command's catch works.
 	TypeConflictError: class TypeConflictError extends Error {
 		constructor(message: string) {
@@ -174,7 +183,11 @@ import { fetchRemoteTags } from "../../src/git-utils.js";
 import { addEntry, readManifest, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { parseSource } from "../../src/source-parser.js";
-import { detectType, TypeConflictError } from "../../src/type-detection.js";
+import {
+	detectType,
+	findPresentAssetDirs,
+	TypeConflictError,
+} from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
 import {
@@ -190,6 +203,7 @@ const mockResolveLatestVersion = vi.mocked(resolveLatestVersion);
 const mockResolveVersion = vi.mocked(resolveVersion);
 const mockReadConfig = vi.mocked(readConfig);
 const mockDetectType = vi.mocked(detectType);
+const mockFindPresentAssetDirs = vi.mocked(findPresentAssetDirs);
 const mockGetDriver = vi.mocked(getDriver);
 const mockDetectAgents = vi.mocked(detectAgents);
 const mockSelectAgents = vi.mocked(selectAgents);
@@ -3071,6 +3085,207 @@ describe("add command", () => {
 
 				expect(mockSelectCollectionPlugins).toHaveBeenCalled();
 				expect(mockCancel).not.toHaveBeenCalled();
+			});
+		});
+
+		// Analysis cycle 2 task 2-1: a skills-only collection member (child with
+		// only skills/, no SKILL.md) is a PLUGIN member per the membership rule
+		// (≥1 asset-kind dir → plugin member). It must INSTALL as a plugin, not be
+		// silently dropped as a nested collection. These tests exercise the REAL
+		// detectType + findPresentAssetDirs against a real on-disk member tree so
+		// the skills-only → plugin resolution is genuinely driven, not mocked.
+		describe("skills-only member resolves to a plugin member (REAL detection)", () => {
+			let realRoot: string;
+
+			async function delegateDetectionToReal(): Promise<void> {
+				const actual = await vi.importActual<
+					typeof import("../../src/type-detection.js")
+				>("../../src/type-detection.js");
+				mockDetectType.mockImplementation(actual.detectType);
+				mockFindPresentAssetDirs.mockImplementation(
+					actual.findPresentAssetDirs,
+				);
+			}
+
+			beforeEach(async () => {
+				realRoot = await mkdtemp(join(tmpdir(), "agntc-coll-real-"));
+			});
+
+			afterEach(async () => {
+				await rm(realRoot, { recursive: true, force: true });
+			});
+
+			it("installs a real skills-only member as a plugin (assets copied, manifest type plugin)", async () => {
+				// On-disk collection: one member "skillsonly" with only skills/, no
+				// SKILL.md → skills-only structure. The root holds that member dir, so
+				// the root structurally resolves to a members-collection.
+				const memberDir = join(realRoot, "skillsonly");
+				await mkdir(join(memberDir, "skills", "foo"), { recursive: true });
+				await writeFile(
+					join(memberDir, "skills", "foo", "SKILL.md"),
+					"# foo\n",
+				);
+
+				mockParseSource.mockReturnValue(COLLECTION_PARSED);
+				mockCloneSource.mockResolvedValue({
+					tempDir: realRoot,
+					commit: "real123",
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockSelectCollectionPlugins.mockResolvedValue(["skillsonly"]);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyPluginAssets.mockResolvedValue({
+					copiedFiles: [".claude/skills/foo/"],
+					assetCountsByAgent: { claude: { skills: 1 } },
+				});
+				await delegateDetectionToReal();
+
+				await runAdd("owner/my-collection");
+
+				// Member installs as a PLUGIN (copyPluginAssets, not bare-skill, not skip).
+				expect(mockCopyPluginAssets).toHaveBeenCalledTimes(1);
+				const copyCall = mockCopyPluginAssets.mock.calls[0]![0];
+				expect(copyCall.sourceDir).toBe(memberDir);
+				expect(copyCall.assetDirs).toEqual(["skills"]);
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+
+				// Manifest records the member keyed owner/repo/<unit> with type plugin.
+				const entryCalls = mockAddEntry.mock.calls;
+				expect(entryCalls).toHaveLength(1);
+				expect(entryCalls[0]![1]).toBe("owner/my-collection/skillsonly");
+				expect(entryCalls[0]![2]).toMatchObject({ type: "plugin" });
+
+				// Not skipped as a nested collection.
+				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+				expect(
+					warnCalls.some((m) => m.includes("nested collections not supported")),
+				).toBe(false);
+			});
+
+			it("honours a member-level type:plugin config during per-member detection", async () => {
+				// Member with a config carrying type:plugin (read at the member dir).
+				const memberDir = join(realRoot, "configured");
+				await mkdir(join(memberDir, "skills", "bar"), { recursive: true });
+				await writeFile(
+					join(memberDir, "skills", "bar", "SKILL.md"),
+					"# bar\n",
+				);
+
+				mockParseSource.mockReturnValue(COLLECTION_PARSED);
+				mockCloneSource.mockResolvedValue({
+					tempDir: realRoot,
+					commit: "real123",
+				});
+				// Root configless; member declares type:plugin.
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === realRoot) return null;
+					if (dir.endsWith("/configured"))
+						return { agents: ["claude"], type: "plugin" };
+					return null;
+				});
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockSelectCollectionPlugins.mockResolvedValue(["configured"]);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyPluginAssets.mockResolvedValue({
+					copiedFiles: [".claude/skills/bar/"],
+					assetCountsByAgent: { claude: { skills: 1 } },
+				});
+				await delegateDetectionToReal();
+
+				await runAdd("owner/my-collection");
+
+				// The member's own config was read at its dir.
+				expect(mockReadConfig).toHaveBeenCalledWith(
+					memberDir,
+					expect.anything(),
+				);
+				// The member's configType was forwarded into its per-member detection.
+				const memberDetectCall = mockDetectType.mock.calls.find(
+					([dir]) => dir === memberDir,
+				);
+				expect(memberDetectCall).toBeDefined();
+				expect(memberDetectCall![1]).toMatchObject({ configType: "plugin" });
+				// And it installs as a plugin member.
+				expect(mockCopyPluginAssets).toHaveBeenCalledTimes(1);
+				expect(mockAddEntry.mock.calls[0]![2]).toMatchObject({
+					type: "plugin",
+				});
+			});
+
+			it("still skips a genuine nested members-collection child (no asset dir at its own root)", async () => {
+				// "nestedcoll" has NO SKILL.md and NO asset dir at its own root, only a
+				// qualifying grandchild (skills-only) → real detectType resolves it to a
+				// members-collection → must be skipped as a nested collection.
+				const nestedDir = join(realRoot, "nestedcoll");
+				await mkdir(join(nestedDir, "grandchild", "skills", "g"), {
+					recursive: true,
+				});
+				await writeFile(
+					join(nestedDir, "grandchild", "skills", "g", "SKILL.md"),
+					"# g\n",
+				);
+				// A qualifying sibling so the ROOT itself resolves to a members-
+				// collection (nestedcoll alone does not qualify as a member — no
+				// SKILL.md / asset dir at its own root). Not selected for install.
+				await mkdir(join(realRoot, "sibling", "skills", "s"), {
+					recursive: true,
+				});
+				await writeFile(
+					join(realRoot, "sibling", "skills", "s", "SKILL.md"),
+					"# s\n",
+				);
+
+				mockParseSource.mockReturnValue(COLLECTION_PARSED);
+				mockCloneSource.mockResolvedValue({
+					tempDir: realRoot,
+					commit: "real123",
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockSelectCollectionPlugins.mockResolvedValue(["nestedcoll"]);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				await delegateDetectionToReal();
+
+				await runAdd("owner/my-collection");
+
+				// Skipped with the nested-collection warning; nothing installed.
+				expect(mockLog.warn).toHaveBeenCalledWith(
+					"nestedcoll: nested collections not supported — skipping",
+				);
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockAddEntry).not.toHaveBeenCalled();
 			});
 		});
 	});

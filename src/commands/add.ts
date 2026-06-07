@@ -37,7 +37,11 @@ import { parseSource, resolveCloneUrl } from "../source-parser.js";
 import type { PluginInstallResult } from "../summary.js";
 import { renderAddSummary, renderCollectionAddSummary } from "../summary.js";
 import type { DetectedType } from "../type-detection.js";
-import { detectType, TypeConflictError } from "../type-detection.js";
+import {
+	detectType,
+	findPresentAssetDirs,
+	TypeConflictError,
+} from "../type-detection.js";
 import { checkUnmanagedConflicts } from "../unmanaged-check.js";
 import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
@@ -510,8 +514,25 @@ async function runCollectionPipeline(
 		const pluginConfig = pluginConfigs.get(pluginName) ?? null;
 
 		const pluginDir = join(sourceDir, pluginName);
+
+		// Membership rule (spec: "a child with ≥1 asset-kind dir is a plugin
+		// member"): a member with any asset dir at its OWN root is a plugin member,
+		// never a nested collection. The skills-only member (only skills/, no
+		// SKILL.md) hits the detector's skills-only ambiguity and would otherwise
+		// default to collection → be silently dropped as a "nested collection"
+		// (analysis 2-1). Forcing plugin ONLY when an asset dir is present resolves
+		// the ambiguity correctly without ever forcing a member-dirs child (which
+		// has ZERO asset dirs at its own root) — that case stays a genuine nested
+		// collection and is still skipped below. forcePlugin on a member-dirs child
+		// would hard-error, so the asset-dir gate is what keeps that path safe.
+		const memberHasAssetDirs =
+			(await findPresentAssetDirs(pluginDir)).length > 0;
 		const pluginDetected = await detectType(pluginDir, {
 			onWarn,
+			// Honour a member-level `type: plugin` (its own config was read at
+			// step 3); previously the per-member detection got no configType.
+			configType: pluginConfig?.type,
+			forcePlugin: memberHasAssetDirs,
 		});
 
 		if (pluginDetected.type === "not-agntc") {
