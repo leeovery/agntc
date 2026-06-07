@@ -207,6 +207,16 @@ const mockFindPresentAssetDirs = vi.mocked(findPresentAssetDirs);
 const mockGetDriver = vi.mocked(getDriver);
 const mockDetectAgents = vi.mocked(detectAgents);
 const mockSelectAgents = vi.mocked(selectAgents);
+// selectAgents now returns a discriminated result distinguishing a deliberate
+// (possibly empty) selection from cancellation. These helpers keep the mock
+// setups expressing intent in terms of the resolved agents / cancel outcome.
+const selected = (
+	agents: AgentId[],
+): Awaited<ReturnType<typeof selectAgents>> =>
+	({ kind: "selected", agents }) as const;
+const cancelledSelection: Awaited<ReturnType<typeof selectAgents>> = {
+	kind: "cancelled",
+} as const;
 const mockSelectCollectionPlugins = vi.mocked(selectCollectionPlugins);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
@@ -278,7 +288,7 @@ function setupHappyPath(): void {
 	mockDetectType.mockResolvedValue(BARE_SKILL);
 	mockDetectAgents.mockResolvedValue(["claude"]);
 	mockGetDriver.mockReturnValue(FAKE_DRIVER);
-	mockSelectAgents.mockResolvedValue(["claude"]);
+	mockSelectAgents.mockResolvedValue(selected(["claude"]));
 	mockCopyBareSkill.mockResolvedValue(COPY_RESULT);
 	mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
 	mockAddEntry.mockReturnValue(UPDATED_MANIFEST);
@@ -387,7 +397,7 @@ describe("add command", () => {
 		it("passes correct declaredAgents and detectedAgents to selectAgents", async () => {
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
-			mockSelectAgents.mockResolvedValue(["claude"]);
+			mockSelectAgents.mockResolvedValue(selected(["claude"]));
 
 			await runAdd("owner/my-skill");
 
@@ -853,7 +863,7 @@ describe("add command", () => {
 			mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
-			mockSelectAgents.mockResolvedValue(["claude"]);
+			mockSelectAgents.mockResolvedValue(selected(["claude"]));
 			mockWriteManifest.mockResolvedValue(undefined);
 			mockCleanupTempDir.mockResolvedValue(undefined);
 			mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -1014,9 +1024,9 @@ describe("add command", () => {
 				if (id === "claude") return claudeDriver as any;
 				return codexDriver as any;
 			});
-			mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
-				...declaredAgents,
-			]);
+			mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
+				selected([...declaredAgents]),
+			);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/pluginA/"],
 			});
@@ -1051,7 +1061,7 @@ describe("add command", () => {
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
 			mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
-				declaredAgents.length > 0 ? [...declaredAgents] : ["claude"],
+				selected(declaredAgents.length > 0 ? [...declaredAgents] : ["claude"]),
 			);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/pluginA/"],
@@ -1213,7 +1223,7 @@ describe("add command", () => {
 			mockCheckFileCollisions.mockReturnValue(new Map());
 			mockCheckUnmanagedConflicts.mockResolvedValue([]);
 			// User deselects everything for every member.
-			mockSelectAgents.mockResolvedValue([]);
+			mockSelectAgents.mockResolvedValue(selected([]));
 
 			await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
 
@@ -1222,6 +1232,33 @@ describe("add command", () => {
 			expect(mockAddEntry).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(
 				COLLECTION_CLONE_RESULT.tempDir,
+			);
+		});
+
+		it("a member whose agent prompt is cancelled is silently skipped while siblings install", async () => {
+			// Cancellation and empty-selection both map to the per-member silent
+			// skip — no global cancel, no copy/entry for that member, siblings proceed.
+			setupCollectionBareSkills();
+			mockCopyBareSkill.mockReset();
+			mockCopyBareSkill.mockResolvedValueOnce({
+				copiedFiles: [".claude/skills/pluginB/"],
+			});
+			// pluginA cancelled, pluginB proceeds.
+			mockSelectAgents
+				.mockReset()
+				.mockResolvedValueOnce(cancelledSelection)
+				.mockResolvedValue(selected(["claude"]));
+
+			await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+
+			// No global cancel; only pluginB copied + recorded.
+			expect(mockCancel).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+			expect(mockAddEntry).toHaveBeenCalledTimes(1);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/my-collection/pluginB",
+				expect.anything(),
 			);
 		});
 
@@ -1393,7 +1430,7 @@ describe("add command", () => {
 				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -1611,7 +1648,7 @@ describe("add command", () => {
 				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -1986,9 +2023,9 @@ describe("add command", () => {
 				});
 				mockDetectAgents.mockResolvedValue(["claude", "codex"]);
 				// Per-member selectAgents returns that member's declared ceiling.
-				mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
-					...declaredAgents,
-				]);
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
+					selected([...declaredAgents]),
+				);
 				const claudeDriver = {
 					detect: vi.fn().mockResolvedValue(true),
 					getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
@@ -2087,9 +2124,9 @@ describe("add command", () => {
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockDetectAgents.mockResolvedValue(["claude", "codex"]);
-				mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
-					...declaredAgents,
-				]);
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
+					selected([...declaredAgents]),
+				);
 				const claudeDriver = {
 					detect: vi.fn().mockResolvedValue(true),
 					getTargetDir: vi.fn().mockReturnValue(".claude/skills"),
@@ -2131,9 +2168,9 @@ describe("add command", () => {
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockDetectAgents.mockResolvedValue(["claude"]);
-				mockSelectAgents.mockImplementation(async ({ declaredAgents }) => [
-					...declaredAgents,
-				]);
+				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
+					selected([...declaredAgents]),
+				);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/pluginA/"],
@@ -2223,7 +2260,7 @@ describe("add command", () => {
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
 				// selectAgents auto-selects: returns the single declared agent.
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/pluginA/"],
 				});
@@ -2278,7 +2315,7 @@ describe("add command", () => {
 				// pluginA (declared claude) auto-selects claude; pluginB (configless,
 				// declaredAgents:[]) -> user picks codex from the KNOWN_AGENTS default.
 				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
-					declaredAgents.length > 0 ? ["claude"] : ["codex"],
+					selected(declaredAgents.length > 0 ? ["claude"] : ["codex"]),
 				);
 				mockCopyBareSkill
 					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
@@ -2331,9 +2368,9 @@ describe("add command", () => {
 				// Per-member resolution: a member resolves to the intersection of its
 				// declared ceiling with what the user actually selects. A member whose
 				// declared agents are all deselected resolves to [] -> silent skip.
-				const selected = new Set(opts.selectedAgents);
+				const selectedSet = new Set(opts.selectedAgents);
 				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
-					declaredAgents.filter((id) => selected.has(id)),
+					selected(declaredAgents.filter((id) => selectedSet.has(id))),
 				);
 				const claudeDriver = {
 					detect: vi.fn().mockResolvedValue(true),
@@ -2452,7 +2489,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				// pluginA declares codex only but user selects nothing matching -> []
-				mockSelectAgents.mockResolvedValue([]);
+				mockSelectAgents.mockResolvedValue(selected([]));
 				mockComputeIncomingFiles.mockReturnValue([]);
 				mockCheckFileCollisions.mockReturnValue(new Map());
 				mockCheckUnmanagedConflicts.mockResolvedValue([]);
@@ -2739,7 +2776,7 @@ describe("add command", () => {
 				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -2866,7 +2903,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -3136,7 +3173,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["skillsonly"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -3199,7 +3236,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["configured"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -3268,7 +3305,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["nestedcoll"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -3384,7 +3421,7 @@ describe("add command", () => {
 
 		it("omits agents with all zero counts from summary", async () => {
 			setupPluginPath();
-			mockSelectAgents.mockResolvedValue(["claude", "codex"]);
+			mockSelectAgents.mockResolvedValue(selected(["claude", "codex"]));
 			const codexDriver = {
 				detect: vi.fn().mockResolvedValue(true),
 				getTargetDir: vi.fn().mockReturnValue(null),
@@ -3565,7 +3602,7 @@ describe("add command", () => {
 
 	describe("cancel: empty agent selection", () => {
 		it("shows cancelled, cleans up, and exits 0", async () => {
-			mockSelectAgents.mockResolvedValue([]);
+			mockSelectAgents.mockResolvedValue(selected([]));
 
 			const err = await runAdd("owner/my-skill").catch((e) => e);
 			expect(err).toBeInstanceOf(ExitSignal);
@@ -3573,6 +3610,35 @@ describe("add command", () => {
 			expect(
 				mockOutro.mock.calls[0]?.[0] ?? mockCancel.mock.calls[0]?.[0] ?? "",
 			).toMatch(/cancel/i);
+			expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
+		});
+
+		it("deliberate empty selection emits ONE coherent cancel message — no skipping-then-cancel pair", async () => {
+			mockSelectAgents.mockResolvedValue(selected([]));
+
+			const err = await runAdd("owner/my-skill").catch((e) => e);
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(0);
+			// Exactly one accurate abort message via p.cancel...
+			expect(mockCancel).toHaveBeenCalledTimes(1);
+			expect(mockCancel).toHaveBeenCalledWith("Cancelled — no agents selected");
+			// ...and NOT the contradictory "No agents selected — skipping" info log.
+			expect(mockLog.info).not.toHaveBeenCalledWith(
+				"No agents selected — skipping",
+			);
+		});
+
+		it("cancelled prompt (Esc) exits 0 with a single cancel message", async () => {
+			mockSelectAgents.mockResolvedValue(cancelledSelection);
+
+			const err = await runAdd("owner/my-skill").catch((e) => e);
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(0);
+			expect(mockCancel).toHaveBeenCalledTimes(1);
+			expect(mockCancel).toHaveBeenCalledWith("Cancelled — no agents selected");
+			expect(mockLog.info).not.toHaveBeenCalledWith(
+				"No agents selected — skipping",
+			);
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
 		});
 	});
@@ -3617,7 +3683,7 @@ describe("add command", () => {
 		});
 
 		it("cleans up on cancel", async () => {
-			mockSelectAgents.mockResolvedValue([]);
+			mockSelectAgents.mockResolvedValue(selected([]));
 
 			await runAdd("owner/my-skill").catch(() => {});
 
@@ -3670,7 +3736,7 @@ describe("add command", () => {
 			mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
-			mockSelectAgents.mockResolvedValue(["claude"]);
+			mockSelectAgents.mockResolvedValue(selected(["claude"]));
 			mockWriteManifest.mockResolvedValue(undefined);
 			mockCleanupTempDir.mockResolvedValue(undefined);
 			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
@@ -4058,7 +4124,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -4195,7 +4261,7 @@ describe("add command", () => {
 			mockDetectType.mockResolvedValue(LOCAL_BARE_SKILL);
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
-			mockSelectAgents.mockResolvedValue(["claude"]);
+			mockSelectAgents.mockResolvedValue(selected(["claude"]));
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -4354,7 +4420,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -4761,7 +4827,7 @@ describe("add command", () => {
 			mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
-			mockSelectAgents.mockResolvedValue(["claude"]);
+			mockSelectAgents.mockResolvedValue(selected(["claude"]));
 			mockWriteManifest.mockResolvedValue(undefined);
 			mockCleanupTempDir.mockResolvedValue(undefined);
 			mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -5073,7 +5139,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -5818,7 +5884,7 @@ describe("add command", () => {
 			mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
-			mockSelectAgents.mockResolvedValue(["claude"]);
+			mockSelectAgents.mockResolvedValue(selected(["claude"]));
 			mockWriteManifest.mockResolvedValue(undefined);
 			mockCleanupTempDir.mockResolvedValue(undefined);
 			mockAddEntry.mockImplementation((manifest, key, entry) => ({
@@ -6459,7 +6525,7 @@ describe("add command", () => {
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockComputeIncomingFiles.mockReturnValue([]);
@@ -6606,7 +6672,7 @@ describe("add command", () => {
 				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
 				mockDetectAgents.mockResolvedValue(["claude"]);
 				mockGetDriver.mockReturnValue(FAKE_DRIVER);
-				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
 				mockWriteManifest.mockResolvedValue(undefined);
 				mockCleanupTempDir.mockResolvedValue(undefined);
 				mockComputeIncomingFiles.mockReturnValue([]);

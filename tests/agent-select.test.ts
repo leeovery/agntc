@@ -123,7 +123,7 @@ describe("selectAgents", () => {
 		});
 
 		expect(mockMultiselect).toHaveBeenCalled();
-		expect(result).toEqual(["claude"]);
+		expect(result).toEqual({ kind: "selected", agents: ["claude"] });
 	});
 
 	it("returns user pick from KNOWN_AGENTS prompt", async () => {
@@ -134,7 +134,7 @@ describe("selectAgents", () => {
 			detectedAgents: ["claude"],
 		});
 
-		expect(result).toEqual(["codex", "cursor"]);
+		expect(result).toEqual({ kind: "selected", agents: ["codex", "cursor"] });
 	});
 
 	it("no-declaration default labels undetected KNOWN_AGENTS with hint", async () => {
@@ -156,7 +156,7 @@ describe("selectAgents", () => {
 		expect(codexOption?.label).toBe("codex (not detected in project)");
 	});
 
-	it("no-declaration default returns [] on cancel", async () => {
+	it("no-declaration default returns cancelled on cancel", async () => {
 		mockMultiselect.mockResolvedValue(Symbol("cancel"));
 
 		const result = await selectAgents({
@@ -164,10 +164,10 @@ describe("selectAgents", () => {
 			detectedAgents: ["claude"],
 		});
 
-		expect(result).toEqual([]);
+		expect(result).toEqual({ kind: "cancelled" });
 	});
 
-	it("no-declaration default returns [] on zero selection with info log", async () => {
+	it("no-declaration default returns selected with empty agents on zero selection", async () => {
 		mockMultiselect.mockResolvedValue([]);
 
 		const result = await selectAgents({
@@ -175,8 +175,8 @@ describe("selectAgents", () => {
 			detectedAgents: ["claude"],
 		});
 
-		expect(result).toEqual([]);
-		expect(vi.mocked(p.log.info)).toHaveBeenCalledWith(
+		expect(result).toEqual({ kind: "selected", agents: [] });
+		expect(vi.mocked(p.log.info)).not.toHaveBeenCalledWith(
 			"No agents selected — skipping",
 		);
 	});
@@ -193,7 +193,7 @@ describe("selectAgents", () => {
 		expect(call.initialValues).toEqual(["claude"]);
 	});
 
-	it("returns empty array on cancel", async () => {
+	it("returns cancelled on cancel", async () => {
 		mockMultiselect.mockResolvedValue(Symbol("cancel"));
 
 		const result = await selectAgents({
@@ -201,10 +201,10 @@ describe("selectAgents", () => {
 			detectedAgents: ["claude"],
 		});
 
-		expect(result).toEqual([]);
+		expect(result).toEqual({ kind: "cancelled" });
 	});
 
-	it("returns empty array on zero selection with info log", async () => {
+	it("returns selected with empty agents on zero selection", async () => {
 		mockMultiselect.mockResolvedValue([]);
 
 		const result = await selectAgents({
@@ -212,8 +212,8 @@ describe("selectAgents", () => {
 			detectedAgents: ["claude"],
 		});
 
-		expect(result).toEqual([]);
-		expect(vi.mocked(p.log.info)).toHaveBeenCalledWith(
+		expect(result).toEqual({ kind: "selected", agents: [] });
+		expect(vi.mocked(p.log.info)).not.toHaveBeenCalledWith(
 			"No agents selected — skipping",
 		);
 	});
@@ -226,7 +226,7 @@ describe("selectAgents", () => {
 			detectedAgents: ["claude", "codex"],
 		});
 
-		expect(result).toEqual(["claude", "codex"]);
+		expect(result).toEqual({ kind: "selected", agents: ["claude", "codex"] });
 	});
 
 	it("auto-selects when one declared agent is detected", async () => {
@@ -235,7 +235,7 @@ describe("selectAgents", () => {
 			detectedAgents: ["claude"],
 		});
 
-		expect(result).toEqual(["claude"]);
+		expect(result).toEqual({ kind: "selected", agents: ["claude"] });
 		expect(mockMultiselect).not.toHaveBeenCalled();
 	});
 
@@ -308,6 +308,6 @@ describe("selectAgents", () => {
 		});
 
 		expect(mockMultiselect).toHaveBeenCalled();
-		expect(result).toEqual(["claude", "codex"]);
+		expect(result).toEqual({ kind: "selected", agents: ["claude", "codex"] });
 	});
 });

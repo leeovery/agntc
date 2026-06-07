@@ -269,16 +269,24 @@ export async function runAdd(
 		const projectDir = process.cwd();
 		const detectedAgents = await detectAgents(projectDir);
 
-		// 8. Select agents
-		const selectedAgents = await selectAgents({
+		// 8. Select agents. Cancellation (Esc) and a deliberate empty selection are
+		// distinct outcomes, but for a standalone unit both mean "nothing to
+		// install" — a clean non-error abort. Emit exactly one coherent cancel
+		// message for either case (no emit-then-overwrite).
+		const agentSelection = await selectAgents({
 			declaredAgents: config?.agents ?? [],
 			detectedAgents,
 		});
 
-		if (selectedAgents.length === 0) {
+		if (
+			agentSelection.kind === "cancelled" ||
+			agentSelection.agents.length === 0
+		) {
 			p.cancel("Cancelled — no agents selected");
 			throw new ExitSignal(0);
 		}
+
+		const selectedAgents = agentSelection.agents;
 
 		// 9. Build agent+driver pairs for copy
 		const agents = selectedAgents.map((id) => ({
@@ -544,14 +552,20 @@ async function runCollectionPipeline(
 		// (null config) passes [] -> KNOWN_AGENTS default (all three, detected
 		// pre-ticked, always prompt, no auto-select). Each member resolves
 		// independently — no union, no cross-member coupling.
-		const pluginAgents = await selectAgents({
+		const pluginSelection = await selectAgents({
 			declaredAgents: pluginConfig?.agents ?? [],
 			detectedAgents,
 		});
-		// Zero resolution (declared ceiling matched nothing, or the installer
-		// deselected all in the configless default) is a silent per-member skip:
-		// no copy, no manifest entry, no warning, absent from summary.
-		if (pluginAgents.length === 0) continue;
+		// Both cancellation and a zero resolution (declared ceiling matched
+		// nothing, or the installer deselected all in the configless default) are a
+		// silent per-member skip: no copy, no manifest entry, no warning, absent
+		// from summary.
+		if (
+			pluginSelection.kind === "cancelled" ||
+			pluginSelection.agents.length === 0
+		)
+			continue;
+		const pluginAgents = pluginSelection.agents;
 		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
 			id,
 			driver: getDriver(id),
