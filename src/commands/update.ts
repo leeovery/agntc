@@ -6,6 +6,7 @@ import {
 	cloneAndReinstall,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	noAgentsMessage,
 	prepareReinstall,
 } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
@@ -213,7 +214,7 @@ async function runSinglePluginUpdate(
 		return mapCloneFailure(result, {
 			onNoAgents: () => {
 				p.log.warn(
-					`Plugin ${key} no longer supports any of your installed agents. ` +
+					`${noAgentsMessage(key)}. ` +
 						`No update performed. Run npx agntc remove ${key} to clean up.`,
 				);
 				return null;

@@ -196,19 +196,16 @@ export function failureMessage(
 	});
 }
 
-export function buildFailureMessage(
-	result: CloneReinstallFailed | CloneReinstallNoAgents,
-	key: string,
-): string {
-	if (result.status === "no-agents") {
-		return `Plugin ${key} no longer supports any of your installed agents`;
-	}
-	switch (result.failureReason) {
-		case "clone-failed":
-		case "copy-failed":
-		case "unknown":
-			return result.message;
-	}
+/**
+ * The single source of the lenient no-agents sentence. Every site that surfaces
+ * "this plugin no longer supports any installed agent" — the
+ * {@link CloneReinstallNoAgents} message built in {@link runPipeline} (which
+ * {@link failureMessage}'s `onNoAgents` arm then passes through) and update.ts's
+ * richer warning (which appends its own remedy) — derives from here so the
+ * wording can't drift across copies.
+ */
+export function noAgentsMessage(key: string): string {
+	return `Plugin ${key} no longer supports any of your installed agents`;
 }
 
 /**
@@ -431,7 +428,7 @@ async function runPipeline(
 	if (pipelineResult.status === "no-agents") {
 		return {
 			status: "no-agents",
-			message: `Plugin ${key} no longer supports any of your installed agents`,
+			message: noAgentsMessage(key),
 		};
 	}
 

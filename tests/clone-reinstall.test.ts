@@ -69,18 +69,17 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 import * as p from "@clack/prompts";
 import type {
 	CloneFailureHandlers,
-	CloneReinstallFailed,
 	CloneReinstallResult,
 } from "../src/clone-reinstall.js";
 import {
 	buildAbortMessage,
 	buildCopySafetyMessage,
-	buildFailureMessage,
 	cloneAndReinstall,
 	failureMessage,
 	formatAgentsDroppedWarning,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	noAgentsMessage,
 } from "../src/clone-reinstall.js";
 import { readConfig } from "../src/config.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
@@ -1207,50 +1206,17 @@ describe("isCloneReinstallFailure", () => {
 	});
 });
 
-describe("buildFailureMessage", () => {
-	function makeFailed(
-		failureReason: CloneReinstallFailed["failureReason"],
-		message: string,
-	): CloneReinstallFailed {
-		return { status: "failed", failureReason, message };
-	}
-
-	describe("passthrough reasons (clone-failed, copy-failed, unknown)", () => {
-		it("returns result.message for clone-failed", () => {
-			const msg = buildFailureMessage(
-				makeFailed("clone-failed", "network error"),
-				"owner/repo",
-			);
-			expect(msg).toBe("network error");
-		});
-
-		it("returns result.message for copy-failed", () => {
-			const msg = buildFailureMessage(
-				makeFailed("copy-failed", "disk full hint"),
-				"owner/repo",
-			);
-			expect(msg).toBe("disk full hint");
-		});
-
-		it("returns result.message for unknown", () => {
-			const msg = buildFailureMessage(
-				makeFailed("unknown", "something went wrong"),
-				"owner/repo",
-			);
-			expect(msg).toBe("something went wrong");
-		});
+describe("noAgentsMessage", () => {
+	it("returns the standard no-agents sentence for a key", () => {
+		expect(noAgentsMessage("owner/repo")).toBe(
+			"Plugin owner/repo no longer supports any of your installed agents",
+		);
 	});
 
-	describe("no-agents", () => {
-		it("returns standard no-agents message", () => {
-			const msg = buildFailureMessage(
-				{ status: "no-agents", message: "ignored" },
-				"owner/repo",
-			);
-			expect(msg).toBe(
-				"Plugin owner/repo no longer supports any of your installed agents",
-			);
-		});
+	it("interpolates the key into the sentence", () => {
+		expect(noAgentsMessage("acme/widgets")).toBe(
+			"Plugin acme/widgets no longer supports any of your installed agents",
+		);
 	});
 });
 
