@@ -6,7 +6,7 @@ total_proposed: 7
 # Analysis Tasks: Configless-Install (Cycle 2)
 
 ## Task 1: Skills-only collection member is silently skipped at install instead of installing as a plugin member
-status: pending
+status: approved
 severity: high
 sources: standards
 
@@ -35,7 +35,7 @@ sources: standards
 - Regression test asserting a genuine nested members-collection child is still skipped.
 
 ## Task 2: Tighten the collection-member result type seam to eliminate the runtime narrowing throw
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -63,7 +63,7 @@ sources: architecture
 - Type-check passes with no `any`/cast escape hatches introduced at the narrowed seam.
 
 ## Task 3: Extract a single copyUnit / unit-descriptor helper for the plugin-vs-bare-skill dispatch
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -92,7 +92,7 @@ sources: duplication
 - Coverage exercising both the plugin and bare-skill arms through the shared helper.
 
 ## Task 4: Extract an isCloneReinstallFailure type-guard for the four-site non-success guard
-status: pending
+status: approved
 severity: low
 sources: duplication
 
@@ -118,7 +118,7 @@ sources: duplication
 - Existing update / list-update / list-change-version failure-path tests pass unchanged.
 
 ## Task 5: selectAgents must distinguish cancellation from deliberate empty-selection
-status: pending
+status: approved
 severity: low
 sources: architecture
 
@@ -146,7 +146,7 @@ sources: architecture
 - Collection-member empty-selection still results in the per-member skip.
 
 ## Task 6: Type-conflict error message must not attribute a --plugin-flag conflict to a config "type plugin" declaration
-status: pending
+status: approved
 severity: low
 sources: standards
 
@@ -172,7 +172,7 @@ sources: standards
 - A config `type: plugin` on a conflicting structure yields the config-attributed message and a non-zero exit.
 
 ## Task 7: Remove the dead ConfigError class
-status: pending
+status: approved
 severity: low
 sources: standards
 

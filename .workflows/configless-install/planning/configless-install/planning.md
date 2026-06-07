@@ -165,3 +165,19 @@ approved_at: 2026-06-06
 | configless-install-analysis-1-4 | De-duplicate the asset-dir presence scan | findPresentAssetDirs for zero/one/many dirs, detection/membership/replay consumers unchanged, single existence primitive |
 | configless-install-analysis-1-5 | De-duplicate the fs-existence helper and the ManifestEntry construction | buildManifestEntry with/without constraint and cloneUrl, no local exists, three sites produce byte-identical entries |
 | configless-install-analysis-1-6 | Simplify the clone-reinstall failure-status modelling | mapCloneFailure aborted via status and failed variants via failureReason, no-agents single-key returns null/exit 0 untouched, all-updates non-fatal skip unchanged |
+
+### Phase 7: Analysis (Cycle 2)
+
+**Goal**: Address findings from Analysis (Cycle 2).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-2-1 | Skills-only collection member is silently skipped at install instead of installing as a plugin member | skills-only member resolves to plugin and installs (files copied + manifest entry), member-level type:plugin config consulted in per-member detection, genuine nested members-collection still skipped with "nested collections not supported", not-agntc child still skipped, real member dir test replaces mocked detectType |
+| configless-install-analysis-2-2 | Tighten the collection-member result type seam to eliminate the runtime narrowing throw | detectedType narrowed to Extract bare-skill|plugin and required on installed variant, runtime "missing a resolved type" throw removed, manifestTypeFromDetected keys on discriminated t.type, no any/cast escape hatch, type-check + tests pass |
+| configless-install-analysis-2-3 | Extract a single copyUnit / unit-descriptor helper for the plugin-vs-bare-skill dispatch | single copyUnit helper called from both standalone and collection-member paths, single toComputeInput mapping for both paths, both plugin and bare-skill arms exercised, nuke-reinstall replay left as-is, install behaviour unchanged |
+| configless-install-analysis-2-4 | Extract an isCloneReinstallFailure type-guard for the four-site non-success guard | failure-set defined once beside mapCloneFailure, all four reinstall entry points use the guard, mapCloneFailure receives narrowed type, per-site behaviour unchanged |
+| configless-install-analysis-2-5 | selectAgents must distinguish cancellation from deliberate empty-selection | discriminated cancelled|selected result, standalone emits single accurate cancel message (no emit-then-overwrite), collection-member empty-selection still skips per-member, assertions updated for new return shape |
+| configless-install-analysis-2-6 | Type-conflict error message must not attribute a --plugin-flag conflict to a config type plugin declaration | --plugin conflict on bare skill/members-collection names the flag, config type:plugin conflict names the config, non-zero pre-flight exit unchanged for both |
+| configless-install-analysis-2-7 | Remove the dead ConfigError class | ConfigError class + export removed from config.ts, no remaining references in codebase, config module exposes no error type, type-check + leniency tests pass |
