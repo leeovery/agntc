@@ -64,6 +64,13 @@ vi.mock("../../src/config.js", () => ({
 
 vi.mock("../../src/type-detection.js", () => ({
 	detectType: vi.fn(),
+	// Real throwable class so `instanceof` in the add command's catch works.
+	TypeConflictError: class TypeConflictError extends Error {
+		constructor(message: string) {
+			super(message);
+			this.name = "TypeConflictError";
+		}
+	},
 }));
 
 vi.mock("../../src/drivers/registry.js", () => ({
@@ -125,7 +132,7 @@ import { selectAgents } from "../../src/agent-select.js";
 import { selectCollectionPlugins } from "../../src/collection-select.js";
 import { checkFileCollisions } from "../../src/collision-check.js";
 import { resolveCollisions } from "../../src/collision-resolve.js";
-import { runAdd } from "../../src/commands/add.js";
+import { addCommand, runAdd } from "../../src/commands/add.js";
 import { computeIncomingFiles } from "../../src/compute-incoming-files.js";
 import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
@@ -137,7 +144,7 @@ import { fetchRemoteTags } from "../../src/git-utils.js";
 import { addEntry, readManifest, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { parseSource } from "../../src/source-parser.js";
-import { detectType } from "../../src/type-detection.js";
+import { detectType, TypeConflictError } from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
 import {
@@ -4338,6 +4345,143 @@ describe("add command", () => {
 			const entryA = addEntryCalls[0]![2] as ManifestEntry;
 			const entryB = addEntryCalls[1]![2] as ManifestEntry;
 			expect(entryA).not.toBe(entryB);
+		});
+	});
+
+	describe("--plugin override flag", () => {
+		it("registers --plugin as a boolean option on addCommand", () => {
+			const flags = addCommand.options.map((o) => o.long);
+			expect(flags).toContain("--plugin");
+		});
+
+		it("forwards forcePlugin: true to detectType when options.plugin is set", async () => {
+			await runAdd("owner/my-skill", { forcePlugin: true });
+
+			expect(mockDetectType).toHaveBeenCalledTimes(1);
+			expect(mockDetectType).toHaveBeenCalledWith(
+				CLONE_RESULT.tempDir,
+				expect.objectContaining({ forcePlugin: true }),
+			);
+		});
+
+		it("does not set forcePlugin true when flag absent (behaves as task 2-1)", async () => {
+			await runAdd("owner/my-skill");
+
+			expect(mockDetectType).toHaveBeenCalledTimes(1);
+			const opts = mockDetectType.mock.calls[0]![1] as {
+				forcePlugin?: boolean;
+			};
+			expect(opts.forcePlugin).toBeFalsy();
+		});
+
+		it("bundles a skills-only repo as a plugin via copyPluginAssets", async () => {
+			// detectType resolves the skills-only ambiguity to plugin under --plugin
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue({
+				type: "plugin",
+				assetDirs: ["skills"],
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/planning/"],
+				assetCountsByAgent: { claude: { skills: 1 } },
+			});
+
+			await runAdd("owner/my-skill", { forcePlugin: true });
+
+			expect(mockDetectType).toHaveBeenCalledWith(
+				CLONE_RESULT.tempDir,
+				expect.objectContaining({ forcePlugin: true }),
+			);
+			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
+				expect.objectContaining({ assetDirs: ["skills"] }),
+			);
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCancel).not.toHaveBeenCalled();
+		});
+
+		it("--plugin on a bare skill is a hard error naming the source (no copy, no manifest)", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockRejectedValue(
+				new TypeConflictError("the source is a bare skill — cannot bundle"),
+			);
+
+			const err = await runAdd("owner/my-skill", {
+				forcePlugin: true,
+			}).catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("owner/my-skill"),
+			);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("cannot bundle"),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+		});
+
+		it("--plugin on a member-dirs collection is a hard error and never enters the pipeline", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockRejectedValue(
+				new TypeConflictError(
+					"its structure is a collection of 3 members — cannot bundle",
+				),
+			);
+
+			const err = await runAdd("owner/my-skill", {
+				forcePlugin: true,
+			}).catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("owner/my-skill"),
+			);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("cannot bundle"),
+			);
+			// Collection pipeline must not be entered.
+			expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("--plugin on a multi-asset plugin is a redundant no-op and installs normally", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue({
+				type: "plugin",
+				assetDirs: ["skills", "agents"],
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/planning/"],
+				assetCountsByAgent: { claude: { skills: 1 } },
+			});
+
+			await runAdd("owner/my-skill", { forcePlugin: true });
+
+			expect(mockCopyPluginAssets).toHaveBeenCalled();
+			expect(mockCancel).not.toHaveBeenCalled();
+			expect(mockWriteManifest).toHaveBeenCalled();
+		});
+
+		it("TypeConflictError surfaces before any manifest write or copy (pre-flight)", async () => {
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockRejectedValue(
+				new TypeConflictError("the source is a bare skill — cannot bundle"),
+			);
+
+			await runAdd("owner/my-skill", { forcePlugin: true }).catch(() => {});
+
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockComputeIncomingFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			// Temp dir still cleaned up.
+			expect(mockCleanupTempDir).toHaveBeenCalledWith(CLONE_RESULT.tempDir);
 		});
 	});
 });

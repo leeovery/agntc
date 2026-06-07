@@ -25,7 +25,7 @@ import { parseSource, resolveCloneUrl } from "../source-parser.js";
 import type { PluginInstallResult } from "../summary.js";
 import { renderAddSummary, renderCollectionAddSummary } from "../summary.js";
 import type { DetectedType } from "../type-detection.js";
-import { detectType } from "../type-detection.js";
+import { detectType, TypeConflictError } from "../type-detection.js";
 import { checkUnmanagedConflicts } from "../unmanaged-check.js";
 import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
@@ -129,7 +129,10 @@ async function runConflictChecks(opts: {
 	return { updatedManifest: currentManifest, proceed: true };
 }
 
-export async function runAdd(source: string): Promise<void> {
+export async function runAdd(
+	source: string,
+	options?: { forcePlugin?: boolean },
+): Promise<void> {
 	p.intro("agntc add");
 
 	let tempDir: string | undefined;
@@ -169,11 +172,27 @@ export async function runAdd(source: string): Promise<void> {
 		const config = await readConfig(sourceDir, { onWarn });
 
 		// 4. Detect type ONCE — structure is sole authority; optional root config
-		// type is forwarded so detection owns recognition.
-		const detected = await detectType(sourceDir, {
-			onWarn,
-			configType: config?.type,
-		});
+		// type and the --plugin installer override are forwarded so detection owns
+		// recognition and conflict resolution (Phase 1, task 1-4).
+		let detected: DetectedType;
+		try {
+			detected = await detectType(sourceDir, {
+				onWarn,
+				configType: config?.type,
+				forcePlugin: options?.forcePlugin,
+			});
+		} catch (err) {
+			if (err instanceof TypeConflictError) {
+				// Detector supplies the structural half; prepend the source identity
+				// so the message names the offending source (spec: hard errors name
+				// the source). Pre-flight, non-zero, before any copy/manifest write.
+				p.cancel(
+					`${parsed.manifestKey} declares type plugin but ${err.message}`,
+				);
+				throw new ExitSignal(1);
+			}
+			throw err;
+		}
 
 		// 5. Branch on detected type
 		if (detected.type === "collection") {
@@ -622,8 +641,9 @@ async function runCollectionPipeline(
 export const addCommand = new Command("add")
 	.description("Install a plugin from a git repo or local path")
 	.argument("<source>", "Git repo (owner/repo) or local path")
+	.option("--plugin", "Bundle a skills-only source as a single plugin")
 	.action(
-		withExitSignal(async (source: string) => {
-			await runAdd(source);
+		withExitSignal(async (source: string, options: { plugin?: boolean }) => {
+			await runAdd(source, { forcePlugin: options.plugin === true });
 		}),
 	);
