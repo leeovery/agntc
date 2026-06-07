@@ -2404,6 +2404,254 @@ describe("add command", () => {
 				]);
 			});
 		});
+
+		// Phase 3 task 3-5: a stray root agntc.json must never reclassify a
+		// member-dirs collection. Structure decides; the root config is never read
+		// as an installable unit config. A root type:plugin contradicts the
+		// member-dirs structure and is a hard error pre-flight (Phase 1 task 1-4
+		// conflict + Phase 2 task 2-2 identity-prefixing).
+		describe("stray root agntc.json on a member-dirs collection", () => {
+			const COLLECTION_PARSED: ParsedSource = {
+				type: "github-shorthand",
+				owner: "owner",
+				repo: "my-collection",
+				ref: "main",
+				manifestKey: "owner/my-collection",
+			};
+
+			const COLLECTION_CLONE_RESULT: CloneResult = {
+				tempDir: "/tmp/agntc-coll-stray",
+				commit: "stray123def456",
+			};
+
+			const COLLECTION_DETECTED: DetectedType = {
+				type: "collection",
+				plugins: ["pluginA", "pluginB"],
+			};
+
+			function setupMemberDirsBase(): void {
+				mockParseSource.mockReturnValue(COLLECTION_PARSED);
+				mockCloneSource.mockResolvedValue(COLLECTION_CLONE_RESULT);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockSelectCollectionPlugins.mockResolvedValue(["pluginA", "pluginB"]);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(["claude"]);
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginA/"],
+				});
+			}
+
+			it("stray root agntc.json with no type does not reclassify — collection runs, root config not passed to pipeline as a unit config", async () => {
+				setupMemberDirsBase();
+				// Root agntc.json present but carries NO type (only agents). Members
+				// resolve via their own configs.
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return { agents: ["claude"] };
+					return { agents: ["claude"] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" };
+				});
+
+				await runAdd("owner/my-collection");
+
+				// Structure decided: collection pipeline entered.
+				expect(mockSelectCollectionPlugins).toHaveBeenCalledWith({
+					plugins: ["pluginA", "pluginB"],
+					manifest: EMPTY_MANIFEST,
+					manifestKeyPrefix: "owner/my-collection",
+				});
+				// Members installed under collection-prefixed keys — root config did
+				// not collapse the collection into a single bundled unit.
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual([
+					"owner/my-collection/pluginA",
+					"owner/my-collection/pluginB",
+				]);
+				// Standalone single-unit path never taken.
+				expect(mockCancel).not.toHaveBeenCalled();
+			});
+
+			it("root detectType receives the root config type as configType (undefined when no type)", async () => {
+				setupMemberDirsBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return { agents: ["claude"] };
+					return { agents: ["claude"] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" };
+				});
+
+				await runAdd("owner/my-collection");
+
+				// First detectType call is the single root detection. A typeless root
+				// config forwards configType: undefined → structure stands.
+				const rootCall = mockDetectType.mock.calls.find(
+					(c) => c[0] === COLLECTION_CLONE_RESULT.tempDir,
+				);
+				expect(rootCall).toBeDefined();
+				const opts = rootCall?.[1] as Record<string, unknown>;
+				expect(opts.configType).toBeUndefined();
+			});
+
+			it("root agntc.json type:plugin on member-dirs is a hard error pre-flight — forwards configType:plugin, surfaces identity-prefixed cancel + ExitSignal(1)", async () => {
+				setupMemberDirsBase();
+				// Root config declares type:plugin.
+				mockReadConfig.mockResolvedValue({
+					agents: ["claude"],
+					type: "plugin",
+				});
+				// Phase 1 task 1-4: member-dirs + configType:plugin → TypeConflictError.
+				mockDetectType.mockRejectedValue(
+					new TypeConflictError(
+						"its structure is a collection of 2 members — cannot bundle",
+					),
+				);
+
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect((err as ExitSignal).code).toBe(1);
+				// Identity-prefixed cancel names the source and the structural half.
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("owner/my-collection"),
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("cannot bundle"),
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					expect.stringContaining("collection of 2 members"),
+				);
+			});
+
+			it("root agntc.json type:plugin forwards configType:plugin into the single root detectType call", async () => {
+				setupMemberDirsBase();
+				mockReadConfig.mockResolvedValue({
+					agents: ["claude"],
+					type: "plugin",
+				});
+				mockDetectType.mockRejectedValue(
+					new TypeConflictError(
+						"its structure is a collection of 2 members — cannot bundle",
+					),
+				);
+
+				await runAdd("owner/my-collection").catch(() => {});
+
+				expect(mockDetectType).toHaveBeenCalledWith(
+					COLLECTION_CLONE_RESULT.tempDir,
+					expect.objectContaining({ configType: "plugin" }),
+				);
+			});
+
+			it("root type:plugin error is pre-flight: pipeline never entered, no copy, no manifest write", async () => {
+				setupMemberDirsBase();
+				mockReadConfig.mockResolvedValue({
+					agents: ["claude"],
+					type: "plugin",
+				});
+				mockDetectType.mockRejectedValue(
+					new TypeConflictError(
+						"its structure is a collection of 2 members — cannot bundle",
+					),
+				);
+
+				await runAdd("owner/my-collection").catch(() => {});
+
+				// Collection pipeline never entered.
+				expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+				// No writes of any kind.
+				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+				expect(mockAddEntry).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
+				// Temp dir still cleaned up.
+				expect(mockCleanupTempDir).toHaveBeenCalledWith(
+					COLLECTION_CLONE_RESULT.tempDir,
+				);
+			});
+
+			it("root config is never read by the pipeline as an installable unit config — only child configs source agents", async () => {
+				setupMemberDirsBase();
+				// Root config declares agents: ["codex"] (typeless). If the pipeline
+				// wrongly threaded the root config as a unit config, selectAgents would
+				// see declaredAgents:["codex"]. Members declare ["claude"]; every
+				// selectAgents call must carry the per-member ceiling, never the root's.
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return { agents: ["codex"] };
+					return { agents: ["claude"] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" };
+				});
+
+				await runAdd("owner/my-collection");
+
+				// Every selectAgents call uses a per-member ceiling, never the root's.
+				for (const call of mockSelectAgents.mock.calls) {
+					expect(call[0]).toEqual({
+						declaredAgents: ["claude"],
+						detectedAgents: ["claude"],
+					});
+				}
+			});
+
+			it("configless-root collection (no root agntc.json) unchanged — collection detected, pipeline runs", async () => {
+				setupMemberDirsBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return { agents: ["claude"] };
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" };
+				});
+
+				await runAdd("owner/my-collection");
+
+				expect(mockSelectCollectionPlugins).toHaveBeenCalled();
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual([
+					"owner/my-collection/pluginA",
+					"owner/my-collection/pluginB",
+				]);
+				expect(mockCancel).not.toHaveBeenCalled();
+			});
+
+			it("root type:collection on member-dirs is ignored (Phase 1 leniency) — collection installs", async () => {
+				setupMemberDirsBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir)
+						return { agents: ["claude"], type: "collection" };
+					return { agents: ["claude"] };
+				});
+				// configType:"collection" is not "plugin" → detectType lets structure
+				// stand (no conflict). Root call returns the collection.
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" };
+				});
+
+				await runAdd("owner/my-collection");
+
+				expect(mockSelectCollectionPlugins).toHaveBeenCalled();
+				expect(mockCancel).not.toHaveBeenCalled();
+			});
+		});
 	});
 
 	describe("plugin type", () => {
