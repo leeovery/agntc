@@ -45,6 +45,7 @@ type PluginOutcome =
 	| { status: "failed"; key: string; summary: string }
 	| { status: "copy-failed"; key: string; summary: string }
 	| { status: "aborted"; key: string; summary: string }
+	| { status: "skipped-no-agents"; key: string; summary: string }
 	| { status: "constrained-no-match"; key: string; summary: string };
 
 interface SingleUpdateResult {
@@ -324,7 +325,11 @@ async function processUpdateForAll(
 		if (result.status === "failed" || result.status === "aborted") {
 			return mapCloneFailure<PluginOutcome>(result, {
 				onNoAgents: () => ({
-					status: "failed" as const,
+					// Benign skip (lenient agent posture): the re-cloned tree no longer
+					// supports any installed agent. Not a hard error or abort — must NOT
+					// force a non-zero exit and must leave the entry untouched. Mirrors
+					// the single-key path's warn + exit-0 handling.
+					status: "skipped-no-agents" as const,
 					key,
 					summary: `${key}: Skipped — no longer supports installed agents`,
 				}),
@@ -595,6 +600,7 @@ async function runAllUpdates(): Promise<void> {
 		} else if (
 			outcome.status === "failed" ||
 			outcome.status === "check-failed" ||
+			outcome.status === "skipped-no-agents" ||
 			outcome.status === "constrained-no-match"
 		) {
 			p.log.warn(outcome.summary);
@@ -606,6 +612,24 @@ async function runAllUpdates(): Promise<void> {
 	}
 
 	renderOutOfConstraintOutput(outOfConstraintInfo);
+
+	// Partial-success exit: the successful updates have been written and the full
+	// per-unit report rendered above. Now, if ANY unit aborted (derive-before-
+	// delete, entry left intact) or hard-errored/copy-failed, exit non-zero so the
+	// command surfaces the failure — without rolling back the units that did
+	// succeed. Each unit stands alone (no collection-level coherence rollback).
+	if (hasFailedOutcome(outcomes)) {
+		throw new ExitSignal(1);
+	}
+}
+
+function hasFailedOutcome(outcomes: PluginOutcome[]): boolean {
+	return outcomes.some(
+		(outcome) =>
+			outcome.status === "aborted" ||
+			outcome.status === "failed" ||
+			outcome.status === "copy-failed",
+	);
 }
 
 function renderOutOfConstraintOutput(infos: OutOfConstraintInfo[]): void {

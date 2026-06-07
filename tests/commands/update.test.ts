@@ -429,10 +429,13 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
 
-			await runUpdate();
+			// Partial failure: B is still processed and written, but the run exits
+			// non-zero because A hard-errored. Catch so the assertions below run.
+			const err = await runUpdate().catch((e) => e);
 
-			// Should not throw — partial failure continues
-			// B should have been processed
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// B should have been processed despite A failing
 			expect(mockCopyBareSkill).toHaveBeenCalled();
 			expect(mockWriteManifest).toHaveBeenCalled();
 		});
@@ -1264,7 +1267,9 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
 
-			await runUpdate();
+			// All-updates partial abort exits non-zero (after writing successful
+			// siblings); catch so the manifest assertions below still run.
+			await runUpdate().catch(() => {});
 
 			// Manifest write must NOT include any add/remove for the aborted entry.
 			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
@@ -1298,7 +1303,9 @@ describe("update command", () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 
-			await runUpdate();
+			// All-updates abort exits non-zero after rendering the loud summary;
+			// catch so the summary assertions below still run.
+			await runUpdate().catch(() => {});
 
 			const allMessages = [
 				...mockLog.error.mock.calls,
@@ -1311,6 +1318,368 @@ describe("update command", () => {
 			expect(msg).toContain("SKILL.md");
 			expect(msg).toContain("unchanged");
 			expect(msg).toContain("npx agntc remove owner/repo");
+		});
+	});
+
+	describe("all-updates partial-success exit (per-entry abort granularity)", () => {
+		// repo-a (recorded skill) aborts because its SKILL.md is gone in the
+		// re-clone; repo-b (sibling collection member / skill) and owner/x both
+		// update cleanly. Models per-entry isolation: one unit aborting must not
+		// stop the others, and the successful units must still be written.
+		function arrangePartialAbort(): {
+			entryA: ManifestEntry;
+			entryB: ManifestEntry;
+		} {
+			const entryA = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			// Distinct temp dirs per sequential clone so the derive gate can be made
+			// to fail for repo-a (first) and pass for repo-b (second).
+			mockCloneSource
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/agntc-clone-a",
+					commit: REMOTE_SHA,
+				})
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/agntc-clone-b",
+					commit: REMOTE_SHA,
+				});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// repo-a's recorded SKILL.md is gone -> derive gate aborts; repo-b stays.
+			mockAccess.mockImplementation(async (path: unknown) => {
+				if (typeof path === "string" && path.includes("/agntc-clone-a/")) {
+					throw new Error("ENOENT");
+				}
+				return undefined;
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/skill-b/"],
+			});
+			return { entryA, entryB };
+		}
+
+		it("one member aborting does not stop siblings — sibling is updated and written", async () => {
+			arrangePartialAbort();
+
+			await runUpdate().catch(() => {});
+
+			// Sibling repo-b was processed (copied) and added to the manifest.
+			expect(mockCopyBareSkill).toHaveBeenCalled();
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(writtenManifest["owner/repo-b"]).toBeDefined();
+			expect(writtenManifest["owner/repo-b"]!.commit).toBe(REMOTE_SHA);
+		});
+
+		it("partial abort exits non-zero", async () => {
+			arrangePartialAbort();
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+		});
+
+		it("writes successful updates BEFORE throwing the non-zero exit", async () => {
+			arrangePartialAbort();
+
+			const callOrder: string[] = [];
+			mockWriteManifest.mockImplementation(async () => {
+				callOrder.push("write");
+			});
+
+			const err = await runUpdate().catch((e) => {
+				callOrder.push("throw");
+				return e;
+			});
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect(callOrder).toEqual(["write", "throw"]);
+		});
+
+		it("does not roll back the successful sibling when a member aborts", async () => {
+			arrangePartialAbort();
+
+			await runUpdate().catch(() => {});
+
+			// No coherence rollback: repo-b's successful entry is never removed.
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+			);
+			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(writtenManifest["owner/repo-b"]).toBeDefined();
+		});
+
+		it("leaves the aborted entry's manifest entry unchanged (install intact)", async () => {
+			const { entryA } = arrangePartialAbort();
+
+			await runUpdate().catch(() => {});
+
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+			);
+			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(writtenManifest["owner/repo-a"]).toEqual(entryA);
+		});
+
+		it("reports the aborted unit loudly in the per-unit summary", async () => {
+			arrangePartialAbort();
+
+			await runUpdate().catch(() => {});
+
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			const msg = errorCalls.find((m) => m.includes("owner/repo-a"));
+			expect(msg).toBeDefined();
+			expect(msg).toContain("skill");
+			expect(msg).toContain("unchanged");
+			expect(msg).toContain("npx agntc remove owner/repo-a");
+		});
+
+		it("lists per-unit outcomes for both the aborted and the succeeded unit", async () => {
+			arrangePartialAbort();
+
+			await runUpdate().catch(() => {});
+
+			const successCalls = mockLog.success.mock.calls.map(
+				(c) => c[0] as string,
+			);
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			expect(successCalls.some((m) => m.includes("owner/repo-b"))).toBe(true);
+			expect(errorCalls.some((m) => m.includes("owner/repo-a"))).toBe(true);
+		});
+
+		it("reports each aborted entry with its own reason (two distinct loud lines)", async () => {
+			const entryA = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// Both recorded skills are gone in the re-clone -> both abort.
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+
+			await runUpdate().catch(() => {});
+
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			const msgA = errorCalls.find((m) => m.includes("owner/repo-a"));
+			const msgB = errorCalls.find((m) => m.includes("owner/repo-b"));
+			expect(msgA).toBeDefined();
+			expect(msgB).toBeDefined();
+			expect(msgA).toContain("npx agntc remove owner/repo-a");
+			expect(msgB).toContain("npx agntc remove owner/repo-b");
+		});
+
+		it("exits non-zero once even when multiple units abort", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": makeEntry({
+					type: "skill",
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/skill-a/"],
+				}),
+				"owner/repo-b": makeEntry({
+					type: "skill",
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/skill-b/"],
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+		});
+
+		it("abort is not swallowed by the all-up-to-date early return", async () => {
+			// owner/repo-current is up to date; owner/repo-a aborts. The abort must
+			// still be reported and force a non-zero exit (not the up-to-date path).
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-current": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/current/"],
+				}),
+				"owner/repo-a": makeEntry({
+					type: "skill",
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/skill-a/"],
+				}),
+			});
+			mockCheckForUpdate.mockImplementation(
+				async (key: string, _entry: ManifestEntry) => {
+					if (key === "owner/repo-current") return { status: "up-to-date" };
+					return { status: "update-available", remoteCommit: REMOTE_SHA };
+				},
+			);
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockOutro).not.toHaveBeenCalledWith(
+				expect.stringContaining("up to date"),
+			);
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			expect(errorCalls.some((m) => m.includes("owner/repo-a"))).toBe(true);
+		});
+
+		it("plugin single-entry abort is atomic — the entry stays intact and exits non-zero", async () => {
+			const entry = makeEntry({
+				type: "plugin",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/my-plugin/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// Recorded plugin's marker is gone in the re-clone -> derive gate aborts.
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// Whole-entry atomic: no nuke, no manifest mutation for the one entry.
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo",
+			);
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("a no-agents unit alongside a successful sibling exits 0 (benign skip)", async () => {
+			// repo-a's re-clone no longer supports its installed agent (no-agents) —
+			// a benign skip, NOT a hard error/abort. repo-b updates cleanly. The run
+			// must exit 0 (no ExitSignal), write the sibling, warn (not error) about
+			// the no-agents unit, and leave the no-agents entry untouched.
+			const entryA = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["codex"],
+				files: [".agents/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			// Re-cloned config only supports claude: repo-a (codex) drops to
+			// no-agents; repo-b (claude) updates cleanly.
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/skill-b/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// Exits 0 — no ExitSignal thrown for a benign no-agents skip.
+			expect(err).toBeUndefined();
+			// Sibling repo-b is written; no-agents repo-a entry left untouched.
+			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(writtenManifest["owner/repo-b"]).toBeDefined();
+			expect(writtenManifest["owner/repo-b"]!.commit).toBe(REMOTE_SHA);
+			expect(mockAddEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+				expect.anything(),
+			);
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+			);
+			// Reported as a benign warning, not a loud error.
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			expect(warnCalls.some((m) => m.includes("owner/repo-a"))).toBe(true);
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			expect(errorCalls.some((m) => m.includes("owner/repo-a"))).toBe(false);
 		});
 	});
 
@@ -3292,8 +3661,12 @@ describe("update command", () => {
 					copiedFiles: [".claude/skills/skill-b/"],
 				});
 
-			await runUpdate();
+			// Copy failure makes the run exit non-zero, but the successful sibling
+			// is still written first. Catch so the manifest assertions below run.
+			const err = await runUpdate().catch((e) => e);
 
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
 			// copy-failed entry should be removed
@@ -3323,7 +3696,9 @@ describe("update command", () => {
 			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await runUpdate();
+			// Copy failure exits non-zero after the summary is rendered; catch so
+			// the recovery-hint assertion below still runs.
+			await runUpdate().catch(() => {});
 
 			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
 			const hasRecoveryHint = errorCalls.some((msg) =>
@@ -3351,8 +3726,12 @@ describe("update command", () => {
 			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await runUpdate();
+			// Copy failure exits non-zero after the manifest write; catch so the
+			// removal assertion below still runs.
+			const err = await runUpdate().catch((e) => e);
 
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
 			expect(writtenManifest[LOCAL_KEY]).toBeUndefined();
