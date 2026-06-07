@@ -56,6 +56,15 @@ vi.mock("../src/drivers/registry.js", () => ({
 	getDriver: vi.fn(),
 }));
 
+vi.mock("../src/copy-safety.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
+	return {
+		...actual,
+		scanForEscapingSymlinks: vi.fn(),
+		assertSubpathWithinClone: vi.fn(),
+	};
+});
+
 import * as p from "@clack/prompts";
 import type {
 	CloneFailureHandlers,
@@ -70,6 +79,11 @@ import {
 import { readConfig } from "../src/config.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
+import {
+	assertSubpathWithinClone,
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
+} from "../src/copy-safety.js";
 import { getDriver } from "../src/drivers/registry.js";
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
@@ -90,6 +104,8 @@ const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
 const mockPathExists = vi.mocked(pathExists);
 const mockLog = vi.mocked(p.log);
+const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
+const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
 import { makeEntry, makeFakeDriver } from "./helpers/factories.js";
 
@@ -105,6 +121,7 @@ beforeEach(() => {
 	mockGetDriver.mockReturnValue(fakeDriver);
 	mockPathExists.mockResolvedValue(true);
 	mockWriteManifest.mockResolvedValue(undefined);
+	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 	mockRemoveEntry.mockImplementation((manifest, key) => {
 		const { [key]: _, ...rest } = manifest;
 		return rest;
@@ -772,6 +789,257 @@ describe("cloneAndReinstall", () => {
 				"/tmp/agntc-clone/go",
 				expect.anything(),
 			);
+		});
+
+		describe("symlink-escape pre-flight (update re-copy)", () => {
+			it("clone mode scans sourceDir against the clone root (tempDir)", async () => {
+				const entry = makeEntry({ type: "skill" });
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/my-skill/"],
+				});
+
+				await cloneAndReinstall({
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					"/tmp/agntc-clone",
+					"/tmp/agntc-clone",
+				);
+			});
+
+			it("member subdir is scanned against the clone root (tempDir), not the subdir", async () => {
+				const entry = makeEntry({
+					type: "skill",
+					files: [".claude/skills/go/"],
+				});
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/go/"],
+				});
+
+				await cloneAndReinstall({
+					key: "owner/repo/go",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					"/tmp/agntc-clone/go",
+					"/tmp/agntc-clone",
+				);
+			});
+
+			it("local-path mode scans against the provided source root (cloneRoot === sourceDir)", async () => {
+				const key = "/Users/lee/Code/my-plugin";
+				const entry = makeEntry({
+					commit: null,
+					ref: null,
+					agents: ["claude"],
+					files: [".claude/skills/my-plugin/"],
+				});
+
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/my-plugin/"],
+				});
+
+				await cloneAndReinstall({
+					key,
+					entry,
+					projectDir: "/fake/project",
+					sourceDir: key,
+				});
+
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, key);
+			});
+
+			it("escaping symlink aborts before nuke (install intact, no copy, non-zero pre-flight failure)", async () => {
+				const entry = makeEntry({
+					type: "skill",
+					files: [".claude/skills/my-skill/"],
+				});
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockScanForEscapingSymlinks.mockRejectedValue(
+					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
+				);
+
+				const result = await cloneAndReinstall({
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(result.status).toBe("aborted");
+				if (result.status === "aborted") {
+					expect(result.failureReason).toBe("aborted");
+					expect(result.reason).toContain("evil-link");
+				}
+				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			});
+
+			it("does NOT remove the manifest entry on symlink violation (distinct from copy-failed)", async () => {
+				const entry = makeEntry({
+					type: "skill",
+					files: [".claude/skills/my-skill/"],
+				});
+				const manifest: Manifest = { "owner/repo": entry };
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockScanForEscapingSymlinks.mockRejectedValue(
+					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
+				);
+
+				await cloneAndReinstall({
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+					manifest,
+				});
+
+				expect(mockRemoveEntry).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
+			});
+
+			it("surfaces the violation as a named pre-flight failure via mapCloneFailure (onAborted)", async () => {
+				const entry = makeEntry({
+					type: "plugin",
+					files: [".claude/skills/my-skill/"],
+				});
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockScanForEscapingSymlinks.mockRejectedValue(
+					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
+				);
+
+				const result = await cloneAndReinstall({
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(result.status).toBe("aborted");
+				if (result.status !== "aborted") return;
+
+				const mapped = mapCloneFailure(result, {
+					onCloneFailed: () => "clone-failed",
+					onNoAgents: () => "no-agents",
+					onCopyFailed: () => "copy-failed",
+					onAborted: (recordedType, reason) =>
+						`aborted:${recordedType}:${reason}`,
+					onUnknown: () => "unknown",
+				});
+				expect(mapped).toBe(`aborted:plugin:${result.reason}`);
+				expect(mapped).toContain("evil-link");
+			});
+
+			it("does not invoke the path-traversal guard on the update path", async () => {
+				const entry = makeEntry({ type: "skill" });
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/my-skill/"],
+				});
+
+				await cloneAndReinstall({
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
+			});
+
+			it("clean re-cloned tree (no escaping symlink) updates normally", async () => {
+				const entry = makeEntry({
+					type: "skill",
+					files: [".claude/skills/my-skill/"],
+				});
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockScanForEscapingSymlinks.mockResolvedValue(undefined);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/my-skill/"],
+				});
+
+				const result = await cloneAndReinstall({
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(result.status).toBe("success");
+				expect(mockNukeManifestFiles).toHaveBeenCalled();
+				expect(mockCopyBareSkill).toHaveBeenCalledOnce();
+			});
+
+			it("no nuke or copy runs on violation (counts stay 0)", async () => {
+				const entry = makeEntry({ type: "skill" });
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockScanForEscapingSymlinks.mockRejectedValue(
+					new SymlinkEscapeError("evil", "../escape"),
+				);
+
+				await cloneAndReinstall({
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(mockNukeManifestFiles).toHaveBeenCalledTimes(0);
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(0);
+				expect(mockCopyPluginAssets).toHaveBeenCalledTimes(0);
+			});
 		});
 	});
 });

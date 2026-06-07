@@ -51,6 +51,15 @@ vi.mock("node:fs/promises", () => ({
 	access: vi.fn(),
 }));
 
+vi.mock("../../src/copy-safety.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/copy-safety.js")>();
+	return {
+		...actual,
+		scanForEscapingSymlinks: vi.fn(),
+	};
+});
+
 vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));

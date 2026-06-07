@@ -3,6 +3,7 @@ import { computeAgentChanges } from "./agent-compat.js";
 import { readConfig } from "./config.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
 import { copyPluginAssets } from "./copy-plugin-assets.js";
+import { SymlinkEscapeError, scanForEscapingSymlinks } from "./copy-safety.js";
 import { getDriver } from "./drivers/registry.js";
 import type { AgentId, AgentWithDriver, AssetType } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
@@ -14,6 +15,14 @@ import { ASSET_DIRS } from "./type-detection.js";
 export interface NukeReinstallOptions {
 	key: string;
 	sourceDir: string;
+	/**
+	 * Containment boundary for the symlink-escape pre-flight scan: the cloned
+	 * repository root. For a member unit, `sourceDir` is a subdir of this root,
+	 * so within-clone cross-member symlinks are allowed; only links escaping the
+	 * whole clone are rejected. For local-path mode the provided source root is
+	 * the boundary (`cloneRoot === sourceDir`).
+	 */
+	cloneRoot: string;
 	existingEntry: ManifestEntry;
 	projectDir: string;
 	newRef?: string | null;
@@ -61,7 +70,29 @@ export type NukeReinstallResult =
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
 ): Promise<NukeReinstallResult> {
-	const { sourceDir, existingEntry, onAgentsDropped, onWarn } = options;
+	const { sourceDir, cloneRoot, existingEntry, onAgentsDropped, onWarn } =
+		options;
+
+	// Symlink-escape pre-flight: scan the unit tree for any symlink pointing
+	// outside the cloned repository root, BEFORE any file removal. A violation
+	// aborts with the install left intact (no nuke, no copy) — mirroring the
+	// derive-before-delete abort posture, NOT routed through copy-failed (which
+	// removes the entry). No path-traversal guard here: update replays a recorded
+	// manifest key (getSourceDirFromKey derives the subdir from the key, not a
+	// fresh source-supplied selector), so the symlink scan is the whole of the
+	// update pre-flight.
+	try {
+		await scanForEscapingSymlinks(sourceDir, cloneRoot);
+	} catch (err: unknown) {
+		if (err instanceof SymlinkEscapeError) {
+			return {
+				status: "aborted",
+				recordedType: existingEntry.type ?? "skill",
+				reason: err.message,
+			};
+		}
+		throw err;
+	}
 
 	const ref = options.newRef !== undefined ? options.newRef : existingEntry.ref;
 	const commit =

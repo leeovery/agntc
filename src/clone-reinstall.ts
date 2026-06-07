@@ -141,6 +141,9 @@ export async function cloneAndReinstall(
 			entry,
 			projectDir,
 			sourceDir: options.sourceDir,
+			// Local-path mode: the provided source root is the containment
+			// boundary for the symlink-escape scan (cloneRoot === sourceDir).
+			cloneRoot: options.sourceDir,
 			newRef: options.newRef ?? null,
 			newCommit: options.newCommit ?? null,
 		});
@@ -181,6 +184,11 @@ export async function cloneAndReinstall(
 			entry,
 			projectDir,
 			sourceDir,
+			// Clone mode: the clone temp dir is the containment boundary for the
+			// symlink-escape scan. For a member unit `sourceDir` is a subdir of
+			// tempDir, so within-clone cross-member symlinks are allowed; only
+			// links escaping the whole clone are rejected.
+			cloneRoot: tempDir,
 			newRef: options.newRef ?? null,
 			newCommit,
 		});
@@ -218,6 +226,7 @@ interface PipelineInput {
 	entry: ManifestEntry;
 	projectDir: string;
 	sourceDir: string;
+	cloneRoot: string;
 	newRef: string | null;
 	newCommit: string | null;
 }
@@ -225,13 +234,15 @@ interface PipelineInput {
 async function runPipeline(
 	input: PipelineInput,
 ): Promise<CloneReinstallResult> {
-	const { key, entry, projectDir, sourceDir, newRef, newCommit } = input;
+	const { key, entry, projectDir, sourceDir, cloneRoot, newRef, newCommit } =
+		input;
 
 	const onWarn = (message: string) => p.log.warn(message);
 
 	const pipelineResult = await executeNukeAndReinstall({
 		key,
 		sourceDir,
+		cloneRoot,
 		existingEntry: entry,
 		projectDir,
 		newRef,

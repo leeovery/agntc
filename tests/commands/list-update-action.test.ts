@@ -66,6 +66,15 @@ vi.mock("node:fs/promises", () => ({
 	access: vi.fn(),
 }));
 
+vi.mock("../../src/copy-safety.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/copy-safety.js")>();
+	return {
+		...actual,
+		scanForEscapingSymlinks: vi.fn(),
+	};
+});
+
 import { access, stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";

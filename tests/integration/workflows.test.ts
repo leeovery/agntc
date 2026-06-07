@@ -276,6 +276,7 @@ describe("integration: core workflows", () => {
 			const pipelineResult = await executeNukeAndReinstall({
 				key: "owner/multi-agent-skill",
 				sourceDir: pluginDir,
+				cloneRoot: pluginDir,
 				existingEntry: entry,
 				projectDir,
 				newCommit: "v2hash",

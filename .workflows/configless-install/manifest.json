@@ -133,13 +133,15 @@
             "configless-install-4-7",
             "configless-install-5-1",
             "configless-install-5-2",
-            "configless-install-5-3"
+            "configless-install-5-3",
+            "configless-install-5-4"
           ],
           "completed_phases": [
             1,
             2,
             3,
-            4
+            4,
+            5
           ]
         }
       }

@@ -25,9 +25,23 @@ vi.mock("../src/drivers/registry.js", () => ({
 	getDriver: vi.fn(),
 }));
 
+vi.mock("../src/copy-safety.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
+	return {
+		...actual,
+		scanForEscapingSymlinks: vi.fn(),
+		assertSubpathWithinClone: vi.fn(),
+	};
+});
+
 import { readConfig } from "../src/config.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
+import {
+	assertSubpathWithinClone,
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
+} from "../src/copy-safety.js";
 import { getDriver } from "../src/drivers/registry.js";
 import { pathExists } from "../src/fs-utils.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
@@ -42,6 +56,8 @@ const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockGetDriver = vi.mocked(getDriver);
+const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
+const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
 const fakeDriver = makeFakeDriver();
 
@@ -51,6 +67,7 @@ function makeOptions(
 	return {
 		key: "owner/repo",
 		sourceDir: "/tmp/source",
+		cloneRoot: "/tmp/source",
 		existingEntry: makeEntry({ type: "skill" }),
 		projectDir: "/fake/project",
 		...overrides,
@@ -62,6 +79,7 @@ beforeEach(() => {
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockGetDriver.mockReturnValue(fakeDriver);
 	mockPathExists.mockResolvedValue(true);
+	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 });
 
 describe("executeNukeAndReinstall", () => {
@@ -625,6 +643,116 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.entry.constraint).toBeUndefined();
 			expect("constraint" in result.entry).toBe(false);
+		});
+	});
+
+	describe("symlink-escape pre-flight guard", () => {
+		it("scans sourceDir against cloneRoot before nuking (clone root differs from member subdir)", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/go/"],
+			});
+
+			await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/go",
+					sourceDir: "/tmp/clone/go",
+					cloneRoot: "/tmp/clone",
+					existingEntry: makeEntry({ type: "skill" }),
+				}),
+			);
+
+			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+				"/tmp/clone/go",
+				"/tmp/clone",
+			);
+		});
+
+		it("runs the symlink scan BEFORE nukeManifestFiles and copy", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+
+			const callOrder: string[] = [];
+			mockScanForEscapingSymlinks.mockImplementation(async () => {
+				callOrder.push("scan");
+			});
+			mockNukeManifestFiles.mockImplementation(async () => {
+				callOrder.push("nuke");
+				return { removed: [], skipped: [] };
+			});
+			mockCopyBareSkill.mockImplementation(async () => {
+				callOrder.push("copy");
+				return { copiedFiles: [".claude/skills/my-skill/"] };
+			});
+
+			await executeNukeAndReinstall(makeOptions());
+
+			expect(callOrder.indexOf("scan")).toBeLessThan(callOrder.indexOf("nuke"));
+			expect(callOrder.indexOf("nuke")).toBeLessThan(callOrder.indexOf("copy"));
+		});
+
+		it("aborts before any file removal when an escaping symlink is found (no nuke, no copy)", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+			mockScanForEscapingSymlinks.mockRejectedValue(
+				new SymlinkEscapeError("evil", "../../../etc/passwd"),
+			);
+
+			const result = await executeNukeAndReinstall(makeOptions());
+
+			expect(result.status).toBe("aborted");
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+		});
+
+		it("surfaces the offending symlink in the abort reason and recorded type", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+			mockScanForEscapingSymlinks.mockRejectedValue(
+				new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
+			);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+			);
+
+			expect(result.status).toBe("aborted");
+			if (result.status !== "aborted") return;
+			expect(result.recordedType).toBe("plugin");
+			expect(result.reason).toContain("evil-link");
+		});
+
+		it("does NOT call assertSubpathWithinClone on the update path", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await executeNukeAndReinstall(makeOptions());
+
+			expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
+		});
+
+		it("does not abort for a within-clone cross-member symlink (scan resolves clean)", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+			mockScanForEscapingSymlinks.mockResolvedValue(undefined);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/go/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/go",
+					sourceDir: "/tmp/clone/go",
+					cloneRoot: "/tmp/clone",
+				}),
+			);
+
+			expect(result.status).toBe("success");
 		});
 	});
 
