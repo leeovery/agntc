@@ -400,21 +400,24 @@ async function runCollectionPipeline(
 		}
 	}
 
-	// 3. Read configs for all selected plugins, collect union of declared agents
-	const pluginConfigs = new Map<string, AgntcConfig>();
+	// 3. Read each selected member's config ONLY for its declared agents. The
+	// member set is selectedPlugins (populated structurally upstream via Phase 1
+	// qualifiesAsMember) — config presence is NOT membership. A null config is a
+	// legitimate configless member, stored as null (never a skip reason). The
+	// union of declared agents seeds the single agent prompt; configless members
+	// contribute nothing to the union and fall back to the configless default.
+	const pluginConfigs = new Map<string, AgntcConfig | null>();
 	const allDeclaredAgents = new Set<AgentId>();
 
 	for (const pluginName of selectedPlugins) {
 		const pluginDir = join(sourceDir, pluginName);
 		try {
 			const pluginConfig = await readConfig(pluginDir, { onWarn });
-			if (pluginConfig === null) {
-				onWarn(`${pluginName}: no agntc.json found — skipping`);
-				continue;
-			}
 			pluginConfigs.set(pluginName, pluginConfig);
-			for (const agent of pluginConfig.agents) {
-				allDeclaredAgents.add(agent);
+			if (pluginConfig !== null) {
+				for (const agent of pluginConfig.agents) {
+					allDeclaredAgents.add(agent);
+				}
 			}
 		} catch (err) {
 			if (err instanceof ConfigError) {
@@ -423,12 +426,6 @@ async function runCollectionPipeline(
 			}
 			throw err;
 		}
-	}
-
-	// If no valid plugins remain, exit gracefully
-	if (pluginConfigs.size === 0) {
-		p.log.warn("No valid plugins to install");
-		throw new ExitSignal(0);
 	}
 
 	// 4. Detect agents + select once
@@ -458,8 +455,10 @@ async function runCollectionPipeline(
 	}> = [];
 
 	for (const pluginName of selectedPlugins) {
-		const pluginConfig = pluginConfigs.get(pluginName);
-		if (!pluginConfig) {
+		// A configless member is present in the map with a null config and must
+		// proceed (configless default). Only genuine read failures (ConfigError,
+		// owned by 3-3) leave a member absent from the map — those stay skipped.
+		if (!pluginConfigs.has(pluginName)) {
 			results.push({
 				pluginName,
 				status: "skipped",
@@ -468,6 +467,7 @@ async function runCollectionPipeline(
 			});
 			continue;
 		}
+		const pluginConfig = pluginConfigs.get(pluginName) ?? null;
 
 		const pluginDir = join(sourceDir, pluginName);
 		const pluginDetected = await detectType(pluginDir, {
@@ -496,9 +496,14 @@ async function runCollectionPipeline(
 			continue;
 		}
 
-		// Per-plugin agent filtering: intersect selectedAgents with plugin's declared agents
-		const declaredSet = new Set(pluginConfig.agents);
-		const pluginAgents = selectedAgents.filter((id) => declaredSet.has(id));
+		// Per-plugin agent filtering: a config-bearing member intersects
+		// selectedAgents with its declared agents; a configless member (null
+		// config) has no declaration to filter by, so it takes the configless
+		// default — every selected agent.
+		const pluginAgents =
+			pluginConfig === null
+				? selectedAgents
+				: selectedAgents.filter((id) => new Set(pluginConfig.agents).has(id));
 		if (pluginAgents.length === 0) continue;
 		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
 			id,

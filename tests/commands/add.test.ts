@@ -907,8 +907,9 @@ describe("add command", () => {
 			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
 		});
 
-		it("missing agntc.json skips plugin with warning", async () => {
+		it("missing agntc.json no longer skips a member — it installs configless", async () => {
 			setupCollectionBase();
+			// pluginA is configless (null), pluginB has config — both install
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
 				if (dir.endsWith("/pluginA")) return null;
@@ -918,16 +919,21 @@ describe("add command", () => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
 				return { type: "bare-skill" } as DetectedType;
 			});
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/pluginB/"],
-			});
+			mockComputeIncomingFiles.mockReturnValue([]);
+			mockCheckFileCollisions.mockReturnValue(new Map());
+			mockCheckUnmanagedConflicts.mockResolvedValue([]);
+			mockCopyBareSkill
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
 
 			await runAdd("owner/my-collection");
 
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("pluginA"),
+			// pluginA (configless) is no longer skipped
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			expect(warnCalls.some((m) => m.includes("no agntc.json found"))).toBe(
+				false,
 			);
-			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+			expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
 		});
 
 		it("not-agntc detected type skips plugin with warning", async () => {
@@ -954,7 +960,7 @@ describe("add command", () => {
 			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
 		});
 
-		it("all plugins failing exits 0", async () => {
+		it("all members skipped (ConfigError) completes without error, no manifest entries", async () => {
 			setupCollectionBase();
 			const { ConfigError } = await import("../../src/config.js");
 			mockReadConfig.mockImplementation(async (dir) => {
@@ -964,12 +970,16 @@ describe("add command", () => {
 			// detectType still called for root
 			mockDetectType.mockResolvedValue(COLLECTION_DETECTED);
 
-			const err = await runAdd("owner/my-collection").catch((e) => e);
-			expect(err).toBeInstanceOf(ExitSignal);
-			expect((err as ExitSignal).code).toBe(0);
+			// Gate removed: all-skipped flows to summary like all-zero-match (no exit)
+			await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+			expect(mockAddEntry).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(
 				COLLECTION_CLONE_RESULT.tempDir,
 			);
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			expect(
+				warnCalls.some((m) => m.includes("No valid plugins to install")),
+			).toBe(false);
 		});
 
 		it("empty plugin selection cancels cleanly", async () => {
@@ -1760,6 +1770,197 @@ describe("add command", () => {
 						msg.includes("no agents"),
 				);
 				expect(pluginBWarnings).toHaveLength(0);
+			});
+		});
+
+		describe("structural membership without config dependency", () => {
+			it("installs a configless member (null per-child config no longer skipped)", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					// Both members configless
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+
+				await runAdd("owner/my-collection");
+
+				// Both configless members install
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
+				expect(mockAddEntry).toHaveBeenCalledTimes(2);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toContain("owner/my-collection/pluginA");
+				expect(keys).toContain("owner/my-collection/pluginB");
+			});
+
+			it("does not warn 'no agntc.json found — skipping' for a null-config member", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/plugin/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+				expect(
+					warnCalls.some((m) => m.includes("no agntc.json found")),
+				).toBe(false);
+			});
+
+			it("all-configless collection does not exit with 'No valid plugins to install'", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/plugin/"],
+				});
+
+				await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+
+				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+				expect(
+					warnCalls.some((m) => m.includes("No valid plugins to install")),
+				).toBe(false);
+			});
+
+			it("config-bearing and configless members coexist (both install)", async () => {
+				setupCollectionBase();
+				// pluginA has config, pluginB is configless
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					if (dir.endsWith("/pluginA")) return { agents: ["claude"] };
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+
+				await runAdd("owner/my-collection");
+
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toContain("owner/my-collection/pluginA");
+				expect(keys).toContain("owner/my-collection/pluginB");
+			});
+
+			it("member excluded only by structural re-detect (not by null config)", async () => {
+				setupCollectionBase();
+				// Both configless; pluginA re-detects as not-agntc, pluginB as bare-skill
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					if (dir.endsWith("/pluginA"))
+						return { type: "not-agntc" } as DetectedType;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/pluginB/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				// Only pluginB installs; pluginA dropped by structural re-detect
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual(["owner/my-collection/pluginB"]);
+			});
+
+			it("per-child detectType is called with Phase 1 options (no hasConfig)", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/plugin/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				const childCalls = mockDetectType.mock.calls.filter(
+					([dir]) => dir !== COLLECTION_CLONE_RESULT.tempDir,
+				);
+				expect(childCalls.length).toBeGreaterThan(0);
+				for (const call of childCalls) {
+					const opts = call[1] as Record<string, unknown>;
+					expect(opts).not.toHaveProperty("hasConfig");
+					expect(opts).toHaveProperty("onWarn");
+				}
+			});
+
+			it("all-configless collection installs members keyed owner/repo/<unit>", async () => {
+				setupCollectionBase();
+				mockReadConfig.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
+					return null;
+				});
+				mockDetectType.mockImplementation(async (dir) => {
+					if (dir === COLLECTION_CLONE_RESULT.tempDir) return COLLECTION_DETECTED;
+					return { type: "bare-skill" } as DetectedType;
+				});
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				mockCopyBareSkill
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginB/"] });
+
+				await runAdd("owner/my-collection");
+
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual([
+					"owner/my-collection/pluginA",
+					"owner/my-collection/pluginB",
+				]);
 			});
 		});
 	});
