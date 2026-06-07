@@ -61,11 +61,27 @@ interface NukeReinstallAborted {
 	reason: string;
 }
 
+/**
+ * The symlink-escape pre-flight scan found a symlink whose target resolves
+ * outside the cloned repository root. This is a copy-safety/security violation,
+ * NOT a recorded-type change: the scan runs BEFORE any file removal, so the
+ * existing install is left fully intact (no nuke, no copy, manifest unchanged).
+ * Distinct from {@link NukeReinstallAborted} — there is no recorded-type
+ * mismatch here, and the remedy is NOT remove+add (that re-trips the same
+ * guard). {@link reason} carries the structured cause (the offending symlink);
+ * the user-facing copy-safety message is assembled by the reporting layer.
+ */
+interface NukeReinstallBlocked {
+	status: "blocked";
+	reason: string;
+}
+
 export type NukeReinstallResult =
 	| NukeReinstallSuccess
 	| NukeReinstallNoAgents
 	| NukeReinstallCopyFailed
-	| NukeReinstallAborted;
+	| NukeReinstallAborted
+	| NukeReinstallBlocked;
 
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
@@ -75,19 +91,21 @@ export async function executeNukeAndReinstall(
 
 	// Symlink-escape pre-flight: scan the unit tree for any symlink pointing
 	// outside the cloned repository root, BEFORE any file removal. A violation
-	// aborts with the install left intact (no nuke, no copy) — mirroring the
-	// derive-before-delete abort posture, NOT routed through copy-failed (which
-	// removes the entry). No path-traversal guard here: update replays a recorded
-	// manifest key (getSourceDirFromKey derives the subdir from the key, not a
-	// fresh source-supplied selector), so the symlink scan is the whole of the
-	// update pre-flight.
+	// returns the dedicated copy-safety `blocked` outcome with the install left
+	// intact (no nuke, no copy) — sharing the derive-before-delete abort's
+	// install-intact posture, but NOT its meaning: this is a copy-safety/security
+	// violation, not a recorded-type change, so the reporting layer must NOT offer
+	// the remove+add remedy (it re-trips the same guard). It is also NOT routed
+	// through copy-failed (which removes the entry). No path-traversal guard here:
+	// update replays a recorded manifest key (getSourceDirFromKey derives the
+	// subdir from the key, not a fresh source-supplied selector), so the symlink
+	// scan is the whole of the update pre-flight.
 	try {
 		await scanForEscapingSymlinks(sourceDir, cloneRoot);
 	} catch (err: unknown) {
 		if (err instanceof SymlinkEscapeError) {
 			return {
-				status: "aborted",
-				recordedType: existingEntry.type ?? "skill",
+				status: "blocked",
 				reason: err.message,
 			};
 		}

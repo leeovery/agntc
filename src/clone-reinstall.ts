@@ -111,13 +111,15 @@ export interface CloneReinstallNoAgents {
 export type CloneReinstallFailure =
 	| CloneReinstallFailed
 	| CloneReinstallNoAgents
-	| CloneReinstallAborted;
+	| CloneReinstallAborted
+	| CloneReinstallBlocked;
 
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
 	onNoAgents: (msg: string) => T;
 	onCopyFailed: (msg: string) => T;
 	onAborted: (recordedType: "skill" | "plugin", reason: string) => T;
+	onBlocked: (reason: string) => T;
 	onUnknown: (msg: string) => T;
 }
 
@@ -141,6 +143,7 @@ export function isCloneReinstallFailure(
 	return (
 		result.status === "failed" ||
 		result.status === "aborted" ||
+		result.status === "blocked" ||
 		result.status === "no-agents"
 	);
 }
@@ -151,6 +154,9 @@ export function mapCloneFailure<T>(
 ): T {
 	if (result.status === "aborted") {
 		return handlers.onAborted(result.recordedType, result.reason);
+	}
+	if (result.status === "blocked") {
+		return handlers.onBlocked(result.reason);
 	}
 	if (result.status === "no-agents") {
 		return handlers.onNoAgents(result.message);
@@ -197,11 +203,30 @@ export interface CloneReinstallAborted {
 	reason: string;
 }
 
+/**
+ * The unit's update was blocked by the symlink-escape copy-safety pre-flight:
+ * the re-cloned source contains a symlink whose target resolves outside the
+ * clone. The scan runs BEFORE any file removal, so the existing install is left
+ * fully intact (no nuke, no copy, manifest unchanged). Distinct from
+ * {@link CloneReinstallAborted}: there is no recorded-type mismatch, so the
+ * report must NOT offer the remove+add migrate remedy (it just re-trips the same
+ * guard). The distinct `status: "blocked"` is the single discriminator;
+ * {@link mapCloneFailure} dispatches it via `onBlocked` on `status` alone,
+ * keeping it out of `handleCopyFailedRemoval` (which removes the entry).
+ * {@link reason} carries the offending symlink; {@link buildCopySafetyMessage}
+ * assembles the user-facing report.
+ */
+export interface CloneReinstallBlocked {
+	status: "blocked";
+	reason: string;
+}
+
 export type CloneReinstallResult =
 	| CloneReinstallSuccess
 	| CloneReinstallFailed
 	| CloneReinstallNoAgents
-	| CloneReinstallAborted;
+	| CloneReinstallAborted
+	| CloneReinstallBlocked;
 
 /**
  * The user-facing report for a derive-before-delete abort: names the recorded
@@ -219,6 +244,23 @@ export function buildAbortMessage(
 		`${key} was installed as a ${recordedType}, but its source no longer ` +
 		`supports that type (${reason}). The existing install is unchanged. ` +
 		`To migrate: npx agntc remove ${key} then npx agntc add ${key}`
+	);
+}
+
+/**
+ * The user-facing report for a symlink-escape copy-safety block. Names the
+ * source (key), states the source contains a symlink escaping the clone (the
+ * structured {@link reason} surfaces the offending link), and affirms the
+ * update is blocked with the existing install left intact. Mirrors the add
+ * path's identity-prefixed cancel framing (`${key}: <reason>`). Deliberately
+ * distinct from {@link buildAbortMessage}: this is a copy-safety violation, not
+ * a recorded-type change, so it does NOT offer the remove+add migrate remedy —
+ * remove+add would only re-trip the same guard.
+ */
+export function buildCopySafetyMessage(key: string, reason: string): string {
+	return (
+		`${key}: ${reason}. The source contains a symlink escaping the clone, ` +
+		`so the update is blocked. The existing install is unchanged.`
 	);
 }
 
@@ -380,6 +422,16 @@ async function runPipeline(
 		return {
 			status: "aborted",
 			recordedType: pipelineResult.recordedType,
+			reason: pipelineResult.reason,
+		};
+	}
+
+	// Symlink-escape copy-safety block: like aborted, the entry stays intact (no
+	// failureReason, so handleCopyFailedRemoval never removes it). Distinct status
+	// keeps it off the type-migration remedy.
+	if (pipelineResult.status === "blocked") {
+		return {
+			status: "blocked",
 			reason: pipelineResult.reason,
 		};
 	}

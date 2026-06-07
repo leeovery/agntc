@@ -101,6 +101,10 @@ import { runUpdate } from "../../src/commands/update.js";
 import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
+import {
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
+} from "../../src/copy-safety.js";
 import { getDriver } from "../../src/drivers/registry.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import {
@@ -133,6 +137,7 @@ const mockAccess = vi.mocked(access);
 const mockOutro = vi.mocked(p.outro);
 const mockLog = vi.mocked(p.log);
 const mockCancel = vi.mocked(p.cancel);
+const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 
 import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
 
@@ -151,6 +156,8 @@ beforeEach(() => {
 	// Default: the recorded structural unit still exists in the re-clone, so the
 	// derive-before-delete gate passes (pathExists -> access resolves).
 	mockAccess.mockResolvedValue(undefined);
+	// Default: no escaping symlink in the re-clone (copy-safety scan passes).
+	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -1329,6 +1336,149 @@ describe("update command", () => {
 			expect(msg).toContain("SKILL.md");
 			expect(msg).toContain("unchanged");
 			expect(msg).toContain("npx agntc remove owner/repo");
+		});
+	});
+
+	describe("symlink-escape copy-safety block (distinct from derive-before-delete abort)", () => {
+		function arrangeSymlinkEscape(key = "owner/repo"): ManifestEntry {
+			const entry = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ [key]: entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			// The recorded unit is still structurally present (derive gate would
+			// pass), but the re-clone contains an escaping symlink -> copy-safety block.
+			mockAccess.mockResolvedValue(undefined);
+			mockScanForEscapingSymlinks.mockRejectedValue(
+				new SymlinkEscapeError("evil-link", "/etc/passwd"),
+			);
+			return entry;
+		}
+
+		it("single-key update with an escaping symlink exits non-zero", async () => {
+			arrangeSymlinkEscape();
+
+			const err = await runUpdate("owner/repo").catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+		});
+
+		it("reports a copy-safety message describing the symlink escape, NOT a type change or remove+add", async () => {
+			arrangeSymlinkEscape();
+
+			await runUpdate("owner/repo").catch(() => {});
+
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			const msg = errorCalls.find((m) => m.includes("owner/repo"));
+			expect(msg).toBeDefined();
+			expect(msg).toContain("evil-link");
+			expect(msg?.toLowerCase()).toContain("symlink");
+			expect(msg).toContain("unchanged");
+			// Must NOT use the derive-before-delete framing or remedy.
+			expect(msg).not.toContain("no longer supports that type");
+			expect(msg).not.toContain("npx agntc remove");
+			expect(msg).not.toContain("To migrate");
+		});
+
+		it("does not nuke or mutate the manifest on a symlink-escape block (install intact)", async () => {
+			arrangeSymlinkEscape();
+
+			await runUpdate("owner/repo").catch(() => {});
+
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+		});
+
+		it("all-updates: a symlink-escape member produces a non-success outcome (non-zero exit), manifest untouched, sibling still updates", async () => {
+			const entryA = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			// Distinct temp dirs per sequential clone so the scan can be made to
+			// fail for repo-a (first) and pass for repo-b (second).
+			mockCloneSource
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/agntc-clone-a",
+					commit: REMOTE_SHA,
+				})
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/agntc-clone-b",
+					commit: REMOTE_SHA,
+				});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// repo-a's re-clone has an escaping symlink -> blocked; repo-b is clean.
+			mockScanForEscapingSymlinks.mockImplementation(
+				async (sourceDir: unknown) => {
+					if (
+						typeof sourceDir === "string" &&
+						sourceDir.includes("/agntc-clone-a")
+					) {
+						throw new SymlinkEscapeError("evil-link", "/etc/passwd");
+					}
+					return undefined;
+				},
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/skill-b/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// Non-zero exit from the blocked member.
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+
+			// Blocked member's manifest entry never removed; sibling still written.
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+			);
+			const writeCalls = mockWriteManifest.mock.calls;
+			expect(writeCalls.length).toBeGreaterThan(0);
+			for (const call of writeCalls) {
+				const written = call[1] as Manifest;
+				expect(written["owner/repo-a"]).toBeDefined();
+			}
+
+			// Copy-safety message rendered for the blocked member.
+			const allMessages = [
+				...mockLog.error.mock.calls,
+				...mockLog.warn.mock.calls,
+			].map((c) => c[0] as string);
+			const blockedMsg = allMessages.find((m) => m.includes("owner/repo-a"));
+			expect(blockedMsg).toBeDefined();
+			expect(blockedMsg).toContain("evil-link");
+			expect(blockedMsg).not.toContain("no longer supports that type");
 		});
 	});
 

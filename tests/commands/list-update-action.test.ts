@@ -82,6 +82,10 @@ import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
+import {
+	SymlinkEscapeError,
+	scanForEscapingSymlinks,
+} from "../../src/copy-safety.js";
 import { getDriver } from "../../src/drivers/registry.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { addEntry, removeEntry, writeManifest } from "../../src/manifest.js";
@@ -102,6 +106,7 @@ const mockGetDriver = vi.mocked(getDriver);
 const mockStat = vi.mocked(stat);
 const mockAccess = vi.mocked(access);
 const mockLog = vi.mocked(p.log);
+const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 
 import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
 
@@ -119,6 +124,8 @@ beforeEach(() => {
 	// Default: the recorded structural unit still exists in the re-clone, so the
 	// derive-before-delete gate passes (pathExists -> access resolves).
 	mockAccess.mockResolvedValue(undefined);
+	// Default: no escaping symlink in the re-clone (copy-safety scan passes).
+	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -588,6 +595,44 @@ describe("executeUpdateAction", () => {
 			expect(result.message).toContain("unchanged");
 			expect(result.message).toContain("npx agntc remove owner/repo");
 			expect(result.message).toContain("npx agntc add owner/repo");
+			expect(result.newEntry).toBeUndefined();
+			// Install intact: no nuke, no manifest write.
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("blocked (symlink-escape copy-safety)", () => {
+		it("renders the copy-safety message (symlink escape, no type-migration remedy), leaves install intact", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+			const manifest: Manifest = { [key]: entry };
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockScanForEscapingSymlinks.mockRejectedValue(
+				new SymlinkEscapeError("evil-link", "/etc/passwd"),
+			);
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+			);
+
+			expect(result.success).toBe(false);
+			expect(result.message).toContain("evil-link");
+			expect(result.message.toLowerCase()).toContain("symlink");
+			expect(result.message).toContain("unchanged");
+			expect(result.message).not.toContain("no longer supports that type");
+			expect(result.message).not.toContain("npx agntc remove");
 			expect(result.newEntry).toBeUndefined();
 			// Install intact: no nuke, no manifest write.
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();

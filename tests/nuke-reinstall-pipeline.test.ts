@@ -692,7 +692,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(callOrder.indexOf("nuke")).toBeLessThan(callOrder.indexOf("copy"));
 		});
 
-		it("aborts before any file removal when an escaping symlink is found (no nuke, no copy)", async () => {
+		it("blocks before any file removal when an escaping symlink is found (no nuke, no copy)", async () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockScanForEscapingSymlinks.mockRejectedValue(
@@ -701,13 +701,13 @@ describe("executeNukeAndReinstall", () => {
 
 			const result = await executeNukeAndReinstall(makeOptions());
 
-			expect(result.status).toBe("aborted");
+			expect(result.status).toBe("blocked");
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
 		});
 
-		it("surfaces the offending symlink in the abort reason and recorded type", async () => {
+		it("surfaces the offending symlink in the blocked reason (a copy-safety violation, NOT a recorded-type abort)", async () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockScanForEscapingSymlinks.mockRejectedValue(
@@ -718,9 +718,8 @@ describe("executeNukeAndReinstall", () => {
 				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
 			);
 
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") return;
-			expect(result.recordedType).toBe("plugin");
+			expect(result.status).toBe("blocked");
+			if (result.status !== "blocked") return;
 			expect(result.reason).toContain("evil-link");
 		});
 

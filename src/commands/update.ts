@@ -2,6 +2,7 @@ import * as p from "@clack/prompts";
 import { Command } from "commander";
 import {
 	buildAbortMessage,
+	buildCopySafetyMessage,
 	cloneAndReinstall,
 	isCloneReinstallFailure,
 	mapCloneFailure,
@@ -45,6 +46,7 @@ type PluginOutcome =
 	| { status: "failed"; key: string; summary: string }
 	| { status: "copy-failed"; key: string; summary: string }
 	| { status: "aborted"; key: string; summary: string }
+	| { status: "blocked"; key: string; summary: string }
 	| { status: "skipped-no-agents"; key: string; summary: string }
 	| { status: "constrained-no-match"; key: string; summary: string };
 
@@ -228,6 +230,15 @@ async function runSinglePluginUpdate(
 				p.log.error(buildAbortMessage(key, recordedType, reason));
 				throw new ExitSignal(1);
 			},
+			onBlocked: (reason) => {
+				// Symlink-escape copy-safety block: install fully intact (no nuke,
+				// entry untouched), same posture as onAborted but a DIFFERENT message —
+				// it describes the escaping symlink, NOT a recorded-type change, and
+				// offers no remove+add remedy (that re-trips the guard). Single-key
+				// update exits non-zero.
+				p.log.error(buildCopySafetyMessage(key, reason));
+				throw new ExitSignal(1);
+			},
 			onCloneFailed: (msg) => {
 				if (!isLocal) p.cancel(msg);
 				throw new ExitSignal(1);
@@ -318,6 +329,16 @@ async function processUpdateForAll(
 					status: "aborted" as const,
 					key,
 					summary: buildAbortMessage(key, recordedType, reason),
+				}),
+				onBlocked: (reason) => ({
+					// Symlink-escape copy-safety block: dedicated outcome. Same
+					// install-intact treatment as aborted (entry untouched by the
+					// manifest-build loop, counted toward the non-zero exit by
+					// hasFailedOutcome) but a copy-safety message — describes the
+					// escaping symlink, no remove+add remedy.
+					status: "blocked" as const,
+					key,
+					summary: buildCopySafetyMessage(key, reason),
 				}),
 				onCloneFailed: (msg) => ({
 					status: "failed" as const,
@@ -566,7 +587,8 @@ async function runAllUpdates(): Promise<void> {
 			p.log.success(outcome.summary);
 		} else if (
 			outcome.status === "copy-failed" ||
-			outcome.status === "aborted"
+			outcome.status === "aborted" ||
+			outcome.status === "blocked"
 		) {
 			p.log.error(outcome.summary);
 		} else if (
@@ -599,6 +621,7 @@ function hasFailedOutcome(outcomes: PluginOutcome[]): boolean {
 	return outcomes.some(
 		(outcome) =>
 			outcome.status === "aborted" ||
+			outcome.status === "blocked" ||
 			outcome.status === "failed" ||
 			outcome.status === "copy-failed",
 	);

@@ -73,6 +73,8 @@ import type {
 	CloneReinstallResult,
 } from "../src/clone-reinstall.js";
 import {
+	buildAbortMessage,
+	buildCopySafetyMessage,
 	buildFailureMessage,
 	cloneAndReinstall,
 	formatAgentsDroppedWarning,
@@ -871,7 +873,7 @@ describe("cloneAndReinstall", () => {
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, key);
 			});
 
-			it("escaping symlink aborts before nuke (install intact, no copy, non-zero pre-flight failure)", async () => {
+			it("escaping symlink blocks before nuke (install intact, no copy, non-zero pre-flight failure)", async () => {
 				const entry = makeEntry({
 					type: "skill",
 					files: [".claude/skills/my-skill/"],
@@ -893,8 +895,8 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				});
 
-				expect(result.status).toBe("aborted");
-				if (result.status === "aborted") {
+				expect(result.status).toBe("blocked");
+				if (result.status === "blocked") {
 					expect(result.reason).toContain("evil-link");
 				}
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -930,7 +932,7 @@ describe("cloneAndReinstall", () => {
 				expect(mockWriteManifest).not.toHaveBeenCalled();
 			});
 
-			it("surfaces the violation as a named pre-flight failure via mapCloneFailure (onAborted)", async () => {
+			it("surfaces the violation as a named pre-flight failure via mapCloneFailure (onBlocked)", async () => {
 				const entry = makeEntry({
 					type: "plugin",
 					files: [".claude/skills/my-skill/"],
@@ -952,18 +954,18 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				});
 
-				expect(result.status).toBe("aborted");
-				if (result.status !== "aborted") return;
+				expect(result.status).toBe("blocked");
+				if (result.status !== "blocked") return;
 
 				const mapped = mapCloneFailure(result, {
 					onCloneFailed: () => "clone-failed",
 					onNoAgents: () => "no-agents",
 					onCopyFailed: () => "copy-failed",
-					onAborted: (recordedType, reason) =>
-						`aborted:${recordedType}:${reason}`,
+					onAborted: () => "aborted",
+					onBlocked: (reason) => `blocked:${reason}`,
 					onUnknown: () => "unknown",
 				});
-				expect(mapped).toBe(`aborted:plugin:${result.reason}`);
+				expect(mapped).toBe(`blocked:${result.reason}`);
 				expect(mapped).toContain("evil-link");
 			});
 
@@ -1052,6 +1054,7 @@ describe("mapCloneFailure", () => {
 			onCopyFailed: (msg) => `copy-failed: ${msg}`,
 			onAborted: (recordedType, reason) =>
 				`aborted: ${recordedType} — ${reason}`,
+			onBlocked: (reason) => `blocked: ${reason}`,
 			onUnknown: (msg) => `unknown: ${msg}`,
 		};
 	}
@@ -1106,12 +1109,27 @@ describe("mapCloneFailure", () => {
 		);
 	});
 
+	it("dispatches blocked (via status, no failureReason) to onBlocked handler with reason", () => {
+		const result = mapCloneFailure(
+			{
+				status: "blocked",
+				reason:
+					'symlink "evil-link" points outside the clone (target: /etc/passwd)',
+			},
+			makeHandlers(),
+		);
+		expect(result).toBe(
+			'blocked: symlink "evil-link" points outside the clone (target: /etc/passwd)',
+		);
+	});
+
 	it("returns the typed result from handler", () => {
 		const handlers: CloneFailureHandlers<number> = {
 			onCloneFailed: () => 1,
 			onNoAgents: () => 3,
 			onCopyFailed: () => 5,
 			onAborted: () => 7,
+			onBlocked: () => 8,
 			onUnknown: () => 6,
 		};
 		const result = mapCloneFailure(
@@ -1149,6 +1167,15 @@ describe("isCloneReinstallFailure", () => {
 		expect(isCloneReinstallFailure(result)).toBe(true);
 	});
 
+	it("returns true for a blocked result", () => {
+		const result: CloneReinstallResult = {
+			status: "blocked",
+			reason:
+				'symlink "evil-link" points outside the clone (target: /etc/passwd)',
+		};
+		expect(isCloneReinstallFailure(result)).toBe(true);
+	});
+
 	it("returns false for a success result", () => {
 		const result: CloneReinstallResult = {
 			status: "success",
@@ -1171,6 +1198,7 @@ describe("isCloneReinstallFailure", () => {
 				onNoAgents: () => "no-agents",
 				onCopyFailed: () => "copy",
 				onAborted: () => "aborted",
+				onBlocked: () => "blocked",
 				onUnknown: () => "unknown",
 			});
 			expect(mapped).toBe("no-agents");
@@ -1222,5 +1250,53 @@ describe("buildFailureMessage", () => {
 				"Plugin owner/repo no longer supports any of your installed agents",
 			);
 		});
+	});
+});
+
+describe("buildCopySafetyMessage", () => {
+	const reason =
+		'symlink "evil-link" points outside the clone (target: /etc/passwd)';
+
+	it("names the source key", () => {
+		expect(buildCopySafetyMessage("owner/repo", reason)).toContain(
+			"owner/repo",
+		);
+	});
+
+	it("carries the escape reason verbatim", () => {
+		expect(buildCopySafetyMessage("owner/repo", reason)).toContain(reason);
+	});
+
+	it("states the update is blocked and the existing install is left intact", () => {
+		const msg = buildCopySafetyMessage("owner/repo", reason);
+		expect(msg).toContain("blocked");
+		expect(msg).toContain("unchanged");
+	});
+
+	it("does NOT use the type-migration wording or the remove+add remedy", () => {
+		const msg = buildCopySafetyMessage("owner/repo", reason);
+		expect(msg).not.toContain("no longer supports that type");
+		expect(msg).not.toContain("npx agntc remove");
+		expect(msg).not.toContain("To migrate");
+	});
+
+	it("describes a symlink escaping the clone (consistent with abort being a different concern)", () => {
+		const msg = buildCopySafetyMessage("owner/repo", reason);
+		expect(msg.toLowerCase()).toContain("symlink");
+		// Guard against accidental reuse of the derive-before-delete framing.
+		expect(msg).not.toBe(buildAbortMessage("owner/repo", "skill", reason));
+	});
+
+	it("mirrors the add path's identity-prefixed framing (key: <escape reason> ...)", () => {
+		// The add path reports the escape as `${manifestKey}: ${err.message}` where
+		// err.message is the SymlinkEscapeError text ("...points outside the clone...").
+		// The update copy-safety message must lead with the same identity-prefixed
+		// escape framing so both paths read consistently.
+		const escapeMessage =
+			'symlink "evil-link" points outside the clone (target: /etc/passwd)';
+		const addFraming = `owner/repo: ${escapeMessage}`;
+		const updateMsg = buildCopySafetyMessage("owner/repo", escapeMessage);
+		expect(updateMsg.startsWith(addFraming)).toBe(true);
+		expect(updateMsg).toContain("points outside the clone");
 	});
 });

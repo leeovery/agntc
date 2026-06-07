@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import {
 	buildAbortMessage,
+	buildCopySafetyMessage,
 	cloneAndReinstall,
 	isCloneReinstallFailure,
 	mapCloneFailure,
@@ -111,6 +112,12 @@ export async function executeChangeVersionAction(
 			onAborted: (recordedType, reason) => ({
 				changed: false,
 				message: buildAbortMessage(key, recordedType, reason),
+			}),
+			// Symlink-escape copy-safety block: describes the escaping symlink,
+			// no remove+add remedy. Install intact.
+			onBlocked: (reason) => ({
+				changed: false,
+				message: buildCopySafetyMessage(key, reason),
 			}),
 		});
 	}

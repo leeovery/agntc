@@ -1,5 +1,6 @@
 import {
 	buildAbortMessage,
+	buildCopySafetyMessage,
 	cloneAndReinstall,
 	isCloneReinstallFailure,
 	mapCloneFailure,
@@ -60,6 +61,12 @@ async function runUpdate(
 				onAborted: (recordedType, reason) => ({
 					success: false,
 					message: buildAbortMessage(key, recordedType, reason),
+				}),
+				// Symlink-escape copy-safety block: describes the escaping symlink,
+				// no remove+add remedy. Install intact.
+				onBlocked: (reason) => ({
+					success: false,
+					message: buildCopySafetyMessage(key, reason),
 				}),
 			});
 		}
