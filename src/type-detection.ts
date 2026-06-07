@@ -29,6 +29,21 @@ interface NotAgntc {
 
 export type DetectedType = BareSkill | Plugin | Collection | NotAgntc;
 
+/**
+ * Raised pre-flight when an override (`type: plugin` config or the `--plugin`
+ * flag) contradicts an *unambiguous* structure that cannot be bundled. The
+ * message carries only the structural half of the conflict (e.g. "a bare skill
+ * — cannot bundle"); the caller (Phase 2/3) prepends the source identity
+ * (`owner/repo`). Overrides resolve the skills-only ambiguity only; anything
+ * else they contradict is unrealizable and therefore a hard error.
+ */
+export class TypeConflictError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "TypeConflictError";
+	}
+}
+
 export interface DetectTypeOptions {
 	configType?: string;
 	forcePlugin?: boolean;
@@ -53,21 +68,40 @@ export async function detectType(
 	dir: string,
 	options: DetectTypeOptions,
 ): Promise<DetectedType> {
-	const { onWarn } = options;
+	const { configType, forcePlugin, onWarn } = options;
 	const structure = await classifyStructure(dir, onWarn);
+
+	// Precedence --plugin > config type. Observable only in the skills-only case
+	// where both push the same way, so centralising it here keeps one resolved
+	// answer for Phase 2 callers. Only the exact string "plugin" is recognised;
+	// every other config type value is treated as absent.
+	const wantsPlugin = forcePlugin === true || configType === "plugin";
 
 	switch (structure.kind) {
 		case "plugin":
+			// Already a plugin; an override agreeing is a redundant no-op.
 			return { type: "plugin", assetDirs: structure.assetDirs };
 		case "bare-skill":
+			if (wantsPlugin) {
+				throw new TypeConflictError(
+					"the source is a bare skill — cannot bundle",
+				);
+			}
 			return { type: "bare-skill" };
 		case "skills-only":
-			// Ambiguous: defaults to collection until the override layer (task 1-4)
-			// applies configType/forcePlugin to bundle it as a plugin.
-			return { type: "collection", plugins: [] };
+			// The single ambiguous case overrides resolve.
+			return wantsPlugin
+				? { type: "plugin", assetDirs: ["skills"] }
+				: { type: "collection", plugins: [] };
 		case "members":
+			if (wantsPlugin) {
+				throw new TypeConflictError(
+					`its structure is a collection of ${structure.plugins.length} members — cannot bundle`,
+				);
+			}
 			return { type: "collection", plugins: structure.plugins };
 		default:
+			// not-agntc: overrides are irrelevant, never a conflict.
 			return { type: "not-agntc" };
 	}
 }

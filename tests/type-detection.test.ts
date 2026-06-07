@@ -2,7 +2,11 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ASSET_DIRS, detectType } from "../src/type-detection.js";
+import {
+	ASSET_DIRS,
+	detectType,
+	TypeConflictError,
+} from "../src/type-detection.js";
 
 let testDir: string;
 
@@ -228,17 +232,150 @@ describe("detectType", () => {
 		});
 	});
 
-	describe("config presence ignored", () => {
-		it("detects bare-skill identically with or without config", async () => {
-			await createFile("SKILL.md");
+	describe("override resolution", () => {
+		it("bundles skills-only as plugin with config type plugin", async () => {
+			await createDir("skills");
 
-			const withConfig = await detectType(testDir, { configType: "plugin" });
-			const withoutConfig = await detectType(testDir, {});
+			const result = await detectType(testDir, { configType: "plugin" });
 
-			expect(withConfig).toEqual({ type: "bare-skill" });
-			expect(withoutConfig).toEqual({ type: "bare-skill" });
+			expect(result).toEqual({ type: "plugin", assetDirs: ["skills"] });
 		});
 
+		it("bundles skills-only as plugin with forcePlugin", async () => {
+			await createDir("skills");
+
+			const result = await detectType(testDir, { forcePlugin: true });
+
+			expect(result).toEqual({ type: "plugin", assetDirs: ["skills"] });
+		});
+
+		it("bundles skills-only as plugin when both overrides agree", async () => {
+			await createDir("skills");
+
+			const result = await detectType(testDir, {
+				configType: "plugin",
+				forcePlugin: true,
+			});
+
+			expect(result).toEqual({ type: "plugin", assetDirs: ["skills"] });
+		});
+
+		it("leaves skills-only as collection with no override", async () => {
+			await createDir("skills");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "collection", plugins: [] });
+		});
+
+		it("treats forcePlugin as a no-op on a multi-asset plugin", async () => {
+			await createDir("skills");
+			await createDir("agents");
+
+			const result = await detectType(testDir, { forcePlugin: true });
+
+			expect(result).toEqual({
+				type: "plugin",
+				assetDirs: ["skills", "agents"],
+			});
+		});
+
+		it("treats config type plugin as a no-op on a multi-asset plugin", async () => {
+			await createDir("skills");
+			await createDir("agents");
+
+			const result = await detectType(testDir, { configType: "plugin" });
+
+			expect(result).toEqual({
+				type: "plugin",
+				assetDirs: ["skills", "agents"],
+			});
+		});
+
+		it("throws for config type plugin on a bare skill", async () => {
+			await createFile("SKILL.md");
+
+			await expect(
+				detectType(testDir, { configType: "plugin" }),
+			).rejects.toBeInstanceOf(TypeConflictError);
+		});
+
+		it("throws for forcePlugin on a bare skill", async () => {
+			await createFile("SKILL.md");
+
+			await expect(
+				detectType(testDir, { forcePlugin: true }),
+			).rejects.toBeInstanceOf(TypeConflictError);
+		});
+
+		it("throws for config type plugin on a member-dirs collection", async () => {
+			await createFile("alpha", "SKILL.md");
+			await createDir("beta", "skills");
+
+			await expect(
+				detectType(testDir, { configType: "plugin" }),
+			).rejects.toBeInstanceOf(TypeConflictError);
+		});
+
+		it("throws for forcePlugin on a member-dirs collection", async () => {
+			await createFile("alpha", "SKILL.md");
+			await createDir("beta", "skills");
+
+			await expect(
+				detectType(testDir, { forcePlugin: true }),
+			).rejects.toBeInstanceOf(TypeConflictError);
+		});
+
+		it("ignores config type collection on a member-dirs structure", async () => {
+			await createFile("alpha", "SKILL.md");
+			await createDir("beta", "skills");
+
+			const result = await detectType(testDir, { configType: "collection" });
+
+			expect(result).toEqual({
+				type: "collection",
+				plugins: ["alpha", "beta"],
+			});
+		});
+
+		it("ignores an unknown config type on a bare skill", async () => {
+			await createFile("SKILL.md");
+
+			const result = await detectType(testDir, { configType: "bundle" });
+
+			expect(result).toEqual({ type: "bare-skill" });
+		});
+
+		it("does not throw for not-agntc with overrides", async () => {
+			await createFile("readme.txt");
+
+			const result = await detectType(testDir, {
+				configType: "plugin",
+				forcePlugin: true,
+			});
+
+			expect(result).toEqual({ type: "not-agntc" });
+		});
+
+		it("names the bare-skill conflict in the error message", async () => {
+			await createFile("SKILL.md");
+
+			await expect(detectType(testDir, { forcePlugin: true })).rejects.toThrow(
+				/bare skill/,
+			);
+		});
+
+		it("names the member count in a collection conflict message", async () => {
+			await createFile("alpha", "SKILL.md");
+			await createDir("beta", "skills");
+
+			await expect(
+				detectType(testDir, { configType: "plugin" }),
+			).rejects.toThrow(/collection of 2 members/);
+		});
+	});
+
+	describe("config presence ignored for unambiguous structures", () => {
 		it("detects plugin identically with or without config", async () => {
 			await createDir("agents");
 
