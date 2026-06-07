@@ -43,7 +43,7 @@
           "task_list_gate_mode": "auto",
           "author_gate_mode": "auto",
           "finding_gate_mode": "auto",
-          "review_cycle": 5,
+          "review_cycle": 6,
           "phase": 6,
           "task": "~",
           "task_map": {
