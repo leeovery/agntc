@@ -167,16 +167,27 @@ export async function runAdd(
 			commit = cloneResult.commit;
 		}
 
+		// 2b. Resolve the unit directory. For a direct-path (tree URL) source the
+		// subpath is a standalone unit selector: detection, config, and copy all
+		// target join(sourceDir, parsed.targetPlugin), not the repo root (task
+		// 2-3). Every other source has unitDir === sourceDir (no-op). The
+		// within-clone path-traversal/containment guard for targetPlugin is
+		// EXPLICITLY DEFERRED TO PHASE 5.
+		const unitDir =
+			parsed.type === "direct-path"
+				? join(sourceDir, parsed.targetPlugin)
+				: sourceDir;
+
 		// 3. Read config (lenient — never throws; null when absent/empty)
 		const onWarn = (message: string) => p.log.warn(message);
-		const config = await readConfig(sourceDir, { onWarn });
+		const config = await readConfig(unitDir, { onWarn });
 
 		// 4. Detect type ONCE — structure is sole authority; optional root config
 		// type and the --plugin installer override are forwarded so detection owns
 		// recognition and conflict resolution (Phase 1, task 1-4).
 		let detected: DetectedType;
 		try {
-			detected = await detectType(sourceDir, {
+			detected = await detectType(unitDir, {
 				onWarn,
 				configType: config?.type,
 				forcePlugin: options?.forcePlugin,
@@ -197,7 +208,7 @@ export async function runAdd(
 		// 5. Branch on detected type
 		if (detected.type === "collection") {
 			await runCollectionPipeline({
-				sourceDir,
+				sourceDir: unitDir,
 				parsed,
 				commit,
 				detected,
@@ -244,11 +255,16 @@ export async function runAdd(
 			await nukeManifestFiles(projectDir, existingEntry.files);
 		}
 
-		// 10a. Compute incoming files
+		// 10a. Compute incoming files (against the resolved unit directory)
 		const incomingFiles = await computeIncomingFiles(
 			detected.type === "plugin"
-				? { type: "plugin", sourceDir, assetDirs: detected.assetDirs, agents }
-				: { type: "bare-skill", sourceDir, agents },
+				? {
+						type: "plugin",
+						sourceDir: unitDir,
+						assetDirs: detected.assetDirs,
+						agents,
+					}
+				: { type: "bare-skill", sourceDir: unitDir, agents },
 		);
 
 		// 10b. Collision + unmanaged conflict checks
@@ -272,7 +288,7 @@ export async function runAdd(
 		try {
 			if (detected.type === "plugin") {
 				const pluginResult = await copyPluginAssets({
-					sourceDir,
+					sourceDir: unitDir,
 					assetDirs: detected.assetDirs,
 					agents,
 					projectDir,
@@ -281,7 +297,7 @@ export async function runAdd(
 				assetCountsByAgent = pluginResult.assetCountsByAgent;
 			} else {
 				const bareResult = await copyBareSkill({
-					sourceDir,
+					sourceDir: unitDir,
 					projectDir,
 					agents,
 				});

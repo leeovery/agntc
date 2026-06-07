@@ -2109,6 +2109,12 @@ describe("add command", () => {
 	});
 
 	describe("direct-path source (tree URL)", () => {
+		// Tree-path subpath acts as a standalone unit selector (task 2-3):
+		// detection + install run against join(sourceDir, parsed.targetPlugin),
+		// not the repo root, and the resolved unit installs via the STANDALONE
+		// route (tasks 2-1/2-2) keyed owner/repo/<subpath>.
+		// NOTE: within-clone path-traversal/containment guard for targetPlugin is
+		// EXPLICITLY DEFERRED TO PHASE 5 — no such check is asserted here.
 		const DIRECT_PATH_PARSED: ParsedSource = {
 			type: "direct-path",
 			owner: "owner",
@@ -2124,33 +2130,35 @@ describe("add command", () => {
 			commit: "dp123def456",
 		};
 
-		const COLLECTION_DETECTED: DetectedType = {
-			type: "collection",
-			plugins: ["pluginA", "pluginB"],
-		};
+		const UNIT_DIR = `${DIRECT_PATH_CLONE_RESULT.tempDir}/pluginA`;
 
 		const PLUGIN_A_CONFIG: AgntcConfig = { agents: ["claude"] };
 
+		// Base setup: subpath unit resolves to a configless bare skill. Individual
+		// tests override readConfig/detectType for their scenario.
 		function setupDirectPath(): void {
 			mockParseSource.mockReturnValue(DIRECT_PATH_PARSED);
 			mockCloneSource.mockResolvedValue(DIRECT_PATH_CLONE_RESULT);
-			mockReadConfig.mockImplementation(async (dir) => {
-				if (dir === DIRECT_PATH_CLONE_RESULT.tempDir) return null;
-				if (dir.endsWith("/pluginA")) return PLUGIN_A_CONFIG;
-				return null;
-			});
-			mockDetectType.mockImplementation(async (dir) => {
-				if (dir === DIRECT_PATH_CLONE_RESULT.tempDir) {
-					return COLLECTION_DETECTED;
-				}
-				return { type: "bare-skill" } as DetectedType;
-			});
+			mockReadConfig.mockResolvedValue(null);
+			mockDetectType.mockResolvedValue({ type: "bare-skill" });
 			mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
 			mockSelectAgents.mockResolvedValue(["claude"]);
 			mockWriteManifest.mockResolvedValue(undefined);
 			mockCleanupTempDir.mockResolvedValue(undefined);
+			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
+			mockComputeIncomingFiles.mockReturnValue([".claude/skills/pluginA/"]);
+			mockCheckFileCollisions.mockReturnValue(new Map());
+			mockResolveCollisions.mockResolvedValue({
+				resolved: true,
+				updatedManifest: EMPTY_MANIFEST,
+			});
+			mockCheckUnmanagedConflicts.mockResolvedValue([]);
+			mockResolveUnmanagedConflicts.mockResolvedValue({
+				approved: [],
+				cancelled: [],
+			});
 			mockAddEntry.mockImplementation((manifest, key, entry) => ({
 				...manifest,
 				[key]: entry,
@@ -2160,7 +2168,27 @@ describe("add command", () => {
 			});
 		}
 
-		it("skips collection multiselect and installs targetPlugin directly", async () => {
+		it("runs readConfig and detectType against the subpath (unitDir), not the repo root", async () => {
+			setupDirectPath();
+
+			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+			expect(mockReadConfig).toHaveBeenCalledWith(
+				UNIT_DIR,
+				expect.objectContaining({ onWarn: expect.any(Function) }),
+			);
+			expect(mockReadConfig).not.toHaveBeenCalledWith(
+				DIRECT_PATH_CLONE_RESULT.tempDir,
+				expect.anything(),
+			);
+			expect(mockDetectType).toHaveBeenCalledTimes(1);
+			expect(mockDetectType).toHaveBeenCalledWith(
+				UNIT_DIR,
+				expect.objectContaining({ onWarn: expect.any(Function) }),
+			);
+		});
+
+		it("installs the subpath unit standalone (copyBareSkill sourceDir = unitDir, no collection multiselect)", async () => {
 			setupDirectPath();
 
 			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
@@ -2168,13 +2196,11 @@ describe("add command", () => {
 			expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: DIRECT_PATH_CLONE_RESULT.tempDir + "/pluginA",
-				}),
+				expect.objectContaining({ sourceDir: UNIT_DIR }),
 			);
 		});
 
-		it("writes manifest with correct key for direct-path plugin", async () => {
+		it("writes manifest keyed owner/repo/<subpath>, folder named after subpath basename", async () => {
 			setupDirectPath();
 
 			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
@@ -2191,17 +2217,86 @@ describe("add command", () => {
 			);
 		});
 
-		it("throws error when targetPlugin not found in collection", async () => {
+		it("sources subpath agents from subpath own config (declared ceiling)", async () => {
 			setupDirectPath();
-			mockDetectType.mockImplementation(async (dir) => {
-				if (dir === DIRECT_PATH_CLONE_RESULT.tempDir) {
-					return {
-						type: "collection",
-						plugins: ["pluginB", "pluginC"],
-					} as DetectedType;
-				}
-				return { type: "bare-skill" } as DetectedType;
+			mockReadConfig.mockResolvedValue(PLUGIN_A_CONFIG);
+
+			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: ["claude"],
+				detectedAgents: ["claude"],
 			});
+		});
+
+		it("configless subpath sources agents from KNOWN_AGENTS default (declaredAgents:[])", async () => {
+			setupDirectPath();
+
+			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+			expect(mockSelectAgents).toHaveBeenCalledWith({
+				declaredAgents: [],
+				detectedAgents: ["claude"],
+			});
+		});
+
+		it("--plugin bundles a skills-only subpath via copyPluginAssets", async () => {
+			setupDirectPath();
+			// detectType resolves the skills-only ambiguity to plugin under --plugin
+			mockDetectType.mockResolvedValue({
+				type: "plugin",
+				assetDirs: ["skills"],
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/pluginA/"],
+				assetCountsByAgent: { claude: { skills: 1 } },
+			});
+
+			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA", {
+				forcePlugin: true,
+			});
+
+			expect(mockDetectType).toHaveBeenCalledWith(
+				UNIT_DIR,
+				expect.objectContaining({ forcePlugin: true }),
+			);
+			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sourceDir: UNIT_DIR,
+					assetDirs: ["skills"],
+				}),
+			);
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCancel).not.toHaveBeenCalled();
+		});
+
+		it("--plugin on a non-bundleable subpath hard-errors (reuses task 2-2 handling)", async () => {
+			setupDirectPath();
+			mockDetectType.mockRejectedValue(
+				new TypeConflictError("the source is a bare skill — cannot bundle"),
+			);
+
+			const err = await runAdd(
+				"https://github.com/owner/my-collection/tree/main/pluginA",
+				{ forcePlugin: true },
+			).catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("owner/my-collection/pluginA"),
+			);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("cannot bundle"),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+		});
+
+		it("subpath resolving to not-agntc fails pre-flight: source-named cancel, non-zero exit, no write", async () => {
+			setupDirectPath();
+			mockDetectType.mockResolvedValue({ type: "not-agntc" });
 
 			const err = await runAdd(
 				"https://github.com/owner/my-collection/tree/main/pluginA",
@@ -2209,15 +2304,65 @@ describe("add command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("owner/my-collection/pluginA"),
+			);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("Not an agntc source"),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
 		});
 
-		it("agent multiselect still shown for direct-path source", async () => {
+		it("tree URL with @ref suffix is rejected by parseDirectPath (parse error, exit 1, no install)", async () => {
+			mockParseSource.mockRejectedValue(
+				new Error("tree URLs cannot have @ref suffix"),
+			);
+
+			const err = await runAdd(
+				"https://github.com/owner/my-collection/tree/main/pluginA@v1.0.0",
+			).catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockCancel).toHaveBeenCalledWith(
+				expect.stringContaining("tree URLs cannot have @ref suffix"),
+			);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockAddEntry).not.toHaveBeenCalled();
+		});
+
+		it("multi-segment subpath: targetPlugin is full subpath, copy sourceDir is the joined unitDir", async () => {
+			const nestedParsed: ParsedSource = {
+				...DIRECT_PATH_PARSED,
+				targetPlugin: "path/to/unit",
+				manifestKey: "owner/my-collection/path/to/unit",
+			};
 			setupDirectPath();
+			mockParseSource.mockReturnValue(nestedParsed);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/unit/"],
+			});
 
-			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+			await runAdd(
+				"https://github.com/owner/my-collection/tree/main/path/to/unit",
+			);
 
-			expect(mockSelectAgents).toHaveBeenCalledTimes(1);
+			const nestedUnitDir = `${DIRECT_PATH_CLONE_RESULT.tempDir}/path/to/unit`;
+			expect(mockDetectType).toHaveBeenCalledWith(
+				nestedUnitDir,
+				expect.objectContaining({ onWarn: expect.any(Function) }),
+			);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ sourceDir: nestedUnitDir }),
+			);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				EMPTY_MANIFEST,
+				"owner/my-collection/path/to/unit",
+				expect.objectContaining({ files: [".claude/skills/unit/"] }),
+			);
 		});
 
 		it("cleans up temp dir on success", async () => {
@@ -4280,7 +4425,11 @@ describe("add command", () => {
 			expect(mockResolveLatestVersion).toHaveBeenCalledTimes(1);
 		});
 
-		it("collection direct-path add preserves existing behavior", async () => {
+		it("direct-path member install preserves existing key/files via the standalone route", async () => {
+			// With detection now against unitDir = root + '/' + targetPlugin, a
+			// member of a collection resolves directly to its unit type and installs
+			// STANDALONE keyed owner/repo/<targetPlugin> — same key and files as
+			// the previous pipeline-based direct-path behaviour, no constraint.
 			const directPathParsed: ParsedSource = {
 				type: "direct-path",
 				owner: "owner",
@@ -4293,16 +4442,14 @@ describe("add command", () => {
 			};
 			mockParseSource.mockReturnValue(directPathParsed);
 			setupCollectionConstraintBase();
-			// Direct-path skips multiselect and installs targetPlugin directly
+			const unitDir = `${COLLECTION_CLONE_RESULT.tempDir}/pluginA`;
+			// detectType returns the member unit type when called with unitDir
 			mockDetectType.mockImplementation(async (dir) => {
-				if (dir === COLLECTION_CLONE_RESULT.tempDir) {
-					return {
-						type: "collection",
-						plugins: ["pluginA", "pluginB"],
-					} as DetectedType;
-				}
-				return PLUGIN_BARE;
+				if (dir.endsWith("/pluginA")) return PLUGIN_BARE;
+				return COLLECTION_DETECTED;
 			});
+			mockReadConfig.mockResolvedValue(null);
+			mockComputeIncomingFiles.mockReturnValue([".claude/skills/pluginA/"]);
 			mockCopyBareSkill.mockReset();
 			mockCopyBareSkill.mockResolvedValueOnce({
 				copiedFiles: [".claude/skills/pluginA/"],
@@ -4312,11 +4459,18 @@ describe("add command", () => {
 
 			// direct-path has ref="main" (exact ref), no constraint resolution
 			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
+			// Standalone route: copy from the member's unitDir, no multiselect.
+			expect(mockSelectCollectionPlugins).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ sourceDir: unitDir }),
+			);
 
 			const addEntryCalls = mockAddEntry.mock.calls;
 			expect(addEntryCalls.length).toBe(1);
+			expect(addEntryCalls[0]![1]).toBe("owner/my-collection/pluginA");
 
 			const entry = addEntryCalls[0]![2] as ManifestEntry;
+			expect(entry.files).toEqual([".claude/skills/pluginA/"]);
 			expect("constraint" in entry).toBe(false);
 			expect(entry.ref).toBe("main");
 		});

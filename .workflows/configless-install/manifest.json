@@ -116,10 +116,12 @@
             "configless-install-1-4",
             "configless-install-1-5",
             "configless-install-2-1",
-            "configless-install-2-2"
+            "configless-install-2-2",
+            "configless-install-2-3"
           ],
           "completed_phases": [
-            1
+            1,
+            2
           ]
         }
       }
