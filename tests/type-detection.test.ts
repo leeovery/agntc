@@ -116,6 +116,88 @@ describe("detectType", () => {
 		});
 	});
 
+	describe("collection (structural membership, one level down)", () => {
+		it("enumerates configless members: child with SKILL.md and child with skills dir", async () => {
+			await createFile("alpha", "SKILL.md");
+			await createDir("beta", "skills");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({
+				type: "collection",
+				plugins: ["alpha", "beta"],
+			});
+		});
+
+		it("counts a child plugin member by asset dir (agents-only child)", async () => {
+			await createDir("tooling", "agents");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "collection", plugins: ["tooling"] });
+		});
+
+		it("skips a child with neither SKILL.md nor an asset dir", async () => {
+			await createFile("alpha", "SKILL.md");
+			await createFile("docs", "readme.txt");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "collection", plugins: ["alpha"] });
+		});
+
+		it("enumerates mixed config-bearing and configless members structurally", async () => {
+			await createFile("configured", "agntc.json");
+			await createDir("configured", "skills");
+			await createFile("configless", "SKILL.md");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({
+				type: "collection",
+				plugins: ["configless", "configured"],
+			});
+		});
+
+		it("does not recurse into a nested-collection child (one level only)", async () => {
+			await createFile("outer", "inner-member", "SKILL.md");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "not-agntc" });
+		});
+
+		it("returns not-agntc when no child qualifies", async () => {
+			await createFile("docs", "readme.txt");
+			await createFile("notes", "todo.md");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "not-agntc" });
+		});
+
+		it("no longer treats a child with only agntc.json as a member", async () => {
+			await createFile("legacy", "agntc.json");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "not-agntc" });
+		});
+
+		it("sorts qualifying child names deterministically", async () => {
+			await createFile("zeta", "SKILL.md");
+			await createFile("alpha", "SKILL.md");
+			await createDir("mid", "hooks");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({
+				type: "collection",
+				plugins: ["alpha", "mid", "zeta"],
+			});
+		});
+	});
+
 	describe("not-agntc", () => {
 		it("returns not-agntc for empty directory", async () => {
 			const result = await detectType(testDir, {});

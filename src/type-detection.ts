@@ -119,8 +119,10 @@ async function classifyStructure(
 }
 
 /**
- * Placeholder for the collection-membership scan implemented in task 1-3.
- * Preserves the current not-agntc outcome when no qualifying children exist.
+ * Scans immediate child dirs for structural collection members (task 1-3).
+ * Membership is purely structural and goes exactly one level down: a child
+ * qualifies if it resolves to a unit on its own root. No recursion into
+ * grandchildren and no reliance on `agntc.json`.
  */
 async function scanCollectionMembers(dir: string): Promise<StructuralKind> {
 	let entries: Dirent[];
@@ -135,14 +137,34 @@ async function scanCollectionMembers(dir: string): Promise<StructuralKind> {
 		if (!entry.isDirectory()) {
 			continue;
 		}
-		if (await exists(join(dir, entry.name, "agntc.json"))) {
+		if (await qualifiesAsMember(join(dir, entry.name))) {
 			plugins.push(entry.name);
 		}
 	}
 
 	if (plugins.length > 0) {
+		plugins.sort();
 		return { kind: "members", plugins };
 	}
 
 	return { kind: "none" };
+}
+
+/**
+ * A child dir qualifies as a collection member if it structurally resolves to a
+ * unit at its own root: a bare-skill (`SKILL.md`) or a plugin (≥1 asset-kind
+ * dir). Checks the child's root only — never recurses into grandchildren, so a
+ * child that is itself only a collection is not a member (nested collections are
+ * unsupported).
+ */
+async function qualifiesAsMember(childDir: string): Promise<boolean> {
+	if (await exists(join(childDir, "SKILL.md"))) {
+		return true;
+	}
+	for (const assetDir of ASSET_DIRS) {
+		if (await exists(join(childDir, assetDir))) {
+			return true;
+		}
+	}
+	return false;
 }
