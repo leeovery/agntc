@@ -12,11 +12,26 @@ export interface ManifestEntry {
 	installedAt: string;
 	agents: AgentId[];
 	files: string[];
+	type?: "skill" | "plugin";
 	cloneUrl: string | null;
 	constraint?: string;
 }
 
 export type Manifest = Record<string, ManifestEntry>;
+
+/**
+ * Maps the resolved {@link DetectedType} of a standalone-installable unit to the
+ * value persisted in {@link ManifestEntry.type}. Only the two standalone
+ * variants reach the manifest write point (collection/not-agntc are routed or
+ * exit earlier), so the narrowed param avoids importing DetectedType here. The
+ * `bare-skill` -> `skill` mapping is the seam: the manifest never stores the
+ * literal `bare-skill`.
+ */
+export function manifestTypeFromDetected(
+	t: "bare-skill" | "plugin",
+): "skill" | "plugin" {
+	return t === "bare-skill" ? "skill" : "plugin";
+}
 
 const AGNTC_DIR = ".agntc";
 const MANIFEST_FILE = "manifest.json";

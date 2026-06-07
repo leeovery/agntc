@@ -97,6 +97,10 @@ vi.mock("../../src/manifest.js", () => ({
 	readManifest: vi.fn(),
 	writeManifest: vi.fn(),
 	addEntry: vi.fn(),
+	// Pure mapping helper — keep the real behaviour so the write point records
+	// the correct resolved type.
+	manifestTypeFromDetected: (t: "bare-skill" | "plugin") =>
+		t === "bare-skill" ? "skill" : "plugin",
 }));
 
 vi.mock("../../src/nuke-files.js", () => ({
@@ -670,6 +674,100 @@ describe("add command", () => {
 				expect.stringContaining("owner/my-skill"),
 			);
 			expect(mockAddEntry).not.toHaveBeenCalled();
+		});
+
+		describe("recorded type", () => {
+			it("standalone bare skill records type skill", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+
+				await runAdd("owner/my-skill");
+
+				const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+				expect(entry.type).toBe("skill");
+			});
+
+			it("standalone plugin records type plugin", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue({
+					type: "plugin",
+					assetDirs: ["skills", "agents"],
+				});
+				mockCopyPluginAssets.mockResolvedValue({
+					copiedFiles: [".claude/skills/planning/"],
+					assetCountsByAgent: { claude: { skills: 1 } },
+				});
+
+				await runAdd("owner/my-skill");
+
+				const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+				expect(entry.type).toBe("plugin");
+			});
+
+			it("--plugin-bundled skills-only records type plugin", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				// detectType resolves skills-only ambiguity to plugin under --plugin
+				mockDetectType.mockResolvedValue({
+					type: "plugin",
+					assetDirs: ["skills"],
+				});
+				mockCopyPluginAssets.mockResolvedValue({
+					copiedFiles: [".claude/skills/planning/"],
+					assetCountsByAgent: { claude: { skills: 1 } },
+				});
+
+				await runAdd("owner/my-skill", { forcePlugin: true });
+
+				const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+				expect(entry.type).toBe("plugin");
+			});
+
+			it("config type plugin records type plugin", async () => {
+				mockReadConfig.mockResolvedValue({ agents: ["claude"], type: "plugin" });
+				mockDetectType.mockResolvedValue({
+					type: "plugin",
+					assetDirs: ["skills"],
+				});
+				mockCopyPluginAssets.mockResolvedValue({
+					copiedFiles: [".claude/skills/planning/"],
+					assetCountsByAgent: { claude: { skills: 1 } },
+				});
+
+				await runAdd("owner/my-skill");
+
+				const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+				expect(entry.type).toBe("plugin");
+			});
+
+			it("bare-skill is mapped to skill, never persisted verbatim", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+
+				await runAdd("owner/my-skill");
+
+				const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+				expect(entry.type).not.toBe("bare-skill");
+			});
+
+			it("does not alter other entry fields", async () => {
+				mockReadConfig.mockResolvedValue(null);
+				mockDetectType.mockResolvedValue(BARE_SKILL);
+
+				await runAdd("owner/my-skill");
+
+				expect(mockAddEntry).toHaveBeenCalledWith(
+					EMPTY_MANIFEST,
+					"owner/my-skill",
+					expect.objectContaining({
+						ref: "main",
+						commit: "abc123def456",
+						agents: ["claude"],
+						files: [".claude/skills/my-skill/"],
+						cloneUrl: "https://github.com/owner/my-skill.git",
+						type: "skill",
+					}),
+				);
+			});
 		});
 	});
 
@@ -3386,6 +3484,34 @@ describe("add command", () => {
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(
 				DIRECT_PATH_CLONE_RESULT.tempDir,
 			);
+		});
+
+		it("records its own resolved type (bare-skill subpath -> skill)", async () => {
+			setupDirectPath();
+
+			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
+
+			const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+			expect(entry.type).toBe("skill");
+		});
+
+		it("records its own resolved type (plugin subpath -> plugin)", async () => {
+			setupDirectPath();
+			mockDetectType.mockResolvedValue({
+				type: "plugin",
+				assetDirs: ["skills"],
+			});
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/pluginA/"],
+				assetCountsByAgent: { claude: { skills: 1 } },
+			});
+
+			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA", {
+				forcePlugin: true,
+			});
+
+			const entry = mockAddEntry.mock.calls[0]![2] as ManifestEntry;
+			expect(entry.type).toBe("plugin");
 		});
 	});
 

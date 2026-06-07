@@ -15,6 +15,7 @@ import {
 	addEntry,
 	type Manifest,
 	type ManifestEntry,
+	manifestTypeFromDetected,
 	readManifest,
 	readManifestOrExit,
 	removeEntry,
@@ -567,6 +568,124 @@ describe("constraint field", () => {
 		const parsed = JSON.parse(JSON.stringify(entry));
 
 		expect(parsed.constraint).toBe("^1.0");
+	});
+});
+
+describe("type field", () => {
+	it("ManifestEntry accepts optional type field", () => {
+		const entry: ManifestEntry = {
+			ref: "v1.2.3",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/skill/"],
+			cloneUrl: null,
+			type: "skill",
+		};
+
+		expect(entry.type).toBe("skill");
+	});
+
+	it("ManifestEntry without type has undefined type", () => {
+		const entry: ManifestEntry = {
+			ref: "v1.2.3",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/skill/"],
+			cloneUrl: null,
+		};
+
+		expect(entry.type).toBeUndefined();
+	});
+
+	it("write/read round-trip preserves type field", async () => {
+		const manifest: Manifest = {
+			"owner/repo/skill": {
+				ref: "v1.2.3",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill/"],
+				cloneUrl: null,
+				type: "plugin",
+			},
+		};
+
+		await writeManifest(testDir, manifest);
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/skill"]?.type).toBe("plugin");
+	});
+
+	it("write/read round-trip for entry omitting type", async () => {
+		const manifest: Manifest = {
+			"owner/repo/skill": {
+				ref: "v1.2.3",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill/"],
+				cloneUrl: null,
+			},
+		};
+
+		await writeManifest(testDir, manifest);
+		const result = await readManifest(testDir);
+
+		expect(result).toEqual(manifest);
+		expect(result["owner/repo/skill"]?.type).toBeUndefined();
+	});
+
+	it("legacy entry without type field still parses", async () => {
+		const legacyManifest = {
+			"owner/repo/skill": {
+				ref: "v1.2.3",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill/"],
+				cloneUrl: null,
+			},
+		};
+		await mkdir(join(testDir, ".agntc"), { recursive: true });
+		await writeFile(
+			join(testDir, ".agntc", "manifest.json"),
+			JSON.stringify(legacyManifest),
+		);
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/skill"]?.type).toBeUndefined();
+	});
+
+	it("JSON serialization omits undefined type", () => {
+		const entry: ManifestEntry = {
+			ref: "v1.2.3",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/skill/"],
+			cloneUrl: null,
+		};
+
+		const json = JSON.stringify(entry);
+
+		expect(json).not.toContain("type");
+	});
+});
+
+describe("manifestTypeFromDetected", () => {
+	it("maps bare-skill to skill", () => {
+		expect(manifestTypeFromDetected("bare-skill")).toBe("skill");
+	});
+
+	it("maps plugin to plugin", () => {
+		expect(manifestTypeFromDetected("plugin")).toBe("plugin");
+	});
+
+	it("never returns the literal bare-skill", () => {
+		expect(manifestTypeFromDetected("bare-skill")).not.toBe("bare-skill");
 	});
 });
 

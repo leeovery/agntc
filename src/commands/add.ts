@@ -19,7 +19,12 @@ import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
 import { fetchRemoteTags } from "../git-utils.js";
 import type { Manifest } from "../manifest.js";
-import { addEntry, readManifest, writeManifest } from "../manifest.js";
+import {
+	addEntry,
+	manifestTypeFromDetected,
+	readManifest,
+	writeManifest,
+} from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import { parseSource, resolveCloneUrl } from "../source-parser.js";
 import type { PluginInstallResult } from "../summary.js";
@@ -322,6 +327,7 @@ export async function runAdd(
 			installedAt: new Date().toISOString(),
 			agents: selectedAgents,
 			files: copiedFiles,
+			type: manifestTypeFromDetected(detected.type),
 			cloneUrl: deriveCloneUrlForManifest(parsed),
 			...(resolvedConstraint != null && { constraint: resolvedConstraint }),
 		};

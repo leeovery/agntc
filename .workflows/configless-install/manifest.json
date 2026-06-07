@@ -107,7 +107,7 @@
             ".claude/skills/typescript-advanced-types",
             ".claude/skills/typescript-pro"
           ],
-          "current_phase": 3,
+          "current_phase": 4,
           "current_task": "~",
           "completed_tasks": [
             "configless-install-1-1",
@@ -123,7 +123,8 @@
             "configless-install-3-3",
             "configless-install-3-4",
             "configless-install-3-5",
-            "configless-install-3-6"
+            "configless-install-3-6",
+            "configless-install-4-1"
           ],
           "completed_phases": [
             1,
