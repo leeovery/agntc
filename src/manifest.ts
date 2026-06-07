@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
+import { identifyFileOwnership } from "./drivers/identify.js";
+import { getDriver } from "./drivers/registry.js";
 import type { AgentId } from "./drivers/types.js";
 import { errorMessage, isNodeError } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
@@ -58,7 +60,59 @@ export async function readManifest(projectDir: string): Promise<Manifest> {
 		}
 	}
 
+	// Backfill type for manifests written before this field existed. Derived
+	// solely from local files (anti-drift: never re-clone/re-detect/read config).
+	// Mutated in-memory only; persisted on the next writeManifest.
+	for (const entry of Object.values(parsed)) {
+		if (!("type" in entry)) {
+			entry.type = deriveTypeFromFiles((entry.files as string[]) ?? []);
+		}
+	}
+
 	return parsed as unknown as Manifest;
+}
+
+/**
+ * Derives a legacy entry's {@link ManifestEntry.type} from its installed local
+ * files alone (anti-drift: no clone/detect/config read). Total and non-throwing.
+ *
+ * - Any agents- or hooks-owned file -> `plugin`.
+ * - Otherwise, more than one distinct skill directory -> `plugin`.
+ * - Otherwise (<=1 skill dir, no agents/hooks, empty, or unrecognised) ->
+ *   `skill` (lenient default; single-skill ambiguity resolved to skill).
+ */
+export function deriveTypeFromFiles(files: string[]): "skill" | "plugin" {
+	const skillDirs = new Set<string>();
+
+	for (const file of files) {
+		const ownership = identifyFileOwnership(file);
+		if (ownership === null) {
+			continue;
+		}
+		if (ownership.assetType === "agents" || ownership.assetType === "hooks") {
+			return "plugin";
+		}
+		const skillDir = skillDirName(file, ownership.agentId);
+		if (skillDir !== null) {
+			skillDirs.add(skillDir);
+		}
+	}
+
+	return skillDirs.size > 1 ? "plugin" : "skill";
+}
+
+/**
+ * Extracts the `<name>` segment from a skills-owned path of the form
+ * `<skills-target>/<name>/...`. Returns null when no segment follows the target.
+ */
+function skillDirName(filePath: string, agentId: AgentId): string | null {
+	const targetDir = getDriver(agentId).getTargetDir("skills");
+	if (targetDir === null) {
+		return null;
+	}
+	const remainder = filePath.slice(targetDir.length).replace(/^\/+/, "");
+	const [name] = remainder.split("/");
+	return name === undefined || name === "" ? null : name;
 }
 
 export async function writeManifest(

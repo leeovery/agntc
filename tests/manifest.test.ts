@@ -67,6 +67,7 @@ describe("readManifest", () => {
 				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
+				type: "skill",
 			},
 		};
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
@@ -88,6 +89,7 @@ describe("readManifest", () => {
 				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 				cloneUrl: null,
+				type: "skill",
 			},
 			"owner/repo/skill-b": {
 				ref: null,
@@ -96,6 +98,7 @@ describe("readManifest", () => {
 				agents: ["claude", "codex"],
 				files: [".claude/skills/skill-b/", ".codex/skills/skill-b/"],
 				cloneUrl: null,
+				type: "skill",
 			},
 		};
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
@@ -408,6 +411,7 @@ describe("round-trip", () => {
 				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 				cloneUrl: "https://github.com/owner/repo.git",
+				type: "skill",
 			},
 			"owner/repo/skill-b": {
 				ref: null,
@@ -416,6 +420,7 @@ describe("round-trip", () => {
 				agents: ["claude", "codex"],
 				files: [".claude/skills/skill-b/", ".codex/skills/skill-b/"],
 				cloneUrl: null,
+				type: "skill",
 			},
 		};
 
@@ -618,25 +623,6 @@ describe("type field", () => {
 		expect(result["owner/repo/skill"]?.type).toBe("plugin");
 	});
 
-	it("write/read round-trip for entry omitting type", async () => {
-		const manifest: Manifest = {
-			"owner/repo/skill": {
-				ref: "v1.2.3",
-				commit: "abc123",
-				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
-				files: [".claude/skills/skill/"],
-				cloneUrl: null,
-			},
-		};
-
-		await writeManifest(testDir, manifest);
-		const result = await readManifest(testDir);
-
-		expect(result).toEqual(manifest);
-		expect(result["owner/repo/skill"]?.type).toBeUndefined();
-	});
-
 	it("legacy entry without type field still parses", async () => {
 		const legacyManifest = {
 			"owner/repo/skill": {
@@ -656,7 +642,7 @@ describe("type field", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo/skill"]?.type).toBeUndefined();
+		expect(result["owner/repo/skill"]).toBeDefined();
 	});
 
 	it("JSON serialization omits undefined type", () => {
@@ -686,6 +672,282 @@ describe("manifestTypeFromDetected", () => {
 
 	it("never returns the literal bare-skill", () => {
 		expect(manifestTypeFromDetected("bare-skill")).not.toBe("bare-skill");
+	});
+});
+
+describe("type backfill on read", () => {
+	async function writeLegacy(
+		manifest: Record<string, Record<string, unknown>>,
+	): Promise<void> {
+		await mkdir(join(testDir, ".agntc"), { recursive: true });
+		await writeFile(
+			join(testDir, ".agntc", "manifest.json"),
+			JSON.stringify(manifest),
+		);
+	}
+
+	it("backfills plugin when files include agents target", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/thing/", ".claude/agents/thing.md"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.type).toBe("plugin");
+	});
+
+	it("backfills plugin when files include hooks target", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/hooks/my-hook.json"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.type).toBe("plugin");
+	});
+
+	it("backfills plugin for multiple distinct skill dirs under one key", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/", ".claude/skills/skill-b/"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.type).toBe("plugin");
+	});
+
+	it("backfills skill for single skills dir, no agents/hooks (single-skill ambiguity accepted)", async () => {
+		await writeLegacy({
+			"owner/repo/skill": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/skill/SKILL.md", ".claude/skills/skill/ref.md"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/skill"]?.type).toBe("skill");
+	});
+
+	it("does not overwrite existing type", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/a/", ".claude/skills/b/"],
+				cloneUrl: null,
+				type: "skill",
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.type).toBe("skill");
+	});
+
+	it("recognises per-agent skills targets (claude, codex, cursor)", async () => {
+		await writeLegacy({
+			"owner/repo/claude-skill": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/claude-skill/"],
+				cloneUrl: null,
+			},
+			"owner/repo/codex-skill": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["codex"],
+				files: [".agents/skills/codex-skill/"],
+				cloneUrl: null,
+			},
+			"owner/repo/cursor-skill": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["cursor"],
+				files: [".cursor/skills/cursor-skill/"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/claude-skill"]?.type).toBe("skill");
+		expect(result["owner/repo/codex-skill"]?.type).toBe("skill");
+		expect(result["owner/repo/cursor-skill"]?.type).toBe("skill");
+	});
+
+	it("treats same skill dir across multiple agent targets as single skill", async () => {
+		await writeLegacy({
+			"owner/repo/skill": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude", "codex"],
+				files: [".claude/skills/skill/", ".agents/skills/skill/"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/skill"]?.type).toBe("skill");
+	});
+
+	it("backfills empty files array to skill without error", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.type).toBe("skill");
+	});
+
+	it("backfills all-unrecognised files to skill without error", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: ["some/random/path.md", "another/file.txt"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.type).toBe("skill");
+	});
+
+	it("reading legacy manifest with no type never errors", async () => {
+		await writeLegacy({
+			"owner/repo/a": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/a/"],
+				cloneUrl: null,
+			},
+			"owner/repo/b": {
+				ref: "main",
+				commit: "def456",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/b/", ".claude/agents/b.md"],
+				cloneUrl: null,
+			},
+		});
+
+		await expect(readManifest(testDir)).resolves.toBeDefined();
+	});
+
+	it("backfills legacy collection-member entry from its own files (never collection)", async () => {
+		await writeLegacy({
+			"owner/repo/member-skill": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/member-skill/"],
+				cloneUrl: null,
+			},
+			"owner/repo/member-plugin": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [
+					".claude/skills/member-plugin/",
+					".claude/agents/member-agent.md",
+				],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/member-skill"]?.type).toBe("skill");
+		expect(result["owner/repo/member-plugin"]?.type).toBe("plugin");
+	});
+
+	it("backfilled type persists on next writeManifest", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/a/", ".claude/skills/b/"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+		await writeManifest(testDir, result);
+
+		const content = await readFile(
+			join(testDir, ".agntc", "manifest.json"),
+			"utf-8",
+		);
+		const reparsed = JSON.parse(content) as Manifest;
+		expect(reparsed["owner/repo"]?.type).toBe("plugin");
+	});
+
+	it("backfills cloneUrl and type together", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/a/", ".claude/skills/b/"],
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.cloneUrl).toBeNull();
+		expect(result["owner/repo"]?.type).toBe("plugin");
 	});
 });
 
@@ -726,6 +988,7 @@ describe("readManifestOrExit", () => {
 				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
+				type: "skill",
 			},
 		};
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
