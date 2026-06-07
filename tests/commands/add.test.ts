@@ -134,25 +134,44 @@ vi.mock("../../src/unmanaged-resolve.js", () => ({
 	resolveUnmanagedConflicts: vi.fn(),
 }));
 
-vi.mock("../../src/copy-safety.js", () => ({
-	assertSubpathWithinClone: vi.fn(),
-	scanForEscapingSymlinks: vi.fn(),
-	// Real throwable classes so `instanceof` in the add command's catch works.
-	PathTraversalError: class PathTraversalError extends Error {
+vi.mock("../../src/copy-safety.js", () => {
+	// Real throwable classes so `instanceof` narrowing works.
+	class PathTraversalError extends Error {
 		constructor(subpath: string) {
 			super(`subpath "${subpath}" resolves outside the clone root`);
 			this.name = "PathTraversalError";
 		}
-	},
-	SymlinkEscapeError: class SymlinkEscapeError extends Error {
+	}
+	class SymlinkEscapeError extends Error {
 		constructor(relPath: string, target: string) {
 			super(
 				`symlink "${relPath}" points outside the clone (target: ${target})`,
 			);
 			this.name = "SymlinkEscapeError";
 		}
-	},
-}));
+	}
+	const scanForEscapingSymlinks = vi.fn();
+	return {
+		assertSubpathWithinClone: vi.fn(),
+		scanForEscapingSymlinks,
+		PathTraversalError,
+		SymlinkEscapeError,
+		// Mirror the real wrapper's scan-and-narrow over the MOCKED scan so the
+		// existing mockScanForEscapingSymlinks.mock* drivers keep controlling the
+		// add command's install sites that now call checkEscapingSymlinks.
+		checkEscapingSymlinks: async (unitDir: string, cloneRoot: string) => {
+			try {
+				await scanForEscapingSymlinks(unitDir, cloneRoot);
+				return { ok: true };
+			} catch (err) {
+				if (err instanceof SymlinkEscapeError) {
+					return { ok: false, message: err.message };
+				}
+				throw err;
+			}
+		},
+	};
+});
 
 import * as p from "@clack/prompts";
 import { selectAgents } from "../../src/agent-select.js";

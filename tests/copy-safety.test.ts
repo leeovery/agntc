@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertSubpathWithinClone,
+	checkEscapingSymlinks,
 	PathTraversalError,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
@@ -252,5 +253,53 @@ describe("scanForEscapingSymlinks", () => {
 			expect(message).toContain("leak");
 			expect(message).toContain("/etc/passwd");
 		}
+	});
+});
+
+describe("checkEscapingSymlinks", () => {
+	// Centralised scan-and-narrow wrapper: returns a discriminated result so the
+	// three install/replay call sites own only their distinct surfacing.
+	let cloneRoot: string;
+	let unitDir: string;
+
+	beforeEach(async () => {
+		cloneRoot = await mkdtemp(join(tmpdir(), "agntc-check-symlink-test-"));
+		unitDir = join(cloneRoot, "unit");
+		await mkdir(unitDir, { recursive: true });
+	});
+
+	afterEach(async () => {
+		await rm(cloneRoot, { recursive: true, force: true });
+	});
+
+	it("returns { ok: true } when there is no escaping symlink", async () => {
+		await writeFile(join(unitDir, "a.txt"), "a");
+
+		const result = await checkEscapingSymlinks(unitDir, cloneRoot);
+
+		expect(result).toEqual({ ok: true });
+	});
+
+	it("returns { ok: false, message } for a SymlinkEscapeError", async () => {
+		await symlink("/etc/passwd", join(unitDir, "leak"));
+
+		const result = await checkEscapingSymlinks(unitDir, cloneRoot);
+
+		expect(result.ok).toBe(false);
+		// message carries the SymlinkEscapeError's message verbatim.
+		const message = (result as { ok: false; message: string }).message;
+		expect(message).toContain("leak");
+		expect(message).toContain("/etc/passwd");
+	});
+
+	it("rethrows a non-SymlinkEscapeError (e.g. a generic Error)", async () => {
+		// A missing directory makes scanForEscapingSymlinks throw an ENOENT
+		// Error (not a SymlinkEscapeError), which must propagate unchanged.
+		await expect(
+			checkEscapingSymlinks(join(cloneRoot, "does-not-exist"), cloneRoot),
+		).rejects.not.toBeInstanceOf(SymlinkEscapeError);
+		await expect(
+			checkEscapingSymlinks(join(cloneRoot, "does-not-exist"), cloneRoot),
+		).rejects.toThrow();
 	});
 });

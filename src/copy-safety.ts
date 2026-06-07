@@ -103,6 +103,30 @@ async function scanDir(
 	}
 }
 
+/**
+ * Scan-and-narrow wrapper around {@link scanForEscapingSymlinks}: runs the
+ * symlink-escape pre-flight and maps the outcome to a discriminated result so
+ * callers own only their distinct surfacing. A {@link SymlinkEscapeError} is
+ * narrowed to `{ ok: false, message }` (the error's message verbatim); any
+ * other error RETHROWS unchanged. Success resolves to `{ ok: true }`. The
+ * scan boundary semantics are unchanged — callers pass the same `unitDir` /
+ * `cloneRoot` arguments they would to {@link scanForEscapingSymlinks}.
+ */
+export async function checkEscapingSymlinks(
+	unitDir: string,
+	cloneRoot: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+	try {
+		await scanForEscapingSymlinks(unitDir, cloneRoot);
+		return { ok: true };
+	} catch (err) {
+		if (err instanceof SymlinkEscapeError) {
+			return { ok: false, message: err.message };
+		}
+		throw err;
+	}
+}
+
 async function assertSymlinkContained(
 	linkPath: string,
 	cloneRoot: string,

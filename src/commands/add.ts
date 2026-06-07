@@ -11,9 +11,8 @@ import { readConfig } from "../config.js";
 import type { AssetCounts } from "../copy-plugin-assets.js";
 import {
 	assertSubpathWithinClone,
+	checkEscapingSymlinks,
 	PathTraversalError,
-	SymlinkEscapeError,
-	scanForEscapingSymlinks,
 } from "../copy-safety.js";
 import { copyUnit, toComputeInput } from "../copy-unit.js";
 import { detectAgents } from "../detect-agents.js";
@@ -310,14 +309,10 @@ export async function runAdd(
 		// selector traversal guard already ran pre-read at step 2c (analysis 1-2);
 		// it is not repeated here. A violation maps to an identity-prefixed cancel
 		// + non-zero exit (mirrors the TypeConflictError pre-flight above).
-		try {
-			await scanForEscapingSymlinks(unitDir, sourceDir);
-		} catch (err) {
-			if (err instanceof SymlinkEscapeError) {
-				p.cancel(`${parsed.manifestKey}: ${err.message}`);
-				throw new ExitSignal(1);
-			}
-			throw err;
+		const symlinkCheck = await checkEscapingSymlinks(unitDir, sourceDir);
+		if (!symlinkCheck.ok) {
+			p.cancel(`${parsed.manifestKey}: ${symlinkCheck.message}`);
+			throw new ExitSignal(1);
 		}
 
 		// 10. Read manifest and nuke existing files if reinstalling
@@ -590,20 +585,19 @@ async function runCollectionPipeline(
 		// re-checked here. A violation fails THIS member loudly (recorded failed,
 		// no nuke/copy/entry) but does NOT abort siblings — the non-zero exit is
 		// deferred to the end of the run.
-		try {
-			await scanForEscapingSymlinks(pluginDir, cloneRoot);
-		} catch (err) {
-			if (err instanceof SymlinkEscapeError) {
-				results.push({
-					pluginName,
-					status: "failed",
-					copiedFiles: [],
-					agents: [],
-					errorMessage: err.message,
-				});
-				continue;
-			}
-			throw err;
+		const memberSymlinkCheck = await checkEscapingSymlinks(
+			pluginDir,
+			cloneRoot,
+		);
+		if (!memberSymlinkCheck.ok) {
+			results.push({
+				pluginName,
+				status: "failed",
+				copiedFiles: [],
+				agents: [],
+				errorMessage: memberSymlinkCheck.message,
+			});
+			continue;
 		}
 
 		// Nuke existing files if reinstalling this plugin

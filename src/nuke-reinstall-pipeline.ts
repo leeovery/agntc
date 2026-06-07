@@ -3,7 +3,7 @@ import { computeAgentChanges } from "./agent-compat.js";
 import { readConfig } from "./config.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
 import { copyPluginAssets } from "./copy-plugin-assets.js";
-import { SymlinkEscapeError, scanForEscapingSymlinks } from "./copy-safety.js";
+import { checkEscapingSymlinks } from "./copy-safety.js";
 import { getDriver } from "./drivers/registry.js";
 import type { AgentId, AgentWithDriver } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
@@ -100,16 +100,12 @@ export async function executeNukeAndReinstall(
 	// update replays a recorded manifest key (getSourceDirFromKey derives the
 	// subdir from the key, not a fresh source-supplied selector), so the symlink
 	// scan is the whole of the update pre-flight.
-	try {
-		await scanForEscapingSymlinks(sourceDir, cloneRoot);
-	} catch (err: unknown) {
-		if (err instanceof SymlinkEscapeError) {
-			return {
-				status: "blocked",
-				reason: err.message,
-			};
-		}
-		throw err;
+	const symlinkCheck = await checkEscapingSymlinks(sourceDir, cloneRoot);
+	if (!symlinkCheck.ok) {
+		return {
+			status: "blocked",
+			reason: symlinkCheck.message,
+		};
 	}
 
 	const ref = options.newRef !== undefined ? options.newRef : existingEntry.ref;
