@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import * as p from "@clack/prompts";
 import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 import type { AgentId } from "./drivers/types.js";
@@ -10,7 +9,7 @@ import { removeEntry, writeManifest } from "./manifest.js";
 import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
 import {
 	buildParsedSourceFromKey,
-	getSourceDirFromKey,
+	resolveUpdateSourceDir,
 } from "./source-parser.js";
 
 export interface CloneAndReinstallOptions {
@@ -351,15 +350,9 @@ export async function cloneAndReinstall(
 
 		tempDir = cloneResult.tempDir;
 		const newCommit = options.newCommit ?? cloneResult.commit;
-		// Source-dir resolution for the re-cloned tree. Cycle-9 fix: PREFER the
-		// entry's recorded `sourceSubpath` when present — a skills-only collection
-		// member is keyed by basename (`owner/repo/<name>`) but its source actually
-		// lives at `<clone>/skills/<name>`, so the key-derived dir would be wrong
-		// and derive-before-delete would abort. Root-child members and standalone
-		// entries (segment === basename) carry no sourceSubpath and fall back to
-		// the unchanged key-derived dir, round-tripping exactly as before. (Legacy
-		// pre-fix skills-only members predate the field and stay on the fallback —
-		// see the known-limitation note in the report; remedy is remove + add.)
+		// Source-dir resolution for the re-cloned tree is authored once in
+		// resolveUpdateSourceDir (cycle-9 rule: prefer the recorded sourceSubpath,
+		// fall back to the key-derived dir); see its doc comment for the rationale.
 		// Path-traversal containment pre-check (analysis 10-2): the cycle-9
 		// `sourceSubpath` is a second source-derived path component fed into the
 		// join, so it gets add's step-2c lexical containment guard, mirrored here.
@@ -385,9 +378,7 @@ export async function cloneAndReinstall(
 			}
 		}
 
-		const sourceDir = entry.sourceSubpath
-			? join(tempDir, entry.sourceSubpath)
-			: getSourceDirFromKey(tempDir, key);
+		const sourceDir = resolveUpdateSourceDir(tempDir, key, entry.sourceSubpath);
 
 		const result = await runPipeline({
 			key,

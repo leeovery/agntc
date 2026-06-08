@@ -31,7 +31,7 @@ import {
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { executeNukeAndReinstall } from "../../src/nuke-reinstall-pipeline.js";
-import { getSourceDirFromKey } from "../../src/source-parser.js";
+import { resolveUpdateSourceDir } from "../../src/source-parser.js";
 import { detectType } from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 
@@ -758,12 +758,14 @@ describe("integration: core workflows", () => {
 			const key = "owner/skills-only-updatable/alpha";
 			const entry = manifest[key]!;
 
-			// Resolve the source dir EXACTLY as cloneAndReinstall:352 does — prefer
-			// the stored sourceSubpath, fall back to the key-derived dir. Before the
-			// fix this falls back to <clone>/alpha (no SKILL.md) and aborts.
-			const updateSourceDir = entry.sourceSubpath
-				? join(reclonedDir, entry.sourceSubpath)
-				: getSourceDirFromKey(reclonedDir, key);
+			// Resolve the source dir via the SAME function cloneAndReinstall uses —
+			// prefer the stored sourceSubpath, fall back to the key-derived dir.
+			// Before the fix this falls back to <clone>/alpha (no SKILL.md) and aborts.
+			const updateSourceDir = resolveUpdateSourceDir(
+				reclonedDir,
+				key,
+				entry.sourceSubpath,
+			);
 
 			const result = await executeNukeAndReinstall({
 				key,
@@ -853,11 +855,13 @@ describe("integration: core workflows", () => {
 			await createFile(reclonedDir, "alpha", "references", "new.md");
 			await createFile(reclonedDir, "beta", "SKILL.md");
 
-			// Same resolution expression as cloneAndReinstall:352 — with no
-			// sourceSubpath it MUST fall back to the key-derived dir (<clone>/alpha).
-			const updateSourceDir = entry.sourceSubpath
-				? join(reclonedDir, entry.sourceSubpath)
-				: getSourceDirFromKey(reclonedDir, key);
+			// Same resolution function as cloneAndReinstall — with no sourceSubpath it
+			// MUST fall back to the key-derived dir (<clone>/alpha).
+			const updateSourceDir = resolveUpdateSourceDir(
+				reclonedDir,
+				key,
+				entry.sourceSubpath,
+			);
 			expect(updateSourceDir).toBe(join(reclonedDir, "alpha"));
 
 			const result = await executeNukeAndReinstall({

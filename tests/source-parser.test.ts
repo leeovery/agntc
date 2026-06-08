@@ -16,6 +16,7 @@ import {
 	type ParsedSource,
 	parseSource,
 	resolveCloneUrl,
+	resolveUpdateSourceDir,
 } from "../src/source-parser.js";
 
 describe("parseSource", () => {
@@ -1140,6 +1141,28 @@ describe("getSourceDirFromKey", () => {
 			"owner/repo/nested/plugin",
 		);
 		expect(result).toBe(join("/tmp/clone-abc", "nested/plugin"));
+	});
+});
+
+describe("resolveUpdateSourceDir", () => {
+	it("prefers sourceSubpath joined onto cloneRoot when present", () => {
+		const result = resolveUpdateSourceDir(
+			"/tmp/clone-abc",
+			"owner/repo/alpha",
+			"skills/alpha",
+		);
+		expect(result).toBe(join("/tmp/clone-abc", "skills/alpha"));
+	});
+
+	it("falls back to the key-derived dir when sourceSubpath is absent", () => {
+		const result = resolveUpdateSourceDir(
+			"/tmp/clone-abc",
+			"owner/repo/alpha",
+			undefined,
+		);
+		expect(result).toBe(
+			getSourceDirFromKey("/tmp/clone-abc", "owner/repo/alpha"),
+		);
 	});
 });
 

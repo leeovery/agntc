@@ -448,3 +448,23 @@ export function getSourceDirFromKey(tempDir: string, key: string): string {
 	}
 	return tempDir;
 }
+
+/**
+ * Resolves the source dir of a re-cloned tree for an update. The single
+ * authoring of the cycle-9 rule: PREFER the entry's recorded `sourceSubpath`
+ * (a skills-only collection member keyed by basename lives at
+ * `<clone>/skills/<name>`, not the key-derived `<clone>/<name>`); fall back to
+ * the unchanged key-derived dir when no subpath was recorded (root-child
+ * members and standalone entries round-trip exactly as before). Shared by
+ * `cloneAndReinstall` and the integration tests so the rule and its tests
+ * cannot drift.
+ */
+export function resolveUpdateSourceDir(
+	cloneRoot: string,
+	key: string,
+	sourceSubpath: string | undefined,
+): string {
+	return sourceSubpath
+		? join(cloneRoot, sourceSubpath)
+		: getSourceDirFromKey(cloneRoot, key);
+}
