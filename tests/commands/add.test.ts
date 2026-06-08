@@ -43,7 +43,8 @@ vi.mock("../../src/version-resolve.js", () => ({
 	resolveVersion: vi.fn(),
 }));
 
-vi.mock("../../src/config.js", () => ({
+vi.mock("../../src/config.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/config.js")>()),
 	readConfig: vi.fn(),
 }));
 
@@ -226,6 +227,17 @@ const mockOutro = vi.mocked(p.outro);
 const mockSpinner = vi.mocked(p.spinner);
 const mockCancel = vi.mocked(p.cancel);
 const mockLog = vi.mocked(p.log);
+
+// The install summary is split: the headline goes to p.outro, the per-agent /
+// per-member detail to p.log.success (one connected ◇ node per line). Recombine
+// both for assertions that previously read the single crammed outro string.
+function summaryText(): string {
+	const headline = (mockOutro.mock.calls.at(-1)?.[0] as string) ?? "";
+	const detail = mockLog.success.mock.calls
+		.map((c) => c[0] as string)
+		.join("\n");
+	return `${headline}\n${detail}`;
+}
 
 const PARSED: ParsedSource = {
 	type: "github-shorthand",
@@ -526,10 +538,10 @@ describe("add command", () => {
 		it("shows key, ref, and per-agent skill count", async () => {
 			await runAdd("owner/my-skill");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("owner/my-skill");
 			expect(outroCall).toContain("main");
-			expect(outroCall).toContain("Claude:");
+			expect(outroCall).toContain("Claude");
 			expect(outroCall).toContain("1 skill");
 		});
 	});
@@ -1275,7 +1287,7 @@ describe("add command", () => {
 
 			await runAdd("owner/my-collection");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("pluginA");
 			expect(outroCall).toContain("pluginB");
 		});
@@ -1299,7 +1311,7 @@ describe("add command", () => {
 
 			await runAdd("owner/my-collection");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("pluginB");
 			expect(outroCall).toMatch(/1.*skipped/i);
 		});
@@ -1595,7 +1607,7 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection");
 
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toContain("pluginA");
 				expect(outroCall).toMatch(/1.*skipped/i);
 			});
@@ -1788,7 +1800,7 @@ describe("add command", () => {
 				// Manifest still written once (with no additions)
 				expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 				// Summary mentions failures
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toMatch(/pluginA: failed —/);
 				expect(outroCall).toMatch(/pluginB: failed —/);
 			});
@@ -1834,7 +1846,7 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection").catch(() => {});
 
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toMatch(/pluginA: failed — ENOSPC: no space left/);
 			});
 
@@ -1871,7 +1883,7 @@ describe("add command", () => {
 					}),
 				);
 				// Summary should mention both plugins but not "failed"
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toContain("pluginA");
 				expect(outroCall).toContain("pluginB");
 				expect(outroCall).not.toMatch(/failed/);
@@ -1907,7 +1919,7 @@ describe("add command", () => {
 				// No manifest entries — one skipped, one failed
 				expect(mockAddEntry).not.toHaveBeenCalled();
 				// Summary should show 1 skipped and pluginB failed
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toMatch(/1 skipped/);
 				expect(outroCall).toMatch(/pluginB: failed — permission denied/);
 			});
@@ -1963,7 +1975,7 @@ describe("add command", () => {
 					}),
 				);
 				// Summary: pluginA installed, pluginB failed, pluginC skipped
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toContain("pluginA");
 				expect(outroCall).toMatch(/pluginB: failed — disk full/);
 				expect(outroCall).toMatch(/1 skipped/);
@@ -2421,7 +2433,7 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection");
 
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				// pluginA should appear in summary
 				expect(outroCall).toContain("pluginA");
 				// pluginB should NOT appear anywhere in summary
@@ -2455,7 +2467,7 @@ describe("add command", () => {
 				expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 
 				// Summary has the collection header but no plugin blocks
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toContain("owner/my-collection");
 				expect(outroCall).not.toContain("pluginA");
 				expect(outroCall).not.toContain("pluginB");
@@ -2508,7 +2520,7 @@ describe("add command", () => {
 				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
 				expect(mockAddEntry).toHaveBeenCalledTimes(1);
 
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toContain("pluginA");
 				expect(outroCall).not.toContain("pluginB");
 				// No "skipped" line for pluginB either
@@ -3525,10 +3537,10 @@ describe("add command", () => {
 
 			await runAdd("owner/my-skill");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("owner/my-skill");
 			expect(outroCall).toContain("main");
-			expect(outroCall).toContain("Claude:");
+			expect(outroCall).toContain("Claude");
 			expect(outroCall).toContain("2 skills");
 			expect(outroCall).toContain("1 hook");
 			expect(outroCall).not.toContain("0 agent");
@@ -3555,9 +3567,9 @@ describe("add command", () => {
 
 			await runAdd("owner/my-skill");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
-			expect(outroCall).toContain("Claude:");
-			expect(outroCall).not.toContain("Codex:");
+			const outroCall = summaryText();
+			expect(outroCall).toContain("Claude");
+			expect(outroCall).not.toContain("Codex");
 		});
 
 		it("shows key without ref when ref is null", async () => {
@@ -3566,7 +3578,7 @@ describe("add command", () => {
 
 			await runAdd("owner/my-skill");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("owner/my-skill");
 			expect(outroCall).toContain("HEAD");
 		});
@@ -3576,7 +3588,7 @@ describe("add command", () => {
 
 			await runAdd("owner/my-skill");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("owner/my-skill");
 			expect(outroCall).toContain("main");
 		});
@@ -4479,7 +4491,7 @@ describe("add command", () => {
 
 			await runAdd("./my-plugin");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("local");
 			expect(outroCall).not.toContain("HEAD");
 		});
@@ -4608,7 +4620,7 @@ describe("add command", () => {
 
 				await runAdd("./my-collection");
 
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toContain("local");
 				expect(outroCall).not.toContain("HEAD");
 			});
@@ -5118,7 +5130,7 @@ describe("add command", () => {
 
 			await runAdd("owner/my-collection");
 
-			const outroCall = mockOutro.mock.calls[0]![0] as string;
+			const outroCall = summaryText();
 			expect(outroCall).toContain("pluginB");
 			// Should note the skipped plugin
 			expect(outroCall).toMatch(/1.*skip|cancel/i);
@@ -6728,7 +6740,7 @@ describe("add command", () => {
 				expect(err).toBeInstanceOf(ExitSignal);
 				expect((err as ExitSignal).code).toBe(1);
 				// Failed member surfaced in the summary.
-				const outroCall = mockOutro.mock.calls[0]![0] as string;
+				const outroCall = summaryText();
 				expect(outroCall).toContain("pluginA");
 				expect(outroCall).toMatch(/failed/i);
 			});

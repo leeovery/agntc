@@ -456,18 +456,23 @@ export async function runAdd(
 		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
 		await writeManifest(projectDir, updated);
 
-		// 14. Summary
-		p.outro(
-			renderAddSummary({
-				manifestKey: parsed.manifestKey,
-				ref: parsed.ref,
-				commit,
-				detectedType: detected.type,
-				selectedAgents,
-				assetCountsByAgent,
-				copiedFiles,
-			}),
-		);
+		// 14. Summary — per-agent breakdown as gutterred log nodes, headline as the
+		// terminal outro node, so the tree stays connected.
+		const summary = renderAddSummary({
+			manifestKey: parsed.manifestKey,
+			ref: parsed.ref,
+			commit,
+			detectedType: detected.type,
+			selectedAgents,
+			assetCountsByAgent,
+			copiedFiles,
+		});
+		// Each detail line as its own connected clack node (◇ on the bar), matching
+		// the bar-and-diamond flow of the rest of the prompts.
+		for (const line of summary.detail) {
+			p.log.success(line);
+		}
+		p.outro(summary.headline);
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			throw err;
@@ -805,15 +810,18 @@ async function runCollectionPipeline(
 	}
 	await writeManifest(projectDir, updatedManifest);
 
-	// 7. Per-plugin summary
-	p.outro(
-		renderCollectionAddSummary({
-			manifestKey: parsed.manifestKey,
-			ref: parsed.ref,
-			commit,
-			results,
-		}),
-	);
+	// 7. Per-plugin summary — each member/agent line as a connected clack node (◇),
+	// headline as the terminal outro node.
+	const summary = renderCollectionAddSummary({
+		manifestKey: parsed.manifestKey,
+		ref: parsed.ref,
+		commit,
+		results,
+	});
+	for (const line of summary.detail) {
+		p.log.success(line);
+	}
+	p.outro(summary.headline);
 
 	// 8. Non-zero exit on partial failure (spec: Partial outcomes — the exit-status
 	// contract covers multi-member installs). Deferred to AFTER the write + summary

@@ -57,15 +57,17 @@ describe("capitalizeAgentName", () => {
 });
 
 describe("formatPluginSummary", () => {
-	it("formats multi-line per-agent blocks with capitalized names", () => {
+	it("returns one aligned line per agent in canonical order", () => {
 		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
 			claude: { skills: 12, agents: 3, hooks: 2 },
 			codex: { skills: 12 },
 		};
-		const result = formatPluginSummary(["claude", "codex"], assetCounts);
-		expect(result).toBe(
-			"\n\n  Claude:\n    12 skills, 3 agents, 2 hooks\n\n  Codex:\n    12 skills",
-		);
+		// Pass codex first to prove canonical (claude, codex) reordering.
+		const result = formatPluginSummary(["codex", "claude"], assetCounts);
+		expect(result).toEqual([
+			"Claude  12 skills, 3 agents, 2 hooks",
+			"Codex   12 skills",
+		]);
 	});
 
 	it("omits zero-count asset types", () => {
@@ -73,7 +75,7 @@ describe("formatPluginSummary", () => {
 			claude: { skills: 5, agents: 0, hooks: 0 },
 		};
 		const result = formatPluginSummary(["claude"], assetCounts);
-		expect(result).toBe("\n\n  Claude:\n    5 skills");
+		expect(result).toEqual(["Claude  5 skills"]);
 	});
 
 	it("omits agents with no non-zero counts", () => {
@@ -82,7 +84,7 @@ describe("formatPluginSummary", () => {
 			codex: { skills: 0, agents: 0 },
 		};
 		const result = formatPluginSummary(["claude", "codex"], assetCounts);
-		expect(result).toBe("\n\n  Claude:\n    3 skills");
+		expect(result).toEqual(["Claude  3 skills"]);
 	});
 
 	it("omits agents not in assetCountsByAgent", () => {
@@ -90,7 +92,7 @@ describe("formatPluginSummary", () => {
 			claude: { skills: 2 },
 		};
 		const result = formatPluginSummary(["claude", "codex"], assetCounts);
-		expect(result).toBe("\n\n  Claude:\n    2 skills");
+		expect(result).toEqual(["Claude  2 skills"]);
 	});
 
 	it("uses singular form for count of 1", () => {
@@ -98,30 +100,35 @@ describe("formatPluginSummary", () => {
 			claude: { skills: 1, agents: 1, hooks: 1 },
 		};
 		const result = formatPluginSummary(["claude"], assetCounts);
-		expect(result).toBe("\n\n  Claude:\n    1 skill, 1 agent, 1 hook");
+		expect(result).toEqual(["Claude  1 skill, 1 agent, 1 hook"]);
+	});
+
+	it("returns [] when no agent has assets", () => {
+		expect(formatPluginSummary([], {})).toEqual([]);
 	});
 });
 
 describe("formatBareSkillSummary", () => {
-	it("formats multi-line per-agent blocks with file counts", () => {
+	it("returns one aligned line per agent in canonical order", () => {
 		const copiedFiles = [
 			".claude/skills/my-skill/file1.md",
 			".claude/skills/my-skill/file2.md",
 			".codex/skills/my-skill/file1.md",
 		];
-		const result = formatBareSkillSummary(["claude", "codex"], copiedFiles);
-		expect(result).toBe("\n\n  Claude:\n    2 skills\n\n  Codex:\n    1 skill");
+		// Pass codex first to prove canonical (claude, codex) reordering.
+		const result = formatBareSkillSummary(["codex", "claude"], copiedFiles);
+		expect(result).toEqual(["Claude  2 skills", "Codex   1 skill"]);
 	});
 
 	it("omits agent with no matching files", () => {
 		const copiedFiles = [".claude/skills/my-skill/file1.md"];
 		const result = formatBareSkillSummary(["claude", "codex"], copiedFiles);
-		expect(result).toBe("\n\n  Claude:\n    1 skill");
+		expect(result).toEqual(["Claude  1 skill"]);
 	});
 });
 
 describe("renderAddSummary", () => {
-	it("formats standalone plugin add with multi-line per-agent blocks", () => {
+	it("formats standalone plugin add with headline + per-agent detail lines", () => {
 		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
 			claude: { skills: 12, agents: 3, hooks: 2 },
 			codex: { skills: 12 },
@@ -135,12 +142,13 @@ describe("renderAddSummary", () => {
 			assetCountsByAgent: assetCounts,
 			copiedFiles: [],
 		});
-		expect(result).toBe(
-			"Installed leeovery/claude-technical-workflows@v2.1.6\n\n  Claude:\n    12 skills, 3 agents, 2 hooks\n\n  Codex:\n    12 skills",
-		);
+		expect(result).toEqual({
+			headline: "Installed leeovery/claude-technical-workflows@v2.1.6",
+			detail: ["Claude  12 skills, 3 agents, 2 hooks", "Codex   12 skills"],
+		});
 	});
 
-	it("formats bare skill add with multi-line per-agent blocks", () => {
+	it("formats bare skill add with headline + per-agent detail lines", () => {
 		const result = renderAddSummary({
 			manifestKey: "owner/my-skill",
 			ref: "main",
@@ -149,13 +157,10 @@ describe("renderAddSummary", () => {
 			selectedAgents: ["claude"],
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
 		});
-		const expected = [
-			"Installed owner/my-skill@main",
-			"",
-			"  Claude:",
-			"    1 skill",
-		].join("\n");
-		expect(result).toBe(expected);
+		expect(result).toEqual({
+			headline: "Installed owner/my-skill@main",
+			detail: ["Claude  1 skill"],
+		});
 	});
 
 	it("uses HEAD label when ref is null with commit", () => {
@@ -167,7 +172,7 @@ describe("renderAddSummary", () => {
 			selectedAgents: ["claude"],
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
 		});
-		expect(result).toContain("owner/my-skill@HEAD");
+		expect(result.headline).toContain("owner/my-skill@HEAD");
 	});
 
 	it("uses local label when ref and commit are null", () => {
@@ -179,7 +184,7 @@ describe("renderAddSummary", () => {
 			selectedAgents: ["claude"],
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
 		});
-		expect(result).toContain("owner/my-skill@local");
+		expect(result.headline).toContain("owner/my-skill@local");
 	});
 });
 
@@ -210,11 +215,12 @@ describe("renderCollectionAddSummary", () => {
 			commit: "abc123",
 			results,
 		});
-		expect(result).toContain("Installed owner/my-collection@main");
-		expect(result).toContain("pluginA:");
-		expect(result).toContain("pluginB:");
-		expect(result).toContain("Claude:");
-		expect(result).toContain("Codex:");
+		expect(result.headline).toBe("Installed owner/my-collection@main");
+		const body = result.detail.join("\n");
+		expect(body).toContain("pluginA:");
+		expect(body).toContain("pluginB:");
+		expect(body).toMatch(/Claude {2}1 skill/);
+		expect(body).toMatch(/Codex {3}1 skill/);
 	});
 
 	it("notes skipped plugins", () => {
@@ -239,7 +245,7 @@ describe("renderCollectionAddSummary", () => {
 			commit: "abc123",
 			results,
 		});
-		expect(result).toMatch(/1 skipped/);
+		expect(result.detail.join("\n")).toMatch(/1 skipped/);
 	});
 
 	it("notes failed plugins with error messages", () => {
@@ -258,7 +264,9 @@ describe("renderCollectionAddSummary", () => {
 			commit: "abc123",
 			results,
 		});
-		expect(result).toMatch(/pluginA: failed — permission denied/);
+		expect(result.detail.join("\n")).toMatch(
+			/pluginA: failed — permission denied/,
+		);
 	});
 
 	it("handles mixed outcomes: installed, skipped, and failed", () => {
@@ -290,9 +298,10 @@ describe("renderCollectionAddSummary", () => {
 			commit: "abc123",
 			results,
 		});
-		expect(result).toContain("pluginA:");
-		expect(result).toMatch(/1 skipped/);
-		expect(result).toMatch(/pluginC: failed — disk full/);
+		const body = result.detail.join("\n");
+		expect(body).toContain("pluginA:");
+		expect(body).toMatch(/1 skipped/);
+		expect(body).toMatch(/pluginC: failed — disk full/);
 	});
 
 	it("shows plugin summary for plugin-type results with asset counts", () => {
@@ -314,9 +323,9 @@ describe("renderCollectionAddSummary", () => {
 			commit: "abc123",
 			results,
 		});
-		expect(result).toContain("pluginA:");
-		expect(result).toContain("Claude:");
-		expect(result).toContain("5 skills, 2 agents");
+		const body = result.detail.join("\n");
+		expect(body).toContain("pluginA:");
+		expect(body).toMatch(/Claude {2}5 skills, 2 agents/);
 	});
 });
 
@@ -482,9 +491,10 @@ describe("edge cases", () => {
 			commit: "abc123",
 			results,
 		});
-		expect(result).toContain("myPlugin:");
-		expect(result).toContain("Claude:");
-		expect(result).toMatch(/^Installed /);
+		expect(result.headline).toMatch(/^Installed /);
+		const body = result.detail.join("\n");
+		expect(body).toContain("myPlugin:");
+		expect(body).toMatch(/Claude {2}1 skill/);
 	});
 
 	it("all up-to-date produces no crashed output from outcome formatter", () => {

@@ -1,7 +1,32 @@
+import { KNOWN_AGENTS } from "./config.js";
 import type { AssetCounts } from "./copy-plugin-assets.js";
 import { getDriver } from "./drivers/registry.js";
 import type { AgentId, AssetType } from "./drivers/types.js";
 import type { DetectedType } from "./type-detection.js";
+
+/**
+ * A rendered install summary: a one-line `headline` (the terminal `└` outro
+ * node) plus zero or more `detail` lines emitted as gutterred `│` log nodes
+ * ABOVE it, so the per-agent/per-member breakdown stays connected to the prompt
+ * tree instead of floating below the outro as raw text.
+ */
+export interface RenderedSummary {
+	headline: string;
+	detail: string[];
+}
+
+/** Orders agents by the canonical KNOWN_AGENTS order (claude, codex, cursor). */
+function sortByKnownAgents(ids: AgentId[]): AgentId[] {
+	return [...ids].sort(
+		(a, b) => KNOWN_AGENTS.indexOf(a) - KNOWN_AGENTS.indexOf(b),
+	);
+}
+
+/** Pads the name column so the detail columns line up across rows. */
+function alignAgentRows(rows: { name: string; detail: string }[]): string[] {
+	const width = rows.reduce((max, r) => Math.max(max, r.name.length), 0);
+	return rows.map((r) => `${r.name.padEnd(width)}  ${r.detail}`);
+}
 
 export function formatDroppedAgentsSuffix(
 	droppedAgents: string[],
@@ -35,10 +60,10 @@ export function formatRefLabel(
 export function formatPluginSummary(
 	agentIds: AgentId[],
 	assetCountsByAgent: Partial<Record<AgentId, AssetCounts>>,
-): string {
-	const blocks: string[] = [];
+): string[] {
+	const rows: { name: string; detail: string }[] = [];
 
-	for (const id of agentIds) {
+	for (const id of sortByKnownAgents(agentIds)) {
 		const counts = assetCountsByAgent[id];
 		if (!counts) continue;
 
@@ -48,20 +73,20 @@ export function formatPluginSummary(
 			.join(", ");
 
 		if (nonZero.length > 0) {
-			blocks.push(`  ${capitalizeAgentName(id)}:\n    ${nonZero}`);
+			rows.push({ name: capitalizeAgentName(id), detail: nonZero });
 		}
 	}
 
-	return blocks.length > 0 ? "\n\n" + blocks.join("\n\n") : "";
+	return alignAgentRows(rows);
 }
 
 export function formatBareSkillSummary(
 	agentIds: AgentId[],
 	copiedFiles: string[],
-): string {
-	const blocks: string[] = [];
+): string[] {
+	const rows: { name: string; detail: string }[] = [];
 
-	for (const id of agentIds) {
+	for (const id of sortByKnownAgents(agentIds)) {
 		const driver = getDriver(id);
 		const targetPrefix = driver.getTargetDir("skills");
 		const count = copiedFiles.filter(
@@ -69,13 +94,11 @@ export function formatBareSkillSummary(
 		).length;
 
 		if (count > 0) {
-			blocks.push(
-				`  ${capitalizeAgentName(id)}:\n    ${pluralize(count, "skill")}`,
-			);
+			rows.push({ name: capitalizeAgentName(id), detail: pluralize(count, "skill") });
 		}
 	}
 
-	return blocks.length > 0 ? "\n\n" + blocks.join("\n\n") : "";
+	return alignAgentRows(rows);
 }
 
 interface AddSummaryInput {
@@ -88,14 +111,14 @@ interface AddSummaryInput {
 	copiedFiles: string[];
 }
 
-export function renderAddSummary(input: AddSummaryInput): string {
+export function renderAddSummary(input: AddSummaryInput): RenderedSummary {
 	const refLabel = formatRefLabel(input.ref, input.commit);
-	const agentSummary =
+	const detail =
 		input.detectedType === "plugin" && input.assetCountsByAgent
 			? formatPluginSummary(input.selectedAgents, input.assetCountsByAgent)
 			: formatBareSkillSummary(input.selectedAgents, input.copiedFiles);
 
-	return `Installed ${input.manifestKey}@${refLabel}${agentSummary}`;
+	return { headline: `Installed ${input.manifestKey}@${refLabel}`, detail };
 }
 
 /**
@@ -144,7 +167,7 @@ interface CollectionAddSummaryInput {
 
 export function renderCollectionAddSummary(
 	input: CollectionAddSummaryInput,
-): string {
+): RenderedSummary {
 	const refLabel = formatRefLabel(input.ref, input.commit);
 	const installed = input.results.filter(
 		(r): r is Extract<PluginInstallResult, { status: "installed" }> =>
@@ -156,26 +179,27 @@ export function renderCollectionAddSummary(
 			r.status === "failed",
 	);
 
-	const pluginBlocks = installed.map((r) => {
-		const agentSummary =
+	const detail: string[] = [];
+	for (const r of installed) {
+		const agentLines =
 			r.detectedType.type === "plugin" && r.assetCountsByAgent
 				? formatPluginSummary(r.agents, r.assetCountsByAgent)
 				: formatBareSkillSummary(r.agents, r.copiedFiles);
-		return `\n${r.pluginName}:${agentSummary}`;
-	});
+		detail.push(`${r.pluginName}:`);
+		// Indent each agent line one level under its member.
+		for (const line of agentLines) {
+			detail.push(`  ${line}`);
+		}
+	}
 
-	const statusParts: string[] = [];
 	if (skipped.length > 0) {
-		statusParts.push(`${skipped.length} skipped`);
+		detail.push(`${skipped.length} skipped`);
 	}
 	for (const f of failed) {
-		statusParts.push(`${f.pluginName}: failed — ${f.errorMessage}`);
+		detail.push(`${f.pluginName}: failed — ${f.errorMessage}`);
 	}
 
-	const statusSuffix =
-		statusParts.length > 0 ? `\n\n${statusParts.join("\n")}` : "";
-
-	return `Installed ${input.manifestKey}@${refLabel}${pluginBlocks.join("")}${statusSuffix}`;
+	return { headline: `Installed ${input.manifestKey}@${refLabel}`, detail };
 }
 
 interface GitUpdateSummaryInput {
