@@ -111,7 +111,7 @@
     "implementation": {
       "items": {
         "configless-install": {
-          "status": "completed",
+          "status": "in-progress",
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
           "analysis_gate_mode": "auto",
@@ -191,7 +191,8 @@
             8,
             9,
             10
-          ]
+          ],
+          "updated": "2026-06-08"
         }
       }
     },
