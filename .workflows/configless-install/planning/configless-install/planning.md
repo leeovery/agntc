@@ -266,3 +266,14 @@ approved_at: 2026-06-06
 |-------------|------|------------|
 | configless-install-analysis-10-1 | Treat empty re-cloned agents array as lenient default in update's resolveAgents | re-cloned `{ agents: [], type }` config succeeds preserving recorded agents (not no-agents), `resolveAgents([])` returns recorded agents unchanged, `resolveAgents(undefined)` unchanged, valid non-empty config disjoint from recorded agents STILL yields no-agents skip, add behaviour for `{ agents: [], type }` unchanged, parity restored between add and update |
 | configless-install-analysis-10-2 | Add path-traversal containment guard to update's stored sourceSubpath join | escaping `sourceSubpath` (e.g. `../evil`) rejected with containment error before any read/nuke/copy, absent sourceSubpath unchanged (key-derived fallback), valid internally-derived `skills/<name>` passes guard and reinstalls as before, PathTraversalError mapped to clean pre-flight failure not unhandled throw, distinct self-contained from Task 1 |
+
+### Phase 16: Analysis (Cycle 11)
+
+**Goal**: Address findings from Analysis (Cycle 11).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-11-1 | Extract update source-dir resolution into a shared tested function (resolveUpdateSourceDir) | sourceSubpath-preferred resolution returns join(cloneRoot, sourceSubpath), absent sourceSubpath falls back to getSourceDirFromKey, single authoring site (no duplicated literal in integration cases (f)/(g)), stale `:352` comment removed, cycle-10 `../evil` guard behaviour preserved (clone-failed, no nuke, no copy), focused unit test covers both branches |
+| configless-install-analysis-11-2 | Extract the shared list-action test harness into tests/helpers | shared vi.mock factory set + vi.mocked handles + INSTALLED_SHA/REMOTE_SHA constants + fakeDriver + beforeEach defaults consolidated, list-update adds only `stat`, change-version adds only `fetchRemoteTags`/`select`/`isCancel`/`mockIsCancel.mockReturnValue(false)`, Vitest hoisting respected, ~130-line preamble no longer duplicated, no production change, suite count/pass identical pre/post |

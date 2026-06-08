@@ -6,7 +6,7 @@ total_proposed: 2
 # Analysis Tasks: Configless-Install (Cycle 11)
 
 ## Task 1: Extract update source-dir resolution into a shared tested function (resolveUpdateSourceDir)
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -39,7 +39,7 @@ sources: architecture
 - If the optional guard co-location is done: a unit/integration test confirming an escaping sourceSubpath is rejected before any join/nuke (cycle-10 behaviour preserved).
 
 ## Task 2: Extract the shared list-action test harness into tests/helpers
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
