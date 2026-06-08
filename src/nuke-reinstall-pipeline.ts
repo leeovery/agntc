@@ -207,13 +207,13 @@ async function replayRecordedSkill(
 }
 
 /**
- * Derive-before-delete replay for a recorded `plugin`: at least one asset-kind
- * dir (`skills`/`agents`/`hooks`) must still exist in the re-cloned tree. The
- * scan runs BEFORE nuking; zero present dirs (the unit is now a bare skill or a
- * members collection) aborts with the install left intact. The recorded type is
- * authoritative — the scan only chooses *which* present dirs to copy, never
- * re-derives the type, so a benign newly-added asset dir is picked up and an
- * added root SKILL.md is ignored while any asset dir remains.
+ * Derive-before-delete replay for a recorded `plugin`: {@link findPresentAssetDirs}
+ * must report at least one asset-kind dir (`skills`/`agents`/`hooks`) still present
+ * in the re-cloned tree. The scan runs BEFORE nuking; zero present dirs (the unit is
+ * now a bare skill or a members collection) aborts with the install left intact. The
+ * recorded type is authoritative — the helper only chooses *which* present dirs to
+ * copy, never re-derives the type, so a benign newly-added asset dir is picked up and
+ * an added root SKILL.md is ignored while any asset dir remains.
  */
 async function replayRecordedPlugin(
 	ctx: ReplayContext,

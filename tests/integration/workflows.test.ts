@@ -944,6 +944,10 @@ describe("integration: core workflows", () => {
 				legacyManifest,
 			);
 
+			// Sanity: the on-disk file genuinely has no `type` before any read.
+			const before = await readRawManifest(projectDir);
+			expect("type" in before["owner/legacy-skill"]!).toBe(false);
+
 			const read = await readManifest(projectDir);
 			expect(read["owner/legacy-skill"]!.type).toBe("skill");
 
