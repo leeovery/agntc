@@ -467,10 +467,10 @@ export async function runAdd(
 			assetCountsByAgent,
 			copiedFiles,
 		});
-		// Each detail line as its own connected clack node (◇ on the bar), matching
-		// the bar-and-diamond flow of the rest of the prompts.
-		for (const line of summary.detail) {
-			p.log.success(line);
+		// Emit the breakdown as ONE node (multi-line) so the bar continues down each
+		// row with no blank line between — compact, still connected to the tree.
+		if (summary.detail.length > 0) {
+			p.log.success(summary.detail.join("\n"));
 		}
 		p.outro(summary.headline);
 	} catch (err) {
@@ -836,7 +836,7 @@ async function runCollectionPipeline(
 			});
 		}
 	}
-	spin.stop("Copied");
+	spin.stop("Copied successfully");
 
 	// 6. Single manifest write
 	let updatedManifest: Manifest = currentManifest;
@@ -863,16 +863,17 @@ async function runCollectionPipeline(
 	}
 	await writeManifest(projectDir, updatedManifest);
 
-	// 7. Per-plugin summary — each member/agent line as a connected clack node (◇),
-	// headline as the terminal outro node.
+	// 7. Per-plugin summary — one compact "<member> → <agents>" row per member,
+	// emitted as ONE node (multi-line) so the bar continues with no blank between
+	// rows; headline as the terminal outro node.
 	const summary = renderCollectionAddSummary({
 		manifestKey: parsed.manifestKey,
 		ref: parsed.ref,
 		commit,
 		results,
 	});
-	for (const line of summary.detail) {
-		p.log.success(line);
+	if (summary.detail.length > 0) {
+		p.log.success(summary.detail.join("\n"));
 	}
 	p.outro(summary.headline);
 

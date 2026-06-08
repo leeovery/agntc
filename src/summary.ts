@@ -179,18 +179,16 @@ export function renderCollectionAddSummary(
 			r.status === "failed",
 	);
 
-	const detail: string[] = [];
-	for (const r of installed) {
-		const agentLines =
-			r.detectedType.type === "plugin" && r.assetCountsByAgent
-				? formatPluginSummary(r.agents, r.assetCountsByAgent)
-				: formatBareSkillSummary(r.agents, r.copiedFiles);
-		detail.push(`${r.pluginName}:`);
-		// Indent each agent line one level under its member.
-		for (const line of agentLines) {
-			detail.push(`  ${line}`);
-		}
-	}
+	// One compact line per installed member: "<member> → <agents>", member names
+	// aligned. Keeps the collection overview to one row per member (not one row
+	// per agent) so it scales to large collections.
+	const width = installed.reduce(
+		(max, r) => Math.max(max, r.pluginName.length),
+		0,
+	);
+	const detail: string[] = installed.map(
+		(r) => `${r.pluginName.padEnd(width)} → ${r.agents.join(", ")}`,
+	);
 
 	if (skipped.length > 0) {
 		detail.push(`${skipped.length} skipped`);

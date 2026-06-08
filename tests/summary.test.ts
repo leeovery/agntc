@@ -217,10 +217,9 @@ describe("renderCollectionAddSummary", () => {
 		});
 		expect(result.headline).toBe("Installed owner/my-collection@main");
 		const body = result.detail.join("\n");
-		expect(body).toContain("pluginA:");
-		expect(body).toContain("pluginB:");
-		expect(body).toMatch(/Claude {2}1 skill/);
-		expect(body).toMatch(/Codex {3}1 skill/);
+		// One compact "<member> → <agents>" row per member.
+		expect(body).toMatch(/pluginA → claude/);
+		expect(body).toMatch(/pluginB → claude, codex/);
 	});
 
 	it("notes skipped plugins", () => {
@@ -299,12 +298,12 @@ describe("renderCollectionAddSummary", () => {
 			results,
 		});
 		const body = result.detail.join("\n");
-		expect(body).toContain("pluginA:");
+		expect(body).toMatch(/pluginA → claude/);
 		expect(body).toMatch(/1 skipped/);
 		expect(body).toMatch(/pluginC: failed — disk full/);
 	});
 
-	it("shows plugin summary for plugin-type results with asset counts", () => {
+	it("shows one compact row per installed member (member → agents)", () => {
 		const results = [
 			{
 				pluginName: "pluginA",
@@ -324,8 +323,8 @@ describe("renderCollectionAddSummary", () => {
 			results,
 		});
 		const body = result.detail.join("\n");
-		expect(body).toContain("pluginA:");
-		expect(body).toMatch(/Claude {2}5 skills, 2 agents/);
+		// Compact collection rows show the member's agents, not per-agent counts.
+		expect(body).toMatch(/pluginA → claude/);
 	});
 });
 
@@ -493,8 +492,7 @@ describe("edge cases", () => {
 		});
 		expect(result.headline).toMatch(/^Installed /);
 		const body = result.detail.join("\n");
-		expect(body).toContain("myPlugin:");
-		expect(body).toMatch(/Claude {2}1 skill/);
+		expect(body).toMatch(/myPlugin → claude/);
 	});
 
 	it("all up-to-date produces no crashed output from outcome formatter", () => {
