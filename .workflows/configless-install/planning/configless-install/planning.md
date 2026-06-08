@@ -224,3 +224,14 @@ approved_at: 2026-06-06
 |-------------|------|------------|
 | configless-install-review-1-1 | Add integration scenario exercising the update-time symlink-escape pipeline seam (blocked-before-nuke) | drives production executeNukeAndReinstall (not scanForEscapingSymlinks/copyBareSkill directly) on an existing recorded install with escaping symlink in re-cloned source, asserts status === "blocked", asserts install files remain on disk (no nuke before block), asserts manifest entry unchanged via readRawManifest, retains pre-existing guard-level scenario at :729-772 with describe rename distinguishing guard-level from pipeline-level blocked, no mocks introduced, tsc --noEmit clean, full suite passes |
 | configless-install-review-1-2 | Remove the orphaned, now-incorrect JSDoc block above isCloneReinstallFailure | orphaned block at former :126-133 removed, mapCloneFailure gains leading doc correctly listing aborted (derive-before-delete) / blocked (symlink-escape copy-safety) / no-agents (lenient skip) with no symlink-escape-under-aborted conflation, isCloneReinstallFailure retains its own unchanged comment, no code/behaviour change, tsc --noEmit clean, full suite passes (documentation-only edit) |
+
+### Phase 12: Analysis (Cycle 7)
+
+**Goal**: Address findings from Analysis (Cycle 7).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-7-1 | Extract shared copy-safety mock helper to stop six test files re-encoding production narrowing logic | single scan-and-narrow authored in tests/helpers/copy-safety-mock.ts, none of the six files keep an inline copy, supports both ...actual-spread (update/list/pipeline narrowing on actual.SymlinkEscapeError) and full-replacement (add.test.ts local PathTraversalError/SymlinkEscapeError) shapes, scanForEscapingSymlinks remains drivable per-test via exposed handle, assertSubpathWithinClone preserved, helper returns { ok: true } on clean scan / { ok: false, message } on SymlinkEscapeError / rethrows non-SymlinkEscapeError, no production change, npm test passes unchanged |
+| configless-install-analysis-7-2 | Extract canonical @clack/prompts mock to stop spinner/log shape drifting across command test files | base intro/outro/spinner({start,stop,message})/log{info,warn,error,success}/cancel authored once in tests/helpers/clack-mock.ts, four command test files delegate to factory, files needing select/isCancel/log.message obtain them via extension mechanism not base redefinition, no test loses a vi.fn() it asserts against, no production change, npm test passes unchanged |

@@ -102,7 +102,10 @@
             "configless-install-analysis-5-1": "tick-9b94e1",
             "configless-install-review-1": "tick-b164f1",
             "configless-install-review-1-1": "tick-bb8b36",
-            "configless-install-review-1-2": "tick-8196b5"
+            "configless-install-review-1-2": "tick-8196b5",
+            "configless-install-analysis-7": "tick-acb583",
+            "configless-install-analysis-7-1": "tick-cc8f75",
+            "configless-install-analysis-7-2": "tick-15d754"
           },
           "external_id": "tick-15d5f6"
         }
@@ -114,7 +117,7 @@
           "status": "in-progress",
           "task_gate_mode": "auto",
           "fix_gate_mode": "gated",
-          "analysis_gate_mode": "gated",
+          "analysis_gate_mode": "auto",
           "fix_attempts": 0,
           "analysis_cycle_total": 7,
           "analysis_cycle_session": 1,

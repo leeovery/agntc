@@ -16,7 +16,7 @@ The two highest-value remaining items are both in **test scaffolding**: a ~20-li
 - **Zero-agents / empty-selection decision replicated across 3 sites** (low, architecture) — Self-flagged by the architecture agent as requiring "no restructuring for correctness"; the interactive (`selectAgents`) and silent-narrowing (`resolveAgents` + `computeAgentChanges`) flows are genuinely different operations that correctly never share a call site, and each site is small and currently consistent. Architecture was clean c5 and c6. Below threshold, defer-if-touched. Discarded.
 
 ## Task 1: Extract shared copy-safety mock helper to stop six test files re-encoding production narrowing logic
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -45,7 +45,7 @@ sources: duplication
 - Confirm the shared helper's `checkEscapingSymlinks` returns `{ ok: true }` on a clean scan, `{ ok: false, message }` for a `SymlinkEscapeError`, and rethrows a non-`SymlinkEscapeError` — matching the production wrapper contract.
 
 ## Task 2: Extract canonical @clack/prompts mock to stop spinner/log shape drifting across command test files
-status: pending
+status: approved
 severity: low
 sources: duplication
 
