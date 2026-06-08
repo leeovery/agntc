@@ -134,8 +134,12 @@ vi.mock("../../src/unmanaged-resolve.js", () => ({
 	resolveUnmanagedConflicts: vi.fn(),
 }));
 
-vi.mock("../../src/copy-safety.js", () => {
-	// Real throwable classes so `instanceof` narrowing works.
+vi.mock("../../src/copy-safety.js", async () => {
+	const { mockCopySafety } = await import("../helpers/copy-safety-mock.js");
+	// Real throwable classes so `instanceof` narrowing works. This site fully
+	// replaces the module (no ...actual spread), so the classes are declared
+	// locally and the same SymlinkEscapeError is handed to the shared helper to
+	// keep the wrapper's narrowing semantics identical.
 	class PathTraversalError extends Error {
 		constructor(subpath: string) {
 			super(`subpath "${subpath}" resolves outside the clone root`);
@@ -150,26 +154,11 @@ vi.mock("../../src/copy-safety.js", () => {
 			this.name = "SymlinkEscapeError";
 		}
 	}
-	const scanForEscapingSymlinks = vi.fn();
 	return {
 		assertSubpathWithinClone: vi.fn(),
-		scanForEscapingSymlinks,
 		PathTraversalError,
 		SymlinkEscapeError,
-		// Mirror the real wrapper's scan-and-narrow over the MOCKED scan so the
-		// existing mockScanForEscapingSymlinks.mock* drivers keep controlling the
-		// add command's install sites that now call checkEscapingSymlinks.
-		checkEscapingSymlinks: async (unitDir: string, cloneRoot: string) => {
-			try {
-				await scanForEscapingSymlinks(unitDir, cloneRoot);
-				return { ok: true };
-			} catch (err) {
-				if (err instanceof SymlinkEscapeError) {
-					return { ok: false, message: err.message };
-				}
-				throw err;
-			}
-		},
+		...mockCopySafety(SymlinkEscapeError),
 	};
 });
 

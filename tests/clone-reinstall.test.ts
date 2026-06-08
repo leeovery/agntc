@@ -59,25 +59,11 @@ vi.mock("../src/drivers/registry.js", () => ({
 
 vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
-	const scanForEscapingSymlinks = vi.fn();
+	const { mockCopySafety } = await import("./helpers/copy-safety-mock.js");
 	return {
 		...actual,
-		scanForEscapingSymlinks,
 		assertSubpathWithinClone: vi.fn(),
-		// Mirror the real wrapper's scan-and-narrow over the MOCKED scan so the
-		// existing mockScanForEscapingSymlinks.mock* drivers keep controlling the
-		// install/replay sites that now call checkEscapingSymlinks.
-		checkEscapingSymlinks: async (unitDir: string, cloneRoot: string) => {
-			try {
-				await scanForEscapingSymlinks(unitDir, cloneRoot);
-				return { ok: true };
-			} catch (err) {
-				if (err instanceof actual.SymlinkEscapeError) {
-					return { ok: false, message: err.message };
-				}
-				throw err;
-			}
-		},
+		...mockCopySafety(actual.SymlinkEscapeError),
 	};
 });
 
