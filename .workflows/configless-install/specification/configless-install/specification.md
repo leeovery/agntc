@@ -319,11 +319,16 @@ For each immediate child dir, run the *same* structural detection used at the ro
 
 The pickable list comes from this structural scan, **replacing** the "has `agntc.json`" enumeration.
 
-### Per-child agents
+### Agents (collection-wide, one prompt)
 
-- child config present → constrains, per the *Agent Selection* rules.
-- child config absent → the configless default (all `KNOWN_AGENTS`, installer picks).
-- Config-bearing and configless members coexist in one collection.
+Agents are chosen **once for the whole collection**, not per member — prompting per member is confusing and unnecessary (the author's `agents` ceiling is a constraint to apply, not a choice to re-ask). The flow:
+
+- **Candidates = the union of the installable members' ceilings.** A configless member contributes all `KNOWN_AGENTS`; a member declaring `agents` contributes that set. So the prompt offers every agent that *at least one* member supports. Detected agents are pre-ticked.
+- **The installer picks once.** Each member then installs for **(the pick ∩ that member's own ceiling)** — the author's hard ceiling is honoured per unit, silently (a configless member just takes the whole pick).
+- **A member with zero overlap** (the pick excludes everything its author allows) is **skipped and noted** in the summary (e.g. `alpha: skipped — author restricts to claude, none selected`) — non-fatal, siblings proceed.
+- **Auto-select** when the union is a single detected agent (no prompt), matching the standalone single-agent rule.
+- **Empty selection / cancel** aborts the whole collection cleanly (there is nothing to install for).
+- Config-bearing and configless members coexist in one collection; the union + per-member intersection is what reconciles their differing ceilings behind a single prompt.
 
 ### Selection UX (unchanged, flag-free)
 

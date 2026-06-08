@@ -993,7 +993,7 @@ describe("add command", () => {
 			expect(keys).toContain("owner/my-collection/pluginB");
 		});
 
-		it("agent multiselect called once per retained member", async () => {
+		it("agent multiselect called once for the whole collection", async () => {
 			setupCollectionBareSkills();
 			mockCopyBareSkill
 				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
@@ -1001,11 +1001,11 @@ describe("add command", () => {
 
 			await runAdd("owner/my-collection");
 
-			// Two retained members => one selectAgents call each.
-			expect(mockSelectAgents).toHaveBeenCalledTimes(2);
+			// One collection-wide prompt, not one per member.
+			expect(mockSelectAgents).toHaveBeenCalledTimes(1);
 		});
 
-		it("calls selectAgents per member with that member's declared agents and shared detectedAgents", async () => {
+		it("prompts once over the UNION of member ceilings", async () => {
 			setupCollectionBase();
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
@@ -1037,21 +1037,19 @@ describe("add command", () => {
 
 			await runAdd("owner/my-collection");
 
-			// pluginA: declared claude only
-			expect(mockSelectAgents).toHaveBeenCalledWith({
-				declaredAgents: ["claude"],
-				detectedAgents: ["claude", "codex"],
-			});
-			// pluginB: declared claude + codex
+			// One prompt. Candidates = union of pluginA (claude) + pluginB
+			// (claude, codex) = [claude, codex], in canonical order, collection label.
+			expect(mockSelectAgents).toHaveBeenCalledTimes(1);
 			expect(mockSelectAgents).toHaveBeenCalledWith({
 				declaredAgents: ["claude", "codex"],
 				detectedAgents: ["claude", "codex"],
+				message: "Select agents to install this collection for",
 			});
 		});
 
-		it("configless member sources KNOWN_AGENTS default — selectAgents called with declaredAgents:[]", async () => {
+		it("a configless member widens the union to all KNOWN_AGENTS", async () => {
 			setupCollectionBase();
-			// pluginA configless (null), pluginB config-bearing
+			// pluginA configless (any agent), pluginB declares codex only
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
 				if (dir.endsWith("/pluginA")) return null;
@@ -1064,9 +1062,7 @@ describe("add command", () => {
 			});
 			mockDetectAgents.mockResolvedValue(["claude"]);
 			mockGetDriver.mockReturnValue(FAKE_DRIVER);
-			mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
-				selected(declaredAgents.length > 0 ? [...declaredAgents] : ["claude"]),
-			);
+			mockSelectAgents.mockResolvedValue(selected(["claude"]));
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/pluginA/"],
 			});
@@ -1076,10 +1072,13 @@ describe("add command", () => {
 
 			await runAdd("owner/my-collection");
 
-			// Configless member passes declaredAgents:[] -> KNOWN_AGENTS default path
+			// pluginA (configless) contributes all three; pluginB adds codex (already
+			// in). Union = all KNOWN_AGENTS, offered once.
+			expect(mockSelectAgents).toHaveBeenCalledTimes(1);
 			expect(mockSelectAgents).toHaveBeenCalledWith({
-				declaredAgents: [],
+				declaredAgents: ["claude", "codex", "cursor"],
 				detectedAgents: ["claude"],
+				message: "Select agents to install this collection for",
 			});
 		});
 
@@ -1211,9 +1210,9 @@ describe("add command", () => {
 			);
 		});
 
-		it("every member resolving to zero agents installs nothing without cancelling", async () => {
-			// No top-level union prompt anymore: each member resolves independently
-			// and a zero resolution is a silent per-member skip, not a global cancel.
+		it("an empty agent selection cancels the whole collection", async () => {
+			// One collection-wide prompt now: picking nothing aborts the whole
+			// install cleanly (nothing to install for), rather than per-member skips.
 			setupCollectionBase();
 			mockReadConfig.mockImplementation(async (dir) => {
 				if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
@@ -1226,12 +1225,14 @@ describe("add command", () => {
 			mockComputeIncomingFiles.mockReturnValue([]);
 			mockCheckFileCollisions.mockReturnValue(new Map());
 			mockCheckUnmanagedConflicts.mockResolvedValue([]);
-			// User deselects everything for every member.
+			// User deselects everything in the single collection-wide prompt.
 			mockSelectAgents.mockResolvedValue(selected([]));
 
-			await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+			await expect(runAdd("owner/my-collection")).rejects.toBeInstanceOf(
+				ExitSignal,
+			);
 
-			expect(mockCancel).not.toHaveBeenCalled();
+			expect(mockCancel).toHaveBeenCalledWith("Cancelled — no agents selected");
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 			expect(mockAddEntry).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(
@@ -1239,31 +1240,19 @@ describe("add command", () => {
 			);
 		});
 
-		it("a member whose agent prompt is cancelled is silently skipped while siblings install", async () => {
-			// Cancellation and empty-selection both map to the per-member silent
-			// skip — no global cancel, no copy/entry for that member, siblings proceed.
+		it("cancelling the agent prompt cancels the whole collection", async () => {
+			// The single prompt is the one decision point — cancelling it (Esc) aborts
+			// the whole install, not just one member.
 			setupCollectionBareSkills();
-			mockCopyBareSkill.mockReset();
-			mockCopyBareSkill.mockResolvedValueOnce({
-				copiedFiles: [".claude/skills/pluginB/"],
-			});
-			// pluginA cancelled, pluginB proceeds.
-			mockSelectAgents
-				.mockReset()
-				.mockResolvedValueOnce(cancelledSelection)
-				.mockResolvedValue(selected(["claude"]));
+			mockSelectAgents.mockReset().mockResolvedValue(cancelledSelection);
 
-			await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
-
-			// No global cancel; only pluginB copied + recorded.
-			expect(mockCancel).not.toHaveBeenCalled();
-			expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
-			expect(mockAddEntry).toHaveBeenCalledTimes(1);
-			expect(mockAddEntry).toHaveBeenCalledWith(
-				expect.anything(),
-				"owner/my-collection/pluginB",
-				expect.anything(),
+			await expect(runAdd("owner/my-collection")).rejects.toBeInstanceOf(
+				ExitSignal,
 			);
+
+			expect(mockCancel).toHaveBeenCalledWith("Cancelled — no agents selected");
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockAddEntry).not.toHaveBeenCalled();
 		});
 
 		it("single manifest write after all plugins", async () => {
@@ -2219,27 +2208,18 @@ describe("add command", () => {
 				expect(pluginBAgentIds).toEqual(["codex"]);
 			});
 
-			it("calls selectAgents per member with that member's declared ceiling (no union)", async () => {
+			it("prompts once over the union of differing member ceilings", async () => {
 				setupCollectionWithDifferentAgents();
 
 				await runAdd("owner/my-collection");
 
-				// Each member resolves independently from its own declaration.
-				expect(mockSelectAgents).toHaveBeenCalledTimes(2);
+				// One prompt; candidates = union of pluginA (claude) + pluginB (codex).
+				expect(mockSelectAgents).toHaveBeenCalledTimes(1);
 				expect(mockSelectAgents).toHaveBeenCalledWith({
-					declaredAgents: ["claude"],
+					declaredAgents: ["claude", "codex"],
 					detectedAgents: ["claude", "codex"],
+					message: "Select agents to install this collection for",
 				});
-				expect(mockSelectAgents).toHaveBeenCalledWith({
-					declaredAgents: ["codex"],
-					detectedAgents: ["claude", "codex"],
-				});
-				// No call carried the union of both members' declarations.
-				for (const call of mockSelectAgents.mock.calls) {
-					expect(call[0].declaredAgents).not.toEqual(
-						expect.arrayContaining(["claude", "codex"]),
-					);
-				}
 			});
 
 			it("config-bearing single-declared-detected member auto-selects (no prompt) via Phase 1 contract", async () => {
@@ -2274,11 +2254,13 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection");
 
-				// The member's declared ceiling (single detected agent) is forwarded so
-				// the Phase 1 contract can auto-select.
+				// Union is a single detected agent → auto-select, no prompt content to
+				// pick. The collection-wide call still carries the collection label.
+				expect(mockSelectAgents).toHaveBeenCalledTimes(1);
 				expect(mockSelectAgents).toHaveBeenCalledWith({
 					declaredAgents: ["claude"],
 					detectedAgents: ["claude"],
+					message: "Select agents to install this collection for",
 				});
 				const addEntryCalls = mockAddEntry.mock.calls;
 				const pluginAEntry = addEntryCalls.find(
@@ -2287,10 +2269,9 @@ describe("add command", () => {
 				expect(pluginAEntry![2].agents).toEqual(["claude"]);
 			});
 
-			it("mixed members resolve independently — one auto-selects, another resolves from configless default", async () => {
+			it("mixed ceilings resolve against one collection-wide pick", async () => {
 				setupCollectionBase();
-				// pluginA: config-bearing single declared+detected (auto-select claude).
-				// pluginB: configless -> KNOWN_AGENTS default, user picks codex.
+				// pluginA: claude-only ceiling. pluginB: configless (any agent).
 				mockReadConfig.mockImplementation(async (dir) => {
 					if (dir === COLLECTION_CLONE_RESULT.tempDir) return null;
 					if (dir.endsWith("/pluginA"))
@@ -2316,11 +2297,9 @@ describe("add command", () => {
 					if (id === "claude") return claudeDriver as any;
 					return codexDriver as any;
 				});
-				// pluginA (declared claude) auto-selects claude; pluginB (configless,
-				// declaredAgents:[]) -> user picks codex from the KNOWN_AGENTS default.
-				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
-					selected(declaredAgents.length > 0 ? ["claude"] : ["codex"]),
-				);
+				// Union = [claude, codex, cursor] (pluginB configless widens it). The
+				// installer picks claude + codex from the single prompt.
+				mockSelectAgents.mockResolvedValue(selected(["claude", "codex"]));
 				mockCopyBareSkill
 					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/pluginA/"] })
 					.mockResolvedValueOnce({ copiedFiles: [".agents/skills/pluginB/"] });
@@ -2330,14 +2309,9 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection");
 
-				expect(mockSelectAgents).toHaveBeenCalledWith({
-					declaredAgents: ["claude"],
-					detectedAgents: ["claude"],
-				});
-				expect(mockSelectAgents).toHaveBeenCalledWith({
-					declaredAgents: [],
-					detectedAgents: ["claude"],
-				});
+				// One prompt; pluginA intersects pick to its claude ceiling, pluginB
+				// (configless) takes the full pick.
+				expect(mockSelectAgents).toHaveBeenCalledTimes(1);
 				const addEntryCalls = mockAddEntry.mock.calls;
 				const pluginAEntry = addEntryCalls.find(
 					(c) => (c[1] as string) === "owner/my-collection/pluginA",
@@ -2346,11 +2320,11 @@ describe("add command", () => {
 					(c) => (c[1] as string) === "owner/my-collection/pluginB",
 				);
 				expect(pluginAEntry![2].agents).toEqual(["claude"]);
-				expect(pluginBEntry![2].agents).toEqual(["codex"]);
+				expect(pluginBEntry![2].agents).toEqual(["claude", "codex"]);
 			});
 		});
 
-		describe("silent skip for plugins with zero applicable agents", () => {
+		describe("zero-overlap members (ceiling excludes the collection-wide pick)", () => {
 			function setupZeroMatchCollection(opts: {
 				pluginAAgents: AgentId[];
 				pluginBAgents: AgentId[];
@@ -2369,9 +2343,11 @@ describe("add command", () => {
 					return { type: "bare-skill" } as DetectedType;
 				});
 				mockDetectAgents.mockResolvedValue(["claude", "codex"]);
-				// Per-member resolution: a member resolves to the intersection of its
-				// declared ceiling with what the user actually selects. A member whose
-				// declared agents are all deselected resolves to [] -> silent skip.
+				// One collection-wide prompt: selectAgents is called once with the union
+				// of member ceilings. The installer's effective pick is that union
+				// intersected with what they want (opts.selectedAgents). Production then
+				// intersects this pick with EACH member's own ceiling; a member with no
+				// overlap is skipped (noted), and an empty pick cancels the collection.
 				const selectedSet = new Set(opts.selectedAgents);
 				mockSelectAgents.mockImplementation(async ({ declaredAgents }) =>
 					selected(declaredAgents.filter((id) => selectedSet.has(id))),
@@ -2440,40 +2416,44 @@ describe("add command", () => {
 				expect(outroCall).not.toContain("pluginB");
 			});
 
-			it("all plugins in collection have zero match -- nothing installs but no error thrown", async () => {
-				// pluginA declares codex, pluginB declares codex; user selects only claude
-				// => both plugins zero match
+			it("an all-excluded selection (empty effective pick) cancels the collection", async () => {
+				// pluginA + pluginB both codex-only → union = [codex]; the installer
+				// picks nothing matching → empty pick → whole-collection cancel.
 				setupZeroMatchCollection({
 					pluginAAgents: ["codex"],
 					pluginBAgents: ["codex"],
 					selectedAgents: ["claude"],
 				});
 
-				// Should complete without error (no ExitSignal thrown)
-				await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+				await expect(runAdd("owner/my-collection")).rejects.toBeInstanceOf(
+					ExitSignal,
+				);
+				expect(mockCancel).toHaveBeenCalledWith(
+					"Cancelled — no agents selected",
+				);
+				expect(mockAddEntry).not.toHaveBeenCalled();
 			});
 
-			it("all plugins zero match -- summary shows collection header with no plugin blocks", async () => {
+			it("a zero-overlap member is tallied as skipped in the summary", async () => {
+				// pluginA claude-only, pluginB codex-only; pick claude → pluginB has no
+				// overlap and is skipped (noted), pluginA installs.
 				setupZeroMatchCollection({
-					pluginAAgents: ["codex"],
+					pluginAAgents: ["claude"],
 					pluginBAgents: ["codex"],
 					selectedAgents: ["claude"],
+				});
+				mockCopyBareSkill.mockResolvedValueOnce({
+					copiedFiles: [".claude/skills/pluginA/"],
 				});
 
 				await runAdd("owner/my-collection");
 
-				// writeManifest is called but with unchanged manifest (no addEntry calls)
-				expect(mockAddEntry).not.toHaveBeenCalled();
-				expect(mockWriteManifest).toHaveBeenCalledTimes(1);
-
-				// Summary has the collection header but no plugin blocks
 				const outroCall = summaryText();
-				expect(outroCall).toContain("owner/my-collection");
-				expect(outroCall).not.toContain("pluginA");
-				expect(outroCall).not.toContain("pluginB");
+				expect(outroCall).toContain("pluginA");
+				expect(outroCall).toMatch(/1 skipped/);
 			});
 
-			it("single-plugin collection with zero match -- no error, empty install", async () => {
+			it("single-member collection: an empty pick cancels", async () => {
 				setupCollectionBase();
 				const singlePluginCollection: DetectedType = {
 					type: "collection",
@@ -2492,13 +2472,15 @@ describe("add command", () => {
 				});
 				mockSelectCollectionPlugins.mockResolvedValue(["pluginA"]);
 				mockDetectAgents.mockResolvedValue(["claude"]);
-				// pluginA declares codex only but user selects nothing matching -> []
+				// The single prompt is deselected entirely.
 				mockSelectAgents.mockResolvedValue(selected([]));
 				mockComputeIncomingFiles.mockReturnValue([]);
 				mockCheckFileCollisions.mockReturnValue(new Map());
 				mockCheckUnmanagedConflicts.mockResolvedValue([]);
 
-				await expect(runAdd("owner/my-collection")).resolves.toBeUndefined();
+				await expect(runAdd("owner/my-collection")).rejects.toBeInstanceOf(
+					ExitSignal,
+				);
 				expect(mockCopyBareSkill).not.toHaveBeenCalled();
 				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
 				expect(mockAddEntry).not.toHaveBeenCalled();
@@ -2523,11 +2505,11 @@ describe("add command", () => {
 				const outroCall = summaryText();
 				expect(outroCall).toContain("pluginA");
 				expect(outroCall).not.toContain("pluginB");
-				// No "skipped" line for pluginB either
-				expect(outroCall).not.toContain("skipped");
+				// pluginB is a zero-overlap member → tallied as skipped (noted now).
+				expect(outroCall).toMatch(/1 skipped/);
 			});
 
-			it("zero-match skip does not log any warning", async () => {
+			it("a zero-overlap member is noted with a clear skip warning", async () => {
 				setupZeroMatchCollection({
 					pluginAAgents: ["claude"],
 					pluginBAgents: ["codex"],
@@ -2539,16 +2521,14 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection");
 
-				// Check that no warning mentions pluginB being skipped or having zero agents
+				// pluginB (codex-only, codex not picked) is skipped WITH a clear reason
+				// naming the member and its author restriction.
 				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-				const pluginBWarnings = warnCalls.filter(
-					(msg) =>
-						msg.includes("pluginB") ||
-						msg.includes("zero") ||
-						msg.includes("no applicable") ||
-						msg.includes("no agents"),
-				);
-				expect(pluginBWarnings).toHaveLength(0);
+				expect(
+					warnCalls.some(
+						(msg) => msg.includes("pluginB") && msg.includes("skipped"),
+					),
+				).toBe(true);
 			});
 		});
 
@@ -3075,13 +3055,12 @@ describe("add command", () => {
 
 				await runAdd("owner/my-collection");
 
-				// Every selectAgents call uses a per-member ceiling, never the root's.
-				for (const call of mockSelectAgents.mock.calls) {
-					expect(call[0]).toEqual({
-						declaredAgents: ["claude"],
-						detectedAgents: ["claude"],
-					});
-				}
+				// One collection-wide prompt over the UNION of MEMBER ceilings
+				// (["claude"]) — never the root config's ["codex"].
+				expect(mockSelectAgents).toHaveBeenCalledTimes(1);
+				const call = mockSelectAgents.mock.calls[0]![0];
+				expect(call.declaredAgents).toEqual(["claude"]);
+				expect(call.message).toBe("Select agents to install this collection for");
 			});
 
 			it("configless-root collection (no root agntc.json) unchanged — collection detected, pipeline runs", async () => {

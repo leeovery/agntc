@@ -5,6 +5,8 @@ import type { AgentId } from "./drivers/types.js";
 interface SelectAgentsInput {
 	declaredAgents: AgentId[];
 	detectedAgents: AgentId[];
+	/** Prompt heading. Defaults to the standalone-unit wording. */
+	message?: string;
 }
 
 /**
@@ -47,7 +49,7 @@ export async function selectAgents(
 	}));
 
 	const result = await multiselect<AgentId>({
-		message: "Select agents to install for",
+		message: input.message ?? "Select agents to install for",
 		options,
 		initialValues,
 		required: false,

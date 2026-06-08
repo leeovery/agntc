@@ -7,7 +7,7 @@ import { checkFileCollisions } from "../collision-check.js";
 import { resolveCollisions } from "../collision-resolve.js";
 import { computeIncomingFiles } from "../compute-incoming-files.js";
 import type { AgntcConfig } from "../config.js";
-import { readConfig } from "../config.js";
+import { KNOWN_AGENTS, readConfig } from "../config.js";
 import type { AssetCounts } from "../copy-plugin-assets.js";
 import {
 	assertSubpathWithinClone,
@@ -546,15 +546,17 @@ async function runCollectionPipeline(
 		}
 	}
 
-	// 3. Read each selected member's config ONLY for its declared agents. The
-	// member set is selectedPlugins (populated structurally upstream via Phase 1
-	// qualifiesAsMember) — config presence is NOT membership. readConfig is total:
-	// it returns AgntcConfig for a valid config and null for a missing or unusable
-	// one (a legitimate configless member, never a skip reason). It never throws for
-	// config problems; only a genuine non-ENOENT IO error propagates, and that
-	// SHOULD abort the whole pipeline (surfaced via runAdd's outer catch). Agent
-	// resolution is per-member (step 5a): each member runs the Phase 1 selectAgents
-	// contract against its own declared ceiling, so there is no cross-member union.
+	// 3. Read each selected member's config for its declared agents (its author
+	// ceiling). The member set is selectedPlugins (populated structurally upstream
+	// via Phase 1 qualifiesAsMember) — config presence is NOT membership. readConfig
+	// is total: it returns AgntcConfig for a valid config and null for a missing or
+	// unusable one (a legitimate configless member, never a skip reason). It never
+	// throws for config problems; only a genuine non-ENOENT IO error propagates, and
+	// that SHOULD abort the whole pipeline (surfaced via runAdd's outer catch).
+	//
+	// Agents are chosen ONCE for the whole collection (step 6) over the union of
+	// members' ceilings; each member then installs for (selection ∩ its ceiling) in
+	// step 7. There is one prompt, not one per member.
 	//
 	// Each entry of selectedPlugins is a member's dir-relative SEGMENT: the basename
 	// for a root-child member ("alpha"), or "skills/<name>" for a skills-only inner
@@ -562,7 +564,7 @@ async function runCollectionPipeline(
 	// display name and the manifest-key segment — is its basename (memberName /
 	// memberKey). The two are decoupled because a skills-only member's dir path is
 	// one level deeper than its key. The config map is keyed by the segment so the
-	// 5a loop can re-look-up by the same segment it iterates.
+	// later passes re-look-up by the same segment they iterate.
 	const pluginConfigs = new Map<string, AgntcConfig | null>();
 
 	for (const memberSegment of selectedPlugins) {
@@ -571,23 +573,24 @@ async function runCollectionPipeline(
 		pluginConfigs.set(memberSegment, pluginConfig);
 	}
 
-	// 4. Detect agents once for the whole collection (member-independent signal
-	// used to pre-tick options in every per-member prompt).
+	// 4. Detect agents once for the whole collection (used to pre-tick the single
+	// collection-wide prompt below).
 	const detectedAgents = await detectAgents(projectDir);
 
-	// 5. Per-plugin conflict checks + install
 	const results: PluginInstallResult[] = [];
 	let currentManifest: Manifest = manifest;
 
-	// 5a. Per-plugin conflict resolution (before any copying)
-	const pluginsToInstall: Array<{
-		pluginName: string;
-		pluginSegment: string;
+	// 5. Detection + ceiling pass. Resolve each selected member to an installable
+	// unit (bare-skill | plugin) and record the agents its author ALLOWS — its
+	// declared ceiling, or all KNOWN_AGENTS when configless. not-agntc and nested
+	// collection members are skipped here. This runs BEFORE agent selection so the
+	// single prompt can offer the UNION of what the installable members support.
+	const installable: Array<{
+		memberName: string;
+		memberSegment: string;
 		pluginDir: string;
 		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-		pluginManifestKey: string;
-		pluginAgents: AgentId[];
-		pluginAgentDrivers: AgentWithDriver[];
+		allowedAgents: AgentId[];
 	}> = [];
 
 	for (const memberSegment of selectedPlugins) {
@@ -597,12 +600,9 @@ async function runCollectionPipeline(
 		// differ only for a skills-only inner skill (segment "skills/a", name "a").
 		const memberName = basename(memberSegment);
 
-		// Every selected member is present in the map after step 3 (readConfig is
-		// total — it never throws for config problems, so no member is ever absent).
-		// A null config is a legitimate configless member that proceeds via the
-		// configless default; it is never a skip reason here.
+		// readConfig is total (step 3): a null config is a legitimate configless
+		// member, never a skip reason.
 		const pluginConfig = pluginConfigs.get(memberSegment) ?? null;
-
 		const pluginDir = join(sourceDir, memberSegment);
 
 		// Membership rule (spec: "a child with ≥1 asset-kind dir is a plugin
@@ -613,16 +613,11 @@ async function runCollectionPipeline(
 		// (analysis 2-1). Forcing plugin ONLY when an asset dir is present resolves
 		// the ambiguity correctly without ever forcing a member-dirs child (which
 		// has ZERO asset dirs at its own root) — that case stays a genuine nested
-		// collection and is still skipped below. forcePlugin on a member-dirs child
-		// would hard-error, so the asset-dir gate is what keeps that path safe. A
-		// skills-only ROOT's inner-skill member is a bare skill at its own root
-		// (SKILL.md, no asset dir), so it resolves to bare-skill with no override.
+		// collection and is still skipped below.
 		const memberHasAssetDirs =
 			(await findPresentAssetDirs(pluginDir)).length > 0;
 		const pluginDetected = await detectType(pluginDir, {
 			onWarn,
-			// Honour a member-level `type: plugin` (its own config was read at
-			// step 3); previously the per-member detection got no configType.
 			configType: pluginConfig?.type,
 			forcePlugin: memberHasAssetDirs,
 		});
@@ -649,25 +644,83 @@ async function runCollectionPipeline(
 			continue;
 		}
 
-		// Per-member agent resolution via the Phase 1 selectAgents contract. A
-		// config-bearing member passes its declared ceiling; a configless member
-		// (null config) passes [] -> KNOWN_AGENTS default (all three, detected
-		// pre-ticked, always prompt, no auto-select). Each member resolves
-		// independently — no union, no cross-member coupling.
-		const pluginSelection = await selectAgents({
-			declaredAgents: pluginConfig?.agents ?? [],
-			detectedAgents,
+		// Author ceiling: a valid, non-empty declared `agents` list restricts the
+		// member; an absent/empty/unusable config means configless (any agent).
+		const allowedAgents =
+			pluginConfig?.agents && pluginConfig.agents.length > 0
+				? pluginConfig.agents
+				: [...KNOWN_AGENTS];
+
+		installable.push({
+			memberName,
+			memberSegment,
+			pluginDir,
+			pluginDetected,
+			allowedAgents,
 		});
-		// Both cancellation and a zero resolution (declared ceiling matched
-		// nothing, or the installer deselected all in the configless default) are a
-		// silent per-member skip: no copy, no manifest entry, no warning, absent
-		// from summary.
-		if (
-			pluginSelection.kind === "cancelled" ||
-			pluginSelection.agents.length === 0
-		)
+	}
+
+	// 6. ONE collection-wide agent prompt over the UNION of installable members'
+	// ceilings (canonical KNOWN_AGENTS order). Configless members contribute all
+	// three; a Claude-only member contributes Claude. The installer picks once;
+	// each member then installs for (pick ∩ its own ceiling) in step 7. A single
+	// detected candidate auto-selects (no prompt), matching the standalone rule.
+	let selectedAgents: AgentId[] = [];
+	if (installable.length > 0) {
+		const candidateUnion = KNOWN_AGENTS.filter((id) =>
+			installable.some((m) => m.allowedAgents.includes(id)),
+		);
+		const selection = await selectAgents({
+			declaredAgents: candidateUnion,
+			detectedAgents,
+			message: "Select agents to install this collection for",
+		});
+		// Cancellation or an empty selection aborts the whole collection cleanly —
+		// there is nothing to install for.
+		if (selection.kind === "cancelled" || selection.agents.length === 0) {
+			p.cancel("Cancelled — no agents selected");
+			throw new ExitSignal(0);
+		}
+		selectedAgents = selection.agents;
+	}
+
+	// 7. Per-member conflict checks + install prep, applying each member's ceiling.
+	const pluginsToInstall: Array<{
+		pluginName: string;
+		pluginSegment: string;
+		pluginDir: string;
+		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
+		pluginManifestKey: string;
+		pluginAgents: AgentId[];
+		pluginAgentDrivers: AgentWithDriver[];
+	}> = [];
+
+	for (const m of installable) {
+		const memberName = m.memberName;
+		const memberSegment = m.memberSegment;
+		const pluginDir = m.pluginDir;
+		const pluginDetected = m.pluginDetected;
+
+		// Honour the author ceiling: install for the picked agents this member
+		// allows (canonical order preserved from the selection).
+		const pluginAgents = selectedAgents.filter((id) =>
+			m.allowedAgents.includes(id),
+		);
+		if (pluginAgents.length === 0) {
+			// The collection-wide selection excludes every agent this member's author
+			// permits — it cannot be installed for anything you chose. Skipped (loud,
+			// non-fatal), reason shown inline + tallied in the summary.
+			onWarn(
+				`${memberName}: skipped — author restricts to ${m.allowedAgents.join(", ")}, none selected`,
+			);
+			results.push({
+				pluginName: memberName,
+				status: "skipped",
+				copiedFiles: [],
+				agents: [],
+			});
 			continue;
-		const pluginAgents = pluginSelection.agents;
+		}
 		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
 			id,
 			driver: getDriver(id),
