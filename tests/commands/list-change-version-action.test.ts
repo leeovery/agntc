@@ -3,36 +3,49 @@ import type { Manifest } from "../../src/manifest.js";
 import type { DetectedType } from "../../src/type-detection.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 
+// The clone-reinstall dependency surface shared with list-update-action is
+// mocked via factory bodies authored once in ../helpers/list-action-mock-
+// factories. vitest hoists `vi.mock` to the top of *this* file and needs the
+// literal module path at hoist time, so each `vi.mock(path, ...)` call lives
+// here; the factory contents are delegated to the shared helper.
 vi.mock("@clack/prompts", async () => {
 	const { mockClack } = await import("../helpers/clack-mock.js");
 	return mockClack({ select: vi.fn(), isCancel: vi.fn() });
 });
 
-vi.mock("../../src/manifest.js", async (importOriginal) => ({
-	...(await importOriginal<typeof import("../../src/manifest.js")>()),
-	writeManifest: vi.fn(),
-	addEntry: vi.fn(),
-	removeEntry: vi.fn(),
-}));
-
-vi.mock("../../src/git-clone.js", () => ({
-	cloneSource: vi.fn(),
-	cleanupTempDir: vi.fn(),
-}));
-
-vi.mock("../../src/config.js", () => ({
-	readConfig: vi.fn(),
-}));
-
-vi.mock("../../src/type-detection.js", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("../../src/type-detection.js")>();
-	return {
-		detectType: vi.fn(),
-		ASSET_DIRS: actual.ASSET_DIRS,
-	};
+vi.mock("../../src/manifest.js", async (importOriginal) => {
+	const { mockManifestModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockManifestModule(
+		importOriginal<typeof import("../../src/manifest.js")>,
+	);
 });
 
+vi.mock("../../src/git-clone.js", async () => {
+	const { mockGitCloneModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockGitCloneModule();
+});
+
+vi.mock("../../src/config.js", async () => {
+	const { mockConfigModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockConfigModule();
+});
+
+vi.mock("../../src/type-detection.js", async (importOriginal) => {
+	const { mockTypeDetectionModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockTypeDetectionModule(
+		importOriginal<typeof import("../../src/type-detection.js")>,
+	);
+});
+
+// File-specific: this file mocks `access` only (no local-path `stat`).
 vi.mock("node:fs/promises", () => ({
 	access: vi.fn(),
 }));
@@ -47,91 +60,72 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 	};
 });
 
-vi.mock("../../src/nuke-files.js", () => ({
-	nukeManifestFiles: vi.fn(),
-}));
+vi.mock("../../src/nuke-files.js", async () => {
+	const { mockNukeFilesModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockNukeFilesModule();
+});
 
-vi.mock("../../src/copy-plugin-assets.js", () => ({
-	copyPluginAssets: vi.fn(),
-}));
+vi.mock("../../src/copy-plugin-assets.js", async () => {
+	const { mockCopyPluginAssetsModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockCopyPluginAssetsModule();
+});
 
-vi.mock("../../src/copy-bare-skill.js", () => ({
-	copyBareSkill: vi.fn(),
-}));
+vi.mock("../../src/copy-bare-skill.js", async () => {
+	const { mockCopyBareSkillModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockCopyBareSkillModule();
+});
 
-vi.mock("../../src/drivers/registry.js", () => ({
-	getDriver: vi.fn(),
-}));
+vi.mock("../../src/drivers/registry.js", async () => {
+	const { mockDriversRegistryModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockDriversRegistryModule();
+});
 
+// File-specific: change-version fetches the full remote tag list.
 vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
 }));
 
-import { access } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
-import { readConfig } from "../../src/config.js";
-import { copyBareSkill } from "../../src/copy-bare-skill.js";
-import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
-import {
-	SymlinkEscapeError,
-	scanForEscapingSymlinks,
-} from "../../src/copy-safety.js";
-import { getDriver } from "../../src/drivers/registry.js";
-import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
+import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
-import { addEntry, removeEntry, writeManifest } from "../../src/manifest.js";
-import { nukeManifestFiles } from "../../src/nuke-files.js";
-import { detectType } from "../../src/type-detection.js";
+import { makeEntry } from "../helpers/factories.js";
+import {
+	REMOTE_SHA,
+	setupListActionMocks,
+} from "../helpers/list-action-mocks.js";
 
-const mockWriteManifest = vi.mocked(writeManifest);
-const mockAddEntry = vi.mocked(addEntry);
-const mockRemoveEntry = vi.mocked(removeEntry);
-const mockCloneSource = vi.mocked(cloneSource);
-const mockCleanupTempDir = vi.mocked(cleanupTempDir);
-const mockReadConfig = vi.mocked(readConfig);
-const mockDetectType = vi.mocked(detectType);
-const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
-const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
-const mockCopyBareSkill = vi.mocked(copyBareSkill);
-const mockGetDriver = vi.mocked(getDriver);
+const mocks = setupListActionMocks();
+const mockWriteManifest = mocks.writeManifest;
+const mockAddEntry = mocks.addEntry;
+const mockCloneSource = mocks.cloneSource;
+const mockCleanupTempDir = mocks.cleanupTempDir;
+const mockReadConfig = mocks.readConfig;
+const mockDetectType = mocks.detectType;
+const mockNukeManifestFiles = mocks.nukeManifestFiles;
+const mockCopyBareSkill = mocks.copyBareSkill;
+const mockAccess = mocks.access;
+const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
+const mockLog = vi.mocked(p.log);
+// File-specific handles for the change-version flow.
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
-const mockAccess = vi.mocked(access);
 const mockSelect = vi.mocked(p.select);
 const mockIsCancel = vi.mocked(p.isCancel);
-const mockLog = vi.mocked(p.log);
-const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
-
-import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
-
-const INSTALLED_SHA = "a".repeat(40);
-const REMOTE_SHA = "b".repeat(40);
 
 function makeNewerTagsStatus(tags: string[]): UpdateCheckResult {
 	return { status: "newer-tags", tags };
 }
 
-const fakeDriver = makeFakeDriver();
-
+// File-specific default: most change-version cases run without user cancellation.
 beforeEach(() => {
-	vi.clearAllMocks();
-	mockWriteManifest.mockResolvedValue(undefined);
-	mockCleanupTempDir.mockResolvedValue(undefined);
-	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-	mockGetDriver.mockReturnValue(fakeDriver);
-	// Default: the recorded structural unit still exists in the re-clone, so the
-	// derive-before-delete gate passes (pathExists -> access resolves).
-	mockAccess.mockResolvedValue(undefined);
-	// Default: no escaping symlink in the re-clone (copy-safety scan passes).
-	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
-	mockAddEntry.mockImplementation((manifest, key, entry) => ({
-		...manifest,
-		[key]: entry,
-	}));
-	mockRemoveEntry.mockImplementation((manifest, key) => {
-		const { [key]: _, ...rest } = manifest;
-		return rest;
-	});
 	mockIsCancel.mockReturnValue(false);
 });
 
