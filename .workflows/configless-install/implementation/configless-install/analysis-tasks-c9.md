@@ -6,7 +6,7 @@ total_proposed: 1
 # Analysis Tasks: Configless-install (Cycle 9)
 
 ## Task 1: Make skills-only collection members updatable — preserve the source subpath the update path needs to relocate `skills/<name>`
-status: pending
+status: approved
 severity: high
 sources: architecture
 

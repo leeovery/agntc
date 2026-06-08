@@ -245,3 +245,13 @@ approved_at: 2026-06-06
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
 | configless-install-analysis-8-1 | Skills-only default must enumerate inner skills as an installable collection menu | populated skills/-only root flag-free enumerates inner skills/<name> as members (not empty plugins:[]), member dir resolves to skills/<name> while manifest key stays owner/repo/<name> basename, configType:plugin and forcePlugin still bundle as single plugin (assetDirs:["skills"]), genuinely-empty skills/ resolves to no-member outcome without crash, each selected member installs as bare skill to per-agent bare-skill location, existing root-child member-dirs collection path and all other detection branches unchanged |
+
+### Phase 14: Analysis (Cycle 9)
+
+**Goal**: Address findings from Analysis (Cycle 9).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-9-1 | Make skills-only collection members updatable — preserve the source subpath the update path needs to relocate skills/<name> | skills-only member updates end-to-end (source relocated to clone skills/<name>, derive-before-delete finds SKILL.md, files refreshed at bare-skill destination), basename identity/destination preserved (option (a) key stays owner/repo/<name> + sourceSubpath persisted; option (b) longer key round-trips with basename destination), genuine root-child member owner/repo/alpha still updates via key-derived fallback, existing manifests without sourceSubpath still load (optional backward-compatible field), legacy pre-fix skills-only member handled-or-documented-as-known-limitation, --plugin / type:plugin bundling of skills-only root unchanged, list update-check / change-version not regressed, install test (d) and bundle test (e) still pass |
