@@ -235,3 +235,13 @@ approved_at: 2026-06-06
 |-------------|------|------------|
 | configless-install-analysis-7-1 | Extract shared copy-safety mock helper to stop six test files re-encoding production narrowing logic | single scan-and-narrow authored in tests/helpers/copy-safety-mock.ts, none of the six files keep an inline copy, supports both ...actual-spread (update/list/pipeline narrowing on actual.SymlinkEscapeError) and full-replacement (add.test.ts local PathTraversalError/SymlinkEscapeError) shapes, scanForEscapingSymlinks remains drivable per-test via exposed handle, assertSubpathWithinClone preserved, helper returns { ok: true } on clean scan / { ok: false, message } on SymlinkEscapeError / rethrows non-SymlinkEscapeError, no production change, npm test passes unchanged |
 | configless-install-analysis-7-2 | Extract canonical @clack/prompts mock to stop spinner/log shape drifting across command test files | base intro/outro/spinner({start,stop,message})/log{info,warn,error,success}/cancel authored once in tests/helpers/clack-mock.ts, four command test files delegate to factory, files needing select/isCancel/log.message obtain them via extension mechanism not base redefinition, no test loses a vi.fn() it asserts against, no production change, npm test passes unchanged |
+
+### Phase 13: Analysis (Cycle 8)
+
+**Goal**: Address findings from Analysis (Cycle 8).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-8-1 | Skills-only default must enumerate inner skills as an installable collection menu | populated skills/-only root flag-free enumerates inner skills/<name> as members (not empty plugins:[]), member dir resolves to skills/<name> while manifest key stays owner/repo/<name> basename, configType:plugin and forcePlugin still bundle as single plugin (assetDirs:["skills"]), genuinely-empty skills/ resolves to no-member outcome without crash, each selected member installs as bare skill to per-agent bare-skill location, existing root-child member-dirs collection path and all other detection branches unchanged |

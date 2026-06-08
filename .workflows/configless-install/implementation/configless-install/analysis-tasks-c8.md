@@ -6,7 +6,7 @@ total_proposed: 1
 # Analysis Tasks: Configless-Install (Cycle 8)
 
 ## Task 1: Skills-only default must enumerate inner skills as an installable collection menu
-status: pending
+status: approved
 severity: high
 sources: standards (HIGH); architecture (MEDIUM, related seam — informational)
 
