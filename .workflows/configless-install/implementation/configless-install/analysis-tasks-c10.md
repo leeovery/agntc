@@ -6,7 +6,7 @@ total_proposed: 2
 # Analysis Tasks: Configless Install (Cycle 10)
 
 ## Task 1: Treat empty re-cloned `agents` array as lenient default in `update`'s `resolveAgents`
-status: pending
+status: approved
 severity: medium
 sources: standards
 
@@ -34,7 +34,7 @@ sources: standards
 - Unit test on `resolveAgents`: `[]` argument → `{ status: "ok", effectiveAgents: entryAgents, droppedAgents: [] }`; `undefined` argument → same recorded-agents-preserved result.
 
 ## Task 2: Add path-traversal containment guard to `update`'s stored `sourceSubpath` join
-status: pending
+status: approved
 severity: low
 sources: standards
 

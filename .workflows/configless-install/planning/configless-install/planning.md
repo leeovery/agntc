@@ -255,3 +255,14 @@ approved_at: 2026-06-06
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
 | configless-install-analysis-9-1 | Make skills-only collection members updatable — preserve the source subpath the update path needs to relocate skills/<name> | skills-only member updates end-to-end (source relocated to clone skills/<name>, derive-before-delete finds SKILL.md, files refreshed at bare-skill destination), basename identity/destination preserved (option (a) key stays owner/repo/<name> + sourceSubpath persisted; option (b) longer key round-trips with basename destination), genuine root-child member owner/repo/alpha still updates via key-derived fallback, existing manifests without sourceSubpath still load (optional backward-compatible field), legacy pre-fix skills-only member handled-or-documented-as-known-limitation, --plugin / type:plugin bundling of skills-only root unchanged, list update-check / change-version not regressed, install test (d) and bundle test (e) still pass |
+
+### Phase 15: Analysis (Cycle 10)
+
+**Goal**: Address findings from Analysis (Cycle 10).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-analysis-10-1 | Treat empty re-cloned agents array as lenient default in update's resolveAgents | re-cloned `{ agents: [], type }` config succeeds preserving recorded agents (not no-agents), `resolveAgents([])` returns recorded agents unchanged, `resolveAgents(undefined)` unchanged, valid non-empty config disjoint from recorded agents STILL yields no-agents skip, add behaviour for `{ agents: [], type }` unchanged, parity restored between add and update |
+| configless-install-analysis-10-2 | Add path-traversal containment guard to update's stored sourceSubpath join | escaping `sourceSubpath` (e.g. `../evil`) rejected with containment error before any read/nuke/copy, absent sourceSubpath unchanged (key-derived fallback), valid internally-derived `skills/<name>` passes guard and reinstalls as before, PathTraversalError mapped to clean pre-flight failure not unhandled throw, distinct self-contained from Task 1 |
