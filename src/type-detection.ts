@@ -219,6 +219,14 @@ async function scanQualifyingChildDirs(dir: string): Promise<string[]> {
 		if (!entry.isDirectory()) {
 			continue;
 		}
+		// Skip hidden dirs — they are never installable units. Critically, a real
+		// clone's `.git` dir contains a `hooks/` subdir, which would otherwise make
+		// `qualifiesAsMember` treat `.git` as a phantom plugin member (inflating
+		// collection menus and misclassifying a not-agntc repo as a 1-member
+		// collection). `.github`, `.vscode`, etc. are excluded for the same reason.
+		if (entry.name.startsWith(".")) {
+			continue;
+		}
 		if (await qualifiesAsMember(join(dir, entry.name))) {
 			names.push(entry.name);
 		}

@@ -7,6 +7,14 @@ export interface CopyBareSkillInput {
 	sourceDir: string;
 	projectDir: string;
 	agents: AgentWithDriver[];
+	/**
+	 * The installed skill's directory name (identity = repo/unit basename per
+	 * spec). Required for a whole-repo bare skill, where `sourceDir` is the random
+	 * `mkdtemp` clone dir and `basename(sourceDir)` would name the install after
+	 * the temp dir. Defaults to `basename(sourceDir)` for callers whose source dir
+	 * already IS the unit dir (collection members, tree-path selectors).
+	 */
+	skillName?: string;
 }
 
 export interface CopyBareSkillResult {
@@ -17,7 +25,7 @@ export async function copyBareSkill(
 	input: CopyBareSkillInput,
 ): Promise<CopyBareSkillResult> {
 	const { sourceDir, projectDir, agents } = input;
-	const skillName = basename(sourceDir);
+	const skillName = input.skillName ?? basename(sourceDir);
 	const copiedFiles: string[] = [];
 
 	try {
@@ -29,7 +37,15 @@ export async function copyBareSkill(
 
 			const destDir = join(projectDir, targetDir, skillName);
 			await mkdir(destDir, { recursive: true });
-			await cp(sourceDir, destDir, { recursive: true });
+			// Exclude `.git` — for a whole-repo bare skill `sourceDir` is the clone
+			// root, so an unfiltered recursive copy would drop the entire git repo
+			// into the installed skill. The filter prunes the `.git` subtree (any
+			// nested `.git` too); all other author content is kept (spec: keep
+			// everything). `agntc.json` is stripped post-copy below.
+			await cp(sourceDir, destDir, {
+				recursive: true,
+				filter: (src) => basename(src) !== ".git",
+			});
 
 			await removeIfExists(join(destDir, "agntc.json"));
 

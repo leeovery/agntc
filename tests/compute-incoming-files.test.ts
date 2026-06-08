@@ -68,6 +68,23 @@ describe("computeIncomingFiles", () => {
 			expect(result).toEqual([".claude/skills/my-skill/"]);
 		});
 
+		// Regression: a whole-repo bare skill's sourceDir is the random clone dir,
+		// so the destination path must come from the explicit skillName, not
+		// basename(sourceDir) — otherwise the collision check targets the wrong dir.
+		it("uses skillName over basename(sourceDir) when provided", async () => {
+			const driver = makeDriver({ skills: ".claude/skills" });
+			const agents = [{ id: "claude", driver }];
+
+			const result = await computeIncomingFiles({
+				type: "bare-skill",
+				sourceDir: "/tmp/agntc-Xy12ab", // mkdtemp clone root
+				agents,
+				skillName: "refero-design",
+			});
+
+			expect(result).toEqual([".claude/skills/refero-design/"]);
+		});
+
 		it("uses basename of sourceDir as skill name", async () => {
 			const driver = makeDriver({ skills: ".claude/skills" });
 			const agents = [{ id: "claude", driver }];

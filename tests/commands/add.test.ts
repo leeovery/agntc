@@ -406,6 +406,8 @@ describe("add command", () => {
 				sourceDir: CLONE_RESULT.tempDir,
 				projectDir: "/fake/project",
 				agents: [{ id: "claude", driver: FAKE_DRIVER }],
+				// Install name = manifest-key basename, NOT basename(tempDir).
+				skillName: "my-skill",
 			});
 		});
 	});
@@ -4468,6 +4470,7 @@ describe("add command", () => {
 				sourceDir: "/Users/dev/my-plugin",
 				projectDir: "/fake/project",
 				agents: [{ id: "claude", driver: FAKE_DRIVER }],
+				skillName: "my-plugin",
 			});
 		});
 
@@ -4671,6 +4674,7 @@ describe("add command", () => {
 				type: "bare-skill",
 				sourceDir: CLONE_RESULT.tempDir,
 				agents: [{ id: "claude", driver: FAKE_DRIVER }],
+				skillName: "my-skill",
 			});
 		});
 

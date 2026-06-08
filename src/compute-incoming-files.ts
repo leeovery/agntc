@@ -6,6 +6,12 @@ interface BareSkillInput {
 	type: "bare-skill";
 	sourceDir: string;
 	agents: AgentWithDriver[];
+	/**
+	 * Installed skill dir name (identity = repo/unit basename). Must match the
+	 * name {@link copyBareSkill} writes to, or collision/unmanaged checks compute
+	 * the wrong destination path. Defaults to `basename(sourceDir)` when omitted.
+	 */
+	skillName?: string;
 }
 
 interface PluginInput {
@@ -32,7 +38,7 @@ export async function computeIncomingFiles(
 }
 
 function computeBareSkillFiles(input: BareSkillInput): string[] {
-	const skillName = basename(input.sourceDir);
+	const skillName = input.skillName ?? basename(input.sourceDir);
 	const files: string[] = [];
 
 	for (const agent of input.agents) {

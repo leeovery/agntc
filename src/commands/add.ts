@@ -394,9 +394,15 @@ export async function runAdd(
 			await nukeManifestFiles(projectDir, existingEntry.files);
 		}
 
-		// 10a. Compute incoming files (against the resolved unit directory)
+		// 10a. Compute incoming files (against the resolved unit directory).
+		// The bare-skill install name is the manifest-key basename (identity = repo
+		// /unit basename per spec), NOT basename(unitDir): for a whole-repo bare
+		// skill unitDir is the random mkdtemp clone dir, which would name the
+		// install after the temp dir. For members/tree-path selectors the two
+		// coincide, so this is a no-op there.
+		const installName = basename(parsed.manifestKey);
 		const incomingFiles = await computeIncomingFiles(
-			toComputeInput(detected, unitDir, agents),
+			toComputeInput(detected, unitDir, agents, installName),
 		);
 
 		// 10b. Collision + unmanaged conflict checks
@@ -422,6 +428,7 @@ export async function runAdd(
 				sourceDir: unitDir,
 				agents,
 				projectDir,
+				skillName: installName,
 			});
 			copiedFiles = copyResult.copiedFiles;
 			assetCountsByAgent = copyResult.assetCountsByAgent;

@@ -265,6 +265,23 @@ describe("detectType", () => {
 				plugins: ["alpha", "mid", "zeta"],
 			});
 		});
+
+		// Regression: a real clone carries a `.git` dir, and `.git/hooks/` would
+		// otherwise make `.git` qualify as a phantom plugin member. Hidden dirs are
+		// never installable units. (Prior tests build trees with no `.git`.)
+		it("excludes .git (and other hidden dirs) from members", async () => {
+			await createFile("alpha", "SKILL.md");
+			await createFile("beta", "SKILL.md");
+			await createDir(".git", "hooks"); // real clones have this
+			await createDir(".github", "workflows");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({
+				type: "collection",
+				plugins: ["alpha", "beta"],
+			});
+		});
 	});
 
 	describe("not-agntc", () => {
@@ -277,6 +294,17 @@ describe("detectType", () => {
 		it("returns not-agntc for a root with only loose files", async () => {
 			await createFile("readme.txt");
 			await createFile("notes.md");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "not-agntc" });
+		});
+
+		it("returns not-agntc for a root whose only dir is .git (real clone)", async () => {
+			// A real clone always carries `.git` (with a `hooks/` subdir). It must
+			// not be mistaken for a 1-member collection.
+			await createFile("README.md");
+			await createDir(".git", "hooks");
 
 			const result = await detectType(testDir, {});
 

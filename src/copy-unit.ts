@@ -19,6 +19,13 @@ export interface CopyUnitInput {
 	sourceDir: string;
 	agents: AgentWithDriver[];
 	projectDir: string;
+	/**
+	 * The installed bare-skill directory name (identity = repo/unit basename).
+	 * Forwarded to {@link copyBareSkill}; ignored for plugins (their asset dirs
+	 * keep their own names). Defaults to `basename(sourceDir)` when omitted — see
+	 * {@link copyBareSkill} for why a whole-repo bare skill must pass it.
+	 */
+	skillName?: string;
 }
 
 export interface CopyUnitResult {
@@ -35,11 +42,12 @@ export function toComputeInput(
 	detected: StandaloneDetected,
 	sourceDir: string,
 	agents: AgentWithDriver[],
+	skillName?: string,
 ): ComputeInput {
 	if (detected.type === "plugin") {
 		return { type: "plugin", sourceDir, assetDirs: detected.assetDirs, agents };
 	}
-	return { type: "bare-skill", sourceDir, agents };
+	return { type: "bare-skill", sourceDir, agents, skillName };
 }
 
 /**
@@ -53,7 +61,7 @@ export async function copyUnit(
 	detected: StandaloneDetected,
 	input: CopyUnitInput,
 ): Promise<CopyUnitResult> {
-	const { sourceDir, agents, projectDir } = input;
+	const { sourceDir, agents, projectDir, skillName } = input;
 
 	if (detected.type === "plugin") {
 		const pluginResult = await copyPluginAssets({
@@ -68,6 +76,11 @@ export async function copyUnit(
 		};
 	}
 
-	const bareResult = await copyBareSkill({ sourceDir, projectDir, agents });
+	const bareResult = await copyBareSkill({
+		sourceDir,
+		projectDir,
+		agents,
+		skillName,
+	});
 	return { copiedFiles: bareResult.copiedFiles };
 }

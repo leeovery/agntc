@@ -198,6 +198,54 @@ describe("copyBareSkill", () => {
 		expect(result.copiedFiles).toContain(".claude/skills/my-awesome-skill/");
 	});
 
+	// Regression: a real git clone always contains a `.git` dir. For a whole-repo
+	// bare skill the source dir IS the clone root, so an unfiltered recursive copy
+	// drops the entire git repo into the installed skill. (Existing tests above use
+	// plain dirs with no `.git`, so this gap shipped silently.)
+	it("excludes a .git directory from the copy", async () => {
+		await createSourceFile("SKILL.md");
+		await createSourceFile(".git", "config");
+		await createSourceFile(".git", "hooks", "pre-commit.sample");
+
+		await copyBareSkill({
+			sourceDir,
+			projectDir,
+			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
+		});
+
+		const destDir = join(projectDir, ".claude/skills/source-skill");
+		expect(await fileExists(join(destDir, "SKILL.md"))).toBe(true);
+		expect(await fileExists(join(destDir, ".git"))).toBe(false);
+		expect(await fileExists(join(destDir, ".git", "config"))).toBe(false);
+	});
+
+	// Regression: a whole-repo bare skill's sourceDir is the random `mkdtemp` clone
+	// dir, so without an explicit name the install would land under the temp-dir
+	// name instead of the repo basename (and `.git` would tag along).
+	it("installs under the provided skillName, not basename(sourceDir)", async () => {
+		const cloneDir = join(testDir, "agntc-Xy12ab"); // mimic mkdtemp clone root
+		await mkdir(join(cloneDir, ".git", "hooks"), { recursive: true });
+		await writeFile(join(cloneDir, "SKILL.md"), "content");
+
+		const result = await copyBareSkill({
+			sourceDir: cloneDir,
+			projectDir,
+			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
+			skillName: "refero-design",
+		});
+
+		expect(
+			await fileExists(join(projectDir, ".claude/skills/refero-design/SKILL.md")),
+		).toBe(true);
+		expect(
+			await fileExists(join(projectDir, ".claude/skills/refero-design/.git")),
+		).toBe(false);
+		expect(
+			await fileExists(join(projectDir, ".claude/skills/agntc-Xy12ab")),
+		).toBe(false);
+		expect(result.copiedFiles).toEqual([".claude/skills/refero-design/"]);
+	});
+
 	it("handles deeply nested subdirs", async () => {
 		await createSourceFile("SKILL.md");
 		await createSourceFile("a", "b", "c", "deep.md");
