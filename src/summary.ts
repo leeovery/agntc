@@ -112,6 +112,15 @@ export function renderAddSummary(input: AddSummaryInput): string {
 export type PluginInstallResult =
 	| {
 			pluginName: string;
+			/**
+			 * The member's dir-relative source SEGMENT within the collection root
+			 * ("alpha" for a root-child member, "skills/alpha" for a skills-only inner
+			 * skill). Identity is the basename (`pluginName`); this records WHERE the
+			 * source dir is so the step-6 manifest write can persist a divergent
+			 * `sourceSubpath` (cycle-9) when segment !== basename, keeping the member
+			 * updatable. Equal to `pluginName` for root-child members.
+			 */
+			pluginSegment: string;
 			status: "installed";
 			copiedFiles: string[];
 			agents: AgentId[];

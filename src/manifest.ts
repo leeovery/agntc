@@ -18,6 +18,23 @@ export interface ManifestEntry {
 	type?: "skill" | "plugin";
 	cloneUrl: string | null;
 	constraint?: string;
+	/**
+	 * The unit's clone-relative source path, recorded ONLY when it diverges from
+	 * the manifest-key's basename segment — i.e. a skills-only collection member
+	 * keyed `owner/repo/<name>` whose source actually lives at
+	 * `<clone>/skills/<name>` (cycle-9 regression fix). `update` re-clones and
+	 * reconstructs the source dir from the manifest key via
+	 * {@link getSourceDirFromKey}; for a basename-keyed skills-only member that
+	 * derives the WRONG dir (`<clone>/<name>`), so derive-before-delete finds no
+	 * SKILL.md and aborts. The update source-resolver
+	 * (clone-reinstall `cloneAndReinstall`) PREFERS this stored subpath when
+	 * present, falling back to the key-derived dir when absent. Identity stays the
+	 * basename (key + install destination unchanged); this records only WHERE to
+	 * re-copy from. OPTIONAL and backward-compatible: root-child members and all
+	 * standalone entries (segment === basename) omit it and round-trip via the key
+	 * exactly as before; legacy manifests without it remain valid.
+	 */
+	sourceSubpath?: string;
 }
 
 export type Manifest = Record<string, ManifestEntry>;
@@ -32,18 +49,21 @@ export type ManifestEntryInput = Omit<ManifestEntry, "installedAt">;
 
 /**
  * Single constructor for {@link ManifestEntry}, owning the `installedAt`
- * `new Date().toISOString()` stamp and the conditional `constraint` spread so a
- * shape change is made once. `constraint` is included only when defined; an
- * absent or `undefined` value is omitted from the literal (matching every call
- * site's prior `constraint != null` behaviour, given constraints are always
- * `string | undefined`).
+ * `new Date().toISOString()` stamp and the conditional `constraint` /
+ * `sourceSubpath` spreads so a shape change is made once. Each optional field is
+ * included only when defined; an absent or `undefined` value is omitted from the
+ * literal (matching every call site's prior `!= null` behaviour, given both are
+ * `string | undefined`). `sourceSubpath` is omitted for the common case
+ * (root-child members and standalone entries whose segment === basename),
+ * preserving the byte-identical entry shape they have today.
  */
 export function buildManifestEntry(fields: ManifestEntryInput): ManifestEntry {
-	const { constraint, ...rest } = fields;
+	const { constraint, sourceSubpath, ...rest } = fields;
 	return {
 		...rest,
 		installedAt: new Date().toISOString(),
 		...(constraint !== undefined && { constraint }),
+		...(sourceSubpath !== undefined && { sourceSubpath }),
 	};
 }
 

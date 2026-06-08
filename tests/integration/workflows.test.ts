@@ -31,6 +31,7 @@ import {
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { executeNukeAndReinstall } from "../../src/nuke-reinstall-pipeline.js";
+import { getSourceDirFromKey } from "../../src/source-parser.js";
 import { detectType } from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 
@@ -677,6 +678,212 @@ describe("integration: core workflows", () => {
 			const saved = await readRawManifest(projectDir);
 			expect(Object.keys(saved)).toEqual(["owner/skills-only-bundle"]);
 			expect(saved["owner/skills-only-bundle"]!.type).toBe("plugin");
+		});
+
+		it("(f) updates a flag-free skills-only collection member end-to-end via the stored sourceSubpath", async () => {
+			// REGRESSION (cycle-9): a skills-only inner skill installs keyed by
+			// basename (owner/repo/<name>) but its source lives at
+			// <clone>/skills/<name>. The update source-resolver reconstructs the dir
+			// from the basename key -> <clone>/<name> (WRONG), so derive-before-delete
+			// finds no SKILL.md and aborts every update. The fix records the divergent
+			// segment in entry.sourceSubpath and the resolver prefers it.
+
+			// --- INSTALL: flag-free populated skills-only root, members keyed by
+			//     basename, with sourceSubpath capturing the divergent segment.
+			const repoDir = join(sourceDir, "skills-only-updatable");
+			await createFile(repoDir, "skills", "alpha", "SKILL.md");
+			await createFile(repoDir, "skills", "alpha", "references", "g.md");
+			await createFile(repoDir, "skills", "beta", "SKILL.md");
+
+			const agents = [claudeAgent(), codexAgent()];
+
+			const detected = await detectType(repoDir, {});
+			expect(detected).toEqual({
+				type: "collection",
+				plugins: ["skills/alpha", "skills/beta"],
+			});
+			if (detected.type !== "collection") throw new Error("unexpected");
+
+			let manifest: Manifest = {};
+			for (const segment of detected.plugins) {
+				const memberDir = join(repoDir, segment);
+				const memberName = segment.slice(segment.lastIndexOf("/") + 1);
+
+				const memberDetected = await detectType(memberDir, {});
+				expect(memberDetected.type).toBe("bare-skill");
+
+				const copyResult = await copyBareSkill({
+					sourceDir: memberDir,
+					projectDir,
+					agents,
+				});
+
+				// The member's dir-relative segment (skills/<name>) diverges from the
+				// basename key, so it must be recorded as sourceSubpath.
+				const entry: ManifestEntry = {
+					ref: null,
+					commit: "v1hash",
+					installedAt: new Date().toISOString(),
+					agents: ["claude", "codex"],
+					files: copyResult.copiedFiles,
+					type: manifestTypeFromDetected(memberDetected),
+					cloneUrl: null,
+					sourceSubpath: segment,
+				};
+				manifest = addEntry(
+					manifest,
+					`owner/skills-only-updatable/${memberName}`,
+					entry,
+				);
+			}
+			await writeManifest(projectDir, manifest);
+
+			// Member keyed by basename; sourceSubpath persisted on disk.
+			const savedAfterInstall = await readRawManifest(projectDir);
+			expect(savedAfterInstall["owner/skills-only-updatable/alpha"]!.type).toBe(
+				"skill",
+			);
+			expect(
+				savedAfterInstall["owner/skills-only-updatable/alpha"]!.sourceSubpath,
+			).toBe("skills/alpha");
+
+			// --- UPDATE: re-clone has the member at <clone>/skills/alpha and adds a
+			//     new file to prove the refresh actually re-copies the right dir.
+			const reclonedDir = join(sourceDir, "skills-only-updatable-v2");
+			await createFile(reclonedDir, "skills", "alpha", "SKILL.md");
+			await createFile(reclonedDir, "skills", "alpha", "references", "g.md");
+			await createFile(reclonedDir, "skills", "alpha", "references", "new.md");
+			await createFile(reclonedDir, "skills", "beta", "SKILL.md");
+
+			const key = "owner/skills-only-updatable/alpha";
+			const entry = manifest[key]!;
+
+			// Resolve the source dir EXACTLY as cloneAndReinstall:352 does — prefer
+			// the stored sourceSubpath, fall back to the key-derived dir. Before the
+			// fix this falls back to <clone>/alpha (no SKILL.md) and aborts.
+			const updateSourceDir = entry.sourceSubpath
+				? join(reclonedDir, entry.sourceSubpath)
+				: getSourceDirFromKey(reclonedDir, key);
+
+			const result = await executeNukeAndReinstall({
+				key,
+				sourceDir: updateSourceDir,
+				cloneRoot: reclonedDir,
+				existingEntry: entry,
+				projectDir,
+				newCommit: "v2hash",
+				onWarn: () => {},
+			});
+
+			// Update SUCCEEDS (derive-before-delete located SKILL.md at the relocated
+			// source), not aborted.
+			expect(result.status).toBe("success");
+			if (result.status !== "success") throw new Error("unexpected");
+
+			// Files refreshed at the bare-skill destination per agent, including the
+			// newly-added reference (proves the right subdir was re-copied).
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/alpha/references/new.md"),
+				),
+			).toBe(true);
+			expect(
+				await fileExists(
+					join(projectDir, ".agents/skills/alpha/references/new.md"),
+				),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/alpha/SKILL.md")),
+			).toBe(true);
+
+			// Manifest entry intact: basename identity preserved, sourceSubpath
+			// survives the round-trip (so the NEXT update still resolves correctly).
+			expect(result.entry.type).toBe("skill");
+			expect(result.entry.sourceSubpath).toBe("skills/alpha");
+			expect(result.entry.commit).toBe("v2hash");
+
+			manifest = addEntry(manifest, key, result.entry);
+			await writeManifest(projectDir, manifest);
+			const savedAfterUpdate = await readRawManifest(projectDir);
+			expect(savedAfterUpdate[key]!.sourceSubpath).toBe("skills/alpha");
+			expect(savedAfterUpdate[key]!.commit).toBe("v2hash");
+		});
+
+		it("(g) updates a genuine root-child collection member via the key-derived fallback (no sourceSubpath)", async () => {
+			// Regression guard for the new branch: a root-child member whose dir IS
+			// its basename (owner/repo/alpha -> <clone>/alpha) carries NO
+			// sourceSubpath and must keep resolving via getSourceDirFromKey.
+			const repoDir = join(sourceDir, "member-dirs-repo");
+			await createFile(repoDir, "alpha", "SKILL.md");
+			await createFile(repoDir, "alpha", "references", "g.md");
+			await createFile(repoDir, "beta", "SKILL.md");
+
+			const agents = [claudeAgent()];
+
+			const memberDir = join(repoDir, "alpha");
+			const memberDetected = await detectType(memberDir, {});
+			expect(memberDetected.type).toBe("bare-skill");
+
+			const copyResult = await copyBareSkill({
+				sourceDir: memberDir,
+				projectDir,
+				agents,
+			});
+
+			// Root-child member: segment === basename, so NO sourceSubpath recorded.
+			const entry: ManifestEntry = {
+				ref: null,
+				commit: "v1hash",
+				installedAt: new Date().toISOString(),
+				agents: ["claude"],
+				files: copyResult.copiedFiles,
+				type: "skill",
+				cloneUrl: null,
+			};
+			const key = "owner/member-dirs-repo/alpha";
+			let manifest = addEntry({}, key, entry);
+			await writeManifest(projectDir, manifest);
+
+			expect("sourceSubpath" in entry).toBe(false);
+
+			// Re-clone has the member at the SAME basename-derived dir, plus a new file.
+			const reclonedDir = join(sourceDir, "member-dirs-repo-v2");
+			await createFile(reclonedDir, "alpha", "SKILL.md");
+			await createFile(reclonedDir, "alpha", "references", "g.md");
+			await createFile(reclonedDir, "alpha", "references", "new.md");
+			await createFile(reclonedDir, "beta", "SKILL.md");
+
+			// Same resolution expression as cloneAndReinstall:352 — with no
+			// sourceSubpath it MUST fall back to the key-derived dir (<clone>/alpha).
+			const updateSourceDir = entry.sourceSubpath
+				? join(reclonedDir, entry.sourceSubpath)
+				: getSourceDirFromKey(reclonedDir, key);
+			expect(updateSourceDir).toBe(join(reclonedDir, "alpha"));
+
+			const result = await executeNukeAndReinstall({
+				key,
+				sourceDir: updateSourceDir,
+				cloneRoot: reclonedDir,
+				existingEntry: entry,
+				projectDir,
+				newCommit: "v2hash",
+				onWarn: () => {},
+			});
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") throw new Error("unexpected");
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/alpha/references/new.md"),
+				),
+			).toBe(true);
+			// No sourceSubpath introduced for a root-child entry.
+			expect("sourceSubpath" in result.entry).toBe(false);
+
+			manifest = addEntry(manifest, key, result.entry);
+			await writeManifest(projectDir, manifest);
+			const saved = await readRawManifest(projectDir);
+			expect("sourceSubpath" in saved[key]!).toBe(false);
 		});
 	});
 

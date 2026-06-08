@@ -67,6 +67,13 @@ function buildAddEntry(opts: {
 	parsed: Awaited<ReturnType<typeof parseSource>>;
 	commit: string | null;
 	constraint: string | undefined;
+	/**
+	 * Divergent source subpath for a skills-only collection member (cycle-9); the
+	 * collection write loop passes {@link memberSourceSubpath}, the standalone
+	 * tail leaves it `undefined` (a root unit's source IS the key-derived dir).
+	 * `undefined` omits the field, preserving the legacy entry shape.
+	 */
+	sourceSubpath?: string;
 }): ManifestEntry {
 	return buildManifestEntry({
 		ref: opts.parsed.ref,
@@ -76,6 +83,7 @@ function buildAddEntry(opts: {
 		type: manifestTypeFromDetected(opts.detected),
 		cloneUrl: deriveCloneUrlForManifest(opts.parsed),
 		constraint: opts.constraint,
+		sourceSubpath: opts.sourceSubpath,
 	});
 }
 
@@ -99,6 +107,21 @@ function memberKey(
 	return parsed.type === "direct-path"
 		? parsed.manifestKey
 		: `${parsed.manifestKey}/${basename(memberSegment)}`;
+}
+
+/**
+ * The divergent source subpath persisted on a collection member's manifest entry
+ * (cycle-9 regression fix), or `undefined` when none is needed. A member is keyed
+ * by its segment's basename, but its source dir is the full `memberSegment`. When
+ * the two diverge — a skills-only inner skill with segment "skills/<name>" vs key
+ * basename "<name>" — the update path cannot reconstruct the source dir from the
+ * basename key, so the segment is recorded as {@link ManifestEntry.sourceSubpath}
+ * for the resolver to prefer. For root-child members (segment === basename) and
+ * direct-path selectors there is no divergence, so this returns `undefined` and
+ * the entry omits the field, preserving the byte-identical legacy shape.
+ */
+function memberSourceSubpath(memberSegment: string): string | undefined {
+	return memberSegment === basename(memberSegment) ? undefined : memberSegment;
 }
 
 interface TagResolutionResult {
@@ -547,6 +570,7 @@ async function runCollectionPipeline(
 	// 5a. Per-plugin conflict resolution (before any copying)
 	const pluginsToInstall: Array<{
 		pluginName: string;
+		pluginSegment: string;
 		pluginDir: string;
 		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
 		pluginManifestKey: string;
@@ -703,6 +727,7 @@ async function runCollectionPipeline(
 
 		pluginsToInstall.push({
 			pluginName: memberName,
+			pluginSegment: memberSegment,
 			pluginDir,
 			pluginDetected,
 			pluginManifestKey,
@@ -715,6 +740,7 @@ async function runCollectionPipeline(
 	spin.start("Copying skill files...");
 	for (const {
 		pluginName,
+		pluginSegment,
 		pluginDir,
 		pluginDetected,
 		pluginAgents,
@@ -728,6 +754,7 @@ async function runCollectionPipeline(
 			});
 			results.push({
 				pluginName,
+				pluginSegment,
 				status: "installed",
 				copiedFiles: copyResult.copiedFiles,
 				agents: pluginAgents,
@@ -762,6 +789,10 @@ async function runCollectionPipeline(
 			parsed,
 			commit,
 			constraint,
+			// Persist the divergent source subpath for a skills-only member so the
+			// basename-keyed entry stays updatable (cycle-9). Omitted for root-child
+			// members (segment === basename).
+			sourceSubpath: memberSourceSubpath(result.pluginSegment),
 		});
 		updatedManifest = addEntry(updatedManifest, manifestKey, entry);
 	}

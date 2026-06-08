@@ -522,6 +522,91 @@ describe("cloneAndReinstall", () => {
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 
+		it("skills-only member with sourceSubpath relocates the source to skills/<name> (cycle-9)", async () => {
+			// Regression: a skills-only inner skill is keyed by basename
+			// (owner/repo/go) but its source lives at <clone>/skills/go. The stored
+			// sourceSubpath must override the basename-key-derived dir so
+			// derive-before-delete and the copy both target the relocated dir; without
+			// the fix the SKILL.md check hits /tmp/agntc-clone/go and aborts.
+			const entry = makeEntry({
+				type: "skill",
+				agents: ["claude"],
+				files: [".claude/skills/go/"],
+				sourceSubpath: "skills/go",
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue(null);
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/go/"],
+			});
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo/go",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(result.status).toBe("success");
+			// Derive-before-delete checked the RELOCATED source, not the key-derived dir.
+			expect(mockPathExists).toHaveBeenCalledWith(
+				"/tmp/agntc-clone/skills/go/SKILL.md",
+			);
+			expect(mockPathExists).not.toHaveBeenCalledWith(
+				"/tmp/agntc-clone/go/SKILL.md",
+			);
+			// The copy re-copied from the relocated dir.
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ sourceDir: "/tmp/agntc-clone/skills/go" }),
+			);
+			// sourceSubpath survives the update so the NEXT update still resolves right.
+			if (result.status === "success") {
+				expect(result.manifestEntry.sourceSubpath).toBe("skills/go");
+			}
+		});
+
+		it("member WITHOUT sourceSubpath still resolves via the key-derived dir (cycle-9 fallback)", async () => {
+			// A root-child member (owner/repo/go -> <clone>/go) carries no
+			// sourceSubpath and must keep using the key-derived dir; the new branch
+			// must not divert it.
+			const entry = makeEntry({
+				type: "skill",
+				agents: ["claude"],
+				files: [".claude/skills/go/"],
+			});
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue(null);
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/go/"],
+			});
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo/go",
+				entry,
+				projectDir: "/fake/project",
+			});
+
+			expect(result.status).toBe("success");
+			expect(mockPathExists).toHaveBeenCalledWith(
+				"/tmp/agntc-clone/go/SKILL.md",
+			);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ sourceDir: "/tmp/agntc-clone/go" }),
+			);
+			if (result.status === "success") {
+				expect(result.manifestEntry.sourceSubpath).toBeUndefined();
+			}
+		});
+
 		it("configless recorded-skill update proceeds (null config, copyBareSkill)", async () => {
 			const entry = makeEntry({
 				type: "skill",

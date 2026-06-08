@@ -577,6 +577,112 @@ describe("constraint field", () => {
 	});
 });
 
+describe("sourceSubpath field", () => {
+	it("ManifestEntry accepts optional sourceSubpath field", () => {
+		const entry: ManifestEntry = {
+			ref: null,
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			cloneUrl: null,
+			sourceSubpath: "skills/alpha",
+		};
+
+		expect(entry.sourceSubpath).toBe("skills/alpha");
+	});
+
+	it("ManifestEntry without sourceSubpath has undefined sourceSubpath", () => {
+		const entry: ManifestEntry = {
+			ref: null,
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			cloneUrl: null,
+		};
+
+		expect(entry.sourceSubpath).toBeUndefined();
+	});
+
+	it("write/read round-trip preserves sourceSubpath field", async () => {
+		const manifest: Manifest = {
+			"owner/repo/alpha": {
+				ref: null,
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/alpha/"],
+				cloneUrl: null,
+				sourceSubpath: "skills/alpha",
+			},
+		};
+
+		await writeManifest(testDir, manifest);
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/alpha"]?.sourceSubpath).toBe("skills/alpha");
+	});
+
+	it("old manifest without sourceSubpath field reads correctly", async () => {
+		const oldManifest = {
+			"owner/repo/alpha": {
+				ref: null,
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/alpha/"],
+				cloneUrl: null,
+				type: "skill",
+			},
+		};
+		await mkdir(join(testDir, ".agntc"), { recursive: true });
+		await writeFile(
+			join(testDir, ".agntc", "manifest.json"),
+			JSON.stringify(oldManifest),
+		);
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/alpha"]?.sourceSubpath).toBeUndefined();
+		// Reading a legacy entry without the field never errors and stays valid.
+		expect(result["owner/repo/alpha"]?.files).toEqual([
+			".claude/skills/alpha/",
+		]);
+	});
+
+	it("JSON serialization omits undefined sourceSubpath", () => {
+		const entry: ManifestEntry = {
+			ref: null,
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			cloneUrl: null,
+		};
+
+		const json = JSON.stringify(entry);
+
+		expect(json).not.toContain("sourceSubpath");
+	});
+
+	it("JSON serialization includes defined sourceSubpath", () => {
+		const entry: ManifestEntry = {
+			ref: null,
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			cloneUrl: null,
+			sourceSubpath: "skills/alpha",
+		};
+
+		const parsed = JSON.parse(JSON.stringify(entry));
+
+		expect(parsed.sourceSubpath).toBe("skills/alpha");
+	});
+});
+
 describe("type field", () => {
 	it("ManifestEntry accepts optional type field", () => {
 		const entry: ManifestEntry = {
@@ -1148,6 +1254,66 @@ describe("buildManifestEntry", () => {
 		});
 
 		expect("constraint" in entry).toBe(false);
+	});
+
+	it("includes sourceSubpath when provided (skills-only member)", () => {
+		const entry = buildManifestEntry({
+			ref: null,
+			commit: "sha",
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			type: "skill",
+			cloneUrl: null,
+			sourceSubpath: "skills/alpha",
+		});
+
+		expect(entry).toEqual({
+			ref: null,
+			commit: "sha",
+			installedAt: FIXED,
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			type: "skill",
+			cloneUrl: null,
+			sourceSubpath: "skills/alpha",
+		});
+		expect("sourceSubpath" in entry).toBe(true);
+	});
+
+	it("omits sourceSubpath when undefined (byte-identical legacy shape)", () => {
+		const entry = buildManifestEntry({
+			ref: null,
+			commit: "sha",
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			type: "skill",
+			cloneUrl: null,
+			sourceSubpath: undefined,
+		});
+
+		expect("sourceSubpath" in entry).toBe(false);
+		expect(entry).toEqual({
+			ref: null,
+			commit: "sha",
+			installedAt: FIXED,
+			agents: ["claude"],
+			files: [".claude/skills/alpha/"],
+			type: "skill",
+			cloneUrl: null,
+		});
+	});
+
+	it("omits sourceSubpath when the field is not passed at all (root-child member)", () => {
+		const entry = buildManifestEntry({
+			ref: null,
+			commit: null,
+			agents: ["claude"],
+			files: [],
+			type: "skill",
+			cloneUrl: null,
+		});
+
+		expect("sourceSubpath" in entry).toBe(false);
 	});
 
 	it("supports local (commit null) entries with a sha distinct from null", () => {

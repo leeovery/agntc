@@ -284,6 +284,11 @@ function buildSuccess(
 		type,
 		cloneUrl: existingEntry.cloneUrl ?? null,
 		constraint: existingEntry.constraint,
+		// Preserve the divergent source subpath (cycle-9): identity is unchanged
+		// by an update, so a skills-only member keyed by basename keeps pointing at
+		// its `skills/<name>` source. Dropping it here would silently re-break the
+		// NEXT update (the resolver would fall back to the wrong key-derived dir).
+		sourceSubpath: existingEntry.sourceSubpath,
 	});
 
 	return {

@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import * as p from "@clack/prompts";
 import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
@@ -349,7 +350,18 @@ export async function cloneAndReinstall(
 
 		tempDir = cloneResult.tempDir;
 		const newCommit = options.newCommit ?? cloneResult.commit;
-		const sourceDir = getSourceDirFromKey(tempDir, key);
+		// Source-dir resolution for the re-cloned tree. Cycle-9 fix: PREFER the
+		// entry's recorded `sourceSubpath` when present — a skills-only collection
+		// member is keyed by basename (`owner/repo/<name>`) but its source actually
+		// lives at `<clone>/skills/<name>`, so the key-derived dir would be wrong
+		// and derive-before-delete would abort. Root-child members and standalone
+		// entries (segment === basename) carry no sourceSubpath and fall back to
+		// the unchanged key-derived dir, round-tripping exactly as before. (Legacy
+		// pre-fix skills-only members predate the field and stay on the fallback —
+		// see the known-limitation note in the report; remedy is remove + add.)
+		const sourceDir = entry.sourceSubpath
+			? join(tempDir, entry.sourceSubpath)
+			: getSourceDirFromKey(tempDir, key);
 
 		const result = await runPipeline({
 			key,
