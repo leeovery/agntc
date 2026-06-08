@@ -3,25 +3,10 @@ import type { Manifest } from "../../src/manifest.js";
 import type { DetectedType } from "../../src/type-detection.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 
-vi.mock("@clack/prompts", () => ({
-	intro: vi.fn(),
-	outro: vi.fn(),
-	spinner: vi.fn(() => ({
-		start: vi.fn(),
-		stop: vi.fn(),
-		message: vi.fn(),
-	})),
-	select: vi.fn(),
-	isCancel: vi.fn(),
-	log: {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		success: vi.fn(),
-		message: vi.fn(),
-	},
-	cancel: vi.fn(),
-}));
+vi.mock("@clack/prompts", async () => {
+	const { mockClack } = await import("../helpers/clack-mock.js");
+	return mockClack({ select: vi.fn(), isCancel: vi.fn() });
+});
 
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/manifest.js")>()),

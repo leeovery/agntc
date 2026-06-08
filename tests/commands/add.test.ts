@@ -15,22 +15,10 @@ import type { DetectedType } from "../../src/type-detection.js";
 import type { UnmanagedResolution } from "../../src/unmanaged-resolve.js";
 
 // Mock all dependencies before importing the module under test
-vi.mock("@clack/prompts", () => ({
-	intro: vi.fn(),
-	outro: vi.fn(),
-	spinner: vi.fn(() => ({
-		start: vi.fn(),
-		stop: vi.fn(),
-		message: vi.fn(),
-	})),
-	log: {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		success: vi.fn(),
-	},
-	cancel: vi.fn(),
-}));
+vi.mock("@clack/prompts", async () => {
+	const { mockClack } = await import("../helpers/clack-mock.js");
+	return mockClack();
+});
 
 vi.mock("../../src/source-parser.js", async (importOriginal) => {
 	const actual =

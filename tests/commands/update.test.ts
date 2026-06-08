@@ -10,23 +10,10 @@ import type { NukeResult } from "../../src/nuke-files.js";
 import type { DetectedType } from "../../src/type-detection.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 
-vi.mock("@clack/prompts", () => ({
-	intro: vi.fn(),
-	outro: vi.fn(),
-	spinner: vi.fn(() => ({
-		start: vi.fn(),
-		stop: vi.fn(),
-		message: vi.fn(),
-	})),
-	log: {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		success: vi.fn(),
-		message: vi.fn(),
-	},
-	cancel: vi.fn(),
-}));
+vi.mock("@clack/prompts", async () => {
+	const { mockClack } = await import("../helpers/clack-mock.js");
+	return mockClack();
+});
 
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/manifest.js")>()),
