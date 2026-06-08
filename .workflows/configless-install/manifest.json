@@ -1,7 +1,7 @@
 {
   "name": "configless-install",
   "work_type": "feature",
-  "status": "in-progress",
+  "status": "completed",
   "created": "2026-06-04",
   "description": "Install any skill or collection from an arbitrary GitHub repo without requiring an agntc.json — auto-detection plus disambiguating flags, with agntc.json optional",
   "phases": {
@@ -228,7 +228,7 @@
     "review": {
       "items": {
         "configless-install": {
-          "status": "in-progress",
+          "status": "completed",
           "reviewed_tasks": [
             "configless-install-1-1",
             "configless-install-1-2",
@@ -287,5 +287,6 @@
         }
       }
     }
-  }
+  },
+  "completed_at": "2026-06-08"
 }
