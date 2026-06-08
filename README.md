@@ -118,7 +118,17 @@ npx agntc@latest add ./local-plugin
 npx agntc@latest add https://gitlab.com/org/repo
 ```
 
-The tool detects plugin type automatically, shows agent multiselect filtered to the plugin's declared agents (pre-selecting detected ones), checks for conflicts, and copies assets to agent-specific directories. When a plugin declares a single agent and it's detected locally, agent selection is auto-skipped.
+The tool detects plugin type from the repo's directory structure (no `agntc.json` required), checks for conflicts, and copies assets to agent-specific directories. Agent selection:
+
+- A unit that **declares** `agents` shows a multiselect filtered to those agents (detected ones pre-selected). When it declares a single agent that's detected locally, selection is auto-skipped.
+- A unit with **no usable `agents`** declaration (configless, empty, or malformed) offers all supported agents (`claude`, `codex`, `cursor`), with detected ones pre-ticked.
+
+**`--plugin` flag** — forces a `skills/`-only source to install as a single bundled plugin instead of the default collection menu. It's a hard error against any non-bundleable structure (a bare skill, or a member-dirs collection).
+
+```bash
+npx agntc@latest add owner/bare-skill-repo               # configless, no agntc.json needed
+npx agntc@latest add owner/skills-repo --plugin          # bundle a skills-only repo as one plugin
+```
 
 **Version constraint behaviour:**
 - Bare `owner/repo` — if the remote has semver tags, the latest is resolved and a `^major.minor.patch` constraint is auto-applied
@@ -196,27 +206,27 @@ The detail view shows constraint info when applicable and flags out-of-constrain
 
 ## Plugin Types
 
-agntc detects plugin type from directory structure, not configuration fields.
+agntc detects plugin type from directory structure, not from configuration fields
+or the presence of `agntc.json` (which is optional — shown below as `← optional`).
 
 ### Bare Skill
 
-Single skill with `SKILL.md` at root:
+`SKILL.md` at root:
 
 ```
 my-skill/
-  agntc.json          ← {"agents": ["claude"]}
   SKILL.md
   references/
     cheatsheet.md
+  agntc.json          ← optional {"agents": ["claude"]}
 ```
 
 ### Multi-Asset Plugin
 
-Multiple asset types in recognized directories:
+A `skills/` dir plus one or more of `agents/` / `hooks/`:
 
 ```
 my-plugin/
-  agntc.json          ← {"agents": ["claude"]}
   skills/
     planning/SKILL.md
     review/SKILL.md
@@ -224,44 +234,61 @@ my-plugin/
     executor.md
   hooks/
     pre-commit.sh
+  agntc.json          ← optional {"agents": ["claude"]}
 ```
 
 ### Collection
 
-Multiple installable units in one repo (no root `agntc.json`):
+Multiple installable member units in one repo. Membership is structural — each child
+dir that itself resolves to a unit (has `SKILL.md`, or its own asset dirs) is a member:
 
 ```
 my-collection/
   README.md
-  go/
-    agntc.json        ← {"agents": ["claude", "codex", "cursor"]}
+  go/                 ← bare-skill member
     SKILL.md
-  python/
-    agntc.json        ← {"agents": ["claude"]}
+    agntc.json        ← optional {"agents": ["claude", "codex", "cursor"]}
+  python/             ← bare-skill member
     SKILL.md
-  complex-tool/
-    agntc.json
+  complex-tool/       ← plugin member
     skills/
     agents/
 ```
 
-Installing from a collection presents a multiselect of available plugins.
+A repo whose root holds only `skills/` is treated as a collection menu of those inner
+skills by default (Vercel-compatible); pass `--plugin` (or set `type: "plugin"`) to
+bundle it as a single plugin instead.
+
+Installing from a collection presents a multiselect of available members. Config-bearing
+and configless members can coexist in the same collection.
 
 ## Plugin Configuration
 
-Every installable unit requires an `agntc.json` at its root:
+`agntc.json` is **optional**. Type, identity, and installability are derived from
+directory structure alone — so any skill, plugin, or collection installs straight
+from a bare git repo with no config at all. When present, `agntc.json` lives inside
+an installable unit (a bare skill, a plugin, or each collection member — never the
+collection container) and carries only author intent that structure can't express:
 
 ```json
 {
-  "agents": ["claude", "codex", "cursor"]
+  "agents": ["claude", "codex", "cursor"],
+  "type": "plugin"
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `agents` | `string[]` | Yes | Agent identifiers this plugin supports |
+| `agents` | `string[]` | No | Restricts which agents this unit targets (a hard ceiling). Absent/empty/malformed → all agents offered. |
+| `type` | `"plugin"` | No | Bundle disambiguator for the one ambiguous shape (a `skills/`-only repo). Any other value is ignored. |
 
 Valid agents: `claude`, `codex`, `cursor`. Unknown values are warned but ignored.
+Config *presence* never signals type, and config reading is lenient — a missing,
+malformed, or empty `agntc.json` is treated as "no usable config", never an error.
+A well-formed `type` that contradicts an unambiguous structure (e.g. `type: "plugin"`
+on a collection) is a hard error.
+
+Installed units never carry `agntc.json` on disk — it's an install-time input, stripped from the destination.
 
 ## Supported Agents
 
@@ -288,12 +315,15 @@ Tracks installations at `.agntc/manifest.json`:
       ".claude/skills/technical-planning/",
       ".claude/agents/task-executor.md"
     ],
+    "type": "plugin",
     "constraint": "^2.1.6"
   }
 }
 ```
 
 The `files` array enables clean removal and nuke-and-reinstall updates. The optional `constraint` field stores the semver range for constrained updates.
+
+The optional `type` field (`"skill"` | `"plugin"`) records the resolved type so `update` replays it (re-installing the same kind) instead of blindly re-detecting — `update` validates the re-cloned tree still supports that type *before* deleting anything (derive-before-delete), and aborts with the install left intact if it doesn't. Legacy manifests without `type` backfill it from the recorded `files` on the next read. A skills-only collection member may also carry an internal `sourceSubpath` recording where in the repo to re-copy it from.
 
 ## License
 
