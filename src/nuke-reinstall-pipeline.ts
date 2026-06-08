@@ -249,15 +249,19 @@ type AgentResolution =
 	| { status: "no-agents" };
 
 /**
- * Resolves the effective agent set. A null config (no agntc.json) imposes no
- * restriction — the entry's recorded agents are kept unchanged. A present config
- * narrows to the intersection; dropping every agent is a no-agents failure.
+ * Resolves the effective agent set. Both an absent config (no agntc.json →
+ * `undefined`) AND a defined-but-empty `agents` array impose no restriction — the
+ * entry's recorded agents are kept unchanged. An empty array carries no usable
+ * author intent (the spec's lenient "no valid constraint" case), so it is treated
+ * identically to no config at all, matching the `add` path. Only a non-empty
+ * config narrows to the intersection; dropping every recorded agent there is a
+ * genuine no-agents failure.
  */
-function resolveAgents(
+export function resolveAgents(
 	entryAgents: AgentId[],
 	configAgents: AgentId[] | undefined,
 ): AgentResolution {
-	if (configAgents === undefined) {
+	if (configAgents === undefined || configAgents.length === 0) {
 		return { status: "ok", effectiveAgents: entryAgents, droppedAgents: [] };
 	}
 

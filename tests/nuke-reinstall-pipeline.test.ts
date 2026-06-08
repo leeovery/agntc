@@ -49,6 +49,7 @@ import { nukeManifestFiles } from "../src/nuke-files.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
+	resolveAgents,
 } from "../src/nuke-reinstall-pipeline.js";
 
 const mockReadConfig = vi.mocked(readConfig);
@@ -481,6 +482,52 @@ describe("executeNukeAndReinstall", () => {
 		});
 	});
 
+	describe("re-cloned empty-agents config (lenient default)", () => {
+		it("treats { agents: [], type } as no restriction: succeeds preserving recorded agents", async () => {
+			mockReadConfig.mockResolvedValue({ agents: [], type: "plugin" });
+			mockPathExists.mockResolvedValue(true);
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					existingEntry: makeEntry({
+						type: "plugin",
+						agents: ["claude", "codex"],
+					}),
+				}),
+			);
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") return;
+			expect(result.entry.agents).toEqual(["claude", "codex"]);
+			expect(result.droppedAgents).toEqual([]);
+			expect(mockCopyPluginAssets).toHaveBeenCalledOnce();
+		});
+
+		it("does not call onAgentsDropped for an empty-agents config", async () => {
+			const onAgentsDropped = vi.fn();
+			mockReadConfig.mockResolvedValue({ agents: [], type: "plugin" });
+			mockPathExists.mockResolvedValue(true);
+			mockCopyPluginAssets.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await executeNukeAndReinstall(
+				makeOptions({
+					existingEntry: makeEntry({
+						type: "plugin",
+						agents: ["claude", "codex"],
+					}),
+					onAgentsDropped,
+				}),
+			);
+
+			expect(onAgentsDropped).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("dropped-agents callback", () => {
 		it("invokes onAgentsDropped when new config removes agents", async () => {
 			const onAgentsDropped = vi.fn();
@@ -785,5 +832,39 @@ describe("executeNukeAndReinstall", () => {
 				}),
 			);
 		});
+	});
+});
+
+describe("resolveAgents", () => {
+	it("imposes no restriction for an empty config array: keeps recorded agents", () => {
+		const result = resolveAgents(["claude", "codex"], []);
+		expect(result).toEqual({
+			status: "ok",
+			effectiveAgents: ["claude", "codex"],
+			droppedAgents: [],
+		});
+	});
+
+	it("imposes no restriction for an undefined config: keeps recorded agents", () => {
+		const result = resolveAgents(["claude", "codex"], undefined);
+		expect(result).toEqual({
+			status: "ok",
+			effectiveAgents: ["claude", "codex"],
+			droppedAgents: [],
+		});
+	});
+
+	it("narrows by intersection for a non-empty config", () => {
+		const result = resolveAgents(["claude", "codex"], ["claude"]);
+		expect(result).toEqual({
+			status: "ok",
+			effectiveAgents: ["claude"],
+			droppedAgents: ["codex"],
+		});
+	});
+
+	it("returns no-agents when a non-empty config is disjoint from recorded agents", () => {
+		const result = resolveAgents(["claude"], ["codex"]);
+		expect(result).toEqual({ status: "no-agents" });
 	});
 });
