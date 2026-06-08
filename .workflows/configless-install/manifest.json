@@ -124,11 +124,11 @@
     "implementation": {
       "items": {
         "configless-install": {
-          "status": "in-progress",
+          "status": "completed",
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
           "analysis_gate_mode": "auto",
-          "fix_attempts": 1,
+          "fix_attempts": 0,
           "analysis_cycle_total": 12,
           "analysis_cycle_session": 6,
           "linters": [
