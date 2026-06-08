@@ -123,8 +123,8 @@
           "fix_gate_mode": "gated",
           "analysis_gate_mode": "auto",
           "fix_attempts": 0,
-          "analysis_cycle_total": 9,
-          "analysis_cycle_session": 3,
+          "analysis_cycle_total": 10,
+          "analysis_cycle_session": 4,
           "linters": [
             {
               "name": "biome",
