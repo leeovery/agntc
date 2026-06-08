@@ -3315,6 +3315,129 @@ describe("add command", () => {
 				expect(mockAddEntry).not.toHaveBeenCalled();
 			});
 		});
+
+		describe("skills-only ROOT default enumerates inner skills (REAL detection)", () => {
+			let realRoot: string;
+
+			async function delegateDetectionToReal(): Promise<void> {
+				const actual = await vi.importActual<
+					typeof import("../../src/type-detection.js")
+				>("../../src/type-detection.js");
+				mockDetectType.mockImplementation(actual.detectType);
+				mockFindPresentAssetDirs.mockImplementation(actual.findPresentAssetDirs);
+			}
+
+			beforeEach(async () => {
+				realRoot = await mkdtemp(join(tmpdir(), "agntc-skillsonly-real-"));
+			});
+
+			afterEach(async () => {
+				await rm(realRoot, { recursive: true, force: true });
+			});
+
+			async function setupSkillsOnlyRoot(): Promise<void> {
+				// Root holds ONLY skills/, with two populated inner skill units.
+				await mkdir(join(realRoot, "skills", "a"), { recursive: true });
+				await writeFile(join(realRoot, "skills", "a", "SKILL.md"), "# a\n");
+				await mkdir(join(realRoot, "skills", "b"), { recursive: true });
+				await writeFile(join(realRoot, "skills", "b", "SKILL.md"), "# b\n");
+
+				mockParseSource.mockReturnValue(COLLECTION_PARSED);
+				mockCloneSource.mockResolvedValue({
+					tempDir: realRoot,
+					commit: "real123",
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockReadManifest.mockResolvedValue(EMPTY_MANIFEST);
+				mockDetectAgents.mockResolvedValue(["claude"]);
+				mockGetDriver.mockReturnValue(FAKE_DRIVER);
+				mockSelectAgents.mockResolvedValue(selected(["claude"]));
+				mockWriteManifest.mockResolvedValue(undefined);
+				mockCleanupTempDir.mockResolvedValue(undefined);
+				mockAddEntry.mockImplementation((manifest, key, entry) => ({
+					...manifest,
+					[key]: entry,
+				}));
+				mockComputeIncomingFiles.mockReturnValue([]);
+				mockCheckFileCollisions.mockReturnValue(new Map());
+				mockCheckUnmanagedConflicts.mockResolvedValue([]);
+				await delegateDetectionToReal();
+			}
+
+			it("offers the inner skills as the selectable menu (dir-relative segments)", async () => {
+				await setupSkillsOnlyRoot();
+				// Select nothing: a deliberate empty selection is a clean abort, but the
+				// menu must already have been offered with the enumerated inner skills.
+				mockSelectCollectionPlugins.mockResolvedValue([]);
+
+				const err = await runAdd("owner/my-collection").catch((e) => e);
+				expect(err).toBeInstanceOf(ExitSignal);
+
+				// The menu is driven by the enumerated inner-skill members.
+				expect(mockSelectCollectionPlugins).toHaveBeenCalledWith({
+					plugins: ["skills/a", "skills/b"],
+					manifest: EMPTY_MANIFEST,
+					manifestKeyPrefix: "owner/my-collection",
+				});
+			});
+
+			it("installs each selected inner skill as a bare skill keyed owner/repo/<name>", async () => {
+				await setupSkillsOnlyRoot();
+				mockSelectCollectionPlugins.mockResolvedValue(["skills/a", "skills/b"]);
+				mockCopyBareSkill
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/a/"] })
+					.mockResolvedValueOnce({ copiedFiles: [".claude/skills/b/"] });
+
+				await runAdd("owner/my-collection");
+
+				// Each member installs via the bare-skill path (not plugin, not skip).
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(2);
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+
+				// copyBareSkill sees the member dir one level into skills/, so the skill
+				// name derives from the basename.
+				const copiedDirs = mockCopyBareSkill.mock.calls.map(
+					(c) => c[0].sourceDir,
+				);
+				expect(copiedDirs).toEqual([
+					join(realRoot, "skills", "a"),
+					join(realRoot, "skills", "b"),
+				]);
+
+				// Manifest keys are the BASENAME, not the skills/<name> segment.
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual([
+					"owner/my-collection/a",
+					"owner/my-collection/b",
+				]);
+				for (const call of mockAddEntry.mock.calls) {
+					expect(call[2]).toMatchObject({ type: "skill" });
+				}
+
+				// No nested-collection misfire on a skills-only inner member.
+				const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+				expect(
+					warnCalls.some((m) => m.includes("nested collections not supported")),
+				).toBe(false);
+			});
+
+			it("installs a subset when only some inner skills are selected", async () => {
+				await setupSkillsOnlyRoot();
+				mockSelectCollectionPlugins.mockResolvedValue(["skills/b"]);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/b/"],
+				});
+
+				await runAdd("owner/my-collection");
+
+				expect(mockCopyBareSkill).toHaveBeenCalledTimes(1);
+				expect(mockCopyBareSkill.mock.calls[0]![0].sourceDir).toBe(
+					join(realRoot, "skills", "b"),
+				);
+				const keys = mockAddEntry.mock.calls.map((c) => c[1]);
+				expect(keys).toEqual(["owner/my-collection/b"]);
+			});
+		});
 	});
 
 	describe("plugin type", () => {

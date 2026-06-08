@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import * as p from "@clack/prompts";
 import { Command } from "commander";
 import { selectAgents } from "../agent-select.js";
@@ -81,16 +81,24 @@ function buildAddEntry(opts: {
 
 /**
  * Derives a collection member's manifest key — the single source for the
- * `direct-path ? manifestKey : ${manifestKey}/${pluginName}` rule shared by the
- * 5a conflict/nuke pass and the step-6 write loop, so the two cannot diverge.
+ * `direct-path ? manifestKey : ${manifestKey}/${basename(segment)}` rule shared
+ * by the 5a conflict/nuke pass and the step-6 write loop, so the two cannot
+ * diverge.
+ *
+ * `memberSegment` is the member's dir-relative path within the collection root
+ * (e.g. "alpha" for a root-child member, "skills/a" for a skills-only inner
+ * skill). Member identity — and therefore the manifest-key segment — is always
+ * the basename, so a skills-only member keys `owner/repo/a`, not
+ * `owner/repo/skills/a`. For root-child members the basename is the segment, so
+ * this is a no-op for them.
  */
 function memberKey(
 	parsed: Awaited<ReturnType<typeof parseSource>>,
-	pluginName: string,
+	memberSegment: string,
 ): string {
 	return parsed.type === "direct-path"
 		? parsed.manifestKey
-		: `${parsed.manifestKey}/${pluginName}`;
+		: `${parsed.manifestKey}/${basename(memberSegment)}`;
 }
 
 interface TagResolutionResult {
@@ -512,12 +520,20 @@ async function runCollectionPipeline(
 	// SHOULD abort the whole pipeline (surfaced via runAdd's outer catch). Agent
 	// resolution is per-member (step 5a): each member runs the Phase 1 selectAgents
 	// contract against its own declared ceiling, so there is no cross-member union.
+	//
+	// Each entry of selectedPlugins is a member's dir-relative SEGMENT: the basename
+	// for a root-child member ("alpha"), or "skills/<name>" for a skills-only inner
+	// skill. The segment locates the on-disk dir (join below); member identity — the
+	// display name and the manifest-key segment — is its basename (memberName /
+	// memberKey). The two are decoupled because a skills-only member's dir path is
+	// one level deeper than its key. The config map is keyed by the segment so the
+	// 5a loop can re-look-up by the same segment it iterates.
 	const pluginConfigs = new Map<string, AgntcConfig | null>();
 
-	for (const pluginName of selectedPlugins) {
-		const pluginDir = join(sourceDir, pluginName);
+	for (const memberSegment of selectedPlugins) {
+		const pluginDir = join(sourceDir, memberSegment);
 		const pluginConfig = await readConfig(pluginDir, { onWarn });
-		pluginConfigs.set(pluginName, pluginConfig);
+		pluginConfigs.set(memberSegment, pluginConfig);
 	}
 
 	// 4. Detect agents once for the whole collection (member-independent signal
@@ -538,14 +554,20 @@ async function runCollectionPipeline(
 		pluginAgentDrivers: AgentWithDriver[];
 	}> = [];
 
-	for (const pluginName of selectedPlugins) {
+	for (const memberSegment of selectedPlugins) {
+		// The iterated value is the member's dir-relative SEGMENT (locates the dir);
+		// memberName is its basename — the member's identity used for every
+		// user-facing field (warnings, results/summary) and the manifest key. They
+		// differ only for a skills-only inner skill (segment "skills/a", name "a").
+		const memberName = basename(memberSegment);
+
 		// Every selected member is present in the map after step 3 (readConfig is
 		// total — it never throws for config problems, so no member is ever absent).
 		// A null config is a legitimate configless member that proceeds via the
 		// configless default; it is never a skip reason here.
-		const pluginConfig = pluginConfigs.get(pluginName) ?? null;
+		const pluginConfig = pluginConfigs.get(memberSegment) ?? null;
 
-		const pluginDir = join(sourceDir, pluginName);
+		const pluginDir = join(sourceDir, memberSegment);
 
 		// Membership rule (spec: "a child with ≥1 asset-kind dir is a plugin
 		// member"): a member with any asset dir at its OWN root is a plugin member,
@@ -556,7 +578,9 @@ async function runCollectionPipeline(
 		// the ambiguity correctly without ever forcing a member-dirs child (which
 		// has ZERO asset dirs at its own root) — that case stays a genuine nested
 		// collection and is still skipped below. forcePlugin on a member-dirs child
-		// would hard-error, so the asset-dir gate is what keeps that path safe.
+		// would hard-error, so the asset-dir gate is what keeps that path safe. A
+		// skills-only ROOT's inner-skill member is a bare skill at its own root
+		// (SKILL.md, no asset dir), so it resolves to bare-skill with no override.
 		const memberHasAssetDirs =
 			(await findPresentAssetDirs(pluginDir)).length > 0;
 		const pluginDetected = await detectType(pluginDir, {
@@ -568,9 +592,9 @@ async function runCollectionPipeline(
 		});
 
 		if (pluginDetected.type === "not-agntc") {
-			onWarn(`${pluginName}: not a valid agntc plugin — skipping`);
+			onWarn(`${memberName}: not a valid agntc plugin — skipping`);
 			results.push({
-				pluginName,
+				pluginName: memberName,
 				status: "skipped",
 				copiedFiles: [],
 				agents: [],
@@ -579,9 +603,9 @@ async function runCollectionPipeline(
 		}
 
 		if (pluginDetected.type === "collection") {
-			onWarn(`${pluginName}: nested collections not supported — skipping`);
+			onWarn(`${memberName}: nested collections not supported — skipping`);
 			results.push({
-				pluginName,
+				pluginName: memberName,
 				status: "skipped",
 				copiedFiles: [],
 				agents: [],
@@ -613,7 +637,7 @@ async function runCollectionPipeline(
 			driver: getDriver(id),
 		}));
 
-		const pluginManifestKey = memberKey(parsed, pluginName);
+		const pluginManifestKey = memberKey(parsed, memberSegment);
 
 		// Copy-safety pre-flight per member (Phase 5). Each member is scanned
 		// independently against the clone root (NOT the unit dir) BEFORE its own
@@ -628,7 +652,7 @@ async function runCollectionPipeline(
 		);
 		if (!memberSymlinkCheck.ok) {
 			results.push({
-				pluginName,
+				pluginName: memberName,
 				status: "failed",
 				copiedFiles: [],
 				agents: [],
@@ -643,9 +667,9 @@ async function runCollectionPipeline(
 			try {
 				await nukeManifestFiles(projectDir, existingPluginEntry.files);
 			} catch {
-				onWarn(`${pluginName}: failed to remove old files — skipping`);
+				onWarn(`${memberName}: failed to remove old files — skipping`);
 				results.push({
-					pluginName,
+					pluginName: memberName,
 					status: "skipped",
 					copiedFiles: [],
 					agents: [],
@@ -669,7 +693,7 @@ async function runCollectionPipeline(
 		currentManifest = conflictResult.updatedManifest;
 		if (!conflictResult.proceed) {
 			results.push({
-				pluginName,
+				pluginName: memberName,
 				status: "skipped",
 				copiedFiles: [],
 				agents: [],
@@ -678,7 +702,7 @@ async function runCollectionPipeline(
 		}
 
 		pluginsToInstall.push({
-			pluginName,
+			pluginName: memberName,
 			pluginDir,
 			pluginDetected,
 			pluginManifestKey,

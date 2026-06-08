@@ -228,6 +228,56 @@ describe("selectCollectionPlugins", () => {
 		expect(mockMultiselect).not.toHaveBeenCalled();
 	});
 
+	it("labels a skills-only inner member by basename while keeping the dir-relative value", async () => {
+		// Skills-only members carry the dir-relative segment skills/<name> as the
+		// value (so the pipeline can locate the dir) but must show — and key — the
+		// basename to the installer.
+		mockMultiselect.mockResolvedValue([]);
+
+		await selectCollectionPlugins({
+			plugins: ["skills/a", "skills/b"],
+			manifest: {},
+			manifestKeyPrefix: "owner/repo",
+		});
+
+		const call = mockMultiselect.mock.calls[0]![0];
+		const aOption = call.options.find(
+			(o: { value: string }) => o.value === "skills/a",
+		);
+		expect(aOption?.label).toBe("a");
+	});
+
+	it("marks a skills-only inner member installed via its basename key", async () => {
+		// The member is keyed owner/repo/<basename>, NOT owner/repo/skills/<name>,
+		// so the installed-state hint must look up the basename key.
+		const manifest: Manifest = {
+			"owner/repo/a": {
+				ref: null,
+				commit: "abc123",
+				installedAt: "2026-01-01T00:00:00Z",
+				agents: ["claude"],
+				files: [],
+			},
+		};
+		mockMultiselect.mockResolvedValue([]);
+
+		await selectCollectionPlugins({
+			plugins: ["skills/a", "skills/b"],
+			manifest,
+			manifestKeyPrefix: "owner/repo",
+		});
+
+		const call = mockMultiselect.mock.calls[0]![0];
+		const aOption = call.options.find(
+			(o: { value: string }) => o.value === "skills/a",
+		);
+		const bOption = call.options.find(
+			(o: { value: string }) => o.value === "skills/b",
+		);
+		expect(aOption?.hint).toBe("installed");
+		expect(bOption?.hint).toBeUndefined();
+	});
+
 	it("passes correct options shape to clack multiselect", async () => {
 		mockMultiselect.mockResolvedValue(["alpha"]);
 

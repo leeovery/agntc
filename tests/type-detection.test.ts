@@ -147,12 +147,41 @@ describe("detectType", () => {
 	});
 
 	describe("skills-only (ambiguous)", () => {
-		it("defaults skills-only root to collection", async () => {
+		it("defaults a populated skills-only root to a collection of the inner skills", async () => {
+			// Vercel discoverSkills semantics: walk one level into skills/ and offer
+			// each skills/<name>/SKILL.md as an independently-installable member. The
+			// member segment carries the dir-relative path (skills/<name>) so the
+			// pipeline can both locate the dir and key it by basename.
+			await createFile("skills", "a", "SKILL.md");
+			await createFile("skills", "b", "SKILL.md");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({
+				type: "collection",
+				plugins: ["skills/a", "skills/b"],
+			});
+		});
+
+		it("defaults an empty skills-only root to a no-member outcome (no crash)", async () => {
+			// Genuinely-empty skills/ has no inner units to enumerate; an empty
+			// member list is the existing not-actionable outcome, not a defect.
 			await createDir("skills");
 
 			const result = await detectType(testDir, {});
 
 			expect(result).toEqual({ type: "collection", plugins: [] });
+		});
+
+		it("ignores a skills/ child that is not itself a unit", async () => {
+			// A child of skills/ without SKILL.md (and no asset dir of its own) is not
+			// an installable skill, so it is excluded from the enumerated members.
+			await createFile("skills", "a", "SKILL.md");
+			await createFile("skills", "notes", "readme.txt");
+
+			const result = await detectType(testDir, {});
+
+			expect(result).toEqual({ type: "collection", plugins: ["skills/a"] });
 		});
 	});
 
@@ -269,16 +298,18 @@ describe("detectType", () => {
 	});
 
 	describe("override resolution", () => {
-		it("bundles skills-only as plugin with config type plugin", async () => {
-			await createDir("skills");
+		it("bundles a populated skills-only root as plugin with config type plugin", async () => {
+			await createFile("skills", "a", "SKILL.md");
+			await createFile("skills", "b", "SKILL.md");
 
 			const result = await detectType(testDir, { configType: "plugin" });
 
 			expect(result).toEqual({ type: "plugin", assetDirs: ["skills"] });
 		});
 
-		it("bundles skills-only as plugin with forcePlugin", async () => {
-			await createDir("skills");
+		it("bundles a populated skills-only root as plugin with forcePlugin", async () => {
+			await createFile("skills", "a", "SKILL.md");
+			await createFile("skills", "b", "SKILL.md");
 
 			const result = await detectType(testDir, { forcePlugin: true });
 
@@ -286,7 +317,7 @@ describe("detectType", () => {
 		});
 
 		it("bundles skills-only as plugin when both overrides agree", async () => {
-			await createDir("skills");
+			await createFile("skills", "a", "SKILL.md");
 
 			const result = await detectType(testDir, {
 				configType: "plugin",
@@ -296,12 +327,16 @@ describe("detectType", () => {
 			expect(result).toEqual({ type: "plugin", assetDirs: ["skills"] });
 		});
 
-		it("leaves skills-only as collection with no override", async () => {
-			await createDir("skills");
+		it("enumerates inner skills of a skills-only root as collection with no override", async () => {
+			await createFile("skills", "a", "SKILL.md");
+			await createFile("skills", "b", "SKILL.md");
 
 			const result = await detectType(testDir, {});
 
-			expect(result).toEqual({ type: "collection", plugins: [] });
+			expect(result).toEqual({
+				type: "collection",
+				plugins: ["skills/a", "skills/b"],
+			});
 		});
 
 		it("treats forcePlugin as a no-op on a multi-asset plugin", async () => {

@@ -540,6 +540,144 @@ describe("integration: core workflows", () => {
 			const saved = await readRawManifest(projectDir);
 			expect(saved["owner/configless-plugin"]!.type).toBe("plugin");
 		});
+
+		it("(d) flag-free populated skills-only root enumerates inner skills and installs each as a bare skill", async () => {
+			// Source dir: root holds ONLY skills/ with N populated inner skills,
+			// NO agntc.json and NO --plugin → Vercel discoverSkills default.
+			const repoDir = join(sourceDir, "skills-only-repo");
+			await createFile(repoDir, "skills", "alpha", "SKILL.md");
+			await createFile(repoDir, "skills", "alpha", "references", "g.md");
+			await createFile(repoDir, "skills", "beta", "SKILL.md");
+
+			const agents = [claudeAgent(), codexAgent()];
+
+			// Real detection enumerates the inner skills as collection members,
+			// carrying the dir-relative segment skills/<name> (NOT empty plugins).
+			const detected = await detectType(repoDir, {});
+			expect(detected).toEqual({
+				type: "collection",
+				plugins: ["skills/alpha", "skills/beta"],
+			});
+			if (detected.type !== "collection") throw new Error("unexpected");
+
+			// Install every enumerated member as a bare skill (real driver routing),
+			// keyed owner/repo/<basename> — NOT owner/repo/skills/<name>.
+			let manifest: Manifest = {};
+			for (const segment of detected.plugins) {
+				const memberDir = join(repoDir, segment);
+				const memberName = segment.slice(segment.lastIndexOf("/") + 1);
+
+				// Each inner unit resolves to a bare skill on its own root.
+				const memberDetected = await detectType(memberDir, {});
+				expect(memberDetected.type).toBe("bare-skill");
+
+				const copyResult = await copyBareSkill({
+					sourceDir: memberDir,
+					projectDir,
+					agents,
+				});
+
+				const entry: ManifestEntry = {
+					ref: null,
+					commit: null,
+					installedAt: new Date().toISOString(),
+					agents: ["claude", "codex"],
+					files: copyResult.copiedFiles,
+					type: manifestTypeFromDetected(memberDetected),
+					cloneUrl: null,
+				};
+				manifest = addEntry(
+					manifest,
+					`owner/skills-only-repo/${memberName}`,
+					entry,
+				);
+			}
+			await writeManifest(projectDir, manifest);
+
+			// Each selected skill landed at the bare-skill location for both agents.
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/alpha/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/alpha/references/g.md"),
+				),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".agents/skills/alpha/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/beta/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".agents/skills/beta/SKILL.md")),
+			).toBe(true);
+
+			// Manifest keys are the basenames; each persists type 'skill' with the
+			// bare-skill file paths.
+			const saved = await readRawManifest(projectDir);
+			expect(Object.keys(saved).sort()).toEqual([
+				"owner/skills-only-repo/alpha",
+				"owner/skills-only-repo/beta",
+			]);
+			expect(saved["owner/skills-only-repo/alpha"]!.type).toBe("skill");
+			expect(saved["owner/skills-only-repo/alpha"]!.files.sort()).toEqual([
+				".agents/skills/alpha/",
+				".claude/skills/alpha/",
+			]);
+			expect(saved["owner/skills-only-repo/beta"]!.type).toBe("skill");
+		});
+
+		it("(e) --plugin / type:plugin bundles the same skills-only root as a single plugin", async () => {
+			// Same populated skills-only root, but the install-time override
+			// (--plugin) or author override (config type:plugin) bundles the whole
+			// skills/ dir as ONE plugin — the enumeration must NOT happen.
+			const repoDir = join(sourceDir, "skills-only-bundle");
+			await createFile(repoDir, "skills", "alpha", "SKILL.md");
+			await createFile(repoDir, "skills", "beta", "SKILL.md");
+
+			const agents = [claudeAgent()];
+
+			// Both overrides resolve identically to a single plugin over skills/.
+			const viaFlag = await detectType(repoDir, { forcePlugin: true });
+			const viaConfig = await detectType(repoDir, { configType: "plugin" });
+			expect(viaFlag).toEqual({ type: "plugin", assetDirs: ["skills"] });
+			expect(viaConfig).toEqual({ type: "plugin", assetDirs: ["skills"] });
+			if (viaFlag.type !== "plugin") throw new Error("unexpected");
+
+			// Bundle install: each inner skill copies to the bare-skill location as
+			// a plugin asset (whole repo = one manifest entry, keyed owner/repo).
+			const copyResult = await copyPluginAssets({
+				sourceDir: repoDir,
+				assetDirs: viaFlag.assetDirs,
+				agents,
+				projectDir,
+			});
+
+			const entry: ManifestEntry = {
+				ref: null,
+				commit: null,
+				installedAt: new Date().toISOString(),
+				agents: ["claude"],
+				files: copyResult.copiedFiles,
+				type: manifestTypeFromDetected(viaFlag),
+				cloneUrl: null,
+			};
+			const manifest = addEntry({}, "owner/skills-only-bundle", entry);
+			await writeManifest(projectDir, manifest);
+
+			// Both inner skills installed, but under ONE plugin entry — not split.
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/alpha/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/beta/SKILL.md")),
+			).toBe(true);
+
+			const saved = await readRawManifest(projectDir);
+			expect(Object.keys(saved)).toEqual(["owner/skills-only-bundle"]);
+			expect(saved["owner/skills-only-bundle"]!.type).toBe("plugin");
+		});
 	});
 
 	describe("legacy type backfill round-trip", () => {

@@ -55,11 +55,14 @@ export interface DetectTypeOptions {
  * Internal structural classification of a directory, richer than the public
  * {@link DetectedType} union. The `skills-only` kind captures the structurally
  * ambiguous case (a root containing only `skills/`) so the override layer
- * (task 1-4) can decide between bundling it as a plugin or treating it as a
- * collection. The public union stays stable; mapping happens in detectType.
+ * (task 1-4) can decide between bundling it as a plugin or, by default,
+ * enumerating the inner `skills/<name>` units as a collection. The override
+ * layer needs the already-enumerated inner members for the collection default,
+ * so they ride along on the kind. The public union stays stable; mapping
+ * happens in detectType.
  */
 type StructuralKind =
-	| { kind: "skills-only" }
+	| { kind: "skills-only"; members: string[] }
 	| { kind: "plugin"; assetDirs: AssetType[] }
 	| { kind: "bare-skill" }
 	| { kind: "members"; plugins: string[] }
@@ -90,10 +93,15 @@ export async function detectType(
 			}
 			return { type: "bare-skill" };
 		case "skills-only":
-			// The single ambiguous case overrides resolve.
+			// The single ambiguous case overrides resolve. An override (config
+			// `type: plugin` or `--plugin`) bundles the whole `skills/` dir as one
+			// plugin; the flag-free default treats each inner `skills/<name>` unit as
+			// an independently-installable collection member (Vercel discoverSkills).
+			// Each member carries the dir-relative segment `skills/<name>` so the
+			// pipeline can locate the dir and key it by basename.
 			return wantsPlugin
 				? { type: "plugin", assetDirs: ["skills"] }
-				: { type: "collection", plugins: [] };
+				: { type: "collection", plugins: structure.members };
 		case "members":
 			if (wantsPlugin) {
 				throw new TypeConflictError(
@@ -148,8 +156,10 @@ async function classifyStructure(
 	}
 
 	// Skills-only: structurally ambiguous, resolved by the override layer (1-4).
+	// Enumerate the inner `skills/<name>` units now so the collection default can
+	// offer them; an override ignores `members` and bundles the whole dir instead.
 	if (skillsOnly) {
-		return { kind: "skills-only" };
+		return { kind: "skills-only", members: await scanSkillsOnlyMembers(dir) };
 	}
 
 	if (hasSkillMd) {
@@ -166,29 +176,56 @@ async function classifyStructure(
  * grandchildren and no reliance on `agntc.json`.
  */
 async function scanCollectionMembers(dir: string): Promise<StructuralKind> {
+	const plugins = await scanQualifyingChildDirs(dir);
+
+	if (plugins.length > 0) {
+		return { kind: "members", plugins };
+	}
+
+	return { kind: "none" };
+}
+
+/**
+ * Enumerates the inner `skills/<name>` units of a skills-only root for the
+ * collection default (Vercel discoverSkills: one level into `skills/`, each
+ * child that is itself a unit is a member). Reuses the same one-level
+ * {@link qualifiesAsMember} authority as the root-child scan, then prefixes
+ * each name with the `skills/` dir-relative segment so the pipeline locates the
+ * member at `<root>/skills/<name>` while keying it by basename `<name>`.
+ */
+async function scanSkillsOnlyMembers(root: string): Promise<string[]> {
+	const skillsDir = join(root, "skills");
+	const names = await scanQualifyingChildDirs(skillsDir);
+	return names.map((name) => `skills/${name}`);
+}
+
+/**
+ * The single one-level structural membership scan: returns the sorted names of
+ * the immediate child dirs of `dir` that {@link qualifiesAsMember}. Both the
+ * root-child collection scan and the skills-only inner-skill enumeration consume
+ * this, so one membership authority governs both. A missing/unreadable `dir`
+ * yields no members (the empty/none outcome).
+ */
+async function scanQualifyingChildDirs(dir: string): Promise<string[]> {
 	let entries: Dirent[];
 	try {
 		entries = await readdir(dir, { withFileTypes: true });
 	} catch {
-		return { kind: "none" };
+		return [];
 	}
 
-	const plugins: string[] = [];
+	const names: string[] = [];
 	for (const entry of entries) {
 		if (!entry.isDirectory()) {
 			continue;
 		}
 		if (await qualifiesAsMember(join(dir, entry.name))) {
-			plugins.push(entry.name);
+			names.push(entry.name);
 		}
 	}
 
-	if (plugins.length > 0) {
-		plugins.sort();
-		return { kind: "members", plugins };
-	}
-
-	return { kind: "none" };
+	names.sort();
+	return names;
 }
 
 /**

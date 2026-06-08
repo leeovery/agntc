@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { isCancel, log, multiselect } from "@clack/prompts";
 import type { Manifest } from "./manifest.js";
 
@@ -14,11 +15,17 @@ export async function selectCollectionPlugins(
 		return [];
 	}
 
-	const options = input.plugins.map((name) => {
+	const options = input.plugins.map((segment) => {
+		// A member's array element is its dir-relative segment (e.g. "alpha" for a
+		// root-child member, "skills/a" for a skills-only inner skill). Identity —
+		// the menu label AND the manifest-key segment — is always the basename, so
+		// a skills-only member shows/keys "a", not "skills/a". For root-child
+		// members the basename is the segment, so this is a no-op for them.
+		const name = basename(segment);
 		const key = `${input.manifestKeyPrefix}/${name}`;
 		const isInstalled = key in input.manifest;
 		return {
-			value: name,
+			value: segment,
 			label: name,
 			...(isInstalled ? { hint: "installed" } : {}),
 		};
