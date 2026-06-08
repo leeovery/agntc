@@ -113,11 +113,11 @@
         "configless-install": {
           "status": "in-progress",
           "task_gate_mode": "auto",
-          "fix_gate_mode": "auto",
-          "analysis_gate_mode": "auto",
+          "fix_gate_mode": "gated",
+          "analysis_gate_mode": "gated",
           "fix_attempts": 0,
           "analysis_cycle_total": 6,
-          "analysis_cycle_session": 6,
+          "analysis_cycle_session": 0,
           "linters": [
             {
               "name": "biome",
@@ -133,8 +133,8 @@
             ".claude/skills/typescript-advanced-types",
             ".claude/skills/typescript-pro"
           ],
-          "current_phase": 10,
-          "current_task": "~",
+          "current_phase": 11,
+          "current_task": "configless-install-review-1-2",
           "completed_tasks": [
             "configless-install-1-1",
             "configless-install-1-2",
@@ -178,7 +178,8 @@
             "configless-install-analysis-3-2",
             "configless-install-analysis-4-1",
             "configless-install-analysis-4-2",
-            "configless-install-analysis-5-1"
+            "configless-install-analysis-5-1",
+            "configless-install-review-1-1"
           ],
           "completed_phases": [
             1,

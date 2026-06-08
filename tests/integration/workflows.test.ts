@@ -725,7 +725,7 @@ describe("integration: core workflows", () => {
 		});
 	});
 
-	describe("copy-safety pre-flight gates a real copy", () => {
+	describe("copy-safety guard-level pre-flight gates a real copy", () => {
 		it("(e) aborts before any copy when a source symlink escapes the clone root", async () => {
 			// A secret outside the clone root.
 			const secretDir = join(testDir, "secret");
@@ -781,6 +781,90 @@ describe("integration: core workflows", () => {
 
 			// Should not throw.
 			await scanForEscapingSymlinks(skillDir, sourceDir);
+		});
+	});
+
+	describe("copy-safety pipeline-level blocked outcome aborts update before nuke", () => {
+		it("(e3) blocks an update on an escaping symlink, leaving the recorded install intact", async () => {
+			// Arrange a genuine recorded install: real files on disk + a real
+			// manifest entry for the key (bare-skill install via the real driver).
+			const skillDir = join(sourceDir, "guarded-skill");
+			await createFile(skillDir, "SKILL.md");
+			await createFile(skillDir, "references", "guide.md");
+
+			const agents = [claudeAgent()];
+			const copyResult = await copyBareSkill({
+				sourceDir: skillDir,
+				projectDir,
+				agents,
+			});
+
+			const entry: ManifestEntry = {
+				ref: "v1.0",
+				commit: "v1hash",
+				installedAt: new Date().toISOString(),
+				agents: ["claude"],
+				files: copyResult.copiedFiles,
+				type: "skill",
+				cloneUrl: null,
+			};
+			const manifest = addEntry({}, "owner/guarded-skill", entry);
+			await writeManifest(projectDir, manifest);
+
+			// A secret outside the clone root the symlink will escape to.
+			const secretDir = join(testDir, "secret");
+			await createFile(secretDir, "credentials.txt");
+
+			// Stage the re-cloned source tree the pipeline re-copies from. Keep the
+			// root SKILL.md so the recorded-skill derive predicate WOULD pass — the
+			// block must come from the symlink pre-flight, not a missing SKILL.md.
+			const reclonedDir = join(sourceDir, "guarded-skill-v2");
+			await createFile(reclonedDir, "SKILL.md");
+			await symlink(
+				join(secretDir, "credentials.txt"),
+				join(reclonedDir, "leak.txt"),
+			);
+
+			// Snapshot the on-disk install + the raw manifest entry BEFORE the call.
+			const installedSkillMd = join(
+				projectDir,
+				".claude/skills/guarded-skill/SKILL.md",
+			);
+			const installedGuide = join(
+				projectDir,
+				".claude/skills/guarded-skill/references/guide.md",
+			);
+			expect(await fileExists(installedSkillMd)).toBe(true);
+			expect(await fileExists(installedGuide)).toBe(true);
+			const entryBefore = (await readRawManifest(projectDir))[
+				"owner/guarded-skill"
+			];
+			expect(entryBefore).toBeDefined();
+
+			// Drive the production update pipeline (the same entry point `update`
+			// uses) against the existing recorded install.
+			const result = await executeNukeAndReinstall({
+				key: "owner/guarded-skill",
+				sourceDir: reclonedDir,
+				cloneRoot: reclonedDir,
+				existingEntry: entry,
+				projectDir,
+				newCommit: "v2hash",
+				onWarn: () => {},
+			});
+
+			// Blocked by the symlink-escape pre-flight (not aborted, not removed).
+			expect(result.status).toBe("blocked");
+
+			// Aborted BEFORE nuke: the existing install is still fully on disk.
+			expect(await fileExists(installedSkillMd)).toBe(true);
+			expect(await fileExists(installedGuide)).toBe(true);
+
+			// Manifest entry unchanged from the pre-call snapshot (verified raw).
+			const entryAfter = (await readRawManifest(projectDir))[
+				"owner/guarded-skill"
+			];
+			expect(entryAfter).toEqual(entryBefore);
 		});
 	});
 });
