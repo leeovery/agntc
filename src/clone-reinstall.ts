@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import * as p from "@clack/prompts";
+import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
@@ -359,6 +360,31 @@ export async function cloneAndReinstall(
 		// the unchanged key-derived dir, round-tripping exactly as before. (Legacy
 		// pre-fix skills-only members predate the field and stay on the fallback —
 		// see the known-limitation note in the report; remedy is remove + add.)
+		// Path-traversal containment pre-check (analysis 10-2): the cycle-9
+		// `sourceSubpath` is a second source-derived path component fed into the
+		// join, so it gets add's step-2c lexical containment guard, mirrored here.
+		// Gated BEFORE the join is first read (readConfig + derive-before-delete in
+		// runPipeline both read at the joined path), so a recorded subpath that
+		// lexically escapes the clone (e.g. `../evil`) is rejected pre-flight — no
+		// nuke, no copy, install intact. No-op when sourceSubpath is absent (the
+		// key-derived fallback below); assertSubpathWithinClone already no-ops on
+		// null/undefined/empty. A violation maps to the same clone-failed pre-flight
+		// result this branch already returns, mirroring add's clean abort intent.
+		if (entry.sourceSubpath) {
+			try {
+				assertSubpathWithinClone(tempDir, entry.sourceSubpath);
+			} catch (err) {
+				if (err instanceof PathTraversalError) {
+					return {
+						status: "failed",
+						failureReason: "clone-failed",
+						message: err.message,
+					};
+				}
+				throw err;
+			}
+		}
+
 		const sourceDir = entry.sourceSubpath
 			? join(tempDir, entry.sourceSubpath)
 			: getSourceDirFromKey(tempDir, key);

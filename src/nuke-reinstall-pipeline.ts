@@ -96,10 +96,16 @@ export async function executeNukeAndReinstall(
 	// install-intact posture, but NOT its meaning: this is a copy-safety/security
 	// violation, not a recorded-type change, so the reporting layer must NOT offer
 	// the remove+add remedy (it re-trips the same guard). It is also NOT routed
-	// through copy-failed (which removes the entry). No path-traversal guard here:
-	// update replays a recorded manifest key (getSourceDirFromKey derives the
-	// subdir from the key, not a fresh source-supplied selector), so the symlink
-	// scan is the whole of the update pre-flight.
+	// through copy-failed (which removes the entry). No path-traversal guard HERE:
+	// the lexical containment pre-check lives upstream in cloneAndReinstall's
+	// remote branch, which calls assertSubpathWithinClone(tempDir, sourceSubpath)
+	// before the join (analysis 10-2). It originally lived nowhere because update
+	// replayed only a key-derived subdir (getSourceDirFromKey, not a fresh
+	// source-supplied selector); cycle-9 added `sourceSubpath` as a second
+	// source-derived path component fed into that join, so it now gets add's
+	// step-2c lexical guard too, restoring copy-safety symmetry. By the time the
+	// pipeline runs, `sourceDir` is already confirmed lexically contained; the
+	// symlink scan below remains the content-validation half of the pre-flight.
 	const symlinkCheck = await checkEscapingSymlinks(sourceDir, cloneRoot);
 	if (!symlinkCheck.ok) {
 		return {

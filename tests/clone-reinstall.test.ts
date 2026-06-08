@@ -87,6 +87,7 @@ import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
 import {
 	assertSubpathWithinClone,
+	PathTraversalError,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
@@ -128,6 +129,9 @@ beforeEach(() => {
 	mockPathExists.mockResolvedValue(true);
 	mockWriteManifest.mockResolvedValue(undefined);
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
+	// Default no-op (real guard no-ops for contained subpaths); per-test bodies
+	// override with a throwing impl to drive the traversal-rejection path.
+	mockAssertSubpathWithinClone.mockImplementation(() => {});
 	mockRemoveEntry.mockImplementation((manifest, key) => {
 		const { [key]: _, ...rest } = manifest;
 		return rest;
@@ -1075,6 +1079,117 @@ describe("cloneAndReinstall", () => {
 				});
 
 				expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
+			});
+
+			it("rejects a recorded sourceSubpath that lexically escapes the clone (analysis 10-2)", async () => {
+				// Defense-in-depth parity with add's step-2c pre-flight: the cycle-9
+				// source-derived `sourceSubpath` segment must be lexically contained
+				// BEFORE the join is read. A `..`-escaping value is rejected as a clean
+				// clone-failed pre-flight result — no nuke, no copy, install intact.
+				const entry = makeEntry({
+					type: "skill",
+					files: [".claude/skills/my-skill/"],
+					sourceSubpath: "../evil",
+				});
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockAssertSubpathWithinClone.mockImplementation(() => {
+					throw new PathTraversalError("../evil");
+				});
+
+				const result = await cloneAndReinstall({
+					key: "owner/repo/evil",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					"/tmp/agntc-clone",
+					"../evil",
+				);
+				expect(result.status).toBe("failed");
+				if (result.status === "failed") {
+					expect(result.failureReason).toBe("clone-failed");
+					expect(result.message).toContain("../evil");
+					expect(result.message).toContain("outside the clone root");
+				}
+				// Pre-flight: the guard precedes the source read, nuke, and copy.
+				expect(mockReadConfig).not.toHaveBeenCalled();
+				expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
+				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+				expect(mockCopyBareSkill).not.toHaveBeenCalled();
+				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			});
+
+			it("does NOT remove the manifest entry on a sourceSubpath traversal (install intact)", async () => {
+				const entry = makeEntry({
+					type: "skill",
+					files: [".claude/skills/my-skill/"],
+					sourceSubpath: "../evil",
+				});
+				const manifest: Manifest = { "owner/repo/evil": entry };
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+				mockPathExists.mockResolvedValue(true);
+				mockAssertSubpathWithinClone.mockImplementation(() => {
+					throw new PathTraversalError("../evil");
+				});
+
+				await cloneAndReinstall({
+					key: "owner/repo/evil",
+					entry,
+					projectDir: "/fake/project",
+					manifest,
+				});
+
+				expect(mockRemoveEntry).not.toHaveBeenCalled();
+				expect(mockWriteManifest).not.toHaveBeenCalled();
+			});
+
+			it("a contained sourceSubpath (skills/<name>) passes the guard and reinstalls", async () => {
+				// The guard is a no-op for a contained subpath (real assertSubpath
+				// returns void); the cycle-9 relocation still resolves and copies.
+				const entry = makeEntry({
+					type: "skill",
+					agents: ["claude"],
+					files: [".claude/skills/go/"],
+					sourceSubpath: "skills/go",
+				});
+
+				mockCloneSource.mockResolvedValue({
+					tempDir: "/tmp/agntc-clone",
+					commit: REMOTE_SHA,
+				});
+				mockReadConfig.mockResolvedValue(null);
+				mockPathExists.mockResolvedValue(true);
+				mockCopyBareSkill.mockResolvedValue({
+					copiedFiles: [".claude/skills/go/"],
+				});
+
+				const result = await cloneAndReinstall({
+					key: "owner/repo/go",
+					entry,
+					projectDir: "/fake/project",
+				});
+
+				// Guard invoked against the clone root with the recorded subpath.
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					"/tmp/agntc-clone",
+					"skills/go",
+				);
+				expect(result.status).toBe("success");
+				expect(mockCopyBareSkill).toHaveBeenCalledWith(
+					expect.objectContaining({ sourceDir: "/tmp/agntc-clone/skills/go" }),
+				);
 			});
 
 			it("clean re-cloned tree (no escaping symlink) updates normally", async () => {
