@@ -124,14 +124,6 @@ export interface CloneFailureHandlers<T> {
 }
 
 /**
- * Routes a non-success clone-reinstall result to the matching handler. `status`
- * is the single cross-boundary discriminator for the two structurally-distinct
- * cases — `aborted` (derive-before-delete / symlink escape, install intact) and
- * `no-agents` (lenient skip) — each dispatched on `status` alone. The remaining
- * `failed` family (clone-failed / copy-failed / unknown) is refined by
- * `failureReason`.
- */
-/**
  * Narrows a {@link CloneReinstallResult} to the non-success
  * {@link CloneReinstallFailure} union — the exact set {@link mapCloneFailure}
  * accepts. Co-locates the failure-status set with its mapper so the four
@@ -148,6 +140,16 @@ export function isCloneReinstallFailure(
 	);
 }
 
+/**
+ * Routes a non-success clone-reinstall result to the matching handler, using
+ * `status` as the single cross-boundary discriminator for the three
+ * structurally-distinct cases that leave the existing install intact:
+ * `aborted` (derive-before-delete — re-cloned tree no longer supports the
+ * recorded type), `blocked` (symlink-escape copy-safety — source contains a
+ * link escaping the clone), and `no-agents` (lenient skip — the new config
+ * narrows agents to zero; not a hard error). The remaining `failed` family is
+ * refined on `failureReason` into clone-failed / copy-failed / unknown.
+ */
 export function mapCloneFailure<T>(
 	result: CloneReinstallFailure,
 	handlers: CloneFailureHandlers<T>,
