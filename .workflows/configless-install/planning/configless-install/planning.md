@@ -213,3 +213,14 @@ approved_at: 2026-06-06
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
 | configless-install-analysis-5-1 | Consolidate add.ts manifest-entry literal and collection member-key ternary | buildManifestEntry literal authored at one site, both former call sites invoke the helper, member-key ternary authored once and reused by 5a + step-6, manifest entries and keys byte-for-byte identical for standalone and collection paths, helpers stay local to add.ts, npm test passes unchanged |
+
+### Phase 11: Review Remediation (Cycle 1)
+
+**Goal**: Address findings from Review Remediation (Cycle 1).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| configless-install-review-1-1 | Add integration scenario exercising the update-time symlink-escape pipeline seam (blocked-before-nuke) | drives production executeNukeAndReinstall (not scanForEscapingSymlinks/copyBareSkill directly) on an existing recorded install with escaping symlink in re-cloned source, asserts status === "blocked", asserts install files remain on disk (no nuke before block), asserts manifest entry unchanged via readRawManifest, retains pre-existing guard-level scenario at :729-772 with describe rename distinguishing guard-level from pipeline-level blocked, no mocks introduced, tsc --noEmit clean, full suite passes |
+| configless-install-review-1-2 | Remove the orphaned, now-incorrect JSDoc block above isCloneReinstallFailure | orphaned block at former :126-133 removed, mapCloneFailure gains leading doc correctly listing aborted (derive-before-delete) / blocked (symlink-escape copy-safety) / no-agents (lenient skip) with no symlink-escape-under-aborted conflation, isCloneReinstallFailure retains its own unchanged comment, no code/behaviour change, tsc --noEmit clean, full suite passes (documentation-only edit) |

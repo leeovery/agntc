@@ -3,12 +3,12 @@ scope: configless-install review remediation
 cycle: 1
 source: review
 total_proposed: 2
-gate_mode: gated
+gate_mode: auto
 ---
 # Review Tasks: Configless Install (Cycle 1)
 
 ## Task 1: Add integration scenario exercising the update-time symlink-escape pipeline seam (blocked-before-nuke)
-status: pending
+status: approved
 severity: high
 sources: report (Required Change #1), report-analysis-1-3
 
@@ -42,7 +42,7 @@ sources: report (Required Change #1), report-analysis-1-3
 - Confirm the renamed guard-level scenario still asserts `SymlinkEscapeError` before copy.
 
 ## Task 2: Remove the orphaned, now-incorrect JSDoc block above isCloneReinstallFailure
-status: pending
+status: approved
 severity: medium
 sources: report (Do-now #1), report-analysis-1-6, report-analysis-2-4, report-analysis-3-1
 
