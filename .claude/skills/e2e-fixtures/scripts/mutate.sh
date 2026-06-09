@@ -35,6 +35,7 @@ EOF
 		# recorded type is 'skill' (root SKILL.md) which no longer exists →
 		# derive-before-delete must ABORT and leave the install intact.
 		git -C "$dir" rm -q SKILL.md
+		mkdir -p "$dir/alpha" "$dir/beta"
 		cat >"$dir/alpha/SKILL.md" <<'EOF'
 ---
 name: alpha
