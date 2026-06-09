@@ -10,7 +10,7 @@ import type { UpdateCheckResult } from "../../src/update-check.js";
 // here; the factory contents are delegated to the shared helper.
 vi.mock("@clack/prompts", async () => {
 	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack({ select: vi.fn(), isCancel: vi.fn() });
+	return mockClack({ select: vi.fn(), isCancel: vi.fn(), confirm: vi.fn() });
 });
 
 vi.mock("../../src/manifest.js", async (importOriginal) => {
@@ -119,14 +119,17 @@ const mockLog = vi.mocked(p.log);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockSelect = vi.mocked(p.select);
 const mockIsCancel = vi.mocked(p.isCancel);
+const mockConfirm = vi.mocked(p.confirm);
 
 function makeNewerTagsStatus(tags: string[]): UpdateCheckResult {
 	return { status: "newer-tags", tags };
 }
 
-// File-specific default: most change-version cases run without user cancellation.
+// File-specific default: most change-version cases run without user cancellation
+// and confirm the change.
 beforeEach(() => {
 	mockIsCancel.mockReturnValue(false);
+	mockConfirm.mockResolvedValue(true);
 });
 
 describe("executeChangeVersionAction", () => {
@@ -191,6 +194,30 @@ describe("executeChangeVersionAction", () => {
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe("Cancelled");
 			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("returns changed: false (and does not clone) when the user declines the confirm", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0" });
+			const manifest: Manifest = { [key]: entry };
+			const updateStatus = makeNewerTagsStatus(["v1.1.0", "v2.0.0"]);
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockConfirm.mockResolvedValue(false); // user picks a version, then says no
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				updateStatus,
+			);
+
+			expect(mockConfirm).toHaveBeenCalled();
+			expect(result.changed).toBe(false);
+			expect(result.message).toBe("Cancelled");
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 	});
 

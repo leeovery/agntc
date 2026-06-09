@@ -64,7 +64,16 @@ export async function executeChangeVersionAction(
 		return { changed: false, message: "No tags available for version change" };
 	}
 
-	const tags = await resolveTagsForSelect(key, entry, updateStatus);
+	// Fetching the tag list is a network round-trip (git ls-remote) for constrained
+	// entries — show a spinner so the pause before the version list isn't silent.
+	const spin = p.spinner();
+	spin.start("Fetching available versions...");
+	let tags: string[];
+	try {
+		tags = await resolveTagsForSelect(key, entry, updateStatus);
+	} finally {
+		spin.stop("Fetched available versions");
+	}
 
 	const options = tags.map((tag) => ({
 		value: tag,
@@ -84,6 +93,15 @@ export async function executeChangeVersionAction(
 
 	if (selectedTag === entry.ref) {
 		return { changed: false, message: "Already on this version" };
+	}
+
+	// Changing version re-installs (nuke + re-copy) and pins to the exact tag
+	// (dropping any constraint) — confirm before mutating anything.
+	const confirmed = await p.confirm({
+		message: `Change ${key} to ${selectedTag}? This re-installs it at the new version.`,
+	});
+	if (p.isCancel(confirmed) || !confirmed) {
+		return { changed: false, message: "Cancelled" };
 	}
 
 	const prepared = await prepareReinstall(key, entry, projectDir, {
