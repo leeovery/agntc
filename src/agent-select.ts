@@ -5,8 +5,13 @@ import type { AgentId } from "./drivers/types.js";
 interface SelectAgentsInput {
 	declaredAgents: AgentId[];
 	detectedAgents: AgentId[];
-	/** Prompt heading. Defaults to the standalone-unit wording. */
-	message?: string;
+	/**
+	 * What's being installed, e.g. `the refero-design skill`, `the foo plugin`, or
+	 * `these 3 skills`. The prompt is built as
+	 * `Install ${unitLabel} for which agent(s)?`, with the agent noun pluralised by
+	 * how many options are shown. Omitted → a generic fallback heading.
+	 */
+	unitLabel?: string;
 }
 
 /**
@@ -48,8 +53,15 @@ export async function selectAgents(
 		label: detectedSet.has(id) ? id : `${id} (not detected in project)`,
 	}));
 
+	// Pluralise the agent noun by how many options are actually shown (a single
+	// detected declared agent auto-selects above, so this is usually plural).
+	const noun = candidates.length === 1 ? "agent" : "agents";
+	const message = input.unitLabel
+		? `Install ${input.unitLabel} for which ${noun}?`
+		: "Select agents to install for";
+
 	const result = await multiselect<AgentId>({
-		message: input.message ?? "Select agents to install for",
+		message,
 		options,
 		initialValues,
 		required: false,

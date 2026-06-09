@@ -403,10 +403,12 @@ describe("add command", () => {
 
 			await runAdd("owner/my-skill");
 
-			expect(mockSelectAgents).toHaveBeenCalledWith({
-				declaredAgents: ["claude", "codex"],
-				detectedAgents: ["claude"],
-			});
+			expect(mockSelectAgents).toHaveBeenCalledWith(
+				expect.objectContaining({
+					declaredAgents: ["claude", "codex"],
+					detectedAgents: ["claude"],
+				}),
+			);
 		});
 	});
 
@@ -622,6 +624,7 @@ describe("add command", () => {
 			expect(mockSelectAgents).toHaveBeenCalledWith({
 				declaredAgents: [],
 				detectedAgents: ["claude"],
+				unitLabel: "the my-skill skill",
 			});
 		});
 
@@ -648,6 +651,7 @@ describe("add command", () => {
 			expect(mockSelectAgents).toHaveBeenCalledWith({
 				declaredAgents: [],
 				detectedAgents: ["claude"],
+				unitLabel: "the my-skill plugin",
 			});
 		});
 
@@ -660,6 +664,7 @@ describe("add command", () => {
 			expect(mockSelectAgents).toHaveBeenCalledWith({
 				declaredAgents: ["claude"],
 				detectedAgents: ["claude"],
+				unitLabel: "the my-skill skill",
 			});
 		});
 
@@ -1043,7 +1048,7 @@ describe("add command", () => {
 			expect(mockSelectAgents).toHaveBeenCalledWith({
 				declaredAgents: ["claude", "codex"],
 				detectedAgents: ["claude", "codex"],
-				message: "Select agents to install this collection for",
+				unitLabel: "these 2 skills",
 			});
 		});
 
@@ -1078,7 +1083,7 @@ describe("add command", () => {
 			expect(mockSelectAgents).toHaveBeenCalledWith({
 				declaredAgents: ["claude", "codex", "cursor"],
 				detectedAgents: ["claude"],
-				message: "Select agents to install this collection for",
+				unitLabel: "these 2 skills",
 			});
 		});
 
@@ -2218,7 +2223,7 @@ describe("add command", () => {
 				expect(mockSelectAgents).toHaveBeenCalledWith({
 					declaredAgents: ["claude", "codex"],
 					detectedAgents: ["claude", "codex"],
-					message: "Select agents to install this collection for",
+					unitLabel: "these 2 skills",
 				});
 			});
 
@@ -2260,7 +2265,7 @@ describe("add command", () => {
 				expect(mockSelectAgents).toHaveBeenCalledWith({
 					declaredAgents: ["claude"],
 					detectedAgents: ["claude"],
-					message: "Select agents to install this collection for",
+					unitLabel: "this skill",
 				});
 				const addEntryCalls = mockAddEntry.mock.calls;
 				const pluginAEntry = addEntryCalls.find(
@@ -3060,7 +3065,7 @@ describe("add command", () => {
 				expect(mockSelectAgents).toHaveBeenCalledTimes(1);
 				const call = mockSelectAgents.mock.calls[0]![0];
 				expect(call.declaredAgents).toEqual(["claude"]);
-				expect(call.message).toBe("Select agents to install this collection for");
+				expect(call.unitLabel).toBe("these 2 skills");
 			});
 
 			it("configless-root collection (no root agntc.json) unchanged — collection detected, pipeline runs", async () => {
@@ -3921,10 +3926,12 @@ describe("add command", () => {
 
 			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
 
-			expect(mockSelectAgents).toHaveBeenCalledWith({
-				declaredAgents: ["claude"],
-				detectedAgents: ["claude"],
-			});
+			expect(mockSelectAgents).toHaveBeenCalledWith(
+				expect.objectContaining({
+					declaredAgents: ["claude"],
+					detectedAgents: ["claude"],
+				}),
+			);
 		});
 
 		it("configless subpath sources agents from KNOWN_AGENTS default (declaredAgents:[])", async () => {
@@ -3932,10 +3939,12 @@ describe("add command", () => {
 
 			await runAdd("https://github.com/owner/my-collection/tree/main/pluginA");
 
-			expect(mockSelectAgents).toHaveBeenCalledWith({
-				declaredAgents: [],
-				detectedAgents: ["claude"],
-			});
+			expect(mockSelectAgents).toHaveBeenCalledWith(
+				expect.objectContaining({
+					declaredAgents: [],
+					detectedAgents: ["claude"],
+				}),
+			);
 		});
 
 		it("--plugin bundles a skills-only subpath via copyPluginAssets", async () => {

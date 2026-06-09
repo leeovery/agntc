@@ -124,6 +124,24 @@ function memberSourceSubpath(memberSegment: string): string | undefined {
 	return memberSegment === basename(memberSegment) ? undefined : memberSegment;
 }
 
+/**
+ * A user-facing label for the group of units being installed from a collection,
+ * named by their resolved type (never the internal "member" jargon): "this
+ * skill", "these 3 skills", "these 2 skills and 1 plugin". Drives the
+ * collection-wide agent prompt's `unitLabel`.
+ */
+function describeUnits(types: Array<"bare-skill" | "plugin">): string {
+	const skills = types.filter((t) => t === "bare-skill").length;
+	const plugins = types.length - skills;
+	if (types.length === 1) {
+		return `this ${skills === 1 ? "skill" : "plugin"}`;
+	}
+	const parts: string[] = [];
+	if (skills > 0) parts.push(`${skills} skill${skills === 1 ? "" : "s"}`);
+	if (plugins > 0) parts.push(`${plugins} plugin${plugins === 1 ? "" : "s"}`);
+	return `these ${parts.join(" and ")}`;
+}
+
 interface TagResolutionResult {
 	parsed: Awaited<ReturnType<typeof parseSource>>;
 	constraint: string | undefined;
@@ -354,6 +372,9 @@ export async function runAdd(
 		const agentSelection = await selectAgents({
 			declaredAgents: config?.agents ?? [],
 			detectedAgents,
+			unitLabel: `the ${basename(parsed.manifestKey)} ${
+				detected.type === "plugin" ? "plugin" : "skill"
+			}`,
 		});
 
 		if (
@@ -673,7 +694,7 @@ async function runCollectionPipeline(
 		const selection = await selectAgents({
 			declaredAgents: candidateUnion,
 			detectedAgents,
-			message: "Select agents to install this collection for",
+			unitLabel: describeUnits(installable.map((m) => m.pluginDetected.type)),
 		});
 		// Cancellation or an empty selection aborts the whole collection cleanly —
 		// there is nothing to install for.

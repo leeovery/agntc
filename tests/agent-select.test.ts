@@ -74,6 +74,49 @@ describe("selectAgents", () => {
 		expect(claudeOption?.label).toBe("claude");
 	});
 
+	describe("prompt message", () => {
+		it("builds 'Install <unitLabel> for which agents?' (plural for multiple options)", async () => {
+			mockMultiselect.mockResolvedValue(["claude"]);
+
+			await selectAgents({
+				declaredAgents: ["claude", "codex"],
+				detectedAgents: [],
+				unitLabel: "these 2 skills",
+			});
+
+			const call = mockMultiselect.mock.calls[0]![0];
+			expect(call.message).toBe("Install these 2 skills for which agents?");
+		});
+
+		it("uses singular 'agent' when only one option is shown", async () => {
+			mockMultiselect.mockResolvedValue([]);
+
+			// Single declared agent, NOT detected → one option, no auto-select.
+			await selectAgents({
+				declaredAgents: ["claude"],
+				detectedAgents: [],
+				unitLabel: "the refero-design skill",
+			});
+
+			const call = mockMultiselect.mock.calls[0]![0];
+			expect(call.message).toBe(
+				"Install the refero-design skill for which agent?",
+			);
+		});
+
+		it("falls back to a generic heading when no unitLabel is given", async () => {
+			mockMultiselect.mockResolvedValue(["claude"]);
+
+			await selectAgents({
+				declaredAgents: ["claude", "codex"],
+				detectedAgents: [],
+			});
+
+			const call = mockMultiselect.mock.calls[0]![0];
+			expect(call.message).toBe("Select agents to install for");
+		});
+	});
+
 	it("all declared agents not detected shows all with hint", async () => {
 		mockMultiselect.mockResolvedValue([]);
 
