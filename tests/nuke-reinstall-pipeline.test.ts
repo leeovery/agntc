@@ -114,6 +114,48 @@ describe("executeNukeAndReinstall", () => {
 			expect(result.copiedFiles).toEqual([".claude/skills/my-skill/"]);
 		});
 
+		it("re-copies the bare skill under the manifest-key basename, not basename(sourceDir)", async () => {
+			// Regression: on update/change-version the sourceDir is the random mkdtemp
+			// clone dir, so the re-copy must take its name from the manifest KEY
+			// (owner/repo → "repo"), not basename(tempDir) — otherwise the skill (and
+			// the recorded files) land under a garbage temp-dir name.
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/repo/"],
+			});
+
+			await executeNukeAndReinstall(
+				makeOptions({ key: "owner/repo", sourceDir: "/tmp/agntc-Xy12ab" }),
+			);
+
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({
+					sourceDir: "/tmp/agntc-Xy12ab",
+					skillName: "repo",
+				}),
+			);
+		});
+
+		it("uses the member basename as the skill name for a keyed member", async () => {
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/alpha/"],
+			});
+
+			await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/alpha",
+					sourceDir: "/tmp/agntc-Xy/skills/alpha",
+				}),
+			);
+
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ skillName: "alpha" }),
+			);
+		});
+
 		it("ignores benign added asset dir: replays as skill via copyBareSkill not copyPluginAssets", async () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);

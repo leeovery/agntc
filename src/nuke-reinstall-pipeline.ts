@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { computeAgentChanges } from "./agent-compat.js";
 import { readConfig } from "./config.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
@@ -197,7 +197,16 @@ async function replayRecordedSkill(
 
 	let copiedFiles: string[];
 	try {
-		const bareResult = await copyBareSkill({ sourceDir, projectDir, agents });
+		// Install name = manifest-key basename (identity = repo/unit basename per
+		// spec), NOT basename(sourceDir): for a whole-repo bare skill sourceDir is
+		// the random mkdtemp clone dir, so the re-copy would land under the temp-dir
+		// name (and the manifest would then record it). Mirrors the add path.
+		const bareResult = await copyBareSkill({
+			sourceDir,
+			projectDir,
+			agents,
+			skillName: basename(options.key),
+		});
 		copiedFiles = bareResult.copiedFiles;
 	} catch (err: unknown) {
 		return copyFailed(options.key, err);
