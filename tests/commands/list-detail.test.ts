@@ -111,14 +111,21 @@ describe("renderDetailView", () => {
 			expect(mockLog.info).toHaveBeenCalledWith("Installed: 2026-02-10");
 		});
 
-		it("displays agents joined by comma", async () => {
+		it("displays agents with per-agent counts on one line", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
-				makeInput({ entry: { agents: ["claude", "codex"] } }),
+				makeInput({
+					entry: {
+						agents: ["claude", "codex"],
+						files: [".claude/skills/a/SKILL.md", ".agents/skills/b/SKILL.md"],
+					},
+				}),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude, codex");
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"Agents: claude (1 skill), codex (1 skill)",
+			);
 		});
 
 		it("displays constraint line when entry has constraint", async () => {
@@ -154,7 +161,7 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("  claude: 2 skill(s)");
+			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude (2 skills)");
 		});
 
 		it("displays per-agent asset counts for codex files", async () => {
@@ -163,12 +170,13 @@ describe("renderDetailView", () => {
 			await renderDetailView(
 				makeInput({
 					entry: {
+						agents: ["codex"],
 						files: [".agents/skills/a/SKILL.md"],
 					},
 				}),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("  codex: 1 skill(s)");
+			expect(mockLog.info).toHaveBeenCalledWith("Agents: codex (1 skill)");
 		});
 
 		it("displays mixed asset types for a single agent", async () => {
@@ -187,7 +195,7 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
-				"  claude: 2 skill(s), 1 hook(s)",
+				"Agents: claude (2 skills, 1 hook)",
 			);
 		});
 
@@ -210,23 +218,8 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
-				"  claude: 2 skill(s), 1 hook(s)",
+				"Agents: claude (2 skills, 1 hook), codex (2 skills)",
 			);
-			expect(mockLog.info).toHaveBeenCalledWith("  codex: 2 skill(s)");
-		});
-
-		it("groups unknown prefixes under other agent", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			await renderDetailView(
-				makeInput({
-					entry: {
-						files: ["some/random/file.txt"],
-					},
-				}),
-			);
-
-			expect(mockLog.info).toHaveBeenCalledWith("  other: 1 other");
 		});
 
 		it("counts agent files within an agent group", async () => {
@@ -240,28 +233,21 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("  claude: 1 agent(s)");
+			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude (1 agent)");
 		});
 
-		it("shows no asset lines when files array is empty", async () => {
+		it("lists an agent without counts when it has no files", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(makeInput({ entry: { files: [] } }));
 
-			// With no files, no per-agent lines should be logged
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			const assetLines = infoCalls.filter(
-				(line) =>
-					line.startsWith("  claude:") ||
-					line.startsWith("  codex:") ||
-					line.startsWith("  other:"),
-			);
-			expect(assetLines).toHaveLength(0);
+			// No files → the agent is still listed, just without a count suffix.
+			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude");
 		});
 	});
 
 	describe("file list", () => {
-		it("displays each file with indent", async () => {
+		it("does NOT dump the raw file paths (removed for a cleaner detail view)", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
@@ -272,26 +258,9 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			expect(mockLog.message).toHaveBeenCalledWith(
-				"  .claude/skills/a/SKILL.md",
-			);
-			expect(mockLog.message).toHaveBeenCalledWith("  .claude/hooks/lint.sh");
-		});
-
-		it("displays all files when many are present", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			const files = Array.from(
-				{ length: 20 },
-				(_, i) => `.claude/skills/skill-${i}/SKILL.md`,
-			);
-
-			await renderDetailView(makeInput({ entry: { files } }));
-
-			expect(mockLog.message).toHaveBeenCalledTimes(20);
-			for (const file of files) {
-				expect(mockLog.message).toHaveBeenCalledWith(`  ${file}`);
-			}
+			const messages = mockLog.message.mock.calls.map((c) => c[0] as string);
+			expect(messages.some((m) => m.includes(".claude/skills/"))).toBe(false);
+			expect(messages.some((m) => m.includes(".claude/hooks/"))).toBe(false);
 		});
 	});
 
@@ -518,7 +487,7 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
-				"v2.0.0 available (outside constraint)",
+				"Constraint: ^1.0.0 (v2.0.0 available outside constraint)",
 			);
 		});
 
@@ -558,7 +527,7 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
-				"v2.0.0 available (outside constraint)",
+				"Constraint: ^1.0.0 (v2.0.0 available outside constraint)",
 			);
 		});
 

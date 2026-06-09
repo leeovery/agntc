@@ -114,16 +114,22 @@ describe("runListLoop", () => {
 		});
 	});
 
-	describe("Done selection", () => {
-		it("exits loop when user selects Done", async () => {
+	describe("no Done pseudo-entry", () => {
+		it("does not add a 'Done' option to the list (Esc exits instead)", async () => {
 			const manifest = makeManifest(["owner/skill"]);
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValue("__done__");
+			mockSelect.mockResolvedValue(Symbol("cancel"));
 
 			await runListLoop();
 
-			expect(mockSelect).toHaveBeenCalledTimes(1);
+			const options = mockSelect.mock.calls[0]![0].options as Array<{
+				value: string;
+				label: string;
+			}>;
+			expect(
+				options.some((o) => o.value === "__done__" || o.label === "Done"),
+			).toBe(false);
 			expect(mockRenderDetailView).not.toHaveBeenCalled();
 		});
 	});
@@ -155,8 +161,8 @@ describe("runListLoop", () => {
 			// Inner loop reads fresh manifest + checkForUpdate, detail returns "back"
 			mockRenderDetailView.mockResolvedValueOnce("back");
 
-			// Second iteration: user selects Done
-			mockSelect.mockResolvedValueOnce("__done__");
+			// Second iteration: user exits (Esc)
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -194,7 +200,7 @@ describe("runListLoop", () => {
 			// Second outer iteration: reduced manifest
 			mockReadManifestOrExit.mockResolvedValueOnce(reducedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill-b"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -281,7 +287,7 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -334,7 +340,7 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -434,7 +440,7 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -474,7 +480,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/skill", updateStatus]]),
 			);
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -520,7 +526,7 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -574,7 +580,7 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -617,7 +623,7 @@ describe("runListLoop", () => {
 
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -685,7 +691,7 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -695,362 +701,109 @@ describe("runListLoop", () => {
 	});
 
 	describe("label and hint formatting", () => {
-		it("shows key@ref when ref is set", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v2.1.6" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map([["owner/skill", { status: "up-to-date" as const }]]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
+		async function optionFor(
+			entry: Partial<ManifestEntry>,
+			result: UpdateCheckResult,
+		): Promise<{ value: string; label: string; hint: string }> {
+			mockReadManifestOrExit.mockResolvedValue({ "owner/skill": makeEntry(entry) });
+			mockCheckAll.mockResolvedValue(new Map([["owner/skill", result]]));
+			mockSelect.mockResolvedValue(Symbol("cancel"));
 			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
+			const options = mockSelect.mock.calls.at(-1)![0].options as Array<{
 				value: string;
 				label: string;
 				hint: string;
 			}>;
-			const pluginOption = options.find((o) => o.value === "owner/skill");
-			expect(pluginOption!.label).toBe("owner/skill@v2.1.6");
-		});
+			return options.find((o) => o.value === "owner/skill")!;
+		}
 
-		it("shows just key when ref is null", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: null }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map([["owner/skill", { status: "up-to-date" as const }]]),
-			);
-			mockSelect.mockResolvedValue("__done__");
+		const upToDate: UpdateCheckResult = { status: "up-to-date" };
 
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			const pluginOption = options.find((o) => o.value === "owner/skill");
-			expect(pluginOption!.label).toBe("owner/skill");
-		});
-
-		it("shows constraint arrow ref when constraint is present", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v1.2.3", constraint: "^1.0" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map([["owner/skill", { status: "up-to-date" as const }]]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			const pluginOption = options.find((o) => o.value === "owner/skill");
-			expect(pluginOption!.label).toBe("owner/skill  ^1.0 \u2192 v1.2.3");
-		});
-
-		it("shows constraint without arrow when constraint is present but ref is null", async () => {
-			const manifest: Manifest = {
-				"owner/repo": makeEntry({ ref: null, constraint: "^1.0" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map([["owner/repo", { status: "constrained-no-match" as const }]]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			const pluginOption = options.find((o) => o.value === "owner/repo");
-			expect(pluginOption!.label).toBe("owner/repo  ^1.0");
-		});
-
-		it("shows key@ref for non-constrained entry with tag ref", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v1.2.3" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map([["owner/skill", { status: "up-to-date" as const }]]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			const pluginOption = options.find((o) => o.value === "owner/skill");
-			expect(pluginOption!.label).toBe("owner/skill@v1.2.3");
-		});
-
-		it("shows key@ref for non-constrained entry with branch ref", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "main" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map([["owner/skill", { status: "up-to-date" as const }]]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			const pluginOption = options.find((o) => o.value === "owner/skill");
-			expect(pluginOption!.label).toBe("owner/skill@main");
-		});
-
-		it("shows just key for non-constrained entry with no ref", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: null }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map([["owner/skill", { status: "up-to-date" as const }]]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			const pluginOption = options.find((o) => o.value === "owner/skill");
-			expect(pluginOption!.label).toBe("owner/skill");
-		});
-
-		it("shows correct status hints", async () => {
-			const manifest: Manifest = {
-				"owner/a": makeEntry(),
-				"owner/b": makeEntry(),
-				"owner/c": makeEntry({ ref: "v1.0.0" }),
-				"owner/d": makeEntry(),
-				"owner/e": makeEntry({ ref: null, commit: null }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map<string, UpdateCheckResult>([
-					["owner/a", { status: "up-to-date" }],
-					["owner/b", { status: "update-available", remoteCommit: "x" }],
-					["owner/c", { status: "newer-tags", tags: ["v1.1.0"] }],
-					["owner/d", { status: "check-failed", reason: "timeout" }],
-					["owner/e", { status: "local" }],
-				]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-
-			expect(options.find((o) => o.value === "owner/a")!.hint).toBe(
-				"\u2713 Up to date",
-			);
-			expect(options.find((o) => o.value === "owner/b")!.hint).toBe(
-				"\u2191 Update available",
-			);
-			expect(options.find((o) => o.value === "owner/c")!.hint).toBe(
-				"\u2691 Newer tags available",
-			);
-			expect(options.find((o) => o.value === "owner/d")!.hint).toBe(
-				"\u2717 Check failed",
-			);
-			expect(options.find((o) => o.value === "owner/e")!.hint).toBe(
-				"\u25CF Local",
+		// Label = "<key>  <ref|HEAD|local>"; the constraint is NOT shown in the list.
+		it("labels with the tag when ref is a tag", async () => {
+			expect((await optionFor({ ref: "v2.1.6" }, upToDate)).label).toBe(
+				"owner/skill  v2.1.6",
 			);
 		});
 
-		it("shows constrained-update-available hint with target version", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v1.0.0", constraint: "^1.0" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map<string, UpdateCheckResult>([
-					[
-						"owner/skill",
-						{
-							status: "constrained-update-available",
-							tag: "v1.3.0",
-							commit: "abc123",
-							latestOverall: null,
-						},
-					],
-				]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
-				"\u2191 Update available \u2192 v1.3.0",
+		it("labels with the branch when ref is a branch", async () => {
+			expect((await optionFor({ ref: "main" }, upToDate)).label).toBe(
+				"owner/skill  main",
 			);
 		});
 
-		it("shows constrained-up-to-date hint", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v1.3.0", constraint: "^1.0" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map<string, UpdateCheckResult>([
-					[
-						"owner/skill",
-						{
-							status: "constrained-up-to-date",
-							latestOverall: null,
-						},
-					],
-				]),
-			);
-			mockSelect.mockResolvedValue("__done__");
+		it("labels HEAD when ref is null but a commit exists", async () => {
+			expect(
+				(await optionFor({ ref: null, commit: "a".repeat(40) }, upToDate)).label,
+			).toBe("owner/skill  HEAD");
+		});
 
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
-				"\u2713 Up to date",
+		it("labels local when ref and commit are null", async () => {
+			expect((await optionFor({ ref: null, commit: null }, upToDate)).label).toBe(
+				"owner/skill  local",
 			);
 		});
 
-		it("shows constrained-up-to-date hint with out-of-constraint info", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v1.3.0", constraint: "^1.0" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map<string, UpdateCheckResult>([
-					[
-						"owner/skill",
-						{
-							status: "constrained-up-to-date",
-							latestOverall: "v2.0.0",
-						},
-					],
-				]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
-				"\u2713 Up to date (v2.0.0 available outside constraint)",
-			);
+		it("does not put the constraint in the list label", async () => {
+			expect(
+				(await optionFor({ ref: "v1.2.3", constraint: "^1.0" }, upToDate)).label,
+			).toBe("owner/skill  v1.2.3");
 		});
 
-		it("shows constrained-update-available hint with out-of-constraint info", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v1.0.0", constraint: "^1.0" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map<string, UpdateCheckResult>([
-					[
-						"owner/skill",
+		it("shows terse status hints", async () => {
+			expect((await optionFor({}, { status: "up-to-date" })).hint).toBe(
+				"\u2713 up to date",
+			);
+			expect(
+				(await optionFor({}, { status: "update-available", remoteCommit: "x" }))
+					.hint,
+			).toBe("\u2191 update available");
+			expect(
+				(
+					await optionFor(
+						{ ref: "v1.0.0" },
+						{ status: "newer-tags", tags: ["v1.1.0"] },
+					)
+				).hint,
+			).toBe("\u2691 newer tags");
+			expect(
+				(await optionFor({}, { status: "check-failed", reason: "timeout" })).hint,
+			).toBe("\u2717 check failed");
+			expect(
+				(await optionFor({ ref: null, commit: null }, { status: "local" })).hint,
+			).toBe("\u25CF local");
+		});
+
+		it("collapses constrained statuses to terse hints (detail carries the rest)", async () => {
+			expect(
+				(
+					await optionFor(
+						{ ref: "v1.3.0", constraint: "^1.0" },
+						{ status: "constrained-up-to-date", latestOverall: "v2.0.0" },
+					)
+				).hint,
+			).toBe("\u2713 up to date");
+			expect(
+				(
+					await optionFor(
+						{ ref: "v1.0.0", constraint: "^1.0" },
 						{
 							status: "constrained-update-available",
 							tag: "v1.3.0",
 							commit: "abc123",
 							latestOverall: "v2.0.0",
 						},
-					],
-				]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
-				"\u2191 Update available \u2192 v1.3.0 (v2.0.0 outside constraint)",
-			);
-		});
-
-		it("shows constrained-no-match error hint", async () => {
-			const manifest: Manifest = {
-				"owner/skill": makeEntry({ ref: "v1.0.0", constraint: "^2.0" }),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockCheckAll.mockResolvedValue(
-				new Map<string, UpdateCheckResult>([
-					[
-						"owner/skill",
-						{
-							status: "constrained-no-match",
-						},
-					],
-				]),
-			);
-			mockSelect.mockResolvedValue("__done__");
-
-			await runListLoop();
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: string;
-				label: string;
-				hint: string;
-			}>;
-			expect(options.find((o) => o.value === "owner/skill")!.hint).toBe(
-				"\u2717 No matching version",
-			);
+					)
+				).hint,
+			).toBe("\u2191 update available");
+			expect(
+				(
+					await optionFor(
+						{ ref: "v1.0.0", constraint: "^2.0" },
+						{ status: "constrained-no-match" },
+					)
+				).hint,
+			).toBe("\u2717 no matching version");
 		});
 	});
 
@@ -1105,7 +858,7 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 
@@ -1148,7 +901,7 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("__done__");
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
 
 			await runListLoop();
 

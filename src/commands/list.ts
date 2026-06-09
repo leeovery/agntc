@@ -14,50 +14,32 @@ import { renderDetailView } from "./list-detail.js";
 import { executeRemoveAction } from "./list-remove-action.js";
 import { executeUpdateAction } from "./list-update-action.js";
 
-const DONE_VALUE = "__done__";
-
+// The label shows just the unit + its installed version; the constraint and any
+// out-of-constraint version live in the detail view, so the list stays scannable.
 function formatLabel(key: string, entry: ManifestEntry): string {
-	if (entry.constraint) {
-		if (entry.ref !== null) {
-			return `${key}  ${entry.constraint} \u2192 ${entry.ref}`;
-		}
-		return `${key}  ${entry.constraint}`;
-	}
-	if (entry.ref !== null) {
-		return `${key}@${entry.ref}`;
-	}
-	return key;
+	const ref =
+		entry.ref ?? (entry.commit !== null ? "HEAD" : "local");
+	return `${key}  ${ref}`;
 }
 
-function formatOutOfConstraint(latestOverall: string | null): string {
-	if (latestOverall === null) return "";
-	return ` (${latestOverall} outside constraint)`;
-}
-
+// Terse, single-clause status for the select hint (clack wraps it in parens).
+// Rich version detail (which tag, out-of-constraint) is shown in the detail view.
 function formatStatusHint(result: UpdateCheckResult): string {
 	switch (result.status) {
 		case "up-to-date":
-			return "\u2713 Up to date";
+		case "constrained-up-to-date":
+			return "\u2713 up to date";
 		case "update-available":
-			return "\u2191 Update available";
+		case "constrained-update-available":
+			return "\u2191 update available";
 		case "newer-tags":
-			return "\u2691 Newer tags available";
+			return "\u2691 newer tags";
 		case "check-failed":
-			return "\u2717 Check failed";
+			return "\u2717 check failed";
 		case "local":
-			return "\u25CF Local";
-		case "constrained-update-available": {
-			const suffix = formatOutOfConstraint(result.latestOverall);
-			return `\u2191 Update available \u2192 ${result.tag}${suffix}`;
-		}
-		case "constrained-up-to-date": {
-			if (result.latestOverall !== null) {
-				return `\u2713 Up to date (${result.latestOverall} available outside constraint)`;
-			}
-			return "\u2713 Up to date";
-		}
+			return "\u25CF local";
 		case "constrained-no-match":
-			return "\u2717 No matching version";
+			return "\u2717 no matching version";
 	}
 }
 
@@ -79,18 +61,12 @@ async function showListView(
 		};
 	});
 
-	options.push({
-		value: DONE_VALUE,
-		label: "Done",
-		hint: "",
-	});
-
 	const selected = await p.select<string>({
-		message: "Select a plugin to manage",
+		message: "Select a plugin to manage  (Esc when done)",
 		options,
 	});
 
-	if (p.isCancel(selected) || selected === DONE_VALUE) {
+	if (p.isCancel(selected)) {
 		return null;
 	}
 
