@@ -104,12 +104,24 @@ export async function runListLoop(): Promise<void> {
 			continue;
 		}
 
+		// Reuse the status from the list-wide check for the first detail render — no
+		// redundant network round-trip (and no silent pause) on entry. Only re-check
+		// (with a spinner) on later renders, after an action may have changed it.
+		let firstRender = true;
+
 		while (true) {
 			const freshManifest = await readManifest(projectDir);
 			const freshEntry = freshManifest[selectedKey];
 			if (!freshEntry) break;
 
-			const freshStatus = await checkForUpdate(selectedKey, freshEntry);
+			let freshStatus = firstRender ? checkResults.get(selectedKey) : undefined;
+			if (!freshStatus) {
+				const checkSpin = p.spinner();
+				checkSpin.start("Checking for updates...");
+				freshStatus = await checkForUpdate(selectedKey, freshEntry);
+				checkSpin.stop("Update check complete.");
+			}
+			firstRender = false;
 
 			const action = await renderDetailView({
 				key: selectedKey,
