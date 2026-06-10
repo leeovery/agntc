@@ -129,3 +129,22 @@ describe("agntc with unknown command", () => {
 		expect(exitCode).not.toBe(0);
 	});
 });
+
+describe("banner", () => {
+	it("shows on the no-args landing", () => {
+		expect(run([]).stdout).toContain("agent skills installer");
+	});
+
+	it("shows on --help", () => {
+		expect(run(["--help"]).stdout).toContain("agent skills installer");
+	});
+
+	it("shows on a subcommand (always-on)", () => {
+		// list exits 0 even with no manifest; its output should carry the banner
+		expect(run(["list"]).stdout).toContain("agent skills installer");
+	});
+
+	it("is suppressed for --version (clean for scripts)", () => {
+		expect(run(["--version"]).stdout).not.toContain("agent skills installer");
+	});
+});
