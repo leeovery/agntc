@@ -264,109 +264,136 @@ describe("renderDetailView", () => {
 		});
 	});
 
-	describe("actions by status", () => {
-		it("update-available shows Update, Remove, Back", async () => {
+	// Extracts the action options passed to the select prompt from the most
+	// recent renderDetailView call.
+	function renderedActions(): Array<{ value: DetailAction; label: string }> {
+		const selectCall = mockSelect.mock.calls[0]![0];
+		return selectCall.options as Array<{ value: DetailAction; label: string }>;
+	}
+
+	describe("update action by status", () => {
+		// A HEAD-tracking ref (null) so change-version never appears — this isolates
+		// which statuses surface the Update action.
+		const headEntry = { ref: null, commit: "a".repeat(40) };
+
+		it("update-available shows Update", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
+					entry: headEntry,
 					updateStatus: { status: "update-available", remoteCommit: "def456" },
 				}),
 			);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
+			expect(renderedActions()).toEqual([
 				{ value: "update", label: "Update" },
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			]);
 		});
 
-		it("up-to-date shows Remove, Back", async () => {
+		it("local shows Update", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
-				makeInput({ updateStatus: { status: "up-to-date" } }),
+				makeInput({ entry: headEntry, updateStatus: { status: "local" } }),
 			);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
+			expect(renderedActions()).toEqual([
+				{ value: "update", label: "Update" },
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			]);
 		});
 
-		it("newer-tags shows Change version, Remove, Back", async () => {
+		it("up-to-date shows no Update", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({ entry: headEntry, updateStatus: { status: "up-to-date" } }),
+			);
+
+			expect(renderedActions()).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("newer-tags on a HEAD ref shows neither Update nor Change version", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
+					entry: headEntry,
 					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
 			);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
+			expect(renderedActions()).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("constrained-no-match shows no Update", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: headEntry,
+					updateStatus: { status: "constrained-no-match" },
+				}),
+			);
+
+			expect(renderedActions()).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+	});
+
+	describe("change-version availability", () => {
+		it("offers Change version for a tag-pinned install that is up to date", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { ref: "v2.0.0" },
+					updateStatus: { status: "up-to-date" },
+				}),
+			);
+
+			expect(renderedActions()).toEqual([
 				{ value: "change-version", label: "Change version" },
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			]);
 		});
 
-		it("check-failed shows Remove, Back", async () => {
+		it("offers Change version for newer-tags on a tag-pinned install", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
-					updateStatus: { status: "check-failed", reason: "timeout" },
+					entry: { ref: "v1.0.0" },
+					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
 			);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
+			expect(renderedActions()).toEqual([
+				{ value: "change-version", label: "Change version" },
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			]);
 		});
 
-		it("local shows Update, Remove, Back", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			await renderDetailView(makeInput({ updateStatus: { status: "local" } }));
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
-				{ value: "update", label: "Update" },
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			]);
-		});
-
-		it("constrained-update-available shows Update, Change version, Remove, Back", async () => {
+		it("offers Update and Change version for constrained-update-available on a tag-pinned install", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
+					entry: { ref: "v1.2.0" },
 					updateStatus: {
 						status: "constrained-update-available",
 						tag: "v1.3.0",
@@ -376,12 +403,7 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
+			expect(renderedActions()).toEqual([
 				{ value: "update", label: "Update" },
 				{ value: "change-version", label: "Change version" },
 				{ value: "remove", label: "Remove" },
@@ -389,35 +411,12 @@ describe("renderDetailView", () => {
 			]);
 		});
 
-		it("constrained-up-to-date with latestOverall shows Change version, Remove, Back", async () => {
+		it("offers Change version for constrained-up-to-date on a tag-pinned install (even without latestOverall)", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
-					updateStatus: {
-						status: "constrained-up-to-date",
-						latestOverall: "v2.0.0",
-					},
-				}),
-			);
-
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
-				{ value: "change-version", label: "Change version" },
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			]);
-		});
-
-		it("constrained-up-to-date without latestOverall shows Remove, Back", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			await renderDetailView(
-				makeInput({
+					entry: { ref: "v1.2.0" },
 					updateStatus: {
 						status: "constrained-up-to-date",
 						latestOverall: null,
@@ -425,32 +424,73 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
+			expect(renderedActions()).toEqual([
+				{ value: "change-version", label: "Change version" },
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			]);
 		});
 
-		it("constrained-no-match shows Remove, Back", async () => {
+		it("offers Change version for constrained-no-match on a tag-pinned install (recovery path)", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
+					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "constrained-no-match" },
 				}),
 			);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
-			const options = selectCall.options as Array<{
-				value: DetailAction;
-				label: string;
-			}>;
-			expect(options).toEqual([
+			expect(renderedActions()).toEqual([
+				{ value: "change-version", label: "Change version" },
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("does NOT offer Change version when the remote is unreachable (check-failed)", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { ref: "v1.0.0" },
+					updateStatus: { status: "check-failed", reason: "timeout" },
+				}),
+			);
+
+			expect(renderedActions()).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("does NOT offer Change version for a HEAD-tracking install (ref is null)", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { ref: null, commit: "a".repeat(40) },
+					updateStatus: { status: "up-to-date" },
+				}),
+			);
+
+			expect(renderedActions()).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("does NOT offer Change version for a branch-tracking install (ref is not a version)", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { ref: "main", commit: "a".repeat(40) },
+					updateStatus: { status: "up-to-date" },
+				}),
+			);
+
+			expect(renderedActions()).toEqual([
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			]);

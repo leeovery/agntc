@@ -23,6 +23,14 @@ export function normalizeTags(tags: string[]): Map<string, string> {
 	return result;
 }
 
+// A ref is "tag-based" when it cleanly parses as a semver version (e.g. "v2.0.0",
+// "1.4.2"). Branch names and HEAD-tracking refs don't, so this distinguishes a
+// version-pinned install (which can switch to any other tag) from one tracking a
+// moving ref (which can't).
+export function isVersionTag(ref: string | null): boolean {
+	return ref !== null && clean(ref) !== null;
+}
+
 export interface VersionOverrides {
 	newRef: string;
 	newCommit: string;

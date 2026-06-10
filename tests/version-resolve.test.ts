@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	isVersionTag,
 	normalizeTags,
 	resolveLatestVersion,
 	resolveVersion,
@@ -153,5 +154,31 @@ describe("resolveLatestVersion", () => {
 			"v2.0.0-rc.1",
 		]);
 		expect(result).toEqual({ tag: "v1.0.0", version: "1.0.0" });
+	});
+});
+
+describe("isVersionTag", () => {
+	it("recognises a v-prefixed semver tag", () => {
+		expect(isVersionTag("v2.0.0")).toBe(true);
+	});
+
+	it("recognises a bare semver tag", () => {
+		expect(isVersionTag("1.4.2")).toBe(true);
+	});
+
+	it("recognises a pre-release tag", () => {
+		expect(isVersionTag("v2.0.0-beta.1")).toBe(true);
+	});
+
+	it("rejects a branch name", () => {
+		expect(isVersionTag("main")).toBe(false);
+	});
+
+	it("rejects null (HEAD-tracking or local install)", () => {
+		expect(isVersionTag(null)).toBe(false);
+	});
+
+	it("rejects a non-version arbitrary tag", () => {
+		expect(isVersionTag("release-candidate")).toBe(false);
 	});
 });

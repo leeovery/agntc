@@ -9,7 +9,6 @@ import { fetchRemoteTags } from "../git-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, writeManifest } from "../manifest.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
-import type { UpdateCheckResult } from "../update-check.js";
 
 export interface ChangeVersionResult {
 	changed: boolean;
@@ -17,36 +16,10 @@ export interface ChangeVersionResult {
 	message: string;
 }
 
-type ChangeVersionStatus = Extract<
-	UpdateCheckResult,
-	| { status: "newer-tags" }
-	| { status: "constrained-update-available" }
-	| { status: "constrained-up-to-date" }
->;
-
-function isChangeVersionStatus(
-	status: UpdateCheckResult,
-): status is ChangeVersionStatus {
-	return (
-		status.status === "newer-tags" ||
-		status.status === "constrained-update-available" ||
-		status.status === "constrained-up-to-date"
-	);
-}
-
-async function resolveTagsForSelect(
-	key: string,
-	entry: ManifestEntry,
-	updateStatus: ChangeVersionStatus,
-): Promise<string[]> {
-	if (updateStatus.status === "newer-tags") {
-		return [...updateStatus.tags].reverse();
-	}
-
-	const url = deriveCloneUrlFromKey(key, entry.cloneUrl);
-	const remoteTags = await fetchRemoteTags(url);
-	return [...remoteTags].reverse();
-}
+// Cap the visible version list so a repo with hundreds of tags scrolls within a
+// fixed window instead of flooding the terminal. clack's select does the
+// scrolling — this is just the window height.
+const MAX_VISIBLE_VERSIONS = 15;
 
 function stripConstraint(manifestEntry: ManifestEntry): ManifestEntry {
 	const { constraint: _, ...rest } = manifestEntry;
@@ -58,31 +31,35 @@ export async function executeChangeVersionAction(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
-	updateStatus: UpdateCheckResult,
 ): Promise<ChangeVersionResult> {
-	if (!isChangeVersionStatus(updateStatus)) {
-		return { changed: false, message: "No tags available for version change" };
-	}
-
-	// Fetching the tag list is a network round-trip (git ls-remote) for constrained
-	// entries — show a spinner so the pause before the version list isn't silent.
+	// Fetching the full tag list is a network round-trip (git ls-remote) — show a
+	// spinner so the pause before the version list isn't silent.
+	const url = deriveCloneUrlFromKey(key, entry.cloneUrl);
 	const spin = p.spinner();
 	spin.start("Fetching available versions...");
 	let tags: string[];
 	try {
-		tags = await resolveTagsForSelect(key, entry, updateStatus);
+		tags = [...(await fetchRemoteTags(url))].reverse();
 	} finally {
 		spin.stop("Fetched available versions");
 	}
 
+	if (tags.length === 0) {
+		return { changed: false, message: "No tagged versions available" };
+	}
+
+	// Newest-first, with the currently-installed tag flagged so the user can see
+	// where they are and pick anything above (upgrade) or below (downgrade) it.
 	const options = tags.map((tag) => ({
 		value: tag,
 		label: tag,
+		...(tag === entry.ref ? { hint: "current" } : {}),
 	}));
 
 	const selected = await p.select({
 		message: "Select a version",
 		options,
+		maxItems: MAX_VISIBLE_VERSIONS,
 	});
 
 	if (p.isCancel(selected)) {

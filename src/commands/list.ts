@@ -170,7 +170,6 @@ export async function runListLoop(): Promise<void> {
 					freshEntry,
 					freshManifest,
 					projectDir,
-					freshStatus,
 				);
 				if (result.changed) {
 					p.log.success(result.message);

@@ -6,6 +6,7 @@ import {
 	hasOutOfConstraintVersion,
 	type UpdateCheckResult,
 } from "../update-check.js";
+import { isVersionTag } from "../version-resolve.js";
 
 export type DetailAction = "update" | "remove" | "change-version" | "back";
 
@@ -57,59 +58,37 @@ function formatAssetCounts(counts: AssetCounts): string {
 	return parts.join(", ");
 }
 
+// `canChangeVersion` is decided by the caller from the installed ref (tag-based)
+// and reachability — see renderDetailView.
 function getActions(
 	updateResult: UpdateCheckResult,
+	canChangeVersion: boolean,
 ): Array<{ value: DetailAction; label: string }> {
-	switch (updateResult.status) {
-		case "update-available":
-			return [
-				{ value: "update", label: "Update" },
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			];
-		case "constrained-update-available":
-			return [
-				{ value: "update", label: "Update" },
-				{ value: "change-version", label: "Change version" },
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			];
-		case "up-to-date":
-			return [
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			];
-		case "constrained-up-to-date":
-			if (updateResult.latestOverall !== null) {
-				return [
-					{ value: "change-version", label: "Change version" },
-					{ value: "remove", label: "Remove" },
-					{ value: "back", label: "Back" },
-				];
-			}
-			return [
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			];
-		case "newer-tags":
-			return [
-				{ value: "change-version", label: "Change version" },
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			];
-		case "check-failed":
-		case "constrained-no-match":
-			return [
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			];
-		case "local":
-			return [
-				{ value: "update", label: "Update" },
-				{ value: "remove", label: "Remove" },
-				{ value: "back", label: "Back" },
-			];
+	const actions: Array<{ value: DetailAction; label: string }> = [];
+
+	// "Update" applies only when there's an in-range (or HEAD) update to pull.
+	// A tag-pinned install at the latest tag has nothing to "update" — it switches
+	// versions via "Change version" instead.
+	if (
+		updateResult.status === "update-available" ||
+		updateResult.status === "constrained-update-available" ||
+		updateResult.status === "local"
+	) {
+		actions.push({ value: "update", label: "Update" });
 	}
+
+	// "Change version" lets any tag-pinned install jump to any other tag — newer
+	// or older. Gated so HEAD/branch/local installs and unreachable remotes (where
+	// there's no tag list to choose from) don't offer it.
+	if (canChangeVersion) {
+		actions.push({ value: "change-version", label: "Change version" });
+	}
+
+	actions.push(
+		{ value: "remove", label: "Remove" },
+		{ value: "back", label: "Back" },
+	);
+	return actions;
 }
 
 export async function renderDetailView(
@@ -148,7 +127,11 @@ export async function renderDetailView(
 		);
 	}
 
-	const actions = getActions(updateStatus);
+	// A tag-pinned install (ref parses as a version) can switch to any other tag,
+	// but only when we can actually reach the remote to list them.
+	const canChangeVersion =
+		isVersionTag(entry.ref) && updateStatus.status !== "check-failed";
+	const actions = getActions(updateStatus, canChangeVersion);
 
 	const selected = await p.select<DetailAction>({
 		message: "Action",
