@@ -65,16 +65,24 @@ export function formatPluginSummary(
 
 	for (const id of sortByKnownAgents(agentIds)) {
 		const counts = assetCountsByAgent[id];
-		if (!counts) continue;
+		const nonZero = counts
+			? Object.entries(counts)
+					.filter(([, count]) => count > 0)
+					.map(([type, count]) => pluralize(count, type.replace(/s$/, "")))
+					.join(", ")
+			: "";
 
-		const nonZero = Object.entries(counts)
-			.filter(([, count]) => count > 0)
-			.map(([type, count]) => pluralize(count, type.replace(/s$/, "")))
-			.join(", ");
-
-		if (nonZero.length > 0) {
-			rows.push({ name: capitalizeAgentName(id), detail: nonZero });
-		}
+		// A selected agent that received no compatible files is still listed —
+		// silently dropping it leaves the user unsure whether their selection took
+		// effect or errored. (e.g. an agents/hooks-only plugin installed for
+		// codex/cursor, which today only receive skills.)
+		rows.push({
+			name: capitalizeAgentName(id),
+			detail:
+				nonZero.length > 0
+					? nonZero
+					: "nothing to install (no compatible files)",
+		});
 	}
 
 	return alignAgentRows(rows);

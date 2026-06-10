@@ -78,21 +78,44 @@ describe("formatPluginSummary", () => {
 		expect(result).toEqual(["Claude  5 skills"]);
 	});
 
-	it("omits agents with no non-zero counts", () => {
+	it("lists a selected agent whose counts are all zero as 'nothing to install'", () => {
 		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
 			claude: { skills: 3 },
 			codex: { skills: 0, agents: 0 },
 		};
 		const result = formatPluginSummary(["claude", "codex"], assetCounts);
-		expect(result).toEqual(["Claude  3 skills"]);
+		expect(result).toEqual([
+			"Claude  3 skills",
+			"Codex   nothing to install (no compatible files)",
+		]);
 	});
 
-	it("omits agents not in assetCountsByAgent", () => {
+	it("lists a selected agent absent from assetCountsByAgent as 'nothing to install'", () => {
 		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
 			claude: { skills: 2 },
 		};
 		const result = formatPluginSummary(["claude", "codex"], assetCounts);
-		expect(result).toEqual(["Claude  2 skills"]);
+		expect(result).toEqual([
+			"Claude  2 skills",
+			"Codex   nothing to install (no compatible files)",
+		]);
+	});
+
+	it("lists every no-op agent (agents/hooks-only plugin for codex+cursor)", () => {
+		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
+			claude: { agents: 1, hooks: 1 },
+			codex: {},
+			cursor: {},
+		};
+		const result = formatPluginSummary(
+			["claude", "codex", "cursor"],
+			assetCounts,
+		);
+		expect(result).toEqual([
+			"Claude  1 agent, 1 hook",
+			"Codex   nothing to install (no compatible files)",
+			"Cursor  nothing to install (no compatible files)",
+		]);
 	});
 
 	it("uses singular form for count of 1", () => {
@@ -103,7 +126,7 @@ describe("formatPluginSummary", () => {
 		expect(result).toEqual(["Claude  1 skill, 1 agent, 1 hook"]);
 	});
 
-	it("returns [] when no agent has assets", () => {
+	it("returns [] when no agents are selected", () => {
 		expect(formatPluginSummary([], {})).toEqual([]);
 	});
 });

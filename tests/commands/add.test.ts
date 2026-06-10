@@ -3530,7 +3530,7 @@ describe("add command", () => {
 			expect(outroCall).not.toContain("0 agent");
 		});
 
-		it("omits agents with all zero counts from summary", async () => {
+		it("lists a selected agent that received nothing rather than dropping it", async () => {
 			setupPluginPath();
 			mockSelectAgents.mockResolvedValue(selected(["claude", "codex"]));
 			const codexDriver = {
@@ -3551,9 +3551,13 @@ describe("add command", () => {
 
 			await runAdd("owner/my-skill");
 
+			// A selected agent that got no compatible files is still shown (with a
+			// note) so the user knows their selection took effect but was a no-op —
+			// not silently dropped.
 			const outroCall = summaryText();
 			expect(outroCall).toContain("Claude");
-			expect(outroCall).not.toContain("Codex");
+			expect(outroCall).toContain("Codex");
+			expect(outroCall).toContain("nothing to install (no compatible files)");
 		});
 
 		it("shows key without ref when ref is null", async () => {
