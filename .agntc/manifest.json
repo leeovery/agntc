@@ -481,5 +481,31 @@
     "type": "skill",
     "cloneUrl": "https://github.com/Jeffallan/claude-skills.git",
     "installedAt": "2026-06-15T14:32:56.519Z"
+  },
+  "wshobson/agents/plugins/javascript-typescript/skills/typescript-advanced-types": {
+    "ref": "main",
+    "commit": "cc37bfdd292ce520ba1c44df7a3a70d5f8137236",
+    "agents": [
+      "claude"
+    ],
+    "files": [
+      ".claude/skills/typescript-advanced-types/"
+    ],
+    "type": "skill",
+    "cloneUrl": "https://github.com/wshobson/agents.git",
+    "installedAt": "2026-06-15T14:33:28.248Z"
+  },
+  "davila7/claude-code-templates/cli-tool/components/skills/development/typescript-expert": {
+    "ref": "main",
+    "commit": "6772ba97d5b016c87f70610429c7c44df934cfe1",
+    "agents": [
+      "claude"
+    ],
+    "files": [
+      ".claude/skills/typescript-expert/"
+    ],
+    "type": "skill",
+    "cloneUrl": "https://github.com/davila7/claude-code-templates.git",
+    "installedAt": "2026-06-15T14:33:48.062Z"
   }
 }
