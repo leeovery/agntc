@@ -57,6 +57,8 @@ interface SingleUpdateResult {
 }
 
 export async function runUpdate(key?: string): Promise<void> {
+	p.intro("agntc update");
+
 	if (key === undefined) {
 		await runAllUpdates();
 		return;

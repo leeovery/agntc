@@ -8,6 +8,7 @@ vi.mock("@clack/prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@clack/prompts")>();
 	return {
 		...actual,
+		intro: vi.fn(),
 		outro: vi.fn(),
 		spinner: vi.fn(() => ({
 			start: vi.fn(),
@@ -101,6 +102,16 @@ beforeEach(() => {
 });
 
 describe("runListLoop", () => {
+	describe("intro", () => {
+		it("shows the 'agntc list' intro", async () => {
+			mockReadManifestOrExit.mockResolvedValue({});
+
+			await runListLoop();
+
+			expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc list");
+		});
+	});
+
 	describe("empty manifest", () => {
 		it("shows empty message and exits loop", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});

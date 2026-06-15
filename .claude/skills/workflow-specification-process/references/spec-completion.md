@@ -82,6 +82,16 @@ If any tracking file still shows `status: in-progress`, mark it complete now.
 
 > **CHECKPOINT**: Do not proceed to sign-off if any tracking files still show `status: in-progress`. They indicate incomplete review work.
 
+Also confirm every consult reference is addressed:
+
+```bash
+node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.specification.{topic} consult_references
+```
+
+If any show `status: pending`, work them now per **[spec-construction.md](spec-construction.md)** → Read Consult References Narrowly — read the sibling slice, apply or cite the correction, record it in Working Notes, then mark `addressed`.
+
+> **CHECKPOINT**: Do not proceed to sign-off while any consult reference is `pending`. The owed correction has not been reconciled.
+
 → Proceed to **C. Sign-Off**.
 
 ---
@@ -125,6 +135,7 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.speci
 Specification is complete when:
 - All topics have validated content
 - All sources are marked as `incorporated`
+- All consult references are marked as `addressed`
 - At least one review cycle completed with no findings, OR user explicitly chose to proceed past the re-loop prompt
 - All review tracking files marked `status: complete`
 - User confirms the specification is complete
@@ -156,7 +167,9 @@ If the index command fails, display the error but do not block — the artifact 
 
 If any of your sources were **existing specifications** (as opposed to discussions, research, or other reference material), these have now been consolidated into the new specification.
 
-1. Mark each source specification as superseded via manifest CLI:
+Only supersede sources whose status is **not** `proposed`. A proposed source is an analyzed grouping with no specification file — absorbing it is a delete handled by reconcile, never a supersede.
+
+1. Mark each non-proposed source specification as superseded via manifest CLI:
    ```bash
    node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{source-topic} status superseded
    node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{source-topic} superseded_by {topic}

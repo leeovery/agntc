@@ -4,6 +4,15 @@
 
 ---
 
+**Consult references** — if the selected grouping owes any (a `**Consult**` line in the consolidation-analysis doc, or a `consult_references` entry on the spec), append this block to the confirmation below, after the sources listing; omit it when there are none:
+
+> *Output the next fenced block as a code block:*
+
+```
+Consult references (read narrowly — do not extract):
+  • {ref-topic} — {slice hint}
+```
+
 ## A. Display Confirmation
 
 #### If no source discussions have individual specs
@@ -35,6 +44,8 @@ Proceed?
 → Proceed to **B. Handle Response**.
 
 #### If any source discussion has an individual spec
+
+`has_individual_spec` is computed proposed-blind — a discussion that appears only in a proposed grouping does not count as having an individual spec, so a proposed item never lands here for supersession.
 
 Note the supersession (`has_individual_spec: true`):
 

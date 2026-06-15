@@ -7,7 +7,7 @@
 Follow stages A through F sequentially for each topic in the specification. Each topic completes a full cycle before the next begins.
 
 ```
-A. Exhaustive extraction from sources
+A. Exhaustive extraction from sources (incl. consult references read narrowly)
 B. Synthesize and present for approval
 C. Discuss and refine (if needed)
 D. Approval gate
@@ -24,6 +24,8 @@ F. Topic complete → loop back to A or exit
 When working with multiple sources, search each one — information about a single topic may be scattered across documents.
 
 ### Context Resurfacing
+
+This gate stays gated even when `construction_gate_mode` is `auto` — it changes already-approved content, so it always stops for confirmation.
 
 When extraction reveals information that affects **already-logged topics**, resurface them immediately. Even mid-discussion — interrupt, flag what you found, and discuss whether it changes anything.
 
@@ -82,11 +84,27 @@ Work through the changes per **C. Discuss and Refine**, then re-present the diff
 
 Better to resurface and confirm "already covered" than let something slip past.
 
+### Read Consult References Narrowly
+
+Consult references are sibling discussions that owe this spec a correction — they are **not** sources. Read only the relevant slice, never the whole document.
+
+List the pending ones (`node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.specification.{topic} consult_references` returns names + status). For each still `pending`:
+
+1. Find its slice hint — the `{ref-topic} — {slice hint}` entry in the handoff's `Consult references` block, or, if the handoff is no longer in context (e.g. after a resume), the `**Consult**` line for it in `.workflows/{work_unit}/.state/discussion-consolidation-analysis.md`.
+2. Open the named sibling discussion and read **only** the decisions the slice hint points to — plus its `## Spec hand-offs` section if the discussion happens to have one. Do not extract it wholesale.
+3. Apply the correction to the affected spec content, or cite the sibling decision where the spec defers to it — cite, don't restate. Corrections to already-logged content go through **Context Resurfacing** above. If the correction targets a topic not yet constructed, leave the reference `pending` and revisit it on that topic's cycle.
+4. Once applied or cited, record what was reconciled (which slice, what changed) in the spec's **Working Notes** section and mark the reference addressed:
+   ```bash
+   node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} consult_references.{ref}.status addressed
+   ```
+
+Already-`addressed` references are skipped on later topic cycles.
+
 ---
 
 ## B. Synthesize and Present
 
-Present your understanding to the user **in the format it would appear in the specification**:
+Present your understanding to the user **in the format it would appear in the specification** (shown in both modes):
 
 > *Output the next fenced block as markdown (not a code block):*
 
@@ -96,7 +114,17 @@ Here's what I understand about [topic] based on the reference material. This is 
 [content as rendered markdown]
 ```
 
-Then, **separately from the content above** (clear visual break):
+Then check `construction_gate_mode` via manifest CLI (`node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.specification.{topic} construction_gate_mode`).
+
+#### If `construction_gate_mode` is `auto`
+
+Skip the menu and STOP. The content presented above is logged exactly as shown — auto adds no output of its own.
+
+**CRITICAL**: Auto removes only the approval STOP — process one topic at a time (extract → present → log → commit → next). Never generate multiple topics, or the whole specification, in a single pass. Commit after each topic.
+
+→ Proceed to **E. Log and Commit**.
+
+#### If `construction_gate_mode` is `gated`
 
 > *Output the next fenced block as markdown (not a code block):*
 
@@ -105,13 +133,26 @@ Then, **separately from the content above** (clear visual break):
 Record this to the specification verbatim?
 
 - **`y`/`yes`** — Add exactly as shown, no modifications
+- **`a`/`auto`** — Add this and all remaining topics automatically
 - **Tell me what to change** — Revise before recording
 · · · · · · · · · · · ·
 ```
 
-Content and choices must be visually distinct (not run together).
+**STOP.** Wait for user response.
 
-> **CHECKPOINT**: After presenting, you MUST STOP and wait for the user's response. Do NOT proceed to logging. Do NOT present the next topic. WAIT.
+#### If `yes`
+
+→ Proceed to **E. Log and Commit**.
+
+#### If `auto`
+
+Set `construction_gate_mode` to `auto` via manifest CLI (`node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} construction_gate_mode auto`).
+
+→ Proceed to **E. Log and Commit**.
+
+#### If the user provides feedback
+
+→ Proceed to **C. Discuss and Refine**.
 
 ---
 

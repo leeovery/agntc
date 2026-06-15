@@ -104,9 +104,9 @@ function phaseStatus(manifest, phase) {
     if (keys.length === 0) return null;
     if (keys.length === 1) {
       const status = (p.items[keys[0]] || {}).status || null;
-      return (status === 'cancelled' || status === 'superseded') ? null : status;
+      return (status === 'cancelled' || status === 'superseded' || status === 'proposed') ? null : status;
     }
-    const statuses = keys.map(k => (p.items[k] || {}).status).filter(s => s && s !== 'cancelled' && s !== 'superseded');
+    const statuses = keys.map(k => (p.items[k] || {}).status).filter(s => s && s !== 'cancelled' && s !== 'superseded' && s !== 'proposed');
     if (statuses.length === 0) return null;
     if (statuses.every(s => s === 'completed')) return 'completed';
     if (statuses.some(s => s === 'in-progress')) return 'in-progress';
@@ -142,6 +142,12 @@ function computeNextPhase(manifest) {
   }
 
   if (ps('review') === 'completed') {
+    // Phase aggregation only covers topics that have reached the phase. For
+    // an epic, one topic completing review must not mark the whole epic done
+    // — completion is the explicit status flip, never derived.
+    if (wt === 'epic') {
+      return { next_phase: 'review', phase_label: 'review completed for current topics' };
+    }
     return { next_phase: 'done', phase_label: 'pipeline complete' };
   }
   if (ps('review') === 'in-progress') {

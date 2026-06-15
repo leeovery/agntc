@@ -1,7 +1,7 @@
 'use strict';
 
 const path = require('path');
-const { loadActiveManifests, loadAllManifests, loadManifest, phaseItems, phaseData, computeTopicLifecycle, computeNextAction, computeMapSummary, computeSourceProvenance, computeAnalysisCacheStatus, compareMapRows, computeNeedsSequencing } = require('../../workflow-shared/scripts/discovery-utils.cjs');
+const { loadActiveManifests, loadAllManifests, phaseItems, computeTopicLifecycle, computeNextAction, computeMapSummary, computeSourceProvenance, computeAnalysisCacheStatus, compareMapRows, computeNeedsSequencing } = require('../../workflow-shared/scripts/discovery-utils.cjs');
 
 const EPIC_PHASES = ['discovery', 'research', 'discussion', 'specification', 'planning', 'implementation', 'review'];
 
@@ -16,7 +16,7 @@ function lastCompletedPhaseEpic(manifest) {
   return last;
 }
 
-function resolveDeps(cwd, manifest, planItem) {
+function resolveDeps(manifest, planItem) {
   const externalDepsObj = (planItem.external_dependencies && typeof planItem.external_dependencies === 'object' && !Array.isArray(planItem.external_dependencies))
     ? planItem.external_dependencies
     : {};
@@ -31,10 +31,12 @@ function resolveDeps(cwd, manifest, planItem) {
       depsSatisfied = false;
       depsBlocking.push({ topic: dep.topic, reason: 'dependency unresolved' });
     } else if (dep.state === 'resolved' && dep.internal_id) {
-      const depManifest = loadManifest(cwd, dep.topic);
-      const depImpl = depManifest ? phaseData(depManifest, 'implementation') : {};
+      // Dep topics live in the same work unit — read the implementation item
+      // from this manifest. A completed implementation satisfies the dep even
+      // if the referenced task was skipped or its ID is stale.
+      const depImpl = phaseItems(manifest, 'implementation').find(i => i.name === dep.topic) || {};
       const completedTasks = Array.isArray(depImpl.completed_tasks) ? depImpl.completed_tasks : [];
-      if (!completedTasks.includes(dep.internal_id)) {
+      if (depImpl.status !== 'completed' && !completedTasks.includes(dep.internal_id)) {
         depsSatisfied = false;
         depsBlocking.push({ topic: dep.topic, internal_id: dep.internal_id, reason: 'task not yet completed' });
       }
@@ -58,6 +60,7 @@ function buildAnalysisCaches(cwd, manifest) {
 function buildEpicDetail(cwd, manifest) {
   const phases = {};
   const allSourcedDiscussions = new Set();
+  const groupedDiscussions = new Set();
   const completedItems = [];
   const inProgressItems = [];
   const cancelledItems = [];
@@ -77,15 +80,26 @@ function buildEpicDetail(cwd, manifest) {
           ? item.sources
           : Object.entries(item.sources).map(([topic, data]) => ({ topic, ...data }));
         entry.sources = sourcesArr;
+        // groupedDiscussions tracks every spec item's sources (proposed
+        // included) — a discussion in any spec item is "grouped", which is
+        // what unaccounted_discussions now measures.
         for (const src of sourcesArr) {
-          allSourcedDiscussions.add(src.topic || src.name);
+          groupedDiscussions.add(src.topic || src.name);
+        }
+        // allSourcedDiscussions tracks only materialized items' sources —
+        // a proposed grouping has nothing extracted, so its sources can't
+        // be "reopened". Reopened detection reads this set.
+        if (item.status !== 'proposed') {
+          for (const src of sourcesArr) {
+            allSourcedDiscussions.add(src.topic || src.name);
+          }
         }
       }
 
       // Enrich planning items with format and dependency data
       if (phase === 'planning') {
         if (item.format) entry.format = item.format;
-        const { deps_satisfied, deps_blocking } = resolveDeps(cwd, manifest, item);
+        const { deps_satisfied, deps_blocking } = resolveDeps(manifest, item);
         entry.deps_satisfied = deps_satisfied;
         if (deps_blocking.length > 0) entry.deps_blocking = deps_blocking;
       }
@@ -116,7 +130,7 @@ function buildEpicDetail(cwd, manifest) {
   const discussionItems = phaseItems(manifest, 'discussion');
   const unaccountedDiscussions = [];
   for (const d of discussionItems) {
-    if (d.status === 'completed' && !allSourcedDiscussions.has(d.name)) {
+    if (d.status === 'completed' && !groupedDiscussions.has(d.name)) {
       unaccountedDiscussions.push(d.name);
     }
   }
@@ -132,6 +146,16 @@ function buildEpicDetail(cwd, manifest) {
   const planItems = phaseItems(manifest, 'planning');
   const implItems = phaseItems(manifest, 'implementation');
 
+  // Proposed groupings are actionable from the epic menu — surface them as
+  // start_specification. Pushed before start_planning so they precede it in
+  // pipeline order (spec → planning), which the settled-state recommendation
+  // reads.
+  for (const s of specItems) {
+    if (s.status === 'proposed') {
+      nextPhaseReady.push({ name: s.name, action: 'start_specification', label: 'grouping ready' });
+    }
+  }
+
   const planTopics = new Set(planItems.filter(i => i.status !== 'cancelled').map(i => i.name));
   for (const s of specItems) {
     if (s.status === 'completed' && !planTopics.has(s.name)) {
@@ -143,7 +167,7 @@ function buildEpicDetail(cwd, manifest) {
   for (const p of planItems) {
     if (p.status === 'completed' && !implTopics.has(p.name)) {
       // Check deps before marking as ready for implementation
-      const { deps_satisfied, deps_blocking } = resolveDeps(cwd, manifest, p);
+      const { deps_satisfied, deps_blocking } = resolveDeps(manifest, p);
       if (deps_satisfied) {
         nextPhaseReady.push({ name: p.name, action: 'start_implementation', label: 'plan completed' });
       } else {

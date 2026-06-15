@@ -126,13 +126,13 @@ The display groups every phase under three stage dividers — **DISCOVERY** (res
                custom Vue/Nuxt), JustEat import, staff/roles
                from exploration
       ```
-- **Build-phase sub-headers**: `{phase:(uppercase)} ({phase.count_summary})` — the phase name uppercased (`SPECIFICATION`, `PLANNING`, `IMPLEMENTATION`, `REVIEW`) with a parenthetical count summary combining the statuses present (e.g. `(2 completed)`, `(3 completed, 1 cancelled)`; omit zero counts). The item tree branches directly off the sub-header. Blank line between sub-headers within a stage.
-- **Item rows** (`{item_branch}`): `├─` for non-final items, `└─` for the final item in the phase. Planning items append ` · {format}` after the status.
+- **Build-phase sub-headers**: `{phase:(uppercase)} ({phase.count_summary})` — the phase name uppercased (`SPECIFICATION`, `PLANNING`, `IMPLEMENTATION`, `REVIEW`) with a parenthetical count summary combining the statuses present (e.g. `(2 completed)`, `(1 proposed, 2 completed)`, `(3 completed, 1 cancelled)`; omit zero counts). The item tree branches directly off the sub-header. Blank line between sub-headers within a stage.
+- **Item rows** (`{item_branch}`): `├─` for non-final items, `└─` for the final item in the phase. Planning items append ` · {format}` after the status. Within the specification phase, order proposed items first (analyzed groupings awaiting a start), then the remaining items in their existing order.
 - **Item sub-rows** — specification sources, implementation progress — branch beneath their item via `{child_gutter}` + `{child_branch}`:
   - `{child_gutter}` — under a **non-last item**: 2 spaces, `│`, 2 spaces; under the **last item**: 5 spaces. Both land the child branch at the same column, under the item name.
   - `{child_branch}`: `├─` for non-final children, `└─` for the final (or only) child.
   - Specification source status: `[incorporated]` or `[pending]` from the manifest. Implementation shows `Phase {N}, {M} task(s) completed` when in-progress with `current_phase`, else `{M} task(s) completed` (always a single `└─` child).
-- **Promoted items** render with `[promoted]` in the display but not the menu. **Cancelled items** show `[cancelled]`. Phases with no items don't appear.
+- **Promoted items** render with `[promoted]` in the display but not the menu. **Proposed specs** render with `[proposed]` and surface in the menu as `Start specification` entries (see **C. Menu**). **Cancelled items** show `[cancelled]`. Phases with no items don't appear.
 - **No trailing recommendation callout** in this code block — build-phase recommendations attach to menu entries (see **C. Menu**).
 
 After the render block, run the **Plans Not Ready Check** below; it applies to both this branch and the otherwise branch.
@@ -191,7 +191,8 @@ Group the phases under the same three stage dividers. This branch has no map —
 | In-progress items across multiple phases | No recommendation |
 | Some research in-progress, some completed | "Consider completing remaining research before starting discussion. Topic analysis works best with all research available." |
 | Some discussions in-progress, some completed | "Consider completing remaining discussions before starting specification. The grouping analysis works best with all discussions available." |
-| All discussions completed, specs not started | "All discussions are completed. Specification will analyze and group them." |
+| Proposed groupings exist (specs with status `proposed`) | "{N} analyzed grouping(s) ready to specify. Start them before planning to surface cross-cutting dependencies." |
+| All discussions completed, no specification items exist | "All discussions are completed. Specification will analyze and group them." |
 | Some specs completed, some in-progress | "Completing all specifications before planning helps identify cross-cutting dependencies." |
 | Some plans completed, some in-progress | "Completing all plans before implementation helps surface task dependencies across plans." |
 | Reopened discussion that's a source in a spec | "{Spec} specification sources the reopened {Discussion} discussion. Once that discussion concludes, the specification will need revisiting to extract new content." |
@@ -240,6 +241,7 @@ Show only statuses and categories that appear in the current display. No `---` s
       ⊙  handled                ⊘  cancelled
 
     Status:
+      proposed    — analyzed grouping, not yet started
       in-progress — work is ongoing
       completed   — phase or implementation done
       cancelled   — topic removed from active work
@@ -261,6 +263,7 @@ Show only categories present in the current display: include the Discovery tier 
 ```
   Key:
     Status:
+      proposed    — analyzed grouping, not yet started
       in-progress — work is ongoing
       completed   — phase or implementation done
       cancelled   — topic removed from active work
@@ -305,14 +308,17 @@ Build a menu with two types of options:
      - Implementation in-progress without progress: `Continue "{topic:(titlecase)}" — implementation [in-progress]`
      - Review in-progress: `Continue "{topic:(titlecase)}" — review [in-progress]`
    - From `next_phase_ready`:
+     - Proposed grouping: `Start specification for "{topic:(titlecase)}" — grouping ready`
      - Completed spec with no plan: `Start planning for "{topic:(titlecase)}" — spec completed`
      - Completed plan with no implementation:
        - If `blocked`: shown but not selectable — `Start implementation of "{topic:(titlecase)}" — blocked by {dep_topic}:{internal_id}`
        - Otherwise: `Start implementation of "{topic:(titlecase)}" — plan completed`
      - Completed implementation with no review: `Start review for "{topic:(titlecase)}" — implementation completed`
 
+   Order build-phase entries by pipeline position: specification entries first (earliest in the pipeline), then planning, implementation, review.
+
 **Command options:**
-- **`s`/`spec`** — Start specification — {N} discussion(s) not yet in a spec (only shown if `gating.can_start_specification` is true and `unaccounted_discussions` has items)
+- **`s`/`spec`** — Analyze / regroup discussions (only shown if `gating.can_start_specification` is true). Description adapts: `— {N} discussion(s) not yet grouped` when `unaccounted_discussions` is non-empty, else `— review or regroup specifications`
 - **`d`/`discuss`** — Start a discussion on a new topic (always present)
 - **`r`/`research`** — Start research on a new topic (always present)
 - **`i`/`discovery`** — Continue discovery (always present when `discovery_map` is non-empty)
@@ -332,7 +338,7 @@ Build a menu with two types of options:
 | Convergence state | Recommendation source                                               |
 |-------------------|---------------------------------------------------------------------|
 | `in-progress`     | Top of `discovery_map` — first row with non-null `next_action` (tier order: `→` first, then `◐`, then `○`). Never `✓`, `⊙`, or `⊘`. |
-| `settled`         | First build-phase `next_phase_ready` item in pipeline order (planning before implementation before review). If none, `s`/`spec` when applicable. Otherwise no recommendation. |
+| `settled`         | First build-phase `next_phase_ready` item in pipeline order (specification before planning before implementation before review). A proposed spec's `start_specification` therefore outranks any `start_planning`. If none, `s`/`spec` when applicable. Otherwise no recommendation. |
 
 The recommended item always appears first. Mark it `(recommended)`. After the recommended item, list remaining numbered items in their natural order (discovery topics, then build-phase items), then command options.
 
@@ -350,9 +356,10 @@ What would you like to do?
 - **`2`** — Continue "AI Image Generation" — research
 - **`3`** — Continue "Tenant Onboarding" — discussion
 - **`4`** — Start research for "Customer Portal"
-- **`5`** — Start planning for "Roles And Permissions" — spec completed
+- **`5`** — Start specification for "Billing Grouping" — grouping ready
+- **`6`** — Start planning for "Roles And Permissions" — spec completed
 
-- **`s`/`spec`** — Start specification — 2 discussion(s) not yet in a spec
+- **`s`/`spec`** — Analyze / regroup discussions — 2 discussion(s) not yet grouped
 - **`d`/`discuss`** — Start a discussion on a new topic
 - **`r`/`research`** — Start research on a new topic
 - **`i`/`discovery`** — Continue discovery
@@ -379,7 +386,8 @@ Recreate with actual items from discovery.
   - Implementation in-progress with progress: `Continue "{topic:(titlecase)}" — implementation (Phase {N}, Task {M})`
   - Implementation in-progress without progress: `Continue "{topic:(titlecase)}" — implementation [in-progress]`
   - Other phases: `Continue "{topic:(titlecase)}" — {phase} [in-progress]`
-- Next-phase-ready items from `next_phase_ready` in discovery output:
+- Next-phase-ready items from `next_phase_ready` in discovery output (order specification entries first, then planning, implementation, review):
+  - Proposed grouping: `Start specification for "{topic:(titlecase)}" — grouping ready`
   - Completed spec with no plan: `Start planning for "{topic:(titlecase)}" — spec completed`
   - Completed plan with no implementation:
     - If `blocked`: show but mark as not selectable: `Start implementation of "{topic:(titlecase)}" — blocked by {dep_topic}:{internal_id}`
@@ -387,7 +395,7 @@ Recreate with actual items from discovery.
   - Completed implementation with no review: `Start review for "{topic:(titlecase)}" — implementation completed`
 
 **Command options** — entry-point actions that launch a flow handling its own selection. Use letter shortcuts (first letter of command; second letter if disambiguation needed):
-- **`s`/`spec`** — Start specification — {N} discussion(s) not yet in a spec (only shown if `gating.can_start_specification` is true and `unaccounted_discussions` has items)
+- **`s`/`spec`** — Analyze / regroup discussions (only shown if `gating.can_start_specification` is true). Description adapts: `— {N} discussion(s) not yet grouped` when `unaccounted_discussions` is non-empty, else `— review or regroup specifications`
 - **`d`/`discuss`** — Start new discussion (always present)
 - **`r`/`research`** — Start new research (always present)
 - **`c`/`completed`** — Resume a completed topic (only shown when `completed` items exist)
@@ -402,6 +410,7 @@ Recreate with actual items from discovery.
 - No "Start specification" unless `gating.can_start_specification` is true
 
 **Ordering:** The recommended item always appears first. Mark one item as `(recommended)` based on phase completion state:
+- A proposed grouping exists (a `start_specification` entry in `next_phase_ready`) → first proposed spec "(recommended)"
 - All discussions completed, no specifications exist → `s`/`spec` (recommended)
 - All plannable specifications completed, some without plans → first plannable spec "(recommended)"
 - All plans completed (and deps satisfied), some without implementations → first implementable plan "(recommended)"
@@ -420,12 +429,12 @@ After the recommended item, list remaining numbered items, then command options.
 · · · · · · · · · · · ·
 What would you like to do?
 
-- **`1`** — Start implementation of "Notifications" — plan completed (recommended)
+- **`1`** — Start specification for "Billing Grouping" — grouping ready (recommended)
 - **`2`** — Continue "Auth Flow" — discussion [in-progress]
 - **`3`** — Continue "Caching" — planning [in-progress]
 - **`4`** — Start planning for "User Profiles" — spec completed
 - **`5`** — Start implementation of "Reporting" — blocked by core-features:core-2-3
-- **`s`/`spec`** — Start specification — 3 discussion(s) not yet in a spec
+- **`s`/`spec`** — Analyze / regroup discussions — 3 discussion(s) not yet grouped
 - **`d`/`discuss`** — Start new discussion
 - **`r`/`research`** — Start new research
 - **`c`/`completed`** — Resume a completed topic
@@ -520,7 +529,7 @@ Set selection to `Continue discovery`. The caller routes this to `/workflow-disc
 |---------------------|-----------|--------------|
 | discussion (new or continue) | research items exist with some in-progress | "{N} of {M} research topics still in-progress. Topic analysis works best with all research available." |
 | specification (new or continue) | discussion items exist with some in-progress | "{N} of {M} discussions still in-progress. Grouping analysis works best with all discussions available." |
-| planning | specification items exist with some in-progress | "{N} of {M} specifications still in-progress. Cross-cutting dependencies are easier to identify with all completed." |
+| planning | specification items exist with some in-progress or proposed | "{N} of {M} specifications not yet completed. Completing all specifications first helps identify cross-cutting dependencies." |
 | implementation | planning items exist with some in-progress | "{N} of {M} plans still in-progress. Task dependencies across plans may be missed." |
 
 **If a soft gate condition matches:**
@@ -571,10 +580,11 @@ Store the selected action, phase, and topic (if applicable). Match the user's se
 | Continue {topic} — planning | planning | {topic} |
 | Continue {topic} — implementation | implementation | {topic} |
 | Continue {topic} — review | review | {topic} |
+| Start specification for {topic} | specification | {topic} |
 | Start planning for {topic} | planning | {topic} |
 | Start implementation of {topic} | implementation | {topic} |
 | Start review for {topic} | review | {topic} |
-| Start specification | specification | — |
+| Analyze / regroup discussions | specification | — |
 | Start new discussion | discussion | — |
 | Start new research | research | — |
 | Continue discovery | discovery | — |
@@ -615,7 +625,7 @@ Which topic would you like to resume?
 
 - **`1`** — Resume "{item.name:(titlecase)}" — {item.phase}
 - **`2`** — ...
-- **`{N}`** — Back to main menu
+- **`b`/`back`** — Return to menu
 
 Select an option:
 · · · · · · · · · · · ·
@@ -625,7 +635,7 @@ List all completed items across all phases.
 
 **STOP.** Wait for user response.
 
-#### If user chose `Back to main menu`
+#### If user chose `back`
 
 → Return to **C. Menu**.
 

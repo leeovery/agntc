@@ -157,6 +157,24 @@ beforeEach(() => {
 });
 
 describe("update command", () => {
+	describe("intro", () => {
+		it("shows the 'agntc update' intro (all-plugins mode)", async () => {
+			mockReadManifestOrExit.mockResolvedValue({});
+
+			await runUpdate();
+
+			expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc update");
+		});
+
+		it("shows the 'agntc update' intro (single-key mode)", async () => {
+			mockReadManifestOrExit.mockResolvedValue({});
+
+			await runUpdate("owner/repo");
+
+			expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc update");
+		});
+	});
+
 	describe("all-plugins mode (no key)", () => {
 		it("displays message and exits 0 when manifest is empty", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});

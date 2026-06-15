@@ -40,6 +40,7 @@ const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockConfirm = vi.mocked(p.confirm);
 const mockMultiselect = vi.mocked(p.multiselect);
 const mockOutro = vi.mocked(p.outro);
+const mockIntro = vi.mocked(p.intro);
 const mockCancel = vi.mocked(p.cancel);
 const mockLog = vi.mocked(p.log);
 
@@ -577,6 +578,28 @@ describe("remove command", () => {
 				const call = mockMultiselect.mock.calls[0]![0];
 				const values = call.options.map((o: { value: string }) => o.value);
 				expect(values).toEqual(["owner/repo", "other/plugin"]);
+			});
+
+			it("shows the 'agntc remove' intro before the multiselect", async () => {
+				const manifest: Manifest = {
+					"owner/repo": {
+						ref: "v1.0",
+						commit: "abc123",
+						installedAt: "2026-01-15T10:00:00.000Z",
+						agents: ["claude"],
+						files: [".claude/skills/my-skill/"],
+					},
+				};
+				mockReadManifestOrExit.mockResolvedValue(manifest);
+				mockMultiselect.mockResolvedValue(["owner/repo"]);
+				mockConfirm.mockResolvedValue(true);
+
+				await runRemove();
+
+				expect(mockIntro).toHaveBeenCalledWith("agntc remove");
+				expect(mockIntro.mock.invocationCallOrder[0]!).toBeLessThan(
+					mockMultiselect.mock.invocationCallOrder[0]!,
+				);
 			});
 
 			it("shows ref hints on multiselect options", async () => {

@@ -13,6 +13,9 @@ Source discussions:
 - .workflows/{work_unit}/discussion/{discussion-name}.md
 - .workflows/{work_unit}/discussion/{discussion-name}.md
 
+Consult references (read narrowly — do not extract):
+- .workflows/{work_unit}/discussion/{ref-topic}.md — {slice hint}
+
 Existing specifications to incorporate:
 - .workflows/{work_unit}/specification/{source-topic}/specification.md (covers: {discussion-name} discussion)
 
@@ -20,7 +23,7 @@ Output: .workflows/{work_unit}/specification/{topic}/specification.md
 
 Context: This consolidates multiple sources. The existing specification should be incorporated - extract and adapt its content alongside the discussion material. The result should be a unified specification, not a simple merge.
 
-After the specification is complete, mark the incorporated specs as superseded via manifest CLI:
+After the specification is complete, mark the incorporated specs as superseded via manifest CLI — only specs whose status is not `proposed`:
 
     set {source-work-unit}.specification.{source-topic} status superseded
     set {source-work-unit}.specification.{source-topic} superseded_by {work_unit}
@@ -28,3 +31,5 @@ After the specification is complete, mark the incorporated specs as superseded v
 ---
 Invoke the workflow-specification-process skill.
 ```
+
+Omit the `Consult references` block when the grouping owes none. A proposed grouping is never an "existing specification to incorporate" — it has no file; absorbing it is a delete handled by reconcile, not a supersede.

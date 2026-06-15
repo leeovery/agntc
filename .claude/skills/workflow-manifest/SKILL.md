@@ -73,6 +73,9 @@ $MANIFEST set {work_unit}.{phase}.{topic} field.path value
 $MANIFEST delete {work_unit}.{phase}.{topic} field.path
 $MANIFEST init-phase {work_unit}.{phase}.{topic}
 
+# Atomic epic discovery-map topic spawn (2-segment path — phase is a flag, not a segment):
+$MANIFEST create-discovery-topic {work_unit}.{topic} [--phase research|discussion] --routing r --source s [--summary "..."] [--description "..."]
+
 # Wildcard (3 segments, * as topic):
 $MANIFEST get {work_unit}.{phase}.* [field.path]
 $MANIFEST exists {work_unit}.{phase}.* [field.path]
@@ -248,6 +251,21 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase <name>.dis
 
 Errors if item/phase already exists.
 
+### `create-discovery-topic`
+
+Atomically spawn a new topic onto an epic's discovery map and, optionally, seed its initial phase item — one lock, one write, no half-built state. The first positional is a **2-segment** `<name>.<topic>` path (the phase is a flag, not a path segment). Epic-only by intent (the discovery map exists only for epics); single-topic types create their topic via `init` + a single `init-phase` and never call this. The work_type gate lives in the callers.
+
+```bash
+node .claude/skills/workflow-manifest/scripts/manifest.cjs create-discovery-topic <name>.<topic> \
+  [--phase research|discussion] --routing <research|discussion> --source <src> \
+  [--summary "..."] [--description "..."]
+```
+
+- Always creates `phases.discovery.items.<topic>` with `status`, `routing`, `source`, and `summary`/`description` when supplied.
+- `--phase` additionally creates `phases.<phase>.items.<topic>` with `{ "status": "in-progress" }` (status only — the descriptor fields stay on the discovery item).
+- `--routing` and `--source` are required. `--summary`/`--description` are omittable — when absent the key is not written at all.
+- Errors if either the discovery item or the `--phase` item already exists (both checked before any write).
+
 ### `push`
 
 Append a value to an array field. Creates the array if it doesn't exist. Errors if the field exists but is not an array. Three levels:
@@ -389,13 +407,15 @@ The CLI validates structural values to prevent invalid state:
 | Item `status` (discussion)     | `in-progress`, `completed`                         |
 | Item `status` (investigation)  | `in-progress`, `completed`                         |
 | Item `status` (scoping)        | `in-progress`, `completed`                         |
-| Item `status` (specification)  | `in-progress`, `completed`, `superseded`, `promoted` |
+| Item `status` (specification)  | `proposed`, `in-progress`, `completed`, `superseded`, `promoted`, `cancelled` |
 | Item `status` (planning)       | `in-progress`, `completed`                         |
 | Item `status` (implementation) | `in-progress`, `completed`                         |
 | Item `status` (review)         | `in-progress`, `completed`                         |
 | Gate modes (`*_gate_mode`)     | `gated`, `auto`                                    |
 
 Status is always tracked at the item level (`phases.{phase}.items.{topic}.status`), never at the phase level.
+
+A specification item with status `proposed` is an analyzed grouping not yet started — it carries `sources.{disc}.status` rows but has no specification file on disk and no `review_cycle`/gate fields. Starting it flips the status to `in-progress`.
 
 ## Output Conventions
 

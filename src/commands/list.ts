@@ -74,6 +74,8 @@ async function showListView(
 }
 
 export async function runListLoop(): Promise<void> {
+	p.intro("agntc list");
+
 	const projectDir = process.cwd();
 
 	while (true) {

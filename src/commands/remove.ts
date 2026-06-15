@@ -75,6 +75,8 @@ function groupFilesByType(files: string[]): FileGroup[] {
 }
 
 export async function runRemove(key?: string): Promise<void> {
+	p.intro("agntc remove");
+
 	const projectDir = process.cwd();
 
 	const manifest = await readManifestOrExit(projectDir);
@@ -107,9 +109,6 @@ export async function runRemove(key?: string): Promise<void> {
 
 	// Gather all files across target plugins
 	const allFiles = targetKeys.flatMap((k) => manifest[k]?.files ?? []);
-
-	// Show files that will be deleted
-	p.intro("agntc remove");
 
 	// List affected plugins for collection prefix matches
 	if (key !== undefined && targetKeys.length > 1) {
