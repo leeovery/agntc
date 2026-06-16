@@ -17,3 +17,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `CURSOR-DRIVER-RESEARCH.md` has been deleted now that Cursor driver research is complete.
 
+
+## [0.2.1] - 2026-03-31
+
+- Fix collision/unmanaged prompt duplication on arrow-key toggle by extracting file lists into static p.note() panels
+- Add shared formatFileList utility with 10-file truncation and summary line
+- Add quick-fix work type with scoping pipeline (scoping → implementation → review)
+- Add discussion perspective, review, and synthesis background agents
+- Add investigation synthesis validation agent
+- Add verification workflow for mechanical changes (baseline → change → verify)
+- Add compliance self-check step to all processing skills
+- Upgrade agentic-workflows dependency to v0.2.0
+
+
+## [0.0.5] - 2026-02-24
+
+- Bump Node.js to v24 in publish workflow
+
+
+## [0.0.4] - 2026-02-24
+
+- Add npm publish workflow
+- Document init command
+
+
+## [0.0.3] - 2026-02-24
+
+- Move workflow permissions to top level with write access
+- Checkout main branch explicitly on tag trigger
+
+
+## [0.0.2] - 2026-02-24
+
+- Remove environment from publish workflow
+
+
