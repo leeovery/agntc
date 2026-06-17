@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-06-17
+
+✨ Added
+
+- Release is now gated by a clean `npm ci && npm run build && npm test` run before the tag is pushed — a broken build or failing tests will abort the release rather than leaving an orphaned tag.
+
+🔧 Changed
+
+- CLI smoke tests now run from an isolated temp directory instead of the repo root, eliminating live network calls and flaky timeouts under load.
+- `.mint.toml` trimmed to only the settings that differ from mint's built-in defaults, removing the commented-out documentation scaffolding.
+
 ## [0.3.1] - 2026-06-15
 
 ✨ Added
