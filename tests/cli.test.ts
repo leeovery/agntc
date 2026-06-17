@@ -1,10 +1,24 @@
 import { execFileSync, execSync } from "node:child_process";
-import { accessSync, constants, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import {
+	accessSync,
+	constants,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(ROOT, "dist/cli.js");
+
+// The CLI is exercised from an isolated, empty temp dir rather than the repo
+// root. Manifest-reading commands (list, update, remove) resolve the manifest
+// from process.cwd(); against the repo root they read the real .agntc manifest
+// and perform live GitHub update-checks, which timed out under load (default 5s)
+// and flaked this suite. An empty cwd has no manifest, so they do zero network.
+let cwd: string;
 
 function run(args: string[]): {
 	stdout: string;
@@ -14,7 +28,7 @@ function run(args: string[]): {
 	try {
 		const stdout = execFileSync("node", [CLI, ...args], {
 			encoding: "utf-8",
-			cwd: ROOT,
+			cwd,
 			env: { ...process.env, NO_COLOR: "1" },
 		});
 		return { stdout, stderr: "", exitCode: 0 };
@@ -34,6 +48,11 @@ function run(args: string[]): {
 
 beforeAll(() => {
 	execSync("npm run build", { cwd: ROOT, stdio: "pipe" });
+	cwd = mkdtempSync(join(tmpdir(), "agntc-cli-test-"));
+});
+
+afterAll(() => {
+	if (cwd) rmSync(cwd, { recursive: true, force: true });
 });
 
 describe("build output", () => {
