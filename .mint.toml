@@ -1,50 +1,19 @@
-# .mint.toml — mint configuration. This file is fully optional: every key shown
-# here is set to its default, so deleting it changes nothing. Optional keys are
-# present but commented out — uncomment a line to enable that setting. Examples are
-# static; mint never inspects your project files to pre-fill anything.
+# .mint.toml — mint configuration. Only keys that DIFFER from mint's compiled
+# defaults are set here; everything else uses mint's built-in defaults.
 
-# --- Engine-level keys (shared by every mint verb) ---
-
-ai_command = 'claude -p --model sonnet'
-timeout = 60  # per-attempt AI deadline in seconds; raise it if your ai_command runs slowly (0 = no limit)
-max_diff_lines = 50000
-
-# Tooling/workflow artifacts (not shipped product source) — kept out of the
-# AI notes/commit diff so release notes and commit messages describe the CLI,
-# not workflow specs, agent definitions, or task-tracking state.
+# Tooling/workflow artifacts (tracked but not shipped product source) — kept out
+# of the AI notes/commit diff so release notes describe the CLI, not workflow
+# specs, agent definitions, or task-tracking state.
 diff_exclude = [
-    '.workflows/**',  # workflow specs/plans/knowledge (1.5k markdown files)
-    '.claude/**',     # Claude Code agents, skills, settings
+    '.workflows/**',  # workflow specs/plans/knowledge (333 tracked files)
+    '.claude/**',     # Claude Code agents, skills, settings (397 tracked files)
     '.agntc/**',      # agent tooling manifest
-    '.tick/**',       # task-tracking state (multi-MB jsonl)
+    '.tick/**',       # task-tracking state
 ]
 
-[release]
-tag_prefix = 'v'
-commit_prefix = '🌿'
-changelog = true
-publish = true
-on_notes_failure = 'abort'
-
-# release_branch = 'main'                          # branch releases must run on (default: auto-derived from origin/HEAD)
-# version_file = 'bin/tool'                        # write the new version into this file (omit = tag-only release)
-# version_pattern = 'RELEASE_VERSION="{version}"'  # version line to replace inside version_file (omit = the whole file is the version)
-# provider = 'github'                              # publishing driver to force (default: auto-detected from the remote host)
-# context = 'Emphasise user-facing changes.'       # project guidance injected into the notes prompt
-# prompt = '.mint/notes-prompt.md'                 # full prompt-override file — create it yourself; mint init does NOT scaffold it
-# ai_command = 'claude -p --model sonnet'          # override the AI command for this verb only
-# timeout = 120                                    # override the per-attempt deadline (seconds) for this verb only; raise it if this verb's ai_command runs slowly
-
-# --- Lifecycle hooks (always under [release.hooks], never a top-level [hooks]) ---
-# [release.hooks]
-# preflight = 'scripts/check.sh'                   # runs before any release work; failure aborts the release
-# pre_tag = 'npm run build'                        # runs after notes, before the tag (single-command form)
-# pre_tag also accepts an array of commands run in order (set ONE pre_tag, not both): ['npm ci', 'npm run build']
-# post_release = 'scripts/notify.sh'               # runs after the release is published
-
-# --- mint commit (AI commit messages; all keys optional) ---
-# [commit]
-# context = 'Reference the ticket number if the branch carries one.'  # project guidance injected into the commit-message prompt
-# prompt = '.mint/commit-prompt.md'                # full prompt-override file — create it yourself; mint init does NOT scaffold it
-# ai_command = 'claude -p --model sonnet'          # override the AI command for this verb only
-# timeout = 120                                    # override the per-attempt deadline (seconds) for this verb only; raise it if this verb's ai_command runs slowly
+[release.hooks]
+# Gate the release on a clean-install build + test BEFORE the tag PONR. npm
+# publish (.github/workflows/publish.yml) only runs AFTER the tag is pushed, so
+# without this a broken build/test would leave an orphaned tag + GitHub release.
+# Mirrors the CI job exactly (clean install included).
+pre_tag = ['npm ci', 'npm run build', 'npm test']
