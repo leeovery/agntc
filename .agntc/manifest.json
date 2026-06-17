@@ -1,7 +1,7 @@
 {
   "leeovery/agentic-workflows": {
-    "ref": "v0.5.10",
-    "commit": "1c2e89650ff8234bc5550bd36f24ef41f20d25f9",
+    "ref": "v0.5.11",
+    "commit": "e951347907976b0409b00f6781cd5f440b623d04",
     "agents": [
       "claude"
     ],
@@ -466,7 +466,7 @@
     ],
     "type": "plugin",
     "cloneUrl": "https://github.com/leeovery/agentic-workflows.git",
-    "installedAt": "2026-06-15T14:01:59.641Z",
+    "installedAt": "2026-06-17T11:12:42.342Z",
     "constraint": "^0.5.10"
   },
   "Jeffallan/claude-skills/skills/typescript-pro": {
@@ -496,8 +496,8 @@
     "installedAt": "2026-06-15T14:33:28.248Z"
   },
   "davila7/claude-code-templates/cli-tool/components/skills/development/typescript-expert": {
-    "ref": "main",
-    "commit": "6772ba97d5b016c87f70610429c7c44df934cfe1",
+    "ref": null,
+    "commit": "aace1f12ff374b6a43713e6b7a8294f1a7d9b93a",
     "agents": [
       "claude"
     ],
@@ -506,6 +506,6 @@
     ],
     "type": "skill",
     "cloneUrl": "https://github.com/davila7/claude-code-templates.git",
-    "installedAt": "2026-06-15T14:33:48.062Z"
+    "installedAt": "2026-06-17T11:01:07.994Z"
   }
 }
