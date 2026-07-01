@@ -3,7 +3,8 @@
   "permissions": {
     "allow": [
       "Write(.workflows/**)",
-      "Edit(.workflows/**)"
+      "Edit(.workflows/**)",
+      "Bash(mv .workflows/:*)"
     ]
   }
 }

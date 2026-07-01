@@ -362,6 +362,30 @@
         "plugin-init-scaffolding": {
           "status": "completed"
         }
+      },
+      "analysis_cache": {
+        "checksum": "241a89c2bf4430a93480bc48ada54c67",
+        "generated": "2026-07-01T17:53:39.450Z",
+        "files": [
+          "exploration.md",
+          "plugin-init-scaffolding.md"
+        ]
+      }
+    },
+    "discovery": {
+      "gap_analysis_cache": {
+        "checksum": "135eb3b54c8d98946b84c84f4c025f1d",
+        "generated": "2026-07-01T17:53:39.450Z",
+        "input_files": [
+          "cli-commands-ux.md",
+          "config-file-simplification.md",
+          "core-architecture.md",
+          "deferred-items-triage.md",
+          "exploration.md",
+          "multi-agent-support.md",
+          "plugin-init-scaffolding.md",
+          "plugin-init-scaffolding.md"
+        ]
       }
     }
   },
