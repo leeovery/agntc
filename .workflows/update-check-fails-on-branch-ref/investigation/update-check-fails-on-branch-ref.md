@@ -151,11 +151,78 @@ version tag (`v4`), the classifier picks the tag lookup, which cannot succeed.
 `add` and `update` "disagree about what a ref is" exactly here: git resolution
 (agnostic) vs `isTagRef` (lexical).
 
+### Contributing Factors
+
+- **Ref-type is inferred, never recorded.** `ManifestEntry` stores `ref`,
+  `commit`, optional `constraint` — but no `refType`. Nothing captures whether
+  `add` resolved a branch or a tag, so `update` must guess from the string.
+- **Asymmetric resolution strategies.** Install resolves refs by *asking git*
+  (`git clone --branch`, agnostic); update-check resolves them by *pattern-
+  matching the string* then doing a type-specific `ls-remote`. The two can
+  disagree whenever a name is ambiguous.
+- **A branch name that lexically resembles a version tag** (`v4`). Not exotic —
+  distributing a skill from a long-lived major-version branch (`v4`, `v3`) is a
+  common upstream pattern (nuxt/ui does exactly this).
+- **Two divergent classifiers coexist.** The stricter, more-correct
+  `isVersionTag` (semver-clean) already exists and is used elsewhere
+  (`list-detail.ts`), but `checkForUpdate` uses the cruder `isTagRef` regex.
+
+### Why It Wasn't Caught
+
+- **No test covers a branch ref whose name matches `/^v?\d/`.** Tests likely
+  exercise real semver tags (`v1.2.3`) and clearly-branch names (`main`,
+  `dev`), missing the "looks like a tag, is a branch" middle case.
+- **The `constraint`-based routing added later** (version-constraints work)
+  layered a new path in front of the legacy tag/branch split without
+  revisiting the `isTagRef` heuristic that governs the unconstrained branch.
+- **The heuristic's own comment flags only the *opposite* failure** (tags with
+  a non-`v`/non-numeric prefix like `release-1.0`), not the branch-looks-like-
+  tag case that actually bites here.
+
+### Blast Radius
+
+**Directly affected:**
+- `agntc update` — any entry whose `ref` is a branch matching `/^v?\d/` with no
+  `constraint`: hard `check-failed`, never updates.
+- `agntc list` — same entries surface a permanent "Check failed" in the
+  update-status column every run.
+
+**Potentially affected:**
+- Any branch ref that lexically parses as a (partial) version: `v4`, `v3`, `4`,
+  `v4.0`, `2024` (date-branch), etc. — all misrouted to `checkTag`.
+- Symmetric latent bug: a real **tag** whose name does *not* match `/^v?\d/`
+  (e.g. `release-1.0`, `stable`) is misrouted to `checkBranch` and would fail
+  its `refs/heads/…` lookup — the same lexical heuristic failing the other way
+  (the code's own comment calls this out).
+- `remove` is unaffected (no ref resolution); the "installed fine ⇒ remove fine"
+  half of the invariant holds. Only the update/check half is broken.
+
 ---
 
 ## Fix Direction
 
-_(to be filled during findings review)_
+_(to be filled during findings review — Step 8)_
+
+### Options Explored (preliminary)
+
+1. **Align the classifier — swap `isTagRef` for the stricter semver check
+   (`isVersionTag`) in `checkForUpdate`.** Smallest change; reuses an existing,
+   already-correct helper. `v4` → not a version tag → routed to `checkBranch` →
+   works. Also removes the duplicate-heuristic drift. Residual: still lexical —
+   a real bare-major *tag* named `v4` would now route to `checkBranch` and fail
+   (rare), and the symmetric `release-1.0`-style tag case remains.
+2. **Resolve ref type from remote truth.** On check, `ls-remote` for both
+   `refs/heads/{ref}` and `refs/tags/{ref}` and dispatch on what actually
+   exists. Eliminates all lexical guessing; costs an extra remote lookup (or a
+   combined one) and is a larger change to the dispatch shape.
+3. **Record `refType` in the manifest at `add` time** (`"branch" | "tag"`),
+   authoritatively, from what git resolved; `update` reads it. Most robust
+   long-term; requires a new manifest field + legacy backfill for existing
+   entries.
+
+**Leaning:** Option 1 as the immediate fix (localized, reuses correct existing
+logic, directly resolves the reported case), with Option 2/3 noted as the more
+robust follow-ups. To be confirmed with the user in the findings review.
 
 ---
 
