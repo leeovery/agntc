@@ -17,6 +17,9 @@
     },
     "configless-install": {
       "work_type": "feature"
+    },
+    "update-check-fails-on-branch-ref": {
+      "work_type": "bugfix"
     }
   },
   "defaults": {
