@@ -12,13 +12,26 @@ updatable/removable without error. Invariant: **"installed fine ⇒ should
 update/remove fine."**
 
 **Actual behavior:**
-`agntc update` and `agntc list` fail with a hard error for the branch-pinned
-entry. `add` resolved `v4` against the remote, found the branch
-(`refs/heads/v4`), and recorded `ref: "v4"` with the branch-tip commit and no
-`constraint`. `update`/`list` instead treat the stored ref as a semver tag and
-do a tag-existence lookup, which throws. Any branch-pinned source is stranded:
-it installs fine but is permanently un-updatable and surfaces a loud "Check
-failed" every run.
+`add` resolved `v4` against the remote, found the branch (`refs/heads/v4`), and
+recorded `ref: "v4"` with the branch-tip commit and no `constraint`.
+`update`/`list` instead treat the stored ref as a semver tag and do a
+tag-existence lookup, which fails. The entry is **permanently un-updatable**
+across every update/list surface — but the *severity* differs by path (confirmed
+by synthesis validation):
+
+- `agntc update <key>` (single) — **hard non-zero error**: logs
+  `Update check failed for <key>: Tag 'v4' not found on remote` and exits 1
+  (`update.ts:141`).
+- `agntc update` (all) — **non-fatal loud warning**: emits the exact reported
+  string `nuxt/ui/skills/nuxt-ui: Check failed — Tag 'v4' not found on remote`
+  via `p.log.warn`; `check-failed` is excluded from `hasFailedOutcome`, so the
+  command does **not** exit non-zero (`update.ts:597-603`, `623-631`).
+- `agntc list` — permanent `✗ check failed` in the update-status column every
+  run; detail view is degraded and the "change version" action is disabled
+  (`list-detail.ts:133`).
+
+Either way the source is stranded: it installs fine but can never resolve to a
+real update status.
 
 ### Manifestation
 
@@ -182,10 +195,12 @@ version tag (`v4`), the classifier picks the tag lookup, which cannot succeed.
 ### Blast Radius
 
 **Directly affected:**
-- `agntc update` — any entry whose `ref` is a branch matching `/^v?\d/` with no
-  `constraint`: hard `check-failed`, never updates.
-- `agntc list` — same entries surface a permanent "Check failed" in the
-  update-status column every run.
+- `agntc update <key>` (single) — any entry whose `ref` is a branch matching
+  `/^v?\d/` with no `constraint`: **hard non-zero error**, never updates.
+- `agntc update` (all) — same entries: **non-fatal loud warning** (does not exit
+  non-zero), never updates.
+- `agntc list` — permanent "Check failed" in the update-status column every run;
+  detail view degraded, "change version" action disabled (`list-detail.ts:133`).
 
 **Potentially affected:**
 - Any branch ref that lexically parses as a (partial) version: `v4`, `v3`, `4`,
@@ -209,8 +224,12 @@ _(to be filled during findings review — Step 8)_
    (`isVersionTag`) in `checkForUpdate`.** Smallest change; reuses an existing,
    already-correct helper. `v4` → not a version tag → routed to `checkBranch` →
    works. Also removes the duplicate-heuristic drift. Residual: still lexical —
-   a real bare-major *tag* named `v4` would now route to `checkBranch` and fail
-   (rare), and the symmetric `release-1.0`-style tag case remains.
+   a real bare-major *tag* literally named `v4` (no minor/patch) would now route
+   to `checkBranch` and report `Branch 'v4' not found` (rare; trades one lexical
+   failure for another on that input). Note the symmetric `release-1.0`-style
+   *tag* case is **orthogonal** to this option — it routes to `checkBranch` both
+   before and after the swap (neither `/^v?\d/` nor `clean()` accepts it), so
+   Option 1 neither fixes nor worsens it.
 2. **Resolve ref type from remote truth.** On check, `ls-remote` for both
    `refs/heads/{ref}` and `refs/tags/{ref}` and dispatch on what actually
    exists. Eliminates all lexical guessing; costs an extra remote lookup (or a
