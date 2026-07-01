@@ -80,11 +80,76 @@ disagree about what a `ref` is.
 
 ### Code Trace
 
-_(to be filled during code analysis)_
+**Answer to the open question:** `add` recorded the ref **correctly**. It is
+`update`/`list` that mis-resolves a perfectly valid branch ref. Trace below.
+
+**`add` side (correct):** For the tree URL, `parseSource` sets `ref = "v4"`,
+`constraint = null`. `resolveTagConstraint` (`src/commands/add.ts:150`) only
+fetches tags / derives a constraint in two branches — bare add (`ref === null &&
+constraint === null`) or explicit constraint (`constraint != null`). With an
+explicit non-null `ref` and null `constraint`, **neither branch runs**: no tag
+lookup, no constraint. Result recorded: `ref: "v4"`, `commit: <branch tip>`,
+`constraint: undefined`. That is exactly what the `version-constraints` routing
+table prescribes for "constraint absent + branch ref → track branch HEAD".
+
+**Install works because clone is ref-type-agnostic:** `cloneSource`
+(`src/git-clone.ts:34-38`) runs `git clone --depth 1 --branch <ref> …`. `git
+clone --branch` resolves **either** a branch **or** a tag, so `--branch v4`
+checks out the `v4` branch tip with no complaint. The same path is reused by
+reinstall (`src/clone-reinstall.ts:327-340` → `cloneSource`), so a branch ref
+re-clones fine on update too.
+
+**`update`/`list` side (the bug):** Both route through `checkForUpdate`
+(`src/update-check.ts:57`; callers: `update-check-all.ts:18`, `list.ts:123`,
+`update.ts:131/413`). Dispatch logic:
+
+1. `src/update-check.ts:67` — `entry.constraint === undefined` → skip
+   `checkConstrained`.
+2. `src/update-check.ts:71` — `entry.ref === "v4"` (not null) → skip `checkHead`.
+3. `src/update-check.ts:75` — `isTagRef("v4")` → **`true`** → route to `checkTag`.
+   ← **misroute**
+4. `checkTag` (`src/update-check.ts:135`) fetches `ls-remote --tags`, maps to
+   tag names, calls `findNewerTags(allTags, "v4")`. No tag is literally named
+   `v4` (tags are `v4.9.0`, `v4.8.2`, …), so `allTags.indexOf("v4") === -1` →
+   `findNewerTags` returns `null` → `checkTag` returns
+   `{ status: "check-failed", reason: "Tag 'v4' not found on remote" }`.
+
+The misroute is `isTagRef` (`src/update-check.ts:39`): a purely lexical
+heuristic `/^v?\d/`. `v4` starts with `v` + a digit, so it matches and is
+classified as a semver tag. Had it routed to `checkBranch`
+(`src/update-check.ts:106`), the lookup `ls-remote refs/heads/v4` would have
+found the branch and compared commits correctly.
+
+**Two divergent ref-type classifiers already exist in the codebase:**
+
+| Ref | `isTagRef` (`/^v?\d/`, update-check.ts) | `isVersionTag` (`semver.clean(ref)!==null`, version-resolve.ts:30) |
+|-----|:--:|:--:|
+| `v4` (branch) | **true** (wrong) | **false** (right) |
+| `v4.0` | true | false |
+| `4` | true | false |
+| `v4.9.0` (tag) | true | true |
+| `main` / `dev` | false | false |
+
+`isVersionTag` (used by `list-detail.ts:133`) requires a *complete* semver and
+correctly rejects `v4`; `checkForUpdate` uses the cruder `isTagRef` instead. The
+two disagree precisely on `v4`.
 
 ### Root Cause
 
-_(to be filled)_
+`checkForUpdate` classifies a stored `ref` as tag-vs-branch using the lexical
+heuristic `isTagRef` (`/^v?\d/`, `src/update-check.ts:39`). The branch name `v4`
+matches this pattern, so the ref is misrouted to `checkTag`, which performs an
+exact tag-existence lookup. No tag literally named `v4` exists on the remote, so
+the check throws `Tag 'v4' not found on remote` and the entry can never resolve
+to a real update status.
+
+**Why this happens:** The **install/clone path is ref-type-agnostic** (`git
+clone --branch` resolves branch or tag), but the **update-check path is
+ref-type-sensitive** and pre-classifies the ref by string shape before choosing
+a type-specific remote lookup. For a branch whose name lexically resembles a
+version tag (`v4`), the classifier picks the tag lookup, which cannot succeed.
+`add` and `update` "disagree about what a ref is" exactly here: git resolution
+(agnostic) vs `isTagRef` (lexical).
 
 ---
 
