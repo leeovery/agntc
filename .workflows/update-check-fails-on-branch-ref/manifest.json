@@ -1,0 +1,15 @@
+{
+  "name": "update-check-fails-on-branch-ref",
+  "work_type": "bugfix",
+  "status": "in-progress",
+  "created": "2026-07-01",
+  "description": "update and list fail with a Tag-not-found error for a source installed from a branch ref (a GitHub tree URL); add records the branch tip fine, but the update path treats the stored ref as a semver tag",
+  "phases": {},
+  "seeds": [
+    {
+      "path": "seeds/2026-07-01-update-check-fails-on-branch-ref.md",
+      "source": "inbox:bug",
+      "seeded_at": "2026-07-01T19:58:10Z"
+    }
+  ]
+}
