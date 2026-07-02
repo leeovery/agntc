@@ -33,7 +33,7 @@
         "update-check-fails-on-branch-ref": {
           "status": "in-progress",
           "format": "tick",
-          "spec_commit": "5b1d4689b1d906ee6bca1027d1fd5a5ca99d8411",
+          "spec_commit": "b03dd82b567a62b023b9f73eeec64de1aa72370a",
           "task_list_gate_mode": "gated",
           "author_gate_mode": "gated",
           "finding_gate_mode": "gated",
