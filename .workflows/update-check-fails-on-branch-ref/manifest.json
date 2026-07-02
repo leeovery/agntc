@@ -15,7 +15,7 @@
     "specification": {
       "items": {
         "update-check-fails-on-branch-ref": {
-          "status": "in-progress",
+          "status": "completed",
           "sources": {
             "update-check-fails-on-branch-ref": {
               "status": "incorporated"
