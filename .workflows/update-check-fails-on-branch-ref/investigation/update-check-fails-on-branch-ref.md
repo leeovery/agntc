@@ -216,32 +216,95 @@ version tag (`v4`), the classifier picks the tag lookup, which cannot succeed.
 
 ## Fix Direction
 
-_(to be filled during findings review — Step 8)_
+### Chosen Approach
 
-### Options Explored (preliminary)
+**Option 2 — Resolve ref type from remote truth.** On check, stop guessing the
+ref's type from its string shape. Use `ls-remote` to determine whether the
+stored `ref` exists as `refs/heads/{ref}` (branch) or `refs/tags/{ref}` (tag)
+on the remote, and dispatch to the branch- vs tag-comparison path based on what
+actually exists. For a repo where both a branch and a tag share the name,
+define a deterministic tiebreak (mirror git's own ref-resolution precedence) —
+to be nailed down in the specification.
 
-1. **Align the classifier — swap `isTagRef` for the stricter semver check
-   (`isVersionTag`) in `checkForUpdate`.** Smallest change; reuses an existing,
-   already-correct helper. `v4` → not a version tag → routed to `checkBranch` →
-   works. Also removes the duplicate-heuristic drift. Residual: still lexical —
-   a real bare-major *tag* literally named `v4` (no minor/patch) would now route
-   to `checkBranch` and report `Branch 'v4' not found` (rare; trades one lexical
-   failure for another on that input). Note the symmetric `release-1.0`-style
-   *tag* case is **orthogonal** to this option — it routes to `checkBranch` both
-   before and after the swap (neither `/^v?\d/` nor `clean()` accepts it), so
-   Option 1 neither fixes nor worsens it.
-2. **Resolve ref type from remote truth.** On check, `ls-remote` for both
-   `refs/heads/{ref}` and `refs/tags/{ref}` and dispatch on what actually
-   exists. Eliminates all lexical guessing; costs an extra remote lookup (or a
-   combined one) and is a larger change to the dispatch shape.
+**Deciding factor:** It is the only option that makes `update` *know* the ref
+type rather than guess it, and it does so **without a manifest migration**. The
+user's explicit priority (twice stated) was that update should reliably tell a
+branch from a tag rather than infer from the string. Remote-truth delivers that
+and, as a bonus, fixes the **symmetric latent bug** (a real tag whose name
+doesn't match `/^v?\d/`, e.g. `release-1.0`, currently misrouted to
+`checkBranch`) in the same stroke. Because `update`/`list` already contact the
+remote via `ls-remote` in both `checkTag` and `checkBranch`, classifying from
+that same fetch is close to free.
+
+### Options Explored
+
+1. **Guess better — swap `isTagRef` for the stricter `isVersionTag`
+   (semver-clean).** Smallest change; reuses an existing, already-correct helper
+   (`version-resolve.ts:30`, used in `list-detail.ts`). `v4` → not a full semver
+   → routed to `checkBranch` → works; also removes the duplicate-heuristic
+   drift. **Why not chosen:** still a lexical guess — rides on naming convention.
+   A repo shipping a literal bare-major *tag* `v4` would now be misread as a
+   branch (`Branch 'v4' not found`), and it does **not** fix the symmetric
+   `release-1.0`-tag case (orthogonal — routes to `checkBranch` before and after
+   the swap). Retained as the **fallback quick-patch** if a one-line fix is ever
+   wanted ahead of the fuller change.
+2. **Resolve ref type from remote truth.** — *Chosen (see above).*
 3. **Record `refType` in the manifest at `add` time** (`"branch" | "tag"`),
-   authoritatively, from what git resolved; `update` reads it. Most robust
-   long-term; requires a new manifest field + legacy backfill for existing
-   entries.
+   authoritatively, from what git resolved; `update` reads it. Most robust at
+   *classification* time. **Why not chosen:** biggest change — new manifest field
+   plus a backfill story for legacy entries written before the field existed
+   (which would still need a remote check or a guess on first update). It also
+   buys little over Option 2 here: `update` must contact the remote to check for
+   updates anyway, so a stored `refType` saves no network at check time. Noted
+   as a possible future enhancement, not required to fix this bug.
 
-**Leaning:** Option 1 as the immediate fix (localized, reuses correct existing
-logic, directly resolves the reported case), with Option 2/3 noted as the more
-robust follow-ups. To be confirmed with the user in the findings review.
+### Discussion
+
+Journey notes from the review:
+
+- Discovery's open question — *did `add` record the ref wrongly, or is
+  `update`/`list` mis-resolving a valid branch ref?* — resolved firmly to the
+  latter. `add` records `ref:"v4"` faithfully (it's the user's stated intent:
+  track the `v4` branch); the defect is entirely in `update`/`list`
+  classification.
+- The user pushed on **"how will update tell the difference between a tag and a
+  branch when the branch is called `v4`?"** twice. The honest answer — *from the
+  string alone it can't; any lexical rule is a guess* — is what steered the
+  decision away from Option 1 (guess better) toward Option 2 (know via the
+  remote). This was the pivot of the discussion.
+- Synthesis validation corrected a severity-framing overstatement (the
+  `update`-all path is a loud non-fatal warning, not a hard non-zero exit; the
+  hard exit is confined to single-key `update <key>`). It does not change the
+  fix — permanent un-updatability holds across every surface.
+
+### Testing Recommendations
+
+- **Add: branch ref whose name matches `/^v?\d/`** (the missing middle case).
+  A `v4`-style branch install should update-check as a branch (compare
+  `refs/heads/v4` tip), not fail with a tag error. This is the direct
+  regression guard.
+- **Add: real semver tag** (`v4.9.0`) still classifies and checks as a tag
+  (guard against the remote-truth change breaking the tag path).
+- **Add: symmetric case — a tag whose name does not match `/^v?\d/`**
+  (`release-1.0`) checks as a tag, not a branch. Confirms Option 2 clears the
+  latent bug.
+- **Consider: both a branch and a tag with the same name** — asserts the chosen
+  tiebreak behaves deterministically.
+- Prefer to exercise the classification via the real `ls-remote` path where the
+  harness allows, since the whole bug is the disagreement between lexical guess
+  and remote reality.
+
+### Risk Assessment
+
+- **Fix complexity:** Medium. Reshapes the dispatch in `checkForUpdate`
+  (`update-check.ts`); no manifest or `add`-side changes.
+- **Regression risk:** Low–Medium. The tag and branch comparison paths already
+  exist and are unchanged; only the *routing decision* between them changes,
+  plus the new both-exist tiebreak. Constrained and `checkHead` paths are
+  untouched.
+- **Recommended approach:** Regular release. No hotfix urgency — the bug is a
+  loud warning + degraded `list`, not data loss; `remove` and constrained
+  installs are unaffected.
 
 ---
 
