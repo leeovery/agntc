@@ -72,4 +72,28 @@ Resolve to the **tag**, mirroring git's own ref-resolution precedence (gitrevisi
 
 ---
 
+## Scope & Constraints
+
+### In scope
+
+- **`src/update-check.ts`** — reshape the `checkForUpdate` dispatch; remove `isTagRef`; add the classification probe, its parsing, and branch/tag routing.
+- Optionally a small ref-existence helper (e.g. in `src/git-utils.ts`) for the probe — implementation's call; the existing `execGit` / `parseLsRemoteSha` / `parseTagRefs` primitives already suffice.
+
+### Untouched (explicit non-goals)
+
+- **No manifest change.** `ManifestEntry` gains no `refType` field; no migration, no backfill. (Recording `refType` at `add` time — investigation Option 3 — is deferred as a possible future enhancement, not needed here.)
+- **No `add`-side change.** `add` already records `ref` faithfully (`resolveTagConstraint` stores `ref: "v4"` with no constraint). The defect is entirely in update-check classification.
+- **`checkConstrained` untouched** — entries with a `constraint` never routed through `isTagRef`.
+- **`checkHead` untouched** — HEAD-tracking entries (`ref === null`) unaffected.
+- **`local` path untouched.**
+- **Comparison semantics unchanged** — the tag and branch comparison bodies keep their current behaviour; only the routing decision between them changes.
+
+### Constraints
+
+- No new dependencies.
+- Preserve the existing `UpdateCheckResult` union — no new status variants; the neither-exists case reuses `check-failed`.
+- Cost at most one extra `ls-remote` round-trip versus today; the branch path reuses the probe's sha rather than issuing a second lookup.
+
+---
+
 ## Working Notes
