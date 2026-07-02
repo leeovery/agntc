@@ -11,6 +11,22 @@
           "status": "completed"
         }
       }
+    },
+    "specification": {
+      "items": {
+        "update-check-fails-on-branch-ref": {
+          "status": "in-progress",
+          "sources": {
+            "update-check-fails-on-branch-ref": {
+              "status": "pending"
+            }
+          },
+          "review_cycle": 0,
+          "finding_gate_mode": "gated",
+          "construction_gate_mode": "gated",
+          "date": "2026-07-02"
+        }
+      }
     }
   },
   "seeds": [
