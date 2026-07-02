@@ -39,10 +39,11 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "update-check-fails-on-branch-ref-1-2",
+          "task": "update-check-fails-on-branch-ref-1-3",
           "task_map": {
             "update-check-fails-on-branch-ref-1-1": "tick-e3e1f4",
-            "update-check-fails-on-branch-ref-1": "tick-b0a0de"
+            "update-check-fails-on-branch-ref-1": "tick-b0a0de",
+            "update-check-fails-on-branch-ref-1-2": "tick-4aea2f"
           },
           "external_id": "tick-45df2c"
         }
