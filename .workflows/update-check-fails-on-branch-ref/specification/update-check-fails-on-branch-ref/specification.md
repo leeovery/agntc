@@ -51,6 +51,8 @@ When a non-null `ref` reaches the classifier (constraint absent, ref present), p
 git ls-remote <url> refs/heads/{ref} refs/tags/{ref}
 ```
 
+Run it via `execGit` with the module's standard `{ timeout: 15_000 }` — matching the sibling `ls-remote` calls (`checkHead`, `checkBranch`, `fetchRemoteTagRefs`), **not** `execGit`'s 30s default.
+
 The probe output has up to three lines: a `refs/heads/{ref}` line, a `refs/tags/{ref}` line, and — for an annotated tag — a peeled `refs/tags/{ref}^{}` line. Classify by scanning the lines and recording, per line, whether its ref path is **exactly** `refs/heads/{ref}` or **exactly** `refs/tags/{ref}`. Match the full ref path, not a loose prefix, so a ref name containing a slash cannot cross-match; ignore the peeled `^{}` line and any line that is neither exact path. Classification depends only on *which of the two exact paths are present*, never on line order.
 
 This needs a **new parse step**: the existing `parseLsRemoteSha` reads only the first line (discarding the prefix) and `parseTagRefs` strips `refs/tags/` while ignoring heads — neither classifies a mixed heads+tags response. A small dedicated parser (returning the head sha and/or the tag sha, keyed by exact ref path) is required.
