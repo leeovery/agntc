@@ -35,12 +35,16 @@
           "format": "tick",
           "spec_commit": "b03dd82b567a62b023b9f73eeec64de1aa72370a",
           "task_list_gate_mode": "auto",
-          "author_gate_mode": "gated",
+          "author_gate_mode": "auto",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "update-check-fails-on-branch-ref-1-1",
-          "task_map": {}
+          "task": "update-check-fails-on-branch-ref-1-2",
+          "task_map": {
+            "update-check-fails-on-branch-ref-1-1": "tick-e3e1f4",
+            "update-check-fails-on-branch-ref-1": "tick-b0a0de"
+          },
+          "external_id": "tick-45df2c"
         }
       }
     }
