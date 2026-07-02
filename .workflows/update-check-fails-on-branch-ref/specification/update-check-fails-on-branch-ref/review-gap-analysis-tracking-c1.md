@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-07-02
 cycle: 1
 phase: Gap Analysis
@@ -26,7 +26,7 @@ So the classification logic — "did `refs/heads/{ref}` match, did `refs/tags/{r
 
 **Proposed Addition**:
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -42,7 +42,7 @@ The Constraints section states as a hard cost bound that "the branch path reuses
 
 **Proposed Addition**:
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -58,7 +58,7 @@ When both a branch and a tag exist, the tiebreak routes to the tag path, which "
 
 **Proposed Addition**:
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -79,7 +79,7 @@ The "+1 for the tag case" is the worst case and matches the wording, so the boun
 
 **Proposed Addition**:
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -95,7 +95,7 @@ The probe pins two exact ref paths (`refs/heads/{ref}`, `refs/tags/{ref}`), so g
 
 **Proposed Addition**:
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -111,7 +111,7 @@ The unified neither-found reason `Ref '{ref}' not found on remote as a branch or
 
 **Proposed Addition**:
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -127,8 +127,8 @@ The spec says the "change version" action is gated by `isVersionTag(entry.ref)` 
 
 **Proposed Addition**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Skipped
+**Notes**: Premise does not hold. The `list-detail` guard is `isVersionTag(entry.ref) && status !== "check-failed"`. The symmetric cases (`release-1.0`, `stable`) are not clean semver, so `isVersionTag` returns `false` and "change version" stays disabled even after the status flips. Any tag that IS a clean semver also matches `/^v?\d/` and was therefore never misrouted by the old heuristic — so there is no realistic tag for which the fix re-enables "change version". The claimed side effect is vacuous; no spec change.
 
 ---
 
@@ -143,7 +143,7 @@ The "Neither" case is described as "e.g. deleted upstream" and mapped to `check-
 
 **Proposed Addition**:
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---

@@ -51,12 +51,14 @@ When a non-null `ref` reaches the classifier (constraint absent, ref present), p
 git ls-remote <url> refs/heads/{ref} refs/tags/{ref}
 ```
 
-Parse which of the two matched, keying strictly off the ref-path prefix (`refs/heads/` vs `refs/tags/`; ignore peeled `^{}` lines from annotated tags):
+The probe output has up to three lines: a `refs/heads/{ref}` line, a `refs/tags/{ref}` line, and — for an annotated tag — a peeled `refs/tags/{ref}^{}` line. Classify by scanning the lines and recording, per line, whether its ref path is **exactly** `refs/heads/{ref}` or **exactly** `refs/tags/{ref}`. Match the full ref path, not a loose prefix, so a ref name containing a slash cannot cross-match; ignore the peeled `^{}` line and any line that is neither exact path. Classification depends only on *which of the two exact paths are present*, never on line order.
 
-- **Only `refs/heads/{ref}`** → branch → branch-comparison path.
-- **Only `refs/tags/{ref}`** → tag → tag-comparison path.
-- **Both** → tiebreak (below).
-- **Neither** → `check-failed`, reason `Ref '{ref}' not found on remote as a branch or tag`.
+This needs a **new parse step**: the existing `parseLsRemoteSha` reads only the first line (discarding the prefix) and `parseTagRefs` strips `refs/tags/` while ignoring heads — neither classifies a mixed heads+tags response. A small dedicated parser (returning the head sha and/or the tag sha, keyed by exact ref path) is required.
+
+- **Only `refs/heads/{ref}` present** → branch → branch-comparison path.
+- **Only `refs/tags/{ref}` present** → tag → tag-comparison path.
+- **Both present** → tiebreak (below).
+- **Neither present** → `check-failed`, reason `Ref '{ref}' not found on remote as a branch or tag`.
 
 ### Tiebreak: both a branch and a tag named `{ref}`
 
@@ -64,13 +66,14 @@ Resolve to the **tag**, mirroring git's own ref-resolution precedence (gitrevisi
 
 ### Comparison paths (behaviour preserved)
 
-- **Branch:** compare the `refs/heads/{ref}` tip sha against the installed commit → `up-to-date` or `update-available`. Behaviourally identical to today's `checkBranch`. The probe already fetched the tip sha, so this path may reuse it instead of re-fetching.
-- **Tag:** fetch all tags, find those newer than `{ref}` → `newer-tags` or `up-to-date`. Identical to today's `checkTag`.
+- **Branch:** compare the branch tip sha against the installed commit → `up-to-date` (tip == commit) or `update-available` (tip != commit). The tip sha is the one the probe parsed for the **`refs/heads/{ref}`** line specifically; the branch path **reuses that sha and issues no second lookup** — required, not optional (it is what keeps the branch case at no extra round-trip). The comparison itself is identical to today's `checkBranch`.
+- **Tag:** the tag path always issues its own `ls-remote --tags` for the full tag list, then finds those newer than `{ref}` → `newer-tags` or `up-to-date`. It does **not** reuse the probe's tag sha (a single probed sha cannot yield the newer-tags set). Identical to today's `checkTag`.
 
 ### Error handling
 
 - Any `ls-remote` network/exec failure → `check-failed` carrying the error message (as today).
-- Ref found as neither branch nor tag (e.g. deleted upstream) → `check-failed` with the unified reason above.
+- Ref found as neither branch nor tag (e.g. deleted upstream) → `check-failed` with the unified reason above. This is **terminal**: even though the entry still holds a valid installed `commit`, there is **no** commit-based or HEAD fallback — a gone ref is a degraded (non-fatal for `update`-all / `list`) `check-failed`, matching how the ref-specific "not found" paths behave today.
+- Because the probe confirms the ref exists before routing, the per-type "not found" guards inside the comparison bodies (`checkTag`'s `Tag '…' not found`, `checkBranch`'s `Branch '…' not found`) become **unreachable**. They may be removed as dead code; the unified neither-found reason is the single not-found path.
 
 ---
 
@@ -79,7 +82,7 @@ Resolve to the **tag**, mirroring git's own ref-resolution precedence (gitrevisi
 ### In scope
 
 - **`src/update-check.ts`** — reshape the `checkForUpdate` dispatch; remove `isTagRef` (no other caller; its known-limitation comment documents only the *opposite* symmetric failure — `release-1.0`-style tags — and is intentional collateral, not something to port); add the classification probe, its parsing, and branch/tag routing.
-- Optionally a small ref-existence helper (e.g. in `src/git-utils.ts`) for the probe — implementation's call; the existing `execGit` / `parseLsRemoteSha` / `parseTagRefs` primitives already suffice.
+- A **new probe-parsing step** keyed on the exact ref path (see Classification probe) — the existing `parseLsRemoteSha` (first-line only) and `parseTagRefs` (tags-only, strips `refs/tags/`) do **not** classify a mixed heads+tags response, so they do not suffice. `execGit` is reused to run the probe; the small parser may live in `src/update-check.ts` or `src/git-utils.ts` (implementation's call).
 
 ### Untouched (explicit non-goals)
 
@@ -94,7 +97,7 @@ Resolve to the **tag**, mirroring git's own ref-resolution precedence (gitrevisi
 
 - No new dependencies.
 - Preserve the existing `UpdateCheckResult` union — no new status variants; the neither-exists case reuses `check-failed`.
-- Cost at most one extra `ls-remote` round-trip versus today; the branch path reuses the probe's sha rather than issuing a second lookup.
+- **Network cost (design target, not a test-enforced criterion):** at most one extra `ls-remote` round-trip versus today. By case: branch — 1 probe call, sha reused → **no extra** call; tag — probe + `--tags` = 2 → **+1**; neither / failure → ~parity. The branch-case "no extra" depends on the required branch-sha reuse above. No acceptance criterion asserts call counts.
 
 ---
 
@@ -136,6 +139,7 @@ Unit tests live in `tests/update-check.test.ts` (`checkForUpdate` with `node:chi
 
 - The **`ref type detection`** describe block (`v1.2.3` / `1.0.0` asserting `--tags` is called directly) — rewrite against remote-truth classification.
 - The tag path's **single `ls-remote --tags` call** assertion and the branch/tag exact-arg-shape assertions — update to the probe-then-compare call sequence (or a single combined call, per the chosen implementation).
+- The existing **per-type not-found assertions** — `checkForUpdate`'s "branch is gone" (`Branch 'deleted-branch' not found on remote`) and "installed tag not in remote tags" (`Tag 'v2.0' not found on remote`) — now resolve through the probe. Retire the per-type strings; where the ref exists as neither, assert the unified `Ref '…' not found on remote as a branch or tag`.
 - Confirm untouched paths (`local`, HEAD-tracking, constrained) still pass unchanged.
 
 ### Mock harness note
