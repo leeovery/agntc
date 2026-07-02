@@ -23,3 +23,12 @@ approved_at: 2026-07-02
 - [ ] Untouched paths verified unchanged: constrained entries (`constraint` set) route through `checkConstrained`; HEAD-tracking entries (`ref === null`) route through `checkHead`; local-only entries return `local`.
 - [ ] Cross-surface: an entry that previously reported `Check failed — Tag 'v4' not found on remote` now yields a real status — `agntc update <key>` reports a status and exits 0; `agntc update` (all) emits no `check-failed` warning for it; `agntc list` status column and detail view show a real status. (The "change version" action stays gated by `isVersionTag` and remains disabled for branch refs — out of scope, correct.)
 - [ ] The full test suite is green: the new regression cases exist in `tests/update-check.test.ts` (with `git-mocks.ts` returning the correct response per `ls-remote` invocation); the `ref type detection` block, the tag-path call-shape assertions, and the per-type not-found assertions are rewritten against remote-truth; cross-surface files (`update-check-all`, `commands/update`, `commands/list-detail`) and the regression file pass; no existing behaviour regresses.
+
+#### Tasks
+status: draft
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| update-check-fails-on-branch-ref-1-1 | Add exact-path ls-remote probe parser | peeled `^{}` annotated-tag line ignored, slash-in-ref-name must not cross-match loose prefix, line order irrelevant, empty output, only-heads present, only-tags present, both present |
+| update-check-fails-on-branch-ref-1-2 | Replace isTagRef dispatch with remote-truth classification in checkForUpdate | branch ref that looks like a tag (`v4`), real semver tag (`v4.9.0`), symmetric tag not matching `/^v?\d/` (`release-1.0`), plain branch (`main`/`dev`), both branch and tag named ref (tiebreak resolves to tag), ref exists as neither (deleted upstream → unified not-found), probe network/exec failure, untouched paths unchanged (local, HEAD `ref=null`, constrained) |
+| update-check-fails-on-branch-ref-1-3 | Confirm cross-surface recovery for the v4-style branch ref | update single exits 0 not 1, update-all emits no check-failed warning, list status column and detail show real status, list change-version stays disabled for branch ref (`isVersionTag` false, out of scope) |
