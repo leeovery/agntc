@@ -27,4 +27,49 @@ Make update-check determine a stored ref's type from **remote truth** — whethe
 
 ---
 
+## Solution: Remote-Truth Ref Classification
+
+### Dispatch change (confined to `checkForUpdate`)
+
+Current dispatch order in `checkForUpdate` (`src/update-check.ts`):
+
+1. `ref === null && commit === null` → `local`
+2. `constraint !== undefined` → `checkConstrained`
+3. `ref === null` → `checkHead`
+4. `isTagRef(ref)` → `checkTag`  ← **the bug**
+5. else → `checkBranch`
+
+Steps 1–3 are **unchanged**. Steps 4–5 (the lexical `isTagRef` split) are replaced by remote-truth classification. The `isTagRef` helper is removed (it has no other caller).
+
+### Classification probe
+
+When a non-null `ref` reaches the classifier (constraint absent, ref present), probe the remote for both ref types in a **single** `ls-remote` call:
+
+```
+git ls-remote <url> refs/heads/{ref} refs/tags/{ref}
+```
+
+Parse which of the two matched, keying strictly off the ref-path prefix (`refs/heads/` vs `refs/tags/`; ignore peeled `^{}` lines from annotated tags):
+
+- **Only `refs/heads/{ref}`** → branch → branch-comparison path.
+- **Only `refs/tags/{ref}`** → tag → tag-comparison path.
+- **Both** → tiebreak (below).
+- **Neither** → `check-failed`, reason `Ref '{ref}' not found on remote as a branch or tag`.
+
+### Tiebreak: both a branch and a tag named `{ref}`
+
+Resolve to the **tag**, mirroring git's own ref-resolution precedence (gitrevisions disambiguates a bare name with `refs/tags/` before `refs/heads/`). Deterministic and matches "what git would do with this bare name." The manifest records no ref-type intent, so this is the principled default rather than a guess at what the installer meant. This is the one edge the investigation explicitly deferred to the specification.
+
+### Comparison paths (behaviour preserved)
+
+- **Branch:** compare the `refs/heads/{ref}` tip sha against the installed commit → `up-to-date` or `update-available`. Behaviourally identical to today's `checkBranch`. The probe already fetched the tip sha, so this path may reuse it instead of re-fetching.
+- **Tag:** fetch all tags, find those newer than `{ref}` → `newer-tags` or `up-to-date`. Identical to today's `checkTag`.
+
+### Error handling
+
+- Any `ls-remote` network/exec failure → `check-failed` carrying the error message (as today).
+- Ref found as neither branch nor tag (e.g. deleted upstream) → `check-failed` with the unified reason above.
+
+---
+
 ## Working Notes
