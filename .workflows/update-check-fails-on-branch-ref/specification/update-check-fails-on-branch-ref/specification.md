@@ -117,4 +117,33 @@ Given a manifest entry with a non-null `ref` and no `constraint`, `checkForUpdat
 
 ---
 
+## Testing Requirements
+
+Unit tests live in `tests/update-check.test.ts` (`checkForUpdate` with `node:child_process` mocked via `tests/helpers/git-mocks.ts`). Cross-surface behaviour is covered by `tests/update-check-all.test.ts`, `tests/commands/update.test.ts`, `tests/commands/list-detail.test.ts`, and the regression file `tests/update-check-unconstrained-regression.test.ts`.
+
+### New regression coverage (the fix)
+
+1. **Branch ref matching `/^v?\d/`** (`ref = "v4"`) — the direct regression guard. Remote advertises `refs/heads/v4`, no matching tag. Assert it classifies as branch and compares against the branch tip (`up-to-date` / `update-available`) — never `Tag 'v4' not found`.
+2. **Real semver tag** (`ref = "v4.9.0"`) — remote advertises `refs/tags/v4.9.0` plus newer tags. Assert tag comparison (`newer-tags` / `up-to-date`) still holds after the change.
+3. **Symmetric latent case** (`ref = "release-1.0"`, tag not matching `/^v?\d/`) — remote advertises `refs/tags/release-1.0`. Assert it classifies as tag, not `Branch 'release-1.0' not found`.
+4. **Both a branch and a tag named `{ref}`** — remote advertises both `refs/heads/v4` and `refs/tags/v4`. Assert the tiebreak resolves to the tag deterministically.
+5. **Neither exists** — remote advertises neither. Assert `check-failed` with reason `Ref '{ref}' not found on remote as a branch or tag`.
+6. **Probe network failure** — `ls-remote` errors. Assert `check-failed` carrying the underlying message.
+
+### Existing tests to update (they encode the old heuristic)
+
+- The **`ref type detection`** describe block (`v1.2.3` / `1.0.0` asserting `--tags` is called directly) — rewrite against remote-truth classification.
+- The tag path's **single `ls-remote --tags` call** assertion and the branch/tag exact-arg-shape assertions — update to the probe-then-compare call sequence (or a single combined call, per the chosen implementation).
+- Confirm untouched paths (`local`, HEAD-tracking, constrained) still pass unchanged.
+
+### Mock harness note
+
+The dispatch may issue more than one `ls-remote` invocation per check (probe, then tag list). The mock in `git-mocks.ts` must return the correct response **per invocation** — branch on the `ls-remote` args rather than returning one fixed payload.
+
+### Preference
+
+Where the harness allows, exercise classification against real `ls-remote` ref output, since the whole bug is the disagreement between lexical guess and remote reality.
+
+---
+
 ## Working Notes
