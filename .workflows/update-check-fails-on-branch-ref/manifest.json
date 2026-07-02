@@ -31,7 +31,7 @@
     "planning": {
       "items": {
         "update-check-fails-on-branch-ref": {
-          "status": "in-progress",
+          "status": "completed",
           "format": "tick",
           "spec_commit": "b03dd82b567a62b023b9f73eeec64de1aa72370a",
           "task_list_gate_mode": "auto",
