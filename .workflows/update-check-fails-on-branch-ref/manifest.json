@@ -27,6 +27,22 @@
           "date": "2026-07-02"
         }
       }
+    },
+    "planning": {
+      "items": {
+        "update-check-fails-on-branch-ref": {
+          "status": "in-progress",
+          "format": "tick",
+          "spec_commit": "5b1d4689b1d906ee6bca1027d1fd5a5ca99d8411",
+          "task_list_gate_mode": "gated",
+          "author_gate_mode": "gated",
+          "finding_gate_mode": "gated",
+          "review_cycle": 0,
+          "phase": 1,
+          "task": "~",
+          "task_map": {}
+        }
+      }
     }
   },
   "seeds": [
