@@ -25,7 +25,8 @@ approved_at: 2026-07-02
 - [ ] The full test suite is green: the new regression cases exist in `tests/update-check.test.ts` (with `git-mocks.ts` returning the correct response per `ls-remote` invocation); the `ref type detection` block, the tag-path call-shape assertions, and the per-type not-found assertions are rewritten against remote-truth; cross-surface files (`update-check-all`, `commands/update`, `commands/list-detail`) and the regression file pass; no existing behaviour regresses.
 
 #### Tasks
-status: draft
+status: approved
+approved_at: 2026-07-02
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|

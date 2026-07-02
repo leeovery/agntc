@@ -34,12 +34,12 @@
           "status": "in-progress",
           "format": "tick",
           "spec_commit": "b03dd82b567a62b023b9f73eeec64de1aa72370a",
-          "task_list_gate_mode": "gated",
+          "task_list_gate_mode": "auto",
           "author_gate_mode": "gated",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "~",
+          "task": "update-check-fails-on-branch-ref-1-1",
           "task_map": {}
         }
       }
