@@ -146,4 +146,15 @@ Where the harness allows, exercise classification against real `ls-remote` ref o
 
 ---
 
+## Out of Scope
+
+- **Vercel `skills` CLI shorthand compatibility** (`npx skills add nuxt/ui` resolving to the right subpath) — a separate, pre-existing inbox idea (`vercel-skills-cli-compatibility`). Not part of this fix.
+- **Recording `refType` in the manifest** (investigation Option 3) — a possible future robustness enhancement; not required here and explicitly deferred.
+- **Swapping `isTagRef` for `isVersionTag`** (investigation Option 1) — the lexical quick-patch; rejected as the primary fix (still a guess; doesn't clear the symmetric `release-1.0` case). Retained only as a fallback one-line patch if a fix is ever wanted ahead of this work; not implemented here.
+- **Changes to `add`, `remove`, clone/reinstall, or the constrained / HEAD comparison logic.** The invariant's install and remove halves already hold; only update/check classification is in scope.
+
+**Release posture:** regular release, no hotfix urgency (loud warning + degraded `list`, not data loss).
+
+---
+
 ## Working Notes
