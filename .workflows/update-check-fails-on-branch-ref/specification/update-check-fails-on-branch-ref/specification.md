@@ -96,4 +96,25 @@ Resolve to the **tag**, mirroring git's own ref-resolution precedence (gitrevisi
 
 ---
 
+## Acceptance Criteria
+
+Given a manifest entry with a non-null `ref` and no `constraint`, `checkForUpdate`:
+
+1. **Branch ref that looks like a tag** (`ref = "v4"`; remote has `refs/heads/v4`, no `refs/tags/v4`) — classifies as branch; compares the `refs/heads/v4` tip against the installed commit; returns `up-to-date` (tip == commit) or `update-available` (tip != commit). **Never** returns `Tag 'v4' not found on remote`.
+2. **Real semver tag** (`ref = "v4.9.0"`; remote has `refs/tags/v4.9.0`) — classifies as tag; returns `newer-tags` when later tags exist, else `up-to-date`. Unchanged from today.
+3. **Symmetric case — tag whose name doesn't match `/^v?\d/`** (`ref = "release-1.0"`; remote has `refs/tags/release-1.0`) — classifies as tag (today it wrongly routes to branch). Returns a tag-comparison result, not `Branch 'release-1.0' not found`.
+4. **Plain branch** (`ref = "main"` / `"dev"`; remote has `refs/heads/main`) — classifies as branch. Unchanged from today.
+5. **Both a branch and a tag named `{ref}`** — resolves deterministically to the **tag** (tiebreak); returns the tag-comparison result.
+6. **Ref exists as neither** (deleted upstream) — returns `check-failed` with reason `Ref '{ref}' not found on remote as a branch or tag`.
+7. **Remote/network failure during the probe** — returns `check-failed` carrying the underlying error message.
+
+**Cross-surface:** an entry that previously showed `Check failed — Tag 'v4' not found on remote` now —
+- `agntc update <key>` — reports a real status and exits 0 (no hard error).
+- `agntc update` (all) — no `check-failed` warning for that entry.
+- `agntc list` — update-status column shows a real status; detail view and the "change version" action behave per the resolved type.
+
+**Untouched paths stay correct:** constrained entries (`constraint` set) unchanged; HEAD-tracking entries (`ref === null`) unchanged; local-only entries return `local`.
+
+---
+
 ## Working Notes
