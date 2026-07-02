@@ -19,6 +19,8 @@ Severity differs by surface:
 
 `checkForUpdate` (`src/update-check.ts`) classifies a stored `ref` as tag-vs-branch using a purely lexical heuristic, `isTagRef` → `/^v?\d/`. A branch named `v4` matches, so it is misrouted to the tag path (`checkTag`), which performs an exact tag-existence lookup. No tag literally named `v4` exists on the remote (its tags are `v4.9.0`, `v4.8.2`, …), so the check fails permanently.
 
+The same misroute hits **any** branch whose name lexically parses as a leading-digit or partial version — `v4`, `v3`, `4`, `v4.0`, `2024` (a date-branch) — because `/^v?\d/` matches any leading digit. `v4` is the reported exemplar; the remote-truth fix covers the whole class by construction.
+
 The install path never hit this because `git clone --branch <ref>` resolves a branch **or** a tag agnostically. Update-check is the only path that pre-classifies the ref by string shape.
 
 ### Goal
@@ -76,7 +78,7 @@ Resolve to the **tag**, mirroring git's own ref-resolution precedence (gitrevisi
 
 ### In scope
 
-- **`src/update-check.ts`** — reshape the `checkForUpdate` dispatch; remove `isTagRef`; add the classification probe, its parsing, and branch/tag routing.
+- **`src/update-check.ts`** — reshape the `checkForUpdate` dispatch; remove `isTagRef` (no other caller; its known-limitation comment documents only the *opposite* symmetric failure — `release-1.0`-style tags — and is intentional collateral, not something to port); add the classification probe, its parsing, and branch/tag routing.
 - Optionally a small ref-existence helper (e.g. in `src/git-utils.ts`) for the probe — implementation's call; the existing `execGit` / `parseLsRemoteSha` / `parseTagRefs` primitives already suffice.
 
 ### Untouched (explicit non-goals)
@@ -111,7 +113,7 @@ Given a manifest entry with a non-null `ref` and no `constraint`, `checkForUpdat
 **Cross-surface:** an entry that previously showed `Check failed — Tag 'v4' not found on remote` now —
 - `agntc update <key>` — reports a real status and exits 0 (no hard error).
 - `agntc update` (all) — no `check-failed` warning for that entry.
-- `agntc list` — update-status column shows a real status; detail view and the "change version" action behave per the resolved type.
+- `agntc list` — update-status column and detail view show a real status (no longer `check-failed`). The **"change version" action is gated separately** by `isVersionTag(entry.ref)` in `list-detail.ts` — **outside this fix's scope**. For a branch ref like `v4`, `isVersionTag` stays `false`, so the action remains disabled (correct — a branch is not tag-pinned). This fix recovers the status column and detail view; it does not re-enable "change version" for branch refs.
 
 **Untouched paths stay correct:** constrained entries (`constraint` set) unchanged; HEAD-tracking entries (`ref === null`) unchanged; local-only entries return `local`.
 

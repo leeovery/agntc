@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-07-02
 cycle: 1
 phase: Input Review
@@ -33,9 +33,12 @@ Acceptance Criteria Cross-surface bullet:
 > - `agntc list` — update-status column shows a real status; detail view and the "change version" action behave per the resolved type.
 
 **Proposed Addition**:
+Replace the Acceptance Criteria Cross-surface `agntc list` bullet with:
+> - `agntc list` — update-status column and detail view show a real status (no longer `check-failed`). The **"change version" action is gated separately** by `isVersionTag(entry.ref)` in `list-detail.ts` — **outside this fix's scope**. For a branch ref like `v4`, `isVersionTag` stays `false`, so the action remains disabled (correct — a branch is not tag-pinned). This fix recovers the status column and detail view; it does not re-enable "change version" for branch refs.
 
+(Overview severity bullet is unchanged — it correctly describes the pre-fix broken state.)
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -54,9 +57,10 @@ Overview → Root Cause:
 > `checkForUpdate` (`src/update-check.ts`) classifies a stored `ref` as tag-vs-branch using a purely lexical heuristic, `isTagRef` → `/^v?\d/`. A branch named `v4` matches, so it is misrouted to the tag path (`checkTag`) ...
 
 **Proposed Addition**:
+Append to the Root Cause paragraph (after "…so the check fails permanently."):
+> The same misroute hits **any** branch whose name lexically parses as a leading-digit or partial version — `v4`, `v3`, `4`, `v4.0`, `2024` (a date-branch) — because `/^v?\d/` matches any leading digit. `v4` is the reported exemplar; the remote-truth fix covers the whole class by construction.
 
-
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---
@@ -76,9 +80,10 @@ The spec instructs "remove `isTagRef` (it has no other caller)" but omits that a
 > - **`src/update-check.ts`** — reshape the `checkForUpdate` dispatch; remove `isTagRef`; add the classification probe, its parsing, and branch/tag routing.
 
 **Proposed Addition**:
+Replace the In-scope `src/update-check.ts` bullet with:
+> - **`src/update-check.ts`** — reshape the `checkForUpdate` dispatch; remove `isTagRef` (no other caller; its known-limitation comment documents only the *opposite* symmetric failure — `release-1.0`-style tags — and is intentional collateral, not something to port); add the classification probe, its parsing, and branch/tag routing.
 
-
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---

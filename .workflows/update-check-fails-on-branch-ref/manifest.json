@@ -22,7 +22,7 @@
             }
           },
           "review_cycle": 1,
-          "finding_gate_mode": "gated",
+          "finding_gate_mode": "auto",
           "construction_gate_mode": "auto",
           "date": "2026-07-02"
         }
