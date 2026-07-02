@@ -3,7 +3,8 @@
 ## Phases
 
 ### Phase 1: Remote-truth ref classification in update-check
-status: draft
+status: approved
+approved_at: 2026-07-02
 
 **Goal**: Replace the lexical `isTagRef` heuristic in `checkForUpdate` (`src/update-check.ts`) with a remote-truth classification probe. A stored non-null, unconstrained `ref` is probed via a single `ls-remote <url> refs/heads/{ref} refs/tags/{ref}` call (using the module's `{ timeout: 15_000 }`), parsed by a new step keyed on the exact ref path, and routed to the branch comparison (reusing the probed `refs/heads/{ref}` tip sha — no second lookup) or the tag comparison (issuing its own `--tags` list). This fixes the whole class of branch refs that lexically resemble tags (`v4`, `v3`, `4`, `2024`) and clears the symmetric latent case (`release-1.0`-style tags misrouted to the branch path).
 
