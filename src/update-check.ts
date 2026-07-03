@@ -33,13 +33,6 @@ export function hasOutOfConstraintVersion(
 	);
 }
 
-// Heuristic: matches "v1...", "1...", etc. Does not match branch names like
-// "dev", "main", or "feature-x". Will misclassify tags that start with a
-// non-numeric, non-v prefix (e.g. "release-1.0").
-function isTagRef(ref: string): boolean {
-	return /^v?\d/.test(ref);
-}
-
 function parseLsRemoteSha(stdout: string): string | null {
 	const trimmed = stdout.trim();
 	if (trimmed === "") return null;
@@ -105,11 +98,45 @@ export async function checkForUpdate(
 		return checkHead(url, entry.commit!);
 	}
 
-	if (isTagRef(entry.ref)) {
-		return checkTag(url, entry.ref, entry.commit!);
+	return classifyAndCheck(url, entry.ref, entry.commit!);
+}
+
+// Determines a stored ref's type from remote truth rather than string shape:
+// a single `ls-remote refs/heads/{ref} refs/tags/{ref}` probe reveals whether
+// the ref exists as a branch and/or a tag. Routing on tagSha first implements
+// the both-present tiebreak (tag wins, mirroring gitrevisions precedence).
+async function classifyAndCheck(
+	url: string,
+	ref: string,
+	installedCommit: string,
+): Promise<UpdateCheckResult> {
+	let stdout: string;
+	try {
+		({ stdout } = await execGit(
+			["ls-remote", url, `refs/heads/${ref}`, `refs/tags/${ref}`],
+			{ timeout: 15_000 },
+		));
+	} catch (err: unknown) {
+		return { status: "check-failed", reason: (err as Error).message };
 	}
 
-	return checkBranch(url, entry.ref, entry.commit!);
+	const { headSha, tagSha } = parseRefProbe(stdout, ref);
+
+	if (tagSha !== null) {
+		return checkTag(url, ref);
+	}
+
+	if (headSha !== null) {
+		if (headSha === installedCommit) {
+			return { status: "up-to-date" };
+		}
+		return { status: "update-available", remoteCommit: headSha };
+	}
+
+	return {
+		status: "check-failed",
+		reason: `Ref '${ref}' not found on remote as a branch or tag`,
+	};
 }
 
 async function checkHead(
@@ -136,51 +163,16 @@ async function checkHead(
 	}
 }
 
-async function checkBranch(
-	url: string,
-	branch: string,
-	installedCommit: string,
-): Promise<UpdateCheckResult> {
-	try {
-		const { stdout } = await execGit(
-			["ls-remote", url, `refs/heads/${branch}`],
-			{ timeout: 15_000 },
-		);
-		const remoteSha = parseLsRemoteSha(stdout);
-		if (remoteSha === null) {
-			return {
-				status: "check-failed",
-				reason: `Branch '${branch}' not found on remote`,
-			};
-		}
-		if (remoteSha === installedCommit) {
-			return { status: "up-to-date" };
-		}
-		return { status: "update-available", remoteCommit: remoteSha };
-	} catch (err: unknown) {
-		return {
-			status: "check-failed",
-			reason: (err as Error).message,
-		};
-	}
-}
-
-async function checkTag(
-	url: string,
-	tag: string,
-	_installedCommit: string,
-): Promise<UpdateCheckResult> {
+// The classifier confirms `refs/tags/{ref}` exists before routing here, so the
+// tag is always present in the fetched list — the "tag not found" branch is
+// unreachable and omitted. The probe's single tag sha cannot yield the
+// newer-tags set, so this issues its own `--tags` for the full tag list.
+async function checkTag(url: string, tag: string): Promise<UpdateCheckResult> {
 	try {
 		const allTagRefs = await fetchRemoteTagRefs(url);
 		const allTags = allTagRefs.map((r) => r.tag);
 		const newerTags = findNewerTags(allTags, tag);
-		if (newerTags === null) {
-			return {
-				status: "check-failed",
-				reason: `Tag '${tag}' not found on remote`,
-			};
-		}
-		if (newerTags.length > 0) {
+		if (newerTags !== null && newerTags.length > 0) {
 			return { status: "newer-tags", tags: newerTags };
 		}
 		return { status: "up-to-date" };

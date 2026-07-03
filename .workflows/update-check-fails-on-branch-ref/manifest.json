@@ -76,9 +76,10 @@
             ".claude/skills/typescript-pro"
           ],
           "current_phase": 1,
-          "current_task": "update-check-fails-on-branch-ref-1-2",
+          "current_task": "update-check-fails-on-branch-ref-1-3",
           "completed_tasks": [
-            "update-check-fails-on-branch-ref-1-1"
+            "update-check-fails-on-branch-ref-1-1",
+            "update-check-fails-on-branch-ref-1-2"
           ]
         }
       }
