@@ -205,6 +205,22 @@ describe("checkAllForUpdates", () => {
 		expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo", tagEntry);
 	});
 
+	it("surfaces a real status (not check-failed) for a v4-branch entry", async () => {
+		// Regression (cross-surface recovery): a branch ref that lexically looks
+		// like a tag ("v4") must surface its real check status here. Post-fix,
+		// checkForUpdate resolves up-to-date rather than a permanent check-failed,
+		// so the map value is the real status — check-failed only ever appears when
+		// the mock throws/returns it (see the mixed-status tests above).
+		const branchEntry = makeEntry({ ref: "v4", commit: "c".repeat(40) });
+		const manifest: Manifest = { "nuxt/ui": branchEntry };
+		mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
+
+		const result = await checkAllForUpdates(manifest);
+
+		expect(result.get("nuxt/ui")).toEqual({ status: "up-to-date" });
+		expect(mockCheckForUpdate).toHaveBeenCalledWith("nuxt/ui", branchEntry);
+	});
+
 	it("converts non-Error throws to check-failed with stringified reason", async () => {
 		const manifest: Manifest = { "owner/repo": makeEntry() };
 		mockCheckForUpdate.mockRejectedValue("string error");

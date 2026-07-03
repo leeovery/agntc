@@ -495,6 +495,48 @@ describe("renderDetailView", () => {
 				{ value: "back", label: "Back" },
 			]);
 		});
+
+		it("renders a real status for a v4-branch entry", async () => {
+			// Cross-surface recovery: with the classification fix a "v4" branch install
+			// reaches the detail view with a real status (update-available), so the
+			// Update action is offered normally — no degraded check-failed rendering.
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { ref: "v4", commit: "a".repeat(40) },
+					updateStatus: {
+						status: "update-available",
+						remoteCommit: "b".repeat(40),
+					},
+				}),
+			);
+
+			expect(renderedActions()).toEqual([
+				{ value: "update", label: "Update" },
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
+
+		it("does NOT offer Change version for a v4-branch ref (isVersionTag false, out of scope)", async () => {
+			// "v4" resembles a tag but is not full semver, so isVersionTag("v4") is
+			// false — Change version stays disabled by design, even though the status
+			// is now a real one. Re-enabling it for branch refs is out of scope.
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: { ref: "v4", commit: "a".repeat(40) },
+					updateStatus: { status: "up-to-date" },
+				}),
+			);
+
+			expect(renderedActions()).toEqual([
+				{ value: "remove", label: "Remove" },
+				{ value: "back", label: "Back" },
+			]);
+		});
 	});
 
 	describe("contextual messages", () => {

@@ -381,6 +381,33 @@ describe("update command", () => {
 			expect(hasFailedNote).toBe(true);
 		});
 
+		it("all-plugins update emits no check-failed warning for a v4-branch entry resolving to a real status", async () => {
+			// Contrast with "notes check-failed plugins in summary": once the "v4"
+			// branch ref resolves to a real status (Task 1.2), the all-plugins summary
+			// must NOT warn about a check failure for that entry.
+			mockReadManifestOrExit.mockResolvedValue({
+				"nuxt/ui": makeEntry({ ref: "v4", commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
+
+			await runUpdate();
+
+			const allLogCalls = [
+				...mockLog.warn.mock.calls.map((c) => c[0]),
+				...mockLog.message.mock.calls.map((c) => c[0]),
+				...mockLog.info.mock.calls.map((c) => c[0]),
+			];
+			const hasFailedNote = allLogCalls.some(
+				(msg) =>
+					typeof msg === "string" &&
+					(msg.includes("failed") || msg.includes("Failed")),
+			);
+			expect(hasFailedNote).toBe(false);
+			expect(mockOutro).toHaveBeenCalledWith(
+				expect.stringContaining("up to date"),
+			);
+		});
+
 		it("performs single manifest write for multiple updates", async () => {
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
@@ -727,6 +754,25 @@ describe("update command", () => {
 				"owner/repo is already up to date.",
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("single-key update of a v4-branch entry that is up-to-date exits 0", async () => {
+			// Cross-surface recovery: a branch ref that looks like a tag ("v4") now
+			// resolves to a real status. The single-key path must take the up-to-date
+			// branch (outro + exit 0), NOT the check-failed exit-1 branch it hit
+			// before Task 1.2's classification fix.
+			mockReadManifestOrExit.mockResolvedValue({
+				"nuxt/ui": makeEntry({ ref: "v4", commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
+
+			const err = await runUpdate("nuxt/ui").catch((e) => e);
+
+			// Resolves (no ExitSignal) — up-to-date, not the check-failed exit-1 path.
+			expect(err).toBeUndefined();
+			expect(mockOutro).toHaveBeenCalledWith("nuxt/ui is already up to date.");
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockLog.error).not.toHaveBeenCalled();
 		});
 	});
 
