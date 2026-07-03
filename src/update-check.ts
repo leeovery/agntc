@@ -48,6 +48,39 @@ function parseLsRemoteSha(stdout: string): string | null {
 	return sha || null;
 }
 
+// Parses a mixed `ls-remote refs/heads/{ref} refs/tags/{ref}` response,
+// returning the head and/or tag sha keyed by EXACT ref path. Unlike
+// parseLsRemoteSha (first line only, discards the ref path) and parseTagRefs
+// (tags-only, strips refs/tags/), this classifies a combined heads+tags probe.
+// Matching is order-independent and requires full-path equality, so the peeled
+// refs/tags/{ref}^{} line and any prefix-sharing ref are ignored.
+export function parseRefProbe(
+	stdout: string,
+	ref: string,
+): { headSha: string | null; tagSha: string | null } {
+	const trimmed = stdout.trim();
+	if (trimmed === "") return { headSha: null, tagSha: null };
+
+	const headPath = `refs/heads/${ref}`;
+	const tagPath = `refs/tags/${ref}`;
+	let headSha: string | null = null;
+	let tagSha: string | null = null;
+
+	for (const line of trimmed.split("\n")) {
+		if (line.trim() === "") continue;
+		const parts = line.split("\t");
+		const sha = parts[0]?.trim() ?? "";
+		const refPath = parts[1]?.trim() ?? "";
+		if (refPath === headPath) {
+			headSha = sha || null;
+		} else if (refPath === tagPath) {
+			tagSha = sha || null;
+		}
+	}
+
+	return { headSha, tagSha };
+}
+
 function findNewerTags(allTags: string[], currentTag: string): string[] | null {
 	const currentIndex = allTags.indexOf(currentTag);
 	if (currentIndex === -1) return null;
