@@ -91,6 +91,19 @@
           ]
         }
       }
+    },
+    "review": {
+      "items": {
+        "update-check-fails-on-branch-ref": {
+          "status": "in-progress",
+          "reviewed_tasks": [
+            "update-check-fails-on-branch-ref-1-1",
+            "update-check-fails-on-branch-ref-1-2",
+            "update-check-fails-on-branch-ref-1-3",
+            "update-check-fails-on-branch-ref-2-1"
+          ]
+        }
+      }
     }
   },
   "seeds": [
