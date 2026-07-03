@@ -44,7 +44,9 @@
             "update-check-fails-on-branch-ref-1-1": "tick-e3e1f4",
             "update-check-fails-on-branch-ref-1": "tick-b0a0de",
             "update-check-fails-on-branch-ref-1-2": "tick-4aea2f",
-            "update-check-fails-on-branch-ref-1-3": "tick-feeadf"
+            "update-check-fails-on-branch-ref-1-3": "tick-feeadf",
+            "update-check-fails-on-branch-ref-2": "tick-06baa9",
+            "update-check-fails-on-branch-ref-2-1": "tick-538a83"
           },
           "external_id": "tick-45df2c"
         }
@@ -56,7 +58,7 @@
           "status": "in-progress",
           "task_gate_mode": "auto",
           "fix_gate_mode": "gated",
-          "analysis_gate_mode": "gated",
+          "analysis_gate_mode": "auto",
           "fix_attempts": 0,
           "analysis_cycle_total": 1,
           "analysis_cycle_session": 1,

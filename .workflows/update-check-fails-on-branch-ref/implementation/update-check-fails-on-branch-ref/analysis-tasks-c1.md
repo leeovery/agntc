@@ -6,7 +6,7 @@ total_proposed: 1
 # Analysis Tasks: update-check-fails-on-branch-ref (Cycle 1)
 
 ## Task 1: Extract the resolved-sha comparison helper shared by checkHead and the branch path
-status: pending
+status: approved
 severity: low
 sources: duplication, architecture
 

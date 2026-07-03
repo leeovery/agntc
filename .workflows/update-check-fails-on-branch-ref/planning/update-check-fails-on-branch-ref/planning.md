@@ -33,3 +33,13 @@ approved_at: 2026-07-02
 | update-check-fails-on-branch-ref-1-1 | Add exact-path ls-remote probe parser | peeled `^{}` annotated-tag line ignored, slash-in-ref-name must not cross-match loose prefix, line order irrelevant, empty output, only-heads present, only-tags present, both present |
 | update-check-fails-on-branch-ref-1-2 | Replace isTagRef dispatch with remote-truth classification in checkForUpdate | branch ref that looks like a tag (`v4`), real semver tag (`v4.9.0`), symmetric tag not matching `/^v?\d/` (`release-1.0`), plain branch (`main`/`dev`), both branch and tag named ref (tiebreak resolves to tag), ref exists as neither (deleted upstream → unified not-found), probe network/exec failure, untouched paths unchanged (local, HEAD `ref=null`, constrained) |
 | update-check-fails-on-branch-ref-1-3 | Confirm cross-surface recovery for the v4-style branch ref | update single exits 0 not 1, update-all emits no check-failed warning, list status column and detail show real status, list change-version stays disabled for branch ref (`isVersionTag` false, out of scope) |
+
+### Phase 2: Analysis (Cycle 1)
+
+**Goal**: Address findings from Analysis (Cycle 1).
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| update-check-fails-on-branch-ref-2-1 | Extract the resolved-sha comparison helper shared by checkHead and the branch path | branch `up-to-date` (remote head == installed commit); branch `update-available` (head != commit); HEAD `up-to-date` / `update-available` both route through the shared helper; helper kept private vs exported (add a focused unit test only if exported); no change to the `UpdateCheckResult` union, `git-utils.ts`, or any consuming surface (update single/all, list-detail); both-present tiebreak, sha-reuse guarantee, and unified not-found reason all unchanged |
