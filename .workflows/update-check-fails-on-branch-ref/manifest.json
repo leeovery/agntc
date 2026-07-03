@@ -95,7 +95,7 @@
     "review": {
       "items": {
         "update-check-fails-on-branch-ref": {
-          "status": "in-progress",
+          "status": "completed",
           "reviewed_tasks": [
             "update-check-fails-on-branch-ref-1-1",
             "update-check-fails-on-branch-ref-1-2",
