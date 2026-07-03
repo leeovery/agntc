@@ -120,6 +120,7 @@ describe("checkForUpdate — non-constrained entries bypass constrained path", (
 			const firstCall = execFileMock.mock.calls[0]!;
 			const args = firstCall[1] as string[];
 			expect(args).toContain("refs/heads/develop");
+			expect(args).toContain("refs/tags/develop");
 			expect(args).not.toContain("--tags");
 		});
 
