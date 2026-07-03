@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-07-03
+
+🐛 Fixed
+- Update checks for branch refs that look like version tags (e.g. `v4`) no longer misfire as a missing-tag error — the checker now asks the remote whether a ref is a branch or tag instead of guessing from its name.
+
 ## [0.3.2] - 2026-06-17
 
 ✨ Added
