@@ -80,6 +80,19 @@ function findNewerTags(allTags: string[], currentTag: string): string[] | null {
 	return allTags.slice(currentIndex + 1);
 }
 
+// The single "is a resolved remote sha ahead of the installed commit?" rule,
+// shared by the branch arm of classifyAndCheck and checkHead. Both resolve a
+// remote sha and compare it against the installed commit identically.
+function compareResolvedSha(
+	remoteSha: string,
+	installedCommit: string,
+): UpdateCheckResult {
+	if (remoteSha === installedCommit) {
+		return { status: "up-to-date" };
+	}
+	return { status: "update-available", remoteCommit: remoteSha };
+}
+
 export async function checkForUpdate(
 	key: string,
 	entry: ManifestEntry,
@@ -127,10 +140,7 @@ async function classifyAndCheck(
 	}
 
 	if (headSha !== null) {
-		if (headSha === installedCommit) {
-			return { status: "up-to-date" };
-		}
-		return { status: "update-available", remoteCommit: headSha };
+		return compareResolvedSha(headSha, installedCommit);
 	}
 
 	return {
@@ -151,10 +161,7 @@ async function checkHead(
 		if (remoteSha === null) {
 			return { status: "check-failed", reason: "No HEAD ref found on remote" };
 		}
-		if (remoteSha === installedCommit) {
-			return { status: "up-to-date" };
-		}
-		return { status: "update-available", remoteCommit: remoteSha };
+		return compareResolvedSha(remoteSha, installedCommit);
 	} catch (err: unknown) {
 		return {
 			status: "check-failed",
