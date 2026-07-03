@@ -55,7 +55,7 @@
     "implementation": {
       "items": {
         "update-check-fails-on-branch-ref": {
-          "status": "in-progress",
+          "status": "completed",
           "task_gate_mode": "auto",
           "fix_gate_mode": "gated",
           "analysis_gate_mode": "auto",
