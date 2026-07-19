@@ -4,7 +4,15 @@
   "status": "in-progress",
   "created": "2026-07-19",
   "description": "Improve agntc update output: per-unit progress clarity, semver-tag summary wording, and safe-vs-major bump gating",
-  "phases": {},
+  "phases": {
+    "discussion": {
+      "items": {
+        "update-output-overhaul": {
+          "status": "in-progress"
+        }
+      }
+    }
+  },
   "seeds": [
     {
       "path": "seeds/2026-07-19-update-progress-clarity.md",

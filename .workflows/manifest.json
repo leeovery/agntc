@@ -20,6 +20,9 @@
     },
     "update-check-fails-on-branch-ref": {
       "work_type": "bugfix"
+    },
+    "update-output-overhaul": {
+      "work_type": "feature"
     }
   },
   "defaults": {
