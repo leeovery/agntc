@@ -4,13 +4,13 @@
 
 ---
 
-The endpoint ceremony. Analyse the session's exploration as a whole, produce a topic set, and confirm it with the user. Loaded by [session-loop.md](session-loop.md) C when the user confirms ready to synthesise.
+The harvest ceremony. Analyse the session's exploration as a whole, produce a topic set, and confirm it with the user. Loaded by [session-loop.md](session-loop.md) C when the user pulls the harvest.
 
 ## A. Gather Source Material
 
 You have three sources of truth:
 
-1. **The Exploration section** of the active session log at `.workflows/{work_unit}/discovery/session-{session_number:03d}.md`. Read it now if you haven't recently — your in-context memory might be stale.
+1. **The Exploration section** of the active session log at `.workflows/{work_unit}/discovery/sessions/session-{session_number:03d}.md`. Read it now if you haven't recently — your in-context memory might be stale.
 2. **In-context memory of the conversation.** When not compacted, this carries detail the Exploration summary may have skipped.
 3. **The existing discovery map** from Step 7's discovery output. Continuing sessions add to it; first sessions seed it.
 
@@ -80,6 +80,8 @@ Confirm to commit, or tell me what to adjust.
 #### If `yes`
 
 The topic set is confirmed. Hold it in conversation memory as the **working list** for Step 12 confirm-and-persist. Do not write Topics Identified to the log yet — Step 12 writes the manifest items and the log section together. Synthesis outcome: `confirmed`.
+
+→ Load **[brief-synthesis.md](brief-synthesis.md)** and follow its instructions as written.
 
 → Return to caller.
 

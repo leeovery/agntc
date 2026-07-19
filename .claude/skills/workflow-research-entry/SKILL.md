@@ -162,7 +162,7 @@ Single-phase work (feature, cross-cutting) shaped in discovery. The carrier has 
 node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit} description
 ```
 
-Then the discovery session log. Single-phase work has exactly one, at a fixed path — it has no resumable loop to create others. Read `.workflows/{work_unit}/discovery/session-001.md`. A legacy work unit may have no log, or a placeholder log whose **Exploration** is absent or `(none)`.
+Then the discovery session log. Single-phase work has exactly one, at a fixed path — it has no resumable loop to create others. Read `.workflows/{work_unit}/discovery/sessions/session-001.md`. A legacy work unit may have no log, or a placeholder log whose **Exploration** is absent or `(none)`.
 
 **If the log's `Exploration` section has content (not absent or `(none)`):**
 
@@ -196,11 +196,9 @@ Load **[gather-context.md](references/gather-context.md)** and follow its instru
 
 **Otherwise:**
 
-The topic was shaped on the discovery map — its seed lives on the map item. Read the `description` and seed the research session from it:
+The topic was shaped on the discovery map. Read its discovery brief as the starting context:
 
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.discovery.{topic} description
-```
+Load **[read-brief-context.md](../workflow-shared/references/read-brief-context.md)** with work_type = `{work_type}`, work_unit = `{work_unit}`, topic = `{topic}`.
 
 Do not re-ask; live conversation context, when present, supplements the carrier.
 

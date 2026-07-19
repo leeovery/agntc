@@ -27,7 +27,7 @@ It runs in two modes:
 - **New mode** — from `workflow-start`. Decide the work type (epic / feature / bugfix / quick-fix / cross-cutting), shape the outline, persist at the work-type commit, route to the first phase.
 - **Existing-epic mode** — from `workflow-continue-epic`. The work type is already known; re-shape the epic's discovery map (refinement or resuming an interrupted sketch).
 
-**Stay in your lane**: Discovery handles SHAPE; downstream phases FILL the shape. Do not research (no feasibility/market/tech investigation), do not investigate (no symptom analysis or root-cause hunting), do not decide (no resolving design questions), do not scope (no spec or plan content). Name the work, figure out its shape, route it. If the conversation tunnels into substance, anchor and return — *"hold that thread, we'll cover it in research / discussion / investigation."*
+**Stay in your lane**: Discovery settles *what the work is* and shapes it — determine the type first (epic / feature / bugfix / quick-fix / cross-cutting), then route it into the pipeline. How much substance the conversation engages is set per work type by the guidance loaded on each path, not fixed here: while determining the type you shape rather than resolve; once an epic is settled, its path opens into deep exploration. Name the work, shape it, route it.
 
 ---
 
@@ -53,7 +53,7 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 Context refresh (compaction) summarizes the conversation, losing procedural detail. When you detect a context refresh has occurred — the conversation feels abruptly shorter, you lack memory of recent steps, or a summary precedes this message — follow this recovery protocol:
 
 1. **Re-read this skill file completely.** Do not rely on your summary of it.
-2. **Determine whether the work unit was persisted yet.** Pre-confirmation new-mode shaping is ephemeral — nothing is on disk. If no manifest exists for the work in hand, the conversation had not yet reached the confirm-trigger; treat the shaping as lost and re-open with the user. If a manifest exists, the confirm-trigger fired — read the active session log (highest-numbered `.workflows/{work_unit}/discovery/session-*.md`) and the manifest to recover state. For an epic whose discovery map is still empty while its session log holds Exploration, you were mid-discovery — confirmed but not yet synthesised — so resume at the session loop; its open picks up from the log rather than cold-opening.
+2. **Determine whether the work unit was persisted yet.** Pre-confirmation new-mode shaping is ephemeral — nothing is on disk. If no manifest exists for the work in hand, the conversation had not yet reached the confirm-trigger; treat the shaping as lost and re-open with the user. If a manifest exists, the confirm-trigger fired — read the active session log (highest-numbered `.workflows/{work_unit}/discovery/sessions/session-*.md`) and the manifest to recover state; the session loop's re-open then reads the recent prior session logs too for continuity (see [continuity-load.md](references/continuity-load.md)), so re-entry resumes the conversation rather than restarting from the map. For an epic whose discovery map is still empty while its session log holds Exploration, you were mid-discovery — confirmed but not yet synthesised — so resume at the session loop; its open picks up from the log rather than cold-opening.
 3. **Check git state.** Run `git status` and `git log --oneline -10`. Commit messages reveal what has been completed.
 4. **Announce your position** to the user before continuing: state what step you believe you're at and what comes next. Wait for confirmation.
 
@@ -221,6 +221,7 @@ Hold the output in conversation context as **the most recent discovery output**.
 - `map_summary` — counts string used for the opener render
 - `dismissed` — names previously removed from the map
 - `active_session` — in-progress session number set by lazy log creation, cleared at conclude. Authoritative resume signal (read at Step 6).
+- `session_logs` — every session log's number + path (ascending); read from this rather than re-globbing (used by continuity-load.md)
 - `next_session_number` — used to set `session_number` for fresh entries
 
 If `session_number` was not already set (no resume at Step 6, no `macro_continuation` from Step 5), set it now: `session_number` = `next_session_number`. When `macro_continuation` is set, the confirm-trigger already created `session-{session_number}.md` — keep that `session_number` and ignore `next_session_number`.
