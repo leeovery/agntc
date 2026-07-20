@@ -201,6 +201,44 @@ Threading the two refs into the render signature is mechanics (implementer's cal
 
 ---
 
+## Safe-vs-Major Bump Gating
+
+### Audit — the behaviour already exists; the gap is messaging
+
+The *gating behaviour* already exists, entirely via semver caret semantics — **no resolver/gating work is needed**:
+
+- **Safe bumps auto-apply.** `checkConstrained` → `maxSatisfying(constraint, tags)` (`update-check.ts:211`); a patch/minor within the major advances `best` → `constrained-update-available` → auto-applied in all-mode (`update.ts:483-504`).
+- **Major bumps are already gated.** `^1.2.3` = `>=1.2.3 <2.0.0`, so `2.0.0` never satisfies → can't be auto-applied; it surfaces as `latestOverall` in the out-of-constraint footer (`summary.ts:294-306`).
+- **0.x-minor is already gated identically.** `^0.3.3` = `>=0.3.3 <0.4.0` (caret on 0.x pins the minor), so `0.4.0` is out of constraint — same path as a major. agntc itself is at v0.3.3, so this is the live case.
+- **Exact-pin already blocks with a re-add directive.** `newer-tags` → the single-key path prints `To upgrade: npx agntc add <key>@<newest>` (`update.ts:151`).
+
+**Conclusion:** the gap is purely *messaging*.
+
+### Blocking message — passive footer → actionable, mode-matched
+
+- **Tone: informative opt-in, not an error.** A major-available situation is the constraint doing its job (holding the unit at its major), not a failure. No error styling; **exit stays 0**; it does not feed `hasFailedOutcome`.
+- **Upgrade the out-of-constraint message from passive to actionable.** Today: `Newer versions outside constraints: key 2.0.0 available (constraint: ^1.2.3)`. Target: name the current version vs the newer one *and* give the exact re-add command to cross the boundary.
+- **Re-add suggestion matches the user's existing versioning mode:**
+  - **Constrained / caret user** → suggest **bare `npx agntc add owner/repo`**. A bare add re-resolves the latest semver tag and stores the default `^major.minor.patch` constraint, so it jumps to the newest major *and* re-establishes caret tracking — the user needn't know it's `^2`. Chosen over `@^2` for simplicity; the prose names the target version, the command stays trivial.
+  - **Exact-pin user** (`newer-tags`, no constraint) → keep suggesting a specific **`@<newest>`** tag, as today. This user deliberately pinned an exact tag; a bare re-add would silently switch them into caret tracking — a versioning-mode change they didn't ask for.
+  - Rule: **suggest the re-add that preserves how they pinned.**
+- **Names the *post-bump* current version.** The out-of-constraint info is captured at check time (`update.ts:458-468`), *before* a same-run safe bump is applied. Naming the pre-bump `entry.ref` would report a stale current: for `v1.2.3` on `^1.2.3` with remote `v1.3.0` + `v2.0.0`, the run auto-applies `v1.3.0` but the footer would say "current `v1.2.3` → `v2.0.0`" — contradicting the `Updated v1.2.3 → v1.3.0` line right above it. **Decision:** the footer names the version this run actually landed on (`v1.3.0 → v2.0.0`), consistent with the inline outcome. This requires the footer's current-version reference to come from the post-bump entry, not the pre-run ref (`OutOfConstraintInfo` carries no current version today — `summary.ts:288-292` — so the applied version must be threaded in; that plumbing is mechanics). When no safe bump happened this run, pre and post coincide.
+- **The footer collapses per repo-group, not per member.** Today `renderOutOfConstraintSection` emits one line per key (`summary.ts:294-306`); a major-available N-member collection (members share ref + constraint) produces N near-identical actionable lines — the "wall" Part 1 exists to kill, reappearing in the footer. **Decision:** collapse to **one line per repo-group**, reusing Part 1's grouping. At the repo level the bare `npx agntc add owner/repo` re-add is *correct* — for a collection it re-adds the collection (re-selecting members at the new major), for a standalone it re-adds the plugin.
+
+### 0.x-line + exact-pin edge cases
+
+- **0.x-minor** confirmed gated by caret (above) — no special-casing needed; it rides the same out-of-constraint path as a major, with the same actionable message.
+- **Consistency fix:** the all-mode `newer-tags` line (`update.ts:541`) currently says "newer tags available (latest: X)" but omits the `agntc add` command the single-key path includes. Align it so exact-pin messaging is consistent across single-key and all-mode.
+
+### Exit-code posture — single-key vs all-mode (ratified, not changed)
+
+`check-failed` and `constrained-no-match` exit differently by mode today, and the divergence is **intentional — keep it, and state it explicitly**:
+
+- **Single-key** `update <key>` exits `1` on both (`update.ts:139-142`, `160-165`): the one plugin you targeted couldn't be checked / has no matching tag → the requested action didn't happen.
+- **All-mode** `update` warns and exits `0` (both excluded from `hasFailedOutcome`, `update.ts:623-630`): a batch shouldn't be sunk by one dead remote or one stuck constraint when everything else succeeded — partial-success, failure surfaced as a warning. Consistent with the existing posture where only `aborted`/`blocked`/`failed`/`copy-failed` trip the non-zero exit.
+
+---
+
 ## Working Notes
 
 [Optional - capture in-progress discussion if needed]
