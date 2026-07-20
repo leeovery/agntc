@@ -174,6 +174,31 @@ Sharing the physical clone across members keeps the identical boundary —
 cross-member symlinks inside the clone allowed, escapes beyond it rejected. Dedup
 changes how many times we clone, not what counts as an escape.
 
+### Implementation invariants (deferred to planning)
+
+Review-001 surfaced mechanics that are planning/implementation concerns, not
+discussion decisions. Recorded here as invariants the implementation must preserve
+— not to be litigated at discussion altitude:
+
+- **Grouping keys on the *resolved* clone URL**, not the raw `entry.cloneUrl` field
+  (which is `null` for legacy manifests and derived at use via
+  `deriveCloneUrlFromKey`). Otherwise a legacy entry and an explicit-URL entry for
+  the same repo would fail to collapse. (review F1)
+- **Grouping spans both processing loops** (`[...updateAvailable, ...local]` and
+  `constrainedUpdateAvailable`, `update.ts:473-504`) — same-repo/same-target entries
+  that fall in different check categories must still collapse into one group.
+  (review F2)
+- **The per-member lexical `sourceSubpath` containment guard**
+  (`assertSubpathWithinClone`, `clone-reinstall.ts:366-379`) must run **per member**
+  in the orchestrator — each member carries its own `sourceSubpath`. The bypassed
+  path currently owns it. (review F4)
+- **Where the result→`PluginOutcome` mapping is factored** (orchestrator inside vs
+  beside `processUpdateForAll`, shared helper extraction) is wiring — planning's
+  call. (review F6)
+- **The clone spinner** currently in `cloneAndReinstall` disappears from the grouped
+  path; the new progress renderer that replaces it is owned by the Per-Unit Progress
+  Output subtopic (dependency, not a mechanic). (review F5)
+
 ---
 
 ## Summary
