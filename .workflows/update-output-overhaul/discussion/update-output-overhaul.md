@@ -47,11 +47,11 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 4 decided · 2 exploring · 9 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 5 decided · 2 exploring · 8 pending)
 
   ├─ ◐ Per-unit progress output [exploring]
-  │  ├─ ◐ Spinner identity — name the unit, resolve inline [exploring]
-  │  └─ ○ Inline outcome vs end-of-run summary loop [pending]
+  │  ├─ ✓ Spinner identity — name the unit, resolve inline [decided]
+  │  └─ ◐ Inline outcome vs end-of-run summary loop [exploring]
   ├─ ✓ Per-repo clone dedup [decided]
   │  ├─ ✓ Grouping updatable entries by source repo [decided]
   │  ├─ ✓ Clone ownership refactor (cloneAndReinstall / processUpdateForAll) [decided]
