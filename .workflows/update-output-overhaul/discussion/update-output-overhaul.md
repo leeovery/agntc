@@ -47,7 +47,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 8 decided · 2 exploring · 5 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 11 decided · 1 exploring · 3 pending)
 
   ├─ ✓ Per-unit progress output [decided]
   │  ├─ ✓ Spinner identity — name the unit, resolve inline [decided]
@@ -59,11 +59,11 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
   ├─ ✓ Tag-based summary wording [decided]
   │  ├─ ✓ Tags-where-tagged vs hash fallback [decided]
   │  └─ ✓ Sourcing old/new tag (entry.ref + resolved tag) [decided]
-  ├─ ◐ Safe-vs-major bump gating [exploring]
-  │  ├─ ◐ Audit: what constraint semantics already gate today [exploring]
-  │  ├─ ○ Blocking message: passive out-of-constraint → active re-add directive [pending]
-  │  └─ ○ 0.x-line + exact-pin edge cases [pending]
-  └─ ○ Scope boundary — existing-behaviour audit vs new build [pending]
+  ├─ ✓ Safe-vs-major bump gating [decided]
+  │  ├─ ✓ Audit: what constraint semantics already gate today [decided]
+  │  ├─ ✓ Blocking message: passive out-of-constraint → active re-add directive [decided]
+  │  └─ ✓ 0.x-line + exact-pin edge cases [decided]
+  └─ ◐ Scope boundary — existing-behaviour audit vs new build [exploring]
 
 ---
 
@@ -341,6 +341,68 @@ Scope-Boundary concern — flagged there, not resolved here.
 
 ---
 
+## Safe-Vs-Major Bump Gating
+
+### Context
+
+The seed asks to confirm/align npm-style gating: auto-apply safe bumps (patch/minor
+within the major), block a major (or a minor on a `0.x` line) and direct the user to
+re-add explicitly, naming current-vs-newer. Part of the task is auditing what already
+exists before building.
+
+### Audit — what already gates today (Decision: behaviour is done, gap is messaging)
+
+The *gating behaviour* already exists, entirely via semver caret semantics:
+
+- **Safe bumps auto-apply.** `checkConstrained` → `maxSatisfying(constraint, tags)`
+  (`update-check.ts:211`); a patch/minor within the major advances `best` →
+  `constrained-update-available` → auto-applied in all-mode (`update.ts:483-504`).
+- **Major bumps are already gated.** `^1.2.3` = `>=1.2.3 <2.0.0`, so `2.0.0` never
+  satisfies → can't be auto-applied; it surfaces as `latestOverall` in the
+  out-of-constraint footer (`summary.ts:294-306`).
+- **0.x-minor is already gated identically.** `^0.3.3` = `>=0.3.3 <0.4.0` (caret on
+  0.x pins the minor), so `0.4.0` is out of constraint — same path as a major.
+  agntc itself is at v0.3.3, so this is the live case.
+- **Exact-pin already blocks with a re-add directive.** `newer-tags` → the
+  single-key path prints `To upgrade: npx agntc add <key>@<newest>`
+  (`update.ts:151`).
+
+**Conclusion:** no resolver/gating work. The gap is purely *messaging*.
+
+### Blocking message — Decision (passive footer → actionable, mode-matched)
+
+- **Tone: informative opt-in, not an error.** A major-available situation is the
+  constraint doing its job (holding the unit at its major), not a failure. No error
+  styling; **exit stays 0**; it does not feed `hasFailedOutcome`.
+- **Upgrade the out-of-constraint message from passive to actionable.** Today:
+  `Newer versions outside constraints: key 2.0.0 available (constraint: ^1.2.3)`.
+  Target: name the current version vs the newer one *and* give the exact re-add
+  command to cross the boundary.
+- **Re-add suggestion matches the user's existing versioning mode:**
+  - **Constrained / caret user** → suggest **bare `npx agntc add owner/repo`**. A
+    bare add re-resolves the latest semver tag and stores the default
+    `^major.minor.patch` constraint, so it jumps to the newest major *and*
+    re-establishes caret tracking — the user needn't know it's `^2`. Chosen over
+    `@^2` for simplicity; the prose names the target version, the command stays
+    trivial.
+  - **Exact-pin user** (`newer-tags`, no constraint) → keep suggesting a specific
+    **`@<newest>`** tag, as today. This user deliberately pinned an exact tag; a bare
+    re-add would silently switch them into caret tracking — a versioning-mode change
+    they didn't ask for.
+  - Rule: **suggest the re-add that preserves how they pinned.**
+
+### 0.x-line + exact-pin edge cases — Decision (confirmations)
+
+- **0.x-minor** confirmed gated by caret (above) — no special-casing needed; it
+  rides the same out-of-constraint path as a major, with the same actionable
+  message.
+- **Consistency fix:** the all-mode `newer-tags` line (`update.ts:541`) currently
+  says "newer tags available (latest: X)" but omits the `agntc add` command the
+  single-key path includes. Align it so exact-pin messaging is consistent across
+  single-key and all-mode.
+
+---
+
 ## Summary
 
 ### Key Insights
@@ -366,8 +428,12 @@ Scope-Boundary concern — flagged there, not resolved here.
 - Tag-based summary wording fully decided: tags when both refs are semver tags AND
   the ref moved, else hashes; old = entry.ref, new = resolved ref; applied to both
   update surfaces.
-- Next: Safe-Vs-Major Bump Gating (Part 3). Review F9 (sequencing/coupling of parts
-  2-3 with the seam plumbing) still to surface — lands under Scope Boundary.
+- Safe-vs-major gating fully decided: behaviour already exists (caret semantics);
+  gap is messaging — informative (exit 0), actionable re-add matched to the user's
+  pinning mode (caret → bare re-add; exact-pin → `@<newest>`); align all-mode
+  newer-tags wording with single-key.
+- All three parts decided. Last subtopic: Scope Boundary — existing-behaviour audit
+  vs new build, and the Part-2/3-vs-seam sequencing (review F9).
 
 ## Triage
 
