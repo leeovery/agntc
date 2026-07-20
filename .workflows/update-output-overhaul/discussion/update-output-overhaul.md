@@ -47,7 +47,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 6 decided · 2 exploring · 7 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 8 decided · 7 pending)
 
   ├─ ✓ Per-unit progress output [decided]
   │  ├─ ✓ Spinner identity — name the unit, resolve inline [decided]
@@ -56,9 +56,9 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
   │  ├─ ✓ Grouping updatable entries by source repo [decided]
   │  ├─ ✓ Clone ownership refactor (cloneAndReinstall / processUpdateForAll) [decided]
   │  └─ ✓ Failure isolation across shared-clone members [decided]
-  ├─ ◐ Tag-based summary wording [exploring]
-  │  ├─ ◐ Tags-where-tagged vs hash fallback [exploring]
-  │  └─ ○ Sourcing old/new tag (entry.ref + resolved tag) [pending]
+  ├─ ✓ Tag-based summary wording [decided]
+  │  ├─ ✓ Tags-where-tagged vs hash fallback [decided]
+  │  └─ ✓ Sourcing old/new tag (entry.ref + resolved tag) [decided]
   ├─ ○ Safe-vs-major bump gating [pending]
   │  ├─ ○ Audit: what constraint semantics already gate today [pending]
   │  ├─ ○ Blocking message: passive out-of-constraint → active re-add directive [pending]
@@ -284,6 +284,63 @@ which captures this discussion):
 
 ---
 
+## Tag-Based Summary Wording
+
+### Context
+
+`update` reports commit hashes today (`${key}: Updated ${oldShort} -> ${newShort}`,
+`summary.ts:220-228,261-277`), which installers don't recognise. The seed wants
+semver tags where the repo is tagged (`Updated key from v1.2.3 to v1.3.0`), with a
+short-hash fallback only for the untagged / HEAD-tracked case. The trap the KB
+flagged (`update-check-fails-on-branch-ref`): a ref like `v4` can be a *branch*, so
+the rule must not key off the lexical shape of the ref.
+
+### Tags-where-tagged vs hash fallback — Decision
+
+**Render `Updated <old> → <new>` in tags when both the old and new refs are genuine
+version tags AND the ref actually moved; otherwise fall back to short commit
+hashes.** The signal is *both refs being semver tags AND a ref move* — never the
+string shape alone.
+
+- **Constrained update** (`v1.2.3 → v1.3.0`): old ref = current tag, new ref =
+  resolved `result.tag`; both parse as semver and differ → **tags**. This is the
+  all-mode case that produces a tagged "updated" outcome.
+- **HEAD-tracked** (`ref === null`) or **branch** (`main`): not a version tag →
+  **hashes**.
+- **Lexical trap closed for free**: `isVersionTag` is `clean()`-based
+  (`version-resolve.ts:30`); `clean("v4")` is `null` (not a full semver), so a `v4`
+  *branch* is correctly not treated as a tag → **hashes**.
+- **Branch literally named `v4.0.0`, commit moved**: passes `isVersionTag`, but a
+  branch update doesn't change the ref name (only the commit), so `oldRef ===
+  newRef` → the "ref actually moved" guard sends it to **hashes**. This guard is why
+  the rule is "both tags AND ref moved," not just "both tags."
+- **Rejected: show tags whenever the new target is a tag** (even from a non-tag
+  origin) — would render a misleading half-tagged move and doesn't survive the
+  branch-named-like-semver edge.
+
+### Sourcing old/new tag — Decision
+
+Follows from the rule; the values are already at the outcome-construction site
+(`update.ts:372-383`):
+
+- **Old ref** = the pre-update `entry.ref`.
+- **New ref** = the post-update `result.manifestEntry.ref` (= the resolved
+  `result.tag` for a constrained update; unchanged from `entry.ref` for a
+  branch/HEAD update, which is exactly why those land on the hash path).
+- **Apply to both surfaces** — the single-key path (`renderGitUpdateSummary`) and
+  all-mode (`renderUpdateOutcomeSummary`) both get the tag treatment, so wording
+  can't drift between them.
+- Threading the two refs into the render signature is mechanics → the implementer's
+  call. What's decided here is *which values* feed it (old `entry.ref`, new resolved
+  ref) and the rule they're tested against.
+
+**Coupling note (review F9):** the outcome-summary plumbing
+(`renderUpdateOutcomeSummary`, produced inside `processUpdateForAll`) is the *same*
+call site the dedup ownership seam touches. Sequencing of the two changes is a
+Scope-Boundary concern — flagged there, not resolved here.
+
+---
+
 ## Summary
 
 ### Key Insights
@@ -306,7 +363,10 @@ which captures this discussion):
 - Per-unit progress output fully decided: group header + per-member outcomes (F10),
   actioned outcomes stream inline (emit-on-completion), end-loop keeps non-actioned
   check categories only.
-- Next: Tag-Based Summary Wording (Part 2). Review F9 (sequencing/coupling of parts
+- Tag-based summary wording fully decided: tags when both refs are semver tags AND
+  the ref moved, else hashes; old = entry.ref, new = resolved ref; applied to both
+  update surfaces.
+- Next: Safe-Vs-Major Bump Gating (Part 3). Review F9 (sequencing/coupling of parts
   2-3 with the seam plumbing) still to surface — lands under Scope Boundary.
 
 ## Triage
