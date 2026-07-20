@@ -159,8 +159,15 @@ inline every run would be noise.
 
 - **Up-to-date siblings collapse per-repo in the trailing summary** —
   `owner/repo: 7 up to date` as one line, not 7 — so a mostly-unchanged collection
-  doesn't become its own mini-wall. Per-repo collapse applies *everywhere*: updates
-  grouped, up-to-date collapsed, out-of-constraint collapsed.
+  doesn't become its own mini-wall.
+- **Per-repo collapse spans *every* trailing category (review 003 F4)** — not just
+  up-to-date and out-of-constraint, but also `newer-tags`, `check-failed`, and
+  `constrained-no-match` (`update.ts:533-570`). An exact-pinned 10-member collection
+  otherwise emits 10 near-identical `newer-tags` lines — the wall, resurfacing. This
+  falls out of the **group-first check (F2)**: one check per group → one category →
+  one trailing line per repo-group, automatically. One line per repo-group
+  everywhere — updates, up-to-date, out-of-constraint, newer-tags, check-failed,
+  constrained-no-match.
 - **Group-of-one collapse is fine** — a single updated member of a collection
   collapses to `✓ owner/repo/member: Updated…`; the `/member` suffix already
   distinguishes it from a true standalone (`owner/repo`), so collection context
@@ -602,10 +609,11 @@ supported consumer** — there is no machine-readable output contract to preserv
   newer-tags wording with single-key.
 - All 15 subtopics decided. Scope boundary set: seam-first, one feature; audit line
   drawn (new build = dedup + progress; reword = tag/gating wording); testing scoped.
-- Both review cycles (001, 002) fully incorporated. Review-002's seam findings folded
-  in: post-bump footer version (F2), per-repo footer collapse (F3), per-repo
-  up-to-date collapse + generic member noun (F1), exit-code posture ratified (F4),
-  human-only output confirmed (F5).
+- Three review cycles (001, 002, 003) fully incorporated. Review-003's seam findings
+  folded in: version move on group header + dropped-agents on member line (F1),
+  group-first check dedup closing the category-split race + ls-remote dedup (F2),
+  per-group manifest persistence before streaming (F3), per-repo collapse across all
+  trailing categories (F4).
 - Ready to conclude.
 
 ## Triage
