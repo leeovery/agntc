@@ -173,6 +173,34 @@ A group-fatal clone failure (see *Failure isolation & lifecycle*) renders as **o
 
 ---
 
+## Tag-Based Summary Wording
+
+`update` reports commit hashes today (`${key}: Updated ${oldShort} -> ${newShort}`, `summary.ts:220-228,261-277`), which installers don't recognise. This part speaks in semver tags where the repo is genuinely tagged, with a short-hash fallback for the untagged / HEAD-tracked / branch case.
+
+### Tags-where-tagged vs hash fallback
+
+**Render `Updated <old> → <new>` in tags when both the old and new refs are genuine version tags AND the ref actually moved; otherwise fall back to short commit hashes.** The signal is *both refs being semver tags AND a ref move* — never the string shape alone.
+
+- **Constrained update** (`v1.2.3 → v1.3.0`): old ref = current tag, new ref = resolved `result.tag`; both parse as semver and differ → **tags**. This is the all-mode case that produces a tagged "updated" outcome.
+- **HEAD-tracked** (`ref === null`) or **branch** (`main`): not a version tag → **hashes**.
+- **Lexical trap closed for free:** `isVersionTag` is `clean()`-based (`version-resolve.ts:30`); `clean("v4")` is `null` (not a full semver), so a `v4` *branch* is correctly not treated as a tag → **hashes**.
+- **Branch literally named `v4.0.0`, commit moved:** passes `isVersionTag`, but a branch update doesn't change the ref *name* (only the commit), so `oldRef === newRef` → the "ref actually moved" guard sends it to **hashes**. This guard is why the rule is "both tags AND ref moved," not just "both tags."
+- **Rejected: show tags whenever the new target is a tag** (even from a non-tag origin) — would render a misleading half-tagged move and doesn't survive the branch-named-like-semver edge.
+
+### Sourcing old/new refs
+
+The values are already at the outcome-construction site (`update.ts:372-383`):
+
+- **Old ref** = the pre-update `entry.ref`.
+- **New ref** = the post-update `result.manifestEntry.ref` (= the resolved `result.tag` for a constrained update; unchanged from `entry.ref` for a branch/HEAD update, which is exactly why those land on the hash path).
+- **Apply to both surfaces** — the single-key path (`renderGitUpdateSummary`) and all-mode (`renderUpdateOutcomeSummary`) both get the tag treatment, so wording can't drift between them.
+
+Threading the two refs into the render signature is mechanics (implementer's call); what's decided is *which values* feed it (old `entry.ref`, new resolved ref) and the rule they're tested against.
+
+**Coupling note:** the outcome-summary plumbing (`renderUpdateOutcomeSummary`, produced inside `processUpdateForAll`) is the *same* call site the dedup ownership seam touches — which is why the whole feature is built seam-first (see *Build order*).
+
+---
+
 ## Working Notes
 
 [Optional - capture in-progress discussion if needed]
