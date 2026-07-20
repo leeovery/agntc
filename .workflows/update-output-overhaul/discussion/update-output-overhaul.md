@@ -100,12 +100,15 @@ This subtopic designs the progress stream over that new shape.
 Illustrative shape:
 
 ```
-◒ Updating rshankras/claude-code-apple-skills … (10 skills)
+◒ Updating rshankras/claude-code-apple-skills  v1.2.3 → v1.3.0  (10 members)
    ✓ design → claude
    ✓ macos  → claude
    …
 ✓ vendor/tool: Updated v1.2.3 → v1.3.0            ← group of one, collapsed
 ```
+
+*(The version move sits on the group header and the count noun is generic — see the
+Version-move and Partial-collections decisions below, which refined this shape.)*
 
 **Rejected: fully flat per-member** (every member its own `Updating owner/repo/x…`
 line, clone invisible). More uniform with the singleton path, but discards the
@@ -149,13 +152,17 @@ loop shrinks to non-actioned check categories only.**
 Net stream: `Checking for updates…` → streamed group results (each live) → trailing
 summary of untouched / blocked-by-check entries → out-of-constraint footer.
 
-### Partial collections & counts — Decision (review F1)
+### Partial collections & counts — Decision (review 002 F1)
 
-Group membership is decided by each member's `checkForUpdate` category
-(`update.ts:428-455`) *before* grouping, so only *updatable* members join a group;
-up-to-date siblings fall to the trailing summary. This is **intended**: the group is
-"updates from a repo," not "the whole collection" — forcing 7 unchanged members
-inline every run would be noise.
+Under group-first checking, a group shares one *resolved target*, but each member's
+category still compares its **own installed commit** to that target — so a collection
+can still split when members are at divergent installed commits (e.g. one member
+updated singly before): those behind the target update (inline under the group
+header), those already at it are up-to-date (trailing summary). This split is
+**intended**: the header shows "updates from a repo," not "the whole collection" —
+forcing already-current members inline every run would be noise. (The *race*-induced
+split is what group-first closes — see the grouping-key decision; this genuine-state
+split is fine.)
 
 - **Up-to-date siblings collapse per-repo in the trailing summary** —
   `owner/repo: 7 up to date` as one line, not 7 — so a mostly-unchanged collection
@@ -164,10 +171,10 @@ inline every run would be noise.
   up-to-date and out-of-constraint, but also `newer-tags`, `check-failed`, and
   `constrained-no-match` (`update.ts:533-570`). An exact-pinned 10-member collection
   otherwise emits 10 near-identical `newer-tags` lines — the wall, resurfacing. This
-  falls out of the **group-first check (F2)**: one check per group → one category →
-  one trailing line per repo-group, automatically. One line per repo-group
-  everywhere — updates, up-to-date, out-of-constraint, newer-tags, check-failed,
-  constrained-no-match.
+  falls out of the **group-first check (F2)**: the trailing categories all depend on
+  the shared `ref`/`constraint`, so they're group-uniform (one check per group → one
+  trailing line per repo-group). One line per repo-group everywhere — updates,
+  up-to-date, out-of-constraint, newer-tags, check-failed, constrained-no-match.
 - **Group-of-one collapse is fine** — a single updated member of a collection
   collapses to `✓ owner/repo/member: Updated…`; the `/member` suffix already
   distinguishes it from a true standalone (`owner/repo`), so collection context
@@ -176,7 +183,7 @@ inline every run would be noise.
   this group*, not `(N skills)`; a collection can hold plugin members (agents/hooks),
   not only skills.
 
-### Version move & dropped-agents placement — Decision (review F1)
+### Version move & dropped-agents placement — Decision (review 003 F1)
 
 The tag-wording decision renders `Updated <old> → <new>`, but the per-member line is
 `✓ member → agents` (agents, not version) — so a *multi-member* collection would show
@@ -230,11 +237,13 @@ computable from the manifest alone (no network), *not* the resolved commit.
   - **Commit-level (F3):** per-member parallel probes (`update.ts:409-415`) could
     resolve two members of one collection to *different* commits if the remote
     advanced mid-run — one check per group means one resolved target for all.
-  - **Category-level (F2):** the same mid-run push could put member A in
-    `up-to-date` (trailing summary) and member B in `update-available` (updates) —
-    splitting the collection across *categories* before grouping even runs.
-    Check-once-per-group categorizes the group as a whole, so no member can diverge
-    into a different category.
+  - **Category-level (F2):** the same mid-run push could make two members *resolve to
+    different targets* — member A's probe sees `[v1.2.3]`, member B's a moment later
+    sees `[v1.2.3, v1.3.0]`. One check per group resolves a **single** target for all
+    members, so no member lands on a different commit than its siblings. (Members
+    still compare their own installed commit to that shared target, so a member
+    already at it is up-to-date while a behind sibling updates — that's genuine state,
+    e.g. a singly-updated member, not a race.)
   - **Bonus — check dedup:** a 10-member collection does 10 identical `ls-remote`
     probes today; one probe per group removes that redundancy, mirroring the clone
     dedup one layer up.
@@ -566,8 +575,9 @@ supported consumer** — there is no machine-readable output contract to preserv
    pre-resolution identity (`(resolvedCloneUrl, ref, constraint)`) computable from
    the manifest, so grouping precedes the network entirely: one `checkForUpdate` and
    one clone per group. That single move dedups clones *and* `ls-remote` probes, and
-   genuinely guarantees a collection moves as one unit — closing the per-member check
-   race at both the commit and category levels.
+   closes the mid-run check race — all updating members of a group land on the *same*
+   resolved commit (no divergent targets). A member already at the target is simply
+   up-to-date; that genuine-state split (e.g. a singly-updated member) is fine.
 3. **Two of the three parts are mostly already built.** Gating behaviour exists
    entirely via semver caret semantics (safe bumps auto-apply; major and 0.x-minor
    already fall out of constraint); tag-vs-hash and gating are *messaging* changes,
