@@ -113,6 +113,66 @@ Two failure classes, handled differently. The shared clone is read-only during r
 
 ---
 
+## Per-Unit Progress Output
+
+The clone-dedup reshape makes cloning **per-group** (once per repo) while each install outcome stays **per-member**. This section designs the progress stream over that shape, replacing today's wall of anonymous `"Cloning repository..."` lines and the deferred end-of-run summary.
+
+### Progress granularities — group header + per-member outcomes
+
+Report at two granularities, each natural to its action:
+
+- **The clone/work step is per-group** — named once at the repo-group level (`Updating <owner/repo> …`), because the clone is genuinely one per-repo action after dedup.
+- **The outcome is per-member** — each member resolves its own line beneath the group header (`✓ design → claude`), because the per-install result is what the user acts on.
+- **A standalone unit is a group of one** — its group header and single outcome collapse into one line (`✓ vendor/tool: Updated v1.2.3 → v1.3.0`).
+
+Illustrative shape:
+
+```
+◒ Updating rshankras/claude-code-apple-skills  v1.2.3 → v1.3.0  (10 members)
+   ✓ design → claude
+   ✓ macos  → claude
+   …
+✓ vendor/tool: Updated v1.2.3 → v1.3.0            ← group of one, collapsed
+```
+
+**Rejected: fully flat per-member** (every member its own `Updating owner/repo/x…` line, clone invisible). More uniform with the singleton path, but discards the one-clone-per-repo legibility dedup just bought and reintroduces a milder repetitive wall.
+
+### Version move & dropped-agents placement
+
+- **Version move → the group header.** "Resolve once per group" makes the old→new a single shared group property: `◒ Updating owner/repo  v1.2.3 → v1.3.0  (N members)`. This is where the tag-vs-hash rule (see *Tag-Based Summary Wording*) renders for the grouped path. Without this, a *multi-member* collection would show the version move nowhere — the per-member line is `✓ member → agents` (agents, not version).
+- **Dropped-agents notice → the member line.** Agent support is per-member (each member's config can drop agents independently), so it rides its own line: `✓ macos → claude  (codex support removed by author)`. This is the `formatDroppedAgentsSuffix` "support removed by author" notice (`summary.ts:261-277`), which otherwise had no home in the member line.
+- **Group-of-one** unchanged — collapses to one line carrying the version (`✓ vendor/tool: Updated v1.2.3 → v1.3.0`).
+
+### Outcome timing — emit-on-completion, stream inline
+
+Actioned outcomes stream inline as each group completes; the end-of-run summary loop shrinks to non-actioned check categories only.
+
+- **Per group:** a `p.spinner()` starts `Updating <repo>…` and spins through the clone (the slow part); on completion the per-member result lines are emitted as persistent `p.log.*` lines. A group's results appear the moment it finishes, in processing order.
+- **The spinner does NOT tick live per member during reinstall** — it spins on the group name through the clone, then emits the per-member lines on completion. Per-member reinstalls are fast local file copies; live per-member ticking mostly flickers without adding signal.
+- **End-of-run loop retained only for non-actioned check categories** — `up-to-date`, `newer-tags`, `check-failed`, `constrained-no-match` — plus the out-of-constraint footer. These never entered a processing group, so a tidy trailing summary is the right home.
+
+Net stream: `Checking for updates…` → streamed group results (each live) → trailing summary of untouched / blocked-by-check entries → out-of-constraint footer.
+
+### Per-group manifest persistence before streaming
+
+Today the manifest is written once at the end (`update.ts:507-530`), *before* the summary loop prints — so a ✓ implies a persisted entry. Emit-on-completion would invert that (✓ streams before the single end write), so a failed write or Ctrl-C after some ✓ lines printed would show units as succeeded while the manifest still records the old commit.
+
+**Decision:** write the manifest **per group, right before streaming that group's ✓** — so the ✓ is honest (persisted before shown) and an interrupt leaves the manifest *matching disk* (early groups recorded, later ones not — accurate, so recovery does less redundant work). Trades the single write for a few cheap incremental writes (manifests are small). `outcomes[]` is still collected for the `hasFailedOutcome` exit code (`update.ts:618-631`); what changes is *when* the manifest persists (per group, not one end-of-run write).
+
+### Partial collections & counts
+
+Under group-first checking, a group shares one *resolved target*, but each member's category still compares its **own installed commit** to that target — so a collection can still split: behind members update inline under the group header; already-current members are up-to-date in the trailing summary. This split is **intended** (see *Genuine-state splits*).
+
+- **Per-repo collapse spans *every* trailing category.** Trailing lines collapse to **one line per repo-group** across *all* trailing categories: `up-to-date`, out-of-constraint, `newer-tags`, `check-failed`, and `constrained-no-match` (`update.ts:533-570`). An exact-pinned 10-member collection otherwise emits 10 near-identical `newer-tags` lines — the wall, resurfacing. This falls out of group-first: the trailing categories all depend on the shared `ref`/`constraint`, so they're group-uniform (one check per group → one trailing line per repo-group). Example: `owner/repo: 7 up to date` as one line, not 7.
+- **Group-of-one collapse is fine** — a single updated member of a collection collapses to `✓ owner/repo/member: Updated…`; the `/member` suffix already distinguishes it from a true standalone (`owner/repo`), so collection context isn't lost.
+- **Header count/noun is generic** — `(N members)` counting the members *updated in this group*, not `(N skills)`; a collection can hold plugin members (agents/hooks), not only skills.
+
+### Clone-failure rendering
+
+A group-fatal clone failure (see *Failure isolation & lifecycle*) renders as **one grouped line** under the group header — `owner/repo: clone failed — affects N members: a, b, c` — not N copies, so a group failure doesn't reintroduce the "stack of identical anonymous lines" this feature exists to kill. The underlying model stays N `failed` outcomes for exit accounting; only the *display* groups.
+
+---
+
 ## Working Notes
 
 [Optional - capture in-progress discussion if needed]
