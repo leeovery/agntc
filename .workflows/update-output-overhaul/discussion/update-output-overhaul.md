@@ -402,6 +402,16 @@ The *gating behaviour* already exists, entirely via semver caret semantics:
   version today — `summary.ts:288-292` — so the applied version must be threaded in;
   that plumbing is mechanics). When no safe bump happened this run, pre and post
   coincide — the divergence only bites after a same-run bump.
+- **The footer collapses per repo-group, not per member (review F3).** Today
+  `renderOutOfConstraintSection` emits one line per key (`summary.ts:294-306`); a
+  major-available N-member collection (members share ref + constraint) produces N
+  near-identical actionable lines — the exact "wall of identical lines" Part 1
+  exists to kill, reappearing in the footer. **Decision:** collapse to **one line
+  per repo-group**, reusing Part 1's grouping. At that repo level the bare
+  `npx agntc add owner/repo` re-add is *correct* — for a collection it re-adds the
+  collection (re-selecting members at the new major), for a standalone it re-adds the
+  plugin. The member-key vs bare-command mismatch only looked wrong because the
+  footer was per-member; per-repo collapse fixes both at once.
 
 ### 0.x-line + exact-pin edge cases — Decision (confirmations)
 
