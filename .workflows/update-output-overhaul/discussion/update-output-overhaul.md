@@ -103,6 +103,14 @@ clone the identical tree" — not by `cloneUrl` alone.
   same `(targetRef, targetCommit)`.
 - **Local entries** (`commit === null`) never clone — excluded from grouping
   entirely; one reinstall each, unchanged.
+- **The key uses the *resolved* clone URL** (via `deriveCloneUrlFromKey`), not the
+  raw `entry.cloneUrl` field (which is `null` on legacy manifests). Otherwise a
+  legacy entry and an explicit-URL entry for the same repo wouldn't collapse. This
+  is a precision on the key, not a separate decision — there's one right answer.
+  (review F1)
+- **Grouping spans both processing loops** (`[...updateAvailable, ...local]` and
+  `constrainedUpdateAvailable`, `update.ts:473-504`) — same-repo/same-target entries
+  in different check categories must still collapse into one group. (review F2)
 - Considered and rejected: "clone once at the newest ref, check out per member."
   Adds checkout complexity and a shared mutable working tree for marginal benefit;
   the triple-key with per-group clones is simpler and the common case
@@ -126,6 +134,11 @@ leave `cloneAndReinstall` as-is for the three singleton entry points** (single-k
   is the only site with a collection to dedup; the three singletons are correct and
   battle-tested. Unifying would rewrite three working call sites for zero dedup
   benefit and a larger blast radius.
+- **Preserves the per-member lexical `sourceSubpath` containment guard**
+  (`assertSubpathWithinClone`, `clone-reinstall.ts:366-379`) — it must run **per
+  member** in the orchestrator, since each member carries its own `sourceSubpath`
+  and the bypassed code path currently owns it. A preservation constraint (dropping
+  it is a path-traversal regression), so it's spec content, not a debate. (review F4)
 
 ### Failure isolation — Decision
 
@@ -174,30 +187,20 @@ Sharing the physical clone across members keeps the identical boundary —
 cross-member symlinks inside the clone allowed, escapes beyond it rejected. Dedup
 changes how many times we clone, not what counts as an escape.
 
-### Implementation invariants (deferred to planning)
+### Not decided here — and why
 
-Review-001 surfaced mechanics that are planning/implementation concerns, not
-discussion decisions. Recorded here as invariants the implementation must preserve
-— not to be litigated at discussion altitude:
+Two review items are deliberately *not* decisions for this subtopic. Neither is
+"deferred to planning" (planning originates no decisions — it captures the spec,
+which captures this discussion):
 
-- **Grouping keys on the *resolved* clone URL**, not the raw `entry.cloneUrl` field
-  (which is `null` for legacy manifests and derived at use via
-  `deriveCloneUrlFromKey`). Otherwise a legacy entry and an explicit-URL entry for
-  the same repo would fail to collapse. (review F1)
-- **Grouping spans both processing loops** (`[...updateAvailable, ...local]` and
-  `constrainedUpdateAvailable`, `update.ts:473-504`) — same-repo/same-target entries
-  that fall in different check categories must still collapse into one group.
-  (review F2)
-- **The per-member lexical `sourceSubpath` containment guard**
-  (`assertSubpathWithinClone`, `clone-reinstall.ts:366-379`) must run **per member**
-  in the orchestrator — each member carries its own `sourceSubpath`. The bypassed
-  path currently owns it. (review F4)
-- **Where the result→`PluginOutcome` mapping is factored** (orchestrator inside vs
-  beside `processUpdateForAll`, shared helper extraction) is wiring — planning's
-  call. (review F6)
-- **The clone spinner** currently in `cloneAndReinstall` disappears from the grouped
-  path; the new progress renderer that replaces it is owned by the Per-Unit Progress
-  Output subtopic (dependency, not a mechanic). (review F5)
+- **Result→`PluginOutcome` mapping factoring** (orchestrator inside vs beside
+  `processUpdateForAll`, shared-helper extraction) — **behaviourally invariant**:
+  the observable outcomes are identical however it's wired. Pure code mechanics →
+  the implementer's call. (review F6)
+- **Clone-progress rendering on the grouped path** — a *real* design decision (the
+  clone spinner in `cloneAndReinstall` vanishes from the grouped path), but it's
+  owned by the **Per-Unit Progress Output** subtopic and decided *there*, not a
+  mechanic and not lost. (review F5)
 
 ---
 
@@ -213,10 +216,12 @@ discussion decisions. Recorded here as invariants the implementation must preser
 
 ### Current State
 
-- Clone dedup: grouping key, ownership seam, and failure isolation decided in
-  direction. Review-001 surfaced refinements to the grouping-key sourcing and the
-  ownership seam (cloneUrl normalization, per-variant target sourcing, TOCTOU split,
-  per-member lexical guard, spinner/outcome-mapping ownership) — to walk through.
+- Clone dedup: grouping key, ownership seam, and failure isolation decided.
+  Review-001 refinements folded in as spec-level precision (resolved clone URL,
+  grouping spans both loops, per-member lexical guard preserved). Outcome-mapping
+  factoring left to the implementer; clone-progress rendering routed to Part 1.
+- Open logic decision: single-resolved-commit per repo-group vs per-member
+  resolution (review F3).
 
 ## Triage
 
