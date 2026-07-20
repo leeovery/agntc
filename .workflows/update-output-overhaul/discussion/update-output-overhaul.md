@@ -443,6 +443,24 @@ The *gating behaviour* already exists, entirely via semver caret semantics:
   single-key path includes. Align it so exact-pin messaging is consistent across
   single-key and all-mode.
 
+### Exit-code posture: single-key vs all-mode — Decision (review F4)
+
+`check-failed` and `constrained-no-match` exit differently by mode today, and the
+divergence is **intentional — keep it, and state it explicitly**:
+
+- **Single-key** `update <key>` exits `1` on both (`update.ts:139-142`, `160-165`):
+  the one plugin you targeted couldn't be checked / has no matching tag → the
+  requested action didn't happen.
+- **All-mode** `update` warns and exits `0` (both excluded from `hasFailedOutcome`,
+  `update.ts:623-630`): a batch shouldn't be sunk by one dead remote or one stuck
+  constraint when everything else succeeded — partial-success, failure surfaced as a
+  warning. Consistent with the existing posture where only
+  `aborted`/`blocked`/`failed`/`copy-failed` trip the non-zero exit.
+
+Not a change — a ratification. The mode-consistency work (aligning `newer-tags`
+wording) sits right next to this, so the posture is recorded rather than left
+silent.
+
 ---
 
 ## Scope Boundary
