@@ -72,6 +72,52 @@ exploration to capture.*
 
 ---
 
+## Per-Unit Progress Output
+
+### Context
+
+Today all-mode's live output is a wall of anonymous `"Cloning repository..."` →
+`"Cloned successfully"` lines (one per entry, no identity), and the user only learns
+*what* changed at the very end when the summary loop prints outcomes
+(`update.ts:588-609`). The clone-dedup decision reshapes the work: cloning is now
+**per-group** (once per repo), while each install outcome is still **per-member**.
+This subtopic designs the progress stream over that new shape.
+
+### Spinner identity / progress unit — Decision
+
+**Report at two granularities, each natural to its action (folds review F10):**
+
+- **The clone/work step is per-group** — named once at the repo-group level
+  (`Updating <owner/repo> … (N skills)`), because the clone is genuinely one
+  per-repo action after dedup.
+- **The outcome is per-member** — each member resolves its own line beneath the
+  group header (`✓ design → claude`), because the per-install result is what the
+  user acts on.
+- **A standalone unit is a group of one** — its group header and single outcome
+  collapse into one line (`✓ vendor/tool: Updated v1.2.3 → v1.3.0`), matching the
+  seed's `Updating <key>… → <key>: Updated <old> → <new>`.
+
+Illustrative shape:
+
+```
+◒ Updating rshankras/claude-code-apple-skills … (10 skills)
+   ✓ design → claude
+   ✓ macos  → claude
+   …
+✓ vendor/tool: Updated v1.2.3 → v1.3.0            ← group of one, collapsed
+```
+
+**Rejected: fully flat per-member** (every member its own `Updating owner/repo/x…`
+line, clone invisible). More uniform with the singleton path, but discards the
+one-clone-per-repo legibility dedup just bought and reintroduces a milder repetitive
+wall (~N near-identical lines for a big collection).
+
+*(Clone-failure rendering from the failure-isolation decision lands here: a
+group-fatal clone failure renders as one grouped line under this group header, not N
+copies.)*
+
+---
+
 ## Per-Repo Clone Dedup
 
 ### Context
