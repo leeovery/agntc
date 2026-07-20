@@ -32,6 +32,47 @@ Sequenced phases within one unit, not three independent PRs.
 
 ---
 
+## Per-Repo Clone Dedup
+
+The fix groups manifest entries that would clone the identical tree, clones once per group, and reinstalls all members from that single clone. Today each entry's `cloneAndReinstall` owns a full clone lifecycle (`git clone --depth 1 --branch <ref>` of the whole repo into a fresh mkdtemp dir, reinstall, then cleanup in `finally`), so a 10-member collection produces 10 identical full clones at the identical ref — the source of both the repeated anonymous "Cloned successfully" noise and a real network/disk/time cost.
+
+### Grouping key
+
+**Group by the deterministic pre-resolution identity `(resolvedCloneUrl, ref, constraint)`** — "entries whose version *intent* points at the same tree" — then **resolve the target once per group** and clone once. The key is the identity computable from the manifest alone (no network), *not* the resolved commit.
+
+- `cloneSource` clones at a specific `--branch <ref>`. Two entries from the same repo with different version intent (`owner/repo/a@^1` vs `owner/repo/b@^2` — different `constraint`) must not share a clone → different groups. Same repo + same `(ref, constraint)` → one group, one clone.
+- **The key uses the *resolved* clone URL** (via `deriveCloneUrlFromKey(key, entry.cloneUrl)`), not the raw `entry.cloneUrl` field (which is `null` on legacy manifests). Otherwise a legacy entry and an explicit-URL entry for the same repo wouldn't collapse.
+- Collection members collapse into one group **for free**: added atomically, they share `resolvedCloneUrl` + `ref` + `constraint`.
+- **Local entries** (`commit === null`) never clone — excluded from grouping entirely; one reinstall each, unchanged.
+
+### Group-first pipeline — check/resolve once per group
+
+Because the key is computable from the manifest with no network, grouping happens *before* the update check. The pipeline becomes:
+
+**group (from manifest) → resolve/check once per group → categorize members against the shared target → clone once if the group is updatable → reinstall members.**
+
+One network resolution runs per group (one `checkForUpdate`-equivalent probe resolving the group's target tag+commit), then each member's category is computed against that shared target using the member's *own* installed commit. This closes the per-member check race at both levels and removes redundant probes:
+
+- **Commit-level race:** today's per-member parallel probes (`update.ts:409-415`) could resolve two members of one collection to *different* commits if the remote advanced mid-run. One resolution per group → one target for all.
+- **Category-level race:** the same mid-run push could make two members *resolve to different targets* — member A's probe sees `[v1.2.3]`, member B's a moment later sees `[v1.2.3, v1.3.0]`. One resolution per group yields a **single** target for all members, so no member lands on a different commit than its siblings.
+- **Probe dedup:** a 10-member collection does 10 identical `ls-remote` probes today; one probe per group removes that redundancy, mirroring the clone dedup one layer up.
+
+The key **must** be the pre-resolution identity — keying on the resolved `targetCommit` would re-admit the race before grouping even happens. Grouping key, "check/resolve once per group," and "collection moves as a unit" are one decision.
+
+### Genuine-state splits are intended
+
+Members compare their own installed commit against the shared resolved target — so within one group, a member already at the target is **up-to-date** while a behind sibling **updates**. This genuine-state split (e.g. a member updated singly before) is intended and expected: the group shares a *target*, not a *category*. Only the *race*-induced split is what group-first closes.
+
+### Grouping spans both processing loops
+
+Same-repo/same-target entries across the two all-mode processing loops (`[...updateAvailable, ...local]` and `constrainedUpdateAvailable`, `update.ts:473-504`) — which today live in different check categories — must still collapse into one group.
+
+### Rejected alternative
+
+**"Clone once at the newest ref, check out per member."** Adds checkout complexity and a shared mutable working tree for marginal benefit; the triple-key with per-group clones is simpler, and the common case (a real collection) already collapses to one clone.
+
+---
+
 ## Working Notes
 
 [Optional - capture in-progress discussion if needed]
