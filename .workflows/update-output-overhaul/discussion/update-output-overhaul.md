@@ -207,16 +207,27 @@ computable from the manifest alone (no network), *not* the resolved commit.
   repo with different version intent (`owner/repo/a@^1` vs `owner/repo/b@^2`,
   different `constraint`) must not share a clone → different groups. Same repo +
   same `(ref, constraint)` → one group, one clone.
-- **Resolve the target once per group, not per member (folds review F3).** Each
-  member's `checkForUpdate` is an independent live probe run in parallel
-  (`update.ts:409-415`); if the remote advances mid-run, two members of one
-  collection could resolve to *different* commits — splitting the group and
-  installing one logical collection at divergent commits. This divergence is
-  **pre-existing** (independent per-member checks already allow it today); resolving
-  the group's target once, up front, eliminates it and guarantees a collection moves
-  as a unit. This is *why* the key must be the pre-resolution identity: keying on the
-  resolved `targetCommit` would re-admit the race before grouping even happens. The
-  grouping key and "resolve once per group" are one decision, not two.
+- **Group *first*, then check once per group — not per member (folds review F3 +
+  F2).** Because the key is computable from the manifest with no network, grouping
+  happens *before* the update check: group by identity, run **one**
+  `checkForUpdate` per group, and categorize the whole group as a unit. This closes
+  the per-member check race at *both* levels:
+  - **Commit-level (F3):** per-member parallel probes (`update.ts:409-415`) could
+    resolve two members of one collection to *different* commits if the remote
+    advanced mid-run — one check per group means one resolved target for all.
+  - **Category-level (F2):** the same mid-run push could put member A in
+    `up-to-date` (trailing summary) and member B in `update-available` (updates) —
+    splitting the collection across *categories* before grouping even runs.
+    Check-once-per-group categorizes the group as a whole, so no member can diverge
+    into a different category.
+  - **Bonus — check dedup:** a 10-member collection does 10 identical `ls-remote`
+    probes today; one probe per group removes that redundancy, mirroring the clone
+    dedup one layer up.
+  This is *why* the key must be the pre-resolution identity: keying on the resolved
+  `targetCommit` would re-admit the race before grouping even happens. Grouping key,
+  "check/resolve once per group," and "collection moves as a unit" are one decision.
+  The resulting pipeline: **group (from manifest) → check once per group →
+  categorize group → clone once if updatable → reinstall members.**
 - Collection members collapse into one group **for free**: added atomically, they
   share `resolvedCloneUrl` + `ref` + `constraint`.
 - **Local entries** (`commit === null`) never clone — excluded from grouping
@@ -536,10 +547,12 @@ supported consumer** — there is no machine-readable output contract to preserv
 1. **Clone dedup is the structural pivot the whole feature hangs off.** Cloning
    moves from per-entry to per-repo-group; the progress stream, failure model, and
    the tag/gating wording all sit downstream of that ownership change.
-2. **The grouping key is a pre-resolution identity, not a resolved commit.** Keying
-   on `(resolvedCloneUrl, ref, constraint)` and resolving the target once per group
-   is a single decision — it dedups *and* guarantees a collection moves as one unit,
-   closing the per-member check race.
+2. **Group first, then check/resolve/clone once per group.** The key is a
+   pre-resolution identity (`(resolvedCloneUrl, ref, constraint)`) computable from
+   the manifest, so grouping precedes the network entirely: one `checkForUpdate` and
+   one clone per group. That single move dedups clones *and* `ls-remote` probes, and
+   genuinely guarantees a collection moves as one unit — closing the per-member check
+   race at both the commit and category levels.
 3. **Two of the three parts are mostly already built.** Gating behaviour exists
    entirely via semver caret semantics (safe bumps auto-apply; major and 0.x-minor
    already fall out of constraint); tag-vs-hash and gating are *messaging* changes,
