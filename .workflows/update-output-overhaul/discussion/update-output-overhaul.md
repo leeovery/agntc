@@ -47,12 +47,12 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 3 decided · 1 exploring · 11 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 4 decided · 11 pending)
 
   ├─ ○ Per-unit progress output [pending]
   │  ├─ ○ Spinner identity — name the unit, resolve inline [pending]
   │  └─ ○ Inline outcome vs end-of-run summary loop [pending]
-  ├─ ◐ Per-repo clone dedup [exploring]
+  ├─ ✓ Per-repo clone dedup [decided]
   │  ├─ ✓ Grouping updatable entries by source repo [decided]
   │  ├─ ✓ Clone ownership refactor (cloneAndReinstall / processUpdateForAll) [decided]
   │  └─ ✓ Failure isolation across shared-clone members [decided]
@@ -89,18 +89,27 @@ reinstalls all members from that single clone.
 
 ### Grouping key — Decision
 
-**Group by the triple `(cloneUrl, targetRef, targetCommit)`** — "entries that would
-clone the identical tree" — not by `cloneUrl` alone.
+**Group by the deterministic pre-resolution identity `(resolvedCloneUrl, ref,
+constraint)`** — "entries whose version *intent* points at the same tree" — then
+**resolve the target once per group** and clone once. The key is the identity
+computable from the manifest alone (no network), *not* the resolved commit.
 
-- `cloneSource` clones at a specific `--branch <ref>`, and `update` resolves a
-  target ref/commit *per entry* during the check phase. Two entries from the same
-  repo can resolve to different targets (e.g. `owner/repo/a@^1` and
-  `owner/repo/b@^2`), so keying on `cloneUrl` alone would wrongly force them to
-  share one clone. The triple splits divergent members into separate groups (each
-  clones its own tree) while collapsing convergent ones.
+- `cloneSource` clones at a specific `--branch <ref>`. Two entries from the same
+  repo with different version intent (`owner/repo/a@^1` vs `owner/repo/b@^2`,
+  different `constraint`) must not share a clone → different groups. Same repo +
+  same `(ref, constraint)` → one group, one clone.
+- **Resolve the target once per group, not per member (folds review F3).** Each
+  member's `checkForUpdate` is an independent live probe run in parallel
+  (`update.ts:409-415`); if the remote advances mid-run, two members of one
+  collection could resolve to *different* commits — splitting the group and
+  installing one logical collection at divergent commits. This divergence is
+  **pre-existing** (independent per-member checks already allow it today); resolving
+  the group's target once, up front, eliminates it and guarantees a collection moves
+  as a unit. This is *why* the key must be the pre-resolution identity: keying on the
+  resolved `targetCommit` would re-admit the race before grouping even happens. The
+  grouping key and "resolve once per group" are one decision, not two.
 - Collection members collapse into one group **for free**: added atomically, they
-  share `cloneUrl` + `constraint` + `ref`, and the check resolves them all to the
-  same `(targetRef, targetCommit)`.
+  share `resolvedCloneUrl` + `ref` + `constraint`.
 - **Local entries** (`commit === null`) never clone — excluded from grouping
   entirely; one reinstall each, unchanged.
 - **The key uses the *resolved* clone URL** (via `deriveCloneUrlFromKey`), not the
@@ -220,8 +229,10 @@ which captures this discussion):
   Review-001 refinements folded in as spec-level precision (resolved clone URL,
   grouping spans both loops, per-member lexical guard preserved). Outcome-mapping
   factoring left to the implementer; clone-progress rendering routed to Part 1.
-- Open logic decision: single-resolved-commit per repo-group vs per-member
-  resolution (review F3).
+- F3 resolved: single-resolved-commit per repo-group — folded into the grouping-key
+  decision (key is pre-resolution identity; target resolved once per group).
+- Per-repo clone dedup fully decided. Next: Per-Unit Progress Output (Part 1),
+  where the group-vs-member progress question (review F10) lives.
 
 ## Triage
 
