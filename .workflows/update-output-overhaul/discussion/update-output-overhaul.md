@@ -133,10 +133,18 @@ loop shrinks to non-actioned check categories only.**
   `up-to-date`, `newer-tags`, `check-failed`, `constrained-no-match` — plus the
   existing out-of-constraint footer. These never entered a processing group, so a
   tidy trailing summary is the right home.
-- **Accounting unchanged.** `outcomes[]` is still collected to drive the single
-  manifest write (`update.ts:507-530`) and the `hasFailedOutcome` exit code
-  (`update.ts:618-631`); only *where actioned outcomes print* moves (on completion
-  vs the end-loop), not what's tracked.
+- **Persist per group, before streaming its outcomes (review 003 F3).** Today the
+  manifest is written once at the end (`update.ts:507-530`), *before* the summary
+  loop prints — so a ✓ implies a persisted entry. Emit-on-completion would invert
+  that (✓ streams before the single end write), so a failed write or Ctrl-C after
+  some ✓ lines printed would show units as succeeded while the manifest still records
+  the old commit. **Decision:** write the manifest **per group, right before
+  streaming that group's ✓** — so the ✓ is honest (persisted before shown) and an
+  interrupt leaves the manifest *matching disk* (early groups recorded, later ones
+  not — accurate, so recovery does less redundant work). Trades the single write for
+  a few cheap incremental writes (manifests are small). `outcomes[]` is still
+  collected for the `hasFailedOutcome` exit code (`update.ts:618-631`); what changes
+  is *when* the manifest persists (per group, not one end-of-run write).
 
 Net stream: `Checking for updates…` → streamed group results (each live) → trailing
 summary of untouched / blocked-by-check entries → out-of-constraint footer.
