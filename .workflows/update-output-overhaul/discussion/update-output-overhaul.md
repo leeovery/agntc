@@ -390,6 +390,18 @@ The *gating behaviour* already exists, entirely via semver caret semantics:
     re-add would silently switch them into caret tracking — a versioning-mode change
     they didn't ask for.
   - Rule: **suggest the re-add that preserves how they pinned.**
+- **Names the *post-bump* current version (review F2).** The out-of-constraint info
+  is captured at check time (`update.ts:458-468`), *before* a same-run safe bump is
+  applied. Naming the pre-bump `entry.ref` would report a stale current: for
+  `v1.2.3` on `^1.2.3` with remote `v1.3.0` + `v2.0.0`, the run auto-applies `v1.3.0`
+  but the footer would say "current `v1.2.3` → `v2.0.0`" — contradicting the
+  `Updated v1.2.3 → v1.3.0` line right above it. **Decision:** the footer names the
+  version this run actually landed on (`v1.3.0 → v2.0.0`), so it's consistent with
+  the inline outcome. Requires the footer's current-version reference to come from
+  the post-bump entry, not the pre-run ref (`OutOfConstraintInfo` carries no current
+  version today — `summary.ts:288-292` — so the applied version must be threaded in;
+  that plumbing is mechanics). When no safe bump happened this run, pre and post
+  coincide — the divergence only bites after a same-run bump.
 
 ### 0.x-line + exact-pin edge cases — Decision (confirmations)
 
