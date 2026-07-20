@@ -141,6 +141,26 @@ loop shrinks to non-actioned check categories only.**
 Net stream: `Checking for updates…` → streamed group results (each live) → trailing
 summary of untouched / blocked-by-check entries → out-of-constraint footer.
 
+### Partial collections & counts — Decision (review F1)
+
+Group membership is decided by each member's `checkForUpdate` category
+(`update.ts:428-455`) *before* grouping, so only *updatable* members join a group;
+up-to-date siblings fall to the trailing summary. This is **intended**: the group is
+"updates from a repo," not "the whole collection" — forcing 7 unchanged members
+inline every run would be noise.
+
+- **Up-to-date siblings collapse per-repo in the trailing summary** —
+  `owner/repo: 7 up to date` as one line, not 7 — so a mostly-unchanged collection
+  doesn't become its own mini-wall. Per-repo collapse applies *everywhere*: updates
+  grouped, up-to-date collapsed, out-of-constraint collapsed.
+- **Group-of-one collapse is fine** — a single updated member of a collection
+  collapses to `✓ owner/repo/member: Updated…`; the `/member` suffix already
+  distinguishes it from a true standalone (`owner/repo`), so collection context
+  isn't lost.
+- **Header count/noun is generic** — `(N members)` counting the members *updated in
+  this group*, not `(N skills)`; a collection can hold plugin members (agents/hooks),
+  not only skills.
+
 ---
 
 ## Per-Repo Clone Dedup
