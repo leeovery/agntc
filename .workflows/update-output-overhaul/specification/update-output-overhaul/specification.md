@@ -88,6 +88,29 @@ Two items are deliberately *not* decisions — the observable behaviour is ident
 
 *(Clone-progress rendering on the grouped path — where the old per-clone spinner in `cloneAndReinstall` vanishes from the grouped path — is a real design decision, but it is owned by* Per-Unit Progress Output *and specified there, not here.)*
 
+### Failure isolation & lifecycle
+
+Two failure classes, handled differently. The shared clone is read-only during reinstall, so it survives per-member failures and is torn down once.
+
+**Clone failure (group-fatal).** `cloneRepoOnce` throws (network/auth/ref gone; `cloneSource` already retries 3× internally, so a throw is final). Every member of the group becomes a `failed` outcome attributed to its own key.
+
+- **No manifest mutation** — `clone-failed` doesn't remove entries (only `copy-failed` does, `update.ts:521`), so all N installs stay intact.
+- **Exit accounting unchanged** — N `failed` outcomes trip `hasFailedOutcome` (`update.ts:618-631`) → non-zero exit, same as today.
+- **Rendering** collapses to one grouped line (specified in *Per-Unit Progress Output*). The *model* stays N outcomes (for accounting); only the *display* groups.
+
+**Reinstall failure (per-member, isolated).** Once the clone exists, each member runs its own `runPipeline` against it. `copy-failed` / `aborted` / `blocked` / `no-agents` stay exactly per-member — one member's `copy-failed` removes *its* entry and siblings continue. Verbatim today's behaviour; dedup doesn't touch it.
+
+**Lifecycle.**
+
+1. Clone once (`cloneRepoOnce`).
+2. Members reinstalled **sequentially** — deterministic output ordering for the progress stream; the network cost is already gone after one clone. (Parallel reinstall-from-shared-clone is safe on a read-only source but deferred as a later optimization.)
+3. Each member wrapped in its **own try/catch** so an unexpected throw is contained to that member (mirrors `processUpdateForAll`'s existing wrapper, `update.ts:295,384-390`).
+4. `cleanupTempDir` runs **once** in a `finally` that wraps the **entire member loop**, so no member's throw skips the shared cleanup or aborts remaining siblings.
+
+**Copy-safety boundary — unchanged (no security regression).** Today's remote branch *already* sets `cloneRoot = tempDir` (whole clone) with `sourceDir = member subpath` (`clone-reinstall.ts:392-394`). Sharing the physical clone across members keeps the identical boundary — cross-member symlinks inside the clone allowed, escapes beyond it rejected. Dedup changes how many times we clone, not what counts as an escape.
+
+**Interrupt (noted, not solved).** The shared temp dir now spans N reinstalls instead of one, so a SIGINT mid-loop leaves it behind — but this is **no worse than today** (each per-entry `finally` has the same SIGINT gap, and dedup means *fewer* temp dirs in flight). Process-signal cleanup is out of scope; noted so it isn't mistaken for a regression.
+
 ---
 
 ## Working Notes
