@@ -47,7 +47,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 8 decided · 7 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 8 decided · 2 exploring · 5 pending)
 
   ├─ ✓ Per-unit progress output [decided]
   │  ├─ ✓ Spinner identity — name the unit, resolve inline [decided]
@@ -59,8 +59,8 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
   ├─ ✓ Tag-based summary wording [decided]
   │  ├─ ✓ Tags-where-tagged vs hash fallback [decided]
   │  └─ ✓ Sourcing old/new tag (entry.ref + resolved tag) [decided]
-  ├─ ○ Safe-vs-major bump gating [pending]
-  │  ├─ ○ Audit: what constraint semantics already gate today [pending]
+  ├─ ◐ Safe-vs-major bump gating [exploring]
+  │  ├─ ◐ Audit: what constraint semantics already gate today [exploring]
   │  ├─ ○ Blocking message: passive out-of-constraint → active re-add directive [pending]
   │  └─ ○ 0.x-line + exact-pin edge cases [pending]
   └─ ○ Scope boundary — existing-behaviour audit vs new build [pending]
