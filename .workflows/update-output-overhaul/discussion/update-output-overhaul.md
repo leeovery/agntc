@@ -47,7 +47,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 2 decided · 2 exploring · 11 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 3 decided · 1 exploring · 11 pending)
 
   ├─ ○ Per-unit progress output [pending]
   │  ├─ ○ Spinner identity — name the unit, resolve inline [pending]
@@ -55,7 +55,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
   ├─ ◐ Per-repo clone dedup [exploring]
   │  ├─ ✓ Grouping updatable entries by source repo [decided]
   │  ├─ ✓ Clone ownership refactor (cloneAndReinstall / processUpdateForAll) [decided]
-  │  └─ ◐ Failure isolation across shared-clone members [exploring]
+  │  └─ ✓ Failure isolation across shared-clone members [decided]
   ├─ ○ Tag-based summary wording [pending]
   │  ├─ ○ Tags-where-tagged vs hash fallback [pending]
   │  └─ ○ Sourcing old/new tag (entry.ref + resolved tag) [pending]
@@ -127,6 +127,45 @@ leave `cloneAndReinstall` as-is for the three singleton entry points** (single-k
   battle-tested. Unifying would rewrite three working call sites for zero dedup
   benefit and a larger blast radius.
 
+### Failure isolation — Decision
+
+Two failure classes, handled differently; the shared clone is read-only during
+reinstall, so it survives per-member failures and is torn down once.
+
+**Clone failure (group-fatal).** `cloneRepoOnce` throws (network/auth/ref gone;
+`cloneSource` already retries 3× internally, so a throw is final). Every member of
+the group becomes a `failed` outcome attributed to its own key.
+- **No manifest mutation** — `clone-failed` doesn't remove entries (only
+  `copy-failed` does, `update.ts:521`), so all N installs stay intact.
+- **Exit accounting unchanged** — N `failed` outcomes trip `hasFailedOutcome`
+  (`update.ts:618-631`) → non-zero exit, same as today.
+- **Rendering** collapses to **one grouped line** (`owner/repo: clone failed —
+  affects N members: a, b, c`) so a group failure doesn't reintroduce the
+  "stack of identical anonymous lines" this feature exists to kill. The *model*
+  stays N outcomes (for accounting); only the *display* groups. The actual
+  rendering is owned by the Per-Unit Progress Output subtopic and deferred there.
+  (Addresses review F7.)
+
+**Reinstall failure (per-member, isolated).** Once the clone exists, each member
+runs its own `runPipeline` against it. `copy-failed` / `aborted` / `blocked` /
+`no-agents` stay exactly per-member — one member's `copy-failed` removes *its* entry
+and siblings continue. Verbatim today's behaviour; dedup doesn't touch it.
+
+**Lifecycle.** Clone once → members reinstalled **sequentially** (deterministic
+output ordering for the progress stream; the network cost is already gone after one
+clone; parallel reinstall-from-shared-clone is safe on a read-only source but
+deferred as a later optimization) → each member wrapped in its **own try/catch** so
+an unexpected throw is contained to that member (mirrors `processUpdateForAll`'s
+existing wrapper, `update.ts:295,384-390`) → `cleanupTempDir` **once** in a `finally`
+that wraps the **entire member loop**, so no member's throw skips the shared cleanup
+or aborts remaining siblings. (Addresses review F8.)
+
+**Interrupt (noted).** The shared temp dir now spans N reinstalls instead of one, so
+a SIGINT mid-loop leaves it behind — but this is **no worse than today** (each
+per-entry `finally` has the same SIGINT gap, and dedup means *fewer* temp dirs in
+flight). Not solving process-signal cleanup in this work; noted so it isn't mistaken
+for a regression.
+
 ### Copy-safety boundary — unchanged (noted, not a decision)
 
 No security regression: today's remote branch *already* sets `cloneRoot = tempDir`
@@ -149,7 +188,10 @@ changes how many times we clone, not what counts as an escape.
 
 ### Current State
 
-- Clone dedup: grouping key + ownership seam decided; failure isolation open.
+- Clone dedup: grouping key, ownership seam, and failure isolation decided in
+  direction. Review-001 surfaced refinements to the grouping-key sourcing and the
+  ownership seam (cloneUrl normalization, per-variant target sourcing, TOCTOU split,
+  per-member lexical guard, spinner/outcome-mapping ownership) — to walk through.
 
 ## Triage
 
