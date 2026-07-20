@@ -47,7 +47,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 11 decided · 1 exploring · 3 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 15 decided)
 
   ├─ ✓ Per-unit progress output [decided]
   │  ├─ ✓ Spinner identity — name the unit, resolve inline [decided]
@@ -63,7 +63,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
   │  ├─ ✓ Audit: what constraint semantics already gate today [decided]
   │  ├─ ✓ Blocking message: passive out-of-constraint → active re-add directive [decided]
   │  └─ ✓ 0.x-line + exact-pin edge cases [decided]
-  └─ ◐ Scope boundary — existing-behaviour audit vs new build [exploring]
+  └─ ✓ Scope boundary — existing-behaviour audit vs new build [decided]
 
 ---
 
@@ -403,15 +403,76 @@ The *gating behaviour* already exists, entirely via semver caret semantics:
 
 ---
 
+## Scope Boundary
+
+### Context
+
+Part of the seed is separating what already exists (verify + reword) from genuinely
+new build, and — since all three parts touch the same `update` surface — deciding how
+they're sequenced (review F9).
+
+### Audit line — new build vs reword/verify
+
+- **New build:** clone dedup (grouping, per-group orchestrator, resolve-once-per-
+  group) and the progress stream (group header + per-member inline outcomes). The
+  structural weight of the feature.
+- **Reword / verify over existing behaviour:** tag-vs-hash wording, the gating
+  message (passive footer → actionable, mode-matched), and the all-mode `newer-tags`
+  consistency fix. No new *logic* — gating and constraint resolution already work.
+
+### Build order — Decision (seam-first, one feature)
+
+Parts 2 and 3 both edit the outcome-summary plumbing
+(`renderUpdateOutcomeSummary`, built inside `processUpdateForAll`) — the *same* call
+site the dedup ownership seam (Part 1) refactors. They are **not independent**:
+doing the wording first and then refactoring that construction for dedup would mean
+rewriting the wording work. So:
+
+- **One feature, built seam-first.** Part 1 reshapes `processUpdateForAll` and the
+  per-member outcome model first; Parts 2/3 layer their wording onto the *new*
+  outcome construction. Sequenced phases within one unit, not three independent PRs.
+- (Call made by the orchestrator on the user's delegation — a low-stakes ordering
+  decision with a clear dependency.)
+
+### Testing (scope note, not a decision to litigate)
+
+The seam routes all-mode through a new grouped orchestration while the three
+singleton entry points stay on the old path. Regression coverage for the shared
+reinstall half (existing `update` tests still green) plus new coverage for the
+grouped/dedup path belongs in the build. (review Observations)
+
+---
+
 ## Summary
 
 ### Key Insights
 
-*(to be captured as the discussion progresses)*
+1. **Clone dedup is the structural pivot the whole feature hangs off.** Cloning
+   moves from per-entry to per-repo-group; the progress stream, failure model, and
+   the tag/gating wording all sit downstream of that ownership change.
+2. **The grouping key is a pre-resolution identity, not a resolved commit.** Keying
+   on `(resolvedCloneUrl, ref, constraint)` and resolving the target once per group
+   is a single decision — it dedups *and* guarantees a collection moves as one unit,
+   closing the per-member check race.
+3. **Two of the three parts are mostly already built.** Gating behaviour exists
+   entirely via semver caret semantics (safe bumps auto-apply; major and 0.x-minor
+   already fall out of constraint); tag-vs-hash and gating are *messaging* changes,
+   not logic. The work concentrates in Part 1 (dedup + progress).
+4. **Taggedness is a data property, not a string shape.** The tag-vs-hash rule keys
+   off both refs being semver tags *and* the ref having moved — never the lexical
+   shape — which closes the `v4`-is-a-branch trap for free.
+5. **Re-add suggestions match the user's pinning mode.** Caret users get a bare
+   re-add (latest + default caret); exact-pin users get a specific `@<newest>` tag —
+   preserving how they chose to pin.
 
 ### Open Threads
 
-*(none yet)*
+- **Parallel reinstall within a group** — deferred as a later optimization; the
+  network win is already captured by cloning once. Sequential for now.
+- **SIGINT/interrupt cleanup of the shared temp dir** — out of scope; noted as no
+  worse than today (fewer temp dirs in flight, not more).
+- **Outcome-mapping factoring** (orchestrator inside vs beside `processUpdateForAll`)
+  — left to the implementer; behaviourally invariant.
 
 ### Current State
 
@@ -432,8 +493,9 @@ The *gating behaviour* already exists, entirely via semver caret semantics:
   gap is messaging — informative (exit 0), actionable re-add matched to the user's
   pinning mode (caret → bare re-add; exact-pin → `@<newest>`); align all-mode
   newer-tags wording with single-key.
-- All three parts decided. Last subtopic: Scope Boundary — existing-behaviour audit
-  vs new build, and the Part-2/3-vs-seam sequencing (review F9).
+- All 15 subtopics decided. Scope boundary set: seam-first, one feature; audit line
+  drawn (new build = dedup + progress; reword = tag/gating wording); testing scoped.
+- Review-001 fully incorporated. Final review pass pending before conclusion.
 
 ## Triage
 
