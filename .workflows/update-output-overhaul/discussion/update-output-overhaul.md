@@ -47,11 +47,11 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 5 decided · 2 exploring · 8 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 6 decided · 9 pending)
 
-  ├─ ◐ Per-unit progress output [exploring]
+  ├─ ✓ Per-unit progress output [decided]
   │  ├─ ✓ Spinner identity — name the unit, resolve inline [decided]
-  │  └─ ◐ Inline outcome vs end-of-run summary loop [exploring]
+  │  └─ ✓ Inline outcome vs end-of-run summary loop [decided]
   ├─ ✓ Per-repo clone dedup [decided]
   │  ├─ ✓ Grouping updatable entries by source repo [decided]
   │  ├─ ✓ Clone ownership refactor (cloneAndReinstall / processUpdateForAll) [decided]
@@ -115,6 +115,31 @@ wall (~N near-identical lines for a big collection).
 *(Clone-failure rendering from the failure-isolation decision lands here: a
 group-fatal clone failure renders as one grouped line under this group header, not N
 copies.)*
+
+### Outcome timing — Decision
+
+**Actioned outcomes stream inline as each group completes; the end-of-run summary
+loop shrinks to non-actioned check categories only.**
+
+- **Per group:** a `p.spinner()` starts `Updating <repo>…` and spins through the
+  clone (the slow part); on completion the per-member result lines are emitted as
+  persistent `p.log.*` lines. A group's results appear the moment it finishes, in
+  processing order.
+- **The spinner does NOT tick live per member during reinstall** — it spins on the
+  group name through the clone, then emits the per-member lines on completion.
+  Per-member reinstalls are fast local file copies; live per-member ticking mostly
+  flickers without adding signal. (Emit-on-completion, not live-per-member.)
+- **End-of-run loop retained only for non-actioned check categories** —
+  `up-to-date`, `newer-tags`, `check-failed`, `constrained-no-match` — plus the
+  existing out-of-constraint footer. These never entered a processing group, so a
+  tidy trailing summary is the right home.
+- **Accounting unchanged.** `outcomes[]` is still collected to drive the single
+  manifest write (`update.ts:507-530`) and the `hasFailedOutcome` exit code
+  (`update.ts:618-631`); only *where actioned outcomes print* moves (on completion
+  vs the end-loop), not what's tracked.
+
+Net stream: `Checking for updates…` → streamed group results (each live) → trailing
+summary of untouched / blocked-by-check entries → out-of-constraint footer.
 
 ---
 
@@ -277,8 +302,12 @@ which captures this discussion):
   factoring left to the implementer; clone-progress rendering routed to Part 1.
 - F3 resolved: single-resolved-commit per repo-group — folded into the grouping-key
   decision (key is pre-resolution identity; target resolved once per group).
-- Per-repo clone dedup fully decided. Next: Per-Unit Progress Output (Part 1),
-  where the group-vs-member progress question (review F10) lives.
+- Per-repo clone dedup fully decided.
+- Per-unit progress output fully decided: group header + per-member outcomes (F10),
+  actioned outcomes stream inline (emit-on-completion), end-loop keeps non-actioned
+  check categories only.
+- Next: Tag-Based Summary Wording (Part 2). Review F9 (sequencing/coupling of parts
+  2-3 with the seam plumbing) still to surface — lands under Scope Boundary.
 
 ## Triage
 
