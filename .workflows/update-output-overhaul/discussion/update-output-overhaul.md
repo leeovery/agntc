@@ -161,6 +161,24 @@ inline every run would be noise.
   this group*, not `(N skills)`; a collection can hold plugin members (agents/hooks),
   not only skills.
 
+### Version move & dropped-agents placement — Decision (review F1)
+
+The tag-wording decision renders `Updated <old> → <new>`, but the per-member line is
+`✓ member → agents` (agents, not version) — so a *multi-member* collection would show
+the version move *nowhere* (a standalone shows it, a collection doesn't). The
+`formatDroppedAgentsSuffix` "support removed by author" notice
+(`summary.ts:261-277`) likewise had no home in the member line. Placement:
+
+- **Version move → the group header.** "Resolve once per group" makes the old→new a
+  single shared group property, so it belongs on the header:
+  `◒ Updating owner/repo  v1.2.3 → v1.3.0  (10 members)`. This is where the
+  tag-vs-hash rule renders for the grouped path.
+- **Dropped-agents notice → the member line.** Agent support is per-member (each
+  member's config can drop agents independently), so it rides its own line:
+  `✓ macos → claude  (codex support removed by author)`.
+- **Group-of-one** unchanged — collapses to one line carrying the version
+  (`✓ vendor/tool: Updated v1.2.3 → v1.3.0`).
+
 ---
 
 ## Per-Repo Clone Dedup
