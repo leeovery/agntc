@@ -501,6 +501,14 @@ singleton entry points stay on the old path. Regression coverage for the shared
 reinstall half (existing `update` tests still green) plus new coverage for the
 grouped/dedup path belongs in the build. (review Observations)
 
+### Output is human-only — confirmed (review F5)
+
+`update` output is human-only: it's built entirely on clack (spinners, ANSI, gutter
+lines) with no `--json` mode, so nothing machine-parses it today. The hash→tag
+switch and stream restructure are therefore **not a breaking change for any
+supported consumer** — there is no machine-readable output contract to preserve.
+(Confirmed with the maintainer.)
+
 ---
 
 ## Summary
@@ -555,7 +563,11 @@ grouped/dedup path belongs in the build. (review Observations)
   newer-tags wording with single-key.
 - All 15 subtopics decided. Scope boundary set: seam-first, one feature; audit line
   drawn (new build = dedup + progress; reword = tag/gating wording); testing scoped.
-- Review-001 fully incorporated. Final review pass pending before conclusion.
+- Both review cycles (001, 002) fully incorporated. Review-002's seam findings folded
+  in: post-bump footer version (F2), per-repo footer collapse (F3), per-repo
+  up-to-date collapse + generic member noun (F1), exit-code posture ratified (F4),
+  human-only output confirmed (F5).
+- Ready to conclude.
 
 ## Triage
 
