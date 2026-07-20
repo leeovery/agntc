@@ -47,7 +47,7 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
 
 ### Map
 
-  Discussion Map — Update Output Overhaul (15 subtopics — 6 decided · 9 pending)
+  Discussion Map — Update Output Overhaul (15 subtopics — 6 decided · 2 exploring · 7 pending)
 
   ├─ ✓ Per-unit progress output [decided]
   │  ├─ ✓ Spinner identity — name the unit, resolve inline [decided]
@@ -56,8 +56,8 @@ landing on the same surface (`src/commands/update.ts`, `src/clone-reinstall.ts`,
   │  ├─ ✓ Grouping updatable entries by source repo [decided]
   │  ├─ ✓ Clone ownership refactor (cloneAndReinstall / processUpdateForAll) [decided]
   │  └─ ✓ Failure isolation across shared-clone members [decided]
-  ├─ ○ Tag-based summary wording [pending]
-  │  ├─ ○ Tags-where-tagged vs hash fallback [pending]
+  ├─ ◐ Tag-based summary wording [exploring]
+  │  ├─ ◐ Tags-where-tagged vs hash fallback [exploring]
   │  └─ ○ Sourcing old/new tag (entry.ref + resolved tag) [pending]
   ├─ ○ Safe-vs-major bump gating [pending]
   │  ├─ ○ Audit: what constraint semantics already gate today [pending]
