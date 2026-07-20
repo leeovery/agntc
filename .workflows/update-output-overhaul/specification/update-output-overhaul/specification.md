@@ -71,6 +71,23 @@ Same-repo/same-target entries across the two all-mode processing loops (`[...upd
 
 **"Clone once at the newest ref, check out per member."** Adds checkout complexity and a shared mutable working tree for marginal benefit; the triple-key with per-group clones is simpler, and the common case (a real collection) already collapses to one clone.
 
+### Clone ownership seam — orchestrator
+
+**Extract `cloneRepoOnce()` and add a group orchestrator used by all-mode only; leave `cloneAndReinstall` as-is for the three singleton entry points** — single-key `update <key>`, and both `list` actions (update + change-version).
+
+- The reinstall half is *already* clone-agnostic: `runPipeline` takes `{sourceDir, cloneRoot}` separately (`clone-reinstall.ts:435`), and `executeNukeAndReinstall` scopes the symlink-escape boundary to `cloneRoot` while installing from `sourceDir` (`nuke-reinstall-pipeline.ts:109`). So the orchestrator **clones once**, then loops members through `runPipeline` with `cloneRoot = sharedTempDir` and `sourceDir = resolveUpdateSourceDir(sharedTempDir, memberKey, entry.sourceSubpath)`, cleaning up once after all members.
+- **Preserves the per-member lexical `sourceSubpath` containment guard** (`assertSubpathWithinClone`, `clone-reinstall.ts:366-379`). It must run **per member** in the orchestrator, since each member carries its own `sourceSubpath` and the bypassed code path currently owns it. Dropping it is a path-traversal regression — this is a preservation constraint, not a design choice.
+- **Rejected: unify all four entry points through one grouped primitive.** All-mode is the only site with a collection to dedup; the three singletons are correct and battle-tested. Unifying would rewrite three working call sites for zero dedup benefit and a larger blast radius.
+
+### Left to the implementer (behaviourally invariant)
+
+Two items are deliberately *not* decisions — the observable behaviour is identical however they're wired, so they are pure code mechanics:
+
+- **Result → `PluginOutcome` mapping factoring** — whether the orchestrator lives inside vs beside `processUpdateForAll`, and whether a shared helper is extracted. The emitted outcomes are the same either way.
+- **Threading the resolved old/new refs into the tag-render signature** (see *Tag-Based Summary Wording*) — the *values* that feed it and the rule they're tested against are decided; the plumbing is not.
+
+*(Clone-progress rendering on the grouped path — where the old per-clone spinner in `cloneAndReinstall` vanishes from the grouped path — is a real design decision, but it is owned by* Per-Unit Progress Output *and specified there, not here.)*
+
 ---
 
 ## Working Notes
