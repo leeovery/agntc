@@ -113,11 +113,18 @@ export type PluginOutcome =
  * outcomes — the failure arms (skipped-no-agents / copy-failed / aborted /
  * blocked / clone-failed→failed / unknown→failed) and the success split
  * (local `refreshed` vs git `updated`) live in exactly one place.
+ *
+ * `newRef` is the group's resolved target ref threaded through for the git-update
+ * summary's tag-vs-hash rule (the resolved tag for a constrained group; the
+ * unchanged branch name / `null` for a branch/HEAD group) — paired with the
+ * member's pre-update `entry.ref` as the move's old ref. It is consulted only on
+ * the git-update arm; the local (`refreshed`) and failure arms ignore it.
  */
 export function mapReinstallResultToOutcome(
 	key: string,
 	entry: ManifestEntry,
 	result: CloneReinstallResult,
+	newRef: string | null,
 ): PluginOutcome {
 	if (isCloneReinstallFailure(result)) {
 		return mapCloneFailure<PluginOutcome>(result, {
@@ -169,6 +176,8 @@ export function mapReinstallResultToOutcome(
 		summary: renderUpdateOutcomeSummary({
 			type: "git-update",
 			key,
+			oldRef: entry.ref,
+			newRef,
 			oldCommit: entry.commit,
 			newCommit: result.manifestEntry.commit!,
 			droppedAgents: result.droppedAgents,
@@ -239,17 +248,28 @@ async function reinstallMember(
 	projectDir: string,
 ): Promise<PluginOutcome> {
 	const { key, entry } = member;
+	// The group's resolved target ref for the tag-vs-hash move: the resolved tag
+	// for a constrained group (effectiveRef), else the member's own (shared) ref —
+	// the branch name, or `null` for HEAD. Equals the newRef the grouped header
+	// (task 3-1) renders against, so the collapsed group-of-one wording matches the
+	// grouped multi-member wording for the same move.
+	const newRef = effectiveRef ?? entry.ref;
 	try {
 		if (entry.sourceSubpath) {
 			try {
 				assertSubpathWithinClone(tempDir, entry.sourceSubpath);
 			} catch (err) {
 				if (err instanceof PathTraversalError) {
-					return mapReinstallResultToOutcome(key, entry, {
-						status: "failed",
-						failureReason: "clone-failed",
-						message: err.message,
-					});
+					return mapReinstallResultToOutcome(
+						key,
+						entry,
+						{
+							status: "failed",
+							failureReason: "clone-failed",
+							message: err.message,
+						},
+						newRef,
+					);
 				}
 				throw err;
 			}
@@ -267,7 +287,7 @@ async function reinstallMember(
 			newCommit: effectiveCommit,
 		});
 
-		return mapReinstallResultToOutcome(key, entry, result);
+		return mapReinstallResultToOutcome(key, entry, result, newRef);
 	} catch (err) {
 		return {
 			status: "failed",

@@ -4762,6 +4762,43 @@ describe("update command", () => {
 			);
 		});
 
+		it("single-key runSinglePluginUpdate passes entry.ref and result.manifestEntry.ref into renderGitUpdateSummary", async () => {
+			const entry = makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: null,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({
+				type: "bare-skill",
+			} as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await runUpdate("owner/repo");
+
+			// oldRef = pre-update entry.ref (v1.2.3), newRef = post-update
+			// result.manifestEntry.ref (resolved v1.3.0) → the shared formatVersionMove
+			// renders the tag move, not commit hashes.
+			expect(mockOutro).toHaveBeenCalledWith(
+				"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s) for claude",
+			);
+		});
+
 		it("updates ref and commit in manifest to new resolved tag values", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
@@ -4840,7 +4877,7 @@ describe("update command", () => {
 			);
 		});
 
-		it("shows update summary with old and new commit", async () => {
+		it("shows update summary with old and new version (tags for a constrained update)", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -4869,11 +4906,10 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo");
 
+			// Both refs are semver tags and the ref moved (v1.2.3 -> v1.3.0) → the
+			// shared formatVersionMove renders tags, not the commit hashes.
 			expect(mockOutro).toHaveBeenCalledWith(
-				expect.stringContaining(INSTALLED_SHA.slice(0, 7)),
-			);
-			expect(mockOutro).toHaveBeenCalledWith(
-				expect.stringContaining(REMOTE_SHA.slice(0, 7)),
+				expect.stringContaining("v1.2.3 -> v1.3.0"),
 			);
 		});
 

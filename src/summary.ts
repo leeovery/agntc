@@ -3,6 +3,7 @@ import type { AssetCounts } from "./copy-plugin-assets.js";
 import { getDriver } from "./drivers/registry.js";
 import type { AgentId, AssetType } from "./drivers/types.js";
 import type { DetectedType } from "./type-detection.js";
+import { formatVersionMove } from "./version-resolve.js";
 
 /**
  * A rendered install summary: a one-line `headline` (the terminal `└` outro
@@ -219,6 +220,8 @@ export function renderCollectionAddSummary(
 
 interface GitUpdateSummaryInput {
 	key: string;
+	oldRef: string | null;
+	newRef: string | null;
 	oldCommit: string | null;
 	newCommit: string;
 	copiedFiles: string[];
@@ -227,13 +230,17 @@ interface GitUpdateSummaryInput {
 }
 
 export function renderGitUpdateSummary(input: GitUpdateSummaryInput): string {
-	const oldShort = input.oldCommit ? input.oldCommit.slice(0, 7) : "unknown";
-	const newShort = input.newCommit.slice(0, 7);
+	const move = formatVersionMove({
+		oldRef: input.oldRef,
+		newRef: input.newRef,
+		oldCommit: input.oldCommit,
+		newCommit: input.newCommit,
+	});
 	const droppedSuffix = formatDroppedAgentsSuffix(
 		input.droppedAgents,
 		"sentence",
 	);
-	return `Updated ${input.key}: ${oldShort} -> ${newShort} — ${input.copiedFiles.length} file(s) for ${input.effectiveAgents.join(", ")}${droppedSuffix}`;
+	return `Updated ${input.key}: ${move} — ${input.copiedFiles.length} file(s) for ${input.effectiveAgents.join(", ")}${droppedSuffix}`;
 }
 
 interface LocalUpdateSummaryInput {
@@ -257,6 +264,8 @@ type UpdateOutcomeInput =
 	| {
 			type: "git-update";
 			key: string;
+			oldRef: string | null;
+			newRef: string | null;
 			oldCommit: string | null;
 			newCommit: string;
 			droppedAgents: string[];
@@ -269,13 +278,17 @@ type UpdateOutcomeInput =
 
 export function renderUpdateOutcomeSummary(input: UpdateOutcomeInput): string {
 	if (input.type === "git-update") {
-		const oldShort = input.oldCommit ? input.oldCommit.slice(0, 7) : "unknown";
-		const newShort = input.newCommit.slice(0, 7);
+		const move = formatVersionMove({
+			oldRef: input.oldRef,
+			newRef: input.newRef,
+			oldCommit: input.oldCommit,
+			newCommit: input.newCommit,
+		});
 		const droppedSuffix = formatDroppedAgentsSuffix(
 			input.droppedAgents,
 			"inline",
 		);
-		return `${input.key}: Updated ${oldShort} -> ${newShort}${droppedSuffix}`;
+		return `${input.key}: Updated ${move}${droppedSuffix}`;
 	}
 
 	const droppedSuffix = formatDroppedAgentsSuffix(

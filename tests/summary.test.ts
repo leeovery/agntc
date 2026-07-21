@@ -20,6 +20,7 @@ import {
 	renderRemoveSummary,
 	renderUpdateOutcomeSummary,
 } from "../src/summary.js";
+import { formatVersionMove } from "../src/version-resolve.js";
 
 const mockGetDriver = vi.mocked(getDriver);
 
@@ -355,6 +356,8 @@ describe("renderGitUpdateSummary", () => {
 	it("shows commit transition and file count", () => {
 		const result = renderGitUpdateSummary({
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
@@ -369,6 +372,8 @@ describe("renderGitUpdateSummary", () => {
 	it("includes dropped agent info when agents are dropped", () => {
 		const result = renderGitUpdateSummary({
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
@@ -381,6 +386,8 @@ describe("renderGitUpdateSummary", () => {
 	it("uses 'unknown' when old commit is null", () => {
 		const result = renderGitUpdateSummary({
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: null,
 			newCommit: "def4567890abc",
 			copiedFiles: [],
@@ -393,6 +400,8 @@ describe("renderGitUpdateSummary", () => {
 	it("shows multiple effective agents joined", () => {
 		const result = renderGitUpdateSummary({
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [".claude/skills/x", ".codex/skills/x"],
@@ -400,6 +409,89 @@ describe("renderGitUpdateSummary", () => {
 			droppedAgents: [],
 		});
 		expect(result).toContain("2 file(s) for claude, codex");
+	});
+
+	it("renders tags for a constrained update (v1.2.3 -> v1.3.0)", () => {
+		const result = renderGitUpdateSummary({
+			key: "owner/repo",
+			oldRef: "v1.2.3",
+			newRef: "v1.3.0",
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			effectiveAgents: ["claude"],
+			droppedAgents: [],
+		});
+		// Both refs are semver tags and the ref moved → the shared rule renders tags,
+		// not commit hashes. The file-count/agents tail is unchanged.
+		expect(result).toBe(
+			"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s) for claude",
+		);
+	});
+
+	it("keeps the dropped-agents suffix on a tag-rendered move", () => {
+		const result = renderGitUpdateSummary({
+			key: "owner/repo",
+			oldRef: "v1.2.3",
+			newRef: "v1.3.0",
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			effectiveAgents: ["claude"],
+			droppedAgents: ["codex"],
+		});
+		expect(result).toBe(
+			"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s) for claude" +
+				". codex support removed by plugin author.",
+		);
+	});
+
+	it("falls to short hashes for a branch update (oldRef === newRef)", () => {
+		const result = renderGitUpdateSummary({
+			key: "owner/repo",
+			oldRef: "main",
+			newRef: "main",
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			effectiveAgents: ["claude"],
+			droppedAgents: [],
+		});
+		// A branch update keeps the ref name fixed (only the commit moved), so the
+		// "ref actually moved" guard sends it to hashes.
+		expect(result).toBe(
+			"Updated owner/repo: abc1234 -> def4567 — 1 file(s) for claude",
+		);
+	});
+
+	it("falls to short hashes for a HEAD update (newRef null)", () => {
+		const result = renderGitUpdateSummary({
+			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			effectiveAgents: ["claude"],
+			droppedAgents: [],
+		});
+		expect(result).toBe(
+			"Updated owner/repo: abc1234 -> def4567 — 1 file(s) for claude",
+		);
+	});
+
+	it("still renders unknown -> <newShort> when old commit is null (hash path)", () => {
+		const result = renderGitUpdateSummary({
+			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
+			oldCommit: null,
+			newCommit: "def4567890abc",
+			copiedFiles: [],
+			effectiveAgents: ["claude"],
+			droppedAgents: [],
+		});
+		expect(result).toContain("unknown -> def4567");
 	});
 });
 
@@ -433,6 +525,8 @@ describe("renderUpdateOutcomeSummary", () => {
 		const result = renderUpdateOutcomeSummary({
 			type: "git-update",
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			droppedAgents: [],
@@ -444,11 +538,37 @@ describe("renderUpdateOutcomeSummary", () => {
 		const result = renderUpdateOutcomeSummary({
 			type: "git-update",
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			droppedAgents: ["codex"],
 		});
 		expect(result).toContain("codex support removed by plugin author");
+	});
+
+	it("git-update renders tags for a constrained update and hashes for a branch update", () => {
+		const constrained = renderUpdateOutcomeSummary({
+			type: "git-update",
+			key: "owner/repo",
+			oldRef: "v1.2.3",
+			newRef: "v1.3.0",
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+			droppedAgents: [],
+		});
+		expect(constrained).toBe("owner/repo: Updated v1.2.3 -> v1.3.0");
+
+		const branch = renderUpdateOutcomeSummary({
+			type: "git-update",
+			key: "owner/repo",
+			oldRef: "main",
+			newRef: "main",
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+			droppedAgents: [],
+		});
+		expect(branch).toBe("owner/repo: Updated abc1234 -> def4567");
 	});
 
 	it("formats local update outcome", () => {
@@ -467,6 +587,82 @@ describe("renderUpdateOutcomeSummary", () => {
 			droppedAgents: ["codex"],
 		});
 		expect(result).toContain("codex support removed by plugin author");
+	});
+
+	it("local-update is unchanged (no version move, tag rule untouched)", () => {
+		const plain = renderUpdateOutcomeSummary({
+			type: "local-update",
+			key: "/path/to/plugin",
+			droppedAgents: [],
+		});
+		expect(plain).toBe("/path/to/plugin: Refreshed from local path");
+
+		const dropped = renderUpdateOutcomeSummary({
+			type: "local-update",
+			key: "/path/to/plugin",
+			droppedAgents: ["codex"],
+		});
+		expect(dropped).toBe(
+			"/path/to/plugin: Refreshed from local path" +
+				" — codex support removed by plugin author",
+		);
+	});
+});
+
+describe("shared tag-vs-hash rule across surfaces", () => {
+	it("single-key and all-mode produce the identical move substring for the same old/new refs (shared rule, no divergence)", () => {
+		const move = {
+			oldRef: "v1.2.3",
+			newRef: "v1.3.0",
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+		};
+		const singleKey = renderGitUpdateSummary({
+			key: "owner/repo",
+			...move,
+			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			effectiveAgents: ["claude"],
+			droppedAgents: [],
+		});
+		const allMode = renderUpdateOutcomeSummary({
+			type: "git-update",
+			key: "owner/repo",
+			...move,
+			droppedAgents: [],
+		});
+
+		// The one shared rule produces the move; both surfaces embed it verbatim.
+		const expectedMove = formatVersionMove(move);
+		expect(expectedMove).toBe("v1.2.3 -> v1.3.0");
+		expect(singleKey).toContain(expectedMove);
+		expect(allMode).toContain(expectedMove);
+	});
+
+	it("both surfaces fall to the identical hash move for a branch update", () => {
+		const move = {
+			oldRef: "main",
+			newRef: "main",
+			oldCommit: "abc1234567890",
+			newCommit: "def4567890abc",
+		};
+		const singleKey = renderGitUpdateSummary({
+			key: "owner/repo",
+			...move,
+			copiedFiles: [],
+			effectiveAgents: ["claude"],
+			droppedAgents: [],
+		});
+		const allMode = renderUpdateOutcomeSummary({
+			type: "git-update",
+			key: "owner/repo",
+			...move,
+			droppedAgents: [],
+		});
+
+		const expectedMove = formatVersionMove(move);
+		expect(expectedMove).toBe("abc1234 -> def4567");
+		expect(singleKey).toContain(expectedMove);
+		expect(allMode).toContain(expectedMove);
 	});
 });
 
@@ -524,6 +720,8 @@ describe("edge cases", () => {
 		const gitResult = renderUpdateOutcomeSummary({
 			type: "git-update",
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			droppedAgents: [],
@@ -534,6 +732,8 @@ describe("edge cases", () => {
 	it("multiple dropped agents listed in git update summary", () => {
 		const result = renderGitUpdateSummary({
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [],
@@ -547,6 +747,8 @@ describe("edge cases", () => {
 		const result = renderUpdateOutcomeSummary({
 			type: "git-update",
 			key: "owner/repo",
+			oldRef: null,
+			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			droppedAgents: ["codex", "cursor"],

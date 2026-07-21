@@ -270,6 +270,12 @@ async function runSinglePluginUpdate(
 		p.outro(
 			renderGitUpdateSummary({
 				key,
+				// Old ref = pre-update entry.ref; new ref = post-update
+				// result.manifestEntry.ref (the resolved result.tag for a constrained
+				// update; unchanged entry.ref for a branch/HEAD update). The shared
+				// formatVersionMove decides tags-vs-hashes from these.
+				oldRef: entry.ref,
+				newRef: result.manifestEntry.ref,
 				oldCommit: entry.commit,
 				newCommit: result.manifestEntry.commit!,
 				copiedFiles: result.copiedFiles,
@@ -305,7 +311,11 @@ async function processUpdateForAll(
 		}
 
 		const result = await cloneAndReinstall(prepared.options);
-		return mapReinstallResultToOutcome(key, entry, result);
+		// This path now only handles local entries (streamLocalWork), whose outcome
+		// is the ref-free `refreshed` (local-update) summary — the git-update arm's
+		// newRef is never consulted here, so the pre-update entry.ref is passed as a
+		// benign, correct value.
+		return mapReinstallResultToOutcome(key, entry, result, entry.ref);
 	} catch (err) {
 		return {
 			status: "failed",
