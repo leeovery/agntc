@@ -31,7 +31,7 @@
     "planning": {
       "items": {
         "update-output-overhaul": {
-          "status": "in-progress",
+          "status": "completed",
           "format": "tick",
           "spec_commit": "70363ea19d634e1b1d6aab80927784068377ce59",
           "task_list_gate_mode": "auto",
