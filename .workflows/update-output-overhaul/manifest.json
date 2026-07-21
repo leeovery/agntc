@@ -35,12 +35,23 @@
           "format": "tick",
           "spec_commit": "70363ea19d634e1b1d6aab80927784068377ce59",
           "task_list_gate_mode": "auto",
-          "author_gate_mode": "gated",
+          "author_gate_mode": "auto",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "update-output-overhaul-1-1",
-          "task_map": {}
+          "task": "update-output-overhaul-1-8",
+          "task_map": {
+            "update-output-overhaul-1": "tick-590cd8",
+            "update-output-overhaul-1-1": "tick-ed3056",
+            "update-output-overhaul-1-2": "tick-cc9db5",
+            "update-output-overhaul-1-3": "tick-7d433b",
+            "update-output-overhaul-1-4": "tick-86f0db",
+            "update-output-overhaul-1-5": "tick-2e267f",
+            "update-output-overhaul-1-6": "tick-983707",
+            "update-output-overhaul-1-7": "tick-ef4321",
+            "update-output-overhaul-1-8": "tick-879462"
+          },
+          "external_id": "tick-e1f9de"
         }
       }
     }
