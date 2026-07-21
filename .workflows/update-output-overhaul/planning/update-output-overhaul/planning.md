@@ -77,6 +77,14 @@ approved_at: 2026-07-21
 - [ ] Edge cases hold: a `v4` branch (not full semver via `clean()`) falls to hashes; a branch literally named `v4.0.0` whose only the commit moved falls to hashes (ref name unchanged); a constrained update `v1.2.3 → v1.3.0` renders in tags.
 - [ ] The old ref sources from the pre-update `entry.ref` and the new ref from the post-update resolved ref (`result.manifestEntry.ref` / `result.tag`); the rule is applied identically on the single-key and all-mode surfaces so wording cannot diverge.
 
+#### Tasks
+status: draft
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| update-output-overhaul-3-1 | Reword formatVersionMove to the tag-vs-hash rule and apply it across the grouped surface | v4 branch (clean() null) falls to hashes; branch named v4.0.0 with only the commit moved (oldRef === newRef) falls to hashes; constrained v1.2.3 -> v1.3.0 renders tags; branch/HEAD (ref === null) falls to hashes; both refs tags but ref unmoved falls to hashes |
+| update-output-overhaul-3-2 | Apply the shared tag-vs-hash rule to the single-key and collapsed all-mode summary renderers | constrained single-key update (old entry.ref, new result.tag) renders tags; branch/HEAD single-key update (ref unchanged) falls to hashes; old commit null renders "unknown" short-hash fallback; shared rule keeps single-key and all-mode wording identical |
+
 ### Phase 4: Safe-vs-major bump gating messaging
 status: approved
 approved_at: 2026-07-21
