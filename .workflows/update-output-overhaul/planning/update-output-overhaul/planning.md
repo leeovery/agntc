@@ -51,7 +51,8 @@ approved_at: 2026-07-21
 - [ ] The streamed group success appears only after that group's per-group manifest write; an interrupt leaves the manifest matching disk at group boundaries (the mid-member nuke-and-reinstall window is the pre-existing SIGINT gap, out of scope).
 
 #### Tasks
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
