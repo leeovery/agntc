@@ -468,13 +468,15 @@ describe("processGroupUpdate", () => {
 			branchMember("owner/repo/c"),
 		];
 
-		const outcomes = await processGroupUpdate(
+		const result = await processGroupUpdate(
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
 		);
+		const { outcomes } = result;
 
+		expect(result.cloneFailed).toBe(false);
 		expect(mockCloneSource).toHaveBeenCalledTimes(1);
 		expect(outcomes).toHaveLength(3);
 		expect(outcomes.map((o) => o.key)).toEqual([
@@ -536,13 +538,15 @@ describe("processGroupUpdate", () => {
 			latestOverall: null,
 		};
 
-		const outcomes = await processGroupUpdate(
+		const result = await processGroupUpdate(
 			group,
 			members,
 			target,
 			"/fake/project",
 		);
+		const { outcomes } = result;
 
+		expect(result.cloneFailed).toBe(false);
 		expect(mockCloneSource).toHaveBeenCalledTimes(1);
 		// The resolved target tag reaches the clone as the --branch override.
 		expect(mockCloneSource).toHaveBeenCalledWith(
@@ -579,7 +583,7 @@ describe("processGroupUpdate", () => {
 			}
 		});
 
-		const outcomes = await processGroupUpdate(
+		const { outcomes } = await processGroupUpdate(
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
@@ -627,7 +631,7 @@ describe("processGroupUpdate", () => {
 			return { agents: ["claude"] };
 		});
 
-		const outcomes = await processGroupUpdate(
+		const { outcomes } = await processGroupUpdate(
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
@@ -701,13 +705,22 @@ describe("processGroupUpdate", () => {
 			new Error("git clone failed after 3 attempts: network error"),
 		);
 
-		const outcomes = await processGroupUpdate(
+		const result = await processGroupUpdate(
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
 		);
+		const { outcomes } = result;
 
+		// The clone-fatal discriminator is surfaced additively for the render layer,
+		// carrying the shared clone-failure reason; the MODEL stays N failed outcomes.
+		expect(result.cloneFailed).toBe(true);
+		if (result.cloneFailed) {
+			expect(result.reason).toBe(
+				"git clone failed after 3 attempts: network error",
+			);
+		}
 		// N failed outcomes, one per updating member, keyed to its own key.
 		expect(outcomes).toHaveLength(3);
 		expect(outcomes.map((o) => o.key)).toEqual([
@@ -736,13 +749,15 @@ describe("processGroupUpdate", () => {
 		const upToDate = branchMember("owner/repo/current");
 		mockCloneSource.mockRejectedValue(new Error("boom"));
 
-		const outcomes = await processGroupUpdate(
+		const result = await processGroupUpdate(
 			branchGroup([updatingA, updatingB, upToDate]),
 			[updatingA, updatingB],
 			BRANCH_TARGET,
 			"/fake/project",
 		);
+		const { outcomes } = result;
 
+		expect(result.cloneFailed).toBe(true);
 		// Only the two updating members fail; the up-to-date sibling is untouched.
 		expect(outcomes).toHaveLength(2);
 		expect(outcomes.map((o) => o.key)).toEqual([

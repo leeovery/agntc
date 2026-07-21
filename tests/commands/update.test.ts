@@ -3226,10 +3226,14 @@ describe("update command", () => {
 		});
 	});
 
-	describe("clone-fatal fan-out — all-mode group (task 1-7)", () => {
+	describe("clone-fatal fan-out & grouped rendering — all-mode group (task 1-7 / 2-6)", () => {
 		// A 3-member collection sharing one (cloneUrl, versionIntent) → one group,
 		// one shared clone. When that clone throws, every member of the group's
-		// UPDATING subset becomes a `failed` outcome attributed to its own key.
+		// UPDATING subset becomes a `failed` outcome attributed to its own key (the
+		// MODEL — Phase 1 task 1-7, preserved). The DISPLAY (task 2-6) collapses those
+		// N failed outcomes to ONE enumerated grouped error line naming the affected
+		// members — never N identical anonymous lines — while the model + exit stay
+		// exactly as Phase 1 built them.
 		function threeMemberCollection(): void {
 			const member = (name: string): ManifestEntry =>
 				makeEntry({
@@ -3249,25 +3253,29 @@ describe("update command", () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 		}
 
-		it("a group clone failure produces one failed outcome per member (N outcomes)", async () => {
+		it("renders a group clone failure as one enumerated error line, not N lines", async () => {
+			const handle = captureSpinner();
 			threeMemberCollection();
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
 			await runUpdate().catch(() => {});
 
-			// Failed outcomes render at warn level (renderOutcomeSummary), one per
-			// member keyed to its own key with the shared clone error.
+			// ONE enumerated grouped error line naming the affected member basenames
+			// alongside the count — emitted in place of the header's per-member lines.
+			expect(mockLog.error.mock.calls.map((c) => c[0])).toEqual([
+				"owner/repo: clone failed — affects 3 members: a, b, c",
+			]);
+			// The interim per-member `<key>: Failed — …` warn lines are gone: the
+			// N-outcome fan-out is a DISPLAY-only collapse now (never one line per member).
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-			const failedLines = warnCalls.filter((m) => m.includes("Failed"));
-			expect(failedLines).toHaveLength(3);
-			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
-				expect(
-					failedLines.some((m) => m === `${key}: Failed — git clone failed`),
-				).toBe(true);
-			}
+			expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
+			// The >=2-member group still opens (and settles) its Updating header spinner.
+			expect(handle.start).toHaveBeenCalledWith(
+				expect.stringContaining("Updating owner/repo"),
+			);
 		});
 
-		it("a group clone failure mutates no manifest state (no add/remove/write for that group)", async () => {
+		it("mutates no manifest state for the clone-failed group", async () => {
 			threeMemberCollection();
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
@@ -3280,34 +3288,34 @@ describe("update command", () => {
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
-		it("N failed outcomes from a clone failure trip a non-zero exit", async () => {
+		it("keeps N failed outcomes in the model so the run exits non-zero (ExitSignal 1)", async () => {
 			threeMemberCollection();
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
 			const err = await runUpdate().catch((e) => e);
 
+			// The DISPLAY collapsed to one line, but the model still holds N `failed`
+			// outcomes → hasFailedOutcome trips → runAllUpdates throws ExitSignal(1).
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 		});
 
-		it("a sibling group still updates and persists when another group clone fails", async () => {
-			// Two standalone repos → two groups-of-one. Group A's clone throws
-			// (group-fatal → failed); group B clones and updates. Isolation: A's
-			// failure removes nothing and writes nothing; B still persists its update,
-			// and the run exits non-zero because A failed.
-			const entryA = makeEntry({
-				commit: INSTALLED_SHA,
-				agents: ["claude"],
-				files: [".claude/skills/skill-a/"],
-			});
-			const entryB = makeEntry({
-				commit: INSTALLED_SHA,
-				agents: ["claude"],
-				files: [".claude/skills/skill-b/"],
-			});
+		it("a sibling group still streams and persists when another group clone fails", async () => {
+			// Two 2-member collections → two groups. Group A (manifest-first) clone
+			// throws (group-fatal → enumerated error line); group B clones and streams
+			// its member lines. Isolation: A removes/writes nothing; B streams both
+			// member ✓ lines and persists; the run exits non-zero because A failed.
+			const member = (name: string): ManifestEntry =>
+				makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [`.claude/skills/${name}/`],
+				});
 			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo-a": entryA,
-				"owner/repo-b": entryB,
+				"owner/repo-a/x": member("x"),
+				"owner/repo-a/y": member("y"),
+				"owner/repo-b/m": member("m"),
+				"owner/repo-b/n": member("n"),
 			});
 			mockResolveGroupTarget.mockResolvedValue({
 				kind: "head",
@@ -3323,26 +3331,75 @@ describe("update command", () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/skill-b/"],
+				copiedFiles: [".claude/skills/x/"],
 			});
 
 			const err = await runUpdate().catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
+			// Group A collapses to ONE enumerated error line; group B streams both
+			// member ✓ lines under its own header.
+			expect(mockLog.error.mock.calls.map((c) => c[0])).toEqual([
+				"owner/repo-a: clone failed — affects 2 members: x, y",
+			]);
+			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual([
+				"m → claude",
+				"n → claude",
+			]);
 			// Only group B persisted; group A (clone-failed) wrote nothing.
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				expect.anything(),
-				"owner/repo-b",
+				"owner/repo-b/m",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b/n",
 				expect.objectContaining({ commit: REMOTE_SHA }),
 			);
 			expect(mockAddEntry).not.toHaveBeenCalledWith(
 				expect.anything(),
-				"owner/repo-a",
+				expect.stringContaining("owner/repo-a"),
 				expect.anything(),
 			);
 			expect(mockRemoveEntry).not.toHaveBeenCalled();
+		});
+
+		it("a group-of-one clone failure renders ONE collapsed spin.stop line, not a header + enumerated line", async () => {
+			// A standalone repo → a group-of-one (attempted count === 1). Its clone
+			// throws. Per the task-2-4 collapse principle it stays a SINGLE physical
+			// line — the red ▲ spinner stop-frame (code 2) — NOT a header stop plus a
+			// separate enumerated `affects 1 members` line (which would be redundant
+			// with the repo name AND regress the group-of-one collapse).
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/solo/"],
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+
+			await runUpdate().catch(() => {});
+
+			// The single collapsed failed line IS the spinner stop-frame at code 2.
+			expect(stopTexts(handle, 2)).toEqual([
+				"owner/repo: Failed — git clone failed",
+			]);
+			// No enumerated grouped line for a group-of-one — no "affects" text anywhere.
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			expect(errorCalls.some((m) => m.includes("clone failed — affects"))).toBe(
+				false,
+			);
+			expect(mockLog.error).not.toHaveBeenCalled();
 		});
 	});
 

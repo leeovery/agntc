@@ -177,6 +177,21 @@ export function mapReinstallResultToOutcome(
 	};
 }
 
+/**
+ * The additive discriminated result {@link processGroupUpdate} returns. The
+ * `outcomes` array is the SAME per-member model on both arms — one
+ * {@link PluginOutcome} per attempted member — and is the only thing exit
+ * accounting and manifest persistence read. `cloneFailed` is a pure DISPLAY
+ * signal layered over Phase 1's N-outcome fan-out (task 1-7): when true, the
+ * streaming layer (task 2-6) renders one enumerated grouped line naming the
+ * affected members instead of N per-member lines, and `reason` carries the
+ * group's single shared clone-failure message. It does NOT change the outcomes
+ * array (still N `failed` outcomes) or the exit.
+ */
+export type GroupUpdateResult =
+	| { cloneFailed: true; reason: string; outcomes: PluginOutcome[] }
+	| { cloneFailed: false; outcomes: PluginOutcome[] };
+
 interface EffectiveTarget {
 	/** The clone `--branch` override: the resolved tag for a constrained group,
 	 * `undefined` for a branch/HEAD group (clone at the stored branch/HEAD ref). */
@@ -282,13 +297,19 @@ async function reinstallMember(
  * clone-failed removes no entries (only copy-failed does), so all N installs stay
  * intact — and there is no tempDir to clean up. The N `failed` outcomes still
  * trip `hasFailedOutcome` → non-zero exit, matching today's per-entry accounting.
+ *
+ * The return is an additive {@link GroupUpdateResult} wrapper: `cloneFailed` is a
+ * DISPLAY-only discriminator (task 2-6) letting the streaming layer render one
+ * enumerated grouped line for a clone-fatal group instead of N per-member lines;
+ * the `outcomes` array is unchanged on both arms — still N `failed` outcomes on
+ * clone failure — so exit accounting and manifest persistence are untouched.
  */
 export async function processGroupUpdate(
 	group: EntryGroup,
 	members: Array<{ key: string; entry: ManifestEntry }>,
 	target: GroupTarget,
 	projectDir: string,
-): Promise<PluginOutcome[]> {
+): Promise<GroupUpdateResult> {
 	const firstMember = group.members[0]!;
 	const { ref: effectiveRef, commit: effectiveCommit } =
 		resolveEffectiveTarget(target);
@@ -301,12 +322,16 @@ export async function processGroupUpdate(
 			...(effectiveRef !== undefined ? { newRef: effectiveRef } : {}),
 		}));
 	} catch (err) {
-		const message = errorMessage(err);
-		return members.map((member) => ({
-			status: "failed",
-			key: member.key,
-			summary: `${member.key}: Failed — ${message}`,
-		}));
+		const reason = errorMessage(err);
+		return {
+			cloneFailed: true,
+			reason,
+			outcomes: members.map((member) => ({
+				status: "failed",
+				key: member.key,
+				summary: `${member.key}: Failed — ${reason}`,
+			})),
+		};
 	}
 
 	const outcomes: PluginOutcome[] = [];
@@ -326,5 +351,5 @@ export async function processGroupUpdate(
 		await cleanupTempDir(tempDir).catch(() => {});
 	}
 
-	return outcomes;
+	return { cloneFailed: false, outcomes };
 }

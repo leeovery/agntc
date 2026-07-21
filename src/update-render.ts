@@ -86,6 +86,23 @@ export function formatConstrainedNoMatchLine(
 }
 
 /**
+ * The one grouped line a group-fatal clone failure renders (task 2-6). Unlike the
+ * other trailing collapses — which count-collapse a group-level result — this one
+ * ENUMERATES the affected member basenames alongside the count, because the clone
+ * is the group's single fatal action and naming the members it took down is the
+ * useful signal. `label` is the {@link groupLabel} (repo, or `@intent`-suffixed for
+ * a multi-group repo); `memberNames` are the attempted (updating) members'
+ * basenames. The N `failed` outcomes still stand for exit accounting — this only
+ * groups the DISPLAY.
+ */
+export function formatCloneFailureLine(
+	label: string,
+	memberNames: string[],
+): string {
+	return `${label}: clone failed — affects ${memberNames.length} members: ${memberNames.join(", ")}`;
+}
+
+/**
  * The INTERIM version-move renderer: short (7-char) commit hashes joined by the
  * ` -> ` arrow, matching today's {@link renderUpdateOutcomeSummary}
  * (`summary.ts`). Deliberately hash-only — Phase 3 rewords this one helper (and

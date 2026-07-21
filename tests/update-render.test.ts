@@ -6,6 +6,7 @@ import {
 import type { EntryGroup } from "../src/update-groups.js";
 import {
 	formatCheckFailedLine,
+	formatCloneFailureLine,
 	formatConstrainedNoMatchLine,
 	formatGroupHeader,
 	formatMemberLine,
@@ -275,6 +276,22 @@ describe("formatConstrainedNoMatchLine", () => {
 	it("renders '<label>: no tags satisfy <constraint> — left untouched'", () => {
 		expect(formatConstrainedNoMatchLine("owner/repo", "^2.0")).toBe(
 			"owner/repo: no tags satisfy ^2.0 — left untouched",
+		);
+	});
+});
+
+describe("formatCloneFailureLine", () => {
+	it("enumerates member basenames with the affected count", () => {
+		expect(formatCloneFailureLine("owner/repo", ["a", "b", "c"])).toBe(
+			"owner/repo: clone failed — affects 3 members: a, b, c",
+		);
+	});
+
+	it("carries an @intent-disambiguated label verbatim", () => {
+		expect(
+			formatCloneFailureLine("owner/repo@^1.2.3", ["design", "macos"]),
+		).toBe(
+			"owner/repo@^1.2.3: clone failed — affects 2 members: design, macos",
 		);
 	});
 });

@@ -41,6 +41,7 @@ import {
 } from "../update-groups.js";
 import {
 	formatCheckFailedLine,
+	formatCloneFailureLine,
 	formatConstrainedNoMatchLine,
 	formatGroupHeader,
 	formatMemberLine,
@@ -623,6 +624,16 @@ interface StreamedUnit {
  * collapsed outcome ({@link collapsedMemberLine}) — no second line. Two or more
  * updating members keep the counted {@link formatGroupHeader} stop-frame followed
  * by one member line each ({@link streamGroupMemberLines}).
+ *
+ * A group-fatal clone failure (task 2-6) splits by member count. A group-of-one
+ * keeps its single collapsed stop-frame ({@link collapsedMemberLine} at error
+ * level → code 2) — an "affects 1 members" enumeration would be redundant with the
+ * repo name AND regress the group-of-one collapse. A >=2-member group instead
+ * settles its header stop-frame then emits ONE enumerated
+ * {@link formatCloneFailureLine} line naming the affected members, in place of the
+ * per-member lines — never N identical anonymous lines. Either way the model stays
+ * the N `failed` outcomes {@link processGroupUpdate} fanned out (Phase 1 task 1-7),
+ * so persistence and exit accounting are untouched.
  */
 async function streamGroupWork(
 	item: GroupWorkItem,
@@ -643,12 +654,13 @@ async function streamGroupWork(
 
 	const spin = p.spinner();
 	spin.start(header);
-	const outcomes = await processGroupUpdate(
+	const result = await processGroupUpdate(
 		item.group,
 		item.updating,
 		item.target,
 		projectDir,
 	);
+	const { outcomes } = result;
 	const manifest = await persistUnitOutcomes(
 		projectDir,
 		workingManifest,
@@ -658,6 +670,10 @@ async function streamGroupWork(
 	if (single) {
 		const line = collapsedMemberLine(outcomes[0]!);
 		spin.stop(line.text, line.level === "error" ? 2 : 0);
+	} else if (result.cloneFailed) {
+		spin.stop(header);
+		const affected = item.updating.map((m) => m.key.split("/").pop()!);
+		p.log.error(formatCloneFailureLine(label, affected));
 	} else {
 		spin.stop(header);
 		streamGroupMemberLines(item, outcomes, newCommit);
@@ -789,10 +805,11 @@ function streamGroupMemberLines(
  * via `p.log[level]`. A success carries the effective agents, the dropped-agents
  * notice (derived from the entry vs. the reinstalled agents), and the optional
  * divergent-old `move`; copy-failed/aborted/blocked/no-agents ride their inline
- * message (the pre-built summary IS the message/hint). A `failed` outcome (the
- * group-fatal clone fan-out — task 2-6 owns the collapsed grouped line — or a
- * defensive throw) has no member-line kind, so it falls back to the interim
- * summary render at its severity level.
+ * message (the pre-built summary IS the message/hint). A `failed` outcome — now
+ * only a per-member defensive throw or a per-member subpath-traversal reject, the
+ * GROUP-FATAL clone fan-out being intercepted upstream by {@link streamGroupWork}
+ * as one enumerated line (task 2-6) — has no member-line kind, so it falls back to
+ * the interim summary render at its severity level.
  */
 function emitMemberLine(
 	outcome: PluginOutcome,
