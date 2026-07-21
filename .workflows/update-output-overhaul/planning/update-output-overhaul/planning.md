@@ -102,7 +102,8 @@ approved_at: 2026-07-21
 - [ ] Exit-code posture is unchanged and explicit: single-key exits 1 on `check-failed` / `constrained-no-match`; all-mode warns and exits 0 for those; only `aborted` / `blocked` / `failed` / `copy-failed` trip a non-zero all-mode exit.
 
 #### Tasks
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
