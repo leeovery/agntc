@@ -39,7 +39,7 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 2,
-          "task": "update-output-overhaul-2-1",
+          "task": "update-output-overhaul-2-7",
           "task_map": {
             "update-output-overhaul-1": "tick-590cd8",
             "update-output-overhaul-1-1": "tick-ed3056",
@@ -49,7 +49,15 @@
             "update-output-overhaul-1-5": "tick-2e267f",
             "update-output-overhaul-1-6": "tick-983707",
             "update-output-overhaul-1-7": "tick-ef4321",
-            "update-output-overhaul-1-8": "tick-879462"
+            "update-output-overhaul-1-8": "tick-879462",
+            "update-output-overhaul-2": "tick-1e81c7",
+            "update-output-overhaul-2-1": "tick-f3df81",
+            "update-output-overhaul-2-2": "tick-eb3662",
+            "update-output-overhaul-2-3": "tick-cf20a2",
+            "update-output-overhaul-2-4": "tick-ed1400",
+            "update-output-overhaul-2-5": "tick-ea3111",
+            "update-output-overhaul-2-6": "tick-03b7da",
+            "update-output-overhaul-2-7": "tick-67b076"
           },
           "external_id": "tick-e1f9de"
         }
