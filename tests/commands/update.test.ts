@@ -28,7 +28,13 @@ vi.mock("../../src/update-check.js", async (importOriginal) => {
 	const actual =
 		await importOriginal<typeof import("../../src/update-check.js")>();
 	return {
+		// Single-key path (runSingleUpdate) still resolves per key via checkForUpdate.
 		checkForUpdate: vi.fn(),
+		// All-mode path (runAllUpdates) resolves ONE target per group (task 1-5);
+		// categorizeMember stays REAL so a mocked/bridged target is classified by the
+		// production rule against each member's own installed commit.
+		resolveGroupTarget: vi.fn(),
+		categorizeMember: actual.categorizeMember,
 		hasOutOfConstraintVersion: actual.hasOutOfConstraintVersion,
 	};
 });
@@ -104,7 +110,11 @@ import {
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { detectType } from "../../src/type-detection.js";
-import { checkForUpdate } from "../../src/update-check.js";
+import {
+	checkForUpdate,
+	type GroupTarget,
+	resolveGroupTarget,
+} from "../../src/update-check.js";
 
 const mockReadManifest = vi.mocked(readManifest);
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
@@ -112,6 +122,7 @@ const mockWriteManifest = vi.mocked(writeManifest);
 const mockAddEntry = vi.mocked(addEntry);
 const mockRemoveEntry = vi.mocked(removeEntry);
 const mockCheckForUpdate = vi.mocked(checkForUpdate);
+const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
 const mockReadConfig = vi.mocked(readConfig);
@@ -134,6 +145,64 @@ const REMOTE_SHA = "b".repeat(40);
 
 const fakeDriver = makeFakeDriver();
 
+// --- All-mode group-target bridge ---
+// runAllUpdates resolves ONE GroupTarget per group (task 1-5) instead of a
+// per-member checkForUpdate. To keep the behavioural all-mode regression tests
+// expressing intent via checkForUpdate (their existing arrange), this bridge is
+// installed as the DEFAULT resolveGroupTarget mock: it derives the group's
+// target from the desired per-key UpdateCheckResult (read off the still-mocked
+// checkForUpdate for the group's representative member), so the REAL
+// categorizeMember + processGroupUpdate then run unchanged. Tests that assert
+// directly on the seam (the clone-once cases + the four migrated cases) override
+// this with an explicit mockResolveGroupTarget. Locals never reach here (they
+// are excluded from grouping), and only groups-of-one occur in these tests, so
+// the representative member IS the group.
+function groupTargetFromCheckResult(
+	entry: ManifestEntry,
+	result: UpdateCheckResult,
+): GroupTarget {
+	switch (result.status) {
+		case "update-available":
+			return entry.ref === null
+				? { kind: "head", resolvedSha: result.remoteCommit }
+				: { kind: "branch", resolvedSha: result.remoteCommit };
+		case "up-to-date":
+			return entry.ref === null
+				? { kind: "head", resolvedSha: entry.commit! }
+				: { kind: "branch", resolvedSha: entry.commit! };
+		case "newer-tags":
+			return { kind: "tag", tag: entry.ref!, newerTags: result.tags };
+		case "check-failed":
+			return { kind: "check-failed", reason: result.reason };
+		case "constrained-update-available":
+			return {
+				kind: "constrained",
+				tag: result.tag,
+				commit: result.commit,
+				latestOverall: result.latestOverall,
+			};
+		case "constrained-up-to-date":
+			return {
+				kind: "constrained",
+				tag: entry.ref!,
+				commit: entry.commit!,
+				latestOverall: result.latestOverall,
+			};
+		case "constrained-no-match":
+			return { kind: "constrained-no-match" };
+		case "local":
+			throw new Error("local entries are excluded from grouping");
+	}
+}
+
+function installGroupTargetBridge(): void {
+	mockResolveGroupTarget.mockImplementation(async (group) => {
+		const { key, entry } = group.members[0]!;
+		const result = await mockCheckForUpdate(key, entry);
+		return groupTargetFromCheckResult(entry, result);
+	});
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	vi.spyOn(process, "cwd").mockReturnValue("/fake/project");
@@ -154,6 +223,7 @@ beforeEach(() => {
 		const { [key]: _, ...rest } = manifest;
 		return rest;
 	});
+	installGroupTargetBridge();
 });
 
 describe("update command", () => {
@@ -265,9 +335,11 @@ describe("update command", () => {
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
+			// Migrated onto the group seam (task 1-5): all-mode resolves one target
+			// per group; the HEAD-tracked entry categorizes update-available.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
 			});
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -424,9 +496,11 @@ describe("update command", () => {
 				"owner/repo-b": entryB,
 			});
 
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
+			// Migrated onto the group seam (task 1-5): two distinct repos → two
+			// groups-of-one, each resolving to an update-available HEAD target.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
 			});
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -460,9 +534,11 @@ describe("update command", () => {
 				"owner/repo-a": entryA,
 				"owner/repo-b": entryB,
 			});
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
+			// Migrated onto the group seam (task 1-5): both resolve update-available;
+			// group A's clone fails (group-fatal → failed outcome), group B succeeds.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
 			});
 
 			// First clone fails, second succeeds
@@ -524,16 +600,18 @@ describe("update command", () => {
 				"owner/repo-current": upToDateEntry,
 			});
 
-			mockCheckForUpdate.mockImplementation(
-				async (key: string, _entry: ManifestEntry) => {
-					if (key === "owner/repo-git")
-						return { status: "update-available", remoteCommit: REMOTE_SHA };
-					if (key === "/local/path") return { status: "local" };
-					if (key === "owner/repo-tag")
-						return { status: "newer-tags", tags: ["v2.0"] };
-					return { status: "up-to-date" };
-				},
-			);
+			// Migrated onto the group seam (task 1-5): the local entry is excluded
+			// from grouping (handled as a group-of-one, no target). Each remaining
+			// group resolves one target; categorizeMember derives the per-member
+			// verdict against its own installed commit.
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				const key = group.members[0]!.key;
+				if (key === "owner/repo-git")
+					return { kind: "head", resolvedSha: REMOTE_SHA };
+				if (key === "owner/repo-tag")
+					return { kind: "tag", tag: "v1.0", newerTags: ["v2.0"] };
+				return { kind: "head", resolvedSha: INSTALLED_SHA };
+			});
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -711,6 +789,160 @@ describe("update command", () => {
 			await runUpdate();
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
+		});
+	});
+
+	describe("group-first all-mode wiring (task 1-5)", () => {
+		it("a 3-member collection clones once and runs one group check", async () => {
+			const member = (name: string): ManifestEntry =>
+				makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^1.2.3",
+					agents: ["claude"],
+					files: [`.claude/skills/${name}/`],
+				});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a"),
+				"owner/repo/b": member("b"),
+				"owner/repo/c": member("c"),
+			});
+			// One (cloneUrl, versionIntent) for all three → a single group.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: null,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			expect(mockCloneSource).toHaveBeenCalledTimes(1);
+			expect(mockResolveGroupTarget).toHaveBeenCalledTimes(1);
+		});
+
+		it("a local entry reinstalls as a group-of-one without cloning", async () => {
+			const LOCAL_KEY = "/Users/lee/Code/my-plugin";
+			const localEntry: ManifestEntry = {
+				ref: null,
+				commit: null,
+				installedAt: "2026-02-01T00:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/my-plugin/"],
+				cloneUrl: null,
+			};
+			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-plugin/"],
+			});
+
+			await runUpdate();
+
+			// Excluded from grouping: no group check, no clone; reinstalled in place.
+			expect(mockResolveGroupTarget).not.toHaveBeenCalled();
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ sourceDir: LOCAL_KEY }),
+			);
+			expect(mockWriteManifest).toHaveBeenCalled();
+		});
+
+		it("the grouped path does not emit the per-clone Cloning repository... spinner", async () => {
+			const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
+			vi.mocked(p.spinner).mockReturnValue(
+				mockSpinner as ReturnType<typeof p.spinner>,
+			);
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo/b": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			const startCalls = mockSpinner.start.mock.calls.map(
+				(c) => c[0] as string,
+			);
+			// The per-clone spinner lives only in cloneAndReinstall (singletons/locals).
+			expect(startCalls.some((m) => m.includes("Cloning repository"))).toBe(
+				false,
+			);
+			// The single leading check spinner still frames the group resolution.
+			expect(startCalls.some((m) => m.includes("Checking for updates"))).toBe(
+				true,
+			);
+		});
+
+		it("single-key still routes through cloneAndReinstall (per-clone spinner, no group check)", async () => {
+			const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
+			vi.mocked(p.spinner).mockReturnValue(
+				mockSpinner as ReturnType<typeof p.spinner>,
+			);
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/my-skill/"],
+				}),
+			});
+			// Single-key keeps using checkForUpdate; the group seam is not touched.
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await runUpdate("owner/repo");
+
+			const startCalls = mockSpinner.start.mock.calls.map(
+				(c) => c[0] as string,
+			);
+			expect(startCalls.some((m) => m.includes("Cloning repository"))).toBe(
+				true,
+			);
+			expect(mockResolveGroupTarget).not.toHaveBeenCalled();
+			expect(mockCheckForUpdate).toHaveBeenCalledWith(
+				"owner/repo",
+				expect.anything(),
+			);
 		});
 	});
 

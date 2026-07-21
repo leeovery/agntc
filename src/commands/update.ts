@@ -25,11 +25,19 @@ import {
 	renderLocalUpdateSummary,
 	renderOutOfConstraintSection,
 } from "../summary.js";
-import type { UpdateCheckResult } from "../update-check.js";
-import { checkForUpdate, hasOutOfConstraintVersion } from "../update-check.js";
+import type { GroupTarget, UpdateCheckResult } from "../update-check.js";
 import {
+	categorizeMember,
+	checkForUpdate,
+	hasOutOfConstraintVersion,
+	resolveGroupTarget,
+} from "../update-check.js";
+import {
+	type EntryGroup,
+	groupEntriesForUpdate,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
+	processGroupUpdate,
 } from "../update-groups.js";
 import {
 	isAtOrAboveVersion,
@@ -265,11 +273,7 @@ async function runSinglePluginUpdate(
 
 // --- All-plugins mode helpers ---
 
-interface CheckedPlugin {
-	key: string;
-	entry: ManifestEntry;
-	checkResult: UpdateCheckResult;
-}
+type GroupMember = { key: string; entry: ManifestEntry };
 
 async function processUpdateForAll(
 	key: string,
@@ -300,6 +304,36 @@ async function processUpdateForAll(
 	}
 }
 
+/** A group's updating subset plus the shared resolved target it clones at. */
+interface UpdatableGroup {
+	group: EntryGroup;
+	target: GroupTarget;
+	updating: GroupMember[];
+}
+
+/**
+ * One unit of actioned work in manifest (processing) order: an updatable group
+ * (clones once, reinstalls its updating members) or a local entry (a
+ * group-of-one that never clones). `position` is the manifest index of the
+ * unit's representative key, so groups and locals interleave deterministically.
+ */
+type WorkItem =
+	| ({ kind: "group"; position: number } & UpdatableGroup)
+	| { kind: "local"; position: number; key: string; entry: ManifestEntry };
+
+interface CategorizedGroups {
+	updatableGroups: UpdatableGroup[];
+	nonActionedOutcomes: PluginOutcome[];
+	outOfConstraintInfo: OutOfConstraintInfo[];
+	/**
+	 * True when any grouped member's RAW category (pre never-downgrade) is not
+	 * (constrained-)up-to-date. Gates the all-up-to-date early return exactly as
+	 * the pre-dedup category counts did, so a never-downgraded member still routes
+	 * through the per-unit summary rather than the clean "all up to date" outro.
+	 */
+	hasNotableCategory: boolean;
+}
+
 async function runAllUpdates(): Promise<void> {
 	const projectDir = process.cwd();
 
@@ -312,108 +346,257 @@ async function runAllUpdates(): Promise<void> {
 		return;
 	}
 
-	// Parallel update checks with spinner
+	// Group-first pipeline: partition non-local entries into clone-dedup groups
+	// (task 1-1); local entries never clone and are handled as groups-of-one.
+	const groups = groupEntriesForUpdate(manifest);
+	const localEntries = entries.filter(([, entry]) => entry.commit === null);
+
+	// Resolve/check ONCE per group (task 1-3) — in parallel across distinct repos,
+	// under the single leading spinner — replacing the old per-member checks.
 	const spin = p.spinner();
 	spin.start("Checking for updates...");
-
-	const checkResults: CheckedPlugin[] = await Promise.all(
-		entries.map(async ([key, entry]) => ({
-			key,
-			entry,
-			checkResult: await checkForUpdate(key, entry),
-		})),
-	);
-
+	const targets = await Promise.all(groups.map(resolveGroupTarget));
 	spin.stop("Update checks complete.");
 
-	// Categorize
-	const updateAvailable: CheckedPlugin[] = [];
-	const local: CheckedPlugin[] = [];
-	const newerTags: CheckedPlugin[] = [];
-	const upToDate: CheckedPlugin[] = [];
-	const checkFailed: CheckedPlugin[] = [];
-	const constrainedUpdateAvailable: CheckedPlugin[] = [];
-	const constrainedNoMatch: CheckedPlugin[] = [];
+	const categorized = categorizeGroups(groups, targets);
 
-	for (const checked of checkResults) {
-		switch (checked.checkResult.status) {
-			case "update-available":
-				updateAvailable.push(checked);
-				break;
-			case "local":
-				local.push(checked);
-				break;
-			case "newer-tags":
-				newerTags.push(checked);
-				break;
-			case "up-to-date":
-				upToDate.push(checked);
-				break;
-			case "check-failed":
-				checkFailed.push(checked);
-				break;
-			case "constrained-update-available":
-				constrainedUpdateAvailable.push(checked);
-				break;
-			case "constrained-up-to-date":
-				upToDate.push(checked);
-				break;
-			case "constrained-no-match":
-				constrainedNoMatch.push(checked);
-				break;
-		}
+	// Actioned work streams in manifest order: each updatable group clones once
+	// (task 1-4); each local reinstalls without cloning. (The DESIGNED
+	// two-granularity progress stream is Phase 2 — output here stays interim.)
+	const work = orderWork(categorized.updatableGroups, localEntries, entries);
+	const outcomes = await processWorkItems(work, projectDir);
+
+	// Single manifest write for all successful updates + copy-failed removals
+	// (per-group persistence is task 1-6; Phase 1 keeps today's single write).
+	await persistOutcomes(projectDir, manifest, outcomes);
+
+	// Trailing non-actioned summaries (up-to-date / newer-tags / check-failed /
+	// constrained-no-match), fed to the same summary loop + exit accounting.
+	outcomes.push(...categorized.nonActionedOutcomes);
+
+	const allUpToDate =
+		!categorized.hasNotableCategory && localEntries.length === 0;
+	if (allUpToDate) {
+		p.outro("All plugins are up to date.");
+		renderOutOfConstraintOutput(categorized.outOfConstraintInfo);
+		return;
 	}
 
-	// Collect out-of-constraint info for downstream rendering
+	for (const outcome of outcomes) {
+		renderOutcomeSummary(outcome);
+	}
+
+	renderOutOfConstraintOutput(categorized.outOfConstraintInfo);
+
+	// Partial-success exit: the successful updates have been written and the full
+	// per-unit report rendered above. Now, if ANY unit aborted (derive-before-
+	// delete, entry left intact) or hard-errored/copy-failed, exit non-zero so the
+	// command surfaces the failure — without rolling back the units that did
+	// succeed. Each unit stands alone (no collection-level coherence rollback).
+	if (hasFailedOutcome(outcomes)) {
+		throw new ExitSignal(1);
+	}
+}
+
+/**
+ * Categorizes every group's members against its shared resolved target, splitting
+ * each group into its updating subset and per-member non-actioned outcomes, and
+ * collecting out-of-constraint info along the way.
+ */
+function categorizeGroups(
+	groups: EntryGroup[],
+	targets: GroupTarget[],
+): CategorizedGroups {
+	const updatableGroups: UpdatableGroup[] = [];
+	const nonActionedOutcomes: PluginOutcome[] = [];
 	const outOfConstraintInfo: OutOfConstraintInfo[] = [];
-	for (const checked of checkResults) {
-		const info = extractOutOfConstraint(
-			checked.key,
-			checked.entry,
-			checked.checkResult,
-		);
-		if (info !== null) {
-			outOfConstraintInfo.push(info);
+	let hasNotableCategory = false;
+
+	for (let i = 0; i < groups.length; i++) {
+		const group = groups[i]!;
+		const target = targets[i]!;
+		const updating: GroupMember[] = [];
+
+		for (const member of group.members) {
+			const result = categorizeMember(member.entry, target);
+
+			const info = extractOutOfConstraint(member.key, member.entry, result);
+			if (info !== null) {
+				outOfConstraintInfo.push(info);
+			}
+
+			if (
+				result.status !== "up-to-date" &&
+				result.status !== "constrained-up-to-date"
+			) {
+				hasNotableCategory = true;
+			}
+
+			const nonActioned = splitMember(member, result, updating);
+			if (nonActioned !== null) {
+				nonActionedOutcomes.push(nonActioned);
+			}
+		}
+
+		if (updating.length > 0) {
+			updatableGroups.push({ group, target, updating });
 		}
 	}
 
-	// Process updatable plugins sequentially, collecting outcomes
+	return {
+		updatableGroups,
+		nonActionedOutcomes,
+		outOfConstraintInfo,
+		hasNotableCategory,
+	};
+}
+
+/**
+ * Routes a categorized member to either the group's updating subset (pushed onto
+ * `updating`, reinstalled from the shared clone) or a trailing non-actioned
+ * outcome (returned). Honours the never-downgrade guard for constrained members:
+ * an update-available member already at/above the resolved tag is demoted to
+ * up-to-date and never clones (update.ts's `isAtOrAboveVersion`).
+ */
+function splitMember(
+	member: GroupMember,
+	result: UpdateCheckResult,
+	updating: GroupMember[],
+): PluginOutcome | null {
+	const { key, entry } = member;
+	switch (result.status) {
+		case "update-available":
+			updating.push(member);
+			return null;
+		case "constrained-update-available":
+			if (isAtOrAboveVersion(entry.ref, result.tag)) {
+				return upToDateOutcome(key);
+			}
+			updating.push(member);
+			return null;
+		case "up-to-date":
+		case "constrained-up-to-date":
+			return upToDateOutcome(key);
+		case "newer-tags": {
+			const newest = [...result.tags].reverse()[0]!;
+			return {
+				status: "newer-tags",
+				key,
+				summary: `${key}: Pinned to ${entry.ref} — newer tags available (latest: ${newest})`,
+			};
+		}
+		case "check-failed":
+			return {
+				status: "check-failed",
+				key,
+				summary: `${key}: Check failed — ${result.reason}`,
+			};
+		case "constrained-no-match":
+			return {
+				status: "constrained-no-match",
+				key,
+				summary: `${key}: No tags satisfy constraint — plugin left untouched`,
+			};
+		case "local":
+			// Unreachable: local entries are excluded from grouping entirely.
+			return null;
+	}
+}
+
+function upToDateOutcome(key: string): PluginOutcome {
+	return { status: "up-to-date", key, summary: `${key}: Up to date` };
+}
+
+/**
+ * Interleaves updatable groups and local group-of-ones into a single list in
+ * manifest (processing) order — each unit keyed by the manifest index of its
+ * representative key, so the actioned stream is deterministic.
+ */
+function orderWork(
+	updatableGroups: UpdatableGroup[],
+	localEntries: Array<[string, ManifestEntry]>,
+	entries: Array<[string, ManifestEntry]>,
+): WorkItem[] {
+	const position = new Map(
+		entries.map(([key], i): [string, number] => [key, i]),
+	);
+	const work: WorkItem[] = [];
+	for (const ug of updatableGroups) {
+		work.push({
+			kind: "group",
+			position: position.get(ug.group.members[0]!.key)!,
+			...ug,
+		});
+	}
+	for (const [key, entry] of localEntries) {
+		work.push({ kind: "local", position: position.get(key)!, key, entry });
+	}
+	work.sort((a, b) => a.position - b.position);
+	return work;
+}
+
+/**
+ * Processes the ordered work items sequentially, collecting one
+ * {@link PluginOutcome} per member. A group clones once via
+ * {@link processGroupUpdate}; a local entry reinstalls without cloning via
+ * {@link processUpdateForAll}.
+ */
+async function processWorkItems(
+	work: WorkItem[],
+	projectDir: string,
+): Promise<PluginOutcome[]> {
 	const outcomes: PluginOutcome[] = [];
-
-	for (const checked of [...updateAvailable, ...local]) {
-		const outcome = await processUpdateForAll(
-			checked.key,
-			checked.entry,
-			projectDir,
-		);
-		outcomes.push(outcome);
-	}
-
-	// Process constrained-update-available plugins with overrides
-	for (const checked of constrainedUpdateAvailable) {
-		const result = checked.checkResult;
-		if (result.status !== "constrained-update-available") continue;
-
-		// Never downgrade
-		if (isAtOrAboveVersion(checked.entry.ref, result.tag)) {
-			outcomes.push({
-				status: "up-to-date",
-				key: checked.key,
-				summary: `${checked.key}: Up to date`,
-			});
-			continue;
+	for (const item of work) {
+		if (item.kind === "group") {
+			outcomes.push(...(await runUpdatableGroup(item, projectDir)));
+		} else {
+			outcomes.push(
+				await processUpdateForAll(item.key, item.entry, projectDir),
+			);
 		}
-
-		const outcome = await processUpdateForAll(
-			checked.key,
-			checked.entry,
-			projectDir,
-			{ newRef: result.tag, newCommit: result.commit },
-		);
-		outcomes.push(outcome);
 	}
+	return outcomes;
+}
 
-	// Build updated manifest with all successful updates and copy-failed removals
+/**
+ * Runs one updatable group's clone-once orchestration, mapping a group-fatal
+ * clone failure to N `failed` outcomes attributed per key. `cloneRepoOnce` has
+ * already retried 3× internally, so a throw here is final: no entries are
+ * removed (only copy-failed removes), and the N failures trip the non-zero exit
+ * — matching today's per-entry clone-failed accounting.
+ */
+async function runUpdatableGroup(
+	item: UpdatableGroup,
+	projectDir: string,
+): Promise<PluginOutcome[]> {
+	try {
+		return await processGroupUpdate(
+			item.group,
+			item.updating,
+			item.target,
+			projectDir,
+		);
+	} catch (err) {
+		const message = errorMessage(err);
+		return item.updating.map((member) => ({
+			status: "failed",
+			key: member.key,
+			summary: `${member.key}: Failed — ${message}`,
+		}));
+	}
+}
+
+/**
+ * Applies the run's outcomes to the manifest in a single write: successful
+ * updates/refreshes add their new entry; copy-failed members remove theirs
+ * (their old files are already gone). Everything else — aborted / blocked /
+ * no-agents / check categories — leaves the manifest untouched.
+ */
+async function persistOutcomes(
+	projectDir: string,
+	manifest: Manifest,
+	outcomes: PluginOutcome[],
+): Promise<void> {
 	let updatedManifest = { ...manifest };
 	let hasChanges = false;
 
@@ -434,99 +617,32 @@ async function runAllUpdates(): Promise<void> {
 		}
 	}
 
-	// Single manifest write
 	if (hasChanges) {
 		await writeManifest(projectDir, updatedManifest);
 	}
+}
 
-	// Collect summaries for non-actionable categories
-	for (const checked of newerTags) {
-		const result = checked.checkResult;
-		if (result.status === "newer-tags") {
-			const reversed = [...result.tags].reverse();
-			const newest = reversed[0]!;
-			outcomes.push({
-				status: "newer-tags",
-				key: checked.key,
-				summary: `${checked.key}: Pinned to ${checked.entry.ref} — newer tags available (latest: ${newest})`,
-			});
-		}
-	}
-
-	for (const checked of upToDate) {
-		outcomes.push({
-			status: "up-to-date",
-			key: checked.key,
-			summary: `${checked.key}: Up to date`,
-		});
-	}
-
-	for (const checked of checkFailed) {
-		const result = checked.checkResult;
-		const reason = result.status === "check-failed" ? result.reason : "unknown";
-		outcomes.push({
-			status: "check-failed",
-			key: checked.key,
-			summary: `${checked.key}: Check failed — ${reason}`,
-		});
-	}
-
-	for (const checked of constrainedNoMatch) {
-		outcomes.push({
-			status: "constrained-no-match",
-			key: checked.key,
-			summary: `${checked.key}: No tags satisfy constraint — plugin left untouched`,
-		});
-	}
-
-	// If everything is up-to-date and nothing else happened
-	const allUpToDate =
-		updateAvailable.length === 0 &&
-		local.length === 0 &&
-		checkFailed.length === 0 &&
-		newerTags.length === 0 &&
-		constrainedUpdateAvailable.length === 0 &&
-		constrainedNoMatch.length === 0;
-
-	if (allUpToDate) {
-		p.outro("All plugins are up to date.");
-		renderOutOfConstraintOutput(outOfConstraintInfo);
-		return;
-	}
-
-	// Per-plugin summary
-	for (const outcome of outcomes) {
-		if (outcome.status === "updated" || outcome.status === "refreshed") {
-			p.log.success(outcome.summary);
-		} else if (
-			outcome.status === "copy-failed" ||
-			outcome.status === "aborted" ||
-			outcome.status === "blocked"
-		) {
-			p.log.error(outcome.summary);
-		} else if (
-			outcome.status === "failed" ||
-			outcome.status === "check-failed" ||
-			outcome.status === "skipped-no-agents" ||
-			outcome.status === "constrained-no-match"
-		) {
-			p.log.warn(outcome.summary);
-		} else if (outcome.status === "newer-tags") {
-			p.log.info(outcome.summary);
-		} else {
-			p.log.message(outcome.summary);
-		}
-	}
-
-	renderOutOfConstraintOutput(outOfConstraintInfo);
-
-	// Partial-success exit: the successful updates have been written and the full
-	// per-unit report rendered above. Now, if ANY unit aborted (derive-before-
-	// delete, entry left intact) or hard-errored/copy-failed, exit non-zero so the
-	// command surfaces the failure — without rolling back the units that did
-	// succeed. Each unit stands alone (no collection-level coherence rollback).
-	if (hasFailedOutcome(outcomes)) {
-		throw new ExitSignal(1);
+/** Renders one outcome to the per-unit summary at the log level for its status. */
+function renderOutcomeSummary(outcome: PluginOutcome): void {
+	if (outcome.status === "updated" || outcome.status === "refreshed") {
+		p.log.success(outcome.summary);
+	} else if (
+		outcome.status === "copy-failed" ||
+		outcome.status === "aborted" ||
+		outcome.status === "blocked"
+	) {
+		p.log.error(outcome.summary);
+	} else if (
+		outcome.status === "failed" ||
+		outcome.status === "check-failed" ||
+		outcome.status === "skipped-no-agents" ||
+		outcome.status === "constrained-no-match"
+	) {
+		p.log.warn(outcome.summary);
+	} else if (outcome.status === "newer-tags") {
+		p.log.info(outcome.summary);
+	} else {
+		p.log.message(outcome.summary);
 	}
 }
 
