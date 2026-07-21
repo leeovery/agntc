@@ -32,3 +32,47 @@ export function groupLabel(group: EntryGroup, groups: EntryGroup[]): string {
 	const suffix = group.versionIntent === null ? "HEAD" : group.versionIntent;
 	return `${base}@${suffix}`;
 }
+
+/**
+ * The INTERIM version-move renderer: short (7-char) commit hashes joined by the
+ * ` -> ` arrow, matching today's {@link renderUpdateOutcomeSummary}
+ * (`summary.ts`). Deliberately hash-only — Phase 3 rewords this one helper (and
+ * its callers) to speak in tags where both refs are genuine semver tags, so the
+ * tag-vs-hash rule must NOT be encoded here. Reused verbatim by the divergent-old
+ * per-member move line (task 2-3).
+ */
+export function formatVersionMove(
+	oldCommit: string,
+	newCommit: string,
+): string {
+	return `${oldCommit.slice(0, 7)} -> ${newCommit.slice(0, 7)}`;
+}
+
+/**
+ * The spinner-start header for a group's streamed update block: `Updating
+ * <label>  <old> -> <new>  (N members)` when every updating member shares one
+ * installed commit, or `Updating <label> -> <new>  (N members)` (resolved target
+ * only) when their installed commits diverge — the shared "old" is then not
+ * representable and moves to each member line (task 2-3).
+ *
+ * `oldCommits` are the UPDATING members' installed commits (one per attempted
+ * member; up-to-date siblings excluded by the caller), so `(N members)` counts
+ * the attempted set and is fixed at call time. Keying shared-vs-divergent on the
+ * installed COMMIT (not ref) covers both an atomically-added constrained
+ * collection (shared old) and members at different tags or branch/HEAD commits
+ * (divergent old) uniformly. `members` is generic — a collection can hold plugin
+ * members, not only skills.
+ */
+export function formatGroupHeader(input: {
+	label: string;
+	oldCommits: string[];
+	newCommit: string;
+}): string {
+	const { label, oldCommits, newCommit } = input;
+	const count = oldCommits.length;
+	const distinct = new Set(oldCommits).size;
+	if (distinct === 1) {
+		return `Updating ${label}  ${formatVersionMove(oldCommits[0]!, newCommit)}  (${count} members)`;
+	}
+	return `Updating ${label} -> ${newCommit.slice(0, 7)}  (${count} members)`;
+}
