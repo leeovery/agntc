@@ -1900,6 +1900,40 @@ describe("update command", () => {
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
+		it("all-mode collapses an exact-pin collection to one repo-level npx agntc add owner/repo@<newest> newer-tags line", async () => {
+			// Regression-lock (task 4-2): an exact-pin collection — members sharing
+			// one UNCONSTRAINED tag ref (constraint undefined) — collapses to exactly
+			// ONE trailing newer-tags line whose command is REPO-LEVEL
+			// (`npx agntc add owner/repo@v3.0`, task 2-5 formatNewerTagsLine), never N
+			// per-member lines and never a member-scoped `owner/repo/<member>@…`.
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a", { ref: "v1.0" }),
+				"owner/repo/b": member("b", { ref: "v1.0" }),
+			});
+			// One exact-pin group; its shared tag target reports newer tags [.., v3.0].
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "tag",
+				tag: "v1.0",
+				newerTags: ["v2.0", "v3.0"],
+			});
+
+			await runUpdate();
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			// Exactly ONE collapsed line for the group, carrying the repo-level @newest
+			// re-add command.
+			expect(infoCalls).toContain(
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
+			);
+			expect(
+				infoCalls.filter((m) => m.includes("newer tags available")),
+			).toHaveLength(1);
+			// Repo-level, NOT member-scoped: no `owner/repo/<member>@…` command leaks
+			// into the collapsed line.
+			expect(infoCalls.some((m) => /owner\/repo\/\w+@/.test(m))).toBe(false);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
 		it("collapses a check-failed group to one line with the shared probe reason (exit 0)", async () => {
 			const REASON = "ls-remote failed: could not read from remote";
 			mockReadManifestOrExit.mockResolvedValue({
@@ -3912,6 +3946,55 @@ describe("update command", () => {
 
 			expect(mockOutro).toHaveBeenCalledWith(
 				"To upgrade: npx agntc add owner/repo/go@v3.0",
+			);
+		});
+
+		it("single-key exact-pin standalone outros npx agntc add owner/repo@<newest>", async () => {
+			// Regression-lock (task 4-2): the single-key path for an exact-pin
+			// standalone stays key-scoped — it suggests the newest tag as
+			// `add owner/repo@v3.0` (update.ts:151, pre-existing), NEVER the bare
+			// caret footer form `add owner/repo` (which would silently switch the
+			// user into caret tracking).
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ ref: "v1.0" }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "newer-tags",
+				tags: ["v2.0", "v3.0"],
+			});
+
+			await runUpdate("owner/repo");
+
+			expect(mockOutro).toHaveBeenCalledWith(
+				"To upgrade: npx agntc add owner/repo@v3.0",
+			);
+			// Exact-pin keeps the @<newest> suffix — never the bare caret re-add.
+			expect(mockOutro).not.toHaveBeenCalledWith(
+				"To upgrade: npx agntc add owner/repo",
+			);
+		});
+
+		it("single-key exact-pin collection member outros npx agntc add owner/repo/<member>@<newest>", async () => {
+			// Regression-lock (task 4-2): a single-key COLLECTION MEMBER stays
+			// member-scoped — the command targets the one plugin
+			// (`add owner/repo/go@v3.0`), NOT the repo-level collapse
+			// (`add owner/repo@v3.0`) the all-mode collapsed line uses.
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/go": makeEntry({ ref: "v1.0" }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "newer-tags",
+				tags: ["v2.0", "v3.0"],
+			});
+
+			await runUpdate("owner/repo/go");
+
+			expect(mockOutro).toHaveBeenCalledWith(
+				"To upgrade: npx agntc add owner/repo/go@v3.0",
+			);
+			// Member-scoped, NOT the repo-level command the all-mode collapse uses.
+			expect(mockOutro).not.toHaveBeenCalledWith(
+				"To upgrade: npx agntc add owner/repo@v3.0",
 			);
 		});
 	});
@@ -6046,6 +6129,79 @@ describe("update command", () => {
 
 			const singleKeyErr = await runUpdate("owner/repo").catch((e) => e);
 			expect(singleKeyErr).toBeUndefined();
+		});
+
+		// --- Caret disjointness (task 4-2) ---
+		// A CONSTRAINED (caret) entry — constraint ^1.2.3, ref v1.2.3 — with a newer
+		// OUT-OF-CONSTRAINT major (latestOverall v2.0.0). It resolves to a
+		// constrained-* status, so it can only ever reach the task 4-1 caret footer;
+		// it is NEVER routed onto the exact-pin @<newest> newer-tags surface. This
+		// proves the two surfaces are disjoint: a caret user is never told to
+		// `add …@<newest>`.
+		const caretMember = (name: string): ManifestEntry =>
+			makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.2.3",
+				agents: ["claude"],
+				files: [`.claude/skills/${name}/`],
+			});
+
+		it("a caret entry with an out-of-constraint major is never routed to a @<newest> newer-tags line", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": caretMember("a"),
+				"owner/repo/b": caretMember("b"),
+			});
+			// Constrained target at the members' installed tag (all up to date) with a
+			// newer out-of-constraint major available.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.2.3",
+				commit: INSTALLED_SHA,
+				latestOverall: "v2.0.0",
+			});
+
+			await runUpdate();
+
+			const allLines = [
+				...mockLog.info.mock.calls.map((c) => c[0]),
+				...mockLog.message.mock.calls.map((c) => c[0]),
+				...mockLog.warn.mock.calls.map((c) => c[0]),
+				...mockOutro.mock.calls.map((c) => c[0]),
+			].filter((m): m is string => typeof m === "string");
+			// No newer-tags surface at all: neither the "newer tags available" notice...
+			expect(allLines.some((m) => m.includes("newer tags available"))).toBe(
+				false,
+			);
+			// ...nor any @<newest> re-add command (`npx agntc add <anything>@…`). The
+			// caret footer's command is the BARE `npx agntc add owner/repo` (no @).
+			expect(allLines.some((m) => /npx agntc add \S+@/.test(m))).toBe(false);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("a caret entry with an out-of-constraint major emits the bare npx agntc add owner/repo footer instead", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": caretMember("a"),
+				"owner/repo/b": caretMember("b"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.2.3",
+				commit: INSTALLED_SHA,
+				latestOverall: "v2.0.0",
+			});
+
+			await runUpdate();
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			// The caret out-of-constraint footer (task 4-1): current -> newer with the
+			// BARE repo-level re-add command (no @ suffix), collapsed to one line for
+			// the whole group.
+			expect(infoCalls).toContain("Newer versions outside constraints:");
+			expect(infoCalls).toContain(
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+			);
+			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
 		});
 	});
 });
