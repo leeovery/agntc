@@ -30,12 +30,18 @@ function alignAgentRows(rows: { name: string; detail: string }[]): string[] {
 
 export function formatDroppedAgentsSuffix(
 	droppedAgents: string[],
-	style: "sentence" | "inline",
+	style: "sentence" | "inline" | "parenthetical",
 ): string {
 	if (droppedAgents.length === 0) return "";
 	const agents = droppedAgents.join(", ");
 	if (style === "sentence") {
 		return `. ${agents} support removed by plugin author.`;
+	}
+	// The bare notice body \u2014 no leading separator \u2014 for callers that supply their
+	// own delimiter (the per-member parenthetical suffix shares one `(...)` with
+	// the version move, joining parts with `; `).
+	if (style === "parenthetical") {
+		return `${agents} support removed by plugin author`;
 	}
 	return ` \u2014 ${agents} support removed by plugin author`;
 }

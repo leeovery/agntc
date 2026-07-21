@@ -1,3 +1,4 @@
+import { formatDroppedAgentsSuffix } from "./summary.js";
 import type { EntryGroup } from "./update-groups.js";
 
 /**
@@ -75,4 +76,89 @@ export function formatGroupHeader(input: {
 		return `Updating ${label}  ${formatVersionMove(oldCommits[0]!, newCommit)}  (${count} members)`;
 	}
 	return `Updating ${label} -> ${newCommit.slice(0, 7)}  (${count} members)`;
+}
+
+/** The clack log level a member line renders at, chosen by outcome severity. */
+export type MemberLineLevel = "success" | "error" | "warn";
+
+/** A rendered member line: its clack log `level` and glyph-free `text`. */
+export interface MemberLine {
+	level: MemberLineLevel;
+	text: string;
+}
+
+/**
+ * Every per-member outcome the streamed group block renders, discriminated on
+ * `kind`. A `success` carries the effective `agents`, any `droppedAgents`, and —
+ * only in the divergent-old case (task 2-2), where the header could not carry a
+ * shared old — its own `move`. The three loud non-success variants carry their
+ * already-assembled `message` / `recoveryHint` (built upstream by
+ * {@link buildAbortMessage} / {@link buildCopySafetyMessage} / the copy-failed
+ * recovery hint), so the wording lives at one source and merely rides the line
+ * here. `no-agents` carries only its `name` — a skip with a fixed sentence.
+ */
+export type MemberLineInput =
+	| {
+			kind: "success";
+			name: string;
+			agents: string[];
+			droppedAgents: string[];
+			move?: { oldCommit: string; newCommit: string } | null;
+	  }
+	| { kind: "copy-failed"; name: string; recoveryHint: string }
+	| { kind: "aborted"; name: string; message: string }
+	| { kind: "blocked"; name: string; message: string }
+	| { kind: "no-agents"; name: string };
+
+/**
+ * Maps a member outcome to its exact streamed line and clack log level — the
+ * glyph (✓/✗/⚠) is supplied by the level (`p.log.success/error/warn`), NOT
+ * embedded in `text`, matching today's summary convention (update.ts:588-609).
+ * Task 2-4 dispatches via `p.log[level](text)`.
+ *
+ * A success renders `<name> → <agents>` (the `→` separator matching
+ * {@link renderCollectionAddSummary}), with an optional trailing parenthetical
+ * built from an ordered parts list: the {@link formatVersionMove} (divergent-old
+ * case only) then the dropped-agents body ({@link formatDroppedAgentsSuffix}
+ * `parenthetical` style — single source of the "support removed by plugin
+ * author" phrasing), joined by `; ` inside one shared `(...)`. The loud
+ * non-success variants ride their inline message; `no-agents` is a warn skip.
+ */
+export function formatMemberLine(input: MemberLineInput): MemberLine {
+	switch (input.kind) {
+		case "success": {
+			const parts: string[] = [];
+			if (input.move) {
+				parts.push(
+					formatVersionMove(input.move.oldCommit, input.move.newCommit),
+				);
+			}
+			if (input.droppedAgents.length > 0) {
+				parts.push(
+					formatDroppedAgentsSuffix(input.droppedAgents, "parenthetical"),
+				);
+			}
+			const suffix = parts.length > 0 ? `  (${parts.join("; ")})` : "";
+			return {
+				level: "success",
+				text: `${input.name} → ${input.agents.join(", ")}${suffix}`,
+			};
+		}
+		case "copy-failed":
+			return {
+				level: "error",
+				text: `${input.name}: copy failed — ${input.recoveryHint}`,
+			};
+		// aborted and blocked share one line shape (`<name>: <message>`); the
+		// difference — recorded-type remove+add remedy vs none — lives in the
+		// pre-built message, not here.
+		case "aborted":
+		case "blocked":
+			return { level: "error", text: `${input.name}: ${input.message}` };
+		case "no-agents":
+			return {
+				level: "warn",
+				text: `${input.name}: skipped — no longer supports installed agents`,
+			};
+	}
 }

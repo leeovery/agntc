@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
+import {
+	buildAbortMessage,
+	buildCopySafetyMessage,
+} from "../src/clone-reinstall.js";
 import type { EntryGroup } from "../src/update-groups.js";
 import {
 	formatGroupHeader,
+	formatMemberLine,
 	formatVersionMove,
 	groupLabel,
 } from "../src/update-render.js";
@@ -112,5 +117,110 @@ describe("formatGroupHeader", () => {
 
 		expect(header).toContain("1a2b3c4 -> 9f8e7d6");
 		expect(header).not.toContain("v1");
+	});
+});
+
+describe("formatMemberLine", () => {
+	it("success renders <name> → <agents> at success level with no parenthetical when no move or drop", () => {
+		expect(
+			formatMemberLine({
+				kind: "success",
+				name: "design",
+				agents: ["claude"],
+				droppedAgents: [],
+			}),
+		).toEqual({ level: "success", text: "design → claude" });
+	});
+
+	it("divergent-old success carries its own (old -> new) move parenthetical", () => {
+		expect(
+			formatMemberLine({
+				kind: "success",
+				name: "macos",
+				agents: ["claude"],
+				droppedAgents: [],
+				move: { oldCommit: OLD_A, newCommit: NEW },
+			}),
+		).toEqual({
+			level: "success",
+			text: "macos → claude  (1a2b3c4 -> 9f8e7d6)",
+		});
+	});
+
+	it("success with dropped agents appends the support removed by plugin author notice in the parenthetical", () => {
+		expect(
+			formatMemberLine({
+				kind: "success",
+				name: "macos",
+				agents: ["claude"],
+				droppedAgents: ["codex"],
+			}),
+		).toEqual({
+			level: "success",
+			text: "macos → claude  (codex support removed by plugin author)",
+		});
+	});
+
+	it("success with both a move and a drop shares one parenthetical joined by ;", () => {
+		expect(
+			formatMemberLine({
+				kind: "success",
+				name: "macos",
+				agents: ["claude"],
+				droppedAgents: ["codex"],
+				move: { oldCommit: OLD_A, newCommit: NEW },
+			}),
+		).toEqual({
+			level: "success",
+			text: "macos → claude  (1a2b3c4 -> 9f8e7d6; codex support removed by plugin author)",
+		});
+	});
+
+	it("copy-failed renders at error level with the recovery hint", () => {
+		expect(
+			formatMemberLine({
+				kind: "copy-failed",
+				name: "design",
+				recoveryHint: "re-run update",
+			}),
+		).toEqual({
+			level: "error",
+			text: "design: copy failed — re-run update",
+		});
+	});
+
+	it("aborted renders at error level carrying the recorded type and the remove+add remedy inline", () => {
+		const message = buildAbortMessage(
+			"owner/repo/design",
+			"skill",
+			"SKILL.md missing",
+		);
+
+		const line = formatMemberLine({ kind: "aborted", name: "design", message });
+
+		expect(line).toEqual({ level: "error", text: `design: ${message}` });
+		expect(line.text).toContain("skill");
+		expect(line.text).toContain("npx agntc remove owner/repo/design");
+		expect(line.text).toContain("npx agntc add owner/repo/design");
+	});
+
+	it("blocked renders at error level with the copy-safety message and no remove+add remedy", () => {
+		const message = buildCopySafetyMessage(
+			"owner/repo/design",
+			"symlink target escapes the clone",
+		);
+
+		const line = formatMemberLine({ kind: "blocked", name: "design", message });
+
+		expect(line).toEqual({ level: "error", text: `design: ${message}` });
+		expect(line.text).not.toContain("npx agntc remove");
+		expect(line.text).not.toContain("npx agntc add");
+	});
+
+	it("no-agents renders at warn level as a skip", () => {
+		expect(formatMemberLine({ kind: "no-agents", name: "design" })).toEqual({
+			level: "warn",
+			text: "design: skipped — no longer supports installed agents",
+		});
 	});
 });
