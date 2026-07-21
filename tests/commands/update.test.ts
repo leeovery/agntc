@@ -2537,6 +2537,126 @@ describe("update command", () => {
 		});
 	});
 
+	describe("clone-fatal fan-out — all-mode group (task 1-7)", () => {
+		// A 3-member collection sharing one (cloneUrl, versionIntent) → one group,
+		// one shared clone. When that clone throws, every member of the group's
+		// UPDATING subset becomes a `failed` outcome attributed to its own key.
+		function threeMemberCollection(): void {
+			const member = (name: string): ManifestEntry =>
+				makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [`.claude/skills/${name}/`],
+				});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a"),
+				"owner/repo/b": member("b"),
+				"owner/repo/c": member("c"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+		}
+
+		it("a group clone failure produces one failed outcome per member (N outcomes)", async () => {
+			threeMemberCollection();
+			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
+
+			await runUpdate().catch(() => {});
+
+			// Failed outcomes render at warn level (renderOutcomeSummary), one per
+			// member keyed to its own key with the shared clone error.
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const failedLines = warnCalls.filter((m) => m.includes("Failed"));
+			expect(failedLines).toHaveLength(3);
+			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
+				expect(
+					failedLines.some((m) => m === `${key}: Failed — git clone failed`),
+				).toBe(true);
+			}
+		});
+
+		it("a group clone failure mutates no manifest state (no add/remove/write for that group)", async () => {
+			threeMemberCollection();
+			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
+
+			await runUpdate().catch(() => {});
+
+			// clone-failed removes no entries (only copy-failed does) → the persistence
+			// fold sees only `failed` outcomes → no add/remove → no write for the group.
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("N failed outcomes from a clone failure trip a non-zero exit", async () => {
+			threeMemberCollection();
+			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+		});
+
+		it("a sibling group still updates and persists when another group clone fails", async () => {
+			// Two standalone repos → two groups-of-one. Group A's clone throws
+			// (group-fatal → failed); group B clones and updates. Isolation: A's
+			// failure removes nothing and writes nothing; B still persists its update,
+			// and the run exits non-zero because A failed.
+			const entryA = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			// Group A (manifest-first) clone fails; group B clone succeeds.
+			mockCloneSource
+				.mockRejectedValueOnce(new Error("git clone failed"))
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/agntc-clone-b",
+					commit: REMOTE_SHA,
+				});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/skill-b/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// Only group B persisted; group A (clone-failed) wrote nothing.
+			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+				expect.anything(),
+			);
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("constructs ParsedSource for cloneSource", () => {
 		it("creates github-shorthand ParsedSource from manifest key and entry ref", async () => {
 			const entry = makeEntry({ ref: "dev" });

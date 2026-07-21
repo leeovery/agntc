@@ -272,9 +272,16 @@ async function reinstallMember(
  * `constrained-update-available`); the clone is taken from the group's first
  * member since every member shares URL + effective ref. The whole member loop is
  * wrapped so {@link cleanupTempDir} runs exactly once in a `finally`, and each
- * member is isolated in its own try/catch (see {@link reinstallMember}). A clone
- * failure is group-fatal and propagates to the caller (fanned out to N `failed`
- * outcomes there), so it is deliberately NOT caught here.
+ * member is isolated in its own try/catch (see {@link reinstallMember}).
+ *
+ * A clone failure is group-fatal: `cloneRepoOnce` has already retried 3×
+ * internally, so a throw is final and the orchestrator adds no retry. It is
+ * caught here and fanned out to one `failed` {@link PluginOutcome} per UPDATING
+ * member (the `members` param — up-to-date siblings never entered this loop),
+ * each attributed to its own key. No manifest read/write happens on this path —
+ * clone-failed removes no entries (only copy-failed does), so all N installs stay
+ * intact — and there is no tempDir to clean up. The N `failed` outcomes still
+ * trip `hasFailedOutcome` → non-zero exit, matching today's per-entry accounting.
  */
 export async function processGroupUpdate(
 	group: EntryGroup,
@@ -286,11 +293,21 @@ export async function processGroupUpdate(
 	const { ref: effectiveRef, commit: effectiveCommit } =
 		resolveEffectiveTarget(target);
 
-	const { tempDir } = await cloneRepoOnce({
-		key: firstMember.key,
-		entry: firstMember.entry,
-		...(effectiveRef !== undefined ? { newRef: effectiveRef } : {}),
-	});
+	let tempDir: string;
+	try {
+		({ tempDir } = await cloneRepoOnce({
+			key: firstMember.key,
+			entry: firstMember.entry,
+			...(effectiveRef !== undefined ? { newRef: effectiveRef } : {}),
+		}));
+	} catch (err) {
+		const message = errorMessage(err);
+		return members.map((member) => ({
+			status: "failed",
+			key: member.key,
+			summary: `${member.key}: Failed — ${message}`,
+		}));
+	}
 
 	const outcomes: PluginOutcome[] = [];
 	try {

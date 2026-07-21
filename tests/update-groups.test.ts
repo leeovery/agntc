@@ -690,4 +690,65 @@ describe("processGroupUpdate", () => {
 			CLONE_DIR,
 		);
 	});
+
+	it("fans a clone-fatal rejection out to one failed outcome per member and skips cleanupTempDir", async () => {
+		const members = [
+			branchMember("owner/repo/a"),
+			branchMember("owner/repo/b"),
+			branchMember("owner/repo/c"),
+		];
+		mockCloneSource.mockRejectedValue(
+			new Error("git clone failed after 3 attempts: network error"),
+		);
+
+		const outcomes = await processGroupUpdate(
+			branchGroup(members),
+			members,
+			BRANCH_TARGET,
+			"/fake/project",
+		);
+
+		// N failed outcomes, one per updating member, keyed to its own key.
+		expect(outcomes).toHaveLength(3);
+		expect(outcomes.map((o) => o.key)).toEqual([
+			"owner/repo/a",
+			"owner/repo/b",
+			"owner/repo/c",
+		]);
+		expect(outcomes.every((o) => o.status === "failed")).toBe(true);
+		for (const o of outcomes) {
+			expect(o.summary).toBe(
+				`${o.key}: Failed — git clone failed after 3 attempts: network error`,
+			);
+		}
+		// The clone never produced a tempDir, so there is nothing to clean up, and no
+		// member reinstall was attempted.
+		expect(mockCleanupTempDir).not.toHaveBeenCalled();
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockCopyBareSkill).not.toHaveBeenCalled();
+	});
+
+	it("fans a clone-fatal rejection over the updating subset, not group.members (up-to-date siblings excluded)", async () => {
+		const updatingA = branchMember("owner/repo/a");
+		const updatingB = branchMember("owner/repo/b");
+		// An up-to-date sibling that belongs to the group but is NOT in the updating
+		// subset passed to processGroupUpdate.
+		const upToDate = branchMember("owner/repo/current");
+		mockCloneSource.mockRejectedValue(new Error("boom"));
+
+		const outcomes = await processGroupUpdate(
+			branchGroup([updatingA, updatingB, upToDate]),
+			[updatingA, updatingB],
+			BRANCH_TARGET,
+			"/fake/project",
+		);
+
+		// Only the two updating members fail; the up-to-date sibling is untouched.
+		expect(outcomes).toHaveLength(2);
+		expect(outcomes.map((o) => o.key)).toEqual([
+			"owner/repo/a",
+			"owner/repo/b",
+		]);
+		expect(outcomes.some((o) => o.key === "owner/repo/current")).toBe(false);
+	});
 });

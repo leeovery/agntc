@@ -556,9 +556,17 @@ async function processWorkItems(
 	const outcomes: PluginOutcome[] = [];
 	let workingManifest: Manifest = { ...manifest };
 	for (const item of work) {
+		// A group clones once via processGroupUpdate, which owns the clone-fatal
+		// fan-out (a group-fatal clone failure becomes N `failed` outcomes attributed
+		// per key, no manifest mutation); a local reinstalls without cloning.
 		const unitOutcomes =
 			item.kind === "group"
-				? await runUpdatableGroup(item, projectDir)
+				? await processGroupUpdate(
+						item.group,
+						item.updating,
+						item.target,
+						projectDir,
+					)
 				: [await processUpdateForAll(item.key, item.entry, projectDir)];
 		outcomes.push(...unitOutcomes);
 		workingManifest = await persistUnitOutcomes(
@@ -568,34 +576,6 @@ async function processWorkItems(
 		);
 	}
 	return outcomes;
-}
-
-/**
- * Runs one updatable group's clone-once orchestration, mapping a group-fatal
- * clone failure to N `failed` outcomes attributed per key. `cloneRepoOnce` has
- * already retried 3× internally, so a throw here is final: no entries are
- * removed (only copy-failed removes), and the N failures trip the non-zero exit
- * — matching today's per-entry clone-failed accounting.
- */
-async function runUpdatableGroup(
-	item: UpdatableGroup,
-	projectDir: string,
-): Promise<PluginOutcome[]> {
-	try {
-		return await processGroupUpdate(
-			item.group,
-			item.updating,
-			item.target,
-			projectDir,
-		);
-	} catch (err) {
-		const message = errorMessage(err);
-		return item.updating.map((member) => ({
-			status: "failed",
-			key: member.key,
-			summary: `${member.key}: Failed — ${message}`,
-		}));
-	}
 }
 
 /**
