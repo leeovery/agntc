@@ -98,6 +98,8 @@ Two failure classes, handled differently. The shared clone is read-only during r
 - **Exit accounting unchanged** — N `failed` outcomes trip `hasFailedOutcome` (`update.ts:618-631`) → non-zero exit, same as today.
 - **Rendering** collapses to one grouped line (specified in *Per-Unit Progress Output*). The *model* stays N outcomes (for accounting); only the *display* groups.
 
+**Check/resolve failure (group-level).** The per-group resolution probe can itself fail (dead remote, `ls-remote` error) *before* any clone. By analogy to clone failure, every member of the group becomes a `check-failed` outcome attributed to its own key; no clone or reinstall runs, so there is **no manifest mutation**. Per the ratified exit posture, all-mode `check-failed` warns and **exits 0** (it does not feed `hasFailedOutcome`), and the display collapses to one trailing line per repo-group (see *Partial collections & counts*). The *model* stays N `check-failed` outcomes for the trailing summary; only the *display* groups — mirroring clone failure's model-vs-display split.
+
 **Reinstall failure (per-member, isolated).** Once the clone exists, each member runs its own `runPipeline` against it. `copy-failed` / `aborted` / `blocked` / `no-agents` stay exactly per-member — one member's `copy-failed` removes *its* entry and siblings continue. Verbatim today's behaviour; dedup doesn't touch it.
 
 **Lifecycle.**
@@ -183,7 +185,7 @@ A group-fatal clone failure (see *Failure isolation & lifecycle*) renders as **o
 
 - **Constrained update** (`v1.2.3 → v1.3.0`): old ref = current tag, new ref = resolved `result.tag`; both parse as semver and differ → **tags**. This is the all-mode case that produces a tagged "updated" outcome.
 - **HEAD-tracked** (`ref === null`) or **branch** (`main`): not a version tag → **hashes**.
-- **Lexical trap closed for free:** `isVersionTag` is `clean()`-based (`version-resolve.ts:30`); `clean("v4")` is `null` (not a full semver), so a `v4` *branch* is correctly not treated as a tag → **hashes**.
+- **Lexical trap closed for free** (this rule guards the `update-check-fails-on-branch-ref` KB trap)**:** `isVersionTag` is `clean()`-based (`version-resolve.ts:30`); `clean("v4")` is `null` (not a full semver), so a `v4` *branch* is correctly not treated as a tag → **hashes**.
 - **Branch literally named `v4.0.0`, commit moved:** passes `isVersionTag`, but a branch update doesn't change the ref *name* (only the commit), so `oldRef === newRef` → the "ref actually moved" guard sends it to **hashes**. This guard is why the rule is "both tags AND ref moved," not just "both tags."
 - **Rejected: show tags whenever the new target is a tag** (even from a non-tag origin) — would render a misleading half-tagged move and doesn't survive the branch-named-like-semver edge.
 

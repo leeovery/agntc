@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-07-20
 cycle: 1
 phase: Input Review
@@ -24,9 +24,9 @@ Today `check-failed` is a per-member category; under group-first it becomes an i
 This is low-stakes because `check-failed` is exit-0 in all-mode and collapses to one display line regardless — but the failure-isolation section is where a reader looks to understand what a group-level failure does, and this third group-level failure mode is absent from it.
 
 **Proposed Addition**:
-{leave blank until discussed}
+Added — see resolution notes.
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**: Likely resolution is by analogy to clone-failure (N `check-failed` outcomes attributed per key, no manifest mutation since no reinstall ran, display-collapsed to one trailing line, all-mode exit 0). Confirm whether the failure-isolation section should name check-failure as a third class or whether the trailing-category coverage is deemed sufficient.
 
 ---
@@ -44,9 +44,9 @@ The discussion attributes the "taggedness is a data property, not a string shape
 - **Lexical trap closed for free:** `isVersionTag` is `clean()`-based (`version-resolve.ts:30`); `clean("v4")` is `null` (not a full semver), so a `v4` *branch* is correctly not treated as a tag → **hashes**.
 
 **Proposed Addition**:
-{leave blank until discussed}
+Added — see resolution notes.
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**: Optional/low-priority. Consider whether specs in this project should cite the originating KB entry (`update-check-fails-on-branch-ref`) for rules that guard against a previously-recorded trap. Skip if KB citations aren't a spec convention here.
 
 ---
