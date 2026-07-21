@@ -20,7 +20,8 @@ approved_at: 2026-07-21
 - [ ] The three singleton entry points remain on `cloneAndReinstall`; existing `update` regression tests stay green.
 
 #### Tasks
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
