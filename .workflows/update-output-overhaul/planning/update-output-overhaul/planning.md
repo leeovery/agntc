@@ -19,6 +19,20 @@ approved_at: 2026-07-21
 - [ ] The manifest is persisted per group, and `outcomes[]` is still collected to drive the `hasFailedOutcome` exit code.
 - [ ] The three singleton entry points remain on `cloneAndReinstall`; existing `update` regression tests stay green.
 
+#### Tasks
+status: draft
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| update-output-overhaul-1-1 | Group non-local manifest entries by (resolvedCloneUrl, versionIntent) | caret group excludes mutating ref (singly-updated member stays grouped), distinct intents split (@^1 vs @^2, branch vs caret, exact-pin vs caret-to-same-tag), legacy null-cloneUrl + explicit-URL collapse via deriveCloneUrlFromKey, HEAD-tracked ref===null, local entries (commit===null) excluded |
+| update-output-overhaul-1-2 | Extract cloneRepoOnce clone primitive from cloneAndReinstall | clone failure surfaces as clone-failed signal (cloneSource retries 3x, throw is final), accepts explicit ref override (constrained resolved-tag), singleton regression stays green |
+| update-output-overhaul-1-3 | Per-group resolve/check once and categorize members against the shared target | constrained group resolves target tag once (newRef override), genuine-state split (member at target up-to-date while behind sibling updates), branch/HEAD members at divergent commits advance to one resolved HEAD, exact-pin vs caret never keyed on resolved commit |
+| update-output-overhaul-1-4 | Group orchestrator: clone once, reinstall members sequentially with isolation | per-member assertSubpathWithinClone guard (path-traversal preservation), per-member try/catch contains throws (siblings continue), cleanupTempDir once in finally wrapping whole loop, copy-safety boundary unchanged (cloneRoot = whole clone), sourceDir via resolveUpdateSourceDir |
+| update-output-overhaul-1-5 | Wire runAllUpdates group-first (replace per-member check/categorize loops) | local group-of-one reinstalls (excluded from grouping), three singleton entry points stay on cloneAndReinstall, existing regression tests green, interim output functional (old per-clone spinner gone from grouped path) |
+| update-output-overhaul-1-6 | Per-group manifest persistence with per-member remove-vs-intact semantics | N groups → N writes, copy-failed removes its entry, aborted/blocked/no-agents/skipped left intact, interrupt leaves manifest matching disk at group boundaries, outcomes[] still drives hasFailedOutcome |
+| update-output-overhaul-1-7 | Clone-fatal fan-out: group clone failure → N failed outcomes | no manifest mutation (no removals), N failed outcomes trip hasFailedOutcome (non-zero exit), throw is final (retry internal), model stays N outcomes (display grouping deferred to Phase 2) |
+| update-output-overhaul-1-8 | Check/resolve-fatal fan-out: group probe failure → N check-failed outcomes | no clone runs, no manifest mutation, all-mode exit 0 (excluded from hasFailedOutcome), per-key attribution for trailing summary |
+
 ### Phase 2: Per-unit progress stream and trailing collapse
 status: approved
 approved_at: 2026-07-21
