@@ -111,7 +111,7 @@ Two failure classes, handled differently. The shared clone is read-only during r
 
 **Check/resolve failure (group-level).** The per-group resolution probe can itself fail (dead remote, `ls-remote` error) *before* any clone. By analogy to clone failure, every member of the group becomes a `check-failed` outcome attributed to its own key; no clone or reinstall runs, so there is **no manifest mutation**. Per the ratified exit posture, all-mode `check-failed` warns and **exits 0** (it does not feed `hasFailedOutcome`), and the display collapses to one trailing line per group (see *Partial collections & counts*). The *model* stays N `check-failed` outcomes for the trailing summary; only the *display* groups — mirroring clone failure's model-vs-display split.
 
-**Reinstall failure (per-member, isolated).** Once the clone exists, each member runs its own `runPipeline` against it. `copy-failed` / `aborted` / `blocked` / `no-agents` stay exactly per-member — one member's `copy-failed` removes *its* entry and siblings continue. Verbatim today's behaviour; dedup doesn't touch it.
+**Reinstall failure (per-member, isolated).** Once the clone exists, each member runs its own `runPipeline` against it. `copy-failed` / `aborted` / `blocked` / `no-agents` stay exactly per-member — one member's `copy-failed` removes *its* entry and siblings continue. Verbatim today's *isolation* behaviour; dedup doesn't touch it. (Their streamed rendering under the group header is specified in *Failed & skipped member lines*.)
 
 **Lifecycle.**
 
@@ -162,6 +162,18 @@ A local entry (`commit === null`) is excluded from grouping and never clones, so
 - **Dropped-agents notice → the member line.** Agent support is per-member (each member's config can drop agents independently), so it rides its own line: `✓ macos → claude  (codex support removed by author)`. This is the `formatDroppedAgentsSuffix` "support removed by author" notice (`summary.ts:261-277`), which otherwise had no home in the member line.
 - **Group-of-one** unchanged — collapses to one line carrying the version (`✓ vendor/tool: Updated v1.2.3 → v1.3.0`).
 
+### Failed & skipped member lines
+
+A group's streamed member block contains **every** attempted member's outcome — successes, failures, and skips — in member order under the one group header, not just the successes. Each per-member reinstall outcome renders inline beneath the header, at the log level matching its severity:
+
+- **Success** → `✓ member → agents` (`p.log.success`).
+- **`copy-failed`** → `✗ member: copy failed — <recovery hint>` (`p.log.error`). The recovery hint is today's message (the member is now uninstalled; re-run `update`); its entry is removed.
+- **`aborted`** (derive-before-delete) → `✗ member: <abort message>` (`p.log.error`), carrying the recorded-type + `remove`+`add` remedy **inline** on the member line (the loud message rides the line rather than being deferred). Entry left intact.
+- **`blocked`** (symlink-escape copy-safety) → `✗ member: <copy-safety message>` (`p.log.error`). Entry left intact; no remove+add remedy.
+- **`no-agents`** → `⚠ member: skipped — no longer supports installed agents` (`p.log.warn`). A skip, not a failure — entry left intact, exit 0.
+
+So a mixed-outcome group (some `✓`, some `✗`/`⚠`) is one self-contained block under its header. The *isolation* semantics — which entries are removed vs left intact, and exit accounting — are unchanged from today (see *Failure isolation & lifecycle*); this section fixes only where and how each outcome prints. A group-of-one collapses its single member's outcome into the header line, carrying the same `✓`/`✗`/`⚠` per its result.
+
 ### Outcome timing — emit-on-completion, stream inline
 
 Actioned outcomes stream inline as each group completes; the end-of-run summary loop shrinks to non-actioned check categories only.
@@ -189,7 +201,7 @@ Under group-first checking, a group shares one *resolved target*, but each membe
 - **Group label.** Almost always a repo has a single group in a run, so its line reads `owner/repo: …`. When one repo yields *multiple* groups (members added at different intents), each line disambiguates by appending the intent: `owner/repo@^1.2.3: …`, `owner/repo@v2.0.0: …`, `owner/repo@main: …`, or `owner/repo@HEAD: …`. This same label is shared by the group header, the trailing collapse, and the out-of-constraint footer.
 - **Collapsed trailing formats.** Each trailing category renders one group-scoped line: `up-to-date` → a count (`owner/repo: 7 up to date`); `newer-tags` → the pinned-ref notice plus the repo-level `add` command (see *0.x-line + exact-pin edge cases*); out-of-constraint → the actionable current→newer line (see *Blocking message*); `check-failed` → `owner/repo: check failed — <reason>` (the group's shared probe reason); `constrained-no-match` → `owner/repo: no tags satisfy <constraint> — left untouched` (the group's shared constraint). `check-failed` and `constrained-no-match` are group-level results (one shared probe / one shared constraint for all members), so they **count-collapse** rather than enumerate. Clone-failure is the exception that **enumerates** members (`owner/repo: clone failed — affects N members: a, b, c`), because the clone is the group's single fatal action and naming the affected members is the useful signal.
 - **Group-of-one collapse is fine** — a single updated member of a collection collapses to `✓ owner/repo/member: Updated…`; the `/member` suffix already distinguishes it from a true standalone (`owner/repo`), so collection context isn't lost.
-- **Header count/noun is generic** — `(N members)` counting the members *updated in this group*, not `(N skills)`; a collection can hold plugin members (agents/hooks), not only skills.
+- **Header count/noun is generic** — `(N members)` counts the members this group is **updating** (the *attempted* set — those categorized as needing an update, which enter the reinstall loop), not `(N skills)` and not the whole collection; a collection can hold plugin members (agents/hooks), not only skills. The count is fixed when the spinner starts, *before* per-member outcomes resolve, so a member that then fails or skips still counts toward `(N members)` — its success/failure/skip shows on its own line beneath (see *Failed & skipped member lines*). Up-to-date siblings are excluded (they never enter the group's streamed block — they collapse into the trailing summary).
 
 ### Clone-failure rendering
 
@@ -283,7 +295,7 @@ Observable outcomes the finished feature must satisfy:
 4. Actioned outcomes stream inline on group completion; only non-actioned categories (`up-to-date`, `newer-tags`, `check-failed`, `constrained-no-match`) plus the out-of-constraint footer appear in the trailing summary, each collapsed to **one line per group** (keyed by the grouping key, using the *Group label*).
 5. The manifest is persisted per group before that group's ✓ streams; an interrupt leaves the manifest matching disk **at group boundaries** (the mid-member nuke-and-reinstall window is the pre-existing SIGINT gap, out of scope).
 6. A clone failure fails all N members of its group (attributed per-key for exit accounting, rendered as one grouped line), removes no entries, and exits non-zero.
-7. A per-member reinstall failure (`copy-failed` / `aborted` / `blocked` / `no-agents`) is isolated to that member; siblings continue; the shared clone is cleaned up once.
+7. A per-member reinstall failure (`copy-failed` / `aborted` / `blocked` / `no-agents`) is isolated to that member; siblings continue; the shared clone is cleaned up once; and the outcome renders as its own `✗`/`⚠` line under the group header (see *Failed & skipped member lines*).
 8. An out-of-constraint situation (major, or 0.x-minor) renders one actionable, mode-matched line per group naming the post-bump current version and the newest available, with a re-add command that preserves the user's pinning mode; exit stays 0.
 9. The all-mode `newer-tags` line includes the `agntc add` command, matching single-key.
 10. Exit-code posture is unchanged: single-key exits 1 on `check-failed` / `constrained-no-match`; all-mode warns and exits 0 for those; only `aborted` / `blocked` / `failed` / `copy-failed` trip a non-zero all-mode exit.

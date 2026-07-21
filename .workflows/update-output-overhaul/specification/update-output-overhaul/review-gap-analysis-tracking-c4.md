@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-07-21
 cycle: 4
 phase: Gap Analysis
@@ -37,9 +37,9 @@ Line 170 says only that "per-member result lines are emitted as persistent `p.lo
 Because a mixed-outcome group (some `✓`, some `copy-failed`/`aborted`/`blocked`/`no-agents`) is exactly the kind of partial-success case this feature must handle, and acceptance criterion 7 asserts the behaviour without specifying the display, the implementer would have to invent the failed-member line format, its placement, and the header-count rule — a visible design decision left open.
 
 **Proposed Addition**:
-{leave blank until discussed}
+Applied — see resolution notes.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Added a *Failed & skipped member lines* subsection to Per-Unit Progress Output specifying the member-line format and log level for each per-member reinstall outcome (`✓` success/`p.log.success`, `✗` copy-failed/aborted/blocked/`p.log.error`, `⚠` no-agents/`p.log.warn`), their inline placement in the group block (mixed-outcome group = one self-contained block), and the aborted loud-remedy rendering inline. Clarified the header `(N members)` count as the *attempted* set fixed at spinner start (a failed/skipped member still counts; its outcome shows on its line). Cross-referenced from Failure isolation and acceptance criterion 7.
 
 ---
