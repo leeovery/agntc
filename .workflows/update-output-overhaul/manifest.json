@@ -21,7 +21,7 @@
               "status": "incorporated"
             }
           },
-          "review_cycle": 4,
+          "review_cycle": 5,
           "finding_gate_mode": "auto",
           "construction_gate_mode": "auto",
           "date": "2026-07-20"
