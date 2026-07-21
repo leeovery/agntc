@@ -100,3 +100,12 @@ approved_at: 2026-07-21
 - [ ] The footer collapses to one line per group (grouping key / *Group label*), never per bare repo, so two distinct-intent groups of one repo keep their own current→newer pairs.
 - [ ] The all-mode `newer-tags` line includes the repo-level `npx agntc add owner/repo@<newest>` command, matching single-key (which stays member/key-scoped `npx agntc add <key>@<newest>`); its trailing line collapses per group.
 - [ ] Exit-code posture is unchanged and explicit: single-key exits 1 on `check-failed` / `constrained-no-match`; all-mode warns and exits 0 for those; only `aborted` / `blocked` / `failed` / `copy-failed` trip a non-zero all-mode exit.
+
+#### Tasks
+status: draft
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| update-output-overhaul-4-1 | Reword the out-of-constraint footer to the actionable, caret-mode re-add directive naming the post-bump current version | same-run safe bump (names landed version, matches inline Updated line); no safe bump this run (constrained-up-to-date, pre/post coincide); 0.x-minor gate (^0.3.3 → 0.4.0); single-key key-only path (no label); multi-group repo (label @intent-disambiguated, command stays bare owner/repo); exit stays 0 / no error styling |
+| update-output-overhaul-4-2 | Regression-lock the exact-pin newer-tags re-add command across all-mode and single-key | exact-pin collection collapses to one repo-level @newest line; single-key stays key/member-scoped @newest; caret user never routed to @newest |
+| update-output-overhaul-4-3 | Lock the ratified exit-code posture explicitly for check-failed / constrained-no-match | single-key check-failed → exit 1; single-key constrained-no-match → exit 1; all-mode both → warn + exit 0; all-mode aborted/blocked/failed/copy-failed → exit 1 |
