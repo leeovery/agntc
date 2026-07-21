@@ -102,7 +102,10 @@ export function formatBareSkillSummary(
 		).length;
 
 		if (count > 0) {
-			rows.push({ name: capitalizeAgentName(id), detail: pluralize(count, "skill") });
+			rows.push({
+				name: capitalizeAgentName(id),
+				detail: pluralize(count, "skill"),
+			});
 		}
 	}
 

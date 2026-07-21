@@ -17,8 +17,7 @@ import { executeUpdateAction } from "./list-update-action.js";
 // The label shows just the unit + its installed version; the constraint and any
 // out-of-constraint version live in the detail view, so the list stays scannable.
 function formatLabel(key: string, entry: ManifestEntry): string {
-	const ref =
-		entry.ref ?? (entry.commit !== null ? "HEAD" : "local");
+	const ref = entry.ref ?? (entry.commit !== null ? "HEAD" : "local");
 	return `${key}  ${ref}`;
 }
 
