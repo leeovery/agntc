@@ -2657,6 +2657,137 @@ describe("update command", () => {
 		});
 	});
 
+	describe("check/resolve-fatal fan-out — all-mode group (task 1-8)", () => {
+		// A group's single resolution probe (resolveGroupTarget) can itself fail —
+		// dead remote / ls-remote error — BEFORE any clone. By analogy to a clone
+		// failure, every member of the group becomes a check-failed outcome
+		// attributed to its own key and carrying the shared probe reason; no clone or
+		// reinstall runs, so no manifest mutation occurs. Per the ratified exit
+		// posture, all-mode check-failed WARNS and exits 0 (it is excluded from
+		// hasFailedOutcome); the single-key path still exits 1 (see the "check-failed"
+		// block above — untouched here).
+		const PROBE_REASON = "ls-remote failed: could not read from remote";
+
+		function threeMemberCollection(): void {
+			const member = (name: string): ManifestEntry =>
+				makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [`.claude/skills/${name}/`],
+				});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a"),
+				"owner/repo/b": member("b"),
+				"owner/repo/c": member("c"),
+			});
+			// The group's single resolution probe fails BEFORE any clone.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "check-failed",
+				reason: PROBE_REASON,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+		}
+
+		it("a group probe failure produces one check-failed outcome per member with the shared reason", async () => {
+			threeMemberCollection();
+
+			const err = await runUpdate().catch((e) => e);
+
+			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
+			expect(err).toBeUndefined();
+			// check-failed renders at warn level (renderOutcomeSummary), one per member
+			// keyed to its own key and carrying the SHARED probe reason.
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const checkFailedLines = warnCalls.filter((m) =>
+				m.includes("Check failed"),
+			);
+			expect(checkFailedLines).toHaveLength(3);
+			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
+				expect(
+					checkFailedLines.some(
+						(m) => m === `${key}: Check failed — ${PROBE_REASON}`,
+					),
+				).toBe(true);
+			}
+		});
+
+		it("a check-failed group runs no clone and mutates no manifest state", async () => {
+			threeMemberCollection();
+
+			await runUpdate().catch(() => {});
+
+			// The probe failed BEFORE any clone; no reinstall runs, so nothing persists.
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("all-mode with a check-failed group (others succeeding) exits 0", async () => {
+			// Two standalone repos → two groups-of-one. Group A's probe fails
+			// (check-failed → warn, no clone); group B resolves update-available and
+			// updates. Per the ratified posture, the check-failed group does NOT feed
+			// hasFailedOutcome, so the run exits 0 while B still updates and persists.
+			const entryA = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				if (group.members[0]!.key === "owner/repo-a") {
+					return { kind: "check-failed", reason: PROBE_REASON };
+				}
+				return { kind: "head", resolvedSha: REMOTE_SHA };
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone-b",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/skill-b/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// check-failed excluded from hasFailedOutcome → no ExitSignal (exit 0).
+			expect(err).toBeUndefined();
+			// B still clones, updates, and persists; A's failed probe wrote nothing.
+			expect(mockCloneSource).toHaveBeenCalledTimes(1);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+				expect.anything(),
+			);
+		});
+
+		it("each check-failed member key appears in the trailing summary", async () => {
+			threeMemberCollection();
+
+			await runUpdate().catch(() => {});
+
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
+				expect(warnCalls.some((m) => m.startsWith(`${key}:`))).toBe(true);
+			}
+		});
+	});
+
 	describe("constructs ParsedSource for cloneSource", () => {
 		it("creates github-shorthand ParsedSource from manifest key and entry ref", async () => {
 			const entry = makeEntry({ ref: "dev" });
