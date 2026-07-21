@@ -268,13 +268,13 @@ The *gating behaviour* already exists, entirely via semver caret semantics — *
 The seam routes all-mode through a new grouped orchestration while the three singleton entry points stay on the old path. Coverage required in the build:
 
 - **Regression coverage** for the shared reinstall half — existing `update` tests stay green (the singleton paths are unchanged).
-- **New coverage** for the grouped/dedup path: grouping by `(resolvedCloneUrl, ref, constraint)`, one clone + one check per group, per-member categorization against the shared target, genuine-state splits, clone-failure fan-out to N `failed` outcomes with grouped rendering, per-member reinstall isolation, per-group manifest persistence, and per-repo trailing collapse.
+- **New coverage** for the grouped/dedup path: grouping by `(resolvedCloneUrl, versionIntent)` (`versionIntent = constraint ?? ref`), including a **singly-updated constrained member staying grouped** with its behind siblings (its mutated `ref` excluded from the key); one clone + one check per group; per-member categorization against the shared target; genuine-state splits; clone-failure fan-out to N `failed` outcomes with grouped rendering; per-member reinstall isolation; per-group manifest persistence; and per-repo trailing collapse.
 
 ### Acceptance criteria
 
 Observable outcomes the finished feature must satisfy:
 
-1. A multi-member collection at one `(resolvedCloneUrl, ref, constraint)` clones **once** and runs **one** update check for the whole group.
+1. A multi-member collection at one `(resolvedCloneUrl, versionIntent)` (`versionIntent = constraint ?? ref`) clones **once** and runs **one** update check for the whole group — and a constrained collection stays a single group even after one member was updated singly (its mutated `ref` is excluded from the key), that member reporting up-to-date while behind siblings update.
 2. Each updated member streams its own `✓ member → agents` line under a single group header carrying the version move; a standalone collapses to one line.
 3. The version move renders in **tags** only when both refs are semver tags and the ref moved; otherwise short hashes — on both single-key and all-mode surfaces.
 4. Actioned outcomes stream inline on group completion; only non-actioned categories (`up-to-date`, `newer-tags`, `check-failed`, `constrained-no-match`) plus the out-of-constraint footer appear in the trailing summary, each collapsed to **one line per repo-group**.

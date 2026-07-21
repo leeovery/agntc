@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 created: 2026-07-21
 cycle: 2
 phase: Input Review
@@ -31,9 +31,9 @@ Why it matters as a source-comparison issue (not just a wording nit): as written
 - Acceptance criterion 1 (line 277): "1. A multi-member collection at one `(resolvedCloneUrl, ref, constraint)` clones **once** and runs **one** update check for the whole group."
 
 **Proposed Addition**:
-{leave blank until discussed}
+Applied — Testing scope "New coverage" bullet and Acceptance criterion 1 both realigned to `(resolvedCloneUrl, versionIntent)` / `versionIntent = constraint ?? ref`, and both now name the singly-updated-constrained-member-stays-grouped case explicitly.
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**: Traces directly to the cycle-1 grouping-key precision (gap-analysis finding 1) whose "Affects" list did not include Testing scope or Acceptance criterion 1, so those two references were never updated. Recommend aligning both to `(resolvedCloneUrl, versionIntent)` and adding the singly-updated-constrained-member-stays-grouped case to grouped-path coverage. Flagged here because it was requested that cycle-1 revisions be re-verified against source intent; boundary note — the residual references are also an internal-consistency artifact (gap-analysis lane), but the substantive under-assertion of the source's genuine-state-split decision is what makes it a source-comparison concern.
 
 ---
