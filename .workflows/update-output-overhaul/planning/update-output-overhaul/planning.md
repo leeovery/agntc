@@ -50,6 +50,19 @@ approved_at: 2026-07-21
 - [ ] A group-fatal clone failure renders as one grouped enumerated line (`owner/repo: clone failed — affects N members: a, b, c`); `check-failed` and `constrained-no-match` count-collapse to one group line; Phase 1's N-outcome model and exit accounting are unchanged (only the display groups).
 - [ ] The streamed group success appears only after that group's per-group manifest write; an interrupt leaves the manifest matching disk at group boundaries (the mid-member nuke-and-reinstall window is the pre-existing SIGINT gap, out of scope).
 
+#### Tasks
+status: draft
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| update-output-overhaul-2-1 | Add group-label helper with @intent disambiguation | single-group repo → bare label, multi-group repo → @intent, HEAD-tracked group → @HEAD sentinel, caret/branch/exact-pin intent forms |
+| update-output-overhaul-2-2 | Format group header: label, member count, shared-vs-divergent version move | shared old → header old→new, divergent olds → header target-only, up-to-date siblings excluded from count and old-set, (N members) fixed at spinner start over attempted set, interim hash move (Phase 3 rewords tags) |
+| update-output-overhaul-2-3 | Format per-member outcome lines: glyphs, agents, move parenthetical, dropped-agents | success ✓ member → agents, divergent-old success carries own (old → new), dropped-agents suffix on member line, move + dropped share one parenthetical, copy-failed ✗ recovery hint, aborted ✗ recorded-type + remove/add remedy inline, blocked ✗ copy-safety message no remedy, no-agents ⚠ skip |
+| update-output-overhaul-2-4 | Stream the actioned phase — batched check then per-group Updating spinner emitting member lines | processing = manifest order, group-of-one standalone collapse, single updated collection member keeps /member suffix, local group-of-one interleaved at manifest position, mixed-outcome group one self-contained block, ✓ streams only after per-group manifest write, spinner does not tick per member, non-updatable group emits no Updating spinner |
+| update-output-overhaul-2-5 | Collapse the trailing summary to one line per group per non-actioned category | up-to-date count-collapse, newer-tags one line per group (interim wording), check-failed count-collapse shared reason, constrained-no-match count-collapse shared constraint, distinct-intent groups of one repo → separate @intent lines, genuine-state split (behind stream vs current trailing) |
+| update-output-overhaul-2-6 | Render a group clone failure as one enumerated grouped line | enumerates members not a count, one line not N, model stays N failed outcomes → non-zero exit unchanged, sibling group still streams and persists |
+| update-output-overhaul-2-7 | Collapse the out-of-constraint footer to one line per group (structure) | one line per group, two distinct-intent groups of one repo keep separate current→newer lines, collection footer collapses to one line, passive wording preserved + exit stays 0 |
+
 ### Phase 3: Tag-based summary wording
 status: approved
 approved_at: 2026-07-21
