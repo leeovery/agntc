@@ -3,7 +3,8 @@
 ## Phases
 
 ### Phase 1: Group-first update engine and clone/check dedup
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 **Goal**: Reshape all-mode `update` (`runAllUpdates`) from per-member clone-and-check into a group-first pipeline — group non-local manifest entries by `(resolvedCloneUrl, versionIntent = constraint ?? ref)`, resolve/check once per group, clone once per updatable group via a new `cloneRepoOnce` plus a group orchestrator, and reinstall members from the shared clone — with correct per-member outcomes, failure isolation, lifecycle, and per-group manifest persistence, while the three singleton entry points (`update <key>`, list update, list change-version) stay on the existing `cloneAndReinstall` path.
 
@@ -19,7 +20,8 @@ status: draft
 - [ ] The three singleton entry points remain on `cloneAndReinstall`; existing `update` regression tests stay green.
 
 ### Phase 2: Per-unit progress stream and trailing collapse
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 **Goal**: Replace the interim output with the designed two-granularity stream over Phase 1's grouped shape — a batched `Checking for updates…` phase (per-group probes parallel across distinct repos), then per-group `Updating <repo> v… → v… (N members)` spinners streamed in manifest processing order, each emitting persistent per-member outcome lines on completion — with the end-of-run summary reduced to non-actioned categories plus the out-of-constraint footer, each collapsed to one line per group.
 
@@ -34,7 +36,8 @@ status: draft
 - [ ] The streamed group success appears only after that group's per-group manifest write; an interrupt leaves the manifest matching disk at group boundaries (the mid-member nuke-and-reinstall window is the pre-existing SIGINT gap, out of scope).
 
 ### Phase 3: Tag-based summary wording
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 **Goal**: Render the version move in semver tags where the repo is genuinely tagged and the ref actually moved, with a short-hash fallback for the untagged / HEAD-tracked / branch case, applied identically to the single-key surface (`renderGitUpdateSummary`) and the all-mode grouped surface (`renderUpdateOutcomeSummary` / group header).
 
@@ -46,7 +49,8 @@ status: draft
 - [ ] The old ref sources from the pre-update `entry.ref` and the new ref from the post-update resolved ref (`result.manifestEntry.ref` / `result.tag`); the rule is applied identically on the single-key and all-mode surfaces so wording cannot diverge.
 
 ### Phase 4: Safe-vs-major bump gating messaging
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 **Goal**: Upgrade the gating surface from passive to actionable without changing any gating behaviour — the out-of-constraint footer becomes an actionable, mode-matched, per-group re-add directive naming the post-bump current version and the newest available; align the all-mode `newer-tags` line with the single-key command; and keep the exit posture unchanged and explicit.
 
