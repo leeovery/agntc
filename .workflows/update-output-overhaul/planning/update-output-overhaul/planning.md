@@ -78,7 +78,8 @@ approved_at: 2026-07-21
 - [ ] The old ref sources from the pre-update `entry.ref` and the new ref from the post-update resolved ref (`result.manifestEntry.ref` / `result.tag`); the rule is applied identically on the single-key and all-mode surfaces so wording cannot diverge.
 
 #### Tasks
-status: draft
+status: approved
+approved_at: 2026-07-21
 
 | Internal ID | Name | Edge Cases |
 |-------------|------|------------|
