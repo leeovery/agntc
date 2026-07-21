@@ -363,12 +363,14 @@ async function runAllUpdates(): Promise<void> {
 	// Actioned work streams in manifest order: each updatable group clones once
 	// (task 1-4); each local reinstalls without cloning. (The DESIGNED
 	// two-granularity progress stream is Phase 2 — output here stays interim.)
+	// Per-group manifest persistence (task 1-6): each updatable group and each
+	// local group-of-one writes the manifest once, right after its reinstall
+	// loop — so a checkmark is honest (persisted before shown, once Phase 2
+	// streams it) and an interrupt leaves the manifest matching disk at group
+	// boundaries (early groups recorded, later ones untouched). The initial
+	// manifest is threaded through so each write is cumulative.
 	const work = orderWork(categorized.updatableGroups, localEntries, entries);
-	const outcomes = await processWorkItems(work, projectDir);
-
-	// Single manifest write for all successful updates + copy-failed removals
-	// (per-group persistence is task 1-6; Phase 1 keeps today's single write).
-	await persistOutcomes(projectDir, manifest, outcomes);
+	const outcomes = await processWorkItems(work, projectDir, manifest);
 
 	// Trailing non-actioned summaries (up-to-date / newer-tags / check-failed /
 	// constrained-no-match), fed to the same summary loop + exit accounting.
@@ -537,23 +539,33 @@ function orderWork(
 
 /**
  * Processes the ordered work items sequentially, collecting one
- * {@link PluginOutcome} per member. A group clones once via
- * {@link processGroupUpdate}; a local entry reinstalls without cloning via
- * {@link processUpdateForAll}.
+ * {@link PluginOutcome} per member AND persisting the manifest per unit
+ * (task 1-6). A group clones once via {@link processGroupUpdate}; a local entry
+ * reinstalls without cloning via {@link processUpdateForAll}. After each unit's
+ * reinstall loop its outcomes are folded into the working manifest and written
+ * (see {@link persistUnitOutcomes}) — one write per updatable group / local,
+ * skipping no-op units. The working manifest is threaded so each write reflects
+ * all prior units (matching disk at group boundaries); the returned outcomes
+ * still drive {@link hasFailedOutcome}.
  */
 async function processWorkItems(
 	work: WorkItem[],
 	projectDir: string,
+	manifest: Manifest,
 ): Promise<PluginOutcome[]> {
 	const outcomes: PluginOutcome[] = [];
+	let workingManifest: Manifest = { ...manifest };
 	for (const item of work) {
-		if (item.kind === "group") {
-			outcomes.push(...(await runUpdatableGroup(item, projectDir)));
-		} else {
-			outcomes.push(
-				await processUpdateForAll(item.key, item.entry, projectDir),
-			);
-		}
+		const unitOutcomes =
+			item.kind === "group"
+				? await runUpdatableGroup(item, projectDir)
+				: [await processUpdateForAll(item.key, item.entry, projectDir)];
+		outcomes.push(...unitOutcomes);
+		workingManifest = await persistUnitOutcomes(
+			projectDir,
+			workingManifest,
+			unitOutcomes,
+		);
 	}
 	return outcomes;
 }
@@ -587,18 +599,22 @@ async function runUpdatableGroup(
 }
 
 /**
- * Applies the run's outcomes to the manifest in a single write: successful
- * updates/refreshes add their new entry; copy-failed members remove theirs
- * (their old files are already gone). Everything else — aborted / blocked /
- * no-agents / check categories — leaves the manifest untouched.
+ * Folds ONE unit's (group or local) outcomes into the working manifest and
+ * writes it — the per-group / per-local persistence boundary (task 1-6).
+ * Applies today's VERBATIM remove-vs-intact rules: updated/refreshed add their
+ * new entry; copy-failed removes its entry (its old files are already gone);
+ * everything else — aborted / blocked / no-agents / non-actioned check
+ * categories — leaves the manifest untouched. The write is SKIPPED for a no-op
+ * unit (no add/remove mutation). Returns the (possibly-updated) manifest so the
+ * caller threads it into the next unit, keeping each write cumulative.
  */
-async function persistOutcomes(
+async function persistUnitOutcomes(
 	projectDir: string,
 	manifest: Manifest,
 	outcomes: PluginOutcome[],
-): Promise<void> {
-	let updatedManifest = { ...manifest };
-	let hasChanges = false;
+): Promise<Manifest> {
+	let updatedManifest = manifest;
+	let mutated = false;
 
 	for (const outcome of outcomes) {
 		if (
@@ -610,16 +626,18 @@ async function persistOutcomes(
 				outcome.key,
 				outcome.newEntry,
 			);
-			hasChanges = true;
+			mutated = true;
 		} else if (outcome.status === "copy-failed") {
 			updatedManifest = removeEntry(updatedManifest, outcome.key);
-			hasChanges = true;
+			mutated = true;
 		}
 	}
 
-	if (hasChanges) {
+	if (mutated) {
 		await writeManifest(projectDir, updatedManifest);
 	}
+
+	return updatedManifest;
 }
 
 /** Renders one outcome to the per-unit summary at the log level for its status. */

@@ -480,44 +480,11 @@ describe("update command", () => {
 			);
 		});
 
-		it("performs single manifest write for multiple updates", async () => {
-			const entryA = makeEntry({
-				commit: INSTALLED_SHA,
-				agents: ["claude"],
-				files: [".claude/skills/skill-a/"],
-			});
-			const entryB = makeEntry({
-				commit: INSTALLED_SHA,
-				agents: ["claude"],
-				files: [".claude/skills/skill-b/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo-a": entryA,
-				"owner/repo-b": entryB,
-			});
-
-			// Migrated onto the group seam (task 1-5): two distinct repos → two
-			// groups-of-one, each resolving to an update-available HEAD target.
-			mockResolveGroupTarget.mockResolvedValue({
-				kind: "head",
-				resolvedSha: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/updated/"],
-			});
-
-			await runUpdate();
-
-			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
-		});
+		// NOTE: the former 'performs single manifest write for multiple updates'
+		// test asserted a SINGLE end-of-run write. Under task 1-6 per-group
+		// persistence that expectation is wrong (N groups → N writes); it is
+		// superseded by 'writes the manifest once per updatable group (two groups
+		// -> two writes)' in the "per-group manifest persistence (task 1-6)" block.
 
 		it("continues processing when one plugin fails during update", async () => {
 			const entryA = makeEntry({
@@ -632,9 +599,11 @@ describe("update command", () => {
 			expect(mockCloneSource).toHaveBeenCalled();
 			// Local update should stat
 			expect(mockStat).toHaveBeenCalled();
-			// Tag-pinned should not clone or nuke
-			// Manifest should be written (at least git and local were updated)
-			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+			// Tag-pinned should not clone or nuke.
+			// Per-group persistence (task 1-6): the git group and the local
+			// group-of-one each persist independently → two writes (tag-pinned and
+			// up-to-date never mutate, so they add no write).
+			expect(mockWriteManifest).toHaveBeenCalledTimes(2);
 		});
 
 		it("shows per-plugin summary", async () => {
@@ -942,6 +911,340 @@ describe("update command", () => {
 			expect(mockCheckForUpdate).toHaveBeenCalledWith(
 				"owner/repo",
 				expect.anything(),
+			);
+		});
+	});
+
+	describe("per-group manifest persistence (task 1-6)", () => {
+		it("writes the manifest once per updatable group (two groups -> two writes)", async () => {
+			// Two distinct repos → two groups-of-one, each update-available. Per-group
+			// persistence writes once per group (N groups → N writes), replacing the
+			// old single end-of-run write.
+			const entryA = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/updated/"],
+			});
+
+			await runUpdate();
+
+			expect(mockWriteManifest).toHaveBeenCalledTimes(2);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			// The final (cumulative) write reflects both groups' updates.
+			const lastWrite = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+			expect(lastWrite["owner/repo-a"]!.commit).toBe(REMOTE_SHA);
+			expect(lastWrite["owner/repo-b"]!.commit).toBe(REMOTE_SHA);
+		});
+
+		it("a copy-failed member removes its entry from that group write; siblings' updates persist", async () => {
+			// Group 1 = a 2-member collection: member `a` copy-fails (entry removed),
+			// sibling `b` updates (entry added) — folded into ONE group write. Group 2
+			// = a standalone repo that updates → its own write. N groups → N writes.
+			const memberA = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/a/"],
+			});
+			const memberB = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/b/"],
+			});
+			const standalone = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/c/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": memberA,
+				"owner/repo/b": memberB,
+				"zother/repo": standalone,
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// Member `a` (first reinstall) copy-fails; `b` and the standalone succeed.
+			mockCopyBareSkill
+				.mockRejectedValueOnce(new Error("disk full"))
+				.mockResolvedValue({ copiedFiles: [".claude/skills/updated/"] });
+
+			const err = await runUpdate().catch((e) => e);
+
+			// Copy-failed trips the non-zero exit; both groups still persisted.
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockWriteManifest).toHaveBeenCalledTimes(2);
+			expect(mockRemoveEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo/a",
+			);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo/b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			// Group 1's write (first): member `a` removed, sibling `b` persisted.
+			const groupOneWrite = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(groupOneWrite["owner/repo/a"]).toBeUndefined();
+			expect(groupOneWrite["owner/repo/b"]).toBeDefined();
+		});
+
+		it("aborted / blocked / no-agents / up-to-date members leave the manifest entry intact (no add/remove)", async () => {
+			// Four standalone repos, each a group-of-one, hitting a non-mutating
+			// category: aborted (derive gate), blocked (symlink escape), no-agents
+			// (config drops the installed agent), and up-to-date (never actioned).
+			// None add or remove — so no group writes the manifest at all.
+			const aborted = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/abort/"],
+			});
+			const blocked = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/block/"],
+			});
+			const noAgents = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["codex"],
+				files: [".agents/skills/noagents/"],
+			});
+			const upToDate = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/current/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/abort": aborted,
+				"owner/block": blocked,
+				"owner/noagents": noAgents,
+				"owner/current": upToDate,
+			});
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				const key = group.members[0]!.key;
+				return key === "owner/current"
+					? { kind: "head", resolvedSha: INSTALLED_SHA }
+					: { kind: "head", resolvedSha: REMOTE_SHA };
+			});
+			// Distinct clones so the abort/block mocks can key on the group's tempDir.
+			mockCloneSource
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-abort",
+					commit: REMOTE_SHA,
+				})
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-block",
+					commit: REMOTE_SHA,
+				})
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-noagents",
+					commit: REMOTE_SHA,
+				});
+			// Re-cloned config supports only claude → the codex-only entry drops to
+			// no-agents.
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// abort clone: recorded SKILL.md gone → derive gate aborts (others present).
+			mockAccess.mockImplementation(async (path: unknown) => {
+				if (typeof path === "string" && path.includes("/clone-abort")) {
+					throw new Error("ENOENT");
+				}
+				return undefined;
+			});
+			// block clone: escaping symlink → copy-safety block (others clean).
+			mockScanForEscapingSymlinks.mockImplementation(
+				async (sourceDir: unknown) => {
+					if (
+						typeof sourceDir === "string" &&
+						sourceDir.includes("/clone-block")
+					) {
+						throw new SymlinkEscapeError("evil-link", "/etc/passwd");
+					}
+					return undefined;
+				},
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			// aborted + blocked trip the non-zero exit; catch so assertions run.
+			await runUpdate().catch(() => {});
+
+			// No member mutated the manifest → no add/remove and no group write.
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("each group write reflects prior groups' updates (matching disk at group boundaries)", async () => {
+			// Two update-available repos with DISTINCT resolved commits. Group A writes
+			// first; group B's later write must still carry group A's update (prior
+			// groups recorded), while group A's write shows group B still at its old
+			// commit (not-yet-run groups untouched).
+			const SHA_A = "c".repeat(40);
+			const SHA_B = "d".repeat(40);
+			const entryA = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-a/"],
+			});
+			const entryB = makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/skill-b/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": entryA,
+				"owner/repo-b": entryB,
+			});
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				const key = group.members[0]!.key;
+				return {
+					kind: "head",
+					resolvedSha: key === "owner/repo-a" ? SHA_A : SHA_B,
+				};
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/updated/"],
+			});
+
+			await runUpdate();
+
+			expect(mockWriteManifest).toHaveBeenCalledTimes(2);
+			// Group A's write: A updated, B still at its pre-run commit (not yet run).
+			const firstWrite = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(firstWrite["owner/repo-a"]!.commit).toBe(SHA_A);
+			expect(firstWrite["owner/repo-b"]!.commit).toBe(INSTALLED_SHA);
+			// Group B's write: A's earlier update still present, B now updated.
+			const secondWrite = mockWriteManifest.mock.calls[1]![1] as Manifest;
+			expect(secondWrite["owner/repo-a"]!.commit).toBe(SHA_A);
+			expect(secondWrite["owner/repo-b"]!.commit).toBe(SHA_B);
+		});
+
+		it("outcomes[] still trips hasFailedOutcome for copy-failed/aborted/blocked (non-zero exit)", async () => {
+			// Three standalone repos, each a group-of-one producing one hard-failure
+			// outcome. Per-group persistence doesn't change exit accounting: every
+			// member outcome still accumulates into outcomes[], so any
+			// copy-failed/aborted/blocked trips the non-zero exit.
+			const cf = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/cf/"],
+			});
+			const ab = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/ab/"],
+			});
+			const bl = makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/bl/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/cf": cf,
+				"owner/ab": ab,
+				"owner/bl": bl,
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-cf", commit: REMOTE_SHA })
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-ab", commit: REMOTE_SHA })
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-bl",
+					commit: REMOTE_SHA,
+				});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// ab clone: SKILL.md gone → aborted (cf's present so it reaches copy).
+			mockAccess.mockImplementation(async (path: unknown) => {
+				if (typeof path === "string" && path.includes("/clone-ab")) {
+					throw new Error("ENOENT");
+				}
+				return undefined;
+			});
+			// bl clone: escaping symlink → blocked.
+			mockScanForEscapingSymlinks.mockImplementation(
+				async (sourceDir: unknown) => {
+					if (
+						typeof sourceDir === "string" &&
+						sourceDir.includes("/clone-bl")
+					) {
+						throw new SymlinkEscapeError("evil-link", "/etc/passwd");
+					}
+					return undefined;
+				},
+			);
+			// cf clone: copy throws → copy-failed (removes its entry).
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// All three failure outcomes were collected and reported (accumulated into
+			// outcomes[]), and the copy-failed one persisted its removal per group.
+			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			expect(errorCalls.some((m) => m.includes("owner/cf"))).toBe(true);
+			expect(errorCalls.some((m) => m.includes("owner/ab"))).toBe(true);
+			expect(errorCalls.some((m) => m.includes("owner/bl"))).toBe(true);
+			expect(mockRemoveEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/cf",
 			);
 		});
 	});
@@ -3859,7 +4162,9 @@ describe("update command", () => {
 			// Constrained and branch should be processed (clone called)
 			// Local should be processed (stat called)
 			// Tagged should NOT be processed (newer-tags is info only)
-			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+			// Per-group persistence (task 1-6): constrained, branch, and local each
+			// persist as their own unit → three writes (tagged never mutates).
+			expect(mockWriteManifest).toHaveBeenCalledTimes(3);
 			// All four should appear in the summary
 			const allMessages = [
 				...mockLog.success.mock.calls.map((c) => c[0] as string),
@@ -4112,8 +4417,12 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
-			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			// Per-group persistence (task 1-6): repo-a's group (copy-failed → remove)
+			// and repo-b's group (updated → add) each write once → two writes.
+			expect(mockWriteManifest).toHaveBeenCalledTimes(2);
+			const writtenManifest = mockWriteManifest.mock.calls.at(
+				-1,
+			)![1] as Manifest;
 			// copy-failed entry should be removed
 			expect(writtenManifest["owner/repo-a"]).toBeUndefined();
 			// successful entry should be present
