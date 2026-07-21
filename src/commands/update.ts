@@ -24,32 +24,17 @@ import {
 	renderGitUpdateSummary,
 	renderLocalUpdateSummary,
 	renderOutOfConstraintSection,
-	renderUpdateOutcomeSummary,
 } from "../summary.js";
 import type { UpdateCheckResult } from "../update-check.js";
 import { checkForUpdate, hasOutOfConstraintVersion } from "../update-check.js";
 import {
+	mapReinstallResultToOutcome,
+	type PluginOutcome,
+} from "../update-groups.js";
+import {
 	isAtOrAboveVersion,
 	type VersionOverrides,
 } from "../version-resolve.js";
-
-type PluginOutcome =
-	| { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
-	| {
-			status: "refreshed";
-			key: string;
-			summary: string;
-			newEntry: ManifestEntry;
-	  }
-	| { status: "up-to-date"; key: string; summary: string }
-	| { status: "newer-tags"; key: string; summary: string }
-	| { status: "check-failed"; key: string; summary: string }
-	| { status: "failed"; key: string; summary: string }
-	| { status: "copy-failed"; key: string; summary: string }
-	| { status: "aborted"; key: string; summary: string }
-	| { status: "blocked"; key: string; summary: string }
-	| { status: "skipped-no-agents"; key: string; summary: string }
-	| { status: "constrained-no-match"; key: string; summary: string };
 
 interface SingleUpdateResult {
 	newEntry: ManifestEntry | null;
@@ -293,8 +278,6 @@ async function processUpdateForAll(
 	overrides?: VersionOverrides,
 ): Promise<PluginOutcome> {
 	try {
-		const isLocal = entry.commit === null;
-
 		const prepared = await prepareReinstall(key, entry, projectDir, {
 			...overrides,
 		});
@@ -307,80 +290,7 @@ async function processUpdateForAll(
 		}
 
 		const result = await cloneAndReinstall(prepared.options);
-
-		if (isCloneReinstallFailure(result)) {
-			return mapCloneFailure<PluginOutcome>(result, {
-				onNoAgents: () => ({
-					// Benign skip (lenient agent posture): the re-cloned tree no longer
-					// supports any installed agent. Not a hard error or abort — must NOT
-					// force a non-zero exit and must leave the entry untouched. Mirrors
-					// the single-key path's warn + exit-0 handling.
-					status: "skipped-no-agents" as const,
-					key,
-					summary: `${key}: Skipped — no longer supports installed agents`,
-				}),
-				onCopyFailed: (msg) => ({
-					status: "copy-failed" as const,
-					key,
-					summary: msg,
-				}),
-				onAborted: (recordedType, reason) => ({
-					// Derive-before-delete abort: dedicated outcome, distinct from
-					// copy-failed. Install intact (no nuke, entry untouched); the
-					// manifest-build loop must leave aborted entries alone. Loud
-					// per-unit message names recorded-vs-current + remove+add remedy.
-					status: "aborted" as const,
-					key,
-					summary: buildAbortMessage(key, recordedType, reason),
-				}),
-				onBlocked: (reason) => ({
-					// Symlink-escape copy-safety block: dedicated outcome. Same
-					// install-intact treatment as aborted (entry untouched by the
-					// manifest-build loop, counted toward the non-zero exit by
-					// hasFailedOutcome) but a copy-safety message — describes the
-					// escaping symlink, no remove+add remedy.
-					status: "blocked" as const,
-					key,
-					summary: buildCopySafetyMessage(key, reason),
-				}),
-				onCloneFailed: (msg) => ({
-					status: "failed" as const,
-					key,
-					summary: `${key}: Failed — ${msg}`,
-				}),
-				onUnknown: (msg) => ({
-					status: "failed" as const,
-					key,
-					summary: `${key}: Failed — ${msg}`,
-				}),
-			});
-		}
-
-		if (isLocal) {
-			return {
-				status: "refreshed",
-				key,
-				summary: renderUpdateOutcomeSummary({
-					type: "local-update",
-					key,
-					droppedAgents: result.droppedAgents,
-				}),
-				newEntry: result.manifestEntry,
-			};
-		}
-
-		return {
-			status: "updated",
-			key,
-			summary: renderUpdateOutcomeSummary({
-				type: "git-update",
-				key,
-				oldCommit: entry.commit,
-				newCommit: result.manifestEntry.commit!,
-				droppedAgents: result.droppedAgents,
-			}),
-			newEntry: result.manifestEntry,
-		};
+		return mapReinstallResultToOutcome(key, entry, result);
 	} catch (err) {
 		return {
 			status: "failed",

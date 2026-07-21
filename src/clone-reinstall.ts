@@ -445,7 +445,7 @@ async function handleCopyFailedRemoval(
 	return result;
 }
 
-interface PipelineInput {
+export interface PipelineInput {
 	key: string;
 	entry: ManifestEntry;
 	projectDir: string;
@@ -455,7 +455,16 @@ interface PipelineInput {
 	newCommit: string | null;
 }
 
-async function runPipeline(
+/**
+ * The reinstall half of the update pipeline, decoupled from cloning: given an
+ * already-resolved `sourceDir` and its containment `cloneRoot`, it runs the
+ * symlink-escape pre-flight, derive-before-delete gate, nuke, and re-copy via
+ * {@link executeNukeAndReinstall}, mapping the result to a
+ * {@link CloneReinstallResult}. {@link cloneAndReinstall} calls it after its own
+ * single clone; the group orchestrator ({@link processGroupUpdate}) calls it
+ * once per member against a shared clone, so the two owners cannot drift.
+ */
+export async function runPipeline(
 	input: PipelineInput,
 ): Promise<CloneReinstallResult> {
 	const { key, entry, projectDir, sourceDir, cloneRoot, newRef, newCommit } =

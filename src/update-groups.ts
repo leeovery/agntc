@@ -1,5 +1,22 @@
+import {
+	buildAbortMessage,
+	buildCopySafetyMessage,
+	type CloneReinstallResult,
+	cloneRepoOnce,
+	isCloneReinstallFailure,
+	mapCloneFailure,
+	runPipeline,
+} from "./clone-reinstall.js";
+import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
+import { errorMessage } from "./errors.js";
+import { cleanupTempDir } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
-import { deriveCloneUrlFromKey } from "./source-parser.js";
+import {
+	deriveCloneUrlFromKey,
+	resolveUpdateSourceDir,
+} from "./source-parser.js";
+import { renderUpdateOutcomeSummary } from "./summary.js";
+import type { GroupTarget } from "./update-check.js";
 
 /**
  * A set of non-local manifest entries whose pre-resolution version intent points
@@ -62,4 +79,235 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
 	}
 
 	return [...groups.values()];
+}
+
+/**
+ * Per-plugin outcome of an all-mode update, collected across the run for the
+ * trailing summary and the `hasFailedOutcome` exit-code decision. Shared by the
+ * legacy per-entry path (`processUpdateForAll`) and the grouped orchestrator
+ * ({@link processGroupUpdate}) so both emit the identical shape.
+ */
+export type PluginOutcome =
+	| { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
+	| {
+			status: "refreshed";
+			key: string;
+			summary: string;
+			newEntry: ManifestEntry;
+	  }
+	| { status: "up-to-date"; key: string; summary: string }
+	| { status: "newer-tags"; key: string; summary: string }
+	| { status: "check-failed"; key: string; summary: string }
+	| { status: "failed"; key: string; summary: string }
+	| { status: "copy-failed"; key: string; summary: string }
+	| { status: "aborted"; key: string; summary: string }
+	| { status: "blocked"; key: string; summary: string }
+	| { status: "skipped-no-agents"; key: string; summary: string }
+	| { status: "constrained-no-match"; key: string; summary: string };
+
+/**
+ * Maps a {@link CloneReinstallResult} (from the shared reinstall half) plus the
+ * member's key/entry to a {@link PluginOutcome}, using `status` as the single
+ * cross-boundary discriminator. Factored out of `processUpdateForAll` so the
+ * grouped orchestrator and the legacy per-entry path emit byte-identical
+ * outcomes — the failure arms (skipped-no-agents / copy-failed / aborted /
+ * blocked / clone-failed→failed / unknown→failed) and the success split
+ * (local `refreshed` vs git `updated`) live in exactly one place.
+ */
+export function mapReinstallResultToOutcome(
+	key: string,
+	entry: ManifestEntry,
+	result: CloneReinstallResult,
+): PluginOutcome {
+	if (isCloneReinstallFailure(result)) {
+		return mapCloneFailure<PluginOutcome>(result, {
+			onNoAgents: () => ({
+				status: "skipped-no-agents",
+				key,
+				summary: `${key}: Skipped — no longer supports installed agents`,
+			}),
+			onCopyFailed: (msg) => ({ status: "copy-failed", key, summary: msg }),
+			onAborted: (recordedType, reason) => ({
+				status: "aborted",
+				key,
+				summary: buildAbortMessage(key, recordedType, reason),
+			}),
+			onBlocked: (reason) => ({
+				status: "blocked",
+				key,
+				summary: buildCopySafetyMessage(key, reason),
+			}),
+			onCloneFailed: (msg) => ({
+				status: "failed",
+				key,
+				summary: `${key}: Failed — ${msg}`,
+			}),
+			onUnknown: (msg) => ({
+				status: "failed",
+				key,
+				summary: `${key}: Failed — ${msg}`,
+			}),
+		});
+	}
+
+	if (entry.commit === null) {
+		return {
+			status: "refreshed",
+			key,
+			summary: renderUpdateOutcomeSummary({
+				type: "local-update",
+				key,
+				droppedAgents: result.droppedAgents,
+			}),
+			newEntry: result.manifestEntry,
+		};
+	}
+
+	return {
+		status: "updated",
+		key,
+		summary: renderUpdateOutcomeSummary({
+			type: "git-update",
+			key,
+			oldCommit: entry.commit,
+			newCommit: result.manifestEntry.commit!,
+			droppedAgents: result.droppedAgents,
+		}),
+		newEntry: result.manifestEntry,
+	};
+}
+
+interface EffectiveTarget {
+	/** The clone `--branch` override: the resolved tag for a constrained group,
+	 * `undefined` for a branch/HEAD group (clone at the stored branch/HEAD ref). */
+	ref: string | undefined;
+	/** The commit recorded for every updating member — the group's single
+	 * resolved sha, so all members land on one commit (group-first resolve-once). */
+	commit: string | null;
+}
+
+/**
+ * Derives the group's shared effective clone ref + recorded commit from the
+ * resolved {@link GroupTarget}. Only `constrained` / `branch` / `head` targets
+ * ever carry updating members, so those are the meaningful arms; the remaining
+ * kinds (`tag` newer-tags, `constrained-no-match`, `check-failed`) never reach
+ * {@link processGroupUpdate} with an updating subset and fall through to a
+ * no-op default.
+ */
+function resolveEffectiveTarget(target: GroupTarget): EffectiveTarget {
+	switch (target.kind) {
+		case "constrained":
+			return { ref: target.tag, commit: target.commit };
+		case "branch":
+		case "head":
+			return { ref: undefined, commit: target.resolvedSha };
+		default:
+			return { ref: undefined, commit: null };
+	}
+}
+
+/**
+ * Reinstalls a single group member from the shared clone, fully isolated in its
+ * own try/catch so one member's throw can never abort its siblings. Preserves
+ * the per-member lexical `sourceSubpath` containment guard
+ * ({@link assertSubpathWithinClone}) — dropping it would be a path-traversal
+ * regression — mapping a {@link PathTraversalError} to the same clone-failed
+ * pre-flight outcome the singleton path emits (no nuke, no copy, install
+ * intact). `cloneRoot` stays the whole clone so within-clone cross-member
+ * symlinks are allowed and only escapes beyond it are rejected.
+ */
+async function reinstallMember(
+	member: { key: string; entry: ManifestEntry },
+	tempDir: string,
+	effectiveRef: string | undefined,
+	effectiveCommit: string | null,
+	projectDir: string,
+): Promise<PluginOutcome> {
+	const { key, entry } = member;
+	try {
+		if (entry.sourceSubpath) {
+			try {
+				assertSubpathWithinClone(tempDir, entry.sourceSubpath);
+			} catch (err) {
+				if (err instanceof PathTraversalError) {
+					return mapReinstallResultToOutcome(key, entry, {
+						status: "failed",
+						failureReason: "clone-failed",
+						message: err.message,
+					});
+				}
+				throw err;
+			}
+		}
+
+		const sourceDir = resolveUpdateSourceDir(tempDir, key, entry.sourceSubpath);
+
+		const result = await runPipeline({
+			key,
+			entry,
+			projectDir,
+			sourceDir,
+			cloneRoot: tempDir,
+			newRef: effectiveRef ?? null,
+			newCommit: effectiveCommit,
+		});
+
+		return mapReinstallResultToOutcome(key, entry, result);
+	} catch (err) {
+		return {
+			status: "failed",
+			key,
+			summary: `${key}: Failed — ${errorMessage(err)}`,
+		};
+	}
+}
+
+/**
+ * The group orchestrator (all-mode only): clones the group's tree exactly once
+ * via {@link cloneRepoOnce}, then reinstalls each updating `member` sequentially
+ * from that shared clone through the clone-agnostic reinstall half
+ * ({@link runPipeline}), returning one {@link PluginOutcome} per member.
+ *
+ * `members` is the group's updating subset (categorized `update-available` /
+ * `constrained-update-available`); the clone is taken from the group's first
+ * member since every member shares URL + effective ref. The whole member loop is
+ * wrapped so {@link cleanupTempDir} runs exactly once in a `finally`, and each
+ * member is isolated in its own try/catch (see {@link reinstallMember}). A clone
+ * failure is group-fatal and propagates to the caller (fanned out to N `failed`
+ * outcomes there), so it is deliberately NOT caught here.
+ */
+export async function processGroupUpdate(
+	group: EntryGroup,
+	members: Array<{ key: string; entry: ManifestEntry }>,
+	target: GroupTarget,
+	projectDir: string,
+): Promise<PluginOutcome[]> {
+	const firstMember = group.members[0]!;
+	const { ref: effectiveRef, commit: effectiveCommit } =
+		resolveEffectiveTarget(target);
+
+	const { tempDir } = await cloneRepoOnce({
+		key: firstMember.key,
+		entry: firstMember.entry,
+		...(effectiveRef !== undefined ? { newRef: effectiveRef } : {}),
+	});
+
+	const outcomes: PluginOutcome[] = [];
+	try {
+		for (const member of members) {
+			outcomes.push(
+				await reinstallMember(
+					member,
+					tempDir,
+					effectiveRef,
+					effectiveCommit,
+					projectDir,
+				),
+			);
+		}
+	} finally {
+		await cleanupTempDir(tempDir).catch(() => {});
+	}
+
+	return outcomes;
 }
