@@ -38,8 +38,8 @@
           "author_gate_mode": "auto",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
-          "phase": 3,
-          "task": "update-output-overhaul-3-2",
+          "phase": 4,
+          "task": "~",
           "task_map": {
             "update-output-overhaul-1": "tick-590cd8",
             "update-output-overhaul-1-1": "tick-ed3056",
