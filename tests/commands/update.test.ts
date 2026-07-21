@@ -1726,6 +1726,98 @@ describe("update command", () => {
 		});
 	});
 
+	describe("grouped tag-based version move (task 3-1)", () => {
+		function constrainedMember(
+			name: string,
+			ref: string,
+			commit: string,
+		): ManifestEntry {
+			return makeEntry({
+				ref,
+				commit,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [`.claude/skills/${name}/`],
+			});
+		}
+
+		it("grouped streaming threads old = members entry.ref and new = resolved target.tag into the header/member move", async () => {
+			const handle = captureSpinner();
+			// A 2-member constrained collection sharing one old tag (v1.2.3) and one
+			// old commit → shared-old header renders the tag move v1.2.3 -> v1.3.0.
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": constrainedMember("a", "v1.2.3", INSTALLED_SHA),
+				"owner/repo/b": constrainedMember("b", "v1.2.3", INSTALLED_SHA),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: null,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// The resolved target.tag (v1.3.0) and the shared members' entry.ref
+			// (v1.2.3) render as tags in the group header — not commit hashes.
+			expect(handle.start).toHaveBeenCalledWith(
+				"Updating owner/repo  v1.2.3 -> v1.3.0  (2 members)",
+			);
+		});
+
+		it("divergent-old constrained members each carry their own <oldTag> -> <newTag> in tags (header target-only)", async () => {
+			const handle = captureSpinner();
+			const SHA_A = "c".repeat(40);
+			const SHA_B = "d".repeat(40);
+			// Two members at DIFFERENT old tags/commits, both constrained ^1.0, both
+			// advancing to v1.3.0 → divergent-old: header shows the resolved tag only,
+			// each member line carries its own <oldTag> -> <newTag> move.
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": constrainedMember("a", "v1.2.0", SHA_A),
+				"owner/repo/b": constrainedMember("b", "v1.1.0", SHA_B),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: null,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// Divergent olds → header carries the resolved tag target only.
+			expect(handle.start).toHaveBeenCalledWith(
+				"Updating owner/repo -> v1.3.0  (2 members)",
+			);
+			// Each member threads its OWN entry.ref as oldRef against the shared
+			// target.tag → its own tag move on the member line.
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"a → claude  (v1.2.0 -> v1.3.0)",
+			);
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"b → claude  (v1.1.0 -> v1.3.0)",
+			);
+		});
+	});
+
 	describe("trailing non-actioned collapse (task 2-5)", () => {
 		function member(name: string, overrides: Partial<ManifestEntry> = {}) {
 			return makeEntry({

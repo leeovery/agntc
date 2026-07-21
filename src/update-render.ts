@@ -1,5 +1,12 @@
 import { formatDroppedAgentsSuffix } from "./summary.js";
 import type { EntryGroup } from "./update-groups.js";
+import { formatVersionMove, isVersionTag } from "./version-resolve.js";
+
+// The tag-vs-hash version-move rule is authored ONCE in version-resolve.ts (the
+// neutral, cycle-free home of isVersionTag). Re-exported here so the Phase 2
+// callers/tests keep importing `formatVersionMove` from update-render.js while
+// the decision logic lives in exactly one place.
+export { formatVersionMove };
 
 /**
  * The `owner/repo` a group installs from, taken from its first member key.
@@ -103,47 +110,48 @@ export function formatCloneFailureLine(
 }
 
 /**
- * The INTERIM version-move renderer: short (7-char) commit hashes joined by the
- * ` -> ` arrow, matching today's {@link renderUpdateOutcomeSummary}
- * (`summary.ts`). Deliberately hash-only — Phase 3 rewords this one helper (and
- * its callers) to speak in tags where both refs are genuine semver tags, so the
- * tag-vs-hash rule must NOT be encoded here. Reused verbatim by the divergent-old
- * per-member move line (task 2-3).
- */
-export function formatVersionMove(
-	oldCommit: string,
-	newCommit: string,
-): string {
-	return `${oldCommit.slice(0, 7)} -> ${newCommit.slice(0, 7)}`;
-}
-
-/**
  * The spinner-start header for a group's streamed update block: `Updating
  * <label>  <old> -> <new>  (N members)` when every updating member shares one
  * installed commit, or `Updating <label> -> <new>  (N members)` (resolved target
  * only) when their installed commits diverge — the shared "old" is then not
  * representable and moves to each member line (task 2-3).
  *
+ * The move tokens speak in semver TAGS where the shared {@link formatVersionMove}
+ * rule fires (both refs genuine tags AND the ref moved) and short hashes
+ * otherwise. `oldRefs` are the UPDATING members' installed refs (parallel to
+ * `oldCommits`); `newRef` is the group's resolved effective ref (the target tag
+ * for a constrained group, the branch name / null for a branch/HEAD group).
+ *
  * `oldCommits` are the UPDATING members' installed commits (one per attempted
  * member; up-to-date siblings excluded by the caller), so `(N members)` counts
  * the attempted set and is fixed at call time. Keying shared-vs-divergent on the
  * installed COMMIT (not ref) covers both an atomically-added constrained
  * collection (shared old) and members at different tags or branch/HEAD commits
- * (divergent old) uniformly. `members` is generic — a collection can hold plugin
- * members, not only skills.
+ * (divergent old) uniformly. For the divergent target-only header, the resolved
+ * target renders as its tag when it is one, else the short new hash. `members` is
+ * generic — a collection can hold plugin members, not only skills.
  */
 export function formatGroupHeader(input: {
 	label: string;
 	oldCommits: string[];
+	oldRefs: (string | null)[];
 	newCommit: string;
+	newRef: string | null;
 }): string {
-	const { label, oldCommits, newCommit } = input;
+	const { label, oldCommits, oldRefs, newCommit, newRef } = input;
 	const count = oldCommits.length;
 	const distinct = new Set(oldCommits).size;
 	if (distinct === 1) {
-		return `Updating ${label}  ${formatVersionMove(oldCommits[0]!, newCommit)}  (${count} members)`;
+		const move = formatVersionMove({
+			oldRef: oldRefs[0]!,
+			newRef,
+			oldCommit: oldCommits[0]!,
+			newCommit,
+		});
+		return `Updating ${label}  ${move}  (${count} members)`;
 	}
-	return `Updating ${label} -> ${newCommit.slice(0, 7)}  (${count} members)`;
+	const target = isVersionTag(newRef) ? newRef : newCommit.slice(0, 7);
+	return `Updating ${label} -> ${target}  (${count} members)`;
 }
 
 /** The clack log level a member line renders at, chosen by outcome severity. */
@@ -171,7 +179,12 @@ export type MemberLineInput =
 			name: string;
 			agents: string[];
 			droppedAgents: string[];
-			move?: { oldCommit: string; newCommit: string } | null;
+			move?: {
+				oldRef: string | null;
+				newRef: string | null;
+				oldCommit: string;
+				newCommit: string;
+			} | null;
 	  }
 	| { kind: "copy-failed"; name: string; recoveryHint: string }
 	| { kind: "aborted"; name: string; message: string }
@@ -197,9 +210,7 @@ export function formatMemberLine(input: MemberLineInput): MemberLine {
 		case "success": {
 			const parts: string[] = [];
 			if (input.move) {
-				parts.push(
-					formatVersionMove(input.move.oldCommit, input.move.newCommit),
-				);
+				parts.push(formatVersionMove(input.move));
 			}
 			if (input.droppedAgents.length > 0) {
 				parts.push(

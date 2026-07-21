@@ -77,8 +77,67 @@ const OLD_B = "bbbbbbb222222233333334444444555555566666";
 const NEW = "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e";
 
 describe("formatVersionMove", () => {
-	it("returns <oldShort> -> <newShort> for reuse on member lines", () => {
-		expect(formatVersionMove(OLD_A, NEW)).toBe("1a2b3c4 -> 9f8e7d6");
+	it("renders <oldTag> -> <newTag> when both refs are semver tags and the ref moved", () => {
+		expect(
+			formatVersionMove({
+				oldRef: "v1.2.3",
+				newRef: "v1.3.0",
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toBe("v1.2.3 -> v1.3.0");
+	});
+
+	it("falls to short hashes for a v4 branch (clean() null)", () => {
+		expect(
+			formatVersionMove({
+				oldRef: "v4",
+				newRef: "v4",
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toBe("1a2b3c4 -> 9f8e7d6");
+	});
+
+	it("falls to short hashes for a v4.0.0 branch when only the commit moved (oldRef === newRef)", () => {
+		expect(
+			formatVersionMove({
+				oldRef: "v4.0.0",
+				newRef: "v4.0.0",
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toBe("1a2b3c4 -> 9f8e7d6");
+	});
+
+	it("falls to short hashes for a branch/HEAD move (newRef null or non-tag)", () => {
+		expect(
+			formatVersionMove({
+				oldRef: "main",
+				newRef: "main",
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toBe("1a2b3c4 -> 9f8e7d6");
+		expect(
+			formatVersionMove({
+				oldRef: null,
+				newRef: null,
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toBe("1a2b3c4 -> 9f8e7d6");
+	});
+
+	it("uses unknown for a null old commit on the hash path", () => {
+		expect(
+			formatVersionMove({
+				oldRef: null,
+				newRef: null,
+				oldCommit: null,
+				newCommit: NEW,
+			}),
+		).toBe("unknown -> 9f8e7d6");
 	});
 });
 
@@ -87,7 +146,9 @@ describe("formatGroupHeader", () => {
 		const header = formatGroupHeader({
 			label: "owner/repo",
 			oldCommits: [OLD_A, OLD_A, OLD_A],
+			oldRefs: [null, null, null],
 			newCommit: NEW,
+			newRef: null,
 		});
 
 		expect(header).toBe("Updating owner/repo  1a2b3c4 -> 9f8e7d6  (3 members)");
@@ -97,7 +158,9 @@ describe("formatGroupHeader", () => {
 		const header = formatGroupHeader({
 			label: "owner/repo",
 			oldCommits: [OLD_A, OLD_B],
+			oldRefs: [null, null],
 			newCommit: NEW,
+			newRef: null,
 		});
 
 		expect(header).toBe("Updating owner/repo -> 9f8e7d6  (2 members)");
@@ -107,21 +170,44 @@ describe("formatGroupHeader", () => {
 		const header = formatGroupHeader({
 			label: "owner/repo",
 			oldCommits: [OLD_A, OLD_A, OLD_A, OLD_A, OLD_A, OLD_A, OLD_A],
+			oldRefs: [null, null, null, null, null, null, null],
 			newCommit: NEW,
+			newRef: null,
 		});
 
 		expect(header).toBe("Updating owner/repo  1a2b3c4 -> 9f8e7d6  (7 members)");
 	});
 
-	it("renders the version move as short commit hashes, not tags (interim — Phase 3 rewords)", () => {
+	it("shared-old group header renders the tag move v1.2.3 -> v1.3.0", () => {
 		const header = formatGroupHeader({
 			label: "owner/repo",
 			oldCommits: [OLD_A, OLD_A],
+			oldRefs: ["v1.2.3", "v1.2.3"],
 			newCommit: NEW,
+			newRef: "v1.3.0",
 		});
 
-		expect(header).toContain("1a2b3c4 -> 9f8e7d6");
-		expect(header).not.toContain("v1");
+		expect(header).toBe("Updating owner/repo  v1.2.3 -> v1.3.0  (2 members)");
+	});
+
+	it("divergent-old header shows -> <tag> for a tagged target and -> <hash> for a branch target", () => {
+		const tagged = formatGroupHeader({
+			label: "owner/repo",
+			oldCommits: [OLD_A, OLD_B],
+			oldRefs: ["v1.2.0", "v1.1.0"],
+			newCommit: NEW,
+			newRef: "v1.3.0",
+		});
+		expect(tagged).toBe("Updating owner/repo -> v1.3.0  (2 members)");
+
+		const branch = formatGroupHeader({
+			label: "owner/repo",
+			oldCommits: [OLD_A, OLD_B],
+			oldRefs: ["main", "main"],
+			newCommit: NEW,
+			newRef: "main",
+		});
+		expect(branch).toBe("Updating owner/repo -> 9f8e7d6  (2 members)");
 	});
 });
 
@@ -144,11 +230,31 @@ describe("formatMemberLine", () => {
 				name: "macos",
 				agents: ["claude"],
 				droppedAgents: [],
-				move: { oldCommit: OLD_A, newCommit: NEW },
+				move: { oldRef: null, newRef: null, oldCommit: OLD_A, newCommit: NEW },
 			}),
 		).toEqual({
 			level: "success",
 			text: "macos → claude  (1a2b3c4 -> 9f8e7d6)",
+		});
+	});
+
+	it("divergent-old member line renders its own <oldTag> -> <newTag> move in tags", () => {
+		expect(
+			formatMemberLine({
+				kind: "success",
+				name: "macos",
+				agents: ["claude"],
+				droppedAgents: [],
+				move: {
+					oldRef: "v1.2.0",
+					newRef: "v1.3.0",
+					oldCommit: OLD_A,
+					newCommit: NEW,
+				},
+			}),
+		).toEqual({
+			level: "success",
+			text: "macos → claude  (v1.2.0 -> v1.3.0)",
 		});
 	});
 
@@ -173,7 +279,7 @@ describe("formatMemberLine", () => {
 				name: "macos",
 				agents: ["claude"],
 				droppedAgents: ["codex"],
-				move: { oldCommit: OLD_A, newCommit: NEW },
+				move: { oldRef: null, newRef: null, oldCommit: OLD_A, newCommit: NEW },
 			}),
 		).toEqual({
 			level: "success",

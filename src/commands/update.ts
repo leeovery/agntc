@@ -670,6 +670,7 @@ async function streamGroupWork(
 	groups: EntryGroup[],
 ): Promise<StreamedUnit> {
 	const newCommit = groupTargetCommit(item.target);
+	const newRef = groupTargetRef(item.target, item.group);
 	const label = groupLabel(item.group, groups);
 	const single = item.updating.length === 1;
 	const header = single
@@ -677,7 +678,9 @@ async function streamGroupWork(
 		: formatGroupHeader({
 				label,
 				oldCommits: item.updating.map((m) => m.entry.commit!),
+				oldRefs: item.updating.map((m) => m.entry.ref),
 				newCommit,
+				newRef,
 			});
 
 	const spin = p.spinner();
@@ -704,7 +707,7 @@ async function streamGroupWork(
 		p.log.error(formatCloneFailureLine(label, affected));
 	} else {
 		spin.stop(header);
-		streamGroupMemberLines(item, outcomes, newCommit);
+		streamGroupMemberLines(item, outcomes, newCommit, newRef);
 	}
 
 	return { outcomes, manifest };
@@ -788,6 +791,27 @@ function groupTargetCommit(target: GroupTarget): string {
 }
 
 /**
+ * The resolved target REF an updatable group lands on — the shared "new" ref fed
+ * to the tag-vs-hash {@link formatVersionMove} rule. A constrained group resolves
+ * to its target TAG (a genuine semver tag → renders as a tag against a tagged
+ * old); a branch/HEAD group stays on its shared version intent (the branch name,
+ * or `null` for HEAD-tracked) — never a tag, so those always fall to hashes. Only
+ * `constrained`/`branch`/`head` targets ever carry updating members; the default
+ * is unreachable for a streamed group.
+ */
+function groupTargetRef(target: GroupTarget, group: EntryGroup): string | null {
+	switch (target.kind) {
+		case "constrained":
+			return target.tag;
+		case "branch":
+		case "head":
+			return group.versionIntent;
+		default:
+			return null;
+	}
+}
+
+/**
  * Collapses a group-of-one (a standalone or a single-updated collection member)
  * or a local entry to a single streamed line: a success reuses the interim
  * {@link renderUpdateOutcomeSummary} text (`<key>: Updated …` / `<key>: Refreshed
@@ -817,12 +841,18 @@ function streamGroupMemberLines(
 	item: GroupWorkItem,
 	outcomes: PluginOutcome[],
 	newCommit: string,
+	newRef: string | null,
 ): void {
 	const divergent = new Set(item.updating.map((m) => m.entry.commit)).size > 1;
 	for (let i = 0; i < outcomes.length; i++) {
 		const member = item.updating[i]!;
 		const move = divergent
-			? { oldCommit: member.entry.commit!, newCommit }
+			? {
+					oldRef: member.entry.ref,
+					newRef,
+					oldCommit: member.entry.commit!,
+					newCommit,
+				}
 			: null;
 		emitMemberLine(outcomes[i]!, member, member.key.split("/").pop()!, move);
 	}
@@ -843,7 +873,12 @@ function emitMemberLine(
 	outcome: PluginOutcome,
 	member: GroupMember,
 	name: string,
-	move: { oldCommit: string; newCommit: string } | null,
+	move: {
+		oldRef: string | null;
+		newRef: string | null;
+		oldCommit: string;
+		newCommit: string;
+	} | null,
 ): void {
 	let line: MemberLine;
 	switch (outcome.status) {

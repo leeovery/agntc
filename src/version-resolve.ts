@@ -31,6 +31,37 @@ export function isVersionTag(ref: string | null): boolean {
 	return ref !== null && clean(ref) !== null;
 }
 
+/** The old/new refs and commits a version move is rendered from. */
+export interface VersionMoveInput {
+	oldRef: string | null;
+	newRef: string | null;
+	oldCommit: string | null;
+	newCommit: string;
+}
+
+/**
+ * The SINGLE tag-vs-hash decision for a version move, shared by the grouped
+ * progress surface ({@link import("./update-render.js")}) and the summary
+ * renderers. Renders `<oldRef> -> <newRef>` when BOTH refs are genuine semver
+ * tags AND the ref actually moved (`oldRef !== newRef`); otherwise falls back to
+ * short (7-char) commit hashes, with `unknown` for a null old commit. The signal
+ * is never the string shape alone — {@link isVersionTag} is `clean()`-based, so
+ * a `v4` branch (clean() null) and a `v4.0.0` branch whose only the commit moved
+ * (`oldRef === newRef`) both land on the hash path. The ` -> ` ASCII arrow is
+ * verbatim.
+ */
+export function formatVersionMove(input: VersionMoveInput): string {
+	if (
+		isVersionTag(input.oldRef) &&
+		isVersionTag(input.newRef) &&
+		input.oldRef !== input.newRef
+	) {
+		return `${input.oldRef} -> ${input.newRef}`;
+	}
+	const oldShort = input.oldCommit ? input.oldCommit.slice(0, 7) : "unknown";
+	return `${oldShort} -> ${input.newCommit.slice(0, 7)}`;
+}
+
 export interface VersionOverrides {
 	newRef: string;
 	newCommit: string;
