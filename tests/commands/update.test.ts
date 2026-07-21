@@ -3659,6 +3659,470 @@ describe("update command", () => {
 		});
 	});
 
+	describe("ratified exit-code posture — safe-vs-major bump gating (task 4-3 regression lock)", () => {
+		// The ratified spec ("Exit-code posture — single-key vs all-mode") pins an
+		// INTENTIONAL divergence for the two non-hard-failure categories, check-failed
+		// and constrained-no-match:
+		//
+		//   | category               | single-key      | all-mode           |
+		//   | ---------------------- | --------------- | ------------------ |
+		//   | check-failed           | ExitSignal(1)   | warn, exit 0       |
+		//   | constrained-no-match   | ExitSignal(1)   | warn, exit 0       |
+		//   | aborted                | ExitSignal(1)   | ExitSignal(1)      |
+		//   | blocked                | ExitSignal(1)   | ExitSignal(1)      |
+		//   | failed (clone fan-out) | ExitSignal(1)   | ExitSignal(1)      |
+		//   | copy-failed            | ExitSignal(1)   | ExitSignal(1)      |
+		//   | up-to-date/newer-tags/ | exit 0          | exit 0             |
+		//   |   skipped-no-agents    |                 |                    |
+		//
+		// Single-key exits 1 on check-failed / constrained-no-match because the
+		// requested action did not happen; all-mode WARNS and exits 0 (both are
+		// excluded from hasFailedOutcome — a batch is not sunk by one dead remote or
+		// one stuck constraint). hasFailedOutcome membership is EXACTLY
+		// aborted | blocked | failed | copy-failed. This block is a verification /
+		// regression lock: the posture is already implemented (Phase 1 task 1-8 for the
+		// all-mode fan-out, pre-existing runSingleUpdate code for single-key). It
+		// authors one NAMED lock per matrix cell so the posture cannot drift; each cell
+		// asserts the exit explicitly. Finer-grained behavioural coverage lives in the
+		// "check-failed", "constrained-no-match — single plugin", "check/resolve-fatal
+		// fan-out — all-mode group (task 1-8)", "constrained statuses — all-plugins
+		// mode", "all-updates partial-success exit", "symlink-escape copy-safety block",
+		// "clone-fatal fan-out & grouped rendering", and "copy-failed — all-updates
+		// mode" blocks; these tests reference and consolidate them into the matrix.
+		// A regression here is a genuine posture break, NOT a test to relax.
+
+		function skillEntry(name: string): ManifestEntry {
+			return makeEntry({
+				type: "skill",
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [`.claude/skills/${name}/`],
+			});
+		}
+
+		// --- single-key: strict, exit 1 on both non-hard-failure categories ---
+
+		it("single-key check-failed exits 1", async () => {
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": makeEntry() });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: "network timeout",
+			});
+
+			const err = await runUpdate("owner/repo").catch((e) => e);
+
+			// The requested action did not happen -> ExitSignal(1), loud error.
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockLog.error).toHaveBeenCalledWith(
+				"Update check failed for owner/repo: network timeout",
+			);
+		});
+
+		it("single-key constrained-no-match exits 1", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^2.0",
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({ status: "constrained-no-match" });
+
+			const err = await runUpdate("owner/repo").catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockLog.error).toHaveBeenCalledWith(
+				"No tags satisfy the constraint for owner/repo. Plugin left untouched.",
+			);
+		});
+
+		// --- all-mode: the two non-hard-failure categories warn and exit 0 ---
+
+		it("all-mode check-failed warns and exits 0 (excluded from hasFailedOutcome), no manifest mutation", async () => {
+			const REASON = "ls-remote failed: could not read from remote";
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo-b": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+			});
+			// Group A's resolution probe fails (Phase 1 seam); group B resolves
+			// update-available and succeeds.
+			mockResolveGroupTarget.mockImplementation(async (group) =>
+				group.members[0]!.key === "owner/repo-a"
+					? { kind: "check-failed", reason: REASON }
+					: { kind: "head", resolvedSha: REMOTE_SHA },
+			);
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone-b",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/b/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
+			expect(err).toBeUndefined();
+			// Surfaced via warn, NOT error.
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			expect(warnCalls).toContain(`owner/repo-a: check failed — ${REASON}`);
+			expect(mockLog.error).not.toHaveBeenCalled();
+			// The check-failed group mutates no manifest state (probe failed before any
+			// clone); the succeeding sibling B still persists.
+			expect(mockCloneSource).toHaveBeenCalledTimes(1);
+			expect(mockAddEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+				expect.anything(),
+			);
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+			);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+		});
+
+		it("all-mode constrained-no-match warns and exits 0, entry left untouched", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^2.0",
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained-no-match",
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
+			expect(err).toBeUndefined();
+			// Surfaced via warn, NOT error.
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			expect(warnCalls).toContain(
+				"owner/repo: no tags satisfy ^2.0 — left untouched",
+			);
+			expect(mockLog.error).not.toHaveBeenCalled();
+			// Entry left untouched: no clone, no write, no add/remove.
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockAddEntry).not.toHaveBeenCalled();
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+		});
+
+		// --- all-mode: the four hard-failure categories each trip ExitSignal(1),
+		// while a succeeding sibling still persists (partial-success) ---
+
+		it("all-mode aborted exits 1 while the succeeded sibling persists", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": skillEntry("a"),
+				"owner/repo-b": skillEntry("b"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			// Distinct temp dirs so the derive gate can be failed for repo-a only.
+			mockCloneSource
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// repo-a's recorded SKILL.md is gone in its re-clone -> derive-before-delete
+			// abort (install intact, entry untouched); repo-b clean.
+			mockAccess.mockImplementation(async (path: unknown) => {
+				if (typeof path === "string" && path.includes("/clone-a/")) {
+					throw new Error("ENOENT");
+				}
+				return undefined;
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/b/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// aborted is in hasFailedOutcome membership -> ExitSignal(1).
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// Partial success: sibling B persisted; aborted A entry left intact.
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+			);
+			expect(mockWriteManifest.mock.calls.length).toBeGreaterThan(0);
+			expect(
+				(mockWriteManifest.mock.calls.at(-1)![1] as Manifest)["owner/repo-b"],
+			).toBeDefined();
+		});
+
+		it("all-mode blocked exits 1 while the succeeded sibling persists", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": skillEntry("a"),
+				"owner/repo-b": skillEntry("b"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// repo-a's re-clone has an escaping symlink -> copy-safety block (install
+			// intact, entry untouched); repo-b clean.
+			mockScanForEscapingSymlinks.mockImplementation(
+				async (sourceDir: unknown) => {
+					if (typeof sourceDir === "string" && sourceDir.includes("/clone-a")) {
+						throw new SymlinkEscapeError("evil-link", "/etc/passwd");
+					}
+					return undefined;
+				},
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/b/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// blocked is in hasFailedOutcome membership -> ExitSignal(1).
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// Partial success: sibling B persisted; blocked A entry left intact.
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+			);
+			expect(
+				(mockWriteManifest.mock.calls.at(-1)![1] as Manifest)["owner/repo-b"],
+			).toBeDefined();
+		});
+
+		it("all-mode failed (clone-failure fan-out) exits 1, no entries removed", async () => {
+			const member = (name: string): ManifestEntry =>
+				makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [`.claude/skills/${name}/`],
+				});
+			// Two 2-member collections -> two groups. Group A's shared clone throws
+			// (group-fatal), fanning out to N `failed` outcomes (Phase 1 task 1-7);
+			// group B clones and updates.
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a/x": member("x"),
+				"owner/repo-a/y": member("y"),
+				"owner/repo-b/m": member("m"),
+				"owner/repo-b/n": member("n"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource
+				.mockRejectedValueOnce(new Error("git clone failed"))
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// `failed` is in hasFailedOutcome membership -> ExitSignal(1).
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// A clone failure removes NO entries (only copy-failed does).
+			expect(mockRemoveEntry).not.toHaveBeenCalled();
+			// Sibling group B still streamed and persisted; group A wrote nothing.
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b/m",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			expect(mockAddEntry).not.toHaveBeenCalledWith(
+				expect.anything(),
+				expect.stringContaining("owner/repo-a"),
+				expect.anything(),
+			);
+		});
+
+		it("all-mode copy-failed exits 1, its entry removed, siblings persist", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo-b": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// repo-a's re-copy throws AFTER its old files are nuked -> copy-failed
+			// (its entry is removed); repo-b succeeds.
+			mockCopyBareSkill
+				.mockRejectedValueOnce(new Error("disk full"))
+				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/b/"] });
+
+			const err = await runUpdate().catch((e) => e);
+
+			// copy-failed is in hasFailedOutcome membership -> ExitSignal(1).
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			// Its own entry removed; the sibling still persists.
+			expect(mockRemoveEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-a",
+			);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo-b",
+				expect.objectContaining({ commit: REMOTE_SHA }),
+			);
+			const lastWrite = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+			expect(lastWrite["owner/repo-a"]).toBeUndefined();
+			expect(lastWrite["owner/repo-b"]).toBeDefined();
+		});
+
+		// --- capstone: hasFailedOutcome membership is EXACTLY the four hard failures;
+		// no non-actioned / skipped category trips the all-mode non-zero exit ---
+
+		it("no non-actioned status (up-to-date / newer-tags / check-failed / constrained-no-match / skipped-no-agents) trips the all-mode non-zero exit", async () => {
+			const handle = captureSpinner();
+			const CHECK_REASON = "ls-remote failed: dead remote";
+			// Five groups, one per non-actioned / skipped category — none of which is a
+			// member of hasFailedOutcome (aborted | blocked | failed | copy-failed).
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/uptodate": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/uptodate/"],
+				}),
+				"owner/newer": makeEntry({
+					ref: "v1.0",
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/newer/"],
+				}),
+				"owner/checkfail": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/checkfail/"],
+				}),
+				"owner/nomatch": makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^2.0",
+					agents: ["claude"],
+					files: [".claude/skills/nomatch/"],
+				}),
+				// update-available at resolve time, then drops to skipped-no-agents at
+				// reinstall (re-cloned config no longer supports the installed agent).
+				"owner/noagents": makeEntry({
+					type: "skill",
+					commit: INSTALLED_SHA,
+					agents: ["codex"],
+					files: [".agents/skills/noagents/"],
+				}),
+			});
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				const key = group.members[0]!.key;
+				if (key === "owner/uptodate") {
+					return { kind: "head", resolvedSha: INSTALLED_SHA };
+				}
+				if (key === "owner/newer") {
+					return { kind: "tag", tag: "v1.0", newerTags: ["v2.0"] };
+				}
+				if (key === "owner/checkfail") {
+					return { kind: "check-failed", reason: CHECK_REASON };
+				}
+				if (key === "owner/nomatch") {
+					return { kind: "constrained-no-match" };
+				}
+				return { kind: "head", resolvedSha: REMOTE_SHA };
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone-noagents",
+				commit: REMOTE_SHA,
+			});
+			// Re-cloned config supports only claude -> the codex-only entry drops to
+			// no-agents (a benign skip, not a hard failure).
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// None of the five categories is a hasFailedOutcome member -> exit 0.
+			expect(err).toBeUndefined();
+			// Every category was genuinely produced (not swallowed by an early return):
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const messageCalls = mockLog.message.mock.calls.map(
+				(c) => c[0] as string,
+			);
+			expect(warnCalls).toContain(
+				`owner/checkfail: check failed — ${CHECK_REASON}`,
+			);
+			expect(warnCalls).toContain(
+				"owner/nomatch: no tags satisfy ^2.0 — left untouched",
+			);
+			expect(infoCalls.some((m) => m.includes("newer tags available"))).toBe(
+				true,
+			);
+			expect(messageCalls.some((m) => m.includes("up to date"))).toBe(true);
+			expect(
+				stopTexts(handle, 0).some(
+					(m) => m.includes("owner/noagents") && m.includes("skipped"),
+				),
+			).toBe(true);
+			// No hard-failure category surfaced -> no loud error anywhere.
+			expect(mockLog.error).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("constructs ParsedSource for cloneSource", () => {
 		it("creates github-shorthand ParsedSource from manifest key and entry ref", async () => {
 			const entry = makeEntry({ ref: "dev" });
