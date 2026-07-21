@@ -38,11 +38,19 @@ The fix groups manifest entries that would clone the identical tree, clones once
 
 ### Grouping key
 
-**Group by the deterministic pre-resolution identity `(resolvedCloneUrl, ref, constraint)`** — "entries whose version *intent* points at the same tree" — then **resolve the target once per group** and clone once. The key is the identity computable from the manifest alone (no network), *not* the resolved commit.
+**Group by the deterministic pre-resolution *version intent*, `(resolvedCloneUrl, versionIntent)`** — "entries whose intent points at the same tree" — then **resolve the target once per group** and clone once. The key is computable from the manifest alone (no network), *not* the resolved commit.
 
-- `cloneSource` clones at a specific `--branch <ref>`. Two entries from the same repo with different version intent (`owner/repo/a@^1` vs `owner/repo/b@^2` — different `constraint`) must not share a clone → different groups. Same repo + same `(ref, constraint)` → one group, one clone.
+`versionIntent = constraint ?? ref` — the component that fixes which tree the entry wants. It differs by pinning mode, because for a constrained entry the stored `ref` is *not* the intent:
+
+- **Constrained (caret) entry** — intent is the **`constraint`**; the stored `ref` is the entry's *current resolved tag*, which mutates on every update (`checkConstrained` compares `best.tag === entry.ref`, `update-check.ts:218`, and a successful update writes the resolved tag back into `entry.ref`, `nuke-reinstall-pipeline.ts:117,298-311`). Grouping on `ref` would split a collection the instant one member is updated singly (a `v1.3.0` member and a `v1.2.3` sibling key differently) — defeating the dedup for exactly the collections this feature targets, and contradicting the genuine-state-split guarantee below. So a constrained entry groups on `(resolvedCloneUrl, constraint)` and **excludes `ref`**.
+- **Unconstrained entry** (branch, HEAD-tracked `ref === null`, or exact-pin) — intent *is* the **`ref`** (branch name, `null` for HEAD, or the pinned tag), which is fixed and does not mutate under `update`. These group on `(resolvedCloneUrl, ref)`.
+
+Precise rules:
+
+- Two entries from the same repo with different intent must not share a clone: `owner/repo/a@^1` vs `owner/repo/b@^2` (different `constraint`) → different groups; a branch entry and a caret entry for the same repo → different groups (different intent components). (The `constraint`-vs-`ref` discriminators are namespaced so a caret string can never coincidentally key-collide with a tag ref.)
+- **The clone happens at the group's *effective* ref:** the stored `ref` for an unconstrained group, or the **resolved target tag** for a constrained group (passed as the `newRef` override to `cloneSource`, exactly as today's constrained single-update does).
 - **The key uses the *resolved* clone URL** (via `deriveCloneUrlFromKey(key, entry.cloneUrl)`), not the raw `entry.cloneUrl` field (which is `null` on legacy manifests). Otherwise a legacy entry and an explicit-URL entry for the same repo wouldn't collapse.
-- Collection members collapse into one group **for free**: added atomically, they share `resolvedCloneUrl` + `ref` + `constraint`.
+- Collection members collapse into one group **for free**: added atomically, they share `resolvedCloneUrl` and the same intent (`constraint` for a caret collection, `ref` for a branch/pinned collection) — and stay grouped even after a member is updated singly, because a constrained group's key excludes the mutating `ref`.
 - **Local entries** (`commit === null`) never clone — excluded from grouping entirely; one reinstall each, unchanged.
 
 ### Group-first pipeline — check/resolve once per group
@@ -62,6 +70,9 @@ The key **must** be the pre-resolution identity — keying on the resolved `targ
 ### Genuine-state splits are intended
 
 Members compare their own installed commit against the shared resolved target — so within one group, a member already at the target is **up-to-date** while a behind sibling **updates**. This genuine-state split (e.g. a member updated singly before) is intended and expected: the group shares a *target*, not a *category*. Only the *race*-induced split is what group-first closes.
+
+- For a **constrained** group this holds precisely because `ref` is excluded from the key (see *Grouping key*): the singly-updated member — now at the newer tag but still within the constraint — stays grouped with its behind siblings and reports up-to-date.
+- For a **branch/HEAD** group the split is at the *commit* level: members share the branch `ref` but sit at different installed commits, all advancing to the same resolved HEAD.
 
 ### Grouping spans both processing loops
 
@@ -139,9 +150,14 @@ Illustrative shape:
 
 **Rejected: fully flat per-member** (every member its own `Updating owner/repo/x…` line, clone invisible). More uniform with the singleton path, but discards the one-clone-per-repo legibility dedup just bought and reintroduces a milder repetitive wall.
 
+### Local entries
+
+A local entry (`commit === null`) is excluded from grouping and never clones, so it does not fit the group-header + clone-spinner model. It renders as a **group-of-one** line in the actioned stream — `✓ <key>: Refreshed from local path` (its existing local-update wording, `renderUpdateOutcomeSummary` `local-update`) — with no clone spinner and no version move (there is nothing to clone and no ref to move). It streams inline in the actioned phase in processing order alongside the streamed groups, and is subject to per-member reinstall isolation and per-entry manifest persistence like any other unit.
+
 ### Version move & dropped-agents placement
 
-- **Version move → the group header.** "Resolve once per group" makes the old→new a single shared group property: `◒ Updating owner/repo  v1.2.3 → v1.3.0  (N members)`. This is where the tag-vs-hash rule (see *Tag-Based Summary Wording*) renders for the grouped path. Without this, a *multi-member* collection would show the version move nowhere — the per-member line is `✓ member → agents` (agents, not version).
+- **Version move → the group header.** "Resolve once per group" makes the new target a single shared group property: `◒ Updating owner/repo  v1.2.3 → v1.3.0  (N members)`. This is where the tag-vs-hash rule (see *Tag-Based Summary Wording*) renders for the grouped path. Without this, a *multi-member* collection would show the version move nowhere — the per-member line is `✓ member → agents` (agents, not version).
+- **Header "old" ref when updating members diverge.** The *new* ref is genuinely shared (the group's resolved target); the *old* ref is per-member (each updating member's own installed `ref`/commit). When the updating members share one old ref — the common case, an atomically-added collection all at the same tag — the header shows that shared `old → new`. When their olds diverge (e.g. members manually installed at different tags, all now advancing to the target), the header shows **only the resolved target** (`◒ Updating owner/repo → v1.3.0 (N members)`) and each member whose old differs from the group carries its own `old → new` on its member line, so no member's actual move is hidden. (Up-to-date members are excluded from the count and contribute no "old".)
 - **Dropped-agents notice → the member line.** Agent support is per-member (each member's config can drop agents independently), so it rides its own line: `✓ macos → claude  (codex support removed by author)`. This is the `formatDroppedAgentsSuffix` "support removed by author" notice (`summary.ts:261-277`), which otherwise had no home in the member line.
 - **Group-of-one** unchanged — collapses to one line carrying the version (`✓ vendor/tool: Updated v1.2.3 → v1.3.0`).
 
@@ -149,6 +165,7 @@ Illustrative shape:
 
 Actioned outcomes stream inline as each group completes; the end-of-run summary loop shrinks to non-actioned check categories only.
 
+- **Two phases: batched check, then streamed updates.** All groups are resolved/checked up front under a single leading `Checking for updates…` spinner (per-group probes may run in parallel across distinct repos, as today's checks do via `Promise.all`); this is where each group's target and version move are resolved. Only *updatable* groups then enter the streaming phase, each with its own `Updating <repo> v… → v… (N members)` spinner in deterministic processing order. A group whose check finds every member non-updatable (all up-to-date / `newer-tags` / `constrained-no-match`) never clones and never emits an `Updating` spinner — it is silent in the streamed phase and appears only as its collapsed trailing line. This is why the group spinner can carry the resolved version move: the check has already resolved it before streaming begins.
 - **Per group:** a `p.spinner()` starts `Updating <repo>…` and spins through the clone (the slow part); on completion the per-member result lines are emitted as persistent `p.log.*` lines. A group's results appear the moment it finishes, in processing order.
 - **The spinner does NOT tick live per member during reinstall** — it spins on the group name through the clone, then emits the per-member lines on completion. Per-member reinstalls are fast local file copies; live per-member ticking mostly flickers without adding signal.
 - **End-of-run loop retained only for non-actioned check categories** — `up-to-date`, `newer-tags`, `check-failed`, `constrained-no-match` — plus the out-of-constraint footer. These never entered a processing group, so a tidy trailing summary is the right home.
@@ -160,6 +177,8 @@ Net stream: `Checking for updates…` → streamed group results (each live) →
 Today the manifest is written once at the end (`update.ts:507-530`), *before* the summary loop prints — so a ✓ implies a persisted entry. Emit-on-completion would invert that (✓ streams before the single end write), so a failed write or Ctrl-C after some ✓ lines printed would show units as succeeded while the manifest still records the old commit.
 
 **Decision:** write the manifest **per group, right before streaming that group's ✓** — so the ✓ is honest (persisted before shown) and an interrupt leaves the manifest *matching disk* (early groups recorded, later ones not — accurate, so recovery does less redundant work). Trades the single write for a few cheap incremental writes (manifests are small). `outcomes[]` is still collected for the `hasFailedOutcome` exit code (`update.ts:618-631`); what changes is *when* the manifest persists (per group, not one end-of-run write).
+
+This "matching disk" guarantee holds at **group boundaries** — completed groups recorded, not-yet-started groups untouched. It does **not** cover a SIGINT *mid-member*, in the nuke-and-reinstall window after a member's old files are deleted but before its re-copy and the per-group write completes: there the manifest still records the now-deleted files. That window is the pre-existing SIGINT gap (see *Failure isolation & lifecycle* — no worse than today) and is out of scope here.
 
 ### Partial collections & counts
 
@@ -231,6 +250,7 @@ The *gating behaviour* already exists, entirely via semver caret semantics — *
 
 - **0.x-minor** confirmed gated by caret (above) — no special-casing needed; it rides the same out-of-constraint path as a major, with the same actionable message.
 - **Consistency fix:** the all-mode `newer-tags` line (`update.ts:541`) currently says "newer tags available (latest: X)" but omits the `agntc add` command the single-key path includes. Align it so exact-pin messaging is consistent across single-key and all-mode.
+- **Command granularity for the collapsed line:** because the all-mode `newer-tags` line collapses to **one line per repo-group** (see *Partial collections & counts*), its command is **repo-level** — `npx agntc add owner/repo@<newest>` — which for a collection re-adds the collection (re-selecting members at the pinned newest tag) and for a standalone re-adds the plugin, mirroring the caret footer's repo-level re-add. The single-key path stays member/key-scoped (`npx agntc add <key>@<newest>`), since it targets one plugin.
 
 ### Exit-code posture — single-key vs all-mode (ratified, not changed)
 
@@ -258,7 +278,7 @@ Observable outcomes the finished feature must satisfy:
 2. Each updated member streams its own `✓ member → agents` line under a single group header carrying the version move; a standalone collapses to one line.
 3. The version move renders in **tags** only when both refs are semver tags and the ref moved; otherwise short hashes — on both single-key and all-mode surfaces.
 4. Actioned outcomes stream inline on group completion; only non-actioned categories (`up-to-date`, `newer-tags`, `check-failed`, `constrained-no-match`) plus the out-of-constraint footer appear in the trailing summary, each collapsed to **one line per repo-group**.
-5. The manifest is persisted per group before that group's ✓ streams; an interrupt leaves the manifest matching disk.
+5. The manifest is persisted per group before that group's ✓ streams; an interrupt leaves the manifest matching disk **at group boundaries** (the mid-member nuke-and-reinstall window is the pre-existing SIGINT gap, out of scope).
 6. A clone failure fails all N members of its group (attributed per-key for exit accounting, rendered as one grouped line), removes no entries, and exits non-zero.
 7. A per-member reinstall failure (`copy-failed` / `aborted` / `blocked` / `no-agents`) is isolated to that member; siblings continue; the shared clone is cleaned up once.
 8. An out-of-constraint situation (major, or 0.x-minor) renders one actionable, mode-matched line per repo-group naming the post-bump current version and the newest available, with a re-add command that preserves the user's pinning mode; exit stays 0.
