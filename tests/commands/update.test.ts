@@ -226,6 +226,35 @@ beforeEach(() => {
 	installGroupTargetBridge();
 });
 
+/**
+ * Installs a STABLE spinner handle shared across every `p.spinner()` call in a
+ * test (the leading check spinner AND each streamed group-of-one spinner), so the
+ * collapsed group-of-one stop-frames can be asserted directly. A group-of-one now
+ * streams its single outcome as `spin.stop(text, code)` (code 2 = loud error ✗,
+ * code 0 = success/benign ◇) — NOT a separate `p.log.*` line.
+ */
+function captureSpinner() {
+	const handle = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
+	vi.mocked(p.spinner).mockReturnValue(
+		handle as unknown as ReturnType<typeof p.spinner>,
+	);
+	return handle;
+}
+
+type CapturedSpinner = ReturnType<typeof captureSpinner>;
+
+/**
+ * The collapsed group-of-one lines a run streamed as spinner stop-frames — every
+ * two-arg `spin.stop(text, code)` call, optionally filtered to one `code`
+ * (2 = error, 0 = success/benign). Excludes the leading check spinner's single-arg
+ * `stop("Update checks complete.")` and the >=2-member header stop (both one arg).
+ */
+function stopTexts(handle: CapturedSpinner, code?: 0 | 2): string[] {
+	return handle.stop.mock.calls
+		.filter((c) => c.length >= 2 && (code === undefined || c[1] === code))
+		.map((c) => c[0] as string);
+}
+
 describe("update command", () => {
 	describe("intro", () => {
 		it("shows the 'agntc update' intro (all-plugins mode)", async () => {
@@ -607,6 +636,7 @@ describe("update command", () => {
 		});
 
 		it("shows per-plugin summary", async () => {
+			const handle = captureSpinner();
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
 				agents: ["claude"],
@@ -644,11 +674,14 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			// Should have per-plugin info in the output
+			// Should have per-plugin info in the output — the updated repo-a now
+			// streams as its group-of-one spinner stop-frame, repo-b (up-to-date)
+			// via the trailing p.log summary.
 			const allMessages = [
 				...mockLog.info.mock.calls.map((c) => c[0]),
 				...mockLog.message.mock.calls.map((c) => c[0]),
 				...mockLog.success.mock.calls.map((c) => c[0]),
+				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some(
 				(msg) => typeof msg === "string" && msg.includes("owner/repo-a"),
@@ -1174,6 +1207,7 @@ describe("update command", () => {
 			// outcome. Per-group persistence doesn't change exit accounting: every
 			// member outcome still accumulates into outcomes[], so any
 			// copy-failed/aborted/blocked trips the non-zero exit.
+			const handle = captureSpinner();
 			const cf = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -1238,7 +1272,9 @@ describe("update command", () => {
 			expect((err as ExitSignal).code).toBe(1);
 			// All three failure outcomes were collected and reported (accumulated into
 			// outcomes[]), and the copy-failed one persisted its removal per group.
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			// Each is a group-of-one, so its loud line is the spinner stop-frame at
+			// code 2 (error ✗).
+			const errorCalls = stopTexts(handle, 2);
 			expect(errorCalls.some((m) => m.includes("owner/cf"))).toBe(true);
 			expect(errorCalls.some((m) => m.includes("owner/ab"))).toBe(true);
 			expect(errorCalls.some((m) => m.includes("owner/bl"))).toBe(true);
@@ -1246,6 +1282,447 @@ describe("update command", () => {
 				expect.anything(),
 				"owner/cf",
 			);
+		});
+	});
+
+	describe("streamed actioned phase (task 2-4)", () => {
+		const A_SUMMARY = "owner/repo-a: Updated aaaaaaa -> bbbbbbb";
+		const B_SUMMARY = "owner/repo-b: Updated aaaaaaa -> bbbbbbb";
+		const LOCAL_SUMMARY = "/local/path: Refreshed from local path";
+
+		function gitEntry(name: string): ManifestEntry {
+			return makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [`.claude/skills/${name}/`],
+			});
+		}
+
+		function localPluginEntry(): ManifestEntry {
+			return {
+				ref: null,
+				commit: null,
+				installedAt: "2026-02-01T00:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/local/"],
+				cloneUrl: null,
+			};
+		}
+
+		it("streams updatable groups and local entries in manifest order", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": gitEntry("a"),
+				"/local/path": localPluginEntry(),
+				"owner/repo-b": gitEntry("b"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// Each git group streams under its own Updating spinner (the local never does).
+			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-a");
+			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-b");
+			// Streamed outcome lines appear in manifest (processing) order: git A
+			// (its group-of-one spinner stop-frame), then the interleaved local
+			// (p.log.success, no spinner), then git B (its stop-frame).
+			expect(stopTexts(handle, 0)).toEqual([A_SUMMARY, B_SUMMARY]);
+			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual([
+				LOCAL_SUMMARY,
+			]);
+			const stopOrder = (text: string) =>
+				handle.stop.mock.invocationCallOrder[
+					handle.stop.mock.calls.findIndex((c) => c[0] === text)
+				]!;
+			const localOrder = mockLog.success.mock.invocationCallOrder[0]!;
+			expect(stopOrder(A_SUMMARY)).toBeLessThan(localOrder);
+			expect(localOrder).toBeLessThan(stopOrder(B_SUMMARY));
+		});
+
+		it("collapses a standalone updatable group to one Updated line", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": gitEntry("a"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// Animation is KEPT: the group-of-one still opens an Updating spinner...
+			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
+			// ...whose settled stop-frame IS the single collapsed Updated line (code 0
+			// = success). No separate p.log line beneath a header.
+			expect(handle.stop).toHaveBeenCalledWith(
+				"owner/repo: Updated aaaaaaa -> bbbbbbb",
+				0,
+			);
+			expect(mockLog.success).not.toHaveBeenCalled();
+			// Neither the start nor the stop carries a `(1 members)` header line.
+			const messages = [
+				...handle.start.mock.calls.map((c) => c[0] as string),
+				...handle.stop.mock.calls.map((c) => c[0] as string),
+			];
+			for (const m of messages) {
+				expect(m).not.toContain("(1 members)");
+			}
+		});
+
+		it("collapses a single updated collection member to one line keeping the /member suffix", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo/b": makeEntry({
+					commit: REMOTE_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+			});
+			// One group (same repo + HEAD intent); the shared target advances a but
+			// leaves b already-current — a genuine-state split, so only a updates.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/"],
+			});
+
+			await runUpdate();
+
+			// Collapsed to the spinner stop-frame carrying the FULL member key (the /a
+			// suffix distinguishes it from a true standalone), code 0, no separate line.
+			expect(handle.stop).toHaveBeenCalledWith(
+				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
+				0,
+			);
+			expect(mockLog.success).not.toHaveBeenCalled();
+			// The spinner still starts on the bare repo label (no member suffix, no count).
+			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
+		});
+
+		it("collapses a standalone whose single member copy-fails to one error stop-frame (code 2)", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": gitEntry("a"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// The re-copy throws after the old files are nuked → copy-failed.
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			// copy-failed trips the non-zero exit; catch so assertions run.
+			await runUpdate().catch(() => {});
+
+			// The single failure IS the spinner stop-frame at code 2 (error), carrying
+			// the copy-failed member line — no separate p.log.error beneath a header.
+			expect(handle.stop).toHaveBeenCalledWith(
+				"owner/repo: copy failed — Update failed for owner/repo after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+				2,
+			);
+			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
+		});
+
+		it("collapses a standalone whose single member skips (no agents) to one warn-text stop-frame (code 0, accepted ◇)", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": gitEntry("a"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			// The re-cloned config drops claude (codex-only) → no-agents skip.
+			mockReadConfig.mockResolvedValue({ agents: ["codex"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// clack `stop` has no warn code, so the accepted wrinkle is code 0 (the ◇
+			// glyph) with the "skipped — …" text carrying the meaning — one line only.
+			expect(handle.stop).toHaveBeenCalledWith(
+				"owner/repo: skipped — no longer supports installed agents",
+				0,
+			);
+			expect(mockLog.warn).not.toHaveBeenCalled();
+			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
+		});
+
+		it("emits header + one member line per attempted member for a >=2-member group (mixed success/failure/skip in one block)", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo/b": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+				"owner/repo/c": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/c/"],
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// c's re-cloned config drops claude (codex-only) → no-agents skip;
+			// a and b keep claude.
+			mockReadConfig.mockImplementation(async (dir: unknown) =>
+				typeof dir === "string" && dir.endsWith("/c")
+					? { agents: ["codex"] }
+					: { agents: ["claude"] },
+			);
+			// b's re-copy throws → copy-failed; a succeeds; c never reaches copy.
+			mockCopyBareSkill.mockImplementation(
+				async (opts: { sourceDir: string }) => {
+					if (opts.sourceDir.endsWith("/b")) {
+						throw new Error("disk full");
+					}
+					return { copiedFiles: [".claude/skills/updated/"] };
+				},
+			);
+
+			// copy-failed trips the non-zero exit; catch so assertions run.
+			await runUpdate().catch(() => {});
+
+			// One header carrying the attempted count.
+			expect(handle.start).toHaveBeenCalledWith(
+				"Updating owner/repo  aaaaaaa -> bbbbbbb  (3 members)",
+			);
+			// One member line each, all under the one header, at the matching level.
+			expect(mockLog.success).toHaveBeenCalledWith("a → claude");
+			expect(mockLog.error).toHaveBeenCalledWith(
+				"b: copy failed — Update failed for owner/repo/b after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo/b` to retry installation.",
+			);
+			expect(mockLog.warn).toHaveBeenCalledWith(
+				"c: skipped — no longer supports installed agents",
+			);
+		});
+
+		it("emits a local entry Refreshed line with no spinner and no clone, interleaved at its manifest position", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"/local/path": localPluginEntry(),
+				"owner/repo-a": gitEntry("a"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// Local streams first (manifest index 0) via p.log.success; the git group
+			// follows as its group-of-one spinner stop-frame.
+			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual([
+				LOCAL_SUMMARY,
+			]);
+			expect(stopTexts(handle, 0)).toEqual([
+				"owner/repo-a: Updated aaaaaaa -> bbbbbbb",
+			]);
+			const aStopOrder =
+				handle.stop.mock.invocationCallOrder[
+					handle.stop.mock.calls.findIndex(
+						(c) => c[0] === "owner/repo-a: Updated aaaaaaa -> bbbbbbb",
+					)
+				]!;
+			expect(mockLog.success.mock.invocationCallOrder[0]!).toBeLessThan(
+				aStopOrder,
+			);
+			// The local never clones and never opens an Updating spinner; only the git
+			// group does.
+			expect(mockCloneSource).toHaveBeenCalledTimes(1);
+			const starts = handle.start.mock.calls.map((c) => c[0] as string);
+			expect(starts.some((m) => m.includes("/local/path"))).toBe(false);
+			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-a");
+		});
+
+		it("writes the group manifest before emitting that group ✓ (persistence before stream)", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo-a": gitEntry("a"),
+				"owner/repo-b": gitEntry("b"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// Two distinct repos → two groups-of-one; each ✓ is now that group's
+			// spinner stop-frame (the collapsed Updated line), not a p.log line.
+			const writeOrders = mockWriteManifest.mock.invocationCallOrder;
+			const stopCalls = handle.stop.mock.calls;
+			const stopOrder = (text: string) =>
+				handle.stop.mock.invocationCallOrder[
+					stopCalls.findIndex((c) => c[0] === text)
+				]!;
+			const stopA = stopOrder("owner/repo-a: Updated aaaaaaa -> bbbbbbb");
+			const stopB = stopOrder("owner/repo-b: Updated aaaaaaa -> bbbbbbb");
+			// Group A's manifest write precedes its own stop-frame (persist before show)...
+			expect(writeOrders[0]).toBeLessThan(stopA);
+			// ...and A's stop-frame streams before group B's write even starts (per-group
+			// streaming, not a single batched end-of-run render).
+			expect(stopA).toBeLessThan(writeOrders[1]!);
+			expect(stopA).toBeLessThan(stopB);
+		});
+
+		it("does not tick the spinner per member during reinstall", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo/b": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+				"owner/repo/c": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/c/"],
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			// One group spinner on the header (plus the leading check spinner) — never
+			// a per-member message tick across the three reinstalls.
+			expect(handle.start).toHaveBeenCalledWith(
+				expect.stringContaining("Updating owner/repo"),
+			);
+			expect(handle.message).not.toHaveBeenCalled();
+		});
+
+		it("starts no Updating spinner for a group whose members are all non-updatable", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/updatable": gitEntry("u"),
+				"owner/pinned": makeEntry({ ref: "v1.0", commit: INSTALLED_SHA }),
+			});
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				const key = group.members[0]!.key;
+				return key === "owner/updatable"
+					? { kind: "head", resolvedSha: REMOTE_SHA }
+					: { kind: "tag", tag: "v1.0", newerTags: ["v2.0"] };
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+
+			await runUpdate();
+
+			const starts = handle.start.mock.calls.map((c) => c[0] as string);
+			// The updatable group streams under a spinner...
+			expect(starts.some((m) => m.includes("Updating owner/updatable"))).toBe(
+				true,
+			);
+			// ...but the pinned (newer-tags) group never clones and never opens one.
+			expect(starts.some((m) => m.includes("owner/pinned"))).toBe(false);
+			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 		});
 	});
 
@@ -1890,6 +2367,7 @@ describe("update command", () => {
 		});
 
 		it("all-updates: aborted outcome reports loud per-unit message naming remedy", async () => {
+			const handle = captureSpinner();
 			const entry = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -1912,11 +2390,9 @@ describe("update command", () => {
 			// catch so the summary assertions below still run.
 			await runUpdate().catch(() => {});
 
-			const allMessages = [
-				...mockLog.error.mock.calls,
-				...mockLog.warn.mock.calls,
-			].map((c) => c[0] as string);
-			const msg = allMessages.find(
+			// The single aborted member is a group-of-one → its loud line is the
+			// spinner stop-frame at code 2 (error ✗).
+			const msg = stopTexts(handle, 2).find(
 				(m) => m.includes("owner/repo") && m.includes("skill"),
 			);
 			expect(msg).toBeDefined();
@@ -1990,6 +2466,7 @@ describe("update command", () => {
 		});
 
 		it("all-updates: a symlink-escape member produces a non-success outcome (non-zero exit), manifest untouched, sibling still updates", async () => {
+			const handle = captureSpinner();
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -2057,12 +2534,11 @@ describe("update command", () => {
 				expect(written["owner/repo-a"]).toBeDefined();
 			}
 
-			// Copy-safety message rendered for the blocked member.
-			const allMessages = [
-				...mockLog.error.mock.calls,
-				...mockLog.warn.mock.calls,
-			].map((c) => c[0] as string);
-			const blockedMsg = allMessages.find((m) => m.includes("owner/repo-a"));
+			// Copy-safety message rendered for the blocked member — a group-of-one,
+			// so its loud line is the spinner stop-frame at code 2 (error ✗).
+			const blockedMsg = stopTexts(handle, 2).find((m) =>
+				m.includes("owner/repo-a"),
+			);
 			expect(blockedMsg).toBeDefined();
 			expect(blockedMsg).toContain("evil-link");
 			expect(blockedMsg).not.toContain("no longer supports that type");
@@ -2195,12 +2671,14 @@ describe("update command", () => {
 		});
 
 		it("reports the aborted unit loudly in the per-unit summary", async () => {
+			const handle = captureSpinner();
 			arrangePartialAbort();
 
 			await runUpdate().catch(() => {});
 
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
-			const msg = errorCalls.find((m) => m.includes("owner/repo-a"));
+			// repo-a aborts as a group-of-one → its loud line is the spinner
+			// stop-frame at code 2 (error ✗).
+			const msg = stopTexts(handle, 2).find((m) => m.includes("owner/repo-a"));
 			expect(msg).toBeDefined();
 			expect(msg).toContain("skill");
 			expect(msg).toContain("unchanged");
@@ -2208,19 +2686,23 @@ describe("update command", () => {
 		});
 
 		it("lists per-unit outcomes for both the aborted and the succeeded unit", async () => {
+			const handle = captureSpinner();
 			arrangePartialAbort();
 
 			await runUpdate().catch(() => {});
 
-			const successCalls = mockLog.success.mock.calls.map(
-				(c) => c[0] as string,
+			// Each is its own group-of-one: repo-b succeeds (stop code 0), repo-a
+			// aborts (stop code 2).
+			expect(stopTexts(handle, 0).some((m) => m.includes("owner/repo-b"))).toBe(
+				true,
 			);
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
-			expect(successCalls.some((m) => m.includes("owner/repo-b"))).toBe(true);
-			expect(errorCalls.some((m) => m.includes("owner/repo-a"))).toBe(true);
+			expect(stopTexts(handle, 2).some((m) => m.includes("owner/repo-a"))).toBe(
+				true,
+			);
 		});
 
 		it("reports each aborted entry with its own reason (two distinct loud lines)", async () => {
+			const handle = captureSpinner();
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -2252,7 +2734,9 @@ describe("update command", () => {
 
 			await runUpdate().catch(() => {});
 
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			// Two standalone repos, each a group-of-one → two distinct loud
+			// stop-frames at code 2 (error ✗).
+			const errorCalls = stopTexts(handle, 2);
 			const msgA = errorCalls.find((m) => m.includes("owner/repo-a"));
 			const msgB = errorCalls.find((m) => m.includes("owner/repo-b"));
 			expect(msgA).toBeDefined();
@@ -2297,6 +2781,7 @@ describe("update command", () => {
 		it("abort is not swallowed by the all-up-to-date early return", async () => {
 			// owner/repo-current is up to date; owner/repo-a aborts. The abort must
 			// still be reported and force a non-zero exit (not the up-to-date path).
+			const handle = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-current": makeEntry({
 					commit: INSTALLED_SHA,
@@ -2331,8 +2816,10 @@ describe("update command", () => {
 			expect(mockOutro).not.toHaveBeenCalledWith(
 				expect.stringContaining("up to date"),
 			);
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
-			expect(errorCalls.some((m) => m.includes("owner/repo-a"))).toBe(true);
+			// repo-a aborts as a group-of-one → loud stop-frame at code 2 (error ✗).
+			expect(stopTexts(handle, 2).some((m) => m.includes("owner/repo-a"))).toBe(
+				true,
+			);
 		});
 
 		it("plugin single-entry abort is atomic — the entry stays intact and exits non-zero", async () => {
@@ -2374,6 +2861,7 @@ describe("update command", () => {
 			// a benign skip, NOT a hard error/abort. repo-b updates cleanly. The run
 			// must exit 0 (no ExitSignal), write the sibling, warn (not error) about
 			// the no-agents unit, and leave the no-agents entry untouched.
+			const handle = captureSpinner();
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -2423,9 +2911,17 @@ describe("update command", () => {
 				expect.anything(),
 				"owner/repo-a",
 			);
-			// Reported as a benign warning, not a loud error.
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-			expect(warnCalls.some((m) => m.includes("owner/repo-a"))).toBe(true);
+			// Reported as a benign code-0 stop-frame (◇), NOT a loud code-2 error (✗).
+			// clack `stop` has no warn code, so the no-agents skip rides code 0 with
+			// its "skipped — …" text carrying the meaning.
+			expect(
+				stopTexts(handle, 0).some(
+					(m) => m.includes("owner/repo-a") && m.includes("skipped"),
+				),
+			).toBe(true);
+			expect(stopTexts(handle, 2).some((m) => m.includes("owner/repo-a"))).toBe(
+				false,
+			);
 			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
 			expect(errorCalls.some((m) => m.includes("owner/repo-a"))).toBe(false);
 		});
@@ -3503,6 +3999,7 @@ describe("update command", () => {
 
 	describe("all-plugins mode dropped agent info in summary", () => {
 		it("git update summary includes dropped agent info", async () => {
+			const handle = captureSpinner();
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
 				agents: ["claude", "codex"],
@@ -3525,10 +4022,9 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			const successCalls = mockLog.success.mock.calls.map(
-				(c) => c[0] as string,
-			);
-			const updatedSummary = successCalls.find((msg) =>
+			// The updated standalone is a group-of-one → its Updated summary (with the
+			// inline dropped-agent notice) is the spinner stop-frame at code 0.
+			const updatedSummary = stopTexts(handle, 0).find((msg) =>
 				msg.includes("owner/repo"),
 			);
 			expect(updatedSummary).toBeDefined();
@@ -4266,6 +4762,7 @@ describe("update command", () => {
 		});
 
 		it("handles batch with all constrained plugins — mixed constrained statuses", async () => {
+			const handle = captureSpinner();
 			const entryA = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -4324,11 +4821,13 @@ describe("update command", () => {
 			// A should be updated (constrained-update-available)
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 			expect(mockWriteManifest).toHaveBeenCalled();
-			// Summary should contain info for all three
+			// Summary should contain info for all three — the updated repo-a streams
+			// as its group-of-one stop-frame; repo-b/repo-c via trailing p.log lines.
 			const allMessages = [
 				...mockLog.success.mock.calls.map((c) => c[0] as string),
 				...mockLog.message.mock.calls.map((c) => c[0] as string),
 				...mockLog.warn.mock.calls.map((c) => c[0] as string),
+				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
 			const hasRepoB = allMessages.some((msg) => msg.includes("owner/repo-b"));
@@ -4339,6 +4838,7 @@ describe("update command", () => {
 		});
 
 		it("handles mix of constrained + branch-tracking + tag-pinned + local plugins", async () => {
+			const handle = captureSpinner();
 			const constrainedEntry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -4416,11 +4916,14 @@ describe("update command", () => {
 			// Per-group persistence (task 1-6): constrained, branch, and local each
 			// persist as their own unit → three writes (tagged never mutates).
 			expect(mockWriteManifest).toHaveBeenCalledTimes(3);
-			// All four should appear in the summary
+			// All four should appear in the summary — the updated constrained/branch
+			// standalones stream as group-of-one stop-frames; tagged (info) and local
+			// (p.log.success) via trailing p.log lines.
 			const allMessages = [
 				...mockLog.success.mock.calls.map((c) => c[0] as string),
 				...mockLog.message.mock.calls.map((c) => c[0] as string),
 				...mockLog.info.mock.calls.map((c) => c[0] as string),
+				...stopTexts(handle),
 			];
 			const hasConstrained = allMessages.some((msg) =>
 				msg.includes("owner/constrained"),
@@ -4435,6 +4938,7 @@ describe("update command", () => {
 		});
 
 		it("batch with no constrained plugins behaves identically to pre-feature", async () => {
+			const handle = captureSpinner();
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
 				agents: ["claude"],
@@ -4474,9 +4978,12 @@ describe("update command", () => {
 
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+			// The updated repo-a streams as its group-of-one stop-frame; repo-b
+			// (newer-tags) via the trailing p.log.info summary.
 			const allMessages = [
 				...mockLog.success.mock.calls.map((c) => c[0] as string),
 				...mockLog.info.mock.calls.map((c) => c[0] as string),
+				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
 			const hasRepoB = allMessages.some((msg) => msg.includes("owner/repo-b"));
@@ -4681,6 +5188,7 @@ describe("update command", () => {
 		});
 
 		it("logs recovery hint in summary for copy-failed plugin", async () => {
+			const handle = captureSpinner();
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
 				agents: ["claude"],
@@ -4705,8 +5213,9 @@ describe("update command", () => {
 			// the recovery-hint assertion below still runs.
 			await runUpdate().catch(() => {});
 
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
-			const hasRecoveryHint = errorCalls.some((msg) =>
+			// The copy-failed standalone is a group-of-one → its loud recovery-hint
+			// line is the spinner stop-frame at code 2 (error ✗).
+			const hasRecoveryHint = stopTexts(handle, 2).some((msg) =>
 				msg.includes("npx agntc update owner/repo"),
 			);
 			expect(hasRecoveryHint).toBe(true);

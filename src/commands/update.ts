@@ -40,6 +40,12 @@ import {
 	processGroupUpdate,
 } from "../update-groups.js";
 import {
+	formatGroupHeader,
+	formatMemberLine,
+	groupLabel,
+	type MemberLine,
+} from "../update-render.js";
+import {
 	isAtOrAboveVersion,
 	type VersionOverrides,
 } from "../version-resolve.js";
@@ -360,21 +366,16 @@ async function runAllUpdates(): Promise<void> {
 
 	const categorized = categorizeGroups(groups, targets);
 
-	// Actioned work streams in manifest order: each updatable group clones once
-	// (task 1-4); each local reinstalls without cloning. (The DESIGNED
-	// two-granularity progress stream is Phase 2 — output here stays interim.)
-	// Per-group manifest persistence (task 1-6): each updatable group and each
-	// local group-of-one writes the manifest once, right after its reinstall
-	// loop — so a checkmark is honest (persisted before shown, once Phase 2
-	// streams it) and an interrupt leaves the manifest matching disk at group
-	// boundaries (early groups recorded, later ones untouched). The initial
-	// manifest is threaded through so each write is cumulative.
+	// Actioned work STREAMS inline in manifest (processing) order (task 2-4):
+	// each updatable group opens its own `Updating <label> …` spinner, clones
+	// once (task 1-4), persists its manifest (task 1-6) BEFORE showing any line,
+	// then emits its per-member outcome lines (task 2-3); each local group-of-one
+	// reinstalls without a spinner and emits its single line. The initial
+	// manifest is threaded through so each per-group write is cumulative (matching
+	// disk at group boundaries). Only NON-actioned categories now defer to the
+	// trailing summary loop below.
 	const work = orderWork(categorized.updatableGroups, localEntries, entries);
-	const outcomes = await processWorkItems(work, projectDir, manifest);
-
-	// Trailing non-actioned summaries (up-to-date / newer-tags / check-failed /
-	// constrained-no-match), fed to the same summary loop + exit accounting.
-	outcomes.push(...categorized.nonActionedOutcomes);
+	const outcomes = await streamActionedWork(work, projectDir, manifest, groups);
 
 	const allUpToDate =
 		!categorized.hasNotableCategory && localEntries.length === 0;
@@ -384,17 +385,23 @@ async function runAllUpdates(): Promise<void> {
 		return;
 	}
 
-	for (const outcome of outcomes) {
+	// Trailing non-actioned summaries (up-to-date / newer-tags / check-failed /
+	// constrained-no-match) render here, byte-unchanged — task 2-5 collapses them
+	// per group. They feed the same exit accounting; none trips hasFailedOutcome,
+	// so streaming the actioned outcomes inline (above) vs. rendering these here
+	// leaves the exit code unchanged.
+	for (const outcome of categorized.nonActionedOutcomes) {
 		renderOutcomeSummary(outcome);
 	}
+	outcomes.push(...categorized.nonActionedOutcomes);
 
 	renderOutOfConstraintOutput(categorized.outOfConstraintInfo);
 
-	// Partial-success exit: the successful updates have been written and the full
-	// per-unit report rendered above. Now, if ANY unit aborted (derive-before-
-	// delete, entry left intact) or hard-errored/copy-failed, exit non-zero so the
-	// command surfaces the failure — without rolling back the units that did
-	// succeed. Each unit stands alone (no collection-level coherence rollback).
+	// Partial-success exit: the successful updates have been written and streamed
+	// inline. Now, if ANY unit aborted (derive-before-delete, entry left intact)
+	// or hard-errored/copy-failed, exit non-zero so the command surfaces the
+	// failure — without rolling back the units that did succeed. Each unit stands
+	// alone (no collection-level coherence rollback).
 	if (hasFailedOutcome(outcomes)) {
 		throw new ExitSignal(1);
 	}
@@ -537,45 +544,289 @@ function orderWork(
 	return work;
 }
 
+type GroupWorkItem = Extract<WorkItem, { kind: "group" }>;
+
 /**
- * Processes the ordered work items sequentially, collecting one
- * {@link PluginOutcome} per member AND persisting the manifest per unit
- * (task 1-6). A group clones once via {@link processGroupUpdate}; a local entry
- * reinstalls without cloning via {@link processUpdateForAll}. After each unit's
- * reinstall loop its outcomes are folded into the working manifest and written
- * (see {@link persistUnitOutcomes}) — one write per updatable group / local,
- * skipping no-op units. The working manifest is threaded so each write reflects
- * all prior units (matching disk at group boundaries); the returned outcomes
- * still drive {@link hasFailedOutcome}.
+ * Streams the ordered work items sequentially (task 2-4), collecting one
+ * {@link PluginOutcome} per member for {@link hasFailedOutcome} while emitting
+ * each unit's progress + outcome lines the moment it completes — replacing the
+ * old deferred end-of-run render. Each updatable group runs under its own
+ * `Updating <label> …` spinner ({@link streamGroupWork}); each local entry
+ * reinstalls without a spinner ({@link streamLocalWork}). Per-unit manifest
+ * persistence (task 1-6) still happens BEFORE that unit's lines stream, and the
+ * working manifest is threaded so each write is cumulative (matching disk at
+ * group boundaries).
  */
-async function processWorkItems(
+async function streamActionedWork(
 	work: WorkItem[],
 	projectDir: string,
 	manifest: Manifest,
+	groups: EntryGroup[],
 ): Promise<PluginOutcome[]> {
 	const outcomes: PluginOutcome[] = [];
 	let workingManifest: Manifest = { ...manifest };
 	for (const item of work) {
-		// A group clones once via processGroupUpdate, which owns the clone-fatal
-		// fan-out (a group-fatal clone failure becomes N `failed` outcomes attributed
-		// per key, no manifest mutation); a local reinstalls without cloning.
-		const unitOutcomes =
+		const unit =
 			item.kind === "group"
-				? await processGroupUpdate(
-						item.group,
-						item.updating,
-						item.target,
-						projectDir,
-					)
-				: [await processUpdateForAll(item.key, item.entry, projectDir)];
-		outcomes.push(...unitOutcomes);
-		workingManifest = await persistUnitOutcomes(
-			projectDir,
-			workingManifest,
-			unitOutcomes,
-		);
+				? await streamGroupWork(item, projectDir, workingManifest, groups)
+				: await streamLocalWork(item, projectDir, workingManifest);
+		outcomes.push(...unit.outcomes);
+		workingManifest = unit.manifest;
 	}
 	return outcomes;
+}
+
+/** One streamed unit's per-member outcomes plus the manifest after its write. */
+interface StreamedUnit {
+	outcomes: PluginOutcome[];
+	manifest: Manifest;
+}
+
+/**
+ * Streams one updatable group: opens a single `p.spinner()` (task 2-2) that spins
+ * through {@link processGroupUpdate}'s one clone WITHOUT ticking per member,
+ * persists the group's manifest (task 1-6) BEFORE emitting any line (so the ✓ is
+ * honest), then renders the outcomes.
+ *
+ * A group of one collapses to exactly ONE physical line. clack's `spinner.stop()`
+ * ALWAYS writes a persistent stop-frame, so a header stop-frame plus a separate
+ * `p.log` line would render TWO lines; instead the spinner starts on a bare
+ * `Updating <label>` (no `(1 members)`, no move) and its settled stop-frame IS the
+ * collapsed outcome ({@link collapsedMemberLine}) — no second line. Two or more
+ * updating members keep the counted {@link formatGroupHeader} stop-frame followed
+ * by one member line each ({@link streamGroupMemberLines}).
+ */
+async function streamGroupWork(
+	item: GroupWorkItem,
+	projectDir: string,
+	workingManifest: Manifest,
+	groups: EntryGroup[],
+): Promise<StreamedUnit> {
+	const newCommit = groupTargetCommit(item.target);
+	const label = groupLabel(item.group, groups);
+	const single = item.updating.length === 1;
+	const header = single
+		? `Updating ${label}`
+		: formatGroupHeader({
+				label,
+				oldCommits: item.updating.map((m) => m.entry.commit!),
+				newCommit,
+			});
+
+	const spin = p.spinner();
+	spin.start(header);
+	const outcomes = await processGroupUpdate(
+		item.group,
+		item.updating,
+		item.target,
+		projectDir,
+	);
+	const manifest = await persistUnitOutcomes(
+		projectDir,
+		workingManifest,
+		outcomes,
+	);
+
+	if (single) {
+		const line = collapsedMemberLine(outcomes[0]!);
+		spin.stop(line.text, line.level === "error" ? 2 : 0);
+	} else {
+		spin.stop(header);
+		streamGroupMemberLines(item, outcomes, newCommit);
+	}
+
+	return { outcomes, manifest };
+}
+
+/**
+ * The single collapsed line a group-of-one renders as its spinner stop-frame —
+ * its clack {@link MemberLine} `level` and glyph-free `text`. The level maps to
+ * the `spin.stop` code at the call site (`error` → 2, else → 0; clack `stop` has
+ * no warn code, so a `no-agents` warn accepts the ◇ glyph — its text already
+ * carries "skipped — …"). A success reuses the interim
+ * {@link renderUpdateOutcomeSummary} text (full key, any `/member` suffix,
+ * matching {@link streamCollapsedOutcome}); the loud failure/skip variants reuse
+ * {@link formatMemberLine} at the full member key; a bare `failed` (clone
+ * fan-out / defensive throw) rides its inline summary at error level.
+ */
+function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
+	switch (outcome.status) {
+		case "updated":
+		case "refreshed":
+			return { level: "success", text: outcome.summary };
+		case "copy-failed":
+			return formatMemberLine({
+				kind: "copy-failed",
+				name: outcome.key,
+				recoveryHint: outcome.summary,
+			});
+		case "aborted":
+			return formatMemberLine({
+				kind: "aborted",
+				name: outcome.key,
+				message: outcome.summary,
+			});
+		case "blocked":
+			return formatMemberLine({
+				kind: "blocked",
+				name: outcome.key,
+				message: outcome.summary,
+			});
+		case "skipped-no-agents":
+			return formatMemberLine({ kind: "no-agents", name: outcome.key });
+		default:
+			return { level: "error", text: outcome.summary };
+	}
+}
+
+/**
+ * Streams one local group-of-one: reinstalls without cloning (task 1-5) and with
+ * NO spinner, persists its manifest (task 1-6), then emits its single collapsed
+ * line — `<key>: Refreshed from local path` on success, else its
+ * {@link formatMemberLine} failure/skip line (name = the full key).
+ */
+async function streamLocalWork(
+	item: Extract<WorkItem, { kind: "local" }>,
+	projectDir: string,
+	workingManifest: Manifest,
+): Promise<StreamedUnit> {
+	const outcome = await processUpdateForAll(item.key, item.entry, projectDir);
+	const manifest = await persistUnitOutcomes(projectDir, workingManifest, [
+		outcome,
+	]);
+	streamCollapsedOutcome(outcome, { key: item.key, entry: item.entry });
+	return { outcomes: [outcome], manifest };
+}
+
+/** The resolved target commit an updatable group installs at — the shared "new"
+ * for its header and per-member moves. Only `constrained`/`branch`/`head`
+ * targets ever carry updating members (tag → newer-tags, constrained-no-match,
+ * check-failed never enter the streamed phase), so those are the meaningful
+ * arms; the default is unreachable for a streamed group. */
+function groupTargetCommit(target: GroupTarget): string {
+	switch (target.kind) {
+		case "constrained":
+			return target.commit;
+		case "branch":
+		case "head":
+			return target.resolvedSha;
+		default:
+			return "";
+	}
+}
+
+/**
+ * Collapses a group-of-one (a standalone or a single-updated collection member)
+ * or a local entry to a single streamed line: a success reuses the interim
+ * {@link renderUpdateOutcomeSummary} text (`<key>: Updated …` / `<key>: Refreshed
+ * from local path`, full key preserving any `/member` suffix); a failure/skip
+ * renders its {@link formatMemberLine} line with the full member key. No group
+ * header and no `(N members)`.
+ */
+function streamCollapsedOutcome(
+	outcome: PluginOutcome,
+	member: GroupMember,
+): void {
+	if (outcome.status === "updated" || outcome.status === "refreshed") {
+		p.log.success(outcome.summary);
+		return;
+	}
+	emitMemberLine(outcome, member, outcome.key, null);
+}
+
+/**
+ * Emits one {@link formatMemberLine} line per attempted member (member order),
+ * name = basename, each dispatched at its own severity level. The version move
+ * rides each member line only when the group is divergent-old
+ * (distinct installed commits > 1) — the header then carried the target only
+ * (task 2-2); the shared-old common case leaves the move on the header.
+ */
+function streamGroupMemberLines(
+	item: GroupWorkItem,
+	outcomes: PluginOutcome[],
+	newCommit: string,
+): void {
+	const divergent = new Set(item.updating.map((m) => m.entry.commit)).size > 1;
+	for (let i = 0; i < outcomes.length; i++) {
+		const member = item.updating[i]!;
+		const move = divergent
+			? { oldCommit: member.entry.commit!, newCommit }
+			: null;
+		emitMemberLine(outcomes[i]!, member, member.key.split("/").pop()!, move);
+	}
+}
+
+/**
+ * Maps one member outcome to its {@link formatMemberLine} line and dispatches it
+ * via `p.log[level]`. A success carries the effective agents, the dropped-agents
+ * notice (derived from the entry vs. the reinstalled agents), and the optional
+ * divergent-old `move`; copy-failed/aborted/blocked/no-agents ride their inline
+ * message (the pre-built summary IS the message/hint). A `failed` outcome (the
+ * group-fatal clone fan-out — task 2-6 owns the collapsed grouped line — or a
+ * defensive throw) has no member-line kind, so it falls back to the interim
+ * summary render at its severity level.
+ */
+function emitMemberLine(
+	outcome: PluginOutcome,
+	member: GroupMember,
+	name: string,
+	move: { oldCommit: string; newCommit: string } | null,
+): void {
+	let line: MemberLine;
+	switch (outcome.status) {
+		case "updated":
+		case "refreshed":
+			line = formatMemberLine({
+				kind: "success",
+				name,
+				agents: outcome.newEntry.agents,
+				droppedAgents: droppedAgentsFor(member.entry, outcome.newEntry),
+				move,
+			});
+			break;
+		case "copy-failed":
+			line = formatMemberLine({
+				kind: "copy-failed",
+				name,
+				recoveryHint: outcome.summary,
+			});
+			break;
+		case "aborted":
+			line = formatMemberLine({
+				kind: "aborted",
+				name,
+				message: outcome.summary,
+			});
+			break;
+		case "blocked":
+			line = formatMemberLine({
+				kind: "blocked",
+				name,
+				message: outcome.summary,
+			});
+			break;
+		case "skipped-no-agents":
+			line = formatMemberLine({ kind: "no-agents", name });
+			break;
+		default:
+			renderOutcomeSummary(outcome);
+			return;
+	}
+	p.log[line.level](line.text);
+}
+
+/**
+ * The agents dropped by this reinstall: those the entry was installed for that
+ * the reinstalled entry no longer carries. A reinstall only ever narrows the
+ * recorded agents (the new config can drop, never add), so this set-difference
+ * equals the pipeline's own `droppedAgents` — recomputed here because the
+ * {@link PluginOutcome} carries only the pre-rendered summary.
+ */
+function droppedAgentsFor(
+	oldEntry: ManifestEntry,
+	newEntry: ManifestEntry,
+): string[] {
+	return oldEntry.agents.filter((agent) => !newEntry.agents.includes(agent));
 }
 
 /**
