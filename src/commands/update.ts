@@ -449,13 +449,16 @@ function categorizeGroups(
 		const updating: GroupMember[] = [];
 		const nonActioned: PluginOutcome[] = [];
 
+		// One out-of-constraint footer info PER GROUP (task 2-7) — an N-member
+		// collection collapses to a single line, keyed by the group label; two
+		// distinct-intent groups of one repo keep separate @intent lines.
+		const groupInfo = groupOutOfConstraintInfo(group, target, groups);
+		if (groupInfo !== null) {
+			outOfConstraintInfo.push(groupInfo);
+		}
+
 		for (const member of group.members) {
 			const result = categorizeMember(member.entry, target);
-
-			const info = extractOutOfConstraint(member.key, member.entry, result);
-			if (info !== null) {
-				outOfConstraintInfo.push(info);
-			}
 
 			if (
 				result.status !== "up-to-date" &&
@@ -486,6 +489,31 @@ function categorizeGroups(
 		nonActionedGroups,
 		outOfConstraintInfo,
 		hasNotableCategory,
+	};
+}
+
+/**
+ * The ONE out-of-constraint footer info a constrained group contributes (task
+ * 2-7). A group whose shared resolved target carries a non-null `latestOverall`
+ * is out of constraint (matching {@link hasOutOfConstraintVersion}: latestOverall
+ * !== null iff out of constraint), and collapses to a SINGLE info keyed by its
+ * {@link groupLabel} — so an N-member collection yields one footer line, not N,
+ * while two distinct-intent groups of one repo keep their own @intent lines.
+ * `versionIntent` is the group's constraint (non-null for a constrained target).
+ * Preserves today's PASSIVE wording verbatim — Phase 4 rewords the footer.
+ */
+function groupOutOfConstraintInfo(
+	group: EntryGroup,
+	target: GroupTarget,
+	groups: EntryGroup[],
+): OutOfConstraintInfo | null {
+	if (target.kind !== "constrained" || target.latestOverall === null) {
+		return null;
+	}
+	return {
+		label: groupLabel(group, groups),
+		latestOverall: target.latestOverall,
+		constraint: group.versionIntent!,
 	};
 }
 

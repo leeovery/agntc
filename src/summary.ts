@@ -295,7 +295,19 @@ export function renderRemoveSummary(input: RemoveSummaryInput): string {
 }
 
 export interface OutOfConstraintInfo {
-	key: string;
+	/**
+	 * The member key — populated ONLY by the single-key path (runSingleUpdate),
+	 * which has no group. Rendered via the `label ?? key` fallback so this path
+	 * stays byte-identical.
+	 */
+	key?: string;
+	/**
+	 * The group label (task 2-1) — populated by the all-mode per-group footer so
+	 * an N-member collection collapses to ONE line and two distinct-intent groups
+	 * of one repo keep their own @intent-disambiguated lines. Takes precedence over
+	 * {@link key} when present.
+	 */
+	label?: string;
 	latestOverall: string;
 	constraint: string;
 }
@@ -308,7 +320,7 @@ export function renderOutOfConstraintSection(
 	const lines: string[] = ["Newer versions outside constraints:"];
 	for (const info of infos) {
 		lines.push(
-			`  ${info.key}  ${info.latestOverall} available (constraint: ${info.constraint})`,
+			`  ${info.label ?? info.key}  ${info.latestOverall} available (constraint: ${info.constraint})`,
 		);
 	}
 	return lines;

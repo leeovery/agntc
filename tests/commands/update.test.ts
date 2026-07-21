@@ -5756,5 +5756,146 @@ describe("update command", () => {
 			);
 			expect(hasHeader).toBe(false);
 		});
+
+		// --- Per-group footer collapse (task 2-7) ---
+		// A constrained member (constraint ^1.0) already at the resolved best tag,
+		// with a newer out-of-constraint version available (latestOverall v2.0.0).
+		const constrainedMember = (name: string): ManifestEntry =>
+			makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0",
+				agents: ["claude"],
+				files: [`.claude/skills/${name}/`],
+			});
+
+		it("renders one footer line per group for a constrained N-member collection (not N lines)", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": constrainedMember("a"),
+				"owner/repo/b": constrainedMember("b"),
+				"owner/repo/c": constrainedMember("c"),
+			});
+			// ONE constrained group whose shared target is out of constraint
+			// (latestOverall set) and at the members' installed tag (all up to date).
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.2.3",
+				commit: INSTALLED_SHA,
+				latestOverall: "v2.0.0",
+			});
+
+			await runUpdate();
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			// ONE footer line for the whole collection, keyed by the group label.
+			expect(infoCalls).toContain(
+				"  owner/repo  v2.0.0 available (constraint: ^1.0)",
+			);
+			// Not N near-identical per-member footer lines.
+			expect(
+				infoCalls.filter((m) => m.includes("available (constraint")),
+			).toHaveLength(1);
+		});
+
+		it("renders separate @intent-disambiguated footer lines for two distinct-intent groups of one repo", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^1.2.3",
+					agents: ["claude"],
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo/b": makeEntry({
+					ref: "v2.0.0",
+					commit: INSTALLED_SHA,
+					constraint: "^2.0.0",
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+			});
+			// Same repo, two intents → two groups, each out of constraint at its own
+			// installed tag.
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				return group.members[0]!.entry.constraint === "^1.2.3"
+					? {
+							kind: "constrained",
+							tag: "v1.2.3",
+							commit: INSTALLED_SHA,
+							latestOverall: "v3.0.0",
+						}
+					: {
+							kind: "constrained",
+							tag: "v2.0.0",
+							commit: INSTALLED_SHA,
+							latestOverall: "v3.0.0",
+						};
+			});
+
+			await runUpdate();
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			// Two footer lines, each disambiguated by its @intent-suffixed group label.
+			expect(infoCalls).toContain(
+				"  owner/repo@^1.2.3  v3.0.0 available (constraint: ^1.2.3)",
+			);
+			expect(infoCalls).toContain(
+				"  owner/repo@^2.0.0  v3.0.0 available (constraint: ^2.0.0)",
+			);
+			expect(
+				infoCalls.filter((m) => m.includes("available (constraint")),
+			).toHaveLength(2);
+		});
+
+		it("preserves the passive footer wording verbatim (no re-add command, no current version)", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": constrainedMember("a"),
+				"owner/repo/b": constrainedMember("b"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.2.3",
+				commit: INSTALLED_SHA,
+				latestOverall: "v2.0.0",
+			});
+
+			await runUpdate();
+
+			// The footer is the ONLY info output on this all-up-to-date path, so the
+			// exact two lines pin the passive wording verbatim.
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			expect(infoCalls).toEqual([
+				"Newer versions outside constraints:",
+				"  owner/repo  v2.0.0 available (constraint: ^1.0)",
+			]);
+			// Phase 4 (not this task) rewords the footer to the actionable, mode-matched
+			// message — none of that may leak in here.
+			const footer = infoCalls.join("\n");
+			expect(footer).not.toContain("npx agntc add");
+			expect(footer).not.toContain("To upgrade");
+			expect(footer).not.toContain("current");
+		});
+
+		it("out-of-constraint footer keeps the all-mode exit at 0", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": constrainedMember("a"),
+				"owner/repo/b": constrainedMember("b"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained",
+				tag: "v1.2.3",
+				commit: INSTALLED_SHA,
+				latestOverall: "v2.0.0",
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// The footer does not feed hasFailedOutcome, so exit stays 0.
+			expect(err).toBeUndefined();
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			expect(infoCalls).toContain(
+				"  owner/repo  v2.0.0 available (constraint: ^1.0)",
+			);
+		});
 	});
 });
