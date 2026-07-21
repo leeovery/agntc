@@ -5,8 +5,12 @@ import {
 } from "../src/clone-reinstall.js";
 import type { EntryGroup } from "../src/update-groups.js";
 import {
+	formatCheckFailedLine,
+	formatConstrainedNoMatchLine,
 	formatGroupHeader,
 	formatMemberLine,
+	formatNewerTagsLine,
+	formatUpToDateLine,
 	formatVersionMove,
 	groupLabel,
 } from "../src/update-render.js";
@@ -222,5 +226,55 @@ describe("formatMemberLine", () => {
 			level: "warn",
 			text: "design: skipped — no longer supports installed agents",
 		});
+	});
+});
+
+describe("formatUpToDateLine", () => {
+	it("renders '<label>: <count> up to date' for the collapsed count", () => {
+		expect(formatUpToDateLine("owner/repo", 7)).toBe(
+			"owner/repo: 7 up to date",
+		);
+	});
+
+	it("renders a single up-to-date member as '<label>: 1 up to date'", () => {
+		expect(formatUpToDateLine("owner/repo", 1)).toBe(
+			"owner/repo: 1 up to date",
+		);
+	});
+
+	it("carries an @intent-disambiguated label verbatim", () => {
+		expect(formatUpToDateLine("owner/repo@v2.0.0", 3)).toBe(
+			"owner/repo@v2.0.0: 3 up to date",
+		);
+	});
+});
+
+describe("formatNewerTagsLine", () => {
+	it("renders the pinned-ref notice plus the repo-level agntc add command", () => {
+		expect(formatNewerTagsLine("owner/repo", "v1.0", "v3.0")).toBe(
+			"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
+		);
+	});
+
+	it("builds the add command from the group label (repo-level, not member-level)", () => {
+		expect(formatNewerTagsLine("owner/repo@main", "v1.0", "v2.0")).toBe(
+			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo@main@v2.0",
+		);
+	});
+});
+
+describe("formatCheckFailedLine", () => {
+	it("renders '<label>: check failed — <reason>' with the shared probe reason", () => {
+		expect(
+			formatCheckFailedLine("owner/repo", "ls-remote failed: dead remote"),
+		).toBe("owner/repo: check failed — ls-remote failed: dead remote");
+	});
+});
+
+describe("formatConstrainedNoMatchLine", () => {
+	it("renders '<label>: no tags satisfy <constraint> — left untouched'", () => {
+		expect(formatConstrainedNoMatchLine("owner/repo", "^2.0")).toBe(
+			"owner/repo: no tags satisfy ^2.0 — left untouched",
+		);
 	});
 });

@@ -1726,6 +1726,199 @@ describe("update command", () => {
 		});
 	});
 
+	describe("trailing non-actioned collapse (task 2-5)", () => {
+		function member(name: string, overrides: Partial<ManifestEntry> = {}) {
+			return makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [`.claude/skills/${name}/`],
+				...overrides,
+			});
+		}
+
+		function installPipelineMocks(): void {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
+		}
+
+		it("collapses N up-to-date members of a group to one N up to date line", async () => {
+			captureSpinner();
+			const manifest: Manifest = {};
+			for (let i = 1; i <= 7; i++) {
+				manifest[`owner/repo/${i}`] = member(String(i));
+			}
+			// A separate updating standalone keeps the run out of the
+			// all-up-to-date short-circuit so the collapse actually renders.
+			manifest["owner/other"] = member("other");
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				const key = group.members[0]!.key;
+				// owner/repo group: target sha == installed sha → every member up-to-date.
+				// owner/other group: target sha advanced → the standalone updates.
+				return key.startsWith("owner/repo")
+					? { kind: "head", resolvedSha: INSTALLED_SHA }
+					: { kind: "head", resolvedSha: REMOTE_SHA };
+			});
+			installPipelineMocks();
+
+			await runUpdate();
+
+			const messageCalls = mockLog.message.mock.calls.map(
+				(c) => c[0] as string,
+			);
+			// ONE collapsed count line for the 7-member group, keyed by the group.
+			expect(messageCalls).toContain("owner/repo: 7 up to date");
+			// Not 7 near-identical per-member up-to-date lines.
+			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
+				1,
+			);
+		});
+
+		it("collapses newer-tags to one line per group including the repo-level agntc add command", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a", { ref: "v1.0" }),
+				"owner/repo/b": member("b", { ref: "v1.0" }),
+				"owner/repo/c": member("c", { ref: "v1.0" }),
+			});
+			// One exact-pin group; the shared tag target reports newer tags for all.
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "tag",
+				tag: "v1.0",
+				newerTags: ["v2.0", "v3.0"],
+			});
+
+			await runUpdate();
+
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			// ONE newer-tags line for the whole group, with the repo-level add command.
+			expect(infoCalls).toContain(
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
+			);
+			// Not 3 near-identical per-member newer-tags lines.
+			expect(
+				infoCalls.filter((m) => m.includes("newer tags available")),
+			).toHaveLength(1);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("collapses a check-failed group to one line with the shared probe reason (exit 0)", async () => {
+			const REASON = "ls-remote failed: could not read from remote";
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a"),
+				"owner/repo/b": member("b"),
+				"owner/repo/c": member("c"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "check-failed",
+				reason: REASON,
+			});
+
+			const err = await runUpdate().catch((e) => e);
+
+			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
+			expect(err).toBeUndefined();
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			// ONE collapsed line carrying the shared probe reason — no per-member enumeration.
+			expect(warnCalls).toContain(`owner/repo: check failed — ${REASON}`);
+			expect(warnCalls.filter((m) => m.includes("check failed"))).toHaveLength(
+				1,
+			);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("collapses a constrained-no-match group to one line with the shared constraint", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a", { ref: "v1.2.3", constraint: "^2.0" }),
+				"owner/repo/b": member("b", { ref: "v1.2.3", constraint: "^2.0" }),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "constrained-no-match",
+			});
+
+			await runUpdate();
+
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			// ONE collapsed line carrying the shared constraint.
+			expect(warnCalls).toContain(
+				"owner/repo: no tags satisfy ^2.0 — left untouched",
+			);
+			expect(
+				warnCalls.filter((m) => m.includes("no tags satisfy")),
+			).toHaveLength(1);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("renders separate @intent-disambiguated trailing lines for two distinct-intent groups of one repo", async () => {
+			// Same repo, two intents → two groups: a caret group (constrained-no-match)
+			// and an exact-pin group (up-to-date). Each keeps its own @intent line.
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a", { ref: "v1.2.3", constraint: "^1.2.3" }),
+				"owner/repo/b": member("b", { ref: "v2.0.0" }),
+			});
+			mockResolveGroupTarget.mockImplementation(async (group) => {
+				return group.members[0]!.entry.constraint !== undefined
+					? { kind: "constrained-no-match" }
+					: { kind: "tag", tag: "v2.0.0", newerTags: [] };
+			});
+
+			await runUpdate();
+
+			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const messageCalls = mockLog.message.mock.calls.map(
+				(c) => c[0] as string,
+			);
+			expect(warnCalls).toContain(
+				"owner/repo@^1.2.3: no tags satisfy ^1.2.3 — left untouched",
+			);
+			expect(messageCalls).toContain("owner/repo@v2.0.0: 1 up to date");
+		});
+
+		it("reports only the up-to-date members of a split group as the trailing count (behind members streamed, not counted here)", async () => {
+			const handle = captureSpinner();
+			// One HEAD group: member a is behind (streams an update), members b and c
+			// are already at the resolved target (up-to-date, collapse trailing).
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": member("a", { commit: INSTALLED_SHA }),
+				"owner/repo/b": member("b", { commit: REMOTE_SHA }),
+				"owner/repo/c": member("c", { commit: REMOTE_SHA }),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			installPipelineMocks();
+
+			await runUpdate();
+
+			// The behind member streamed inline (its own updated line), NOT counted here.
+			expect(stopTexts(handle, 0)).toContain(
+				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
+			);
+			const messageCalls = mockLog.message.mock.calls.map(
+				(c) => c[0] as string,
+			);
+			// Only the two up-to-date members appear — as the collapsed count (2, not 3).
+			expect(messageCalls).toContain("owner/repo: 2 up to date");
+			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
+				1,
+			);
+			// The up-to-date members never surface as per-member lines.
+			expect(messageCalls.some((m) => m.startsWith("owner/repo/b"))).toBe(
+				false,
+			);
+			expect(messageCalls.some((m) => m.startsWith("owner/repo/c"))).toBe(
+				false,
+			);
+		});
+	});
+
 	describe("empty manifest", () => {
 		it("displays message and exits 0", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
@@ -3184,27 +3377,23 @@ describe("update command", () => {
 			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 		}
 
-		it("a group probe failure produces one check-failed outcome per member with the shared reason", async () => {
+		it("collapses a group probe failure to one check-failed line carrying the shared reason", async () => {
 			threeMemberCollection();
 
 			const err = await runUpdate().catch((e) => e);
 
 			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
 			expect(err).toBeUndefined();
-			// check-failed renders at warn level (renderOutcomeSummary), one per member
-			// keyed to its own key and carrying the SHARED probe reason.
+			// The MODEL stays N check-failed outcomes (exit accounting); the DISPLAY
+			// count-collapses to ONE group line (task 2-5) — a group-level probe
+			// failure is one shared reason, never one line per member.
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 			const checkFailedLines = warnCalls.filter((m) =>
-				m.includes("Check failed"),
+				m.includes("check failed"),
 			);
-			expect(checkFailedLines).toHaveLength(3);
-			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
-				expect(
-					checkFailedLines.some(
-						(m) => m === `${key}: Check failed — ${PROBE_REASON}`,
-					),
-				).toBe(true);
-			}
+			expect(checkFailedLines).toEqual([
+				`owner/repo: check failed — ${PROBE_REASON}`,
+			]);
 		});
 
 		it("a check-failed group runs no clone and mutates no manifest state", async () => {
@@ -3272,14 +3461,17 @@ describe("update command", () => {
 			);
 		});
 
-		it("each check-failed member key appears in the trailing summary", async () => {
+		it("collapses the trailing summary to the group label — no per-member enumeration", async () => {
 			threeMemberCollection();
 
 			await runUpdate().catch(() => {});
 
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			// One group line keyed by the group label (task 2-5)...
+			expect(warnCalls).toContain(`owner/repo: check failed — ${PROBE_REASON}`);
+			// ...and the individual member keys never each surface a line.
 			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
-				expect(warnCalls.some((m) => m.startsWith(`${key}:`))).toBe(true);
+				expect(warnCalls.some((m) => m.startsWith(`${key}:`))).toBe(false);
 			}
 		});
 	});
@@ -4738,7 +4930,7 @@ describe("update command", () => {
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
-		it("adds constrained-no-match plugins to failed/error list in summary", async () => {
+		it("collapses a constrained-no-match group to one trailing line with the shared constraint", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					ref: "v1.2.3",
@@ -4753,10 +4945,10 @@ describe("update command", () => {
 			await runUpdate();
 
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-			const hasNoMatchError = warnCalls.some(
-				(msg) => msg.includes("owner/repo") && msg.includes("constraint"),
+			// Collapsed group line carrying the shared constraint (task 2-5).
+			expect(warnCalls).toContain(
+				"owner/repo: no tags satisfy ^2.0 — left untouched",
 			);
-			expect(hasNoMatchError).toBe(true);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
@@ -5084,14 +5276,12 @@ describe("update command", () => {
 
 			// Should not clone (no downgrade)
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			// Should be reported as up-to-date
-			const allMessages = [
-				...mockLog.message.mock.calls.map((c) => c[0] as string),
-			];
-			const hasUpToDate = allMessages.some(
-				(msg) => msg.includes("owner/repo") && msg.includes("Up to date"),
+			// The never-downgraded member is demoted to up-to-date and reported via the
+			// collapsed per-group count line (task 2-5): one member → "1 up to date".
+			const messageCalls = mockLog.message.mock.calls.map(
+				(c) => c[0] as string,
 			);
-			expect(hasUpToDate).toBe(true);
+			expect(messageCalls).toContain("owner/repo: 1 up to date");
 		});
 
 		it("constrained-update-available with all constrained-up-to-date does not show all-up-to-date message", async () => {

@@ -35,6 +35,57 @@ export function groupLabel(group: EntryGroup, groups: EntryGroup[]): string {
 }
 
 /**
+ * The collapsed trailing line for a group's up-to-date members — one count, not
+ * one line per member (task 2-5). `count` is the number of members categorized
+ * (constrained-)up-to-date in this group, i.e. the members that did NOT stream
+ * under the group header (the genuine-state split). `label` is the {@link
+ * groupLabel}, so a multi-group repo disambiguates by its `@intent` suffix.
+ */
+export function formatUpToDateLine(label: string, count: number): string {
+	return `${label}: ${count} up to date`;
+}
+
+/**
+ * The collapsed trailing line for an exact-pinned group with newer tags — the
+ * pinned-ref notice plus the REPO-LEVEL re-add command (task 2-5 / spec
+ * acceptance 9). One line per group: every member of an exact-pin group shares
+ * the notice, so it never enumerates. The command is `add <label>@<newest>`
+ * (repo-level — re-adds the collection/plugin at the pinned newest tag),
+ * mirroring the single-key path's member-scoped `add <key>@<newest>` at group
+ * granularity. `pinnedRef` is the group's version intent; `newestTag` is the
+ * newest of the group target's newer-tags list.
+ */
+export function formatNewerTagsLine(
+	label: string,
+	pinnedRef: string,
+	newestTag: string,
+): string {
+	return `${label}: Pinned to ${pinnedRef} — newer tags available (latest: ${newestTag}). To upgrade: npx agntc add ${label}@${newestTag}`;
+}
+
+/**
+ * The collapsed trailing line for a check-failed group — one line carrying the
+ * group's single shared probe reason (task 2-5). A group's resolution probe is
+ * one network round-trip, so a failure is group-level: it count-collapses rather
+ * than enumerating the members.
+ */
+export function formatCheckFailedLine(label: string, reason: string): string {
+	return `${label}: check failed — ${reason}`;
+}
+
+/**
+ * The collapsed trailing line for a constrained-no-match group — one line
+ * carrying the group's single shared constraint (task 2-5). The constraint is a
+ * group-level intent, so this count-collapses rather than enumerating members.
+ */
+export function formatConstrainedNoMatchLine(
+	label: string,
+	constraint: string,
+): string {
+	return `${label}: no tags satisfy ${constraint} — left untouched`;
+}
+
+/**
  * The INTERIM version-move renderer: short (7-char) commit hashes joined by the
  * ` -> ` arrow, matching today's {@link renderUpdateOutcomeSummary}
  * (`summary.ts`). Deliberately hash-only — Phase 3 rewords this one helper (and

@@ -40,8 +40,12 @@ import {
 	processGroupUpdate,
 } from "../update-groups.js";
 import {
+	formatCheckFailedLine,
+	formatConstrainedNoMatchLine,
 	formatGroupHeader,
 	formatMemberLine,
+	formatNewerTagsLine,
+	formatUpToDateLine,
 	groupLabel,
 	type MemberLine,
 } from "../update-render.js";
@@ -327,9 +331,24 @@ type WorkItem =
 	| ({ kind: "group"; position: number } & UpdatableGroup)
 	| { kind: "local"; position: number; key: string; entry: ManifestEntry };
 
+/**
+ * One group's non-actioned members plus the shared resolved target it was
+ * categorized against — the source for the trailing per-group collapse (task
+ * 2-5). A group appears here only when it has ≥1 non-actioned member; a group can
+ * appear in BOTH {@link CategorizedGroups.updatableGroups} and here (the
+ * genuine-state split: behind members stream, up-to-date members collapse). The
+ * `target` carries the group-level fields the collapse needs — `newerTags` (tag),
+ * `reason` (check-failed) — while `group` carries the version intent + label.
+ */
+interface NonActionedGroup {
+	group: EntryGroup;
+	target: GroupTarget;
+	outcomes: PluginOutcome[];
+}
+
 interface CategorizedGroups {
 	updatableGroups: UpdatableGroup[];
-	nonActionedOutcomes: PluginOutcome[];
+	nonActionedGroups: NonActionedGroup[];
 	outOfConstraintInfo: OutOfConstraintInfo[];
 	/**
 	 * True when any grouped member's RAW category (pre never-downgrade) is not
@@ -385,15 +404,17 @@ async function runAllUpdates(): Promise<void> {
 		return;
 	}
 
-	// Trailing non-actioned summaries (up-to-date / newer-tags / check-failed /
-	// constrained-no-match) render here, byte-unchanged — task 2-5 collapses them
-	// per group. They feed the same exit accounting; none trips hasFailedOutcome,
-	// so streaming the actioned outcomes inline (above) vs. rendering these here
-	// leaves the exit code unchanged.
-	for (const outcome of categorized.nonActionedOutcomes) {
-		renderOutcomeSummary(outcome);
+	// Trailing non-actioned summaries collapse to at most ONE line per group per
+	// category (task 2-5), iterated in manifest (group) order: an up-to-date count,
+	// a per-group newer-tags notice + repo-level add command, a shared check-failed
+	// reason, or a shared constrained-no-match constraint — never one line per
+	// member. The flat outcomes still feed exit accounting; none trips
+	// hasFailedOutcome, so collapsing the DISPLAY here leaves the exit code
+	// unchanged.
+	for (const nonActioned of categorized.nonActionedGroups) {
+		emitCollapsedGroupSummary(nonActioned, groups);
+		outcomes.push(...nonActioned.outcomes);
 	}
-	outcomes.push(...categorized.nonActionedOutcomes);
 
 	renderOutOfConstraintOutput(categorized.outOfConstraintInfo);
 
@@ -417,7 +438,7 @@ function categorizeGroups(
 	targets: GroupTarget[],
 ): CategorizedGroups {
 	const updatableGroups: UpdatableGroup[] = [];
-	const nonActionedOutcomes: PluginOutcome[] = [];
+	const nonActionedGroups: NonActionedGroup[] = [];
 	const outOfConstraintInfo: OutOfConstraintInfo[] = [];
 	let hasNotableCategory = false;
 
@@ -425,6 +446,7 @@ function categorizeGroups(
 		const group = groups[i]!;
 		const target = targets[i]!;
 		const updating: GroupMember[] = [];
+		const nonActioned: PluginOutcome[] = [];
 
 		for (const member of group.members) {
 			const result = categorizeMember(member.entry, target);
@@ -441,20 +463,26 @@ function categorizeGroups(
 				hasNotableCategory = true;
 			}
 
-			const nonActioned = splitMember(member, result, updating);
-			if (nonActioned !== null) {
-				nonActionedOutcomes.push(nonActioned);
+			const outcome = splitMember(member, result, updating);
+			if (outcome !== null) {
+				nonActioned.push(outcome);
 			}
 		}
 
 		if (updating.length > 0) {
 			updatableGroups.push({ group, target, updating });
 		}
+		// A group with non-actioned members feeds the trailing per-group collapse —
+		// keyed alongside its shared target so the collapse can read group-level
+		// fields (newerTags / reason) without re-resolving.
+		if (nonActioned.length > 0) {
+			nonActionedGroups.push({ group, target, outcomes: nonActioned });
+		}
 	}
 
 	return {
 		updatableGroups,
-		nonActionedOutcomes,
+		nonActionedGroups,
 		outOfConstraintInfo,
 		hasNotableCategory,
 	};
@@ -869,6 +897,52 @@ async function persistUnitOutcomes(
 	}
 
 	return updatedManifest;
+}
+
+/**
+ * Emits a group's trailing non-actioned summary as ONE collapsed line per
+ * category (task 2-5), dispatched on the shared target kind:
+ *
+ * - `check-failed` → the group's single shared probe reason (all-mode warns, exit
+ *   0), count-collapsed — never one line per member.
+ * - `constrained-no-match` → the group's single shared constraint (warn),
+ *   count-collapsed. `versionIntent` is the constraint (non-null: a
+ *   constrained-no-match target only arises for a constrained entry).
+ * - `tag` with newer tags → the pinned-ref notice + repo-level add command
+ *   (info), one per group (every exact-pin member shares the notice). `newestTag`
+ *   is the newest of the shared newer-tags list (reverse-newest); `pinnedRef` is
+ *   the group's version intent (non-null: a tag group keys on its ref).
+ * - otherwise (constrained / branch / head / tag-with-no-newer) → the up-to-date
+ *   count (message). These are the members that did NOT stream under the header
+ *   (the genuine-state split); the count excludes any behind sibling that updated.
+ */
+function emitCollapsedGroupSummary(
+	nonActioned: NonActionedGroup,
+	groups: EntryGroup[],
+): void {
+	const { group, target, outcomes } = nonActioned;
+	const label = groupLabel(group, groups);
+
+	if (target.kind === "check-failed") {
+		p.log.warn(formatCheckFailedLine(label, target.reason));
+		return;
+	}
+	if (target.kind === "constrained-no-match") {
+		p.log.warn(formatConstrainedNoMatchLine(label, group.versionIntent!));
+		return;
+	}
+	if (target.kind === "tag" && target.newerTags.length > 0) {
+		const newest = [...target.newerTags].reverse()[0]!;
+		p.log.info(formatNewerTagsLine(label, group.versionIntent!, newest));
+		return;
+	}
+
+	const upToDate = outcomes.filter(
+		(outcome) => outcome.status === "up-to-date",
+	).length;
+	if (upToDate > 0) {
+		p.log.message(formatUpToDateLine(label, upToDate));
+	}
 }
 
 /** Renders one outcome to the per-unit summary at the log level for its status. */
