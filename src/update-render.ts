@@ -14,7 +14,7 @@ export { formatVersionMove };
  * for a standalone or `owner/repo/<member>` for a collection member — the
  * first two segments are the repo either way, so the member suffix is stripped.
  */
-function repoOf(group: EntryGroup): string {
+export function repoOf(group: EntryGroup): string {
 	return group.members[0]!.key.split("/").slice(0, 2).join("/");
 }
 

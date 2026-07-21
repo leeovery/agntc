@@ -49,6 +49,7 @@ import {
 	formatUpToDateLine,
 	groupLabel,
 	type MemberLine,
+	repoOf,
 } from "../update-render.js";
 import {
 	isAtOrAboveVersion,
@@ -116,9 +117,22 @@ function extractOutOfConstraint(
 		hasOutOfConstraintVersion(checkResult) &&
 		entry.constraint !== undefined
 	) {
+		// POST-BUMP current: a constrained-update-available run LANDS on
+		// checkResult.tag (so the footer agrees with the inline `Updated ... ->
+		// <tag>` line, not the stale pre-bump entry.ref); constrained-up-to-date
+		// applied no bump, so pre/post coincide at entry.ref. A constrained entry
+		// always carries a resolved tag ref, so entry.ref is non-null here.
+		const current =
+			checkResult.status === "constrained-update-available"
+				? checkResult.tag
+				: entry.ref!;
 		return {
 			key,
+			current,
 			latestOverall: checkResult.latestOverall,
+			// The BARE owner/repo for the re-add command — strip any /<member>
+			// segment so a collection member's command re-adds the collection.
+			repo: key.split("/").slice(0, 2).join("/"),
 			constraint: entry.constraint,
 		};
 	}
@@ -510,7 +524,6 @@ function categorizeGroups(
  * {@link groupLabel} — so an N-member collection yields one footer line, not N,
  * while two distinct-intent groups of one repo keep their own @intent lines.
  * `versionIntent` is the group's constraint (non-null for a constrained target).
- * Preserves today's PASSIVE wording verbatim — Phase 4 rewords the footer.
  */
 function groupOutOfConstraintInfo(
 	group: EntryGroup,
@@ -522,7 +535,13 @@ function groupOutOfConstraintInfo(
 	}
 	return {
 		label: groupLabel(group, groups),
+		// POST-BUMP current for every member: the group's resolved
+		// best-within-constraint tag (the version this run lands the group on).
+		current: target.tag,
 		latestOverall: target.latestOverall,
+		// The BARE owner/repo re-add command (task 2-1 repoOf) — never the @intent
+		// label, even when the line prefix is @intent-disambiguated.
+		repo: repoOf(group),
 		constraint: group.versionIntent!,
 	};
 }

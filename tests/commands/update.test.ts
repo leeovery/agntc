@@ -5628,7 +5628,7 @@ describe("update command", () => {
 	});
 
 	describe("out-of-constraint info section", () => {
-		it("renders info section in batch mode when constrained plugin has out-of-constraint version", async () => {
+		it("all-mode footer names the post-bump landed tag as current when a safe bump applies this run", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -5657,18 +5657,14 @@ describe("update command", () => {
 
 			await runUpdate();
 
+			// A same-run safe bump lands v1.3.0; the footer names that POST-BUMP
+			// landed tag (group target.tag), not the pre-bump ref, so it agrees with
+			// the inline Updated line.
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			const hasHeader = infoCalls.some((msg) =>
-				msg.includes("Newer versions outside constraints"),
+			expect(infoCalls).toContain(
+				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
-			const hasLine = infoCalls.some(
-				(msg) =>
-					msg.includes("owner/repo") &&
-					msg.includes("v2.0.0") &&
-					msg.includes("^1.0"),
-			);
-			expect(hasHeader).toBe(true);
-			expect(hasLine).toBe(true);
+			expect(infoCalls).toContain("Newer versions outside constraints:");
 		});
 
 		it("omits info section in batch mode when no out-of-constraint versions exist", async () => {
@@ -5753,7 +5749,7 @@ describe("update command", () => {
 			expect(hasRepoB).toBe(true);
 		});
 
-		it("renders info section in single-plugin mode when constrained plugin has out-of-constraint version", async () => {
+		it("single-key names the post-bump landed tag as current (v1.3.0 -> v2.0.0), consistent with the inline Updated line", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -5782,18 +5778,13 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo");
 
+			// current is the LANDED tag (checkResult.tag = v1.3.0), NOT the pre-bump
+			// entry.ref (v1.2.3) — matching the inline `Updated ... -> v1.3.0` line.
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			const hasHeader = infoCalls.some((msg) =>
-				msg.includes("Newer versions outside constraints"),
+			expect(infoCalls).toContain(
+				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
-			const hasLine = infoCalls.some(
-				(msg) =>
-					msg.includes("owner/repo") &&
-					msg.includes("v2.0.0") &&
-					msg.includes("^1.0"),
-			);
-			expect(hasHeader).toBe(true);
-			expect(hasLine).toBe(true);
+			expect(infoCalls).toContain("Newer versions outside constraints:");
 		});
 
 		it("omits info section in single-plugin mode when no out-of-constraint version", async () => {
@@ -5832,7 +5823,7 @@ describe("update command", () => {
 			expect(hasHeader).toBe(false);
 		});
 
-		it("renders info section in single-plugin mode for constrained-up-to-date with out-of-constraint version", async () => {
+		it("single-key constrained-up-to-date names entry.ref as current (pre/post coincide)", async () => {
 			const entry = makeEntry({
 				ref: "v1.3.0",
 				commit: INSTALLED_SHA,
@@ -5848,18 +5839,36 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo");
 
+			// No safe bump this run: pre/post coincide, so current = entry.ref = v1.3.0.
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			const hasHeader = infoCalls.some((msg) =>
-				msg.includes("Newer versions outside constraints"),
+			expect(infoCalls).toContain(
+				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
-			const hasLine = infoCalls.some(
-				(msg) =>
-					msg.includes("owner/repo") &&
-					msg.includes("v2.0.0") &&
-					msg.includes("^1.0"),
+			expect(infoCalls).toContain("Newer versions outside constraints:");
+		});
+
+		it("a ^0.3.3 entry with 0.4.0 out of constraint renders the same actionable line (0.x-minor gate)", async () => {
+			const entry = makeEntry({
+				ref: "v0.3.3",
+				commit: INSTALLED_SHA,
+				constraint: "^0.3.3",
+				agents: ["claude"],
+				files: [".claude/skills/my-skill/"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-up-to-date",
+				latestOverall: "v0.4.0",
+			});
+
+			await runUpdate("owner/repo");
+
+			// A 0.x-minor (^0.3.3 gates 0.4.0) rides the SAME out-of-constraint path as
+			// a major — identical actionable wording, current from the check result.
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			expect(infoCalls).toContain(
+				"  owner/repo  v0.3.3 -> v0.4.0 available. To upgrade: npx agntc add owner/repo",
 			);
-			expect(hasHeader).toBe(true);
-			expect(hasLine).toBe(true);
 		});
 
 		it("does not render info line when within-constraint best equals absolute latest", async () => {
@@ -5915,17 +5924,16 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// ONE footer line for the whole collection, keyed by the group label.
+			// ONE footer line for the whole collection: current = group target.tag,
+			// keyed by the group label, bare owner/repo command.
 			expect(infoCalls).toContain(
-				"  owner/repo  v2.0.0 available (constraint: ^1.0)",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
 			// Not N near-identical per-member footer lines.
-			expect(
-				infoCalls.filter((m) => m.includes("available (constraint")),
-			).toHaveLength(1);
+			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
 		});
 
-		it("renders separate @intent-disambiguated footer lines for two distinct-intent groups of one repo", async () => {
+		it("a multi-group repo renders two @intent-prefixed footer lines, each with the bare owner/repo command", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					ref: "v1.2.3",
@@ -5963,19 +5971,18 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// Two footer lines, each disambiguated by its @intent-suffixed group label.
+			// Two footer lines: prefix disambiguated by @intent, command stays the
+			// BARE owner/repo. current = each group's own target.tag.
 			expect(infoCalls).toContain(
-				"  owner/repo@^1.2.3  v3.0.0 available (constraint: ^1.2.3)",
+				"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
 			expect(infoCalls).toContain(
-				"  owner/repo@^2.0.0  v3.0.0 available (constraint: ^2.0.0)",
+				"  owner/repo@^2.0.0  v2.0.0 -> v3.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
-			expect(
-				infoCalls.filter((m) => m.includes("available (constraint")),
-			).toHaveLength(2);
+			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(2);
 		});
 
-		it("preserves the passive footer wording verbatim (no re-add command, no current version)", async () => {
+		it("all-mode footer names the group target tag as current and the bare npx agntc add owner/repo command", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": constrainedMember("a"),
 				"owner/repo/b": constrainedMember("b"),
@@ -5990,21 +5997,19 @@ describe("update command", () => {
 			await runUpdate();
 
 			// The footer is the ONLY info output on this all-up-to-date path, so the
-			// exact two lines pin the passive wording verbatim.
+			// exact two lines pin the actionable wording verbatim: current = group
+			// target.tag (v1.2.3), bare owner/repo command, no (constraint: ...) tail.
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toEqual([
 				"Newer versions outside constraints:",
-				"  owner/repo  v2.0.0 available (constraint: ^1.0)",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			]);
-			// Phase 4 (not this task) rewords the footer to the actionable, mode-matched
-			// message — none of that may leak in here.
+			// No (constraint: ...) tail survives the reword.
 			const footer = infoCalls.join("\n");
-			expect(footer).not.toContain("npx agntc add");
-			expect(footer).not.toContain("To upgrade");
-			expect(footer).not.toContain("current");
+			expect(footer).not.toContain("available (constraint");
 		});
 
-		it("out-of-constraint footer keeps the all-mode exit at 0", async () => {
+		it("the out-of-constraint footer keeps the all-mode (and single-key) exit at 0", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": constrainedMember("a"),
 				"owner/repo/b": constrainedMember("b"),
@@ -6016,14 +6021,31 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const allModeErr = await runUpdate().catch((e) => e);
 
-			// The footer does not feed hasFailedOutcome, so exit stays 0.
-			expect(err).toBeUndefined();
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			expect(infoCalls).toContain(
-				"  owner/repo  v2.0.0 available (constraint: ^1.0)",
+			// The footer does not feed hasFailedOutcome, so all-mode exit stays 0.
+			expect(allModeErr).toBeUndefined();
+			expect(mockLog.info.mock.calls.map((c) => c[0] as string)).toContain(
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
+
+			// Single-key path: constrained-up-to-date, out of constraint — also exit 0.
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					ref: "v1.3.0",
+					commit: INSTALLED_SHA,
+					constraint: "^1.0",
+					agents: ["claude"],
+					files: [".claude/skills/my-skill/"],
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-up-to-date",
+				latestOverall: "v2.0.0",
+			});
+
+			const singleKeyErr = await runUpdate("owner/repo").catch((e) => e);
+			expect(singleKeyErr).toBeUndefined();
 		});
 	});
 });

@@ -321,7 +321,23 @@ export interface OutOfConstraintInfo {
 	 * {@link key} when present.
 	 */
 	label?: string;
+	/**
+	 * The POST-BUMP current version — the tag this run actually landed on (the
+	 * resolved best-within-constraint tag), NOT the pre-bump `entry.ref`. Naming
+	 * the pre-bump ref would report a stale current, contradicting the inline
+	 * `Updated <old> -> <tag>` line for a same-run safe bump. Rendered as the left
+	 * side of the actionable `<current> -> <latestOverall>` move.
+	 */
+	current: string;
 	latestOverall: string;
+	/**
+	 * The BARE `owner/repo` for the re-add command — never the @intent label. A
+	 * bare `npx agntc add owner/repo` re-resolves the latest semver tag and
+	 * re-establishes caret at the new major, so the command jumps the boundary
+	 * regardless of the (possibly @intent-disambiguated) line prefix.
+	 */
+	repo: string;
+	/** Retained for the call sites, no longer rendered by the actionable wording. */
 	constraint: string;
 }
 
@@ -330,10 +346,15 @@ export function renderOutOfConstraintSection(
 ): string[] {
 	if (infos.length === 0) return [];
 
+	// One informative (non-error, exit-0) line per group: the actionable
+	// current->newer move plus the BARE re-add directive (the naming spec's
+	// canonical `npx agntc add <repo>` command form). The `label ?? key` prefix is
+	// unchanged from task 2-7 (all-mode sets label, single-key sets key); the
+	// command uses `repo` (bare owner/repo), never the @intent label.
 	const lines: string[] = ["Newer versions outside constraints:"];
 	for (const info of infos) {
 		lines.push(
-			`  ${info.label ?? info.key}  ${info.latestOverall} available (constraint: ${info.constraint})`,
+			`  ${info.label ?? info.key}  ${info.current} -> ${info.latestOverall} available. To upgrade: npx agntc add ${info.repo}`,
 		);
 	}
 	return lines;
