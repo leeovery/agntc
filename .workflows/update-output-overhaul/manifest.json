@@ -33,7 +33,7 @@
         "update-output-overhaul": {
           "status": "in-progress",
           "format": "tick",
-          "spec_commit": "7c53c32f2a9b2cb58f1b97febf8d1a4afc983dbb",
+          "spec_commit": "70363ea19d634e1b1d6aab80927784068377ce59",
           "task_list_gate_mode": "gated",
           "author_gate_mode": "gated",
           "finding_gate_mode": "gated",
