@@ -3,7 +3,7 @@ import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
-import { cleanupTempDir, cloneSource } from "./git-clone.js";
+import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry, writeManifest } from "./manifest.js";
 import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
@@ -302,6 +302,30 @@ export function formatAgentsDroppedWarning(
 	);
 }
 
+/**
+ * Spinner-free clone primitive: builds the parsed source from a key/entry (with
+ * an optional `newRef` override — the constrained resolved-tag, forwarded as
+ * `clone --branch <resolved-tag>`) and clones once via {@link cloneSource},
+ * letting a clone failure propagate. Retry lives inside `cloneSource` (3×
+ * internally), so a throw here is final. Shared by {@link cloneAndReinstall}
+ * (which wraps it in its own spinner + clone-failed mapping) and the group
+ * orchestrator, which clones once per repo then reinstalls many members against
+ * the shared temp dir. Deliberately spinner-free: the grouped path owns its own
+ * clone-progress rendering.
+ */
+export async function cloneRepoOnce(input: {
+	key: string;
+	entry: ManifestEntry;
+	newRef?: string;
+}): Promise<CloneResult> {
+	const parsed = buildParsedSourceFromKey(
+		input.key,
+		input.newRef ?? input.entry.ref,
+		input.entry.cloneUrl,
+	);
+	return cloneSource(parsed);
+}
+
 export async function cloneAndReinstall(
 	options: CloneAndReinstallOptions,
 ): Promise<CloneReinstallResult> {
@@ -324,20 +348,19 @@ export async function cloneAndReinstall(
 	}
 
 	// Remote mode: clone first
-	const parsed = buildParsedSourceFromKey(
-		key,
-		options.newRef ?? entry.ref,
-		entry.cloneUrl,
-	);
 	let tempDir: string | undefined;
 
 	try {
 		const spin = p.spinner();
 		spin.start("Cloning repository...");
 
-		let cloneResult;
+		let cloneResult: CloneResult;
 		try {
-			cloneResult = await cloneSource(parsed);
+			cloneResult = await cloneRepoOnce({
+				key,
+				entry,
+				newRef: options.newRef,
+			});
 		} catch (err) {
 			spin.stop("Clone failed");
 			return {

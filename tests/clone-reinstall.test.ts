@@ -76,6 +76,7 @@ import {
 	buildAbortMessage,
 	buildCopySafetyMessage,
 	cloneAndReinstall,
+	cloneRepoOnce,
 	failureMessage,
 	formatAgentsDroppedWarning,
 	isCloneReinstallFailure,
@@ -1244,6 +1245,51 @@ describe("cloneAndReinstall", () => {
 				expect(mockCopyPluginAssets).toHaveBeenCalledTimes(0);
 			});
 		});
+	});
+});
+
+describe("cloneRepoOnce", () => {
+	it("returns tempDir and commit from cloneSource", async () => {
+		const entry = makeEntry({ ref: "v1.0.0" });
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+
+		const result = await cloneRepoOnce({ key: "owner/repo", entry });
+
+		expect(result).toEqual({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		// No override → the stored entry.ref reaches the parsed source (clone --branch).
+		expect(mockCloneSource).toHaveBeenCalledWith(
+			expect.objectContaining({ ref: "v1.0.0" }),
+		);
+	});
+
+	it("passes newRef as the clone --branch override when provided", async () => {
+		const entry = makeEntry({ ref: "v1.0.0" });
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+
+		await cloneRepoOnce({ key: "owner/repo", entry, newRef: "v2.0.0" });
+
+		// The constrained resolved-tag override wins over entry.ref.
+		expect(mockCloneSource).toHaveBeenCalledWith(
+			expect.objectContaining({ ref: "v2.0.0" }),
+		);
+	});
+
+	it("rethrows when cloneSource rejects (retry is internal, throw is final)", async () => {
+		const entry = makeEntry();
+		mockCloneSource.mockRejectedValue(new Error("git clone failed"));
+
+		await expect(cloneRepoOnce({ key: "owner/repo", entry })).rejects.toThrow(
+			"git clone failed",
+		);
 	});
 });
 
