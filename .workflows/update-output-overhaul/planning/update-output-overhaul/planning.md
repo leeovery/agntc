@@ -1,5 +1,9 @@
 # Plan: Update Output Overhaul
 
+## Cross-Cutting References
+
+- **naming-and-identity** (`.workflows/naming-and-identity/specification/naming-and-identity/specification.md`) — the canonical CLI form is `agntc` and the re-add directive form is `npx agntc add owner/repo`. Binds the command wording authored in the actionable out-of-constraint footer (Phase 4 Task 4-1) and the collapsed `newer-tags` line (Phase 2 Task 2-5 / verified Phase 4 Task 4-2): the bare caret re-add is `npx agntc add owner/repo`; the exact-pin re-add is `npx agntc add owner/repo@<newest>` (repo-level, all-mode) / `npx agntc add <key>@<newest>` (member-scoped, single-key).
+
 ## Phases
 
 ### Phase 1: Group-first update engine and clone/check dedup
