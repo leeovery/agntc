@@ -162,7 +162,7 @@
     "review": {
       "items": {
         "update-output-overhaul": {
-          "status": "in-progress",
+          "status": "completed",
           "reviewed_tasks": [
             "update-output-overhaul-1-1",
             "update-output-overhaul-1-2",
