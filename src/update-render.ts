@@ -134,12 +134,16 @@ export function formatCloneFailureLine(
  *
  * `oldCommits` are the UPDATING members' installed commits (one per attempted
  * member; up-to-date siblings excluded by the caller), so `(N members)` counts
- * the attempted set and is fixed at call time. Keying shared-vs-divergent on the
- * installed COMMIT (not ref) covers both an atomically-added constrained
- * collection (shared old) and members at different tags or branch/HEAD commits
- * (divergent old) uniformly. For the divergent target-only header, the resolved
- * target renders as its tag when it is one, else the short new hash. `members` is
- * generic — a collection can hold plugin members, not only skills.
+ * the attempted set and is fixed at call time. The shared-vs-divergent decision
+ * is NOT derived here — the caller ({@link streamGroupWork}) computes it ONCE
+ * from those same installed commits and threads it in as `divergent`, the single
+ * source of truth shared with the per-member renderer so the header-move /
+ * member-move XOR cannot drift. Keying shared-vs-divergent on the installed
+ * COMMIT (not ref) covers both an atomically-added constrained collection (shared
+ * old) and members at different tags or branch/HEAD commits (divergent old)
+ * uniformly. For the divergent target-only header, the resolved target renders as
+ * its tag when it is one, else the short new hash. `members` is generic — a
+ * collection can hold plugin members, not only skills.
  */
 export function formatGroupHeader(input: {
 	label: string;
@@ -147,11 +151,11 @@ export function formatGroupHeader(input: {
 	oldRefs: (string | null)[];
 	newCommit: string;
 	newRef: string | null;
+	divergent: boolean;
 }): string {
-	const { label, oldCommits, oldRefs, newCommit, newRef } = input;
+	const { label, oldCommits, oldRefs, newCommit, newRef, divergent } = input;
 	const count = oldCommits.length;
-	const distinct = new Set(oldCommits).size;
-	if (distinct === 1) {
+	if (!divergent) {
 		const move = formatVersionMove({
 			oldRef: oldRefs[0]!,
 			newRef,

@@ -149,6 +149,7 @@ describe("formatGroupHeader", () => {
 			oldRefs: [null, null, null],
 			newCommit: NEW,
 			newRef: null,
+			divergent: false,
 		});
 
 		expect(header).toBe("Updating owner/repo  1a2b3c4 -> 9f8e7d6  (3 members)");
@@ -161,6 +162,7 @@ describe("formatGroupHeader", () => {
 			oldRefs: [null, null],
 			newCommit: NEW,
 			newRef: null,
+			divergent: true,
 		});
 
 		expect(header).toBe("Updating owner/repo -> 9f8e7d6  (2 members)");
@@ -173,6 +175,7 @@ describe("formatGroupHeader", () => {
 			oldRefs: [null, null, null, null, null, null, null],
 			newCommit: NEW,
 			newRef: null,
+			divergent: false,
 		});
 
 		expect(header).toBe("Updating owner/repo  1a2b3c4 -> 9f8e7d6  (7 members)");
@@ -185,6 +188,7 @@ describe("formatGroupHeader", () => {
 			oldRefs: ["v1.2.3", "v1.2.3"],
 			newCommit: NEW,
 			newRef: "v1.3.0",
+			divergent: false,
 		});
 
 		expect(header).toBe("Updating owner/repo  v1.2.3 -> v1.3.0  (2 members)");
@@ -197,6 +201,7 @@ describe("formatGroupHeader", () => {
 			oldRefs: ["v1.2.0", "v1.1.0"],
 			newCommit: NEW,
 			newRef: "v1.3.0",
+			divergent: true,
 		});
 		expect(tagged).toBe("Updating owner/repo -> v1.3.0  (2 members)");
 
@@ -206,8 +211,43 @@ describe("formatGroupHeader", () => {
 			oldRefs: ["main", "main"],
 			newCommit: NEW,
 			newRef: "main",
+			divergent: true,
 		});
 		expect(branch).toBe("Updating owner/repo -> 9f8e7d6  (2 members)");
+	});
+
+	// Structural guard: the shared-vs-divergent placement is driven by the
+	// caller-supplied `divergent` flag (single source of truth in streamGroupWork),
+	// NOT re-derived from the oldCommits Set. These two cases feed oldCommits whose
+	// Set size CONTRADICTS the passed flag to prove the flag alone gates placement.
+	it("places the move by the caller-supplied divergent flag, not the oldCommits set (flag=true wins over identical commits)", () => {
+		const header = formatGroupHeader({
+			label: "owner/repo",
+			// Identical commits — an internal Set derivation would say shared-old.
+			oldCommits: [OLD_A, OLD_A],
+			oldRefs: ["v1.2.3", "v1.2.3"],
+			newCommit: NEW,
+			newRef: "v1.3.0",
+			divergent: true,
+		});
+
+		// Caller says divergent → target-only header despite the identical commits.
+		expect(header).toBe("Updating owner/repo -> v1.3.0  (2 members)");
+	});
+
+	it("places the move by the caller-supplied divergent flag, not the oldCommits set (flag=false wins over distinct commits)", () => {
+		const header = formatGroupHeader({
+			label: "owner/repo",
+			// Distinct commits — an internal Set derivation would say divergent-old.
+			oldCommits: [OLD_A, OLD_B],
+			oldRefs: ["v1.2.3", "v1.2.3"],
+			newCommit: NEW,
+			newRef: "v1.3.0",
+			divergent: false,
+		});
+
+		// Caller says shared → the move rides the header despite distinct commits.
+		expect(header).toBe("Updating owner/repo  v1.2.3 -> v1.3.0  (2 members)");
 	});
 });
 

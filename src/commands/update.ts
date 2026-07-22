@@ -696,6 +696,10 @@ async function streamGroupWork(
 	);
 	const label = groupLabel(item.group, groups);
 	const single = item.updating.length === 1;
+	// The group's ONE divergent-old property, computed here from the installed
+	// commits and threaded to BOTH rendering surfaces (header + member lines) so
+	// the header-move / member-move XOR has a single source and cannot drift.
+	const divergent = new Set(item.updating.map((m) => m.entry.commit)).size > 1;
 	const header = single
 		? `Updating ${label}`
 		: formatGroupHeader({
@@ -704,6 +708,7 @@ async function streamGroupWork(
 				oldRefs: item.updating.map((m) => m.entry.ref),
 				newCommit,
 				newRef,
+				divergent,
 			});
 
 	const spin = p.spinner();
@@ -730,7 +735,7 @@ async function streamGroupWork(
 		p.log.error(formatCloneFailureLine(label, affected));
 	} else {
 		spin.stop(header);
-		streamGroupMemberLines(item, outcomes, newCommit, newRef);
+		streamGroupMemberLines(item, outcomes, newCommit, newRef, divergent);
 	}
 
 	return { outcomes, manifest };
@@ -848,17 +853,20 @@ function streamCollapsedOutcome(outcome: PluginOutcome): void {
 /**
  * Emits one {@link formatMemberLine} line per attempted member (member order),
  * name = basename, each dispatched at its own severity level. The version move
- * rides each member line only when the group is divergent-old
- * (distinct installed commits > 1) — the header then carried the target only
- * (task 2-2); the shared-old common case leaves the move on the header.
+ * rides each member line only when the group is divergent-old — the header then
+ * carried the target only (task 2-2); the shared-old common case leaves the move
+ * on the header. The divergent-old decision is NOT derived here: the caller
+ * ({@link streamGroupWork}) computes it ONCE and supplies it as `divergent`, the
+ * same boolean it threads into {@link formatGroupHeader}, so the header-move /
+ * member-move XOR is a single source of truth and cannot drift.
  */
-function streamGroupMemberLines(
+export function streamGroupMemberLines(
 	item: GroupWorkItem,
 	outcomes: PluginOutcome[],
 	newCommit: string,
 	newRef: string | null,
+	divergent: boolean,
 ): void {
-	const divergent = new Set(item.updating.map((m) => m.entry.commit)).size > 1;
 	for (let i = 0; i < outcomes.length; i++) {
 		const member = item.updating[i]!;
 		const move = divergent

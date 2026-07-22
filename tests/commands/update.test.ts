@@ -95,6 +95,7 @@ import * as p from "@clack/prompts";
 import {
 	failureOrSkipMemberLine,
 	runUpdate,
+	streamGroupMemberLines,
 } from "../../src/commands/update.js";
 import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
@@ -1862,6 +1863,82 @@ describe("update command", () => {
 			expect(mockLog.success).toHaveBeenCalledWith(
 				"b → claude  (v1.1.0 -> v1.3.0)",
 			);
+		});
+	});
+
+	// Structural guard: streamGroupMemberLines gates the per-member move on the
+	// caller-supplied `divergent` flag (single source of truth in streamGroupWork),
+	// NOT on any Set re-derived from item.updating's commits. Each case feeds
+	// updating commits whose Set size CONTRADICTS the passed flag to prove the flag
+	// alone drives member-line placement.
+	describe("streamGroupMemberLines consumes the caller-supplied divergent flag", () => {
+		function successOutcome(key: string): PluginOutcome {
+			return {
+				status: "updated",
+				key,
+				summary: `${key}: Updated`,
+				newEntry: makeEntry({ agents: ["claude"] }),
+				droppedAgents: [],
+			};
+		}
+
+		function groupItem(memberCommits: [string, string]) {
+			const updating = [
+				{
+					key: "owner/repo/a",
+					entry: makeEntry({ ref: "v1.2.0", commit: memberCommits[0] }),
+				},
+				{
+					key: "owner/repo/b",
+					entry: makeEntry({ ref: "v1.1.0", commit: memberCommits[1] }),
+				},
+			];
+			return {
+				kind: "group" as const,
+				position: 0,
+				group: {
+					cloneUrl: "https://github.com/owner/repo.git",
+					versionIntent: "^1.0",
+					constrained: true,
+					members: updating,
+				},
+				target: { kind: "head" as const, resolvedSha: REMOTE_SHA },
+				updating,
+			};
+		}
+
+		it("emits a per-member move when divergent=true even though the updating commits are identical", () => {
+			// Identical commits — an internal Set derivation would say shared-old.
+			const item = groupItem([INSTALLED_SHA, INSTALLED_SHA]);
+			const outcomes = [
+				successOutcome("owner/repo/a"),
+				successOutcome("owner/repo/b"),
+			];
+
+			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", true);
+
+			// Caller says divergent → each member line carries its own tag move.
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"a → claude  (v1.2.0 -> v1.3.0)",
+			);
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"b → claude  (v1.1.0 -> v1.3.0)",
+			);
+		});
+
+		it("leaves member lines bare when divergent=false even though the updating commits differ", () => {
+			// Distinct commits — an internal Set derivation would say divergent-old.
+			const item = groupItem(["c".repeat(40), "d".repeat(40)]);
+			const outcomes = [
+				successOutcome("owner/repo/a"),
+				successOutcome("owner/repo/b"),
+			];
+
+			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", false);
+
+			// Caller says shared → the move stays on the header, member lines are bare.
+			expect(mockLog.success).toHaveBeenCalledWith("a → claude");
+			expect(mockLog.success).toHaveBeenCalledWith("b → claude");
 		});
 	});
 
