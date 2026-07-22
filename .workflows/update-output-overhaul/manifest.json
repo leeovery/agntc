@@ -64,7 +64,12 @@
             "update-output-overhaul-4": "tick-d3a315",
             "update-output-overhaul-4-1": "tick-285db9",
             "update-output-overhaul-4-2": "tick-16894f",
-            "update-output-overhaul-4-3": "tick-852461"
+            "update-output-overhaul-4-3": "tick-852461",
+            "update-output-overhaul-5": "tick-f3267c",
+            "update-output-overhaul-5-1": "tick-a9830c",
+            "update-output-overhaul-5-2": "tick-0a21cf",
+            "update-output-overhaul-5-3": "tick-373415",
+            "update-output-overhaul-5-4": "tick-6bd5cd"
           },
           "external_id": "tick-e1f9de"
         }
@@ -76,7 +81,7 @@
           "status": "in-progress",
           "task_gate_mode": "auto",
           "fix_gate_mode": "auto",
-          "analysis_gate_mode": "gated",
+          "analysis_gate_mode": "auto",
           "fix_attempts": 0,
           "analysis_cycle_total": 1,
           "analysis_cycle_session": 1,

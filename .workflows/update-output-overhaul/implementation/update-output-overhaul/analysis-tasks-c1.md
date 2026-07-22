@@ -6,7 +6,7 @@ total_proposed: 4
 # Analysis Tasks: Update Output Overhaul (Cycle 1)
 
 ## Task 1: Fix malformed double-`@` re-add command in multi-group newer-tags line
-status: pending
+status: approved
 severity: high
 sources: architecture
 
@@ -28,7 +28,7 @@ sources: architecture
 - New multi-group test asserting `npx agntc add owner/repo@<newest>` when the display prefix is `@intent`-disambiguated.
 
 ## Task 2: Consolidate the triplicated GroupTarget→(ref, commit) projection into one derivation
-status: pending
+status: approved
 severity: medium
 sources: duplication, architecture
 
@@ -51,7 +51,7 @@ sources: duplication, architecture
 - Assertions across constrained, branch, and head groups verifying header, member-line, and collapsed refs and commit agree with the single derivation.
 
 ## Task 3: Extract shared outcome→member-line failure/skip rendering
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -72,7 +72,7 @@ sources: duplication
 - Coverage asserting the collapsed and streamed paths produce identical lines for each of `copy-failed`, `aborted`, `blocked`, `skipped-no-agents`, and bare-`failed`.
 
 ## Task 4: Extract shared helpers for scattered newest-tag and key→repo/basename idioms
-status: pending
+status: approved
 severity: low
 sources: duplication
 

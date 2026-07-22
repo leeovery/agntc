@@ -114,3 +114,14 @@ approved_at: 2026-07-21
 | update-output-overhaul-4-1 | Reword the out-of-constraint footer to the actionable, caret-mode re-add directive naming the post-bump current version | same-run safe bump (names landed version, matches inline Updated line); no safe bump this run (constrained-up-to-date, pre/post coincide); 0.x-minor gate (^0.3.3 → 0.4.0); single-key key-only path (no label); multi-group repo (label @intent-disambiguated, command stays bare owner/repo); exit stays 0 / no error styling |
 | update-output-overhaul-4-2 | Regression-lock the exact-pin newer-tags re-add command across all-mode and single-key | exact-pin collection collapses to one repo-level @newest line; single-key stays key/member-scoped @newest; caret user never routed to @newest |
 | update-output-overhaul-4-3 | Lock the ratified exit-code posture explicitly for check-failed / constrained-no-match | single-key check-failed → exit 1; single-key constrained-no-match → exit 1; all-mode both → warn + exit 0; all-mode aborted/blocked/failed/copy-failed → exit 1 |
+
+### Phase 5: Analysis (Cycle 1)
+
+**Goal**: Address findings from Analysis (Cycle 1).
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| update-output-overhaul-5-1 | Fix malformed double-`@` re-add command in multi-group newer-tags line | single-group (label === bare repo) unchanged; multi-group @intent-disambiguated command stays bare `owner/repo@<newest>` (never double-@); human prefix retains disambiguated @intent label; corrected baked-in unit test; new multi-group coverage |
+| update-output-overhaul-5-2 | Consolidate the triplicated GroupTarget→(ref, commit) projection into one derivation | constrained vs branch vs head arms encoded once; clone --branch override (undefined) kept distinct from display ref (versionIntent); header/member-line/collapsed group-of-one all read one projection; new streamed arm = single-site edit; behaviour-preserving |
+| update-output-overhaul-5-3 | Extract shared outcome→member-line failure/skip rendering | copy-failed / aborted / blocked / skipped-no-agents / bare-failed defined once; each caller retains only its own success arm (collapsed summary vs streamed agents+move); byte-identical failure/skip output across collapsed and streamed paths; new failure status = one switch |
+| update-output-overhaul-5-4 | Extract shared helpers for scattered newest-tag and key→repo/basename idioms | newestTag documents ascending/oldest-first; repoFromKey strips /<member> suffix; memberName basename; no remaining inline reverse()[0] / slice(0,2).join / key-basename pop() at listed sites; behaviour unchanged at every call site |
