@@ -19,6 +19,7 @@ import {
 	writeManifest,
 } from "../manifest.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
+import { memberName, repoFromKey } from "../source-parser.js";
 import {
 	type OutOfConstraintInfo,
 	renderGitUpdateSummary,
@@ -54,6 +55,7 @@ import {
 } from "../update-render.js";
 import {
 	isAtOrAboveVersion,
+	newestTag,
 	type VersionOverrides,
 } from "../version-resolve.js";
 
@@ -133,7 +135,7 @@ function extractOutOfConstraint(
 			latestOverall: checkResult.latestOverall,
 			// The BARE owner/repo for the re-add command — strip any /<member>
 			// segment so a collection member's command re-adds the collection.
-			repo: key.split("/").slice(0, 2).join("/"),
+			repo: repoFromKey(key),
 			constraint: entry.constraint,
 		};
 	}
@@ -166,7 +168,7 @@ async function runSingleUpdate(
 		for (const tag of reversed) {
 			p.log.message(`  ${tag}`);
 		}
-		const newest = reversed[0]!;
+		const newest = newestTag(result.tags);
 		p.outro(`To upgrade: npx agntc add ${key}@${newest}`);
 		return { newEntry: null, outOfConstraint };
 	}
@@ -574,7 +576,7 @@ function splitMember(
 		case "constrained-up-to-date":
 			return upToDateOutcome(key);
 		case "newer-tags": {
-			const newest = [...result.tags].reverse()[0]!;
+			const newest = newestTag(result.tags);
 			return {
 				status: "newer-tags",
 				key,
@@ -735,7 +737,7 @@ async function streamGroupWork(
 		spin.stop(line.text, line.level === "error" ? 2 : 0);
 	} else if (result.cloneFailed) {
 		spin.stop(header);
-		const affected = item.updating.map((m) => m.key.split("/").pop()!);
+		const affected = item.updating.map((m) => memberName(m.key));
 		p.log.error(formatCloneFailureLine(label, affected));
 	} else {
 		spin.stop(header);
@@ -881,7 +883,7 @@ function streamGroupMemberLines(
 					newCommit,
 				}
 			: null;
-		emitMemberLine(outcomes[i]!, member, member.key.split("/").pop()!, move);
+		emitMemberLine(outcomes[i]!, member, memberName(member.key), move);
 	}
 }
 
@@ -1018,7 +1020,7 @@ function emitCollapsedGroupSummary(
 		return;
 	}
 	if (target.kind === "tag" && target.newerTags.length > 0) {
-		const newest = [...target.newerTags].reverse()[0]!;
+		const newest = newestTag(target.newerTags);
 		p.log.info(
 			formatNewerTagsLine(label, repoOf(group), group.versionIntent!, newest),
 		);

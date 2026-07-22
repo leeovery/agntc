@@ -1,3 +1,4 @@
+import { repoFromKey } from "./source-parser.js";
 import { formatDroppedAgentsSuffix } from "./summary.js";
 import type { EntryGroup } from "./update-groups.js";
 import { formatVersionMove, isVersionTag } from "./version-resolve.js";
@@ -15,7 +16,7 @@ export { formatVersionMove };
  * first two segments are the repo either way, so the member suffix is stripped.
  */
 export function repoOf(group: EntryGroup): string {
-	return group.members[0]!.key.split("/").slice(0, 2).join("/");
+	return repoFromKey(group.members[0]!.key);
 }
 
 /**

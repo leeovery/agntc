@@ -13,8 +13,10 @@ import {
 	buildParsedSourceFromKey,
 	deriveCloneUrlFromKey,
 	getSourceDirFromKey,
+	memberName,
 	type ParsedSource,
 	parseSource,
+	repoFromKey,
 	resolveCloneUrl,
 	resolveUpdateSourceDir,
 } from "../src/source-parser.js";
@@ -1274,5 +1276,33 @@ describe("constraint type guarantees", () => {
 		if (source.type === "direct-path") {
 			expectTypeOf(source.constraint).toEqualTypeOf<null>();
 		}
+	});
+});
+
+describe("repoFromKey", () => {
+	it("returns a standalone owner/repo key unchanged", () => {
+		expect(repoFromKey("owner/repo")).toBe("owner/repo");
+	});
+
+	it("strips the /<member> suffix from a collection member key", () => {
+		expect(repoFromKey("owner/repo/my-skill")).toBe("owner/repo");
+	});
+
+	it("strips a nested member path to the first two segments", () => {
+		expect(repoFromKey("owner/repo/nested/member")).toBe("owner/repo");
+	});
+});
+
+describe("memberName", () => {
+	it("returns the repo name for a standalone owner/repo key", () => {
+		expect(memberName("owner/repo")).toBe("repo");
+	});
+
+	it("returns the last segment for a collection member key", () => {
+		expect(memberName("owner/repo/my-skill")).toBe("my-skill");
+	});
+
+	it("returns the final segment of a nested member path", () => {
+		expect(memberName("owner/repo/nested/member")).toBe("member");
 	});
 });

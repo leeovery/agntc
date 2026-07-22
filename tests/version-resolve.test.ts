@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	isVersionTag,
+	newestTag,
 	normalizeTags,
 	resolveLatestVersion,
 	resolveVersion,
@@ -180,5 +181,20 @@ describe("isVersionTag", () => {
 
 	it("rejects a non-version arbitrary tag", () => {
 		expect(isVersionTag("release-candidate")).toBe(false);
+	});
+});
+
+describe("newestTag", () => {
+	it("returns the last element of an ascending (oldest-first) list", () => {
+		expect(newestTag(["v1.0.0", "v1.1.0", "v2.0.0"])).toBe("v2.0.0");
+	});
+
+	it("returns the only element of a single-item list", () => {
+		expect(newestTag(["v1.4.2"])).toBe("v1.4.2");
+	});
+
+	it("matches the reverse-first-element idiom it replaces", () => {
+		const tags = ["1.0.0", "1.2.0", "1.2.3", "1.3.0"];
+		expect(newestTag(tags)).toBe([...tags].reverse()[0]);
 	});
 });

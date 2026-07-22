@@ -96,6 +96,19 @@ export function resolveLatestVersion(tags: string[]): ResolvedVersion | null {
 	return resolveVersion("*", tags);
 }
 
+/**
+ * The newest tag of a newer-tags list — its last element. These lists are
+ * ascending (oldest-first) as produced by the update-check surface, so the
+ * newest is the tail, NOT the head; this helper is the single place that
+ * assumption is encoded (replacing the scattered `[...tags].reverse()[0]!`
+ * idiom). Callers reach here only with a non-empty "newer tags available"
+ * list, so the last element is asserted present — an empty list surfaces the
+ * same way the reverse-first-element idiom did before.
+ */
+export function newestTag(tags: string[]): string {
+	return tags[tags.length - 1]!;
+}
+
 export function isAtOrAboveVersion(
 	currentRef: string | null,
 	candidateTag: string,
