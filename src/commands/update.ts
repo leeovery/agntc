@@ -742,7 +742,7 @@ async function streamGroupWork(
  * different mechanics and no single {@link MemberLine} can reproduce both — the
  * collapsed path settles a red error spinner stop-frame (`level: "error"` →
  * `spin.stop` code 2), while the streamed path emits `p.log.error` via
- * {@link renderOutcomeSummary}. Both render `failed` at ERROR (red ✗) — uniform
+ * {@link renderFailedOutcome}. Both render `failed` at ERROR (red ✗) — uniform
  * severity across layouts — so each caller keeps its own bare-`failed` rendering.
  */
 export function failureOrSkipMemberLine(
@@ -880,7 +880,7 @@ export function streamGroupMemberLines(
  * or a per-member subpath-traversal reject, the GROUP-FATAL clone fan-out being
  * intercepted upstream by {@link streamGroupWork} as one enumerated line (task
  * 2-6) — is not a shared-format status (the helper returns null), so it falls
- * back to the {@link renderOutcomeSummary} render at ERROR (red ✗) — uniform with
+ * back to the {@link renderFailedOutcome} render at ERROR (red ✗) — uniform with
  * the collapsed group-of-one stop-frame.
  */
 function emitMemberLine(
@@ -907,7 +907,7 @@ function emitMemberLine(
 
 	const line = failureOrSkipMemberLine(outcome, name);
 	if (line === null) {
-		renderOutcomeSummary(outcome);
+		renderFailedOutcome(outcome);
 		return;
 	}
 	p.log[line.level](line.text);
@@ -963,7 +963,8 @@ async function persistUnitOutcomes(
  *   constrained-no-match target only arises for a constrained entry).
  * - `tag` with newer tags → the pinned-ref notice + repo-level add command
  *   (info), one per group (every exact-pin member shares the notice). `newestTag`
- *   is the newest of the shared newer-tags list (reverse-newest); `pinnedRef` is
+ *   is the newest of the shared newer-tags list (via `newestTag` — the tail of
+ *   the ascending list); `pinnedRef` is
  *   the group's version intent (non-null: a tag group keys on its ref).
  * - otherwise (constrained / branch / head / tag-with-no-newer) → the up-to-date
  *   count (message). These are the members that did NOT stream under the header
@@ -1006,7 +1007,7 @@ function emitCollapsedGroupSummary(
  * loud/skip variant renders via {@link failureOrSkipMemberLine}). Any other status
  * is unreachable here and intentionally a no-op.
  */
-function renderOutcomeSummary(outcome: PluginOutcome): void {
+function renderFailedOutcome(outcome: PluginOutcome): void {
 	if (outcome.status === "failed") {
 		p.log.error(outcome.summary);
 	}

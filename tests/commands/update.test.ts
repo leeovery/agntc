@@ -4000,6 +4000,11 @@ describe("update command", () => {
 			expect(
 				(mockWriteManifest.mock.calls.at(-1)![1] as Manifest)["owner/repo-b"],
 			).toBeDefined();
+			// aborted A's original entry is preserved in the persisted manifest, not
+			// merely not-removed.
+			expect(
+				(mockWriteManifest.mock.calls.at(-1)![1] as Manifest)["owner/repo-a"],
+			).toBeDefined();
 		});
 
 		it("all-mode blocked exits 1 while the succeeded sibling persists", async () => {
@@ -4047,6 +4052,11 @@ describe("update command", () => {
 			);
 			expect(
 				(mockWriteManifest.mock.calls.at(-1)![1] as Manifest)["owner/repo-b"],
+			).toBeDefined();
+			// blocked A's original entry is preserved in the persisted manifest, not
+			// merely not-removed.
+			expect(
+				(mockWriteManifest.mock.calls.at(-1)![1] as Manifest)["owner/repo-a"],
 			).toBeDefined();
 		});
 
@@ -6878,7 +6888,7 @@ describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () 
 	it("returns null for a bare `failed` — its rendering is NOT shared (each caller renders it itself)", () => {
 		// Both paths render a bare `failed` at ERROR (red ✗) but by different mechanics:
 		// the collapsed path settles a red error spinner stop-frame (code 2), the
-		// streamed path emits p.log.error via renderOutcomeSummary. A single shared
+		// streamed path emits p.log.error via renderFailedOutcome. A single shared
 		// MemberLine cannot reproduce both, so the helper declines (null) and each
 		// caller keeps its own bare-`failed` fallback.
 		const outcome: PluginOutcome = {
@@ -6898,7 +6908,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 	// the group-of-one collapsed spinner stop-frame — never the yellow warn glyph.
 	// clack's spin.stop has no warn code, so the group-of-one collapse can only be
 	// green or red; red is the honest choice, so the other paths normalise UP to red
-	// (renderOutcomeSummary emits p.log.error for `failed`). Exit accounting is
+	// (renderFailedOutcome emits p.log.error for `failed`). Exit accounting is
 	// unchanged: `failed` still trips hasFailedOutcome → ExitSignal(1).
 
 	it("renders a streamed multi-member `failed` via p.log.error (not p.log.warn)", async () => {
@@ -6906,7 +6916,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		// reinstalls cleanly (✓); member b's per-member readConfig throws, propagating
 		// to reinstallMember's defensive catch → a bare `failed` outcome with
 		// cloneFailed === false, so it streams through emitMemberLine →
-		// renderOutcomeSummary (NOT the enumerated clone-failure line).
+		// renderFailedOutcome (NOT the enumerated clone-failure line).
 		captureSpinner();
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/repo/a": makeEntry({
@@ -6957,7 +6967,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		// A lone local entry (commit null) is streamed via streamLocalWork with NO
 		// spinner. Its source path fails validation (stat rejects) → processLocalUpdate
 		// returns a bare `failed` outcome → streamCollapsedOutcome → emitMemberLine →
-		// renderOutcomeSummary. It must render RED, matching the git layouts.
+		// renderFailedOutcome. It must render RED, matching the git layouts.
 		const LOCAL_KEY = "/local/path";
 		mockReadManifestOrExit.mockResolvedValue({
 			[LOCAL_KEY]: {

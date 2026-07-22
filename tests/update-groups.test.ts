@@ -456,7 +456,7 @@ describe("groupTargetFacets", () => {
 		expect(facets.displayRef).toBe("main");
 	});
 
-	it("agrees with the member move: displayRef equals effectiveRef ?? member.ref for every reachable arm (grouping invariant)", () => {
+	it("agrees with the member move: displayRef equals cloneRef ?? member.ref for every reachable arm (grouping invariant)", () => {
 		const constrainedGroup: EntryGroup = {
 			cloneUrl: REPO_URL,
 			versionIntent: "^1.2.3",
@@ -748,6 +748,7 @@ describe("processGroupUpdate", () => {
 
 		expect(result.cloneFailed).toBe(false);
 		expect(mockCloneSource).toHaveBeenCalledTimes(1);
+		expect(mockCleanupTempDir).toHaveBeenCalledTimes(1);
 		expect(outcomes).toHaveLength(3);
 		expect(outcomes.map((o) => o.key)).toEqual([
 			"owner/repo/a",
@@ -763,7 +764,7 @@ describe("processGroupUpdate", () => {
 		}
 		// No member carries a sourceSubpath here, so the traversal guard never runs.
 		expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
-		// Branch effectiveCommit is the group's resolved sha, not the clone's HEAD.
+		// Branch facets.commit is the group's resolved sha, not the clone's HEAD.
 		const first = outcomes[0]!;
 		if (first.status === "updated") {
 			expect(first.newEntry.commit).toBe(SHA_RESOLVED);
