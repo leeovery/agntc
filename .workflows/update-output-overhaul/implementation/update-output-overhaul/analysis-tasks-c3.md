@@ -6,7 +6,7 @@ total_proposed: 2
 # Analysis Tasks: Update Output Overhaul (Cycle 3)
 
 ## Task 1: Single-source the never-downgrade constrained guard in categorizeMember
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -37,7 +37,7 @@ sources: duplication
 - Regression test on the all-mode grouped path (`splitMember`): a constrained member already at/above the resolved tag is demoted to an up-to-date outcome and is not added to the group's `updating` subset (no clone/reinstall).
 
 ## Task 2: Compute the divergent-old flag once and thread it to both header and member-line rendering
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
