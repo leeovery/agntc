@@ -201,32 +201,62 @@ export type GroupUpdateResult =
 	| { cloneFailed: true; reason: string; outcomes: PluginOutcome[] }
 	| { cloneFailed: false; outcomes: PluginOutcome[] };
 
-interface EffectiveTarget {
+/**
+ * The three facets a streamed group's resolved {@link GroupTarget} projects,
+ * derived by the SINGLE switch over `GroupTarget.kind` ({@link groupTargetFacets}).
+ * Every downstream "what ref/commit does this group land on" question reads one of
+ * these instead of re-switching, so the clone, the header "new", the member-line
+ * "new", and the collapsed group-of-one "new" cannot drift apart.
+ */
+export interface GroupTargetFacets {
+	/** The commit recorded for every updating member — the group's single resolved
+	 * sha (so all members land on one commit) AND the display "new" commit for the
+	 * header and per-member moves. */
+	commit: string;
 	/** The clone `--branch` override: the resolved tag for a constrained group,
-	 * `undefined` for a branch/HEAD group (clone at the stored branch/HEAD ref). */
-	ref: string | undefined;
-	/** The commit recorded for every updating member — the group's single
-	 * resolved sha, so all members land on one commit (group-first resolve-once). */
-	commit: string | null;
+	 * `undefined` for a branch/HEAD group (clone at the stored branch/HEAD ref).
+	 * Deliberately DISTINCT from {@link displayRef} — a branch/HEAD group clones the
+	 * stored ref (`undefined` override) yet displays its version intent. */
+	cloneRef: string | undefined;
+	/** The display "new" ref fed to the tag-vs-hash move rule: the resolved tag for
+	 * a constrained group (renders as a tag); the group's shared version intent (the
+	 * branch name, or `null` for HEAD-tracked) for a branch/HEAD group — never a
+	 * tag, so those always fall to hashes. Equals each member's own `ref` for a
+	 * branch/HEAD group by the grouping invariant, so routing the member-line move
+	 * through it reproduces the old `cloneRef ?? entry.ref`. */
+	displayRef: string | null;
 }
 
 /**
- * Derives the group's shared effective clone ref + recorded commit from the
- * resolved {@link GroupTarget}. Only `constrained` / `branch` / `head` targets
- * ever carry updating members, so those are the meaningful arms; the remaining
- * kinds (`tag` newer-tags, `constrained-no-match`, `check-failed`) never reach
- * {@link processGroupUpdate} with an updating subset and fall through to a
- * no-op default.
+ * The SINGLE derivation of a streamed group's `{ commit, cloneRef, displayRef }`
+ * from its resolved {@link GroupTarget} — the one switch over `GroupTarget.kind`
+ * that owns the group's clone ref/commit and its display ref/commit. Only
+ * `constrained` / `branch` / `head` targets ever carry updating members, so those
+ * are the meaningful arms; the remaining kinds (`tag` newer-tags,
+ * `constrained-no-match`, `check-failed`) never reach a streamed group and fall
+ * through to a benign no-op default. A new streamed `GroupTarget` arm is a
+ * single-site change here.
  */
-function resolveEffectiveTarget(target: GroupTarget): EffectiveTarget {
+export function groupTargetFacets(
+	target: GroupTarget,
+	group: EntryGroup,
+): GroupTargetFacets {
 	switch (target.kind) {
 		case "constrained":
-			return { ref: target.tag, commit: target.commit };
+			return {
+				commit: target.commit,
+				cloneRef: target.tag,
+				displayRef: target.tag,
+			};
 		case "branch":
 		case "head":
-			return { ref: undefined, commit: target.resolvedSha };
+			return {
+				commit: target.resolvedSha,
+				cloneRef: undefined,
+				displayRef: group.versionIntent,
+			};
 		default:
-			return { ref: undefined, commit: null };
+			return { commit: "", cloneRef: undefined, displayRef: null };
 	}
 }
 
@@ -243,17 +273,19 @@ function resolveEffectiveTarget(target: GroupTarget): EffectiveTarget {
 async function reinstallMember(
 	member: { key: string; entry: ManifestEntry },
 	tempDir: string,
-	effectiveRef: string | undefined,
-	effectiveCommit: string | null,
+	facets: GroupTargetFacets,
 	projectDir: string,
 ): Promise<PluginOutcome> {
 	const { key, entry } = member;
-	// The group's resolved target ref for the tag-vs-hash move: the resolved tag
-	// for a constrained group (effectiveRef), else the member's own (shared) ref —
-	// the branch name, or `null` for HEAD. Equals the newRef the grouped header
-	// (task 3-1) renders against, so the collapsed group-of-one wording matches the
-	// grouped multi-member wording for the same move.
-	const newRef = effectiveRef ?? entry.ref;
+	const { commit, cloneRef, displayRef } = facets;
+	// The group's resolved display ref for the tag-vs-hash move — read from the
+	// single {@link groupTargetFacets} projection: the resolved tag for a
+	// constrained group, else the group's shared version intent (the branch name,
+	// or `null` for HEAD), which equals this member's own `ref` by the grouping
+	// invariant. The clone ref (`cloneRef`) stays SEPARATE below — a branch/HEAD
+	// group clones the stored ref (`undefined` override) yet displays its intent.
+	// Sharing this value with the grouped header (task 3-1) keeps the collapsed
+	// group-of-one wording identical to the grouped multi-member wording.
 	try {
 		if (entry.sourceSubpath) {
 			try {
@@ -268,7 +300,7 @@ async function reinstallMember(
 							failureReason: "clone-failed",
 							message: err.message,
 						},
-						newRef,
+						displayRef,
 					);
 				}
 				throw err;
@@ -283,11 +315,11 @@ async function reinstallMember(
 			projectDir,
 			sourceDir,
 			cloneRoot: tempDir,
-			newRef: effectiveRef ?? null,
-			newCommit: effectiveCommit,
+			newRef: cloneRef ?? null,
+			newCommit: commit,
 		});
 
-		return mapReinstallResultToOutcome(key, entry, result, newRef);
+		return mapReinstallResultToOutcome(key, entry, result, displayRef);
 	} catch (err) {
 		return {
 			status: "failed",
@@ -331,15 +363,15 @@ export async function processGroupUpdate(
 	projectDir: string,
 ): Promise<GroupUpdateResult> {
 	const firstMember = group.members[0]!;
-	const { ref: effectiveRef, commit: effectiveCommit } =
-		resolveEffectiveTarget(target);
+	const facets = groupTargetFacets(target, group);
+	const { cloneRef } = facets;
 
 	let tempDir: string;
 	try {
 		({ tempDir } = await cloneRepoOnce({
 			key: firstMember.key,
 			entry: firstMember.entry,
-			...(effectiveRef !== undefined ? { newRef: effectiveRef } : {}),
+			...(cloneRef !== undefined ? { newRef: cloneRef } : {}),
 		}));
 	} catch (err) {
 		const reason = errorMessage(err);
@@ -357,15 +389,7 @@ export async function processGroupUpdate(
 	const outcomes: PluginOutcome[] = [];
 	try {
 		for (const member of members) {
-			outcomes.push(
-				await reinstallMember(
-					member,
-					tempDir,
-					effectiveRef,
-					effectiveCommit,
-					projectDir,
-				),
-			);
+			outcomes.push(await reinstallMember(member, tempDir, facets, projectDir));
 		}
 	} finally {
 		await cleanupTempDir(tempDir).catch(() => {});

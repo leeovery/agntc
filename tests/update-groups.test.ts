@@ -69,6 +69,7 @@ import {
 import {
 	type EntryGroup,
 	groupEntriesForUpdate,
+	groupTargetFacets,
 	processGroupUpdate,
 } from "../src/update-groups.js";
 import {
@@ -237,6 +238,132 @@ describe("groupEntriesForUpdate", () => {
 		expect(allKeys).not.toContain("owner/repo/local");
 	});
 });
+
+describe("groupTargetFacets", () => {
+	it("projects a constrained target: tag is the clone ref AND display ref, commit is the resolved sha", () => {
+		const group: EntryGroup = {
+			cloneUrl: REPO_URL,
+			versionIntent: "^1.2.3",
+			constrained: true,
+			members: [
+				{
+					key: "owner/repo/a",
+					entry: makeEntry({ ref: "v1.2.3", constraint: "^1.2.3" }),
+				},
+			],
+		};
+		const target: GroupTarget = {
+			kind: "constrained",
+			tag: "v1.3.0",
+			commit: SHA_TGT,
+			latestOverall: null,
+		};
+
+		expect(groupTargetFacets(target, group)).toStrictEqual({
+			commit: SHA_TGT,
+			cloneRef: "v1.3.0",
+			displayRef: "v1.3.0",
+		});
+	});
+
+	it("projects a branch target: clone ref undefined (stored-branch clone) but display ref is the branch intent, commit is the resolved sha", () => {
+		const group: EntryGroup = {
+			cloneUrl: REPO_URL,
+			versionIntent: "main",
+			constrained: false,
+			members: [{ key: "owner/repo/a", entry: makeEntry({ ref: "main" }) }],
+		};
+		const target: GroupTarget = { kind: "branch", resolvedSha: SHA_RESOLVED };
+
+		expect(groupTargetFacets(target, group)).toStrictEqual({
+			commit: SHA_RESOLVED,
+			cloneRef: undefined,
+			displayRef: "main",
+		});
+	});
+
+	it("projects a head target: clone ref undefined, display ref null (HEAD-tracked), commit is the resolved sha", () => {
+		const group: EntryGroup = {
+			cloneUrl: REPO_URL,
+			versionIntent: null,
+			constrained: false,
+			members: [{ key: "owner/repo/a", entry: makeEntry({ ref: null }) }],
+		};
+		const target: GroupTarget = { kind: "head", resolvedSha: SHA_RESOLVED };
+
+		expect(groupTargetFacets(target, group)).toStrictEqual({
+			commit: SHA_RESOLVED,
+			cloneRef: undefined,
+			displayRef: null,
+		});
+	});
+
+	it("keeps the branch clone ref (undefined) distinct from the display ref (version intent)", () => {
+		const group: EntryGroup = {
+			cloneUrl: REPO_URL,
+			versionIntent: "main",
+			constrained: false,
+			members: [{ key: "owner/repo/a", entry: makeEntry({ ref: "main" }) }],
+		};
+		const target: GroupTarget = { kind: "branch", resolvedSha: SHA_RESOLVED };
+
+		const facets = groupTargetFacets(target, group);
+
+		expect(facets.cloneRef).toBeUndefined();
+		expect(facets.displayRef).toBe("main");
+	});
+
+	it("agrees with the member move: displayRef equals effectiveRef ?? member.ref for every reachable arm (grouping invariant)", () => {
+		const constrainedGroup: EntryGroup = {
+			cloneUrl: REPO_URL,
+			versionIntent: "^1.2.3",
+			constrained: true,
+			members: [
+				{
+					key: "owner/repo/a",
+					entry: makeEntry({ ref: "v1.2.0", constraint: "^1.2.3" }),
+				},
+			],
+		};
+		const constrained: GroupTarget = {
+			kind: "constrained",
+			tag: "v1.3.0",
+			commit: SHA_TGT,
+			latestOverall: null,
+		};
+		const branchGrp: EntryGroup = {
+			cloneUrl: REPO_URL,
+			versionIntent: "main",
+			constrained: false,
+			members: [{ key: "owner/repo/a", entry: makeEntry({ ref: "main" }) }],
+		};
+		const headGrp: EntryGroup = {
+			cloneUrl: REPO_URL,
+			versionIntent: null,
+			constrained: false,
+			members: [{ key: "owner/repo/a", entry: makeEntry({ ref: null }) }],
+		};
+
+		for (const [target, group] of [
+			[constrained, constrainedGroup],
+			[BRANCH_TARGET_FACET, branchGrp],
+			[HEAD_TARGET_FACET, headGrp],
+		] as const) {
+			const { cloneRef, displayRef } = groupTargetFacets(target, group);
+			const memberMoveRef = cloneRef ?? group.members[0]!.entry.ref;
+			expect(displayRef).toBe(memberMoveRef);
+		}
+	});
+});
+
+const BRANCH_TARGET_FACET: GroupTarget = {
+	kind: "branch",
+	resolvedSha: SHA_RESOLVED,
+};
+const HEAD_TARGET_FACET: GroupTarget = {
+	kind: "head",
+	resolvedSha: SHA_RESOLVED,
+};
 
 describe("resolveGroupTarget / categorizeMember", () => {
 	beforeEach(() => {

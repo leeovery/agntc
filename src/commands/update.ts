@@ -35,6 +35,7 @@ import {
 import {
 	type EntryGroup,
 	groupEntriesForUpdate,
+	groupTargetFacets,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
 	processGroupUpdate,
@@ -698,8 +699,10 @@ async function streamGroupWork(
 	workingManifest: Manifest,
 	groups: EntryGroup[],
 ): Promise<StreamedUnit> {
-	const newCommit = groupTargetCommit(item.target);
-	const newRef = groupTargetRef(item.target, item.group);
+	const { commit: newCommit, displayRef: newRef } = groupTargetFacets(
+		item.target,
+		item.group,
+	);
 	const label = groupLabel(item.group, groups);
 	const single = item.updating.length === 1;
 	const header = single
@@ -800,44 +803,6 @@ async function streamLocalWork(
 	]);
 	streamCollapsedOutcome(outcome, { key: item.key, entry: item.entry });
 	return { outcomes: [outcome], manifest };
-}
-
-/** The resolved target commit an updatable group installs at — the shared "new"
- * for its header and per-member moves. Only `constrained`/`branch`/`head`
- * targets ever carry updating members (tag → newer-tags, constrained-no-match,
- * check-failed never enter the streamed phase), so those are the meaningful
- * arms; the default is unreachable for a streamed group. */
-function groupTargetCommit(target: GroupTarget): string {
-	switch (target.kind) {
-		case "constrained":
-			return target.commit;
-		case "branch":
-		case "head":
-			return target.resolvedSha;
-		default:
-			return "";
-	}
-}
-
-/**
- * The resolved target REF an updatable group lands on — the shared "new" ref fed
- * to the tag-vs-hash {@link formatVersionMove} rule. A constrained group resolves
- * to its target TAG (a genuine semver tag → renders as a tag against a tagged
- * old); a branch/HEAD group stays on its shared version intent (the branch name,
- * or `null` for HEAD-tracked) — never a tag, so those always fall to hashes. Only
- * `constrained`/`branch`/`head` targets ever carry updating members; the default
- * is unreachable for a streamed group.
- */
-function groupTargetRef(target: GroupTarget, group: EntryGroup): string | null {
-	switch (target.kind) {
-		case "constrained":
-			return target.tag;
-		case "branch":
-		case "head":
-			return group.versionIntent;
-		default:
-			return null;
-	}
 }
 
 /**
