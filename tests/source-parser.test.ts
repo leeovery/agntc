@@ -18,6 +18,7 @@ import {
 	parseSource,
 	repoFromKey,
 	resolveCloneUrl,
+	resolveGuardedSourceDir,
 	resolveUpdateSourceDir,
 } from "../src/source-parser.js";
 
@@ -1165,6 +1166,47 @@ describe("resolveUpdateSourceDir", () => {
 		expect(result).toBe(
 			getSourceDirFromKey("/tmp/clone-abc", "owner/repo/alpha"),
 		);
+	});
+});
+
+describe("resolveGuardedSourceDir", () => {
+	// The single home of the guard + source-dir resolution both clone entry
+	// points compose. Exercised here against the REAL assertSubpathWithinClone.
+
+	it("returns ok:true with the resolved sourceDir for a contained sourceSubpath", () => {
+		const result = resolveGuardedSourceDir(
+			"/tmp/clone-abc",
+			"owner/repo/alpha",
+			"skills/alpha",
+		);
+		expect(result).toEqual({
+			ok: true,
+			sourceDir: join("/tmp/clone-abc", "skills/alpha"),
+		});
+	});
+
+	it("returns ok:true with the key-derived sourceDir when sourceSubpath is absent (guard no-op)", () => {
+		const result = resolveGuardedSourceDir(
+			"/tmp/clone-abc",
+			"owner/repo/alpha",
+			undefined,
+		);
+		expect(result).toEqual({
+			ok: true,
+			sourceDir: getSourceDirFromKey("/tmp/clone-abc", "owner/repo/alpha"),
+		});
+	});
+
+	it("returns ok:false carrying the containment message for a subpath that lexically escapes the clone", () => {
+		const result = resolveGuardedSourceDir(
+			"/tmp/clone-abc",
+			"owner/repo/evil",
+			"../evil",
+		);
+		expect(result).toEqual({
+			ok: false,
+			message: 'subpath "../evil" resolves outside the clone root',
+		});
 	});
 });
 

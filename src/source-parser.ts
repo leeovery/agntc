@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { validRange } from "semver";
+import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 
 interface GitHubShorthandSource {
 	type: "github-shorthand";
@@ -487,4 +488,47 @@ export function resolveUpdateSourceDir(
 	return sourceSubpath
 		? join(cloneRoot, sourceSubpath)
 		: getSourceDirFromKey(cloneRoot, key);
+}
+
+/**
+ * The single home of the per-member path-traversal containment guard paired
+ * with source-dir resolution — composed by BOTH clone entry points
+ * (`cloneAndReinstall`'s remote branch and the group orchestrator's
+ * `reinstallMember`). This is a security invariant (symlink / `../` escape
+ * rejection), a preservation constraint rather than a design choice; authoring
+ * it once here means a future change to the escape rule or its error mapping
+ * provably reaches both entry points instead of silently leaving one unguarded.
+ *
+ * It runs the lexical guard ({@link assertSubpathWithinClone}) against the whole
+ * clone root, then discriminates the outcome: a {@link PathTraversalError} is
+ * narrowed to `{ ok: false, message }` (the error's message verbatim, for the
+ * caller's clean clone-failed pre-flight abort — no nuke, no copy, install
+ * intact), while ANY other error RETHROWS unchanged (never swallowed as a
+ * failure result). On success it returns `{ ok: true, sourceDir }` resolved via
+ * {@link resolveUpdateSourceDir}. The guard is a no-op when `sourceSubpath` is
+ * absent (the key-derived fallback), so standalone entries and root-child
+ * members round-trip exactly as before. Co-located with
+ * {@link resolveUpdateSourceDir} — the source-dir authority both callers already
+ * use — to keep the guard sequence in exactly one place.
+ */
+export function resolveGuardedSourceDir(
+	cloneRoot: string,
+	key: string,
+	sourceSubpath: string | undefined,
+): { ok: true; sourceDir: string } | { ok: false; message: string } {
+	if (sourceSubpath) {
+		try {
+			assertSubpathWithinClone(cloneRoot, sourceSubpath);
+		} catch (err) {
+			if (err instanceof PathTraversalError) {
+				return { ok: false, message: err.message };
+			}
+			throw err;
+		}
+	}
+
+	return {
+		ok: true,
+		sourceDir: resolveUpdateSourceDir(cloneRoot, key, sourceSubpath),
+	};
 }

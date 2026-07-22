@@ -1,5 +1,4 @@
 import * as p from "@clack/prompts";
-import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
@@ -9,7 +8,7 @@ import { removeEntry, writeManifest } from "./manifest.js";
 import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
 import {
 	buildParsedSourceFromKey,
-	resolveUpdateSourceDir,
+	resolveGuardedSourceDir,
 } from "./source-parser.js";
 
 export interface CloneAndReinstallOptions {
@@ -373,35 +372,26 @@ export async function cloneAndReinstall(
 
 		tempDir = cloneResult.tempDir;
 		const newCommit = options.newCommit ?? cloneResult.commit;
-		// Source-dir resolution for the re-cloned tree is authored once in
-		// resolveUpdateSourceDir (cycle-9 rule: prefer the recorded sourceSubpath,
-		// fall back to the key-derived dir); see its doc comment for the rationale.
-		// Path-traversal containment pre-check (analysis 10-2): the cycle-9
-		// `sourceSubpath` is a second source-derived path component fed into the
-		// join, so it gets add's step-2c lexical containment guard, mirrored here.
-		// Gated BEFORE the join is first read (readConfig + derive-before-delete in
-		// runPipeline both read at the joined path), so a recorded subpath that
-		// lexically escapes the clone (e.g. `../evil`) is rejected pre-flight — no
-		// nuke, no copy, install intact. No-op when sourceSubpath is absent (the
-		// key-derived fallback below); assertSubpathWithinClone already no-ops on
-		// null/undefined/empty. A violation maps to the same clone-failed pre-flight
-		// result this branch already returns, mirroring add's clean abort intent.
-		if (entry.sourceSubpath) {
-			try {
-				assertSubpathWithinClone(tempDir, entry.sourceSubpath);
-			} catch (err) {
-				if (err instanceof PathTraversalError) {
-					return {
-						status: "failed",
-						failureReason: "clone-failed",
-						message: err.message,
-					};
-				}
-				throw err;
-			}
+		// Guard + source-dir resolution for the re-cloned tree is authored once in
+		// resolveGuardedSourceDir, composed identically by the group orchestrator's
+		// reinstallMember. It runs the cycle-9 source-dir rule (prefer the recorded
+		// sourceSubpath, else the key-derived dir) behind the analysis-10-2 lexical
+		// containment guard, gated BEFORE the join is first read (readConfig +
+		// derive-before-delete in runPipeline both read at the joined path). A
+		// recorded subpath that lexically escapes the clone (e.g. `../evil`) is
+		// rejected pre-flight (no nuke, no copy, install intact) and maps to the same
+		// clone-failed result this branch already returns. cloneRoot stays the whole
+		// clone (tempDir), so within-clone cross-member symlinks are allowed and only
+		// escapes beyond it are rejected.
+		const guarded = resolveGuardedSourceDir(tempDir, key, entry.sourceSubpath);
+		if (!guarded.ok) {
+			return {
+				status: "failed",
+				failureReason: "clone-failed",
+				message: guarded.message,
+			};
 		}
-
-		const sourceDir = resolveUpdateSourceDir(tempDir, key, entry.sourceSubpath);
+		const sourceDir = guarded.sourceDir;
 
 		const result = await runPipeline({
 			key,

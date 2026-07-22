@@ -97,6 +97,7 @@ import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { removeEntry, writeManifest } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
+import { resolveGuardedSourceDir } from "../src/source-parser.js";
 import { detectType } from "../src/type-detection.js";
 
 const mockWriteManifest = vi.mocked(writeManifest);
@@ -1245,6 +1246,39 @@ describe("cloneAndReinstall", () => {
 				expect(mockCopyPluginAssets).toHaveBeenCalledTimes(0);
 			});
 		});
+	});
+});
+
+describe("resolveGuardedSourceDir error discrimination", () => {
+	// The shared helper's PathTraversalError-vs-rethrow discrimination — the
+	// single security invariant both clone entry points now compose. Driven here
+	// against the mocked guard so a non-PathTraversalError can be injected.
+
+	it("narrows a PathTraversalError to a { ok: false } result carrying the message verbatim", () => {
+		mockAssertSubpathWithinClone.mockImplementation(() => {
+			throw new PathTraversalError("../evil");
+		});
+
+		const result = resolveGuardedSourceDir(
+			"/tmp/agntc-clone",
+			"owner/repo/evil",
+			"../evil",
+		);
+
+		expect(result).toEqual({
+			ok: false,
+			message: 'subpath "../evil" resolves outside the clone root',
+		});
+	});
+
+	it("RETHROWS a non-PathTraversalError from the guard (never swallowed as a failure result)", () => {
+		mockAssertSubpathWithinClone.mockImplementation(() => {
+			throw new Error("disk exploded");
+		});
+
+		expect(() =>
+			resolveGuardedSourceDir("/tmp/agntc-clone", "owner/repo/x", "skills/x"),
+		).toThrow("disk exploded");
 	});
 });
 

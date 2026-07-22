@@ -7,13 +7,12 @@ import {
 	mapCloneFailure,
 	runPipeline,
 } from "./clone-reinstall.js";
-import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import {
 	deriveCloneUrlFromKey,
-	resolveUpdateSourceDir,
+	resolveGuardedSourceDir,
 } from "./source-parser.js";
 import { renderUpdateOutcomeSummary } from "./summary.js";
 import type { GroupTarget } from "./update-check.js";
@@ -262,13 +261,14 @@ export function groupTargetFacets(
 
 /**
  * Reinstalls a single group member from the shared clone, fully isolated in its
- * own try/catch so one member's throw can never abort its siblings. Preserves
- * the per-member lexical `sourceSubpath` containment guard
- * ({@link assertSubpathWithinClone}) — dropping it would be a path-traversal
- * regression — mapping a {@link PathTraversalError} to the same clone-failed
- * pre-flight outcome the singleton path emits (no nuke, no copy, install
- * intact). `cloneRoot` stays the whole clone so within-clone cross-member
- * symlinks are allowed and only escapes beyond it are rejected.
+ * own try/catch so one member's throw can never abort its siblings. Obtains its
+ * guarded source dir via the shared {@link resolveGuardedSourceDir} — the single
+ * home of the per-member lexical `sourceSubpath` containment guard, composed
+ * identically by the singleton path (`cloneAndReinstall`). Dropping it would be
+ * a path-traversal regression; a rejected subpath maps to the same clone-failed
+ * pre-flight outcome the singleton path emits (no nuke, no copy, install intact).
+ * `cloneRoot` stays the whole clone so within-clone cross-member symlinks are
+ * allowed and only escapes beyond it are rejected.
  */
 async function reinstallMember(
 	member: { key: string; entry: ManifestEntry },
@@ -287,33 +287,25 @@ async function reinstallMember(
 	// Sharing this value with the grouped header (task 3-1) keeps the collapsed
 	// group-of-one wording identical to the grouped multi-member wording.
 	try {
-		if (entry.sourceSubpath) {
-			try {
-				assertSubpathWithinClone(tempDir, entry.sourceSubpath);
-			} catch (err) {
-				if (err instanceof PathTraversalError) {
-					return mapReinstallResultToOutcome(
-						key,
-						entry,
-						{
-							status: "failed",
-							failureReason: "clone-failed",
-							message: err.message,
-						},
-						displayRef,
-					);
-				}
-				throw err;
-			}
+		const guarded = resolveGuardedSourceDir(tempDir, key, entry.sourceSubpath);
+		if (!guarded.ok) {
+			return mapReinstallResultToOutcome(
+				key,
+				entry,
+				{
+					status: "failed",
+					failureReason: "clone-failed",
+					message: guarded.message,
+				},
+				displayRef,
+			);
 		}
-
-		const sourceDir = resolveUpdateSourceDir(tempDir, key, entry.sourceSubpath);
 
 		const result = await runPipeline({
 			key,
 			entry,
 			projectDir,
-			sourceDir,
+			sourceDir: guarded.sourceDir,
 			cloneRoot: tempDir,
 			newRef: cloneRef ?? null,
 			newCommit: commit,
