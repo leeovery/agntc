@@ -178,7 +178,28 @@ npx agntc@latest update                           # update all
 npx agntc@latest update leeovery/claude-workflows
 ```
 
-Uses nuke-and-reinstall: deletes existing files, re-clones at same ref, re-copies for same agents. Constrained plugins update to the best match within their constraint range. Tag-pinned plugins show available newer tags but don't auto-upgrade.
+Uses nuke-and-reinstall: deletes existing files, re-clones at the resolved ref, re-copies for the same agents. Constrained plugins update to the best match within their constraint range. Tag-pinned plugins show available newer tags but don't auto-upgrade.
+
+**Update-all is grouped and streamed.** Manifest entries whose version intent points at the same tree — the members of a collection, or several plugins pinned the same way — are grouped by `(clone URL, version intent)`, checked once, and cloned once per group (a 10-member collection clones once, not ten times). Progress streams under a group header per repo with a per-member outcome line beneath, then a trailing summary:
+
+```
+◒ Checking for updates…
+◒ Updating leeovery/agent-skills  v1.2.3 -> v1.3.0  (3 members)
+   ✓ go     → claude
+   ✓ python → claude
+   ✓ rust   → claude, codex  (codex support removed by plugin author)
+✓ leeovery/standalone-tool: Updated v1.4.0 -> v1.5.0
+
+leeovery/agent-skills: 4 up to date
+Newer versions outside constraints:
+  leeovery/pinned-plugin  v2.1.0 -> v3.0.0 available. To upgrade: npx agntc add leeovery/pinned-plugin
+```
+
+- **Version moves render in tags** when both the old and new refs are genuine semver tags and the ref moved (`v1.2.3 -> v1.3.0`); branch / HEAD-tracked / untagged updates fall back to short commit hashes.
+- **The trailing summary collapses to one line per group** — up-to-date counts, newer-tags notices, check failures, and out-of-constraint footers each print once per group rather than once per member. A group can split: behind members update under the header while already-current siblings collapse into the up-to-date count.
+- **Out-of-constraint versions are actionable.** A gated major (or 0.x-minor) bump prints the current→newest move plus the exact re-add command, matched to how you pinned: a caret/constrained user gets bare `npx agntc add owner/repo` (re-establishes caret tracking at the new major); an exact-pin user gets `npx agntc add owner/repo@<newest>`. These are informative, not errors — exit stays 0. A batch that hits a dead remote or a stuck constraint warns and still exits 0; only an aborted, blocked, or failed install trips a non-zero exit.
+
+Single-key `update <key>` and the `list` update / change-version actions are unchanged — one clone per invocation.
 
 ### `list`
 
