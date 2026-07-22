@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-22
+
+✨ Added
+- All-mode `update` (no key) now clones and checks each repo once per group instead of once per member — a 10-member collection now clones once, not ten times.
+- Progress for `update` now streams live: a header per group with a per-member outcome line beneath, instead of one batched report at the end.
+- Update summaries name an actionable re-add command for out-of-constraint versions, matched to how the plugin was pinned (`npx agntc add owner/repo` for caret, `npx agntc add owner/repo@<version>` for an exact pin).
+
+🔧 Changed
+- Version moves in update output now render as semver tags (`v1.2.3 -> v1.3.0`) when both the old and new refs are genuine tags, falling back to short commit hashes for branch/HEAD-tracked updates.
+- The trailing update summary now collapses to one line per group for up-to-date, newer-tags, check-failed, and constrained-no-match plugins, instead of one line per member.
+- A group can split during update: members already current report up to date while behind siblings update, all within the same run.
+
+🐛 Fixed
+- The out-of-constraint footer now reports the version this run actually landed on as "current," instead of the stale pre-update version, so it agrees with the inline update line.
+
 ## [0.3.3] - 2026-07-03
 
 🐛 Fixed
