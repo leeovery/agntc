@@ -110,15 +110,15 @@ export type PluginOutcome =
 			newEntry: ManifestEntry;
 			droppedAgents: AgentId[];
 	  }
-	| { status: "up-to-date"; key: string; summary: string }
-	| { status: "newer-tags"; key: string; summary: string }
-	| { status: "check-failed"; key: string; summary: string }
+	| { status: "up-to-date"; key: string }
+	| { status: "newer-tags"; key: string }
+	| { status: "check-failed"; key: string }
 	| { status: "failed"; key: string; summary: string }
 	| { status: "copy-failed"; key: string; summary: string }
 	| { status: "aborted"; key: string; summary: string }
 	| { status: "blocked"; key: string; summary: string }
 	| { status: "skipped-no-agents"; key: string; summary: string }
-	| { status: "constrained-no-match"; key: string; summary: string };
+	| { status: "constrained-no-match"; key: string };
 
 /**
  * The SINGLE constructor of the `failed` {@link PluginOutcome} literal and its

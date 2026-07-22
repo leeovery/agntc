@@ -337,8 +337,6 @@ export interface OutOfConstraintInfo {
 	 * regardless of the (possibly @intent-disambiguated) line prefix.
 	 */
 	repo: string;
-	/** Retained for the call sites, no longer rendered by the actionable wording. */
-	constraint: string;
 }
 
 export function renderOutOfConstraintSection(

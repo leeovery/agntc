@@ -138,7 +138,6 @@ function extractOutOfConstraint(
 			// The BARE owner/repo for the re-add command — strip any /<member>
 			// segment so a collection member's command re-adds the collection.
 			repo: repoFromKey(key),
-			constraint: entry.constraint,
 		};
 	}
 	return null;
@@ -534,7 +533,6 @@ function groupOutOfConstraintInfo(
 		// The BARE owner/repo re-add command (task 2-1 repoOf) — never the @intent
 		// label, even when the line prefix is @intent-disambiguated.
 		repo: repoOf(group),
-		constraint: group.versionIntent!,
 	};
 }
 
@@ -564,26 +562,12 @@ function splitMember(
 		case "up-to-date":
 		case "constrained-up-to-date":
 			return upToDateOutcome(key);
-		case "newer-tags": {
-			const newest = newestTag(result.tags);
-			return {
-				status: "newer-tags",
-				key,
-				summary: `${key}: Pinned to ${entry.ref} — newer tags available (latest: ${newest})`,
-			};
-		}
+		case "newer-tags":
+			return { status: "newer-tags", key };
 		case "check-failed":
-			return {
-				status: "check-failed",
-				key,
-				summary: `${key}: Check failed — ${result.reason}`,
-			};
+			return { status: "check-failed", key };
 		case "constrained-no-match":
-			return {
-				status: "constrained-no-match",
-				key,
-				summary: `${key}: No tags satisfy constraint — plugin left untouched`,
-			};
+			return { status: "constrained-no-match", key };
 		case "local":
 			// Unreachable: local entries are excluded from grouping entirely.
 			return null;
@@ -591,7 +575,7 @@ function splitMember(
 }
 
 function upToDateOutcome(key: string): PluginOutcome {
-	return { status: "up-to-date", key, summary: `${key}: Up to date` };
+	return { status: "up-to-date", key };
 }
 
 /**
@@ -810,7 +794,10 @@ function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
 	return (
 		failureOrSkipMemberLine(outcome, outcome.key) ?? {
 			level: "error",
-			text: outcome.summary,
+			// A bare `failed` (clone fan-out / defensive throw) is the sole
+			// non-shared-format status that reaches this fallback; the non-actioned
+			// categories route to emitCollapsedGroupSummary and never arrive here.
+			text: outcome.status === "failed" ? outcome.summary : outcome.key,
 		}
 	);
 }
@@ -1013,27 +1000,15 @@ function emitCollapsedGroupSummary(
 	}
 }
 
-/** Renders one outcome to the per-unit summary at the log level for its status. */
+/**
+ * Renders the {@link emitMemberLine} bare-`failed` fallback at ERROR (red ✗) —
+ * the sole outcome that reaches this path (success is handled upstream, and every
+ * loud/skip variant renders via {@link failureOrSkipMemberLine}). Any other status
+ * is unreachable here and intentionally a no-op.
+ */
 function renderOutcomeSummary(outcome: PluginOutcome): void {
-	if (isSuccessOutcome(outcome)) {
-		p.log.success(outcome.summary);
-	} else if (
-		outcome.status === "failed" ||
-		outcome.status === "copy-failed" ||
-		outcome.status === "aborted" ||
-		outcome.status === "blocked"
-	) {
+	if (outcome.status === "failed") {
 		p.log.error(outcome.summary);
-	} else if (
-		outcome.status === "check-failed" ||
-		outcome.status === "skipped-no-agents" ||
-		outcome.status === "constrained-no-match"
-	) {
-		p.log.warn(outcome.summary);
-	} else if (outcome.status === "newer-tags") {
-		p.log.info(outcome.summary);
-	} else {
-		p.log.message(outcome.summary);
 	}
 }
 

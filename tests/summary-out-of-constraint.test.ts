@@ -17,7 +17,6 @@ describe("renderOutOfConstraintSection", () => {
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
 				repo: "owner/plugin-a",
-				constraint: "^1.0",
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
@@ -37,7 +36,6 @@ describe("renderOutOfConstraintSection", () => {
 				current: "v1.2.3",
 				latestOverall: "v3.0.0",
 				repo: "owner/repo",
-				constraint: "^1.2.3",
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
@@ -56,7 +54,6 @@ describe("renderOutOfConstraintSection", () => {
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
 				repo: "owner/plugin-a",
-				constraint: "^1.0",
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
@@ -73,7 +70,6 @@ describe("renderOutOfConstraintSection", () => {
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
 				repo: "owner/plugin",
-				constraint: "^1.0",
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
@@ -92,14 +88,12 @@ describe("renderOutOfConstraintSection", () => {
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
 				repo: "owner/repo-a",
-				constraint: "^1.0",
 			},
 			{
 				label: "owner/repo-b",
 				current: "v2.1.0",
 				latestOverall: "v3.1.0",
 				repo: "owner/repo-b",
-				constraint: "^2.0",
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
