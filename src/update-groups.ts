@@ -7,6 +7,7 @@ import {
 	mapCloneFailure,
 	runPipeline,
 } from "./clone-reinstall.js";
+import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
@@ -85,14 +86,29 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
  * trailing summary and the `hasFailedOutcome` exit-code decision. Shared by the
  * legacy per-entry path (`processUpdateForAll`) and the grouped orchestrator
  * ({@link processGroupUpdate}) so both emit the identical shape.
+ *
+ * The two success variants (`updated`/`refreshed`) carry the STRUCTURED fields
+ * the multi-member streamed renderer composes from — `newEntry` (effective
+ * agents + persistence) and `droppedAgents` (the pipeline's own dropped set, in
+ * source order) — alongside the pre-rendered `summary` the collapsed
+ * group-of-one / local display path consumes verbatim. The renderer reads the
+ * structured `droppedAgents` directly rather than recomputing an
+ * `oldEntry`-vs-`newEntry` set-difference that had to be provably equal to this.
  */
 export type PluginOutcome =
-	| { status: "updated"; key: string; summary: string; newEntry: ManifestEntry }
+	| {
+			status: "updated";
+			key: string;
+			summary: string;
+			newEntry: ManifestEntry;
+			droppedAgents: AgentId[];
+	  }
 	| {
 			status: "refreshed";
 			key: string;
 			summary: string;
 			newEntry: ManifestEntry;
+			droppedAgents: AgentId[];
 	  }
 	| { status: "up-to-date"; key: string; summary: string }
 	| { status: "newer-tags"; key: string; summary: string }
@@ -185,6 +201,7 @@ export function mapReinstallResultToOutcome(
 				droppedAgents: result.droppedAgents,
 			}),
 			newEntry: result.manifestEntry,
+			droppedAgents: result.droppedAgents,
 		};
 	}
 
@@ -201,6 +218,7 @@ export function mapReinstallResultToOutcome(
 			droppedAgents: result.droppedAgents,
 		}),
 		newEntry: result.manifestEntry,
+		droppedAgents: result.droppedAgents,
 	};
 }
 

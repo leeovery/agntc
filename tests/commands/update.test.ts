@@ -1564,6 +1564,49 @@ describe("update command", () => {
 			);
 		});
 
+		it("renders a multi-member success line's dropped-agents parenthetical from the outcome's structured field", async () => {
+			captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				// Installed for claude+codex; the re-cloned config drops codex → the
+				// member line must carry the dropped-agents parenthetical.
+				"owner/repo/a": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude", "codex"],
+					files: [".claude/skills/a/", ".agents/skills/a/"],
+				}),
+				// Installed for claude only → nothing dropped → a bare member line.
+				"owner/repo/b": makeEntry({
+					commit: INSTALLED_SHA,
+					agents: ["claude"],
+					files: [".claude/skills/b/"],
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+			// The re-cloned config restricts to claude for every member.
+			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/updated/"],
+			});
+
+			await runUpdate();
+
+			// Member a drops codex — the parenthetical is sourced from the outcome's
+			// structured droppedAgents, not an oldEntry-vs-newEntry recompute.
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"a → claude  (codex support removed by plugin author)",
+			);
+			// Member b drops nothing — a bare success line.
+			expect(mockLog.success).toHaveBeenCalledWith("b → claude");
+		});
+
 		it("emits a local entry Refreshed line with no spinner and no clone, interleaved at its manifest position", async () => {
 			const handle = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({

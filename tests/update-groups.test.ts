@@ -66,12 +66,15 @@ import {
 	type GroupTarget,
 	resolveGroupTarget,
 } from "../src/update-check.js";
+import type { CloneReinstallResult } from "../src/clone-reinstall.js";
+import type { AgentId } from "../src/drivers/types.js";
 import {
 	type EntryGroup,
 	failedOutcome,
 	groupEntriesForUpdate,
 	groupTargetFacets,
 	isSuccessOutcome,
+	mapReinstallResultToOutcome,
 	type PluginOutcome,
 	processGroupUpdate,
 } from "../src/update-groups.js";
@@ -153,6 +156,92 @@ describe("isSuccessOutcome", () => {
 			"constrained-no-match",
 		] as const) {
 			expect(isSuccessOutcome({ status, key: "k", summary: "s" })).toBe(false);
+		}
+	});
+});
+
+describe("mapReinstallResultToOutcome structured dropped-agents", () => {
+	function successResult(
+		manifestEntry: ManifestEntry,
+		droppedAgents: AgentId[],
+	): CloneReinstallResult {
+		return {
+			status: "success",
+			manifestEntry,
+			copiedFiles: manifestEntry.files,
+			droppedAgents,
+		};
+	}
+
+	it("carries the pipeline's structured droppedAgents on the updated (git) outcome", () => {
+		const entry = makeEntry({
+			ref: "v1.0.0",
+			commit: SHA_CUR,
+			agents: ["claude", "codex"],
+		});
+		const newEntry = makeEntry({
+			ref: "v1.1.0",
+			commit: SHA_TGT,
+			agents: ["claude"],
+		});
+
+		const outcome = mapReinstallResultToOutcome(
+			"owner/repo/a",
+			entry,
+			successResult(newEntry, ["codex"]),
+			"v1.1.0",
+		);
+
+		expect(outcome.status).toBe("updated");
+		if (isSuccessOutcome(outcome)) {
+			// Sourced straight from result.droppedAgents — order preserved so the
+			// member-line parenthetical is byte-identical to the old recompute.
+			expect(outcome.droppedAgents).toEqual(["codex"]);
+		}
+	});
+
+	it("carries the pipeline's structured droppedAgents on the refreshed (local) outcome", () => {
+		const entry = makeEntry({
+			ref: null,
+			commit: null,
+			agents: ["claude", "codex"],
+		});
+		const newEntry = makeEntry({ ref: null, commit: null, agents: ["claude"] });
+
+		const outcome = mapReinstallResultToOutcome(
+			"/local/path",
+			entry,
+			successResult(newEntry, ["codex"]),
+			null,
+		);
+
+		expect(outcome.status).toBe("refreshed");
+		if (isSuccessOutcome(outcome)) {
+			expect(outcome.droppedAgents).toEqual(["codex"]);
+		}
+	});
+
+	it("carries an empty droppedAgents array when the reinstall drops nothing", () => {
+		const entry = makeEntry({
+			ref: "v1.0.0",
+			commit: SHA_CUR,
+			agents: ["claude"],
+		});
+		const newEntry = makeEntry({
+			ref: "v1.1.0",
+			commit: SHA_TGT,
+			agents: ["claude"],
+		});
+
+		const outcome = mapReinstallResultToOutcome(
+			"owner/repo/a",
+			entry,
+			successResult(newEntry, []),
+			"v1.1.0",
+		);
+
+		if (isSuccessOutcome(outcome)) {
+			expect(outcome.droppedAgents).toEqual([]);
 		}
 	});
 });

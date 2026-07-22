@@ -830,7 +830,7 @@ async function streamLocalWork(
 	const manifest = await persistUnitOutcomes(projectDir, workingManifest, [
 		outcome,
 	]);
-	streamCollapsedOutcome(outcome, { key: item.key, entry: item.entry });
+	streamCollapsedOutcome(outcome);
 	return { outcomes: [outcome], manifest };
 }
 
@@ -842,15 +842,12 @@ async function streamLocalWork(
  * renders its {@link formatMemberLine} line with the full member key. No group
  * header and no `(N members)`.
  */
-function streamCollapsedOutcome(
-	outcome: PluginOutcome,
-	member: GroupMember,
-): void {
+function streamCollapsedOutcome(outcome: PluginOutcome): void {
 	if (isSuccessOutcome(outcome)) {
 		p.log.success(outcome.summary);
 		return;
 	}
-	emitMemberLine(outcome, member, outcome.key, null);
+	emitMemberLine(outcome, outcome.key, null);
 }
 
 /**
@@ -877,26 +874,27 @@ function streamGroupMemberLines(
 					newCommit,
 				}
 			: null;
-		emitMemberLine(outcomes[i]!, member, memberName(member.key), move);
+		emitMemberLine(outcomes[i]!, memberName(member.key), move);
 	}
 }
 
 /**
  * Maps one member outcome to its {@link formatMemberLine} line and dispatches it
- * via `p.log[level]`. A success carries the effective agents, the dropped-agents
- * notice (derived from the entry vs. the reinstalled agents), and the optional
- * divergent-old `move`; the loud/skip variants (copy-failed/aborted/blocked/
- * no-agents) defer to the shared {@link failureOrSkipMemberLine} at the member
- * basename — the same rendering the collapsed path uses. A `failed` outcome — now
- * only a per-member defensive throw or a per-member subpath-traversal reject, the
- * GROUP-FATAL clone fan-out being intercepted upstream by {@link streamGroupWork}
- * as one enumerated line (task 2-6) — is not a shared-format status (the helper
- * returns null), so it falls back to the {@link renderOutcomeSummary} render at
- * ERROR (red ✗) — uniform with the collapsed group-of-one stop-frame.
+ * via `p.log[level]`. A success composes from the outcome's STRUCTURED fields —
+ * the reinstalled entry's effective agents and the pipeline's own
+ * `droppedAgents` set (carried on the outcome, no `oldEntry`-vs-`newEntry`
+ * recompute) — plus the optional divergent-old `move`; the loud/skip variants
+ * (copy-failed/aborted/blocked/no-agents) defer to the shared
+ * {@link failureOrSkipMemberLine} at the member basename — the same rendering the
+ * collapsed path uses. A `failed` outcome — now only a per-member defensive throw
+ * or a per-member subpath-traversal reject, the GROUP-FATAL clone fan-out being
+ * intercepted upstream by {@link streamGroupWork} as one enumerated line (task
+ * 2-6) — is not a shared-format status (the helper returns null), so it falls
+ * back to the {@link renderOutcomeSummary} render at ERROR (red ✗) — uniform with
+ * the collapsed group-of-one stop-frame.
  */
 function emitMemberLine(
 	outcome: PluginOutcome,
-	member: GroupMember,
 	name: string,
 	move: {
 		oldRef: string | null;
@@ -910,7 +908,7 @@ function emitMemberLine(
 			kind: "success",
 			name,
 			agents: outcome.newEntry.agents,
-			droppedAgents: droppedAgentsFor(member.entry, outcome.newEntry),
+			droppedAgents: outcome.droppedAgents,
 			move,
 		});
 		p.log[line.level](line.text);
@@ -923,20 +921,6 @@ function emitMemberLine(
 		return;
 	}
 	p.log[line.level](line.text);
-}
-
-/**
- * The agents dropped by this reinstall: those the entry was installed for that
- * the reinstalled entry no longer carries. A reinstall only ever narrows the
- * recorded agents (the new config can drop, never add), so this set-difference
- * equals the pipeline's own `droppedAgents` — recomputed here because the
- * {@link PluginOutcome} carries only the pre-rendered summary.
- */
-function droppedAgentsFor(
-	oldEntry: ManifestEntry,
-	newEntry: ManifestEntry,
-): string[] {
-	return oldEntry.agents.filter((agent) => !newEntry.agents.includes(agent));
 }
 
 /**
