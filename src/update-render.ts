@@ -56,18 +56,27 @@ export function formatUpToDateLine(label: string, count: number): string {
  * The collapsed trailing line for an exact-pinned group with newer tags — the
  * pinned-ref notice plus the REPO-LEVEL re-add command (task 2-5 / spec
  * acceptance 9). One line per group: every member of an exact-pin group shares
- * the notice, so it never enumerates. The command is `add <label>@<newest>`
+ * the notice, so it never enumerates. The command is `add <commandTarget>@<newest>`
  * (repo-level — re-adds the collection/plugin at the pinned newest tag),
  * mirroring the single-key path's member-scoped `add <key>@<newest>` at group
- * granularity. `pinnedRef` is the group's version intent; `newestTag` is the
- * newest of the group target's newer-tags list.
+ * granularity.
+ *
+ * `label` is the human prefix — the {@link groupLabel}, so a multi-group repo is
+ * `@intent`-disambiguated. `commandTarget` is the SEPARATE BARE `owner/repo`
+ * ({@link repoOf}) the command re-adds from, distinct from the display label so
+ * the emitted `npx agntc add ${commandTarget}@${newestTag}` carries exactly one
+ * `@` even when the prefix is disambiguated — mirroring the out-of-constraint
+ * footer's bare `repo` field ({@link renderOutOfConstraintSection}). `pinnedRef`
+ * is the group's version intent; `newestTag` is the newest of the group target's
+ * newer-tags list.
  */
 export function formatNewerTagsLine(
 	label: string,
+	commandTarget: string,
 	pinnedRef: string,
 	newestTag: string,
 ): string {
-	return `${label}: Pinned to ${pinnedRef} — newer tags available (latest: ${newestTag}). To upgrade: npx agntc add ${label}@${newestTag}`;
+	return `${label}: Pinned to ${pinnedRef} — newer tags available (latest: ${newestTag}). To upgrade: npx agntc add ${commandTarget}@${newestTag}`;
 }
 
 /**

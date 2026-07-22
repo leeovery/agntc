@@ -1042,7 +1042,9 @@ function emitCollapsedGroupSummary(
 	}
 	if (target.kind === "tag" && target.newerTags.length > 0) {
 		const newest = [...target.newerTags].reverse()[0]!;
-		p.log.info(formatNewerTagsLine(label, group.versionIntent!, newest));
+		p.log.info(
+			formatNewerTagsLine(label, repoOf(group), group.versionIntent!, newest),
+		);
 		return;
 	}
 

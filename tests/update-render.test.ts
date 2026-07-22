@@ -358,14 +358,18 @@ describe("formatUpToDateLine", () => {
 
 describe("formatNewerTagsLine", () => {
 	it("renders the pinned-ref notice plus the repo-level agntc add command", () => {
-		expect(formatNewerTagsLine("owner/repo", "v1.0", "v3.0")).toBe(
+		expect(
+			formatNewerTagsLine("owner/repo", "owner/repo", "v1.0", "v3.0"),
+		).toBe(
 			"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
 		);
 	});
 
-	it("builds the add command from the group label (repo-level, not member-level)", () => {
-		expect(formatNewerTagsLine("owner/repo@main", "v1.0", "v2.0")).toBe(
-			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo@main@v2.0",
+	it("builds the add command from the bare repo target, not the @intent display label", () => {
+		expect(
+			formatNewerTagsLine("owner/repo@main", "owner/repo", "v1.0", "v2.0"),
+		).toBe(
+			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo@v2.0",
 		);
 	});
 });
