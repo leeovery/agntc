@@ -746,44 +746,77 @@ async function streamGroupWork(
 }
 
 /**
+ * The ONE outcome→{@link MemberLine} mapping shared by the collapsed group-of-one
+ * path ({@link collapsedMemberLine}) and the streamed multi-member path
+ * ({@link emitMemberLine}) for the loud/skip statuses that render IDENTICALLY on
+ * both — copy-failed / aborted / blocked / skipped-no-agents. Each rides its
+ * already-assembled summary/hint through {@link formatMemberLine}, so a new such
+ * status is a single-site change here and the two paths cannot drift apart.
+ *
+ * `name` is a PARAMETER so each caller keeps its own name source: the collapsed
+ * path passes the FULL member key (`outcome.key`); the streamed path passes the
+ * member basename.
+ *
+ * Returns `null` for a bare `failed` (and any other non-loud/skip status): that
+ * fallback is deliberately NOT shared, because the two paths genuinely render it
+ * DIFFERENTLY and no single {@link MemberLine} can reproduce both — the collapsed
+ * path settles a red error spinner stop-frame (`level: "error"` → `spin.stop`
+ * code 2), while the streamed path emits `p.log.warn` via
+ * {@link renderOutcomeSummary}. Each caller therefore keeps its own bare-`failed`
+ * rendering, unchanged.
+ */
+export function failureOrSkipMemberLine(
+	outcome: PluginOutcome,
+	name: string,
+): MemberLine | null {
+	switch (outcome.status) {
+		case "copy-failed":
+			return formatMemberLine({
+				kind: "copy-failed",
+				name,
+				recoveryHint: outcome.summary,
+			});
+		case "aborted":
+			return formatMemberLine({
+				kind: "aborted",
+				name,
+				message: outcome.summary,
+			});
+		case "blocked":
+			return formatMemberLine({
+				kind: "blocked",
+				name,
+				message: outcome.summary,
+			});
+		case "skipped-no-agents":
+			return formatMemberLine({ kind: "no-agents", name });
+		default:
+			return null;
+	}
+}
+
+/**
  * The single collapsed line a group-of-one renders as its spinner stop-frame —
  * its clack {@link MemberLine} `level` and glyph-free `text`. The level maps to
  * the `spin.stop` code at the call site (`error` → 2, else → 0; clack `stop` has
  * no warn code, so a `no-agents` warn accepts the ◇ glyph — its text already
  * carries "skipped — …"). A success reuses the interim
  * {@link renderUpdateOutcomeSummary} text (full key, any `/member` suffix,
- * matching {@link streamCollapsedOutcome}); the loud failure/skip variants reuse
- * {@link formatMemberLine} at the full member key; a bare `failed` (clone
- * fan-out / defensive throw) rides its inline summary at error level.
+ * matching {@link streamCollapsedOutcome}); the loud failure/skip variants defer
+ * to the shared {@link failureOrSkipMemberLine} at the full member key; a bare
+ * `failed` (clone fan-out / defensive throw) is not a shared-format status (the
+ * helper returns null) and rides its inline summary at error level.
  */
 function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
-	switch (outcome.status) {
-		case "updated":
-		case "refreshed":
-			return { level: "success", text: outcome.summary };
-		case "copy-failed":
-			return formatMemberLine({
-				kind: "copy-failed",
-				name: outcome.key,
-				recoveryHint: outcome.summary,
-			});
-		case "aborted":
-			return formatMemberLine({
-				kind: "aborted",
-				name: outcome.key,
-				message: outcome.summary,
-			});
-		case "blocked":
-			return formatMemberLine({
-				kind: "blocked",
-				name: outcome.key,
-				message: outcome.summary,
-			});
-		case "skipped-no-agents":
-			return formatMemberLine({ kind: "no-agents", name: outcome.key });
-		default:
-			return { level: "error", text: outcome.summary };
+	if (outcome.status === "updated" || outcome.status === "refreshed") {
+		return { level: "success", text: outcome.summary };
 	}
+	return (
+		failureOrSkipMemberLine(outcome, outcome.key) ?? {
+			level: "error",
+			text: outcome.summary,
+		}
+	);
 }
 
 /**
@@ -856,12 +889,14 @@ function streamGroupMemberLines(
  * Maps one member outcome to its {@link formatMemberLine} line and dispatches it
  * via `p.log[level]`. A success carries the effective agents, the dropped-agents
  * notice (derived from the entry vs. the reinstalled agents), and the optional
- * divergent-old `move`; copy-failed/aborted/blocked/no-agents ride their inline
- * message (the pre-built summary IS the message/hint). A `failed` outcome — now
+ * divergent-old `move`; the loud/skip variants (copy-failed/aborted/blocked/
+ * no-agents) defer to the shared {@link failureOrSkipMemberLine} at the member
+ * basename — the same rendering the collapsed path uses. A `failed` outcome — now
  * only a per-member defensive throw or a per-member subpath-traversal reject, the
  * GROUP-FATAL clone fan-out being intercepted upstream by {@link streamGroupWork}
- * as one enumerated line (task 2-6) — has no member-line kind, so it falls back to
- * the interim summary render at its severity level.
+ * as one enumerated line (task 2-6) — is not a shared-format status (the helper
+ * returns null), so it falls back to the interim summary render at its severity
+ * level (warn), unchanged.
  */
 function emitMemberLine(
 	outcome: PluginOutcome,
@@ -874,45 +909,22 @@ function emitMemberLine(
 		newCommit: string;
 	} | null,
 ): void {
-	let line: MemberLine;
-	switch (outcome.status) {
-		case "updated":
-		case "refreshed":
-			line = formatMemberLine({
-				kind: "success",
-				name,
-				agents: outcome.newEntry.agents,
-				droppedAgents: droppedAgentsFor(member.entry, outcome.newEntry),
-				move,
-			});
-			break;
-		case "copy-failed":
-			line = formatMemberLine({
-				kind: "copy-failed",
-				name,
-				recoveryHint: outcome.summary,
-			});
-			break;
-		case "aborted":
-			line = formatMemberLine({
-				kind: "aborted",
-				name,
-				message: outcome.summary,
-			});
-			break;
-		case "blocked":
-			line = formatMemberLine({
-				kind: "blocked",
-				name,
-				message: outcome.summary,
-			});
-			break;
-		case "skipped-no-agents":
-			line = formatMemberLine({ kind: "no-agents", name });
-			break;
-		default:
-			renderOutcomeSummary(outcome);
-			return;
+	if (outcome.status === "updated" || outcome.status === "refreshed") {
+		const line = formatMemberLine({
+			kind: "success",
+			name,
+			agents: outcome.newEntry.agents,
+			droppedAgents: droppedAgentsFor(member.entry, outcome.newEntry),
+			move,
+		});
+		p.log[line.level](line.text);
+		return;
+	}
+
+	const line = failureOrSkipMemberLine(outcome, name);
+	if (line === null) {
+		renderOutcomeSummary(outcome);
+		return;
 	}
 	p.log[line.level](line.text);
 }

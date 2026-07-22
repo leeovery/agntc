@@ -9,6 +9,7 @@ import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { NukeResult } from "../../src/nuke-files.js";
 import type { DetectedType } from "../../src/type-detection.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
+import type { PluginOutcome } from "../../src/update-groups.js";
 
 vi.mock("@clack/prompts", async () => {
 	const { mockClack } = await import("../helpers/clack-mock.js");
@@ -91,7 +92,10 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 
 import { access, stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
-import { runUpdate } from "../../src/commands/update.js";
+import {
+	failureOrSkipMemberLine,
+	runUpdate,
+} from "../../src/commands/update.js";
 import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
@@ -6667,5 +6671,102 @@ describe("update command", () => {
 			);
 			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
 		});
+	});
+});
+
+describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () => {
+	// The collapsed group-of-one path (collapsedMemberLine) and the streamed
+	// multi-member path (emitMemberLine) both route their loud/skip outcomes
+	// through this ONE helper, differing only by the display `name` they supply
+	// (the collapsed path passes the FULL member key; the streamed path passes the
+	// member basename). Asserting the helper directly proves the four loud/skip
+	// arms live in exactly one place and render identically — modulo that name —
+	// across both paths.
+
+	it("renders copy-failed at error level with the recovery hint, honouring the passed name", () => {
+		const outcome: PluginOutcome = {
+			status: "copy-failed",
+			key: "owner/repo/design",
+			summary: "re-run update",
+		};
+
+		// Collapsed path name source: the full member key.
+		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
+			level: "error",
+			text: "owner/repo/design: copy failed — re-run update",
+		});
+		// Streamed path name source: the member basename. Same shape, only the
+		// name differs — proving the name is a parameter, not baked in.
+		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
+			level: "error",
+			text: "design: copy failed — re-run update",
+		});
+	});
+
+	it("renders aborted at error level carrying the summary as the inline message", () => {
+		const outcome: PluginOutcome = {
+			status: "aborted",
+			key: "owner/repo/design",
+			summary: "recorded as skill but SKILL.md missing; run remove then add",
+		};
+
+		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
+			level: "error",
+			text: "owner/repo/design: recorded as skill but SKILL.md missing; run remove then add",
+		});
+		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
+			level: "error",
+			text: "design: recorded as skill but SKILL.md missing; run remove then add",
+		});
+	});
+
+	it("renders blocked at error level carrying the summary as the inline message", () => {
+		const outcome: PluginOutcome = {
+			status: "blocked",
+			key: "owner/repo/design",
+			summary: "symlink target escapes the clone",
+		};
+
+		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
+			level: "error",
+			text: "owner/repo/design: symlink target escapes the clone",
+		});
+		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
+			level: "error",
+			text: "design: symlink target escapes the clone",
+		});
+	});
+
+	it("renders skipped-no-agents at warn level as the fixed skip sentence, honouring the passed name", () => {
+		const outcome: PluginOutcome = {
+			status: "skipped-no-agents",
+			key: "owner/repo/design",
+			summary:
+				"owner/repo/design: Skipped — no longer supports installed agents",
+		};
+
+		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
+			level: "warn",
+			text: "owner/repo/design: skipped — no longer supports installed agents",
+		});
+		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
+			level: "warn",
+			text: "design: skipped — no longer supports installed agents",
+		});
+	});
+
+	it("returns null for a bare `failed` — its rendering is NOT shared (each caller renders it itself)", () => {
+		// The two paths genuinely diverge on a bare `failed`: the collapsed path
+		// settles a red error spinner stop-frame (code 2), the streamed path emits
+		// p.log.warn via renderOutcomeSummary. A single shared MemberLine cannot
+		// reproduce both, so the helper declines (null) and each caller keeps its
+		// own bare-`failed` fallback.
+		const outcome: PluginOutcome = {
+			status: "failed",
+			key: "owner/repo",
+			summary: "owner/repo: Failed — git clone failed",
+		};
+
+		expect(failureOrSkipMemberLine(outcome, "owner/repo")).toBeNull();
 	});
 });
