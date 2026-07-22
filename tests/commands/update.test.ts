@@ -6756,11 +6756,11 @@ describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () 
 	});
 
 	it("returns null for a bare `failed` — its rendering is NOT shared (each caller renders it itself)", () => {
-		// The two paths genuinely diverge on a bare `failed`: the collapsed path
-		// settles a red error spinner stop-frame (code 2), the streamed path emits
-		// p.log.warn via renderOutcomeSummary. A single shared MemberLine cannot
-		// reproduce both, so the helper declines (null) and each caller keeps its
-		// own bare-`failed` fallback.
+		// Both paths render a bare `failed` at ERROR (red ✗) but by different mechanics:
+		// the collapsed path settles a red error spinner stop-frame (code 2), the
+		// streamed path emits p.log.error via renderOutcomeSummary. A single shared
+		// MemberLine cannot reproduce both, so the helper declines (null) and each
+		// caller keeps its own bare-`failed` fallback.
 		const outcome: PluginOutcome = {
 			status: "failed",
 			key: "owner/repo",
@@ -6768,5 +6768,129 @@ describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () 
 		};
 
 		expect(failureOrSkipMemberLine(outcome, "owner/repo")).toBeNull();
+	});
+});
+
+describe("bare-`failed` member-line severity (uniform red across layouts)", () => {
+	// A bare `failed` member outcome (a per-member reinstall that threw, or a
+	// group-fatal clone failure fanned out per member) must render at ERROR (red ✗)
+	// severity on EVERY layout — the streamed multi-member path, the local path, and
+	// the group-of-one collapsed spinner stop-frame — never the yellow warn glyph.
+	// clack's spin.stop has no warn code, so the group-of-one collapse can only be
+	// green or red; red is the honest choice, so the other paths normalise UP to red
+	// (renderOutcomeSummary emits p.log.error for `failed`). Exit accounting is
+	// unchanged: `failed` still trips hasFailedOutcome → ExitSignal(1).
+
+	it("renders a streamed multi-member `failed` via p.log.error (not p.log.warn)", async () => {
+		// A 2-member collection → one group, one shared clone that SUCCEEDS. Member a
+		// reinstalls cleanly (✓); member b's per-member readConfig throws, propagating
+		// to reinstallMember's defensive catch → a bare `failed` outcome with
+		// cloneFailed === false, so it streams through emitMemberLine →
+		// renderOutcomeSummary (NOT the enumerated clone-failure line).
+		captureSpinner();
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/a": makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/a/"],
+			}),
+			"owner/repo/b": makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/b/"],
+			}),
+		});
+		mockResolveGroupTarget.mockResolvedValue({
+			kind: "head",
+			resolvedSha: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/clone",
+			commit: REMOTE_SHA,
+		});
+		mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
+		// b's per-member reinstall throws BEFORE the copy try/catch (readConfig) →
+		// a bare `failed` outcome (not copy-failed); a keeps claude and succeeds.
+		mockReadConfig.mockImplementation(async (dir: unknown) => {
+			if (typeof dir === "string" && dir.endsWith("/b")) {
+				throw new Error("boom");
+			}
+			return { agents: ["claude"] };
+		});
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/a/"],
+		});
+
+		// `failed` trips the non-zero exit; catch so assertions run.
+		await runUpdate().catch(() => {});
+
+		// The bare `failed` member renders RED via p.log.error…
+		expect(mockLog.error).toHaveBeenCalledWith("owner/repo/b: Failed — boom");
+		// …and never the yellow warn glyph.
+		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
+		// The successful sibling still streams its ✓ line under the shared header.
+		expect(mockLog.success).toHaveBeenCalledWith("a → claude");
+	});
+
+	it("renders a local `failed` red via p.log.error (not p.log.warn)", async () => {
+		// A lone local entry (commit null) is streamed via streamLocalWork with NO
+		// spinner. Its source path fails validation (stat rejects) → processUpdateForAll
+		// returns a bare `failed` outcome → streamCollapsedOutcome → emitMemberLine →
+		// renderOutcomeSummary. It must render RED, matching the git layouts.
+		const LOCAL_KEY = "/local/path";
+		mockReadManifestOrExit.mockResolvedValue({
+			[LOCAL_KEY]: {
+				ref: null,
+				commit: null,
+				installedAt: "2026-02-01T00:00:00.000Z",
+				agents: ["claude"],
+				files: [".claude/skills/local/"],
+				cloneUrl: null,
+			},
+		});
+		// Local source path no longer exists → validateLocalSourcePath fails →
+		// `failed` outcome carrying the "path does not exist" reason.
+		mockStat.mockRejectedValue(new Error("ENOENT"));
+
+		// `failed` trips the non-zero exit; catch so assertions run.
+		await runUpdate().catch(() => {});
+
+		expect(mockLog.error).toHaveBeenCalledWith(
+			`${LOCAL_KEY}: Failed — path does not exist`,
+		);
+		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
+	});
+
+	it("renders a group-of-one collapsed `failed` at error (spin.stop code 2), never warn — uniform with the other layouts", async () => {
+		// A standalone repo → a group-of-one whose shared clone throws. It collapses to
+		// ONE red spinner stop-frame at code 2 (clack has no warn code), NOT a separate
+		// p.log.* line. This is the third layout: together with the streamed and local
+		// paths above, a bare `failed` is now uniformly RED everywhere.
+		const handle = captureSpinner();
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo": makeEntry({
+				commit: INSTALLED_SHA,
+				agents: ["claude"],
+				files: [".claude/skills/solo/"],
+			}),
+		});
+		mockResolveGroupTarget.mockResolvedValue({
+			kind: "head",
+			resolvedSha: REMOTE_SHA,
+		});
+		mockCloneSource.mockRejectedValue(new Error("git clone failed"));
+		mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+
+		await runUpdate().catch(() => {});
+
+		// The collapsed `failed` line IS the spinner stop-frame at code 2 (red ✗).
+		expect(stopTexts(handle, 2)).toEqual([
+			"owner/repo: Failed — git clone failed",
+		]);
+		// No warn glyph for the collapsed failure.
+		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 	});
 });

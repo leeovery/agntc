@@ -760,12 +760,12 @@ async function streamGroupWork(
  * member basename.
  *
  * Returns `null` for a bare `failed` (and any other non-loud/skip status): that
- * fallback is deliberately NOT shared, because the two paths genuinely render it
- * DIFFERENTLY and no single {@link MemberLine} can reproduce both — the collapsed
- * path settles a red error spinner stop-frame (`level: "error"` → `spin.stop`
- * code 2), while the streamed path emits `p.log.warn` via
- * {@link renderOutcomeSummary}. Each caller therefore keeps its own bare-`failed`
- * rendering, unchanged.
+ * fallback is deliberately NOT shared, because the two paths reach red by
+ * different mechanics and no single {@link MemberLine} can reproduce both — the
+ * collapsed path settles a red error spinner stop-frame (`level: "error"` →
+ * `spin.stop` code 2), while the streamed path emits `p.log.error` via
+ * {@link renderOutcomeSummary}. Both render `failed` at ERROR (red ✗) — uniform
+ * severity across layouts — so each caller keeps its own bare-`failed` rendering.
  */
 export function failureOrSkipMemberLine(
 	outcome: PluginOutcome,
@@ -897,8 +897,8 @@ function streamGroupMemberLines(
  * only a per-member defensive throw or a per-member subpath-traversal reject, the
  * GROUP-FATAL clone fan-out being intercepted upstream by {@link streamGroupWork}
  * as one enumerated line (task 2-6) — is not a shared-format status (the helper
- * returns null), so it falls back to the interim summary render at its severity
- * level (warn), unchanged.
+ * returns null), so it falls back to the {@link renderOutcomeSummary} render at
+ * ERROR (red ✗) — uniform with the collapsed group-of-one stop-frame.
  */
 function emitMemberLine(
 	outcome: PluginOutcome,
@@ -1040,13 +1040,13 @@ function renderOutcomeSummary(outcome: PluginOutcome): void {
 	if (outcome.status === "updated" || outcome.status === "refreshed") {
 		p.log.success(outcome.summary);
 	} else if (
+		outcome.status === "failed" ||
 		outcome.status === "copy-failed" ||
 		outcome.status === "aborted" ||
 		outcome.status === "blocked"
 	) {
 		p.log.error(outcome.summary);
 	} else if (
-		outcome.status === "failed" ||
 		outcome.status === "check-failed" ||
 		outcome.status === "skipped-no-agents" ||
 		outcome.status === "constrained-no-match"
