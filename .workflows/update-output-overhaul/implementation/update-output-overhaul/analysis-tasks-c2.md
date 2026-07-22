@@ -6,7 +6,7 @@ total_proposed: 4
 # Analysis Tasks: Update Output Overhaul (Cycle 2)
 
 ## Task 1: Single-source the sourceSubpath containment guard across the singleton and grouped clone paths
-status: pending
+status: approved
 severity: high
 sources: duplication, architecture
 
@@ -35,7 +35,7 @@ sources: duplication, architecture
 - A regression test asserting both clone entry points reject the same escaping subpath through the shared helper (so a one-sided divergence would fail).
 
 ## Task 2: Consolidate PluginOutcome failure/success outcome handling into co-located helpers
-status: pending
+status: approved
 severity: medium
 sources: duplication
 
@@ -61,7 +61,7 @@ sources: duplication
 - A focused unit test that `failedOutcome(key, msg)` produces the exact prior literal, guarding the wording against drift.
 
 ## Task 3: Carry structured fields on the updated/refreshed PluginOutcome instead of a pre-rendered summary the renderer discards
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
@@ -90,7 +90,7 @@ sources: architecture
 - Collapsed group-of-one and local `Refreshed` / `Updated` lines unchanged.
 
 ## Task 4: Remove dead git generality from the now-local-only update path (processUpdateForAll)
-status: pending
+status: approved
 severity: medium
 sources: architecture
 
