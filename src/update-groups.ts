@@ -105,6 +105,33 @@ export type PluginOutcome =
 	| { status: "constrained-no-match"; key: string; summary: string };
 
 /**
+ * The SINGLE constructor of the `failed` {@link PluginOutcome} literal and its
+ * `<key>: Failed — <message>` summary wording. Every failure origin — the
+ * `prepareReinstall`-not-ok branch, the `processUpdateForAll` outer catch, the
+ * `onCloneFailed`/`onUnknown` arms of {@link mapReinstallResultToOutcome}, the
+ * {@link reinstallMember} catch, and the clone-fatal fan-out in
+ * {@link processGroupUpdate} — routes through here, so the discriminant, the
+ * `key`, and the exact prefix/body wording can never drift apart (a new failure
+ * origin is a one-line call).
+ */
+export function failedOutcome(key: string, message: string): PluginOutcome {
+	return { status: "failed", key, summary: `${key}: Failed — ${message}` };
+}
+
+/**
+ * The SINGLE definition of the two-status "this member updated" success set
+ * (`updated` for a git move, `refreshed` for a local re-copy). Narrows to the
+ * variants that carry {@link ManifestEntry} `newEntry`, so the persistence and
+ * member-line sites read `outcome.newEntry` without a cast. A future success
+ * variant is a one-line change here.
+ */
+export function isSuccessOutcome(
+	outcome: PluginOutcome,
+): outcome is Extract<PluginOutcome, { status: "updated" | "refreshed" }> {
+	return outcome.status === "updated" || outcome.status === "refreshed";
+}
+
+/**
  * Maps a {@link CloneReinstallResult} (from the shared reinstall half) plus the
  * member's key/entry to a {@link PluginOutcome}, using `status` as the single
  * cross-boundary discriminator. Factored out of `processUpdateForAll` so the
@@ -143,16 +170,8 @@ export function mapReinstallResultToOutcome(
 				key,
 				summary: buildCopySafetyMessage(key, reason),
 			}),
-			onCloneFailed: (msg) => ({
-				status: "failed",
-				key,
-				summary: `${key}: Failed — ${msg}`,
-			}),
-			onUnknown: (msg) => ({
-				status: "failed",
-				key,
-				summary: `${key}: Failed — ${msg}`,
-			}),
+			onCloneFailed: (msg) => failedOutcome(key, msg),
+			onUnknown: (msg) => failedOutcome(key, msg),
 		});
 	}
 
@@ -313,11 +332,7 @@ async function reinstallMember(
 
 		return mapReinstallResultToOutcome(key, entry, result, displayRef);
 	} catch (err) {
-		return {
-			status: "failed",
-			key,
-			summary: `${key}: Failed — ${errorMessage(err)}`,
-		};
+		return failedOutcome(key, errorMessage(err));
 	}
 }
 
@@ -370,11 +385,7 @@ export async function processGroupUpdate(
 		return {
 			cloneFailed: true,
 			reason,
-			outcomes: members.map((member) => ({
-				status: "failed",
-				key: member.key,
-				summary: `${member.key}: Failed — ${reason}`,
-			})),
+			outcomes: members.map((member) => failedOutcome(member.key, reason)),
 		};
 	}
 

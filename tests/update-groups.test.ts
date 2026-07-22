@@ -68,8 +68,11 @@ import {
 } from "../src/update-check.js";
 import {
 	type EntryGroup,
+	failedOutcome,
 	groupEntriesForUpdate,
 	groupTargetFacets,
+	isSuccessOutcome,
+	type PluginOutcome,
 	processGroupUpdate,
 } from "../src/update-groups.js";
 import {
@@ -102,6 +105,57 @@ function firstGroup(entries: Record<string, ManifestEntry>): EntryGroup {
 function memberKeys(group: { members: Array<{ key: string }> }): string[] {
 	return group.members.map((m) => m.key);
 }
+
+describe("failedOutcome", () => {
+	it("builds the failed literal with the exact `<key>: Failed — <message>` summary", () => {
+		expect(failedOutcome("owner/repo/a", "boom")).toEqual({
+			status: "failed",
+			key: "owner/repo/a",
+			summary: "owner/repo/a: Failed — boom",
+		});
+	});
+});
+
+describe("isSuccessOutcome", () => {
+	const newEntry = makeEntry({ ref: "v1.0.0" });
+
+	it("is true for updated and refreshed, narrowing to the newEntry-carrying variants", () => {
+		const updated: PluginOutcome = {
+			status: "updated",
+			key: "owner/repo/a",
+			summary: "s",
+			newEntry,
+		};
+		const refreshed: PluginOutcome = {
+			status: "refreshed",
+			key: "local",
+			summary: "s",
+			newEntry,
+		};
+
+		expect(isSuccessOutcome(updated)).toBe(true);
+		expect(isSuccessOutcome(refreshed)).toBe(true);
+		if (isSuccessOutcome(updated)) {
+			expect(updated.newEntry).toBe(newEntry);
+		}
+	});
+
+	it("is false for every non-success status", () => {
+		for (const status of [
+			"up-to-date",
+			"newer-tags",
+			"check-failed",
+			"failed",
+			"copy-failed",
+			"aborted",
+			"blocked",
+			"skipped-no-agents",
+			"constrained-no-match",
+		] as const) {
+			expect(isSuccessOutcome({ status, key: "k", summary: "s" })).toBe(false);
+		}
+	});
+});
 
 describe("groupEntriesForUpdate", () => {
 	it("groups two members of one repo sharing a constraint into one group, preserving manifest order", () => {

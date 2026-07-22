@@ -35,8 +35,10 @@ import {
 } from "../update-check.js";
 import {
 	type EntryGroup,
+	failedOutcome,
 	groupEntriesForUpdate,
 	groupTargetFacets,
+	isSuccessOutcome,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
 	processGroupUpdate,
@@ -320,11 +322,7 @@ async function processUpdateForAll(
 			...overrides,
 		});
 		if (!prepared.ok) {
-			return {
-				status: "failed",
-				key,
-				summary: `${key}: Failed — ${prepared.reason}`,
-			};
+			return failedOutcome(key, prepared.reason);
 		}
 
 		const result = await cloneAndReinstall(prepared.options);
@@ -334,11 +332,7 @@ async function processUpdateForAll(
 		// benign, correct value.
 		return mapReinstallResultToOutcome(key, entry, result, entry.ref);
 	} catch (err) {
-		return {
-			status: "failed",
-			key,
-			summary: `${key}: Failed — ${errorMessage(err)}`,
-		};
+		return failedOutcome(key, errorMessage(err));
 	}
 }
 
@@ -810,7 +804,7 @@ export function failureOrSkipMemberLine(
  * helper returns null) and rides its inline summary at error level.
  */
 function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
-	if (outcome.status === "updated" || outcome.status === "refreshed") {
+	if (isSuccessOutcome(outcome)) {
 		return { level: "success", text: outcome.summary };
 	}
 	return (
@@ -852,7 +846,7 @@ function streamCollapsedOutcome(
 	outcome: PluginOutcome,
 	member: GroupMember,
 ): void {
-	if (outcome.status === "updated" || outcome.status === "refreshed") {
+	if (isSuccessOutcome(outcome)) {
 		p.log.success(outcome.summary);
 		return;
 	}
@@ -911,7 +905,7 @@ function emitMemberLine(
 		newCommit: string;
 	} | null,
 ): void {
-	if (outcome.status === "updated" || outcome.status === "refreshed") {
+	if (isSuccessOutcome(outcome)) {
 		const line = formatMemberLine({
 			kind: "success",
 			name,
@@ -964,10 +958,7 @@ async function persistUnitOutcomes(
 	let mutated = false;
 
 	for (const outcome of outcomes) {
-		if (
-			(outcome.status === "updated" || outcome.status === "refreshed") &&
-			"newEntry" in outcome
-		) {
+		if (isSuccessOutcome(outcome)) {
 			updatedManifest = addEntry(
 				updatedManifest,
 				outcome.key,
@@ -1037,7 +1028,7 @@ function emitCollapsedGroupSummary(
 
 /** Renders one outcome to the per-unit summary at the log level for its status. */
 function renderOutcomeSummary(outcome: PluginOutcome): void {
-	if (outcome.status === "updated" || outcome.status === "refreshed") {
+	if (isSuccessOutcome(outcome)) {
 		p.log.success(outcome.summary);
 	} else if (
 		outcome.status === "failed" ||
