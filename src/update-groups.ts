@@ -84,7 +84,7 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
 /**
  * Per-plugin outcome of an all-mode update, collected across the run for the
  * trailing summary and the `hasFailedOutcome` exit-code decision. Shared by the
- * legacy per-entry path (`processUpdateForAll`) and the grouped orchestrator
+ * local path (`processLocalUpdate`) and the grouped orchestrator
  * ({@link processGroupUpdate}) so both emit the identical shape.
  *
  * The two success variants (`updated`/`refreshed`) carry the STRUCTURED fields
@@ -123,7 +123,7 @@ export type PluginOutcome =
 /**
  * The SINGLE constructor of the `failed` {@link PluginOutcome} literal and its
  * `<key>: Failed — <message>` summary wording. Every failure origin — the
- * `prepareReinstall`-not-ok branch, the `processUpdateForAll` outer catch, the
+ * `prepareReinstall`-not-ok branch, the `processLocalUpdate` outer catch, the
  * `onCloneFailed`/`onUnknown` arms of {@link mapReinstallResultToOutcome}, the
  * {@link reinstallMember} catch, and the clone-fatal fan-out in
  * {@link processGroupUpdate} — routes through here, so the discriminant, the
@@ -150,8 +150,8 @@ export function isSuccessOutcome(
 /**
  * Maps a {@link CloneReinstallResult} (from the shared reinstall half) plus the
  * member's key/entry to a {@link PluginOutcome}, using `status` as the single
- * cross-boundary discriminator. Factored out of `processUpdateForAll` so the
- * grouped orchestrator and the legacy per-entry path emit byte-identical
+ * cross-boundary discriminator. Factored out of `processLocalUpdate` so the
+ * grouped orchestrator and the local path emit byte-identical
  * outcomes — the failure arms (skipped-no-agents / copy-failed / aborted /
  * blocked / clone-failed→failed / unknown→failed) and the success split
  * (local `refreshed` vs git `updated`) live in exactly one place.

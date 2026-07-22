@@ -311,26 +311,21 @@ async function runSinglePluginUpdate(
 
 type GroupMember = { key: string; entry: ManifestEntry };
 
-async function processUpdateForAll(
+async function processLocalUpdate(
 	key: string,
 	entry: ManifestEntry,
 	projectDir: string,
-	overrides?: VersionOverrides,
 ): Promise<PluginOutcome> {
 	try {
-		const prepared = await prepareReinstall(key, entry, projectDir, {
-			...overrides,
-		});
+		const prepared = await prepareReinstall(key, entry, projectDir);
 		if (!prepared.ok) {
 			return failedOutcome(key, prepared.reason);
 		}
 
 		const result = await cloneAndReinstall(prepared.options);
-		// This path now only handles local entries (streamLocalWork), whose outcome
-		// is the ref-free `refreshed` (local-update) summary — the git-update arm's
-		// newRef is never consulted here, so the pre-update entry.ref is passed as a
-		// benign, correct value.
-		return mapReinstallResultToOutcome(key, entry, result, entry.ref);
+		// A local entry (`commit === null`) always takes the ref-free `refreshed`
+		// (local-update) arm, which never consults `newRef`.
+		return mapReinstallResultToOutcome(key, entry, result, null);
 	} catch (err) {
 		return failedOutcome(key, errorMessage(err));
 	}
@@ -826,7 +821,7 @@ async function streamLocalWork(
 	projectDir: string,
 	workingManifest: Manifest,
 ): Promise<StreamedUnit> {
-	const outcome = await processUpdateForAll(item.key, item.entry, projectDir);
+	const outcome = await processLocalUpdate(item.key, item.entry, projectDir);
 	const manifest = await persistUnitOutcomes(projectDir, workingManifest, [
 		outcome,
 	]);

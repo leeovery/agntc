@@ -6878,7 +6878,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 
 	it("renders a local `failed` red via p.log.error (not p.log.warn)", async () => {
 		// A lone local entry (commit null) is streamed via streamLocalWork with NO
-		// spinner. Its source path fails validation (stat rejects) → processUpdateForAll
+		// spinner. Its source path fails validation (stat rejects) → processLocalUpdate
 		// returns a bare `failed` outcome → streamCollapsedOutcome → emitMemberLine →
 		// renderOutcomeSummary. It must render RED, matching the git layouts.
 		const LOCAL_KEY = "/local/path";
