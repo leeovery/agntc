@@ -42,5 +42,8 @@
         "command": "npx tsc --noEmit"
       }
     ]
+  },
+  "walkthrough": {
+    "status": "skipped"
   }
 }
