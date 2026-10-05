@@ -4,7 +4,77 @@
   "status": "in-progress",
   "created": "2026-10-05",
   "description": "Make agntc a like-for-like replacement for Vercel's skills CLI — anything built for their skills library installs through agntc (same source formats and flags, unattended installs, a pre-install summary) — without breaking agntc's plugin bundling, and fixing partially-done paths along the way (e.g. update's re-add advice dropping --plugin).",
-  "phases": {},
+  "phases": {
+    "research": {
+      "items": {
+        "vercel-skills-compatibility": {
+          "status": "in-progress",
+          "threads": {
+            "vercel-cli-surface": {
+              "question": "What is the full surface of Vercel's skills CLI — commands, add flags and options, source-string formats, selectors, agent targeting, and install semantics?",
+              "status": "open",
+              "origin": "seed",
+              "parent": null
+            },
+            "vercel-capability-gaps": {
+              "question": "Does Vercel's CLI have whole capabilities agntc has no equivalent for — installing once for every project rather than per project, searching their directory — that would reshape this into several pieces?",
+              "status": "open",
+              "origin": "seed",
+              "parent": "vercel-cli-surface"
+            },
+            "compatibility-matrix": {
+              "question": "For each Vercel flag and behaviour, is agntc already supporting it, an alias away, missing the feature, or deliberately diverging?",
+              "status": "open",
+              "origin": "seed",
+              "parent": null
+            },
+            "plugin-bundling-coexistence": {
+              "question": "Where could Vercel's flags, source formats, or selection semantics collide with agntc's own — --plugin bundling, config type, collection detection — and how would both coexist?",
+              "status": "open",
+              "origin": "seed",
+              "parent": "compatibility-matrix"
+            },
+            "directory-install-coverage": {
+              "question": "Does every repo in Vercel's skills directory install cleanly through agntc today, and where does it fail?",
+              "status": "open",
+              "origin": "seed",
+              "parent": null
+            },
+            "unattended-install": {
+              "question": "What does an unattended add need — agent preselection against a unit's ceiling, what --yes answers at each prompt, conflict resolution, collection member selection, interaction with auto-select, and error behaviour when a flagged agent is outside the ceiling?",
+              "status": "open",
+              "origin": "seed",
+              "parent": null
+            },
+            "unattended-hook-scripts": {
+              "question": "Unattended installs remove the last human look before hook scripts land — what does that change, and how does Vercel handle it?",
+              "status": "open",
+              "origin": "seed",
+              "parent": "unattended-install"
+            },
+            "pre-install-summary": {
+              "question": "What should the post-clone summary show — source, detected type, member count, unit names — and is a display-only SKILL.md description read worth adding?",
+              "status": "open",
+              "origin": "seed",
+              "parent": null
+            },
+            "frontmatter-validity-stance": {
+              "question": "Vercel rejects a skill whose frontmatter lacks name and description — what are the options for agntc's position on repos Vercel would refuse?",
+              "status": "open",
+              "origin": "seed",
+              "parent": null
+            },
+            "plugin-readd-defect": {
+              "question": "Does update's out-of-constraint re-add advice drop --plugin for a bundled install, what exactly happens, and where else do partially-done paths lose --plugin?",
+              "status": "open",
+              "origin": "seed",
+              "parent": null
+            }
+          }
+        }
+      }
+    }
+  },
   "seeds": [
     {
       "path": "seeds/2026-06-09-non-interactive-install-flags.md",
