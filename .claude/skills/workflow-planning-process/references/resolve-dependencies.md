@@ -4,11 +4,10 @@
 
 ---
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-All phases and tasks are written. Now I'll check for external
-dependencies — things this plan needs from other topics or systems.
+All phases and tasks are written. Now I'll check for external dependencies — things this plan needs from other topics or systems.
 ```
 
 Handle external dependencies — things this plan needs from other topics or systems.
@@ -32,7 +31,7 @@ This topic has no external dependencies. Other topics may still have unresolved 
 Read existing `external_dependencies` from the manifest:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{topic} external_dependencies
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} external_dependencies
 ```
 
 #### If output is empty (no existing entries)
@@ -58,7 +57,7 @@ Read the specification's Dependencies section. For each dependency, derive the m
 Preserve the existing state — only update the description:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.description "{description}"
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.description "{description}"
 ```
 
 → Proceed to **C. Remove Stale Entries**.
@@ -68,8 +67,8 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.plann
 Set as unresolved:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.description "{description}"
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.state unresolved
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.description "{description}"
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.state unresolved
 ```
 
 → Proceed to **C. Remove Stale Entries**.
@@ -85,7 +84,7 @@ Compare the manifest's dependency topics against the specification's Dependencie
 Delete each one:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs delete {work_unit}.planning.{topic} external_dependencies.{dep_topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.planning.{topic} external_dependencies.{dep_topic}
 ```
 
 → Proceed to **D. Resolve Current Plan's Dependencies**.
@@ -102,27 +101,24 @@ Nothing to remove.
 
 For each unresolved dependency, check if the planning entry exists in the manifest:
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.planning.{dep_topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest exists {work_unit}.planning.{dep_topic}
 ```
 
 #### If the plan does not exist
 
 Leave the dependency as `state: unresolved`. It will be resolved when that topic is planned.
 
-→ Proceed to **E. Reverse Check**.
+→ Return to **D. Resolve Current Plan's Dependencies** for the next unresolved dependency; when all have been checked, proceed to **E. Reverse Check**.
 
 #### Otherwise
 
 Read the plan's task table and find the task that best satisfies the dependency by matching the task name against the dependency description. Use the matched task's Internal ID from the plan table.
 
-Update the dependency:
+Add the resolution to the working list — persisted in one batch at **E**'s end:
 
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.state resolved
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} external_dependencies.{dep_topic}.internal_id {internal_id}
-```
+- `{work_unit}.planning.{topic}` → `external_dependencies.{dep_topic}.state: resolved`, `external_dependencies.{dep_topic}.internal_id: {internal_id}`
 
-→ Proceed to **E. Reverse Check**.
+→ Return to **D. Resolve Current Plan's Dependencies** for the next unresolved dependency; when all have been checked, proceed to **E. Reverse Check**.
 
 ---
 
@@ -131,30 +127,41 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.plann
 For each other topic with a planning phase in the same work unit, read their external dependencies:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{other_topic} external_dependencies
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{other_topic} external_dependencies
 ```
 
 #### If output is empty (no external dependencies for this topic)
 
-Continue to the next topic.
+Nothing to reverse-check for this topic.
+
+→ Return to **E. Reverse Check** for the next topic.
 
 #### Otherwise
 
 For each dependency in the other topic's `external_dependencies`, route on state:
 
-- **`state: unresolved` matching current topic** — find the best matching task in the current plan by name against the dependency description. Resolve using the task's Internal ID:
+- **`state: unresolved` matching current topic** — find the best matching task in the current plan by name against the dependency description. Add the resolution to the working list using the task's Internal ID:
 
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{other_topic} external_dependencies.{topic}.state resolved
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{other_topic} external_dependencies.{topic}.internal_id {internal_id}
-```
+  - `{work_unit}.planning.{other_topic}` → `external_dependencies.{topic}.state: resolved`, `external_dependencies.{topic}.internal_id: {internal_id}`
 
-- **`state: resolved` pointing at current plan's tasks** — validate that the `internal_id` still refers to a task that semantically matches the dependency description. If the task name no longer matches (stale reference), re-resolve by finding the correct task and updating the `internal_id`.
+- **`state: resolved` pointing at current plan's tasks** — validate that the `internal_id` still refers to a task that semantically matches the dependency description. If the task name no longer matches (stale reference), find the correct task and add the corrected pair to the working list:
+
+  - `{work_unit}.planning.{other_topic}` → `external_dependencies.{topic}.internal_id: {corrected_internal_id}`
+
 - **`state: satisfied_externally`** — skip.
 
-Continue to the next topic.
+→ Return to **E. Reverse Check** for the next topic.
 
-After all topics have been checked:
+When all topics have been checked, persist the working list — if it is non-empty, write one `set` op per resolution to `.workflows/.cache/{work_unit}/planning/{topic}/dependency-ops.json` with the Write tool (fields grouped per path), then apply the batch in one atomic call:
+
+```json
+[{"op": "set", "path": "{work_unit}.planning.{topic}", "fields": {"external_dependencies.{dep_topic}.state": "resolved", "external_dependencies.{dep_topic}.internal_id": "{internal_id}"}},
+ {"op": "set", "path": "{work_unit}.planning.{other_topic}", "fields": {"external_dependencies.{topic}.state": "resolved", "external_dependencies.{topic}.internal_id": "{internal_id}"}}]
+```
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest apply {work_unit} --file .workflows/.cache/{work_unit}/planning/{topic}/dependency-ops.json
+```
 
 → Proceed to **F. Summary and Commit**.
 
@@ -164,7 +171,7 @@ After all topics have been checked:
 
 #### If no changes were made (no deps to write, no reverse resolutions)
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
 No external dependencies for this topic. No reverse resolutions needed.
@@ -180,9 +187,9 @@ No external dependencies for this topic. No reverse resolutions needed.
 
 ## G. Present Summary
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 External Dependencies
 
 @foreach(dep in external_dependencies)
@@ -201,22 +208,20 @@ Reverse resolutions:
 @endif
 ```
 
-> *Output the next fenced block as markdown (not a code block):*
-
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render dependency-approval-gate {work_unit}.planning.{topic} --variant resolution
 ```
-· · · · · · · · · · · ·
-Approve the dependency resolution?
 
-- **`y`/`yes`** — Proceed
-- **Tell me what to change** — Adjust resolutions or add missing links
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
 #### If `yes`
 
-Commit: `planning({work_unit}): resolve external dependencies`
+Commit:
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "planning({work_unit}): resolve external dependencies" --topic planning/{topic}
+```
 
 → Return to caller.
 

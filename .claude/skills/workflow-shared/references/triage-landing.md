@@ -1,32 +1,37 @@
 # Triage Landing
 
-*Shared reference. Loaded by `workflow-discussion-process` (off-topic concerns) and `workflow-research-process` (topic awareness) when a concern must be rerouted to a different topic.*
+*Shared reference. Loaded by `workflow-discussion-process` (off-topic concerns), `workflow-research-process` (topic awareness), and `workflow-specification-process`, `workflow-planning-process`, and `workflow-implementation-process` (gaps and resolutions routed to a source discussion) when a concern must be rerouted to a different topic.*
 
 ---
 
-Lands a rerouted concern in a target topic's `## Triage` section so the target drains it when its phase next runs. Epic-only — single-topic work types (feature, bugfix, quick-fix) have no second topic to route to; their callers ignore the concern, surface it to the inbox, or pivot to an epic, and never load this reference.
+Lands a rerouted concern in a target topic's **triage queue** — one engine-numbered file per concern, installed and committed by the engine — so the target surfaces it when its phase next runs. Epic-only — single-topic work types (feature, bugfix, quick-fix) have no second topic to route to; their callers ignore the concern, surface it to the inbox, or pivot to an epic, and never load this reference.
 
-The caller has already resolved and confirmed the target, and confirmed it is a **different** topic from the current one (a concern that belongs to the current topic is normal subtopic or thread work, not a reroute). This reference writes the manifest and artefact but does **not** commit — the caller's commit covers both.
+The caller has already resolved and confirmed the target, and confirmed it is a **different** topic from the current one (a concern that belongs to the current topic is normal subtopic or thread work, not a reroute). A specification, planning, or implementation raiser is the exception: its target is a source discussion — a different phase item even when it shares the raiser's own topic name. The delivery is a self-committing engine transaction — the concern file and manifest land action-scoped under the reroute message; the caller commits nothing for the landing itself. (`topic reactivate` in **D** likewise commits itself.)
 
 ## Parameters
 
 The caller provides these via context before loading:
 
 - `work_unit` — the epic. Always present.
-- `target` — the destination topic the concern belongs to (an existing map name, or a new kebab-case name the caller proposed and confirmed).
+- `target` — the destination topic the concern belongs to (an existing map name, or a new kebab-case name the caller derived).
 - `concern` — the concern as a short title, plus the full context discussed about it.
 - `origin` — the topic the concern surfaced in (the current session's topic).
-- `phase` — the current session's phase, `research` or `discussion`. Recorded in the entry, and the routing for a brand-new target.
+- `phase` — the current session's phase, `research`, `discussion`, `specification`, `planning`, or `implementation`. Recorded in the entry.
+- `landing_phase` — where the concern lands on the target, `research` or `discussion`: judged by the origin session per **Judging the Landing Phase** below, recommended and confirmed at the caller's gate. Any target state is legal — the delivery parks, leaves live work untouched, or reopens completed work as needed.
 - `date` — today's date.
 
 After return, the caller reads these from conversation memory:
 
-- `result` — `landed` (entry written; manifest/artefact ready for the caller's commit) or `cancelled` (a new target's name was dropped; nothing written).
+- `result` — `landed` (concern delivered and committed by the engine) or `cancelled` (the reroute was dropped or blocked; nothing written).
 - `landed_topic` — the final target name (a new target may have been renamed during validation).
+
+## Judging the Landing Phase
+
+The concern's nature decides, never the target: an open question needing exploration → `research`; a decision owed → `discussion`; a correction lands in the phase whose document records the material it corrects — `discussion` when the target has recorded nothing yet. The target's map `routing` and live state have no vote — a question landing on a discussion-routed topic still lands research-side.
 
 ## Triage Entry Shape
 
-Each rerouted concern is appended to the target artefact's `## Triage` section as one subsection, replacing the `(none)` placeholder when it is the first entry. Pin this exact shape — the drain and the conclusion gate detect against it:
+Each rerouted concern is one queue file. Pin this exact content shape — the fold reads against it:
 
 ```
 ### {short title}
@@ -37,12 +42,14 @@ Each rerouted concern is appended to the target artefact's `## Triage` section a
 
 Carry **everything** worked out about the concern — as many paragraphs as it takes. Do not summarise or trim: the target topic processes this entry from cold when it next runs, so it needs the whole context, not a one-line pointer. One paragraph or ten, write whatever conveys what was discussed. (In practice a concern caught early carries little; that's fine too.)
 
-## A. Classify the Target
+**One ask per file.** Depth is unbounded; width is one decision. When the worked-out material makes several asks of the target — points it could accept or reject independently — each ask is its own concern: its own entry with its own title, delivered through **C** in turn under the one confirmed reroute, repeating whatever shared context each needs (every entry is read cold). A single ask with several consequences stays one file — the test is whether the target could take one part and refuse another, never paragraph count. The target surfaces queue entries one at a time; a bundled entry defeats that walk before it starts.
 
-Resolution is computed against the **live** map at landing time, never cached — a target created earlier in the same session must resolve correctly:
+## A. Resolve the Target
+
+Resolution is computed against the **live** state at landing time, never cached — a target created earlier in the same session must resolve correctly:
 
 ```bash
-node .claude/skills/workflow-discovery/scripts/discovery.cjs {work_unit}
+node .claude/skills/workflow-discovery/scripts/gateway.cjs {work_unit}
 ```
 
 Find the row whose name is `{target}`.
@@ -53,78 +60,99 @@ The target is not on the map yet.
 
 → Proceed to **B. New Target**.
 
-#### If the row has no `phase=` field
+#### If the row's lifecycle is `handled` or `cancelled`
 
-A discovery item exists but no research or discussion artefact does yet.
+The topic is closed — no future session will surface its queue, and concluded artefacts may exist beneath it. Record the row's lifecycle as `lifecycle`.
 
-→ Proceed to **C. Fresh Target**.
+→ Proceed to **D. Closed Target**.
+
+#### If the row's lifecycle is `postponed`
+
+The topic waits on the roadmap and the concern waits with it — the delivery parks it and nothing is reopened. Tell the user in one line that it will be read when the topic returns.
+
+→ Proceed to **C. Land the Concern**.
 
 #### Otherwise
 
-The artefact named by the row's `phase=` field already exists.
+The landing phase is already judged and confirmed — `{landing_phase}` decides, not the target's live state. The delivery handles every item state (absent → parked; live → untouched; completed → reopened; postponed → parked, waiting with the topic), and a cancelled or dead-ended target refuses loudly with its recovery path.
 
-→ Proceed to **D. Existing Target**.
+→ Proceed to **C. Land the Concern**.
 
 ## B. New Target
 
-Create the target via the shared topic-creation core, routed at the current phase:
+Create the target via the shared topic-creation core, routed at the judged landing phase. The core writes the map item alone — the phase item is created as `triaged` in **C**, never started:
 
-→ Load **[create-discovery-topic.md](create-discovery-topic.md)** with work_unit = `{work_unit}`, proposed_name = `{target}`, phase = `{phase}`, routing = `{phase}`, source = `reroute:{origin}`.
+→ Load **[create-discovery-topic.md](create-discovery-topic.md)** with work_unit = `{work_unit}`, proposed_name = `{target}`, routing = `{landing_phase}`, source = `reroute:{origin}`. On return, `created_topic` holds the name the topic was written under — set `target` to it.
 
-**If `result` is `cancelled`:**
+→ On return, proceed to **C. Land the Concern**.
 
-The user dropped the new target — nothing was written.
+## C. Land the Concern
 
-→ Return to caller.
+One engine transaction owns the whole delivery: `topic triage` handles the item status (absent → created as `triaged`, parked, not started; `triaged` or `in-progress` → untouched; `completed` → reopened to `in-progress`), installs the concern as the next numbered file in the target's queue, consumes the scratch file, and commits the delivery action-scoped (concern file + manifest).
 
-**Otherwise:**
+1. Derive `slug` — kebab-case of the concern's short title.
+2. Write the full entry (shape above) to `.workflows/.cache/{work_unit}/{phase}/{origin}/concern-{slug}.md` with the Write tool.
+3. Deliver:
 
-The topic was created — `{created_topic}` holds the validated name. Set `landed_topic = {created_topic}`.
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs topic triage {work_unit} {landing_phase} {target} --concern .workflows/.cache/{work_unit}/{phase}/{origin}/concern-{slug}.md --slug {slug} -m "{phase}({work_unit}/{origin}): reroute concern to {target}"
+   ```
 
-Create the artefact stub at `.workflows/{work_unit}/{phase}/{created_topic}.md` from the `{phase}` template — [discussion template](../../workflow-discussion-process/references/template.md) or [research template](../../workflow-research-process/references/template.md). Write the concern into its `## Triage` section using the entry shape above, replacing the `(none)` placeholder. Leave the rest of the stub as the bare template — its working sections fill in when the target is picked up.
+**If the response is `ok: false` naming the topic closed** — `is cancelled — reactivate it from the epic menu first` or `is closed as a dead end — reopen it in discovery first`: a peer closed the target since **A** read the map. Surface the engine's error verbatim and re-resolve against the live state — the closed-target gate takes over.
 
-Set `result = landed`.
+→ Return to **A. Resolve the Target**.
 
-→ Return to caller.
+**If the response is `ok: false` for any other reason:**
 
-## C. Fresh Target
-
-The discovery item exists; read its `routing=` value from the map row. Create that phase's item:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase {work_unit}.{routing}.{target}
-```
-
-Create the artefact stub at `.workflows/{work_unit}/{routing}/{target}.md` from the `{routing}` template — [discussion template](../../workflow-discussion-process/references/template.md) or [research template](../../workflow-research-process/references/template.md). Write the concern into its `## Triage` section using the entry shape above, replacing the `(none)` placeholder.
-
-Set `landed_topic = {target}` and `result = landed`.
-
-→ Return to caller.
-
-## D. Existing Target
-
-Read the row's `phase=` value as `{current_phase}`. The live artefact is `.workflows/{work_unit}/{current_phase}/{target}.md`.
-
-Append the concern as a `### {short title}` subsection under that file's `## Triage` heading, using the entry shape above. If the section holds the `(none)` placeholder, replace it; otherwise add the entry below the existing ones. If the file has no `## Triage` heading at all — an artefact created outside the template — add the heading at end of file with the entry beneath it.
-
-Reopen the target if it has concluded, so it recomputes as actionable:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.{current_phase}.{target} status
-```
-
-**If the status is `completed`:**
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.{current_phase}.{target} status in-progress
-```
-
-Set `landed_topic = {target}` and `result = landed`.
+Surface the engine's error verbatim — it names the recovery path. Nothing has been written; set `result = cancelled`.
 
 → Return to caller.
 
 **Otherwise:**
 
-The item is already in progress — no reopen needed. Set `landed_topic = {target}` and `result = landed`.
+Set `landed_topic = {target}` and `result = landed`. When the response carries `reconcile_flagged` or `sources_staled`, the landing marked downstream work to reconcile — on a research-side landing, the target's discussion, live or decided (held at entry until the research lands, then reconciled against it — a live one already in session cannot conclude before then); on a discussion-side landing, the specification(s) sourcing the target, named in `sources_staled`, whose extracted rows are now `stale` (`sources_staled` can arrive alone when the spec already carried a flag). The caller's landing line should say which.
 
 → Return to caller.
+
+## D. Closed Target
+
+Never stub over a concluded artefact, and never land an entry no session will surface. Present the state and let the user decide — the surface derives which closed state the target is in and words the reopen row for it:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render triage-closed-target {work_unit}.discovery.{target}
+```
+
+Emit the call's MENU section verbatim per its marker.
+
+**STOP.** Wait for user response.
+
+**If `open`:**
+
+Reopen the topic — for `handled`:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs discovery-map unhandle {work_unit} {target}
+```
+
+For `cancelled` (an engine transaction — it commits itself) — reactivate the topic as one unit; every research and discussion item cancelled under its name returns with it:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reactivate {work_unit} discovery {target}
+```
+
+If the response is `ok: false`, surface the engine's error verbatim and re-fetch the gate above — the concern is still unlanded. Otherwise re-resolve against the fresh state — the response's `restored` names what came back:
+
+→ Return to **A. Resolve the Target**.
+
+**If `elsewhere`:**
+
+Ask the user which topic the concern should land in, set `target` to their answer, and re-resolve:
+
+→ Return to **A. Resolve the Target**.
+
+**If `drop`:**
+
+Nothing written. Set `result = cancelled`.
+
+→ Return to caller.
+

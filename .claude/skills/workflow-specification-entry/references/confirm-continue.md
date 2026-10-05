@@ -4,100 +4,15 @@
 
 ---
 
-**Consult references** — if the selected grouping owes any (a `**Consult**` line in the consolidation-analysis doc, or a `consult_references` entry on the spec), append this block to the confirmation below, after the sources listing; omit it when there are none:
-
-> *Output the next fenced block as a code block:*
-
-```
-Consult references (read narrowly — do not extract):
-  • {ref-topic} — {slice hint}
-```
-
 ## A. Display Confirmation
 
-#### If spec is in-progress with pending sources
+When the DATA lists `consult:` lines under the selected spec, write them to `.workflows/.cache/{work_unit}/specification/{topic}/consult.json` with the Write tool — `{"consult": [{"name": "…", "hint": "…"}]}`, one entry per line, `hint` the slice hint the line carries (left out when it carries none) — and pass the bracketed `--file`; otherwise leave it off.
 
-> *Output the next fenced block as a code block:*
-
-```
-Continuing specification: {Title Case Name}
-
-Existing: .workflows/{work_unit}/specification/{topic}/specification.md [in-progress]
-
-Sources to extract:
-  • {discussion-name} [pending]
-
-Previously extracted (for reference):
-  • {discussion-name}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render spec-confirm-gate {work_unit}.specification.{topic} --variant continue [--file .workflows/.cache/{work_unit}/specification/{topic}/consult.json]
 ```
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Proceed?
-- **`y`/`yes`**
-- **`n`/`no`**
-· · · · · · · · · · · ·
-```
-
-**STOP.** Wait for user response.
-
-→ Proceed to **B. Handle Response**.
-
-#### If spec is in-progress with all sources extracted
-
-> *Output the next fenced block as a code block:*
-
-```
-Continuing specification: {Title Case Name}
-
-Existing: .workflows/{work_unit}/specification/{topic}/specification.md [in-progress]
-
-All sources extracted:
-  • {discussion-name}
-  • {discussion-name}
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Proceed?
-- **`y`/`yes`**
-- **`n`/`no`**
-· · · · · · · · · · · ·
-```
-
-**STOP.** Wait for user response.
-
-→ Proceed to **B. Handle Response**.
-
-#### If spec is completed with pending sources
-
-> *Output the next fenced block as a code block:*
-
-```
-Continuing specification: {Title Case Name}
-
-Existing: .workflows/{work_unit}/specification/{topic}/specification.md [completed]
-
-New sources to extract:
-  • {discussion-name} [pending]
-
-Previously extracted (for reference):
-  • {discussion-name}
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Proceed?
-- **`y`/`yes`**
-- **`n`/`no`**
-· · · · · · · · · · · ·
-```
+Emit the call's DISPLAY and MENU sections verbatim per their markers.
 
 **STOP.** Wait for user response.
 
@@ -107,9 +22,11 @@ Proceed?
 
 ## B. Handle Response
 
-#### If user confirms (y)
+#### If `yes`
 
-**If spec is completed with pending sources:**
+→ Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `specification`, topic = `{the selected spec's name}`.
+
+**If spec is completed with pending or stale sources:**
 
 → Load **[continue-completed.md](handoffs/continue-completed.md)** and follow its instructions as written.
 
@@ -117,15 +34,14 @@ Proceed?
 
 → Load **[continue.md](handoffs/continue.md)** and follow its instructions as written.
 
-#### If user declines (n)
+#### If `no`
 
 **If single discussion (no menu to return to):**
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-Understood. Continue working on discussions, or re-run this
-command when ready.
+Understood. Continue working on discussions, or re-run this command when ready.
 ```
 
 **STOP.** Do not proceed — terminal condition.

@@ -12,41 +12,36 @@ Create the file at `.workflows/{work_unit}/specification/{topic}/specification.m
 
 Write the file **before** any manifest change. If a crash interrupts here the item stays `proposed` with a file on disk — the resume path recovers it on the next run via restart.
 
-→ Proceed to **B. Register or Flip the Item**.
+→ On return, proceed to **B. Register or Flip the Item**.
 
 ---
 
 ## B. Register or Flip the Item
 
-Read the manifest item status:
+Start the phase item — the engine creates it with `status: in-progress` when absent, or flips an existing proposed (or restarted) item to in-progress:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.specification.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs topic start {work_unit} specification {topic}
 ```
 
-#### If the output is empty
+Branch on the response's `created` flag:
 
-The item is genuinely new (feature/bugfix, or a fresh single-discussion create). Register it, then add every source with `status: pending`:
+#### If `created` is `true`
+
+The item is genuinely new (feature/bugfix, or a fresh single-discussion create). Add every source with `status: pending`. For a bugfix the single source is the investigation and its `{source-name}` is `{topic}` — the same name must be used when marking it incorporated:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase {work_unit}.specification.{topic}
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} sources.{source-name}.status pending
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.specification.{topic} sources.{source-name}.status pending
 ```
 
 → Proceed to **C. Set Review State**.
 
-#### If the status is `proposed`
+#### If `created` is `false`
 
-The grouping already exists as a proposed item — flip it to in-progress. Never run `init-phase`; the item exists and `init-phase` errors on an existing item:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} status in-progress
-```
-
-The proposed item already carries its grouping's sources as `pending` rows. For any source in this session not already present, add it — never overwrite an existing row:
+The item already existed (a proposed grouping, or a restart) and already carries its sources. For any source in this session not already present, add it — never overwrite an existing row:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} sources.{source-name}.status pending
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.specification.{topic} sources.{source-name}.status pending
 ```
 
 → Proceed to **C. Set Review State**.
@@ -55,15 +50,16 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.speci
 
 ## C. Set Review State
 
-Set review state and gate modes (both branches):
+Set review state and gate modes (both branches) — one batched write, all same-path fields:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} review_cycle 0
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} finding_gate_mode gated
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} construction_gate_mode gated
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} date $(date +%Y-%m-%d)
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.specification.{topic} review_cycle=0 finding_gate_mode=gated construction_gate_mode=gated date=$(date +%Y-%m-%d)
 ```
 
-Commit: `spec({work_unit}): initialize specification`
+Commit:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "spec({work_unit}): initialize specification" --topic specification/{topic}
+```
 
 → Return to caller.

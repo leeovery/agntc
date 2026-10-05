@@ -43,24 +43,49 @@ Review as a senior architect would:
 - **Low complexity**: Reasonable cyclomatic complexity, clear code paths
 - **Modern idioms**: Uses current language features appropriately
 - **Readability**: Self-documenting code, clear intent
+- **Comment accuracy**: Comments in the changed code hold true against it — no claims the code falsifies, no restated code, no references to process artifacts (task ids, phases, spec sections)
 - **Security**: No obvious vulnerabilities (injection, exposure, etc.)
 - **Performance**: No obvious inefficiencies (N+1 queries, unnecessary loops, etc.)
 
+## Quick-Fix Variant
+
+Quick-fix tasks are deliberately authored without acceptance criteria — never flag their absence. Substitute:
+
+**Implementation** — verify completeness against the task's Verification section:
+- Are all target files updated?
+- Do any occurrences of the old pattern remain in scope?
+- Were exclusions respected?
+
+**Test adequacy** — verify the existing suite still holds instead of new coverage:
+- Do all previously passing tests still pass?
+- If tests were updated (e.g., to reference a new API), are the updates correct?
+- Do not expect new tests — mechanical changes are verified by test baselines.
+
+Code quality criteria apply unchanged.
+
+## Change-Set Verification
+
+After every task is verified, the workflow-review-change-set-verifier holds the whole delivered change-set against the specification's intent — one agent per numbered section plus one over the test surface — measuring where the project's own conventions give a way to and reading where they do not. Each measures the criteria the task verifiers recorded as unsettled and returns a coverage map: what it checked and found sound. The report's Specification Compliance is those maps; a criterion neither layer could settle is named under Plan Completion, never absorbed.
+
 ## Plan Completion Check
 
-After task-level verification, check overall plan completion:
+After task-level and change-set verification, check overall plan completion:
 
 ### Phase Acceptance Criteria
 
 For each phase:
-- Are all phase-level acceptance criteria met?
-- Were all tasks in the phase completed?
+- Are all phase-level acceptance criteria that were settled or measured met? An unmeasured criterion counts neither way — it is named under Criteria Not Measured
+- Were all tasks in the phase completed? (Tasks the backend marks skipped or cancelled are deliberate discards — they don't count against completion)
 
 ### Scope
 
 - Was anything built that wasn't in the plan? (scope creep)
 - Was anything in the plan not built? (missing scope)
 - Any unplanned files or features added?
+
+### Criteria Not Measured
+
+- Which acceptance criteria did neither reading nor the change-set verification settle? Each is named with its task suffix — disclosed, never ticked
 
 ## Common Issues
 
@@ -80,6 +105,8 @@ For each phase:
 
 **Poor readability**: Code works but is hard to understand
 
+**Stale comment**: A comment contradicts the code it describes — a finding carrying the replacement text. Classified by its remedy: comment text alone is `[contained]` and never blocks.
+
 ## Writing Feedback
 
 Be specific and actionable:
@@ -97,7 +124,15 @@ Flag test balance issues:
 - **Under-tested**: "Task 2.1 has no test for the error case mentioned in spec section 3.2"
 - **Over-tested**: "Task 2.1 has 5 tests that all verify the same happy path with slight variations"
 
-Distinguish blocking vs non-blocking:
+Verify what you cite:
 
-- **Blocking**: Incomplete tasks, missing tests, broken functionality
-- **Non-blocking**: Code style suggestions, minor readability improvements
+- Re-read the line before quoting its number; never name a symbol you have not located
+- Count before claiming a count — "the only site", "the single caller", "eleven call sites" are claims, not colour
+- Check that the edit you prescribe is safe applied exactly as written
+- Repo-relative paths only
+
+Report only what is wrong:
+
+- **Blocking**: the work cannot be called delivered — acceptance criteria unmet in substance, or behaviour that is broken. Never a finding whose entire remedy is comment or documentation text. Each entry names its remedy, or points at the FINDINGS line that prescribes it, so it can be routed
+- **A finding**: something broken or incorrect, or a violation of the spec, the plan, or the project's standards — carrying the concrete failure that follows from leaving it
+- **Not reported at all**: a preference none of those require. A fold, an extraction, a rename, a reordering. Ease of doing it is not a reason to raise it

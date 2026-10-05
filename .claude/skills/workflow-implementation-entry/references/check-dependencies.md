@@ -9,35 +9,37 @@
 Query the external dependencies:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{topic} external_dependencies
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} external_dependencies
 ```
 
 Evaluate each dependency and collect any that are blocking into a list:
 
 - **`state: satisfied_externally`** — skip, not blocking
 - **`state: unresolved`** — add to the blocking list
-- **`state: resolved`** — check the dependency topic's implementation status and completed tasks:
+- **`state: resolved`** — check the dependency topic's implementation status:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{dep_topic} status
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{dep_topic} completed_tasks
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.implementation.{dep_topic} status
 ```
 
-**If status is `completed`, or `internal_id` is in the completed tasks list:**
+**If status is `completed`:**
 
 Skip, not blocking. A completed implementation satisfies the dependency even if the referenced task was skipped.
 
-**If status is not `completed` and `internal_id` is not in the list, or the implementation entry does not exist:**
+**If status is not `completed` or the implementation entry does not exist:**
 
-Add to the blocking list.
+Read the referenced task's status from the dependency's plan. Read the dep plan's `format` (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{dep_topic} format`), load the format's **reading.md** (`../workflow-planning-process/references/output-formats/{format}/reading.md`), and look up the task by `internal_id` — resolving to its external ID via `node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{dep_topic} task_map.{internal_id}` when the format needs one.
+
+- Task status is the format's completed status → skip, not blocking.
+- Any other status (open, in-progress, skipped/cancelled), or no plan or task found → add to the blocking list. A skipped or cancelled task does not satisfy a dependency while its implementation is still in progress.
 
 ---
 
 #### If the blocking list is empty
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 External dependencies satisfied.
 ```
 
@@ -51,35 +53,13 @@ External dependencies satisfied.
 
 ## B. Present Blocking Dependencies
 
-> *Output the next fenced block as a code block:*
+Set `blocking_topics` = the blocking list's dependency topics, comma-separated, in the order they should be offered. The surface reads each one's description and state from the plan's `external_dependencies`:
 
-```
-Missing Dependencies
-
-@foreach(dep in blocking_list where state is unresolved)
-  {dep_topic:(titlecase)}
-  └─ {description}
-  └─ No plan exists
-
-@endforeach
-@foreach(dep in blocking_list where state is resolved)
-  {dep_topic:(titlecase)}
-  └─ {description}
-  └─ Waiting on {topic}:{internal_id}
-
-@endforeach
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render external-dependency-gate {work_unit}.planning.{topic} --variant blocking --blocking {blocking_topics}
 ```
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-How would you like to proceed?
-
-- **`s`/`satisfied`** — Mark a dependency as satisfied externally
-- **`i`/`implement`** — Exit to implement blocking dependencies first
-· · · · · · · · · · · ·
-```
+Emit the call's DISPLAY and MENU sections verbatim per their markers.
 
 **STOP.** Wait for user response.
 
@@ -89,13 +69,16 @@ How would you like to proceed?
 
 **If `implement`:**
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a properties code block (```properties fence):*
+
+```properties
+⚑ "{topic:(titlecase)}" is blocked until these dependencies are resolved
+```
+
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-Implementation Paused
-
-"{topic:(titlecase)}" is blocked until these dependencies are resolved.
-Use /workflow-start to navigate to the blocking work.
+> Use /workflow-start to navigate to the blocking work.
 ```
 
 **STOP.** Do not proceed — terminal condition.
@@ -106,9 +89,9 @@ Use /workflow-start to navigate to the blocking work.
 
 **If only one dependency in the blocking list:**
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Automatically proceeding with "{dep_topic:(titlecase)}".
 ```
 
@@ -118,22 +101,17 @@ Set `selected_topic` = `{dep_topic}`.
 
 **If multiple dependencies in the blocking list:**
 
-> *Output the next fenced block as markdown (not a code block):*
+Render the pick over `blocking_topics`:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render external-dependency-gate {work_unit}.planning.{topic} --variant pick --blocking {blocking_topics}
 ```
-· · · · · · · · · · · ·
-Which dependency has been satisfied?
 
-- **`1`** — {dep_topic:(titlecase)} — {description}
-- **`2`** — ...
-
-Select an option:
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-Set `selected_topic` = the chosen dependency's topic.
+The surface numbers the rows in `blocking_topics` order — set `selected_topic` to the picked row's topic.
 
 → Proceed to **D. Mark as Satisfied**.
 
@@ -141,13 +119,17 @@ Set `selected_topic` = the chosen dependency's topic.
 
 ## D. Mark as Satisfied
 
-Update the selected dependency's state via manifest CLI:
+Update the selected dependency's state via `engine manifest`:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} external_dependencies.{selected_topic}.state satisfied_externally
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} external_dependencies.{selected_topic}.state satisfied_externally
 ```
 
-Commit: `impl({work_unit}): mark {selected_topic} dependency as satisfied externally`
+The record belongs to the plan, and this is navigation reaching into it — `--sweep`, so the entry never stamps its identity on a planning topic no session is in:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} --topic planning/{topic} --sweep -m "impl({work_unit}): mark {selected_topic} dependency as satisfied externally"
+```
 
 → Return to **A. Evaluate Dependencies**.
 

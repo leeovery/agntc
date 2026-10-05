@@ -6,75 +6,67 @@
 
 The user has already reviewed findings and agreed on fix direction. This step confirms the investigation is complete and handles pipeline continuation.
 
-> *Output the next fenced block as markdown (not a code block):*
-
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render conclude-gate {work_unit}.investigation.{topic}
 ```
-· · · · · · · · · · · ·
-Investigation complete. Ready to conclude?
 
-- **`y`/`yes`** — Conclude investigation
-- **Keep going** — Continue discussing to explore further
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
 #### If keep going
 
-→ Return to **[the skill](../SKILL.md)** for **Step 5**.
+→ Return to **[the skill](../SKILL.md)** for **Step 6**.
 
 #### If `yes`
 
-1. Set investigation status to completed via manifest CLI:
-   ```bash
-   node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.investigation.{topic} status completed
-   ```
-2. Final commit
-3. Index the completed artifact into the knowledge base:
+First check the topic's triage queue — a queued concern must be worked before concluding:
 
 ```bash
-node .claude/skills/workflow-knowledge/scripts/knowledge.cjs index .workflows/{work_unit}/investigation/{topic}.md
+node .claude/skills/workflow-engine/scripts/engine.cjs topic queue {work_unit} investigation {topic}
 ```
 
-If the index command fails, display the error but do not block — the artifact is already saved:
+**If the response's `files` is non-empty:**
 
-> *Output the next fenced block as a code block:*
+Render the blocker and emit both its sections verbatim per their markers:
 
-```
-⚑ Knowledge indexing warning
-  {error details}
-  The artifact is saved. Indexing can be retried later.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render triage-block {work_unit}.investigation.{topic}
 ```
 
-4. Display conclusion:
+→ Load **[rerouted-concerns.md](../../workflow-shared/references/rerouted-concerns.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `investigation` — enter **A. Check**.
 
-> *Output the next fenced block as a code block:*
+On return:
 
-```
-Investigation completed: {work_unit}
+→ Return to **[the skill](../SKILL.md)** for **Step 13**.
 
-Root cause: {brief summary}
-Fix direction: {chosen approach}
+**If `files` is empty:**
 
-The investigation is completed. Root cause and fix direction are documented.
-```
+1. Mark the investigation completed — the engine sets the status and indexes the artifact into the knowledge base:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs topic complete {work_unit} investigation {topic}
+   ```
+2. Final commit:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "investigation({work_unit}): complete {topic} investigation" --topic investigation/{topic}
+   ```
 
-5. Closure signpost:
+   When the `complete` response's `warnings` is non-empty, fetch and emit the `DISPLAY: kb warning` section verbatim per its marker — the warning never blocks:
+
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs render topic-receipt {work_unit}.investigation.{topic} --verb complete --warn
+   ```
+
+3. Closing recap:
+
+   → Load **[closing-recap.md](../../workflow-shared/references/closing-recap.md)** with phase = `investigation`, work_unit = `{work_unit}`, topic = `{topic}`.
+
+4. Closure signpost:
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Investigation complete. The specification phase will formalise
-> the fix approach into a document that drives planning.
+> Investigation complete. The specification phase will formalise the fix approach into a document that drives planning.
 ```
 
-6. Invoke the bridge:
-
-```
-Pipeline bridge for: {work_unit}
-Completed phase: investigation
-
-Invoke the workflow-bridge skill to enter plan mode with continuation instructions.
-```
-
-**STOP.** Do not proceed — terminal condition.
+5. Invoke `/workflow-bridge {work_unit} investigation`.

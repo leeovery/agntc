@@ -1,7 +1,7 @@
 ---
 name: workflow-specification-entry
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-specification-entry/scripts/discovery.cjs), Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs), Bash(mkdir -p .workflows/*/.state), Bash(rm .workflows/*/.state/discussion-consolidation-analysis.md)
+allowed-tools: Bash(node .claude/skills/workflow-specification-entry/scripts/gateway.cjs), Bash(node .claude/skills/workflow-engine/scripts/engine.cjs), Bash(mkdir -p .workflows/*/.state), Bash(rm .workflows/*/.state/discussion-consolidation-analysis.md)
 ---
 
 Act as **precise intake coordinator**. Follow each step literally without interpretation. Do not engage with the subject matter — your role is preparation, not processing.
@@ -14,10 +14,10 @@ You are in the **Specification** phase — refining prior work into a standalone
 
 | Work type | Pipeline |
 |---|---|
-| Epic | Discovery → Research → Discussion → **Specification** → Planning → Implementation → Review |
+| Epic | Discovery → Research → (Experiment) → Discussion → **Specification** → Planning → Implementation → Review |
 | Feature | Discussion → **Specification** → Planning → Implementation → Review |
 | Bugfix | Investigation → **Specification** → Planning → Implementation → Review |
-| Cross-cutting | Research (optional) → Discussion → **Specification** (terminal) |
+| Cross-cutting | Research (optional) → (Experiment) → Discussion → **Specification** (terminal) |
 
 **Stay in your lane**: Validate and refine discussion content into standalone specifications. Don't jump to planning, phases, tasks, or code. The specification is the "line in the sand" - everything after this has hard dependencies on it.
 
@@ -25,37 +25,11 @@ You are in the **Specification** phase — refining prior work into a standalone
 
 ## Instructions
 
-Follow these steps EXACTLY as written. Do not skip steps or combine them. Present output using the EXACT format shown in examples - do not simplify or alter the formatting.
-
-**CRITICAL**: This guidance is mandatory.
-
-- After each user interaction, STOP and wait for their response before proceeding
-- Never assume or anticipate user choices
-- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
-- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
-- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
-- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
-- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
-- Even if the user's initial prompt seems to answer a question, still confirm with them at the appropriate step
-- Complete each step fully before moving to the next
-- Do not act on gathered information until the skill is loaded - it contains the instructions for how to proceed
+Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
 
 ---
 
 ## Step 1: Parse Arguments
-
-> *Output the next fenced block as a code block:*
-
-```
-── Parse Arguments ──────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Reading the handoff context and determining which
-> specification to work with.
-```
 
 Arguments: work_type = `$0`, work_unit = `$1`, topic = `$2` (optional).
 Resolve topic: topic = `$2`, or if not provided and work_type is not `epic`, topic = `$1`.
@@ -68,21 +42,13 @@ Store work_unit for the handoff.
 
 #### If no `topic` (epic — scoped path)
 
-Run discovery scoped to this work unit:
+Read the scoped state:
 
 ```bash
-node .claude/skills/workflow-specification-entry/scripts/discovery.cjs {work_unit}
+node .claude/skills/workflow-specification-entry/scripts/gateway.cjs {work_unit}
 ```
 
-Parse the discovery output to understand:
-
-**From `discussions` array:** Each discussion's name, work_unit, status, work_type, and whether it has an individual specification.
-
-**From `specifications` array:** Each specification's name, work_unit, status, work_type, sources, and superseded_by (if applicable). Specifications with `status: superseded` should be noted but excluded from active counts.
-
-**From `cache` section:** `entries` array — each entry has `status` (valid/stale), `reason`, `generated`. Empty array if no cache exists.
-
-**From `current_state`:** `completed_count`, `spec_count` (materialized, file-backed), `proposed_count`, `has_discussions`, `has_completed`, `has_specs`, `has_proposed`, and other counts/booleans for routing.
+The output is one **DATA** section — the reasoning surface: `scenario`, counts, `cache_status`, `discussions_checksum`, and the discussion/specification detail (statuses, sources, consult references with slice hints). Reason from it; never display or restate it. A display reference a scenario routes to fetches its own snapshot where it shows it.
 
 **IMPORTANT**: Use ONLY this script for discovery. Do NOT run additional bash commands (ls, head, cat, etc.) to gather state.
 
@@ -92,99 +58,48 @@ Parse the discovery output to understand:
 
 ## Step 2: Validate Source Material
 
-> *Output the next fenced block as a code block:*
-
-```
-── Validate Source Material ─────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking that the required source material is ready
-> — completed discussions or investigations.
-```
-
 Load **[validate-source.md](references/validate-source.md)** and follow its instructions as written.
 
-→ Proceed to **Step 3**.
+→ On return, proceed to **Step 3**.
 
 ---
 
 ## Step 3: Validate Phase
 
-> *Output the next fenced block as a code block:*
-
-```
-── Validate Phase ───────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking whether a specification already exists
-> for this topic.
-```
-
 Load **[validate-phase.md](references/validate-phase.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+→ On return, proceed to **Step 4**.
 
 ---
 
 ## Step 4: Invoke the Skill
 
-> *Output the next fenced block as a code block:*
-
-```
-── Invoke Specification ─────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Handing off to the specification process with all
-> gathered context.
-```
-
 Load **[invoke-skill.md](references/invoke-skill.md)** and follow its instructions as written.
+
+This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
 
 ---
 
 ## Step 5: Check Prerequisites
 
-> *Output the next fenced block as a code block:*
-
-```
-── Check Prerequisites ──────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Verifying that completed discussions are available
-> to build specifications from.
-```
-
 Load **[check-prerequisites.md](references/check-prerequisites.md)** and follow its instructions as written.
 
-→ Proceed to **Step 6**.
+→ On return, proceed to **Step 6**.
 
 ---
 
 ## Step 6: Route Based on State
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Route Based on State ─────────────────────────
+**`□ Route Based on State`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Evaluating what discussions and specifications exist
-> to determine next steps.
+> Evaluating what discussions and specifications exist to determine next steps.
 ```
 
 Load **[route-scenario.md](references/route-scenario.md)** and follow its instructions as written.

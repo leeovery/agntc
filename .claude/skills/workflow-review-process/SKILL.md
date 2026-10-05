@@ -1,7 +1,7 @@
 ---
 name: workflow-review-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs), Bash(mkdir -p .workflows/.inbox)
+allowed-tools: Bash(node .claude/skills/workflow-engine/scripts/engine.cjs), Bash(mkdir -p .workflows/), Bash(ls .workflows/), Bash(git log), Bash(git status)
 ---
 
 # Review Process
@@ -22,18 +22,7 @@ Follows implementation. Verify plan tasks were implemented, tested adequately, a
 
 ## Instructions
 
-Follow these steps EXACTLY as written. Do not skip steps or combine them.
-
-**CRITICAL**: This guidance is mandatory.
-
-- After each user interaction, STOP and wait for their response before proceeding
-- Never assume or anticipate user choices
-- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
-- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
-- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
-- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
-- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
-- Complete each step fully before moving to the next
+Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
 
 ---
 
@@ -41,8 +30,8 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 
 Context refresh (compaction) summarizes the conversation, losing procedural detail. When you detect a context refresh has occurred — the conversation feels abruptly shorter, you lack memory of recent steps, or a summary precedes this message — follow this recovery protocol:
 
-1. **Re-read this skill file completely.** Do not rely on your summary of it. The full process, steps, and rules must be reloaded.
-2. **Read review and synthesis files** for the current topic. Review documents are at `.workflows/{work_unit}/review/{topic}/report.md` with per-task report files alongside (`report-{phase_id}-{task_id}.md`). Synthesis staging files are at `.workflows/{work_unit}/implementation/{topic}/review-tasks-c{N}.md`. These are your source of truth for progress.
+1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
+2. **Read review and synthesis files** for the current topic. Review documents are at `.workflows/{work_unit}/review/{topic}/report.md` with per-task report files (`report-{phase_id}-{task_id}.md`) and change-set verification files (`change-set-c{N}-{section-slug}.md`, one per section per review cycle) alongside. Synthesis staging files are at `.workflows/{work_unit}/implementation/{topic}/review-tasks-c{N}.md`. These hold the staged proposals — bodies exist only once the task author has run after the walk; the per-task decisions and `gate_mode` live in the manifest's `staging.c{N}` subtree.
 3. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
 4. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
 
@@ -62,77 +51,72 @@ Do not guess at progress or continue from memory. The files on disk and git hist
 
 ---
 
+## Backlogging
+
+The user says to put an idea aside — "roadmap it", "inbox it", "backlog that", "push it back" — and the words take this door whatever else is in flight. An idea, not a topic: a topic takes the postponing door. Load **[backlogging.md](../workflow-shared/references/backlogging.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `review`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Postponing the Topic
+
+The user pushes a topic back to the roadmap — "postpone this", "move the loyalty topic to v2", "take this whole topic back to the roadmap" — this one, or one on the map by name; `{name}` is that topic. The request is taken as said — never argued, and never checked back with a question first: load **[postponing-the-topic.md](../workflow-shared/references/postponing-the-topic.md)** with work_unit = `{work_unit}`, name = `{name}`, topic = `{topic}`, phase = `review`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Cancelling the Topic
+
+The user calls the topic off — they say to cancel, or the conversation agrees it is not worth pursuing. Never is not yet: a topic wanted later takes the postponing door. The call-off is taken as said — never argued, and never checked back with a question first: load **[cancelling-the-topic.md](../workflow-shared/references/cancelling-the-topic.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `review`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
 ## Step 0: Resume Detection
 
-> *Output the next fenced block as a code block:*
+Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} review {topic}
+```
+
+Check for prior review state — a review file at `.workflows/{work_unit}/review/{topic}/report.md`, and recorded coverage (empty stdout means none):
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.review.{topic} reviewed_tasks
+```
+
+#### If neither exists
+
+→ Proceed to **Step 1**.
+
+#### Otherwise
+
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Resume Detection ─────────────────────────────
+**`□ Resume Detection`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Checking for an existing review. If one exists, you can
-> continue reviewing unreviewed tasks or start fresh.
+> An in-progress review exists for this topic — choose whether to pick it up or start fresh.
 ```
-
-Check if a review file exists at `.workflows/{work_unit}/review/{topic}/report.md`.
-
-#### If no review file exists
-
-→ Proceed to **Step 1**.
-
-#### If review file exists
 
 Gather coverage state. Read `completed_tasks` from the implementation manifest:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{topic} completed_tasks
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.implementation.{topic} completed_tasks
 ```
 
-Check if `reviewed_tasks` exists in the review manifest:
+Render the resume menu — the engine derives review coverage from the two arrays — and emit its section verbatim per its marker:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.review.{topic} reviewed_tasks
-```
-
-If `true`, read it:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.review.{topic} reviewed_tasks
-```
-
-Compare `completed_tasks` against `reviewed_tasks`. Let {C} = total completed, {R} = reviewed, {U} = unreviewed ({C} − {R}).
-
-**If `reviewed_tasks` exists and unreviewed tasks remain:**
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-Found existing review for **{topic:(titlecase)}**.
-Review covered {R} of {C} tasks. {U} task(s) not yet reviewed.
-
-· · · · · · · · · · · ·
-- **`c`/`continue`** — Review the {U} unreviewed tasks
-- **`r`/`restart`** — Delete review, re-review all {C} tasks
-· · · · · · · · · · · ·
-```
-
-**STOP.** Wait for user response.
-
-**Otherwise** (all tasks reviewed, or no tracking data):
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-Found existing review for **{topic:(titlecase)}**.
-@if(reviewed_tasks exists) All {C} tasks have been reviewed. @endif
-
-· · · · · · · · · · · ·
-- **`c`/`continue`** — Continue from current review state
-- **`r`/`restart`** — Delete review, start fresh
-· · · · · · · · · · · ·
+node .claude/skills/workflow-engine/scripts/engine.cjs render resume-gate {work_unit}.review.{topic} --variant review
 ```
 
 **STOP.** Wait for user response.
@@ -145,9 +129,15 @@ Set `unreviewed_tasks` = `[{list of unreviewed internal IDs}]`.
 
 → Proceed to **Step 1**.
 
-**If all tasks reviewed:**
+**If all tasks reviewed and the review file exists:**
 
-→ Proceed to **Step 7**.
+→ Proceed to **Step 10**.
+
+**If all tasks reviewed and no review file exists** (verification finished; everything after it was lost):
+
+Set `unreviewed_tasks` = `[]` — nothing to dispatch; the aggregation re-reads the reports on disk, and the change-set verification dispatches only the sections whose files are missing.
+
+→ Proceed to **Step 1**.
 
 **Otherwise** (no tracking data):
 
@@ -155,16 +145,32 @@ Set `unreviewed_tasks` = `[{list of unreviewed internal IDs}]`.
 
 #### If `restart`
 
-1. Delete the review file and all report files (`report-*.md`) in the review directory (`.workflows/{work_unit}/review/{topic}/`)
-2. Clear review tracking (if it exists):
+Order matters — the review file is deleted last, so a crash mid-restart re-offers restart on the next entry instead of impersonating a fresh run.
+
+1. Clear review tracking (each subtree only if it exists — check with `manifest exists {work_unit}.review.{topic} reviewed_tasks`, `… staging`, and `… out_of_scope` first):
    ```bash
-   node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.review.{topic} reviewed_tasks
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.review.{topic} reviewed_tasks
    ```
-   If `true`:
    ```bash
-   node .claude/skills/workflow-manifest/scripts/manifest.cjs delete {work_unit}.review.{topic} reviewed_tasks
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.review.{topic} staging
    ```
-3. Commit: `review({work_unit}): restart review`
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.review.{topic} out_of_scope
+   ```
+2. Delete any synthesis staging files (`review-tasks-c*.md`) in `.workflows/{work_unit}/implementation/{topic}/` — stale proposals from the abandoned run. The synthesis reports (`review-report-c*.md`) stay — the cycle counter reads them
+3. If the planning item carries no `storage_paths` field (absent, not empty — a plan initialised before the field existed): record it now — read the format's authoring.md (format from `manifest get {work_unit}.planning.{topic} format`) → Storage Pathspecs and copy the fenced array (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} storage_paths '{format storage pathspecs}'`)
+4. **If the abandoned run's `Review Remediation (Cycle {N})` phase already landed in the plan**: mark each of that phase's tasks whose id is **not** in `{work_unit}.implementation.{topic}` `completed_tasks` skipped per the format's **updating.md** (format from `manifest get {work_unit}.planning.{topic} format`) — abandoned remediation must never execute, and a partially-executed phase keeps only what already ran. Then close that phase (`{M}` below is its number) — abandoned work takes no boundary sweep:
+   - empty the bank when the manifest holds one (`manifest exists {work_unit}.implementation.{topic} bank`, then `node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.implementation.{topic} bank`)
+   - drop an in-flight boundary walk when `staging.p{M}` exists (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.implementation.{topic} staging.p{M}`), and delete `consolidation-findings-p{M}.md` and `consolidation-tasks-p{M}.md` from `.workflows/{work_unit}/implementation/{topic}/`
+   - mark the boundary, skipping the push when `consolidated_phases` already contains `{M}` (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest push {work_unit}.implementation.{topic} consolidated_phases {M}`)
+   - complete the phase in the plan per the format's **updating.md**, then record it via the engine for the phase's last completed task — or, when none ran, any of its skipped tasks with `--skipped` (`node .claude/skills/workflow-engine/scripts/engine.cjs task complete {work_unit} {topic} {internal_id} --phase {M} [--skipped] --phase-complete`)
+5. Delete the review file, all report files (`report-*.md`) and all change-set files (`change-set-*.md`) in the review directory (`.workflows/{work_unit}/review/{topic}/`), and the topic's review cache directory (`.workflows/.cache/{work_unit}/review/{topic}/`) — the abandoned run's collected criteria and staged payloads
+6. Commit the deletions under the topics that held them, then the plan — `--plan` stages the planning topic, the manifests, and the plan's declared storage (the skip-markings live there):
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "review({work_unit}): restart review — clear reports and staging" --topic review/{topic}
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "review({work_unit}): restart review — clear staged proposals" --topic implementation/{topic} --sweep
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "review({work_unit}): restart review" --plan {topic}
+   ```
 
 → Proceed to **Step 1**.
 
@@ -172,28 +178,18 @@ Set `unreviewed_tasks` = `[{list of unreviewed internal IDs}]`.
 
 ## Step 1: Initialize Review
 
-> *Output the next fenced block as a code block:*
-
-```
-── Initialize Review ────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Registering the review phase in the manifest.
-```
-
 Check if review phase is registered in manifest:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.review.{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest exists {work_unit}.review.{topic}
 ```
 
 #### If `false`
 
+Start the review item — the engine creates it with `status: in-progress`:
+
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase {work_unit}.review.{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs topic start {work_unit} review {topic}
 ```
 
 → Proceed to **Step 2**.
@@ -206,169 +202,146 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase {work_unit
 
 ## Step 2: Read Plan(s) and Specification(s)
 
-> *Output the next fenced block as a code block:*
-
-```
-── Read Plans and Specifications ────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Reading the plan and specification that the
-> implementation was built from.
-```
-
 Load **[read-plans.md](references/read-plans.md)** and follow its instructions as written.
 
-→ Proceed to **Step 3**.
+→ On return, proceed to **Step 3**.
 
 ---
 
 ## Step 3: Load Project Skills
 
-> *Output the next fenced block as a code block:*
-
-```
-── Load Project Skills ──────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading project-level skills that inform
-> quality expectations.
-```
-
 Load **[load-project-skills.md](references/load-project-skills.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+→ On return, proceed to **Step 4**.
 
 ---
 
 ## Step 4: Knowledge Usage
 
-> *Output the next fenced block as a code block:*
+Load **[knowledge-usage.md](../workflow-shared/references/knowledge-usage.md)** and follow its instructions as written.
 
-```
-── Knowledge Usage ──────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading the usage guide for the knowledge base. Review verifies
-> against the current spec — that's in scope without the KB. The guide
-> documents the narrow case where a cross-work-unit consistency check
-> is warranted.
-```
-
-Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
-
-→ Proceed to **Step 5**.
+→ On return, proceed to **Step 5**.
 
 ---
 
 ## Step 5: QA Verification
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── QA Verification ──────────────────────────────
+**`□ QA Verification`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Dispatching task verifier agents. Each task is
-> independently verified against its acceptance criteria
-> and the specification.
+> Dispatching task verifier agents. Each task is independently verified against its acceptance criteria and the specification.
 ```
 
 Load **[invoke-task-verifiers.md](references/invoke-task-verifiers.md)** and follow its instructions as written.
 
-*Knowledge-base nudge — use only for cross-work-unit consistency checks ("does this mirror how similar decisions were made elsewhere?"). Consistency with the current spec is already in scope — no KB needed. See **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)**.*
+*Knowledge-base nudge — use only for cross-work-unit consistency checks ("does this mirror how similar decisions were made elsewhere?"). Consistency with the current spec is already in scope — no KB needed. See **[knowledge-usage.md](../workflow-shared/references/knowledge-usage.md)**.*
 
-→ Proceed to **Step 6**.
+→ On return, proceed to **Step 6**.
 
 ---
 
-## Step 6: Produce Review
+## Step 6: Change-Set Verification
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Produce Review ───────────────────────────────
+**`□ Change-Set Verification`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Synthesising agent findings into the review report.
-> Aggregating per-task results into an overall assessment.
+> Holding the whole change-set against the specification's intent, one agent per section — measuring what reading could not settle, where the project's own conventions give a way to.
+```
+
+Load **[invoke-change-set-verifiers.md](references/invoke-change-set-verifiers.md)** and follow its instructions as written.
+
+→ On return, proceed to **Step 7**.
+
+---
+
+## Step 7: Prep Findings
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+**`□ Prep Findings`**
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Each verifier saw one task or one section. Checking every finding against the code and the code standard, against the guards it could breach, and against the other findings it collides with.
+```
+
+Load **[prep-findings.md](references/prep-findings.md)** and follow its instructions as written.
+
+→ On return, proceed to **Step 8**.
+
+---
+
+## Step 8: Apply Do-Now
+
+Load **[apply-do-now.md](references/apply-do-now.md)** and follow its instructions as written.
+
+→ On return, proceed to **Step 9**.
+
+---
+
+## Step 9: Produce Review
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+**`□ Produce Review`**
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Writing the review — the verdict, what was corrected, what must be planned, and what was discarded.
 ```
 
 Load **[produce-review.md](references/produce-review.md)** and follow its instructions as written.
 
-→ Proceed to **Step 7**.
+→ On return, proceed to **Step 10**.
 
 ---
 
-## Step 7: Present Review
+## Step 10: Present Review
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Present Review ───────────────────────────────
+**`□ Present Review`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Presenting the review findings. You'll see the
-> verdict, summary, and detailed per-task results.
+> The outcome: pass or fail, what was corrected, and what needs you.
 ```
 
 Load **[present-review.md](references/present-review.md)** and follow its instructions as written.
 
-→ Proceed to **Step 8**.
+→ On return, proceed to **Step 11**.
 
 ---
 
-## Step 8: Compliance Self-Check
-
-> *Output the next fenced block as a code block:*
-
-```
-── Compliance Self-Check ────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Verifying the review follows workflow conventions.
-```
+## Step 11: Compliance Self-Check
 
 Load **[compliance-check.md](../workflow-shared/references/compliance-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 9**.
+→ On return, proceed to **Step 12**.
 
 ---
 
-## Step 9: Review Actions
-
-> *Output the next fenced block as a code block:*
-
-```
-── Review Actions ───────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Deciding what to do with the findings. You can
-> accept the review, request fixes, or ask questions.
-```
+## Step 12: Review Actions
 
 Load **[review-actions-loop.md](references/review-actions-loop.md)** and follow its instructions as written.
-

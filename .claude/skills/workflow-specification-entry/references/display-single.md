@@ -4,20 +4,26 @@
 
 ---
 
-Auto-proceed path — only one completed discussion exists, so no selection menu is needed.
+Auto-proceed path — only one completed discussion exists, so no selection menu is needed. The DATA section carries the spec-coverage outcome: `single_variant` (`no-spec` | `has-spec` | `grouped`), `verb`, and `proceed_name`.
 
-## Route by Spec Coverage
+## Display
 
-Check if a spec covers this discussion — either by name match (`has_individual_spec`) or by listing it in a spec's `sources` array.
+Render the scoped snapshot:
 
-#### If a spec covers this discussion and has a single source
+```bash
+node .claude/skills/workflow-specification-entry/scripts/gateway.cjs view {work_unit}
+```
 
-→ Load **[display-single-has-spec.md](display-single-has-spec.md)** and follow its instructions as written.
+Emit the TITLE section, then the DISPLAY section, each verbatim per its marker.
 
-#### If a spec covers this discussion and has multiple sources
+## After Display
 
-→ Load **[display-single-grouped.md](display-single-grouped.md)** and follow its instructions as written.
+> *Output the next fenced block as a text code block (```text fence):*
 
-#### Otherwise
+```text
+Automatically proceeding with "{proceed_name:(titlecase)}".
+```
 
-→ Load **[display-single-no-spec.md](display-single-no-spec.md)** and follow its instructions as written.
+Auto-proceed with the DATA `verb`.
+
+→ Load **[confirm-and-handoff.md](confirm-and-handoff.md)** and follow its instructions as written.

@@ -19,7 +19,7 @@ The caller provides this via context before loading:
 A discovery map only exists for epics.
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit} work_type
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit} work_type
 ```
 
 #### If the work type is `epic`
@@ -32,13 +32,12 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit} work_
 
 ## B. Gather Live Topics
 
-Take the live topic names from the caller's most recent discovery output — every `discovery_map` row whose tier is neither `⊘` (cancelled) nor `⊙` (handled). Handled topics are non-actionable — a research umbrella that fanned out — so they get no execution order, the same as cancelled.
+Take the live topic names from the caller's most recent discovery output — every `discovery_map` row whose tier is none of `⊘` (cancelled), `⊙` (dead end), and `⊖` (postponed). A dead-ended topic has nothing to carry forward under its own name and a postponed one waits on the roadmap, so neither takes an execution order, the same as cancelled — and the engine refuses one for all three.
 
-For richer context, read each live topic's `summary` and `description` from the manifest:
+For richer context, read the whole discovery subtree once — every topic's `summary` and `description` arrive in one call:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.discovery.{topic} summary
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.discovery.{topic} description
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.discovery
 ```
 
 → Proceed to **C. Assign and Write Order**.
@@ -47,19 +46,10 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.disco
 
 Analyse the live set holistically and decide a suggested execution order — which topic to start with, which to do next, and so on. Weigh what is foundational versus dependent, what de-risks the rest of the work, and what the user signalled as a starting point. This is a judgement call across the whole set, not a per-topic rule.
 
-Assign contiguous integers `1..N` over the live topics — `1` is the suggested first topic. Full renumber every time: close any gaps, ignore any prior `order` values. Write each one:
+Assign contiguous integers `1..N` over the live topics — `1` is the suggested first topic. Full renumber every time: close any gaps, ignore any prior `order` values. Record the whole assignment in one call — it sets each topic's `order` and commits:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.discovery.{topic} order {N}
-```
-
-→ Proceed to **D. Commit**.
-
-## D. Commit
-
-```bash
-git add -- .workflows/{work_unit}/
-git commit -m "discovery({work_unit}): sequence topic map"
+node .claude/skills/workflow-engine/scripts/engine.cjs discovery-map sequence {work_unit} {topic}={N} {topic}={N}
 ```
 
 → Return to caller.

@@ -1,7 +1,7 @@
 ---
 name: workflow-planning-dependency-grapher
 description: Analyzes authored tasks to establish internal dependencies and priorities. Invoked by workflow-planning-process skill after plan construction.
-tools: Read, Glob, Grep, Edit
+tools: Read, Glob, Grep, Edit, Bash, mcp__linear__list_issues, mcp__linear__get_issue, mcp__linear__update_issue, mcp__linear__create_issue_relation
 model: opus
 ---
 
@@ -16,6 +16,8 @@ You receive file paths via the orchestrator's prompt:
 1. **Planning file path** — The planning file with phases and task tables
 2. **reading.md** — The output format's reading reference (how to list and read tasks)
 3. **graph.md** — The output format's graph reference (priority + dependency CRUD instructions)
+4. **Plan external ID** — the plan-level identifier in the output format (the manifest's `external_id`)
+5. **Task map** — internal ID → external ID mapping for phases and tasks (the manifest's `task_map`)
 
 On **re-invocation after feedback**, you also receive:
 - **Previous output** — Your prior dependency/priority analysis
@@ -26,13 +28,13 @@ On **re-invocation after feedback**, you also receive:
 1. Read `reading.md` — understand how to list and read tasks for this format
 2. Read `graph.md` — understand how to record priorities and dependencies for this format
 3. Read the planning file — understand phase structure and task tables
-4. List all authored task files using the method described in reading.md
+4. List all authored tasks using the method described in reading.md, addressing the plan by its external ID and resolving internal IDs through the task map
 5. **Clear existing graph data** — using graph.md's removal instructions, remove all existing dependencies and priorities from every task. This ensures a clean slate on every invocation (first run, re-invocation after feedback, or `continue` of a previous session).
-6. Read every authored task file — absorb each task's Problem, Solution, Do steps, and Acceptance Criteria
+6. Read every authored task file — absorb each task's Problem, Solution, Outcome, Acceptance Criteria, and Do where the record decided one
 7. Analyze dependencies — follow the methodology in "Detecting Dependencies" below
 8. Assign priorities — follow the methodology in "Assigning Priorities" below
 9. Detect cycles — verify the dependency graph is acyclic (see "Cycle Detection" below)
-10. If no cycles: **apply all changes** — follow graph.md instructions to record dependencies and priorities on each task
+10. If no cycles: **apply all changes** — follow graph.md instructions to record dependencies and priorities on each task, resolving each internal ID to its external ID via the task map
 11. If cycles detected: **do not apply any changes** — report the cycle chain and stop
 
 If this is a **re-invocation after feedback**: read your previous output and the user's feedback, then revise accordingly. Step 5 (clearing) ensures previous analysis doesn't bias the new run.
@@ -53,10 +55,10 @@ A dependency exists when Task B **cannot start** until Task A is **complete**. T
 
 ### How to identify them
 
-For each task, read its **Do** steps and **Acceptance Criteria** carefully. Identify:
+For each task, read its **Solution**, **Outcome**, and **Acceptance Criteria** carefully — and its **Do**, where it carries one. Identify:
 
 1. **What it produces** — what files, classes, endpoints, configurations, or behaviours does this task create or modify?
-2. **What it requires** — what must already exist for this task's Do steps to be executable and its tests to be writable?
+2. **What it requires** — what must already exist for this task's criteria to be met?
 
 Then match produces→requires across all tasks. If Task A produces something that Task B requires, and Task B would fail or be impossible to implement without it, that's a dependency.
 
@@ -138,3 +140,4 @@ DEPENDENCIES and PRIORITIES sections may be empty if none are needed. This is a 
 6. **Cycle detection before writing** — detect cycles in your analysis before applying any changes. If a cycle exists, report it and stop.
 7. **Less is more** — only add dependencies and priorities that change execution order in a way that matters. An empty graph is a valid result.
 8. **Do not modify task content** — only add/update priority and dependency fields. Do not change titles, descriptions, acceptance criteria, or any other task content.
+9. **No git writes** — do not commit or stage. Recording dependencies and priorities via graph.md is your only write.

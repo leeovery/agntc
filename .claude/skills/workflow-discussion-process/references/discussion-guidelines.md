@@ -14,7 +14,7 @@
 
 **On length**: Discussions can be thousands of lines. Length = whatever needed to fully capture discussion, debates, edge cases, false paths. Terseness preferred, but comprehensive documentation more important. Don't summarize — document.
 
-See **[meeting-assistant.md](meeting-assistant.md)** for the dual-role approach (expert architect + documentation assistant).
+→ Load **[meeting-assistant.md](meeting-assistant.md)** and follow its instructions as written — the dual-role approach (expert architect + documentation assistant).
 
 ## Organic Flow
 
@@ -22,11 +22,15 @@ The conversation follows the thinking, not a checklist. Subtopics emerge, get ex
 
 **Follow threads**: When a tangent surfaces something important, follow it. Add it to the map and explore. You can always navigate back.
 
-**Challenge and probe**: Push back on assumptions, surface edge cases, propose alternatives. The goal is depth of understanding, not speed of coverage.
+**Challenge and probe**: Push back on assumptions, surface edge cases, propose alternatives. The goal is depth of understanding, not speed of coverage. A challenge lands where the record leaves a genuine choice — a point it settles is called and queued (**[ask-or-decide.md](../../workflow-shared/references/ask-or-decide.md)**), never presented for ratification.
+
+**Edge cases at product altitude** ([altitude.md](../../workflow-shared/references/altitude.md), in context): an edge case is raised as the situation the user meets and what the product does there, never as a code path. Mechanism enters only where the decision turns on it — the rest is the implementer's, and the specification will say what, not how.
+
+**Facts are measured before they're asserted**: A fact-shaped statement about the codebase or toolchain — a count, a name, what something does, whether a pattern holds — is run before it enters the conversation, not when it reaches the document: state the measured truth and quote the command, so the document can carry both. A figure attributed to a document is a citation; measure it before adopting it as this session's fact. Ideas are free; facts get run first. A conversation reasoned over a false premise stays poisoned however well the document is corrected later.
 
 **Don't force transitions**: If the user is deep in a subtopic, don't interrupt to check off progress. Let the conversation breathe. Transition when there's a natural pause or a decision lands.
 
-**Circle back**: Track what's been partially explored. When a related subtopic resolves, suggest returning to the deferred one — new context may change the thinking.
+**Circle back**: Track what's been partially explored. When a related subtopic resolves, suggest returning to the one left open — new context may change the thinking.
 
 ## Do / Don't
 
@@ -34,7 +38,7 @@ The conversation follows the thinking, not a checklist. Subtopics emerge, get ex
 
 **Don't**: Transcribe verbatim, write code/implementation, create build phases, skip context
 
-See **[guidelines.md](guidelines.md)** for best practices and anti-hallucination techniques.
+→ Load **[guidelines.md](guidelines.md)** and follow its instructions as written — best practices and anti-hallucination techniques.
 
 ## Write to Disk and Commit Frequently
 
@@ -43,7 +47,7 @@ The discussion file is your memory. Context compaction is lossy — what's not o
 **Write to the file at natural moments:**
 
 - A subtopic decision is reached (even if provisional)
-- The Discussion Map states change
+- A subtopic's map state changes
 - A piece of the puzzle is solved
 - The discussion is about to branch into a new subtopic
 - A new subtopic is uncovered
@@ -51,8 +55,8 @@ The discussion file is your memory. Context compaction is lossy — what's not o
 
 These are natural pauses, not every exchange. Document the reasoning and context — not a verbatim transcript.
 
-**After writing, git commit.** Commits let you track, backtrack, and recover after compaction. Don't batch — commit each time you write.
+**After writing, commit** (`engine commit {work_unit} --topic discussion/{topic} -m "discussion({work_unit}/{topic}): {what changed}"`; an agent-finding engagement's subject carries `({id} {finding})`, e.g. `(review-003 F2)`). Commits let you track, backtrack, and recover after compaction. Don't batch — commit each time you write.
 
-**Create the file early.** After understanding the topic and initial seed subtopics, create the discussion file with context and the Discussion Map. Don't wait until you have decisions.
+**Create the file early.** After understanding the topic and initial seed subtopics, create the discussion file with context and seed the Discussion Map (manifest state, via the engine `discussion-map add` command). Don't wait until you have decisions.
 
 → Return to caller.

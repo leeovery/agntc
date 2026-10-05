@@ -1,0 +1,229 @@
+'use strict';
+
+// ---------------------------------------------------------------------------
+// Domain ring: work-unit projections — the status display, proceed/revisit
+// menu, and DATA body over one WorkUnitEntry (see ../workunit-detail.cjs). One
+// projection family serves all four single-topic navigation skills; per-type
+// variation (pipeline, work_type route argument) comes from WORK_UNIT_TYPES.
+//
+// Deterministic: same entry, same string. The menu carries machine action keys
+// so skills route on keys, never on labels. Layout goes through the kernel
+// renderer — no character arithmetic here.
+// ---------------------------------------------------------------------------
+
+const { box, renderTree } = require('../../kernel/render.cjs');
+const { DERIVED_PHASES } = require('../../kernel/manifest-schema.cjs');
+const { TREE_WIDTH, titlecase, title, materialBlock } = require('../conventions.cjs');
+const { menu, menuFrame, cmdOption, actionsTable, section, MENU_INSTRUCTION } = require('./surfaces.cjs');
+const { typeConfig } = require('../workunit-detail.cjs');
+
+/** @typedef {import('../workunit-detail.cjs').WorkUnitEntry} WorkUnitEntry */
+/** @typedef {import('../workunit-detail.cjs').WorkUnitTypeConfig} WorkUnitTypeConfig */
+
+/**
+ * @typedef {object} WorkUnitMenuKey
+ * @property {string} key             what the user types (`y`, `r`, `1`, …)
+ * @property {string} [word]          long form of a command option (`yes`, `revisit`)
+ * @property {string} action          machine action key — skills route on this, never the label
+ * @property {string} topic           the work unit name (topic = work unit for these types)
+ * @property {string} [phase]         revisit_phase entries — the completed phase to reopen
+ * @property {string|null} route      skill invocation, or null for internal flows
+ * @property {string} label
+ */
+
+/** Phase entry route — `$0` = the type's work_type value, `$1` = work_unit. @param {WorkUnitTypeConfig} cfg @param {string} phase @param {string} workUnit */
+function entryRoute(cfg, phase, workUnit) {
+  return `/workflow-${phase}-entry ${cfg.workType} ${workUnit}`;
+}
+
+// Completed phases that come before next_phase in the pipeline — the revisit
+// candidates. A next_phase outside the pipeline (defensive) revisits any.
+// A derived phase is never revisitable: a concluded verdict stands, and a
+// new spawn is what reopens the series.
+/** @param {WorkUnitTypeConfig} cfg @param {WorkUnitEntry} unit @returns {string[]} */
+function earlierCompleted(cfg, unit) {
+  const nextIdx = cfg.pipeline.indexOf(unit.next_phase);
+  const completed = unit.completed_phases.filter((p) => !DERIVED_PHASES.includes(p));
+  if (nextIdx === -1) return completed;
+  return completed.filter((p) => {
+    const i = cfg.pipeline.indexOf(p);
+    return i > -1 && i < nextIdx;
+  });
+}
+
+// computeNextPhase's label vocabulary discriminates the next phase's state:
+// `{phase} (in-progress)` when started, `ready for {phase}` when not.
+/** @param {WorkUnitEntry} unit */
+function nextPhaseStarted(unit) {
+  return unit.phase_label.endsWith('(in-progress)');
+}
+
+/** Pipeline rows: completed phases (an `· input moved` cue on flagged ones), the next phase (in flight or ready), and any other phase in flight (a reopened phase mid-revisit is never dropped) — a `· triage waiting` cue on a phase whose queue holds concerns. @param {WorkUnitTypeConfig} cfg @param {WorkUnitEntry} unit */
+function pipelineNodes(cfg, unit) {
+  const flaggedPhases = new Set((unit.reconcile_phases || []).map((r) => r.phase));
+  const queuedPhases = new Set(unit.triage_phases || []);
+  const triageTag = (/** @type {string} */ phase, /** @type {string} */ tag) => (queuedPhases.has(phase) ? `${tag} · triage waiting` : tag);
+  const nodes = [];
+  for (const phase of cfg.pipeline) {
+    if (unit.completed_phases.includes(phase)) {
+      const tag = flaggedPhases.has(phase) ? 'completed · input moved' : 'completed';
+      nodes.push({ title: title({ glyph: '✓', label: titlecase(phase) }), tag });
+    } else if (phase === unit.next_phase) {
+      // The label vocabulary marks a started next phase, but not every
+      // started label says so — `experiment (awaiting evidence)` routes to a
+      // phase already in flight — so an in-progress item settles it too.
+      const started = nextPhaseStarted(unit) || (unit.in_progress_phases || []).includes(phase);
+      nodes.push({
+        title: title({ glyph: started ? '◐' : '→', label: titlecase(phase) }),
+        tag: triageTag(phase, started ? 'in-progress' : 'ready'),
+      });
+    } else if ((unit.in_progress_phases || []).includes(phase)) {
+      nodes.push({ title: title({ glyph: '◐', label: titlecase(phase) }), tag: triageTag(phase, 'in-progress') });
+    }
+  }
+  return nodes;
+}
+
+/**
+ * Section A — the work-unit status display. One code-block string: the
+ * MATERIAL block (types that surface seeds/imports), and the pipeline tree.
+ * The view's heading is the adapter's TITLE section, never drawn here.
+ * @param {string} type  a WORK_UNIT_TYPES key
+ * @param {WorkUnitEntry} unit
+ * @returns {string}
+ */
+function workUnitStatus(type, unit) {
+  const cfg = typeConfig(type);
+  let out = '';
+  const material = materialBlock({ seeds: unit.seeds_count || 0, imports: unit.imports_count || 0 });
+  if (material) out += material + '\n\n';
+  out += `PIPELINE (${cfg.workType})\n`;
+  out += renderTree(pipelineNodes(cfg, unit), { width: TREE_WIDTH });
+  for (const r of unit.reconcile_phases || []) {
+    out += typeof r.from === 'string'
+      ? `\n  ⚑ ${titlecase(r.phase)} input moved — ${r.from} revised since it completed.\n`
+      : `\n  ⚑ ${titlecase(r.phase)} input moved — reconcile at next entry.\n`;
+  }
+  if (unit.finalising) out += '\n  ⚑ All phases complete — ready to finalise.\n';
+  return out.replace(/\n+$/, '\n');
+}
+
+/**
+ * Section B — the proceed/revisit menu. `keys` carries the machine action keys
+ * (skills route on these): the `continue` entry always (a `finalise` entry on
+ * a finalising unit — the skill runs `workunit complete`, no route), plus
+ * `revisit` and one `revisit_phase` entry per earlier completed phase when any
+ * exist. `rendered` is the dotted-gate markdown block — empty when there is
+ * nothing to revisit and nothing to finalise (the calling skill routes
+ * straight through, no stop).
+ * @param {string} type  a WORK_UNIT_TYPES key
+ * @param {WorkUnitEntry} unit
+ * @returns {{keys: WorkUnitMenuKey[], rendered: string}}
+ */
+function workUnitMenu(type, unit) {
+  const cfg = typeConfig(type);
+  const revisitable = earlierCompleted(cfg, unit);
+
+  /** @type {WorkUnitMenuKey[]} */
+  const keys = [unit.finalising
+    ? {
+      key: 'y', word: 'yes', action: 'finalise', topic: unit.name, route: null,
+      label: 'Mark the work unit completed',
+    }
+    : {
+      key: 'y', word: 'yes', action: 'continue', topic: unit.name,
+      route: entryRoute(cfg, unit.next_phase, unit.name),
+      label: `Proceed to ${unit.next_phase}`,
+    }];
+
+  if (revisitable.length > 0) {
+    keys.push({ key: 'r', word: 'revisit', action: 'revisit', topic: unit.name, route: null, label: 'Revisit an earlier phase' });
+    revisitable.forEach((phase, i) => {
+      keys.push({
+        key: String(i + 1), action: 'revisit_phase', topic: unit.name, phase,
+        route: entryRoute(cfg, phase, unit.name),
+        label: `${titlecase(phase)} — completed`,
+      });
+    });
+  }
+
+  let rendered = '';
+  if (unit.finalising || revisitable.length > 0) {
+    const options = [cmdOption('y', 'yes', keys[0].label)];
+    if (revisitable.length > 0) options.push(cmdOption('r', 'revisit', 'Revisit an earlier phase'));
+    rendered = menu(
+      `${unit.finalising ? 'Finalising' : 'Continuing'} "${titlecase(unit.name)}" — *${unit.phase_label}*${(unit.triage_phases || []).length > 0 ? ' · triage waiting' : ''}.`,
+      options,
+      { question: 'Proceed?' },
+    );
+  }
+
+  return { keys, rendered };
+}
+
+/**
+ * The DATA body for the view snapshot: flow flags plus the ACTIONS key table
+ * (`key  word  action  topic  → route` lines). Reasoning surface — never displayed.
+ * @param {string} type  a WORK_UNIT_TYPES key
+ * @param {WorkUnitEntry} unit
+ * @param {{keys: WorkUnitMenuKey[]}} menu  the workUnitMenu result for the same unit
+ * @returns {string}
+ */
+function workUnitData(type, unit, menu) {
+  const cfg = typeConfig(type);
+  const lines = [];
+  lines.push(`work_unit: ${unit.name}`);
+  lines.push(`work_type: ${cfg.workType}`);
+  lines.push(`next_phase: ${unit.next_phase}`);
+  lines.push(`phase_label: ${unit.phase_label}`);
+  lines.push(`finalising: ${unit.finalising === true}`);
+  lines.push(`completed_phases: ${unit.completed_phases.join(', ') || '(none)'}`);
+  lines.push(`reconcile_pending: ${(unit.reconcile_phases || []).map((r) => `${r.phase} (${r.from})`).join(', ') || '(none)'}`);
+  lines.push(`triage_waiting: ${(unit.triage_phases || []).join(', ') || '(none)'}`);
+  lines.push(`revisit_available: ${menu.keys.some((k) => k.action === 'revisit')}`);
+  if (cfg.surfacesSeeds) {
+    lines.push(`seeds_count: ${unit.seeds_count || 0}`);
+    lines.push(`imports_count: ${unit.imports_count || 0}`);
+  }
+  lines.push(...actionsTable(['action', 'topic', '→ route'], menu.keys, (k) => [k.action, k.topic, `→ ${k.route || '(internal)'}`]));
+  return lines.join('\n');
+}
+
+/**
+ * The revisit candidates for one unit — completed phases before `next_phase`
+ * in the type's pipeline (every completed phase when `next_phase` sits outside
+ * it, the finalising case). The same set workUnitMenu numbers its
+ * `revisit_phase` keys from.
+ * @param {string} type  a WORK_UNIT_TYPES key
+ * @param {{next_phase: string, completed_phases: string[]}} unit
+ * @returns {string[]}
+ */
+function revisitablePhases(type, unit) {
+  return earlierCompleted(typeConfig(type), /** @type {WorkUnitEntry} */ (unit));
+}
+
+/**
+ * The revisit-phase menu, served by `render revisit-phases` at the gate that
+ * displays it — one numbered option per phase, numbering matching the
+ * `revisit_phase` keys. Empty string when there is nothing to revisit.
+ * @param {string[]} phases  revisitablePhases order
+ * @returns {string}
+ */
+function revisitPhasesSection(phases) {
+  if (phases.length === 0) return '';
+  return section(
+    'MENU: revisit phases',
+    MENU_INSTRUCTION,
+    menuFrame([
+      'Which phase would you like to revisit?',
+      '',
+      ...phases.map((phase, i) => cmdOption(String(i + 1), null, { head: titlecase(phase), tail: 'completed' })),
+      cmdOption('b', 'back', 'Return to the previous menu'),
+    ]),
+  );
+}
+
+/** The view's chrome heading. @param {WorkUnitEntry} unit */
+function workUnitTitle(unit) { return titlecase(unit.name); }
+
+module.exports = { workUnitStatus, workUnitTitle, workUnitMenu, workUnitData, revisitablePhases, revisitPhasesSection };

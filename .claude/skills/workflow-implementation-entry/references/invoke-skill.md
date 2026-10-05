@@ -13,15 +13,17 @@ This skill's purpose is now fulfilled. Construct the handoff and invoke the proc
 Query format and external_id from manifest:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{topic} format
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{topic} external_id
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} format
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} external_id
 ```
 
 Check if implementation already exists:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.implementation.{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest exists {work_unit}.implementation.{topic}
 ```
+
+Invoke the **workflow-implementation-process** skill (Skill tool) with the next fenced block as its arguments. Do not act on the gathered context until its instructions load — the skill defines the process.
 
 ```
 Implementation session for: {topic}
@@ -33,9 +35,4 @@ Specification: .workflows/{work_unit}/specification/{topic}/specification.md (ex
 Implementation: {exists:[true|false]}
 
 Dependencies: {All satisfied | List any notes}
-Environment: {Setup required | No special setup required}
-
-Invoke the workflow-implementation-process skill.
 ```
-
-Invoke the [workflow-implementation-process](../../workflow-implementation-process/SKILL.md) skill. Do not act on the gathered information until the skill is loaded — it contains the instructions for how to proceed. Terminal.

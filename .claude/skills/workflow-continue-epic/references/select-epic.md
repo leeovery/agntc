@@ -8,66 +8,34 @@
 
 Display active epics and let the user select one.
 
-> *Output the next fenced block as a code block:*
+Fetch the selection — a fresh index dump, then the pick list and its menu:
 
-```
-{count} epic(s) in progress:
-
-@foreach(epic in epics)
-  {N}. {epic.name:(titlecase)}
-     └─ {epic.active_phases:(titlecase, comma-separated)}
-
-@endforeach
-
-@if(completed_count > 0 || cancelled_count > 0)
-{completed_count} completed, {cancelled_count} cancelled.
-@endif
+```bash
+node .claude/skills/workflow-continue-epic/scripts/gateway.cjs select
 ```
 
-Build from the discovery output's `epics` array. Each epic shows `name` (titlecased) and a comma-separated list of `active_phases` (titlecased). Blank line between each numbered item.
+**If it carries no selection sections** (no active epics remain — possible after a loop-back cancelled or completed the last one): render the caller's no-epics-in-progress terminal from its Step 2 and stop there.
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Which epic would you like to continue?
-
-- **`1`** — Continue "{epic.name:(titlecase)}"
-- **`2`** — ...
-
-@if(completed_count > 0 || cancelled_count > 0)
-- **`{N+1}`** — View completed & cancelled epics
-@endif
-- **`m`/`manage`** — Manage an epic's lifecycle
-
-Select an option:
-· · · · · · · · · · · ·
-```
-
-Recreate with actual epics from discovery. No auto-select, even with one item.
+Otherwise emit its `DISPLAY: selection` and `MENU: selection` sections verbatim per their markers. No auto-select, even with one item.
 
 **STOP.** Wait for user response.
 
 #### If user chose an epic number
 
-Store the selected epic's name as `work_unit`.
+The number counts down the dump's `EPICS` rows, in order — store that row's name as `work_unit`.
 
 → Return to caller.
 
-#### If user chose "View completed & cancelled"
+#### If user chose `v/view`
 
 Set work_type filter = `epic`.
 
-→ Load **[../../workflow-start/references/view-completed.md](../../workflow-start/references/view-completed.md)** and follow its instructions as written.
+→ Load **[view-completed.md](../../workflow-start/references/view-completed.md)** and follow its instructions as written.
 
-Re-run discovery to refresh state after potential changes.
+→ On return, return to **A. Display and Select**.
 
-→ Return to **A. Display and Select**.
+#### If user chose `m/manage`
 
-#### If user chose `m`/`manage`
+→ Load **[manage-work-unit.md](../../workflow-start/references/manage-work-unit.md)** and follow its instructions as written.
 
-→ Load **[../../workflow-start/references/manage-work-unit.md](../../workflow-start/references/manage-work-unit.md)** and follow its instructions as written.
-
-Re-run discovery to refresh state after potential changes.
-
-→ Return to **A. Display and Select**.
+→ On return, return to **A. Display and Select**.

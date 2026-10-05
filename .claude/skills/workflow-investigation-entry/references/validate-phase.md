@@ -4,18 +4,14 @@
 
 ---
 
-Check investigation status via manifest CLI:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.investigation.{topic}
-```
+Branch on the `phase_status` the caller read in Step 1 — no re-read.
 
 #### If status is `in-progress`
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Resuming investigation: {work_unit:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.investigation.{topic} --verb Resuming
 ```
 
 Set source="continue".
@@ -24,16 +20,16 @@ Set source="continue".
 
 #### If status is `completed`
 
-Reset to in-progress:
+Reopen it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.investigation.{topic} status in-progress
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} investigation {topic}
 ```
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Reopening investigation: {work_unit:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.investigation.{topic} --verb Reopening
 ```
 
 Set source="continue".

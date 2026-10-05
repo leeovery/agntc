@@ -6,11 +6,13 @@
 
 ## A. Background Agents
 
-Two types of background agent operate during research. Load their lifecycle instructions now — apply them at the appropriate moments during the session loop.
-
-→ Load **[review-agent.md](review-agent.md)** and follow its instructions as written.
+One kind of background agent operates during research — the deep dive — and two protocol files cover the topic's triage queue and the files the user shares. Load their instructions now — they run at the appropriate moments during the session loop.
 
 → Load **[deep-dive-agent.md](deep-dive-agent.md)** and follow its instructions as written.
+
+→ Load **[rerouted-concerns.md](../../workflow-shared/references/rerouted-concerns.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research` — a protocol, not a step: the session loop's triage check enters its **A. Check**; nothing runs at load time.
+
+→ Load **[landing-shared-files.md](../../workflow-shared/references/landing-shared-files.md)** with work_unit = `{work_unit}`, origin = `research/{topic}` — a protocol, not a step: the session loop enters its **A. Land It** when the user offers a path; nothing runs at load time.
 
 ---
 
@@ -24,65 +26,13 @@ Per-topic session with topic awareness and convergence routing.
 
 ## C. Topic Awareness
 
-When a concern surfaces that belongs to a *different* topic — raised in conversation, not yet written into this file — flag it rather than letting it accumulate here. (Sustained *written* drift over multiple exchanges is the separate split signal — see **D. Convergence Routing**.)
+When a concern surfaces that belongs to a *different* topic — raised in conversation, not yet written into this file — flag it rather than letting it accumulate here. (Sustained *written* drift over multiple exchanges triggers the same reroute from **D. Convergence Routing**.) The heuristic: a thread that informs this topic's own question stays here; a concern whose home is a different topic — one that exists, or one that should — isn't this research's to explore.
 
-> *Output the next fenced block as markdown (not a code block):*
+When a concern reads as off-topic, hold it with the full context discussed about it:
 
-```
-· · · · · · · · · · · ·
-**{concern}** belongs to a different topic, not this one.
+→ Load **[off-topic-epic.md](../../workflow-shared/references/off-topic-epic.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research`, concern = `{the concern, with its discussed context}`, reason = `off-topic`.
 
-- **`r`/`reroute`** — Send it to the topic it belongs to; it picks it up later
-- **`k`/`keep`** — Keep exploring here for now
-· · · · · · · · · · · ·
-```
-
-**STOP.** Wait for user response.
-
-**If `reroute`:**
-
-1. Identify the topic the concern belongs to. Read the live map:
-
-   ```bash
-   node .claude/skills/workflow-discovery/scripts/discovery.cjs {work_unit}
-   ```
-
-   Resolve the target. If one topic clearly matches, propose it and confirm with the user. If nothing fits, propose a new kebab-case name and confirm. If several plausible candidates exist — or a near-match you're unsure of — present them and let the user choose:
-
-   > *Output the next fenced block as markdown (not a code block):*
-
-   ```
-   · · · · · · · · · · · ·
-   Where should "{concern}" land?
-
-   - **`1`** — {candidate} [{state}]
-   - **`2`** — {candidate} [{state}]
-   - **`n`/`new`** — Create a new topic for it
-   · · · · · · · · · · · ·
-   ```
-
-   **STOP.** Wait for user response.
-
-   A chosen candidate is the target; `new` means propose a kebab-case name and confirm it. If the resolved target is the current topic, it's not a reroute — fold it into this research file as a thread and → Return to **B. Session Loop**.
-
-2. Record the concern with the full context discussed about it as `concern` — the target topic picks it up cold.
-
-3. Load **[triage-landing.md](../../workflow-shared/references/triage-landing.md)** with work_unit = `{work_unit}`, target = `{target}`, concern = `{concern}`, origin = `{topic}`, phase = `research`, date = `{today}`. If `result` is `cancelled`, nothing landed — → Return to **B. Session Loop**. Otherwise the concern landed in `{landed_topic}`'s `## Triage`.
-
-4. Commit:
-
-   ```bash
-   git add -- .workflows/{work_unit}/
-   git commit -m "research({work_unit}/{topic}): reroute concern to {landed_topic}"
-   ```
-
-→ Return to **B. Session Loop**.
-
-**If `keep`:**
-
-Keep exploring here. If written material keeps accumulating off-topic over multiple exchanges, the split path in **D. Convergence Routing** moves it out.
-
-→ Return to **B. Session Loop**.
+→ On return, proceed as the reference directed.
 
 ---
 
@@ -90,48 +40,57 @@ Keep exploring here. If written material keeps accumulating off-topic over multi
 
 When you notice convergence signals (from the research guidelines), flag it and route to the appropriate action:
 
-#### If sustained off-topic content has accumulated over multiple exchanges in this session
+#### If a thread has grown into its own topic
 
-The current file is drifting — multiple exchanges have been adding material that doesn't belong under this topic's name. This is the trigger to split, not a clean thematic separation alone.
+Either the session's written material keeps deepening ground that deserves a map topic of its own — sustained accumulation over multiple exchanges, not a clean thematic separation alone — or the user names a thread and asks for it to become a topic.
 
-→ Load **[topic-splitting.md](topic-splitting.md)** and follow its instructions as written.
+Hold the thread with the full context worked out about it — its children's questions travel in that context — and name its slug: once the reroute lands, the reference drops its rows; on `keep` they stay:
+
+→ Load **[off-topic-epic.md](../../workflow-shared/references/off-topic-epic.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research`, concern = `{the thread, with its worked-out context}`, reason = `grown-thread`, slug = `{slug}`.
+
+→ On return, proceed as the reference directed.
+
+#### If the user's sign-off leaves the topic open
+
+Stepping away for the day, picking it up next time — a pause, not a done-signal. Commit what the exchange left and end the turn.
 
 → Return to **B. Session Loop**.
 
-#### If the current topic is converging (tradeoffs clear, approaching decision territory)
+#### If the current topic is converging (tradeoffs clear, approaching decision territory) or the user indicates the topic is done
 
-→ Proceed to **E. In-Flight Agent Handling**.
+→ Proceed to **E. In-Flight Dive Handling**.
 
 ---
 
-## E. In-Flight Agent Handling
+## E. In-Flight Dive Handling
 
-Before concluding, check for in-flight agents. Scan the cache directory for review or deep-dive files with `status: pending` in their frontmatter.
+Before concluding, check for in-flight deep dives — run `node .claude/skills/workflow-engine/scripts/engine.cjs agent scan {work_unit} research {topic}` and read the response's `in_flight` list (dives dispatched but not yet returned). A dive an earlier session dispatched cannot still be running — each row's `created` timestamp tells you which those are; enter **C. Land and Fold** in **[deep-dive-agent.md](deep-dive-agent.md)** first — it closes the dead rows and folds what landed — then re-scan and count this session's `in_flight` rows alone.
 
-#### If no agents are in flight
+#### If a fold ended on a question to the user
+
+The conversation has the turn; the next done-signal re-enters here.
+
+→ Return to **B. Session Loop**.
+
+#### If no dive is in flight
 
 → Load **[topic-completion.md](topic-completion.md)** and follow its instructions as written.
 
 → Return to **B. Session Loop**.
 
-#### If agents are still running
+#### If dives are still running
 
-> *Output the next fenced block as markdown (not a code block):*
-
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render in-flight-agents-gate {work_unit}.research.{topic} --count {N}
 ```
-· · · · · · · · · · · ·
-There are still {N} background agents working.
 
-- **`w`/`wait`** — Wait for results before concluding
-- **`p`/`proceed`** — Conclude now (results will persist in cache for reference)
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
 **If `wait`:**
 
-Check for agent completion. When all agents have returned, delegate surfacing to the shared protocol loaded by review-agent.md and deep-dive-agent.md. The protocol applies the never-dump rules: two-phase surfacing, one finding at a time. Treat the current moment as a natural break — we are at phase conclusion, so the break check will pass.
+Watch for `agent scan` to promote each in-flight row to `pending`. When none remain in flight, fold each per **C. Land and Fold** in **[deep-dive-agent.md](deep-dive-agent.md)** — phase conclusion is the natural break.
 
 → Return to **B. Session Loop**.
 
@@ -140,3 +99,13 @@ Check for agent completion. When all agents have returned, delegate surfacing to
 → Load **[topic-completion.md](topic-completion.md)** and follow its instructions as written.
 
 → Return to **B. Session Loop**.
+
+---
+
+## F. The Experiment Offer
+
+When a number is about to bear a decision — a controlled measurement would settle a choice the conversation is weighing, not merely inform it — offer the laboratory. Hands-on sightings short of that bar stay in the session, labelled exploratory.
+
+→ Load **[experiment-spawn.md](../../workflow-shared/references/experiment-spawn.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research`.
+
+→ On return, proceed as the reference directed.

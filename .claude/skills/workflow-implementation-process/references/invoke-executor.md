@@ -4,27 +4,23 @@
 
 ---
 
-This step invokes the `workflow-implementation-task-executor` agent (`../../../agents/workflow-implementation-task-executor.md`) to implement one task.
+This step invokes the `workflow-implementation-task-executor` agent (`.claude/agents/workflow-implementation-task-executor.md`) to implement one task.
 
 ---
 
 ## Determine Workflow Reference
 
-Check the work type:
+Use `work_type` from session context — read once at the task loop's entry (**[task-loop.md](task-loop.md)**), not per invocation.
 
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit} work_type
-```
+#### If `work_type` is `quick-fix`
 
-#### If work_type is `quick-fix`
-
-Use **verification-workflow.md** (`verification-workflow.md`) as the workflow reference (item 1 below).
+Use **verification-workflow.md** (`.claude/skills/workflow-implementation-process/references/verification-workflow.md`) as the workflow reference (item 1 below).
 
 → Proceed to **Invoke the Agent**.
 
 #### Otherwise
 
-Use **tdd-workflow.md** (`tdd-workflow.md`) as the workflow reference (item 1 below).
+Use **tdd-workflow.md** (`.claude/skills/workflow-implementation-process/references/tdd-workflow.md`) as the workflow reference (item 1 below).
 
 → Proceed to **Invoke the Agent**.
 
@@ -32,20 +28,44 @@ Use **tdd-workflow.md** (`tdd-workflow.md`) as the workflow reference (item 1 be
 
 ## Invoke the Agent
 
-**Every invocation** — initial or re-attempt — includes these file paths:
+Every dispatch below runs in the background (`run_in_background: true`), and every dispatch and send ends the turn on exactly `The executor agent has been dispatched for task {phase}.{task}.` — `{phase}.{task}` the plan phase and task numbers the internal id ends in (`{topic}-{phase}-{task}`), never the id itself or the topic.
+
+#### If this is the current task's first executor dispatch
+
+Dispatch a **fresh** `workflow-implementation-task-executor` agent via the Task tool. Never continue an executor from an earlier task — the task content below is this task's complete framing, and an executor still carrying the previous task's context erodes that boundary.
+
+The dispatch result names the new agent's id — keep it in session context; the task's later rounds (fix, retry, gate comment, answered block) continue this executor by that id.
+
+The dispatch includes these file paths:
 
 1. **Workflow reference**: the file determined above
-2. **code-quality.md**: `code-quality.md`
-3. **Specification path**: from the specification (if available)
-4. **Project skill paths**: from `project_skills` in the manifest (`node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{topic} project_skills`)
-5. **Task content**: normalised task content (see [task-normalisation.md](task-normalisation.md))
-6. **Linter commands**: from `linters` in the manifest (`node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{topic} linters`) (if configured)
+2. **code-quality.md**: `.claude/skills/workflow-implementation-process/references/code-quality.md`
+3. **finding-floor.md**: `.claude/skills/workflow-implementation-process/references/finding-floor.md`
+4. **Specification path**: the record the task was built from (if available)
+5. **Project skill paths**: from session context — the `project_skills` discovered in Step 3 (Project Skills Discovery)
+6. **Task content**: normalised task content (see [task-normalisation.md](task-normalisation.md))
+7. **Linter commands**: from session context — the `linters` configured in Step 4 (Linter Discovery), if any
 
-**Re-attempts after review feedback** additionally include:
-7. **User-approved review notes**: verbatim or as modified by the user
-8. **Specific issues to address**: the ISSUES from the review
+A fresh dispatch starts with no memory — this payload is everything the executor sees.
 
-The executor is stateless — each invocation starts fresh with no memory of previous attempts. Always pass the full task content so the executor can see what was asked, what was done, and what needs fixing.
+Context the task needs that its content lacks is landed on the task first — [ad-hoc-plan-changes.md](ad-hoc-plan-changes.md) section C, marked as an addition from the orchestrator — and a specification the work has shown wrong is corrected through [correcting-historical-artifacts.md](../../workflow-shared/references/correcting-historical-artifacts.md). Nothing rides beside the enumerated items, on a fresh dispatch or a continuation's send: the executor proceeds on them alone and reports anything else.
+
+→ Proceed to **Expected Result**.
+
+#### If an executor already ran for the current task (fix round, retry, gate comment, or answered block)
+
+Continue that same executor — it already holds the task, the codebase context it explored, and the code it wrote. Send the round's material to the executor's recorded agent id with the SendMessage tool; when SendMessage is not among the active tools, load it first (ToolSearch, query `select:SendMessage`). Unavailability is proven by a failed send, never assumed — do not fall back because the tool needed loading or the continuation seems uncertain. Send only the round's new material:
+
+- **Fix round (from E or F)**: the review notes as approved — verbatim, or as the user modified them — and the ISSUES to address; on F `comment`, the user's commentary as well
+- **Task-gate comment (from G)**: the user's feedback
+- **Retry (from C)**: the failure block's **Next attempt** and the user's comment
+- **Answered block (from C)**: the addition alone — the answer the record settled, or the one the user gave at the gate
+
+Any round may also carry an **ad hoc addition** ([ad-hoc-plan-changes.md](ad-hoc-plan-changes.md) section C) — the user's instruction or the orchestrator's own, marked with its origin, included with the round's material.
+
+If the send fails — the recorded id no longer resolves, or a context refresh dropped it — dispatch a fresh executor with items 1–7 above plus the round's material as items 8 (**User-approved review notes**: verbatim or as modified by the user) and 9 (**Specific issues to address**: the ISSUES from the review); the full payload restores everything the continued executor would have held. When the conversation no longer holds the round's material, read it from the latest `## Attempt {N}` section of the task's fix tracking file (`.workflows/{work_unit}/implementation/{topic}/fix-tracking-{internal_id}.md`).
+
+→ Proceed to **Expected Result**.
 
 ---
 
@@ -57,12 +77,19 @@ The agent returns a structured report:
 STATUS: complete | blocked | failed
 TASK: {task name}
 SUMMARY: {2-5 lines — commentary, decisions made, anything off-script}
-TEST_RESULTS: {all passing | failures — details only if failures}
-ISSUES: {blockers or deviations — omit if none}
+TEST_RESULTS: {all passing | failures — details only if failures | none — nothing ran}
+ISSUES: {the product question and what turns on it, or why it failed — omit if none}
+BANK:
+- {cross-scope consolidation opportunity — one line}
+  FAILURE: {what goes wrong, for whom, how it is noticed}
+  DETAIL: {what and where, with file:line references}
+  FILES: {comma-separated paths involved}
 ```
 
 - `complete`: all acceptance criteria met, tests passing
-- `blocked` or `failed`: ISSUES explains why and what decision is needed
+- `blocked`: a product question the task, the specification sections it cites, and the code do not answer — ISSUES carries it in product terms, with what turns on it, and TEST_RESULTS reads `none` where the block left nothing to run. A specification decision that proved untenable lands here, the question being what the product does instead
+- `failed`: the executor could not finish — ISSUES says why: tests it could not make pass, or the dependency, service or credential the environment lacks
+- BANK: opportunities whose fix reaches beyond the task's scope, omitted when there are none — deposited on arrival while the task's `do_banking` is `true` ([bank-deposit.md](bank-deposit.md)), never acted on mid-task
 
 Keep the report minimal. "All passing" is sufficient for TEST_RESULTS when nothing failed. ISSUES can be omitted entirely on a clean run.
 

@@ -8,10 +8,10 @@ Select the plan output format using the same project-default logic as the planni
 
 ## A. Check Format Recommendation
 
-Read the project default `plan_format` via manifest CLI:
+Read the project default `plan_format` via `engine manifest`:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get project.defaults.plan_format
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get project.defaults.plan_format
 ```
 
 #### If output is empty (no project default)
@@ -20,20 +20,19 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs get project.defaults.
 
 #### Otherwise
 
-> *Output the next fenced block as markdown (not a code block):*
+The surface reads the default itself and names it in both the label and the accept row:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render plan-format-gate
 ```
-· · · · · · · · · · · ·
-Project default format is **{format}**. Use the same format?
 
-- **`y`/`yes`** — Use {format}
-- **`n`/`no`** — See all available formats
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
 **If `yes`:**
+
+→ Load **[format-version-check.md](../../workflow-shared/references/format-version-check.md)** with format = `{plan_format}`.
 
 → Return to caller.
 
@@ -45,6 +44,10 @@ Project default format is **{format}**. Use the same format?
 
 ## B. Select Format
 
-→ Load **[../../workflow-planning-process/references/output-formats.md](../../workflow-planning-process/references/output-formats.md)** and follow its instructions as written.
+→ Load **[output-formats.md](../../workflow-planning-process/references/output-formats.md)** with phase = `scoping`.
+
+→ Load the chosen format's **[about.md](../../workflow-planning-process/references/output-formats/{chosen-format}/about.md)** and follow its Setup section — complete any prerequisites (installation, initialisation, MCP configuration) before tasks are written.
+
+→ Load **[format-version-check.md](../../workflow-shared/references/format-version-check.md)** with format = `{chosen-format}`.
 
 → Return to caller.

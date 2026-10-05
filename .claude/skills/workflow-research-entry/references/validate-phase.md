@@ -4,24 +4,26 @@
 
 ---
 
-Check research status via manifest CLI:
+Branch on the `phase_status` the caller read in Step 2 — no re-read.
 
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.research.{topic} status
-```
+#### If status is `triaged`
+
+Rerouted concerns are parked on this topic, but no session has ever run — this is a first start, not a resume. No reopen, no phase note, no reconcile advisory; leave `source` unset.
+
+→ Return to caller.
 
 #### If status is `completed`
 
-Reset to in-progress:
+Reopen it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.research.{topic} status in-progress
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} research {topic}
 ```
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Reopening research: {topic:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.research.{topic} --verb Reopening
 ```
 
 Set source="continue".
@@ -32,10 +34,10 @@ Set source="continue".
 
 #### If status is `in-progress`
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Resuming research: {topic:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.research.{topic} --verb Resuming
 ```
 
 Set source="continue".

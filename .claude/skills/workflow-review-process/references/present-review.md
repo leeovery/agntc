@@ -4,242 +4,74 @@
 
 ---
 
-## A. Present Verdict
+## A. Build the Presentation
 
-Read the review file at `.workflows/{work_unit}/review/{topic}/report.md`.
+→ Load **[product-lens.md](../../workflow-shared/references/product-lens.md)** and follow its instructions as written.
 
-Present a structured summary to the user:
+By this point the do-now corrections are applied, verified and committed; what remains is the verdict and whatever needs the user. Build the payload from `actions.json` and the apply outcome — on a resume where the cache is gone, rebuild it from the report at `.workflows/{work_unit}/review/{topic}/report.md`, whose sections carry the same content.
 
-> *Output the next fenced block as a code block:*
+Write it with the Write tool to `.workflows/.cache/{work_unit}/review/{topic}/presentation.json`:
 
-```
-Review: {topic}
-
-Verdict: {Approve | Request Changes | Comments Only}
-
-{One paragraph summary from the review}
-```
-
-Check whether the review contains a `## Recommendations` section with categorized subsections (`### Do now`, `### Quick-fixes`, `### Ideas`, `### Bugs`). Set `has_recommendations`, and set `has_donow`, `has_quickfixes`, `has_ideas`, `has_bugs` per subsection present.
-
-Render each recommendation as it appears in the report — a one-line item shows its `file:line`; a clustered item shows its sub-bullets. This detail is what lets the user choose do-now versus surface versus ignore, so never collapse it to a bare title.
-
-#### If verdict is `Approve`
-
-> *Output the next fenced block as a code block:*
-
-```
-All acceptance criteria met. No blocking issues found.
-
-@if(has_recommendations)
-Recommendations (non-blocking):
-
-@if(has_donow)
-Do now (zero-risk — applied on request):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_quickfixes)
-Quick-fixes (mechanical, logic-touching):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_ideas)
-Ideas (require a decision):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_bugs)
-Bugs:
-  {N}. {description} ({file:line})
-@endif
-@endif
+```json
+{
+  "topic": "{topic}",
+  "verdict": "pass|fail",
+  "corrected": {"applied": 0, "reverted": 0, "suite": "green|red"},
+  "replan": [{"summary": "…", "ref": "file:line", "fails": "…"}],
+  "out_of_scope": 0,
+  "discarded": 0,
+  "not_measured": 0
+}
 ```
 
-Items are numbered sequentially across all categories (matching the report's numbering).
+`corrected` is omitted when nothing was applied; `replan` carries entries only on a fail; `out_of_scope` is the count of findings banked in the manifest; `not_measured` is the count of blocks in `.workflows/.cache/{work_unit}/review/{topic}/not-measured.txt` — omitted or `0` when the file is absent. Each `summary` leads with the behaviour or impact it concerns, mechanism after — reword the report entry where its lead is mechanism. What is listed and what is counted is the surface's rule, not a judgment made here.
 
-→ Proceed to **B. Q&A Loop**.
-
-#### If verdict is `Request Changes`
-
-> *Output the next fenced block as a code block:*
-
-```
-Required Changes:
-
-  1. {change description}
-     {file:line reference if available}
-
-  2. ...
-
-@if(has_recommendations)
-Recommendations (non-blocking):
-
-@if(has_donow)
-Do now (zero-risk — applied on request):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_quickfixes)
-Quick-fixes (mechanical, logic-touching):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_ideas)
-Ideas (require a decision):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_bugs)
-Bugs:
-  {N}. {description} ({file:line})
-@endif
-@endif
-```
-
-→ Proceed to **B. Q&A Loop**.
-
-#### If verdict is `Comments Only`
-
-> *Output the next fenced block as a code block:*
-
-```
-Comments (non-blocking):
-
-@if(has_donow)
-Do now (zero-risk — applied on request):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_quickfixes)
-Quick-fixes (mechanical, logic-touching):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_ideas)
-Ideas (require a decision):
-  {N}. {description} ({file:line})
-@endif
-
-@if(has_bugs)
-Bugs:
-  {N}. {description} ({file:line})
-@endif
-```
-
-→ Proceed to **B. Q&A Loop**.
+→ On return, proceed to **B. Review Gate**.
 
 ---
 
-## B. Q&A Loop
+## B. Review Gate
 
-> *Output the next fenced block as markdown (not a code block):*
+Any arrival but the first re-runs the gate fetch below alone — the verdict and the out-of-scope decision belong to the gate's first arrival, from **A**.
 
+Render and emit every section verbatim per its marker — the title, the verdict, and the findings:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render review-presentation {work_unit}.review.{topic} --file .workflows/.cache/{work_unit}/review/{topic}/presentation.json
 ```
-· · · · · · · · · · · ·
-Any questions before proceeding?
 
-@if(has_donow)
-- **`d`/`do-now`** — Apply the zero-risk fixes now
-@endif
-@if(has_recommendations)
-- **`s`/`surface`** — Surface recommendations to inbox
-@endif
-- **`c`/`continue`** — Proceed to review actions
-- **Ask a question** — Ask about the review findings
-· · · · · · · · · · · ·
+Then render the review summary as markdown (not a code block), one paragraph — a product-lens narrative: what was reviewed, where it stands, and what the outcome means for the product.
+
+A pass closes the review, so findings banked outside this spec are decided here — before the gate, never as an option on it. A fail decides nothing: its findings carry to the next cycle. On a pass, read whether anything is banked:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest exists {work_unit}.review.{topic} out_of_scope
 ```
+
+Where it reads `true`, load **[decide-out-of-scope.md](decide-out-of-scope.md)** and follow its instructions as written before the gate.
+
+Render the gate — `--replan` with the count on a fail:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render review-gate {work_unit}.review.{topic} --verdict {pass|fail} [--replan {N}]
+```
+
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-#### If user asks a question
+#### If `plan`
 
-Answer the question using the review file, QA task files, specification, and plan as context.
-
-→ Return to **B. Q&A Loop**.
-
-#### If `do-now`
-
-→ Proceed to **D. Do Now**.
-
-#### If `surface`
-
-→ Proceed to **C. Surface to Inbox**.
-
-#### If `continue`
+The failures become tasks and implementation reopens.
 
 → Return to caller.
 
----
+#### If `complete`
 
-## C. Surface to Inbox
+→ Return to caller.
 
-> *Output the next fenced block as markdown (not a code block):*
+#### If ask
 
-```
-· · · · · · · · · · · ·
-Which recommendations? (enter numbers, comma-separated, or **`a`/`all`**)
-· · · · · · · · · · · ·
-```
+Answer the question using the review file, the per-task reports, this cycle's change-set files, the specification, and the plan as context. The question sets the gate aside; once the exchange looks settled, ask in conversation whether they are ready to move on, and on yes put it back:
 
-**STOP.** Wait for user response.
-
-Parse the selection — individual numbers, comma-separated list, or "all".
-
-For each selected recommendation:
-
-1. Determine its category from the grouped display (do-now or quickfix → `quickfixes/`, idea → `ideas/`, bug → `bugs/`) — a surfaced do-now item is one the user chose to defer rather than apply, so it files as a quick-fix
-2. Create the inbox directory:
-   ```bash
-   mkdir -p .workflows/.inbox/{category}
-   ```
-3. Generate a kebab-case slug (2-4 words from the core recommendation, e.g., `volatile-marker-test`, `error-mapping-distinction`)
-4. Write the file to `.workflows/.inbox/{category}/{YYYY-MM-DD}--{slug}.md` (use today's date):
-
-```markdown
-# {Title derived from recommendation}
-
-{Full recommendation description from the review report}
-
-Source: review of {work_unit}/{topic}
-```
-
-> *Output the next fenced block as a code block:*
-
-```
-Surfaced to inbox:
-@foreach(item in surfaced_items)
-  • {item.number} → {item.category}/{item.date}--{item.slug}.md
-@endforeach
-```
-
-Commit: `review({work_unit}): surface recommendations to inbox`
-
-→ Return to **B. Q&A Loop**.
-
----
-
-## D. Do Now
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Applying the zero-risk fixes directly. Each touches no
-> executable logic, so it ships without the pipeline.
-```
-
-Apply every item in the `### Do now` subsection of `report.md`:
-
-1. Make each described edit at its `file:line`. Stay within the scope of the note — no opportunistic changes.
-2. Run the project's linters; when any change touched a code or test file, also run the test suite (see the project skills loaded in Step 3 and the topic's configured linters).
-3. If a change fails verification, revert that single change and re-tag its item `[quickfix]` in `report.md` — leave the rest applied.
-
-Commit the applied changes: `review({work_unit}): apply do-now fixes`
-
-> *Output the next fenced block as a code block:*
-
-```
-Applied {K} do-now fix(es).@if(deferred_count > 0) {D} deferred to quick-fixes (failed verification).@endif
-```
-
-→ Return to **B. Q&A Loop**.
+→ Return to **B. Review Gate**.

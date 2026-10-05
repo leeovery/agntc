@@ -14,23 +14,25 @@ Gather all signal flavours simultaneously (work-type cues and topic seeds co-eme
 
 ## B. Commit
 
-Make the commit move. State the read as plain prose first — bucket name folded in, plus the signals that drove it — held above the gate, never inside it. Then render the gate (static; the read stays above):
+Make the commit move. State the read as plain prose first — bucket name folded in, plus the signals that drove it — held above the gate, never inside it. Then fetch the gate and emit its section verbatim per its marker:
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Have I read this right?
-
-- **`y`/`yes`** — That's the right shape, set it up
-- **`o`/`other`** — It's something else (tell me what)
-- **Keep shaping** — Tell me what I'm missing
-· · · · · · · · · · · ·
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render shape-gate
 ```
 
 **STOP.** Wait for user response.
 
 #### If `yes`
+
+**If the committed read is the product road:**
+
+Product-altitude work creates no work unit — the roadmap owns the conversation from here. Hold any import paths surfaced during shaping as `import_paths` (the roadmap lands them).
+
+Invoke `/workflow-roadmap genesis` via the Skill tool.
+
+This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
+
+**If the read is a work type:**
 
 The work type is committed. Set `work_type`; compile a one-line `description` from the user's framing (captured from the conversation, never silently invented). Hold any topic seeds and imports surfaced during shaping.
 
@@ -38,7 +40,21 @@ The work type is committed. Set `work_type`; compile a one-line `description` fr
 
 #### If `other`
 
-Take the user's call as authoritative — adjust `work_type` without re-litigating (if they describe rather than name a shape, map it via the detection core and reflect back for a quick confirm). Once a work type is settled, set `work_type` and compile the `description`.
+When the reply names no shape — the choice alone — ask what it is and **STOP.** Wait for user response.
+
+Take the user's call as authoritative — adjust the read without re-litigating (if they describe rather than name a shape, map it via the detection core and reflect back for a quick confirm).
+
+**If the settled read is the product road:**
+
+Hold any import paths surfaced during shaping as `import_paths`.
+
+Invoke `/workflow-roadmap genesis` via the Skill tool.
+
+This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
+
+**If the settled read is a work type:**
+
+Set `work_type` and compile the `description`.
 
 → Return to caller.
 

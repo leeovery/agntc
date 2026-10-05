@@ -8,64 +8,68 @@ Write a lightweight specification directly. No agents, no review cycles — the 
 
 ## A. Write the Spec
 
-Create the specification file at `.workflows/{work_unit}/specification/{topic}/specification.md`:
+→ Load **[specification-body.md](../../workflow-shared/references/specification-body.md)** and follow its instructions as written.
+
+Create the specification file at `.workflows/{work_unit}/specification/{topic}/specification.md` in the body's shape — four numbered sections beneath `## Specification`, `## Working Notes` empty:
 
 ```markdown
 # Specification: {Topic:(titlecase)}
 
-## Change Description
+## Specification
+
+### 1. Change Description
 
 {What is being changed and why — 2-3 sentences}
 
-## Scope
+### 2. Scope
 
 {Files, directories, or patterns affected. Be specific:}
 {- "All .go files in pkg/" or "grep -r 'interface{}' --include='*.go'"}
 {- Include file counts or pattern matches if known}
 
-## Exclusions
+### 3. Exclusions
 
 {Anything explicitly excluded from the change, or "None"}
 
-## Verification
+### 4. Verification
 
 {How to verify the change is correct — typically:}
 {- All existing tests pass after the change}
 {- No occurrences of the old pattern remain in scope}
 {- Any additional checks specific to this change}
+
+---
+
+## Working Notes
 ```
 
-Present the spec to the user:
+Confirm the spec was written:
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Specification written: .workflows/{work_unit}/specification/{topic}/specification.md
 ```
+
+→ On return, proceed to **B. Register in Manifest**.
 
 ## B. Register in Manifest
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase {work_unit}.specification.{topic}
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} status completed
+node .claude/skills/workflow-engine/scripts/engine.cjs topic start {work_unit} specification {topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs topic complete {work_unit} specification {topic}
 ```
 
-Commit: `spec({work_unit}): quick-fix specification`
-
-Index the completed specification into the knowledge base:
+The `complete` call indexes the specification into the knowledge base. When the `complete` response's `warnings` is non-empty, fetch and emit the `DISPLAY: kb warning` section verbatim per its marker — the warning never blocks:
 
 ```bash
-node .claude/skills/workflow-knowledge/scripts/knowledge.cjs index .workflows/{work_unit}/specification/{topic}/specification.md
+node .claude/skills/workflow-engine/scripts/engine.cjs render topic-receipt {work_unit}.specification.{topic} --verb complete --warn
 ```
 
-If the index command fails, display the error but do not block — the artifact is already saved:
+Commit:
 
-> *Output the next fenced block as a code block:*
-
-```
-⚑ Knowledge indexing warning
-  {error details}
-  The artifact is saved. Indexing can be retried later.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "spec({work_unit}): quick-fix specification"
 ```
 
 → Return to caller.

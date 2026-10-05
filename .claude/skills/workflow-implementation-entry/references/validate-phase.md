@@ -8,44 +8,28 @@ Check if plan exists and is ready.
 
 ## A. Plan Check
 
+The engine derives the verdict from manifest state:
+
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs render entry-gate {work_unit}.implementation.{topic}
 ```
 
-#### If output is empty (plan doesn't exist)
+#### If the response carried `DISPLAY: entry blocker`
 
-> *Output the next fenced block as a code block:*
-
-```
-Plan Missing
-
-No plan found for "{topic:(titlecase)}".
-
-A completed plan is required for implementation.
-```
+Emit both sections verbatim per their markers — the red blocker line, then its guidance.
 
 **STOP.** Do not proceed — terminal condition.
 
-#### If plan status is not `completed`
+#### If the response is empty
 
-> *Output the next fenced block as a code block:*
-
-```
-Plan Not Completed
-
-The plan for "{topic:(titlecase)}" is not yet completed.
-```
-
-**STOP.** Do not proceed — terminal condition.
-
-#### If plan status is `completed`
+The plan is completed.
 
 → Proceed to **B. Implementation Check**.
 
 ## B. Implementation Check
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.implementation.{topic} status
 ```
 
 #### If output is empty (implementation does not exist)
@@ -56,22 +40,26 @@ Proceed normally (new entry).
 
 #### If status is `completed`
 
-Reset to in-progress:
+Reopen it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.implementation.{topic} status in-progress
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} implementation {topic}
 ```
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.implementation.{topic} --verb Reopening
 ```
-Reopening implementation: {topic:(titlecase)}
-```
+
+→ Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `implementation`.
 
 → Return to caller.
 
 #### If status is `in-progress`
 
 Proceed normally.
+
+→ Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `implementation`.
 
 → Return to caller.

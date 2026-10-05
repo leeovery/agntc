@@ -2,6 +2,32 @@
 
 Uses the official Linear MCP server (`https://mcp.linear.app/mcp`). Tool names below reflect this server — verify available tools if using a different implementation.
 
+#### If Linear MCP is unavailable
+
+Inform the user that authoring cannot proceed without Linear MCP access. Suggest checking the MCP configuration, or switching formats via the planning process.
+
+**STOP.** Do not proceed — terminal condition.
+
+## Identifiers
+
+`{team_id}` is the project default `linear_team_id` (persisted during setup — see about.md); `{project_id}` is the plan's `external_id`; phase and task issue UUIDs are recorded in `task_map`:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get project.defaults.linear_team_id
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} external_id
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} task_map
+```
+
+## Storage Pathspecs
+
+The git pathspecs this format writes **outside `--plan`'s own scope** — the planning topic's directory and the manifests. The array below is recorded verbatim as `storage_paths` on the planning item at plan init; workflow commits (`engine commit --plan`) stage every entry, and restart cleanups stage the same entries when removing authored tasks. Relative pathspecs only — `[]` when the format stores inside that scope.
+
+```json
+[]
+```
+
+Tasks live in Linear; nothing lands on disk.
+
 ## Plan Structure
 
 Create a Linear project — this is the plan-level entity:
@@ -69,7 +95,6 @@ Phases are represented as parent issues. Each task belongs to a phase by being a
 
 Apply optional labels for categorisation:
 
-- `needs-info` — task requires additional information
 - `edge-case` — edge case handling task
 - `foundation` — setup/infrastructure task
 - `refactor` — cleanup task
@@ -84,26 +109,14 @@ create_issue_label(
 )
 ```
 
-## Flagging
-
-When creating issues, if something is unclear:
-
-1. **Create the issue anyway** — don't block planning
-2. **Apply `needs-info` label** — makes gaps visible
-3. **Note what's missing** in description — add a **Needs Clarification** section
-4. **Continue planning** — circle back later
-
 ## Cleanup (Restart)
 
 The official Linear MCP server does not support deletion. Ask the user to delete the Linear project manually via the Linear UI.
 
-> "The Linear project **{project:(titlecase)}** needs to be deleted before restarting. Please delete it in the Linear UI (Project Settings → Delete project), then confirm so I can proceed."
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+The Linear project {project:(titlecase)} needs to be deleted before restarting. Please delete it in the Linear UI (Project Settings → Delete project), then confirm so I can proceed.
+```
 
 **STOP.** Wait for user response.
-
-### Fallback
-
-If Linear MCP is unavailable:
-- Inform the user
-- Cannot proceed without MCP access
-- Suggest checking MCP configuration or switching to local markdown

@@ -8,147 +8,113 @@ View and manage items archived out of the inbox. Pick one item, then restore it,
 
 ## A. Select
 
-Run discovery for the current archived state — re-run on every entry so prior actions are reflected:
+Render the archived snapshot — re-run on every entry so prior actions are reflected:
 
 ```bash
-node .claude/skills/workflow-start/scripts/discovery.cjs
+node .claude/skills/workflow-start/scripts/gateway.cjs archived
 ```
 
-Read the `=== ARCHIVED ===` section.
+The output is one snapshot in demarcated sections:
 
-#### If no archived items remain
+- **DATA** — reasoning surface: `archived_count` and the `ITEMS` table — one line per item, `n  type  date  slug  → path  — title`. Reason from it; never display or restate it.
+- **TITLE** — the view's chrome heading. Emit verbatim per its marker.
+- **MENU** — the archived items as a numbered pick list. Emit verbatim per its marker. Absent when nothing is archived.
+- **DISPLAY** — only when nothing is archived: the empty-store line. Emit verbatim per its marker.
 
-> *Output the next fenced block as a code block:*
+Emit the TITLE section verbatim per its marker.
 
-```
-  No archived items.
-```
+#### If `archived_count` is 0
+
+Emit the DISPLAY section verbatim per its marker.
 
 → Return to caller.
 
 #### Otherwise
 
-> *Output the next fenced block as a code block:*
-
-```
-●───────────────────────────────────────────────●
-  Archived
-●───────────────────────────────────────────────●
-
-@foreach(item in archived_items sorted by date)
-  {N}. {item.title} ({item.type}, {item.date})
-@endforeach
-```
-
-Build a numbered list combining all archived ideas, bugs, and quick-fixes, sorted by date. Hold the number → item mapping (type, slug, date).
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Select an item (enter number, or **`b`/`back`** to return):
-· · · · · · · · · · · ·
-```
+Emit the MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-**If user chose `b`/`back`:**
+**If user chose `b/back`:**
 
 → Return to caller.
 
 **If user chose a number:**
 
-Store the selected item and resolve its path `.workflows/.inbox/.archived/{type}/{date}--{slug}.md`.
+Store the selected item's `ITEMS` row — its type, slug, date, path, and title.
 
 → Proceed to **B. Action Menu**.
 
 ## B. Action Menu
 
-> *Output the next fenced block as markdown (not a code block):*
+Fetch the menu over the selected item and emit its `MENU: archived actions` section verbatim per its marker:
 
-```
-· · · · · · · · · · · ·
-Selected: {item.title} ({item.type}, archived)
-
-- **`v`/`view`** — View full content
-- **`u`/`unarchive`** — Restore to the inbox
-- **`d`/`delete`** — Permanently delete (removes the file from git)
-- **`b`/`back`** — Return to the archived list
-· · · · · · · · · · · ·
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render archived-actions --path {item.path}
 ```
 
 **STOP.** Wait for user response.
 
-#### If user chose `v`/`view`
+#### If user chose `v/view`
 
-Read the file and render its full content.
+Read the file and render its full content as markdown (not a code block), so the item's own headings and formatting render properly.
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-  ── {item.title} ({item.type}) ──
+*[{item.type}] — {item.date}*
 
-  {item.full_content}
+{item.full_content}
 ```
+
+Emit the file content as-is — its own `#` heading is the item's visible title. Skip a frontmatter block when one exists.
 
 → Return to **B. Action Menu**.
 
-#### If user chose `u`/`unarchive`
+#### If user chose `u/unarchive`
 
-Move the file back into its inbox folder and commit:
+Move the file back into its inbox folder and commit — one command:
 
 ```bash
-mkdir -p .workflows/.inbox/{type}/
-mv .workflows/.inbox/.archived/{type}/{date}--{slug}.md .workflows/.inbox/{type}/
-git add -- .workflows/.inbox/
-git commit -m "workflow(inbox): restore {slug}"
+node .claude/skills/workflow-engine/scripts/engine.cjs inbox restore {item.path}
 ```
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Restored "{item.title}" to the inbox.
 ```
 
 → Return to **A. Select**.
 
-#### If user chose `d`/`delete`
+#### If user chose `d/delete`
 
-Deleting removes the file from the repo and cannot be undone — confirm first:
+Confirm before deleting — fetch the gate and emit its `MENU: archived delete gate` section verbatim per its marker:
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Permanently delete "{item.title}"? This removes the file from the
-repo and cannot be undone.
-
-- **`y`/`yes`** — Delete permanently
-- **`n`/`no`** — Return
-· · · · · · · · · · · ·
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render archived-delete-gate --path {item.path}
 ```
 
 **STOP.** Wait for user response.
 
-**If user chose `n`/`no`:**
+**If user chose `n/no`:**
 
 → Return to **B. Action Menu**.
 
-**If user chose `y`/`yes`:**
+**If user chose `y/yes`:**
 
 ```bash
-git rm .workflows/.inbox/.archived/{type}/{date}--{slug}.md
-git commit -m "workflow(inbox): delete {slug}"
+node .claude/skills/workflow-engine/scripts/engine.cjs inbox delete {item.path}
 ```
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Deleted "{item.title}".
 ```
 
 → Return to **A. Select**.
 
-#### If user chose `b`/`back`
+#### If user chose `b/back`
 
 → Return to **A. Select**.

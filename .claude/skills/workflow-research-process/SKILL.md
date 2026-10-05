@@ -1,7 +1,7 @@
 ---
 name: workflow-research-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs), Bash(node .claude/skills/workflow-discovery/scripts/discovery.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-discovery/scripts/gateway.cjs), Bash(node .claude/skills/workflow-engine/scripts/engine.cjs), Bash(mkdir -p .workflows/.cache/), Bash(rm .workflows/.cache/), Bash(rm -rf .workflows/.cache/), Bash(git status), Bash(grep), Bash(rg), Bash(ls), Bash(wc), Bash(find)
 ---
 
 # Research Process
@@ -10,31 +10,20 @@ Act as **research partner** with broad expertise spanning technical, product, bu
 
 ## Purpose in the Workflow
 
-First phase in the pipeline — explore feasibility (technical, business, market), validate assumptions, and document findings before discussion begins.
+The exploration phase, entered from discovery — explore feasibility (technical, business, market), validate assumptions, and document findings before discussion begins.
 
 ### What This Skill Needs
 
 - **Topic** (required) - What to research/explore
 - **Output path** (required) - Research file path from the handoff
-- **Work type** (required) - `epic`, `feature`, or `cross-cutting`. Determines session behaviour — only epic sessions offer topic-splitting on convergence; feature and cross-cutting use the single-topic session
+- **Work type** (required) - `epic`, `feature`, or `cross-cutting`. Determines session behaviour — epic sessions carry topic awareness and reroute a grown thread to its own topic; feature and cross-cutting use the single-topic session
 - **Context** (optional) - Prior research, constraints, starting direction
 
 ---
 
 ## Instructions
 
-Follow these steps EXACTLY as written. Do not skip steps or combine them.
-
-**CRITICAL**: This guidance is mandatory.
-
-- After each user interaction, STOP and wait for their response before proceeding
-- Never assume or anticipate user choices
-- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
-- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
-- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
-- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
-- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
-- Complete each step fully before moving to the next
+Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
 
 ---
 
@@ -42,166 +31,154 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 
 Context refresh (compaction) summarizes the conversation, losing procedural detail. When you detect a context refresh has occurred — the conversation feels abruptly shorter, you lack memory of recent steps, or a summary precedes this message — follow this recovery protocol:
 
-1. **Re-read this skill file completely.** Do not rely on your summary of it. The full process, steps, and rules must be reloaded.
-2. **Read all research files** in `.workflows/{work_unit}/research/`. These are the working documents this skill creates. Their content is your source of truth for progress.
-3. **Check agent cache.** Scan `.workflows/.cache/{work_unit}/research/` for any files with `status: pending` or `status: read` in their frontmatter. These are background agent results that may need surfacing or have been partially processed.
+1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
+2. **Read all research files** in `.workflows/{work_unit}/research/`. These are the working documents this skill creates. Their content is your source of truth for progress. The thread register — what the topic set out to learn and where each question stands — lives in the manifest; read it with `node .claude/skills/workflow-engine/scripts/engine.cjs render research-threads {work_unit}.research.{topic}`.
+3. **Check agent state.** Run `node .claude/skills/workflow-engine/scripts/engine.cjs agent scan {work_unit} research {topic}` — `in_flight` deep dives still running, `pending` reports landed and not yet folded.
 4. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
-5. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
+5. **Announce your position** to the user before continuing: render the register (the call above — emit its DISPLAY section verbatim per its marker; an empty response means no thread is registered, so nothing is shown), state what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
 
 Do not guess at progress or continue from memory. The files on disk and git history are authoritative — your recollection is not.
 
 ---
 
+## Backlogging
+
+The user says to put an idea aside — "roadmap it", "inbox it", "backlog that", "push it back" — and the words take this door whatever else is in flight. An idea, not a topic: a topic takes the postponing door. Load **[backlogging.md](../workflow-shared/references/backlogging.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Postponing the Topic
+
+The user pushes a topic back to the roadmap — "postpone this", "move the loyalty topic to v2", "take this whole topic back to the roadmap" — this one, or one on the map by name; `{name}` is that topic. The request is taken as said — never argued, and never checked back with a question first: load **[postponing-the-topic.md](../workflow-shared/references/postponing-the-topic.md)** with work_unit = `{work_unit}`, name = `{name}`, topic = `{topic}`, phase = `research`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Cancelling the Topic
+
+The user calls the topic off — they say to cancel, or the conversation agrees it is not worth pursuing. Never is not yet: a topic wanted later takes the postponing door. The call-off is taken as said — never argued, and never checked back with a question first: load **[cancelling-the-topic.md](../workflow-shared/references/cancelling-the-topic.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
 ## Step 0: Resume Detection
 
-> *Output the next fenced block as a code block:*
+Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} research {topic}
+```
+
+Read the phase status:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.research.{topic} status
+```
+
+Then check if the research file exists at `.workflows/{work_unit}/research/{topic}.md`.
+
+#### If status is `triaged`
+
+A first start, not a resume — no session has ever run. Parked concerns wait in the topic's triage queue, untouched by initialization — the session loop's triage check surfaces them.
+
+Set `resumed` = `false`.
+
+→ Proceed to **Step 1**.
+
+#### If no file exists
+
+Set `resumed` = `false`.
+
+→ Proceed to **Step 1**.
+
+#### Otherwise
+
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Resume Detection ─────────────────────────────
+**`□ Resume Detection`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Checking for existing research. If it exists, you can
-> pick up where you left off or start fresh.
+> An in-progress research file exists for this topic — choose whether to pick it up or start fresh.
 ```
 
-Check if the research file exists at `.workflows/{work_unit}/research/{topic}.md`.
+**If the status read returned a value:** show the thread register so the continue-or-restart choice is informed:
 
-#### If no file exists
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render research-threads {work_unit}.research.{topic}
+```
 
-→ Proceed to **Step 1**.
+Emit the DISPLAY section verbatim per its marker. An empty response means no thread is registered; nothing is shown.
 
-#### If file exists
+Load **[resume-detection.md](../workflow-shared/references/resume-detection.md)** with artifact = `research`, file = `.workflows/{work_unit}/research/{topic}.md`, continue_step = `Step 2`, restart_targets = `the research file, the manifest's thread register when the item carries one (node .claude/skills/workflow-engine/scripts/engine.cjs manifest exists {work_unit}.research.{topic} threads, then manifest delete on true), and the phase cache directory (rm -rf .workflows/.cache/{work_unit}/research/{topic}/ — content and agent state together) — a landed report would otherwise fold into the restarted session as its own`, commit = `research({work_unit}): restart research`.
 
-Load **[resume-detection.md](../workflow-shared/references/resume-detection.md)** with artifact = `research`, file = `.workflows/{work_unit}/research/{topic}.md`, continue_step = `Step 2`, restart_targets = `the research file`, commit = `research({work_unit}): restart research`.
+Set `resumed` from where the reference returns: `true` for **Step 2**, the earlier session's file still standing; `false` for **Step 1**, its file deleted and rebuilt.
+
+→ On return, proceed as the reference directed — `continue` lands on **Step 2**, `restart` on **Step 1**.
 
 ---
 
 ## Step 1: Initialize Research
 
-> *Output the next fenced block as a code block:*
-
-```
-── Initialize Research ──────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Creating the research file and seeding it with initial
-> context from the handoff.
-```
-
 Load **[initialize-research.md](references/initialize-research.md)** and follow its instructions as written.
 
-→ Proceed to **Step 2**.
+→ On return, proceed to **Step 2**.
 
 ---
 
 ## Step 2: File Strategy
 
-> *Output the next fenced block as a code block:*
-
-```
-── File Strategy ────────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Confirming where the research file lives — one topic,
-> one file.
-```
-
 Load **[file-strategy.md](references/file-strategy.md)** and follow its instructions as written.
 
-→ Proceed to **Step 3**.
+→ On return, proceed to **Step 3**.
 
 ---
 
 ## Step 3: Research Guidelines
 
-> *Output the next fenced block as a code block:*
-
-```
-── Research Guidelines ──────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading the guidelines that shape how research is
-> conducted and documented.
-```
-
 Load **[research-guidelines.md](references/research-guidelines.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+→ On return, proceed to **Step 4**.
 
 ---
 
 ## Step 4: Knowledge Usage
 
-> *Output the next fenced block as a code block:*
+Load **[knowledge-usage.md](../workflow-shared/references/knowledge-usage.md)** and follow its instructions as written.
 
-```
-── Knowledge Usage ──────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading the usage guide for the knowledge base so
-> proactive querying is available throughout the phase.
-```
-
-Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
-
-→ Proceed to **Step 5**.
+→ On return, proceed to **Step 5**.
 
 ---
 
 ## Step 5: Contextual Query
 
-> *Output the next fenced block as a code block:*
+Load **[contextual-query.md](../workflow-shared/references/contextual-query.md)** and follow its instructions as written.
 
-```
-── Contextual Query ─────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking the knowledge base for prior work that relates
-> to this research topic before the session begins.
-```
-
-Load **[contextual-query.md](../workflow-knowledge/references/contextual-query.md)** and follow its instructions as written.
-
-→ Proceed to **Step 6**.
+→ On return, proceed to **Step 6**.
 
 ---
 
 ## Step 6: Research Session
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Research Session ─────────────────────────────
+**`□ Research Session`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Starting the research session. This is open-ended exploration
-> — follow threads, surface options, and document findings.
-> No decisions needed at this stage.
+> @if(resumed) Picking the research back up where it left off. @else Starting the research session. @endif This is open-ended exploration — follow threads, surface options, and document findings; I'll keep a register of what we set out to learn and where each question stands. No decisions needed at this stage.
 ```
-
-Load **[drain-triage.md](../workflow-shared/references/drain-triage.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research`.
 
 Load **[route-session.md](references/route-session.md)** and follow its instructions as written.
 
-*Knowledge-base nudge — if a thread feels familiar, or you're about to re-tread ground that might have been covered in another work unit, run a quick query before proceeding. See **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)**.*
+*Knowledge-base nudge — if a thread feels familiar, or you're about to re-tread ground that might have been covered in another work unit, run a quick query before proceeding. See **[knowledge-usage.md](../workflow-shared/references/knowledge-usage.md)**.*

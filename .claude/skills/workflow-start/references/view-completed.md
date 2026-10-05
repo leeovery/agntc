@@ -4,154 +4,81 @@
 
 ---
 
-Display completed and cancelled work units from discovery output.
+Display completed and cancelled work units.
 
 ## A. Display List
 
-#### If no completed or cancelled work units exist
+Render the completed & cancelled snapshot — append the work-type filter when the caller set one:
 
-> *Output the next fenced block as a code block:*
+```bash
+node .claude/skills/workflow-start/scripts/gateway.cjs completed [{work_type_filter}]
+```
 
-```
-No completed or cancelled work units found.
-```
+The output is one snapshot in demarcated sections:
+
+- **DATA** — reasoning surface: the filter, counts, and the `UNITS` table — one line per work unit, `n  status  work_type  work_unit  last_phase`, numbering continuous across the completed and cancelled units. Reason from it; never display or restate it.
+- **TITLE** — the view's chrome heading. Emit verbatim per its marker.
+- **MENU** — the completed and cancelled units as a numbered pick list. Emit verbatim per its marker. Absent when nothing matches.
+- **DISPLAY** — only when nothing matches: the empty line. Emit verbatim per its marker.
+
+Emit the TITLE section verbatim per its marker.
+
+#### If `completed_count` and `cancelled_count` are both 0
+
+Emit the DISPLAY section verbatim per its marker.
 
 → Return to caller.
 
 #### Otherwise
 
-> *Output the next fenced block as a code block:*
-
-```
-●───────────────────────────────────────────────●
-  Completed & Cancelled
-●───────────────────────────────────────────────●
-
-@if(work_type_filter) Showing: {work_type_filter:(titlecase)}s @endif
-
-@if(completed.length > 0)
-Completed:
-@foreach(item in completed)
-  {N}. {item.name:(titlecase)}
-     └─ Completed after: {item.last_phase}
-
-@endforeach
-@endif
-
-@if(cancelled.length > 0)
-Cancelled:
-@foreach(item in cancelled)
-  {N}. {item.name:(titlecase)}
-     └─ Cancelled during: {item.last_phase}
-
-@endforeach
-@endif
-```
-
-Build from the completed and cancelled sections in the discovery output. Numbering is continuous across both sections. Blank line between each numbered item.
-
-→ Proceed to **B. Select**.
-
-## B. Select
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Select a work unit for details, or **`b`/`back`** to return.
-
-Select an option (enter number):
-· · · · · · · · · · · ·
-```
+Emit the MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-#### If user chose `b`/`back`
+**If user chose `b/back`:**
 
 → Return to caller.
 
-#### If user chose a number
+**If user chose a number:**
 
-Store the selected item.
+Store the selected work unit's name from its `UNITS` row.
 
-→ Proceed to **C. Action Menu**.
+→ Proceed to **B. Action Menu**.
 
-## C. Action Menu
+## B. Action Menu
 
-> *Output the next fenced block as markdown (not a code block):*
+Fetch the action menu over the selected unit:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render completed-actions {selected.name}
 ```
-· · · · · · · · · · · ·
-**{selected.name:(titlecase)}** ({selected.status})
 
-- **`r`/`reactivate`** — Set status back to in-progress
-- **`b`/`back`** — Return to the list
-- **Ask** — Ask a question about this work unit
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-#### If user chose `r`/`reactivate`
+#### If user chose `r/reactivate`
 
-Set status back to in-progress:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {selected.name} status in-progress
-```
-
-Capture whether `completed_at` is set (used by the completed branches; harmless on the cancelled path):
+Run the reactivate transaction — one command restores `status: in-progress`, clears a stale `completed_at`, re-indexes the work unit's knowledge-base chunks when it was cancelled (completed units retain theirs), and commits:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {selected.name} completed_at
+node .claude/skills/workflow-engine/scripts/engine.cjs workunit reactivate {selected.name}
 ```
 
-**If `selected.status` was `cancelled`:**
+Fetch and emit the receipt — the `DISPLAY: kb warning` advisory (when carried) then the `DISPLAY: confirmation` section, each verbatim per its marker — adding `--warn` when the response's `warnings` is non-empty:
 
-Cancellation removed the work unit's chunks from the knowledge base. Restore them by loading **[reindex-work-unit.md](../../workflow-knowledge/references/reindex-work-unit.md)** with work_unit = `{selected.name}`.
-
-> *Output the next fenced block as a code block:*
-
-```
-"{selected.name:(titlecase)}" reactivated.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render workunit-receipt {selected.name} --verb reactivate [--warn]
 ```
 
 → Return to caller.
 
-**If `selected.status` was `completed` and `completed_at` is set:**
-
-Completed work units retain their chunks — no re-indexing needed. Clear the stale `completed_at`:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs delete {selected.name} completed_at
-```
-
-> *Output the next fenced block as a code block:*
-
-```
-"{selected.name:(titlecase)}" reactivated.
-```
-
-→ Return to caller.
-
-**If `selected.status` was `completed` and `completed_at` is not set:**
-
-Completed work units retain their chunks — no re-indexing needed.
-
-> *Output the next fenced block as a code block:*
-
-```
-"{selected.name:(titlecase)}" reactivated.
-```
-
-→ Return to caller.
-
-#### If user chose `b`/`back`
+#### If user chose `b/back`
 
 → Return to **A. Display List**.
 
 #### If user asked a question
 
-Answer the question.
+Answer the question. The question sets the gate aside; once the exchange looks settled, ask in conversation whether they are ready to move on, and on yes put it back:
 
-→ Return to **C. Action Menu**.
+→ Return to **B. Action Menu**.

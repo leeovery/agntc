@@ -6,63 +6,70 @@
 
 No active work found. Offer to start something new, with option to view completed/cancelled work if any exist.
 
-> *Output the next fenced block as a code block:*
+## A. Display and Menu
 
+Render the workflow overview snapshot — with no active work it carries the empty-state display and start menu:
+
+```bash
+node .claude/skills/workflow-start/scripts/gateway.cjs view
 ```
-●───────────────────────────────────────────────●
-  Workflow Overview
-●───────────────────────────────────────────────●
 
-No active work found.
+The output is one snapshot in three demarcated sections:
 
-@if(completed_count > 0 || cancelled_count > 0)
-{completed_count} completed, {cancelled_count} cancelled.
-@endif
-```
+- **DATA** — reasoning surface: state flags, counts, and the `ACTIONS` table — one line per menu key, `key  word  action  work_unit  → route`, with `(pre_seed: …)` markers on start-new entries. Reason from it; never display or restate it.
+- **TITLE** — the view's chrome heading. Emit verbatim per its marker, directly above the display.
+- **DISPLAY** — the empty-state overview. Emit verbatim per its marker. Never redraw, reflow, or trim it.
+- **MENU** — the start menu. Emit verbatim per its marker.
+
+Emit the TITLE and DISPLAY sections verbatim per their markers, then the signpost blockquote below, then the MENU section verbatim per its marker.
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Pick a type if you know it, or start unsure and we'll figure out
-> the shape together. Each type follows its own pipeline.
-
-· · · · · · · · · · · ·
-What would you like to start?
-
-- **`s`/`start`** — Not sure what kind yet — describe it and we'll shape it
-- **`f`/`feature`** — Single topic: (research →) discussion → spec → plan → implement → review
-- **`e`/`epic`** — Multiple topics, multi-session, same pipeline per topic
-- **`b`/`bugfix`** — Investigation → spec → plan → implement → review
-- **`q`/`quick-fix`** — Scoping → implement → review (no formal planning)
-- **`c`/`cross-cutting`** — (Research →) discussion → spec (patterns or policies that inform other work)
-@if(has_inbox)
-- **`i`/`inbox`** — View the inbox and start from an item ({inbox_count} items)
-@endif
-@if(completed_count > 0 || cancelled_count > 0)
-- **`v`/`view`** — View completed & cancelled work units
-@endif
-
-Select an option:
-· · · · · · · · · · · ·
+> Pick a type if you know it, or start unsure and we'll figure out the shape together. Each type follows its own pipeline.
 ```
 
 **STOP.** Wait for user response.
 
-#### If user chose `i`/`inbox`
+→ Proceed to **B. Handle Selection**.
 
-→ Load **[start-from-inbox.md](start-from-inbox.md)** and follow its instructions as written.
+---
 
-→ Return to caller.
+## B. Handle Selection
 
-#### If user chose a start-new option (`s`, `f`, `e`, `b`, `q`, or `c`)
+Match the user's input to its `ACTIONS` entry — a command option's letter by `key`, its long form by `word`. Every decision below reads the entry's `action` value, never its label text.
 
-Set the work-type pre-seed from the pick — `s` → `none`, otherwise the matching type (feature / epic / bugfix / quick-fix / cross-cutting).
+#### If `action` is `open_baseline`
 
-→ Load **[route-to-discovery.md](route-to-discovery.md)** with work_type = `{work_type}`, inbox_seeds = `none`.
+Invoke `/workflow-baseline` — it reads the baseline status and routes itself.
 
-#### If user chose `v`/`view`
+This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
 
-→ Load **[view-completed.md](view-completed.md)** and follow its instructions as written.
+#### If `action` is `open_roadmap`
+
+Invoke `/workflow-roadmap open` — it reads the roadmap state and routes itself.
+
+This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
+
+#### If `action` is `open_help`
+
+Invoke `/workflow-help` — it opens the help home.
+
+This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
+
+#### If `action` is `view_inbox`
+
+Load **[start-from-inbox.md](start-from-inbox.md)** and follow its instructions as written.
+
+→ Return to **A. Display and Menu**.
+
+#### If `action` is `start_new`
+
+→ Load **[route-to-discovery.md](route-to-discovery.md)** with work_type = `{pre_seed}`, inbox_seeds = `none`.
+
+#### If `action` is `view_completed`
+
+Load **[view-completed.md](view-completed.md)** and follow its instructions as written.
 
 Re-run discovery to refresh state after potential changes.
 

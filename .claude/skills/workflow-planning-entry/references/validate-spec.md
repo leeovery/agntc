@@ -4,56 +4,20 @@
 
 ---
 
-Check if specification exists and is ready using the manifest CLI.
+Check the specification prerequisite — the engine derives the verdict from manifest state:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.specification.{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs render entry-gate {work_unit}.planning.{topic}
 ```
 
-#### If specification phase doesn't exist or has no status
+#### If the response is empty
 
-> *Output the next fenced block as a code block:*
-
-```
-Specification Missing
-
-No specification found for "{topic:(titlecase)}".
-
-The specification must be completed before planning can begin.
-```
-
-**STOP.** Do not proceed — terminal condition.
-
-#### If specification exists but status is `in-progress`
-
-> *Output the next fenced block as a code block:*
-
-```
-Specification In Progress
-
-The specification for "{topic:(titlecase)}" is not yet completed.
-
-The specification must be completed before planning can begin.
-```
-
-**STOP.** Do not proceed — terminal condition.
-
-#### If specification exists and status is `proposed`
-
-> *Output the next fenced block as a code block:*
-
-```
-Specification Not Started
-
-"{topic:(titlecase)}" is a proposed grouping — the specification
-hasn't been started yet.
-
-Start the specification first, then return to planning once it
-completes.
-```
-
-**STOP.** Do not proceed — terminal condition.
-
-#### If specification exists and status is `completed`
+The specification is completed and settled — clear to plan.
 
 → Return to caller.
+
+#### If the response carried `DISPLAY: entry blocker`
+
+Emit both sections verbatim per their markers — the red blocker line, then its guidance.
+
+**STOP.** Do not proceed — terminal condition.

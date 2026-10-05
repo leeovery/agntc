@@ -4,22 +4,22 @@
 
 ---
 
-Validate the selected work unit against the discovery output and store its data.
+Validate the selected work unit against the discovery index. Read the index from the `select` response when the user picked at Step 3, from the Step 1 dump when the work unit arrived as an argument.
 
-#### If `work_unit` not found in quick_fixes array
+#### If `work_unit` not found in that index's `=== QUICK-FIXES (N) ===` section
 
-> *Output the next fenced block as a code block:*
+Fetch the terminal display — the `view` snapshot for an unknown name carries it:
 
+```bash
+node .claude/skills/workflow-continue-quickfix/scripts/gateway.cjs view {work_unit}
 ```
-No active quick-fix named "{work_unit}" found.
 
-Run /workflow-start to see available quick-fixes or begin a new one.
-```
+Emit its `DISPLAY: not found` section verbatim per its marker.
 
 **STOP.** Do not proceed — terminal condition.
 
 #### Otherwise
 
-Store the matched quick-fix's data (name, next_phase, phase_label, completed_phases).
+The selection is valid. Phase state for this work unit comes from the `view` snapshot at Step 5.
 
 → Return to caller.

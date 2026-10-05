@@ -8,7 +8,7 @@ Display a readable summary of a plan's phases, tasks, and status.
 
 ## A. Determine Topic
 
-#### If work_type is `feature` or `bugfix`
+#### If work_type is not `epic`
 
 Set `topic` = `selected.name`.
 
@@ -16,17 +16,13 @@ Set `topic` = `selected.name`.
 
 #### If work_type is `epic`
 
-Query manifest for all planning topics:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get '{selected.name}.planning.*' status
-```
+Read `planning_topics` from the caller's `manage {selected.name}` snapshot DATA.
 
 **If only one topic exists:**
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Automatically proceeding with "{topic:(titlecase)}".
 ```
 
@@ -36,21 +32,15 @@ Set `topic` to that topic.
 
 **If multiple topics exist:**
 
-> *Output the next fenced block as markdown (not a code block):*
+Fetch and emit the `MENU: plan topics` section verbatim per its marker (its numbering follows `planning_topics` order):
 
-```
-· · · · · · · · · · · ·
-Which plan would you like to view?
-
-@foreach(topic in planning_topics)
-{N}. **{topic.name:(titlecase)}** ({topic.status})
-@endforeach
-· · · · · · · · · · · ·
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render plan-topics {selected.name}
 ```
 
 **STOP.** Wait for user response.
 
-Set `topic` to the selected topic.
+Resolve the number against `planning_topics` and set `topic` to the selected topic.
 
 → Proceed to **B. Read Plan**.
 
@@ -61,15 +51,15 @@ Set `topic` to the selected topic.
 Read the `format` and `external_id` from the manifest:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {selected.name}.planning.{topic} format
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {selected.name}.planning.{topic} external_id
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {selected.name}.planning.{topic} format
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {selected.name}.planning.{topic} external_id
 ```
 
 Use `external_id` as the plan-level parent identifier when following the format adapter's instructions below.
 
 → Load **[reading.md](../../workflow-planning-process/references/output-formats/{format}/reading.md)** and follow its instructions as written.
 
-→ Proceed to **C. Display Summary**.
+→ On return, proceed to **C. Display Summary**.
 
 ---
 

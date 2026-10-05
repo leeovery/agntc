@@ -4,77 +4,74 @@
 
 ---
 
-When the discussion session returns here (either through natural convergence or user-initiated conclusion), first check the `## Triage` section of `.workflows/{work_unit}/discussion/{topic}.md`.
+When the discussion session returns here (the map settled, or the user signalled conclusion), first check the topic's triage queue:
 
-**If `## Triage` is not `(none)`:**
-
-A concern was rerouted into this topic after drain ran this session. It must be folded before concluding.
-
-> *Output the next fenced block as a code block:*
-
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs topic queue {work_unit} discussion {topic}
 ```
-  ⚑ Triage not empty — {N} rerouted concern(s) awaiting fold.
-    Returning to the session to drain and explore them before concluding.
+
+**If `count` is non-zero:**
+
+A rerouted concern is still queued — it must be discussed and folded before concluding. Render the blocker and emit both its sections verbatim per their markers — the red blocker line, then its guidance:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render triage-block {work_unit}.discussion.{topic}
 ```
 
 → Return to **[the skill](../SKILL.md)** for **Step 5**.
 
-**If `## Triage` is `(none)`:**
+**If `count` is `0`:**
 
-> *Output the next fenced block as markdown (not a code block):*
-
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render conclude-gate {work_unit}.discussion.{topic}
 ```
-· · · · · · · · · · · ·
-Conclude this discussion and mark as completed?
 
-- **`y`/`yes`** — Conclude discussion
-- **`n`/`no`** — Continue discussing
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
 #### If `yes`
 
-1. Ensure the Summary section is populated — Key Insights, Open Threads, Current State
-2. Set discussion status to completed via manifest CLI:
+1. Ensure the Summary section is populated — Key Insights, Open Threads, Current State (substance only — never readiness declarations, decided counts, or review-cycle tallies)
+2. Check for landed input once more — follow **L. Landed Input** in **[discussion-session.md](discussion-session.md)**: a landing since the close's own check is read and put to the user, and its landed branches return the conversation to the session loop — the conclusion re-enters at the next signal; every other return continues here.
+3. Mark the discussion completed — the engine sets the status and indexes the artifact into the knowledge base:
    ```bash
-   node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.discussion.{topic} status completed
+   node .claude/skills/workflow-engine/scripts/engine.cjs topic complete {work_unit} discussion {topic}
    ```
-3. Final commit
-4. Index the completed artifact into the knowledge base:
+4. Final commit:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} --topic discussion/{topic} -m "discussion({work_unit}): complete {topic} discussion"
+   ```
 
-```bash
-node .claude/skills/workflow-knowledge/scripts/knowledge.cjs index .workflows/{work_unit}/discussion/{topic}.md
-```
+   When the `complete` response's `warnings` is non-empty, fetch and emit the `DISPLAY: kb warning` section verbatim per its marker — the warning never blocks:
 
-If the index command fails, display the error but do not block — the artifact is already saved:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs render topic-receipt {work_unit}.discussion.{topic} --verb complete --warn
+   ```
 
-> *Output the next fenced block as a code block:*
+5. Sweep for leavings:
 
-```
-⚑ Knowledge indexing warning
-  {error details}
-  The artifact is saved. Indexing can be retried later.
-```
+   ```bash
+   git status --porcelain -- .workflows/{work_unit}
+   ```
 
-5. Invoke the bridge:
+   **If dirt remains under another topic's paths:** run `node .claude/skills/workflow-engine/scripts/engine.cjs presence scan {work_unit}`. Read the `sessions` rows only — the response's deferral section is the analysis dispatch's and is not emitted here. Dirt under a `held` row's topic belongs to that session — leave it, however long it has idled. For each dirty topic with no held presence — a dead session's leavings — commit it action-scoped: `node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} --topic {phase}/{dirty_topic} --sweep -m "chore({work_unit}/{dirty_topic}): sweep session leavings"`.
+
+   **Otherwise:** nothing to sweep — continue.
+
+6. Closing recap:
+
+   → Load **[closing-recap.md](../../workflow-shared/references/closing-recap.md)** with phase = `discussion`, work_unit = `{work_unit}`, topic = `{topic}`.
+
+7. Hand off to the pipeline bridge:
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Discussion complete. The specification phase will
-> synthesise your decisions into a formal document.
+> Discussion complete. The specification phase will synthesise your decisions into a formal document.
 ```
 
-```
-Pipeline bridge for: {work_unit}
-Completed phase: discussion
-
-Invoke the workflow-bridge skill to enter plan mode with continuation instructions.
-```
-
-**STOP.** Do not proceed — terminal condition.
+Invoke `/workflow-bridge {work_unit} discussion`.
 
 #### If `no`
 

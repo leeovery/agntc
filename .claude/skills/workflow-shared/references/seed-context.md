@@ -1,6 +1,6 @@
 # Read the Work's Seed
 
-*Shared reference for the research, discussion, investigation, and scoping processing skills.*
+*Shared reference for the research, experiment, discussion, investigation, and scoping processing skills.*
 
 ---
 
@@ -9,7 +9,7 @@ The work unit's **seed** is its origin — a promoted inbox item, tracked in `ma
 ## Read the Seed
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit} seeds
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit} seeds
 ```
 
 `get` returns empty on an absent field — treat empty as "no seed".

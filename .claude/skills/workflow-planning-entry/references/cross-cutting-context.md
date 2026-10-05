@@ -10,86 +10,92 @@ Issue a semantic query filtered to `work_type: cross-cutting` so only specs rele
 
 ## A. Build the query text
 
-Read the current topic's specification at `.workflows/{work_unit}/specification/{topic}/specification.md`. Extract a short natural-language description of the feature — the opening summary, the problem statement, or the first substantive paragraph after the frontmatter. Aim for 1-3 sentences that describe *what the plan is about*.
+Read the current topic's specification at `.workflows/{work_unit}/specification/{topic}/specification.md`. Extract a short natural-language description of the feature — the opening summary, the problem statement, or the first substantive paragraph. Aim for 1-3 sentences that describe *what the plan is about*.
 
 Do not use the topic slug as the query term — slugs are weak semantic signal. If the spec is unusually terse and yields no natural description, construct a descriptive phrase from the spec's headings.
 
 Store the resulting text as `{query_text}`.
+
+→ Proceed to **B. Flag in-progress cross-cutting specs**.
 
 ## B. Flag in-progress cross-cutting specs
 
 A semantic query only surfaces completed work. An in-progress cross-cutting spec may contain decisions that will bind this plan but aren't yet indexed — the user needs to be aware.
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs project list --type cross-cutting
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest list --work-type cross-cutting
 ```
 
-#### If no output (no cross-cutting work units exist)
+#### If the output is `[]` (no cross-cutting work units exist)
 
-→ Proceed to **C. Query the knowledge base**.
+No cross-cutting context exists to surface. Proceed without it.
+
+→ Return to caller.
 
 #### If cross-cutting work units found
 
-For each name, check specification status:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {cc_work_unit}.specification.{cc_work_unit} status
-```
-
-Collect work units whose spec status is `in-progress`, then assess whether any are relevant to the feature being planned (by topic overlap — a caching strategy is relevant if the feature involves data retrieval or API calls).
+The output is the full manifests — read each unit's spec status directly from `phases.specification.items.{name}.status`. Collect work units whose spec status is `in-progress`, then assess whether any are relevant to the feature being planned (by topic overlap — a caching strategy is relevant if the feature involves data retrieval or API calls).
 
 **If no in-progress specs exist, or none are relevant:**
 
-→ Proceed to **C. Query the knowledge base**.
+→ Proceed to **C. Check for completed cross-cutting specs**.
 
 **If relevant in-progress specs exist:**
 
-> *Output the next fenced block as a code block:*
+Write the relevant work unit names to `.workflows/.cache/{work_unit}/planning/{topic}/cross-cutting.json` with the Write tool — `{"units": ["{cc_work_unit}", …]}` — then render it:
 
-```
-Cross-cutting specifications still in progress:
-These may contain architectural decisions relevant to this plan.
-
-  • {cc_work_unit}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render cross-cutting-gate --file .workflows/.cache/{work_unit}/planning/{topic}/cross-cutting.json
 ```
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Proceed without these, or complete them first?
-
-- **`c`/`continue`** — Plan without them
-- **`s`/`stop`** — Complete them first
-· · · · · · · · · · · ·
-```
+Emit the call's DISPLAY and MENU sections verbatim per their markers.
 
 **STOP.** Wait for user response.
 
-**If user chose `s`/`stop`:**
+**If user chose `s/stop`:**
 
 **STOP.** Do not proceed — terminal condition.
 
-**If user chose `c`/`continue`:**
+**If user chose `c/continue`:**
 
-→ Proceed to **C. Query the knowledge base**.
+→ Proceed to **C. Check for completed cross-cutting specs**.
 
-## C. Query the knowledge base
+## C. Check for completed cross-cutting specs
+
+Only completed specifications are indexed, so the query finds nothing without one.
+
+#### If no cross-cutting work unit's specification is `completed`
+
+No cross-cutting context exists to surface. Proceed without it.
+
+→ Return to caller.
+
+#### Otherwise
+
+→ Proceed to **D. Query the knowledge base**.
+
+## D. Query the knowledge base
 
 Run a targeted semantic query filtered to completed cross-cutting specs:
 
 ```bash
-node .claude/skills/workflow-knowledge/scripts/knowledge.cjs query "{query_text}" --work-type cross-cutting --phase specification --limit 10
+node .claude/skills/workflow-engine/scripts/engine.cjs knowledge query "{query_text}" --work-type cross-cutting --phase specification --limit 10
 ```
 
 #### If the command exits with a non-zero code
 
-Load **[knowledge-usage.md](../../workflow-knowledge/references/knowledge-usage.md)** for **D. Query failure handling** and follow its instructions. When D returns:
+→ Load **[knowledge-usage.md](../../workflow-shared/references/knowledge-usage.md)** for **D. Query failure handling** and follow its instructions. When it returns:
 
-- **If the user chose `skip`** — → Return to caller (plan proceeds without cross-cutting context).
-- **If a retry succeeded** — re-evaluate stdout using the `[0 results]` or results-returned branches below.
+- **If the user chose `skip`** — the plan proceeds without cross-cutting context. → Return to caller.
+- **If a retry succeeded** — results are now available. → Proceed to **E. Interpret the results**.
 
-#### If stdout is `[0 results]`
+#### Otherwise
+
+→ Proceed to **E. Interpret the results**.
+
+## E. Interpret the results
+
+#### If the query reports `[0 results]`
 
 No cross-cutting specs are semantically relevant to this plan. Proceed without cross-cutting context.
 
@@ -97,19 +103,28 @@ No cross-cutting specs are semantically relevant to this plan. Proceed without c
 
 #### If results are returned
 
-Read the returned chunks. Group by work unit — each unique `work_unit/topic` in the provenance lines represents one cross-cutting spec. For each, if the chunks alone are not enough to judge relevance, read the source file (`Source:` line) for full detail.
+→ Load **[knowledge-usage.md](../../workflow-shared/references/knowledge-usage.md)** for **C. Reading the results** and follow its instructions, grouping the results by work unit — each unique `work_unit/topic` in the provenance lines represents one cross-cutting spec.
 
-Keep only the specs that are genuinely relevant to the plan being built. A chunk matching on generic vocabulary (e.g., both mention "authentication") but addressing unrelated concerns should be dropped.
+Keep only the specs that are genuinely relevant to the plan being built. A result matching on generic vocabulary (e.g., both mention "authentication") but addressing unrelated concerns should be dropped.
 
-> *Output the next fenced block as a code block:*
+**If none are relevant:**
 
+Proceed without cross-cutting context.
+
+→ Return to caller.
+
+**If relevant specs remain:**
+
+Write each one's work unit name and a brief summary of its key decisions relevant to this plan to `.workflows/.cache/{work_unit}/planning/{topic}/cross-cutting-references.json` with the Write tool — `{"units": [{"name": "{cc_work_unit}", "summary": "{brief summary}"}, …]}` — then render it:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render cross-cutting-references --file .workflows/.cache/{work_unit}/planning/{topic}/cross-cutting-references.json
 ```
-Cross-cutting specifications to reference:
-  • {cc_work_unit}: {brief summary of key decisions relevant to this plan}
-```
+
+Emit the call's DISPLAY section verbatim per its marker.
 
 These specifications contain validated architectural decisions that should inform the plan. The planning skill will incorporate them as a "Cross-Cutting References" section in the plan.
 
-Store the confirmed cross-cutting specs (work unit name and source file path) for handoff to the planning process.
+Store the confirmed cross-cutting specs (work unit name and source file path — the path alone, without the `Source:` line's range) for handoff to the planning process.
 
 → Return to caller.

@@ -4,78 +4,32 @@
 
 ---
 
-Check if plan and implementation exist and are ready via manifest CLI.
+Check if plan and implementation exist and are ready.
 
-## A. Existence Checks
+## A. Prerequisite Gate
+
+The engine derives the verdict from manifest state:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.planning.{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs render entry-gate {work_unit}.review.{topic}
 ```
 
-#### If plan doesn't exist (`false`)
+#### If the response carried `DISPLAY: entry blocker`
 
-> *Output the next fenced block as a code block:*
-
-```
-Plan Missing
-
-No plan found for "{topic:(titlecase)}".
-
-A completed plan and completed implementation are required for review.
-```
+Emit both sections verbatim per their markers — the red blocker line, then its guidance.
 
 **STOP.** Do not proceed — terminal condition.
 
-#### If plan exists (`true`)
+#### If the response is empty
 
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.implementation.{topic}
-```
-
-**If implementation doesn't exist (`false`):**
-
-> *Output the next fenced block as a code block:*
-
-```
-Implementation Missing
-
-No implementation found for "{topic:(titlecase)}".
-
-A completed implementation is required for review.
-```
-
-**STOP.** Do not proceed — terminal condition.
-
-**If implementation exists (`true`):**
-
-→ Proceed to **B. Implementation Status**.
-
-## B. Implementation Status
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.implementation.{topic} status
-```
-
-#### If implementation status is not `completed`
-
-> *Output the next fenced block as a code block:*
-
-```
-Implementation Not Complete
-
-The implementation for "{topic:(titlecase)}" is not yet completed.
-```
-
-**STOP.** Do not proceed — terminal condition.
-
-#### If implementation status is `completed`
+Plan and implementation are completed.
 
 → Proceed to **C. Review State**.
 
 ## C. Review State
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.review.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.review.{topic} status
 ```
 
 #### If output is empty (review does not exist)
@@ -84,14 +38,18 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.revie
 
 #### If status is `completed`
 
-Reset to in-progress:
+Reopen it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.review.{topic} status in-progress
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} review {topic}
 ```
+
+→ Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `review`.
 
 → Return to caller.
 
 #### If status is `in-progress`
+
+→ Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `review`.
 
 → Return to caller.

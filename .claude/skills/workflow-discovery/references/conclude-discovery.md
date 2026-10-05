@@ -8,21 +8,18 @@ Finalise the discovery session and hand off through the bridge. Used by every wo
 
 Two anti-patterns (all work types):
 
-- **Don't index here.** Epic discovery indexing is the harvest's job — `confirm-and-persist.md` §D indexes each finalised epic session log into the knowledge base. Single-phase discovery logs are thin shape-and-route and aren't indexed at all. Either way, conclusion does not call `knowledge index`.
+- **Don't index here.** Epic discovery indexing is the harvest's job — `confirm-and-persist.md` §C's `discovery-session close` indexes each finalised epic session log into the knowledge base. Single-phase discovery logs are thin shape-and-route and aren't indexed at all. Either way, conclusion does not call `knowledge index`.
 - **Do not set a phase-level `status: completed`.** Discovery is alive as long as the work unit is in-progress; phase completion is emergent from the items themselves, not a manifest field on the phase.
 
 `next_phase` is set by the single-phase endpoints (`research` / `discussion` / `investigation` / `scoping`); epic leaves it unset.
 
 ## A. Final Sweep
 
-Check `git status`. If the working tree is dirty (e.g. an endpoint's Conclusion write or marker clear), commit the residual changes:
+Commit any residual changes (e.g. an endpoint's Conclusion write or marker clear) — a clean tree reports `committed: null` and is fine:
 
 ```bash
-git add -- .workflows/{work_unit}/
-git commit -m "discovery({work_unit}): finalise session log"
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "discovery({work_unit}): finalise session log" --discovery
 ```
-
-If the working tree is already clean, skip the commit.
 
 → Proceed to **B. Bridge**.
 
@@ -31,16 +28,9 @@ If the working tree is already clean, skip the commit.
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Discovery complete — entering plan mode to hand off the next
-> step in a clean context.
+> Discovery complete — entering plan mode to hand off the next step in a clean context.
 ```
 
-```
-Pipeline bridge for: {work_unit}
-Completed phase: discovery
-@if(next_phase is set) Next phase: {next_phase} @endif
+`next_phase` is the destination the endpoint supplied, or the literal `none` when it supplied nothing (the bridge treats `none` as absent and computes the destination itself).
 
-Invoke the workflow-bridge skill to enter plan mode with continuation instructions.
-```
-
-**STOP.** Do not proceed — terminal condition.
+Invoke `/workflow-bridge {work_unit} discovery {next_phase}` via the Skill tool.

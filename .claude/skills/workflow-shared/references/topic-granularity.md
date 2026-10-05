@@ -1,6 +1,6 @@
 # Topic Granularity
 
-*Shared reference. Loaded by `workflow-discovery/references/discovery-guidelines.md`, `workflow-shared/references/research-analysis.md`, `workflow-shared/references/discovery-gap-analysis.md`, and `workflow-legacy-research-split/references/dialog.md`.*
+*Shared reference. Loaded by `workflow-discovery/references/topic-synthesis.md`, `workflow-shared/references/discovery-gap-analysis.md`, and `workflow-legacy-research-split/references/dialog.md`.*
 
 ---
 
@@ -21,5 +21,9 @@ A source surfacing pipeline ingestion, schema validation, transformation rules, 
 ## When to split
 
 Topics have genuinely different stakeholders, concerns, or decision spaces that can be explored independently.
+
+## Framing is input, not a verdict
+
+How the source carved the material — a user's mid-conversation "split them", a document's own section boundaries — informs the test, never answers it. Apply the independence test to the substance at synthesis time; where its shape disagrees with the framing, propose the test's shape — the confirmation gate downstream is where a genuine override lands, with the proposal in view.
 
 → Return to caller.

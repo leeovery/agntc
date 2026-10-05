@@ -4,20 +4,20 @@
 
 ---
 
-Check if a discussion already exists for this work unit and topic.
+Branch on the `phase_status` the caller read in Step 3 — no re-read.
 
-Use the manifest CLI to check discussion phase state:
+#### If status is `triaged`
+
+Rerouted concerns are parked on this topic, but no session has ever run — this is a first start, not a resume. No reopen, no phase note, no reconcile advisory; `source` keeps its value.
+
+→ Return to caller.
+
+#### If status is `in-progress`
+
+Render and emit the section verbatim per its marker:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.discussion.{topic}
-```
-
-#### If discussion exists and status is `in-progress`
-
-> *Output the next fenced block as a code block:*
-
-```
-Resuming discussion: {topic:(titlecase)}
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.discussion.{topic} --verb Resuming
 ```
 
 Set source="continue".
@@ -26,18 +26,18 @@ Set source="continue".
 
 → Return to caller.
 
-#### If discussion exists and status is `completed`
+#### If status is `completed`
 
-Reset to in-progress:
+Reopen it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.discussion.{topic} status in-progress
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} discussion {topic}
 ```
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Reopening discussion: {topic:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.discussion.{topic} --verb Reopening
 ```
 
 Set source="continue".
@@ -45,3 +45,15 @@ Set source="continue".
 → Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `discussion`.
 
 → Return to caller.
+
+#### If status is `postponed`
+
+The topic waits on the roadmap — it returns through the epic menu's `f/forward` row, never through entry. Tell the user in one line.
+
+**STOP.** Do not proceed — terminal condition.
+
+#### Otherwise
+
+The discussion is cancelled — its topic returns through the epic menu's reactivate option, never through entry. Tell the user in one line.
+
+**STOP.** Do not proceed — terminal condition.

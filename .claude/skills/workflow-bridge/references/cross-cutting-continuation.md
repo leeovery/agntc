@@ -6,116 +6,112 @@
 
 Route a cross-cutting concern to its next pipeline phase, with an option to revisit earlier phases.
 
-Cross-cutting pipeline: (Research) → Discussion → Specification (terminal)
-
-## Phase Routing
-
-Use `next_phase` from discovery output to determine the target skill:
-
-| next_phase | Target Skill |
-|------------|--------------|
-| research | workflow-research-entry |
-| discussion | workflow-discussion-entry |
-| specification | workflow-specification-entry |
-| done | (terminal) |
+Cross-cutting pipeline: (Research) → (Experiment) → Discussion → Specification (terminal)
 
 ## A. Check Terminal
 
 #### If `next_phase` is `done`
 
-Set the work unit status to completed:
+Complete the work unit — one command sets `status: completed`, stamps `completed_at`, and commits:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit} status completed
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit} completed_at $(date +%Y-%m-%d)
+node .claude/skills/workflow-engine/scripts/engine.cjs workunit complete {work_unit} -m "workflow({work_unit}): complete cross-cutting pipeline"
 ```
 
-Commit: `workflow({work_unit}): complete cross-cutting pipeline`
+Fetch and emit the receipt's `DISPLAY: confirmation` section verbatim per its marker:
 
-> *Output the next fenced block as a code block:*
-
-```
-Cross-Cutting Completed
-
-"{work_unit:(titlecase)}" has completed all pipeline phases.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render workunit-receipt {work_unit} --verb complete --pipeline
 ```
 
 **STOP.** Do not proceed — terminal condition.
+
+#### If `outcome` is `paused`
+
+A paused phase revisits nothing — the pipeline continues at what it waits on. Set `target_phase` = `next_phase`.
+
+→ Proceed to **D. Enter Plan Mode**.
 
 #### Otherwise
 
 Set `target_phase` = `next_phase`.
 
-→ Proceed to **B. Check for Earlier Phases**.
+→ Proceed to **B. Offer Next Phase**.
 
-## B. Check for Earlier Phases
+## B. Offer Next Phase
 
-Check if there are completed phases earlier in the pipeline that the user could revisit. Look at the discovery output's `phases` data — any phase with status `completed` that comes before `next_phase` in the pipeline order.
+The engine derives the offer from manifest state — the revisit row where an earlier phase is completed. An empty response means continuing is the only way forward:
 
-#### If no earlier completed phases exist
-
-→ Proceed to **E. Enter Plan Mode**.
-
-#### If earlier completed phases exist
-
-→ Proceed to **C. Offer Revisit**.
-
-## C. Offer Revisit
-
-> *Output the next fenced block as markdown (not a code block):*
-
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render next-phase-gate {work_unit} --prev {completed_phase} --next {next_phase}
 ```
-· · · · · · · · · · · ·
-{previous_phase:(titlecase)} completed for "{work_unit:(titlecase)}".
 
-- **`y`/`yes`** — Proceed to {next_phase}
-- **`r`/`revisit`** — Revisit an earlier phase
-· · · · · · · · · · · ·
-```
+#### If the response is empty
+
+→ Proceed to **D. Enter Plan Mode**.
+
+#### If the response carried `MENU: next phase gate`
+
+Emit the section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-#### If user chose `y`/`yes`
+**If user chose `y/yes`:**
 
-→ Proceed to **E. Enter Plan Mode**.
+→ Proceed to **D. Enter Plan Mode**.
 
-#### If user chose `r`/`revisit`
+**If user chose `r/revisit`:**
 
-→ Proceed to **D. Select Phase**.
+→ Proceed to **C. Select Phase**.
 
-## D. Select Phase
+## C. Select Phase
 
-> *Output the next fenced block as markdown (not a code block):*
+Fetch and emit the `MENU: revisit phases` section verbatim per its marker (its numbering follows `revisitable_phases` order):
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render revisit-phases {work_unit}
 ```
-· · · · · · · · · · · ·
-Which phase would you like to revisit?
-
-- **`1`** — {phase:(titlecase)} — completed
-- **`2`** — ...
-- **`b`/`back`** — Return to the previous menu
-
-Select an option:
-· · · · · · · · · · · ·
-```
-
-List only completed phases that come before `next_phase`.
 
 **STOP.** Wait for user response.
 
 #### If user chose `back`
 
-→ Return to **C. Offer Revisit**.
+→ Return to **B. Offer Next Phase**.
 
 #### If user chose a phase
 
-Set `target_phase` = selected phase.
+Set `target_phase` = the number's phase in `revisitable_phases`.
 
-→ Proceed to **E. Enter Plan Mode**.
+→ Proceed to **D. Enter Plan Mode**.
 
-## E. Enter Plan Mode
+## D. Enter Plan Mode
 
-Call the `EnterPlanMode` tool to enter plan mode. Then write the following content to the plan file:
+#### If `outcome` is `paused`
+
+Call the `EnterPlanMode` tool to enter plan mode. Then write the following content to the plan file — resolve the placeholders, then output the result **verbatim: it is the complete plan**. Plan mode's usual job does not apply here: nothing to investigate, verify, or design, and nothing learned this session is added — the next context is designed to start empty, and additions bias it. The one sanctioned addition: anything the user explicitly asked to carry forward goes under a final `## User instructions` heading, after the template:
+
+```
+# Continue Cross-Cutting: {work_unit}
+
+The previous phase paused on a wait — the pipeline continues at what it waits on.
+
+## Next Step
+
+Invoke `/workflow-{target_phase}-entry cross-cutting {work_unit}`
+
+Arguments: work_type = cross-cutting, work_unit = {work_unit} (topic inferred from work_unit)
+The skill will skip discovery and proceed directly to validation.
+
+## How to proceed
+
+**To the human**: approve with **"Clear context and continue"** — this project's setup keeps that plan-mode option enabled. A fresh context will follow the Next Step above.
+```
+
+Call the `ExitPlanMode` tool to present the plan to the user for approval.
+
+#### Otherwise
+
+Call the `EnterPlanMode` tool to enter plan mode. Then write the following content to the plan file — resolve the conditionals and placeholders, then output the result **verbatim: it is the complete plan**. Plan mode's usual job does not apply here: nothing to investigate, verify, or design, and nothing learned this session is added — the next context is designed to start empty, and additions bias it. The one sanctioned addition: anything the user explicitly asked to carry forward goes under a final `## User instructions` heading, after the template:
 
 ```
 # Continue Cross-Cutting: {work_unit}
@@ -131,7 +127,7 @@ The skill will skip discovery and proceed directly to validation.
 
 ## How to proceed
 
-Clear context and continue.
+**To the human**: approve with **"Clear context and continue"** — this project's setup keeps that plan-mode option enabled. A fresh context will follow the Next Step above.
 ```
 
 Call the `ExitPlanMode` tool to present the plan to the user for approval.

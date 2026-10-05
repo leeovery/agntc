@@ -6,17 +6,19 @@
 
 ## A. Background Agents
 
-Two types of background agent operate during research. Load their lifecycle instructions now — apply them at the appropriate moments during the session loop.
-
-→ Load **[review-agent.md](review-agent.md)** and follow its instructions as written.
+One kind of background agent operates during research — the deep dive — and two protocol files cover the topic's triage queue and the files the user shares. Load their instructions now — they run at the appropriate moments during the session loop.
 
 → Load **[deep-dive-agent.md](deep-dive-agent.md)** and follow its instructions as written.
+
+→ Load **[rerouted-concerns.md](../../workflow-shared/references/rerouted-concerns.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research` — a protocol, not a step: the session loop's triage check enters its **A. Check**; nothing runs at load time.
+
+→ Load **[landing-shared-files.md](../../workflow-shared/references/landing-shared-files.md)** with work_unit = `{work_unit}`, origin = `research/{topic}` — a protocol, not a step: the session loop enters its **A. Land It** when the user offers a path; nothing runs at load time.
 
 ---
 
 ## B. Session Loop
 
-Focused, single-topic session. No splitting, no multi-file management.
+Focused, single-topic session — one research file; off-topic concerns route through **E. Off-Topic Concerns**.
 
 → Load **[session-loop.md](session-loop.md)** and follow its conversation process.
 
@@ -24,40 +26,47 @@ Focused, single-topic session. No splitting, no multi-file management.
 
 ## C. Session Conclusion
 
-When the topic feels well-explored or the user indicates they're done:
+#### If the user's sign-off leaves the topic open
 
-→ Proceed to **D. In-Flight Agent Handling**.
+Stepping away for the day, picking it up next time — a pause, not a done-signal. Commit what the exchange left and end the turn.
+
+→ Return to **B. Session Loop**.
+
+#### If the topic feels well-explored or the user indicates the topic is done
+
+→ Proceed to **D. In-Flight Dive Handling**.
 
 ---
 
-## D. In-Flight Agent Handling
+## D. In-Flight Dive Handling
 
-Before concluding, check for in-flight agents. Scan the cache directory for review or deep-dive files with `status: pending` in their frontmatter.
+Before concluding, check for in-flight deep dives — run `node .claude/skills/workflow-engine/scripts/engine.cjs agent scan {work_unit} research {topic}` and read the response's `in_flight` list (dives dispatched but not yet returned). A dive an earlier session dispatched cannot still be running — each row's `created` timestamp tells you which those are; enter **C. Land and Fold** in **[deep-dive-agent.md](deep-dive-agent.md)** first — it closes the dead rows and folds what landed — then re-scan and count this session's `in_flight` rows alone.
 
-#### If no agents are in flight
+#### If a fold ended on a question to the user
+
+The conversation has the turn; the next done-signal re-enters here.
+
+→ Return to **B. Session Loop**.
+
+#### If no dive is in flight
 
 → Load **[topic-completion.md](topic-completion.md)** and follow its instructions as written.
 
 → Return to **B. Session Loop**.
 
-#### If agents are still running
+#### If dives are still running
 
-> *Output the next fenced block as markdown (not a code block):*
-
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render in-flight-agents-gate {work_unit}.research.{topic} --count {N}
 ```
-· · · · · · · · · · · ·
-There are still {N} background agents working.
 
-- **`w`/`wait`** — Wait for results before concluding
-- **`p`/`proceed`** — Conclude now (results will persist in cache for reference)
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
 **If `wait`:**
 
-Check for agent completion. When all agents have returned, delegate surfacing to the shared protocol loaded by review-agent.md and deep-dive-agent.md. The protocol applies the never-dump rules: two-phase surfacing, one finding at a time. Treat the current moment as a natural break — we are at phase conclusion, so the break check will pass.
+Watch for `agent scan` to promote each in-flight row to `pending`. When none remain in flight, fold each per **C. Land and Fold** in **[deep-dive-agent.md](deep-dive-agent.md)** — phase conclusion is the natural break.
 
 → Return to **B. Session Loop**.
 
@@ -73,19 +82,13 @@ Check for agent completion. When all agents have returned, delegate surfacing to
 
 When a concern surfaces that's beyond this topic's scope, a single-topic work type has no other topic to route it to.
 
-> *Output the next fenced block as markdown (not a code block):*
+Write the offer payload to `.workflows/.cache/{work_unit}/research/{topic}/off-topic-offer.json` with the Write tool (`{"concern": "…"}` — the concern's short title), then render it:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render off-topic-offer {work_unit}.research.{topic} --file .workflows/.cache/{work_unit}/research/{topic}/off-topic-offer.json
 ```
-· · · · · · · · · · · ·
-**{concern}** is beyond this topic's scope.
 
-- **`l`/`log`** — Capture it as an idea in the inbox for later
-@if(work_type == 'feature')
-- **`p`/`pivot`** — Convert this work to an epic so it can hold the concern as its own topic
-@endif
-- **`i`/`ignore`** — Note it in the research file and move on
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker. The pivot option is offered only for a feature — the surface derives that from the work type.
 
 **STOP.** Wait for user response.
 
@@ -97,24 +100,16 @@ Capture the concern via the `workflow-log-idea` skill so it lands in the inbox f
 
 **If `pivot`:**
 
-1. Load **[pivot-to-epic.md](../../workflow-shared/references/pivot-to-epic.md)** with work_unit = `{work_unit}`. The work unit is now an epic with this topic on its discovery map.
+1. Load **[pivot-to-epic.md](../../workflow-shared/references/pivot-to-epic.md)** with work_unit = `{work_unit}`. The work unit is now an epic (conversion committed) with this topic on its discovery map.
 
 2. From the context you already have, derive two values: `proposed_name` — a kebab-case topic name for the concern; and `concern` — the concern with the full context discussed about it.
 
-3. Load **[triage-landing.md](../../workflow-shared/references/triage-landing.md)** with work_unit = `{work_unit}`, target = `{proposed_name}`, concern = `{concern}`, origin = `{topic}`, phase = `research`, date = `{today}`. It validates the name against the map and, on a clash, prompts to pick another or cancel. If `result` is `cancelled`, the topic wasn't created — note the concern in the research file so it isn't lost; otherwise the concern landed as the `{landed_topic}` topic.
-
-4. Commit the conversion and the landing:
-
-   ```bash
-   git add -- .workflows/{work_unit}/
-   git commit -m "research({work_unit}/{topic}): pivot to epic"
-   ```
+3. Judge `landing_phase` per **Judging the Landing Phase**, then load **[triage-landing.md](../../workflow-shared/references/triage-landing.md)** with work_unit = `{work_unit}`, target = `{proposed_name}`, concern = `{concern}`, origin = `{topic}`, phase = `research`, landing_phase = `{landing_phase}`, date = `{today}`. It validates the name against the map and, on a clash, prompts to pick another or cancel. If `result` is `cancelled`, the topic wasn't created — note the concern in the research file so it isn't lost; otherwise the concern landed as the `{landed_topic}` topic and the delivery committed itself.
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> This work is now an epic — continuing here with the current topic.
-> The concern is preserved for its own handling later.
+> This work is now an epic — continuing here with the current topic. The concern is preserved for its own handling later.
 ```
 
 → Return to **B. Session Loop**.
@@ -124,3 +119,13 @@ Capture the concern via the `workflow-log-idea` skill so it lands in the inbox f
 Note the concern in the research file for the user to consider separately, and continue.
 
 → Return to **B. Session Loop**.
+
+---
+
+## F. The Experiment Offer
+
+When a number is about to bear a decision — a controlled measurement would settle a choice the conversation is weighing, not merely inform it — offer the laboratory. Hands-on sightings short of that bar stay in the session, labelled exploratory.
+
+→ Load **[experiment-spawn.md](../../workflow-shared/references/experiment-spawn.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `research`.
+
+→ On return, proceed as the reference directed.

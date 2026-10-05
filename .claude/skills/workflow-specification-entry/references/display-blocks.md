@@ -4,48 +4,14 @@
 
 ---
 
-Two terminal paths — the command stops and cannot proceed.
+Terminal — the discussion record does not support entry: none exist, none are completed, or discussions are still open and the phase waits on the settled record.
 
-#### If no discussions exist
+Render the scoped snapshot:
 
-> *Output the next fenced block as a code block:*
-
-```
-●───────────────────────────────────────────────●
-  Specification Overview
-●───────────────────────────────────────────────●
-
-No discussions found.
-
-The specification phase requires completed discussions to work from.
-Discussions capture the technical decisions, edge cases, and rationale
-that specifications are built upon.
-
-The specification phase requires completed discussions to work from.
+```bash
+node .claude/skills/workflow-specification-entry/scripts/gateway.cjs view {work_unit}
 ```
 
-**STOP.** Do not proceed — terminal condition.
-
-#### If discussions exist but none completed
-
-> *Output the next fenced block as a code block:*
-
-```
-●───────────────────────────────────────────────●
-  Specification Overview
-●───────────────────────────────────────────────●
-
-No completed discussions found.
-
-The following discussions are still in progress:
-
-  • {discussion-name}
-  • {discussion-name}
-
-Specifications can only be created from completed discussions.
-Conclude at least one discussion before proceeding.
-```
-
-List all in-progress discussions from discovery output.
+Emit the TITLE section, then the DISPLAY section, each verbatim per its marker.
 
 **STOP.** Do not proceed — terminal condition.

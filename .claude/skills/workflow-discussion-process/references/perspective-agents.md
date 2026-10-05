@@ -12,9 +12,9 @@ Signals:
 - Multiple defensible approaches with no clear winner
 - The user expresses uncertainty ("I'm not sure which...", "they both seem fine")
 - The domain has known competing paradigms (e.g., relational vs document, monolith vs microservices, sync vs async)
-- Explicit disagreement between orchestrator and user on the best approach
+- The user disputes a challenge and remains unsettled — a decisive answer to a challenge is settled, not disagreement
 
-Do not fire when the decision is straightforward, the tradeoffs are already well understood, or the user has already made a confident decision.
+Signals are read from the conversation, never from domain shape alone — a known competing-paradigm pair is not a trigger until the user has engaged the decision and the ambiguity has shown itself. Do not fire when the decision is straightforward, the tradeoffs are already well understood, or the user has already made a confident decision.
 
 When these conditions are met → Proceed to **A. Select Polarity Pair**.
 
@@ -36,22 +36,21 @@ Match the decision topic against the polarity-pair table below. Pick the pair wh
 | structure, hierarchy, taxonomy, monolith, microservices, organise | **Classifier** ↔ **Emergence** | Predictable categories vs let structure emerge |
 | design, approach, strategy, architecture _(default)_ | **Assumption Destroyer** ↔ **First-Principles** | Top-down questioning vs bottom-up rebuilding |
 
-> *Output the next fenced block as markdown (not a code block):*
+Write the offer payload to `.workflows/.cache/{work_unit}/discussion/{topic}/perspective-offer.json` with the Write tool (`{"tension": "…"}` — the tension description as it opens the offer), then render it:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render perspective-offer {work_unit}.discussion.{topic} --file .workflows/.cache/{work_unit}/discussion/{topic}/perspective-offer.json
 ```
-· · · · · · · · · · · ·
-This decision sits on a {tension description} tension. Want to explore both lenses?
 
-- **`y`/`yes`** — Spin up perspective agents arguing each lens
-- **`n`/`no`** — Continue without perspectives
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
 #### If `no`
 
 Continue the discussion without perspectives.
+
+→ Return to caller.
 
 #### If `yes`
 
@@ -61,21 +60,13 @@ Continue the discussion without perspectives.
 
 ## B. Dispatch Perspective Agents
 
-Ensure the cache directory exists:
+Record the pair in one dispatch — the engine allocates a shared set number and answers with the `set` and each lens's content-file path; no files are created (a file's later existence is that agent's completion signal). Labels are slash- and dot-free: drop any dots a lens name carries.
 
 ```bash
-mkdir -p .workflows/.cache/{work_unit}/discussion/{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs agent dispatch {work_unit} discussion {topic} --kind perspective --label {lens-a:(kebabcase)} --label {lens-b:(kebabcase)}
 ```
 
-Determine the next set number by checking existing files:
-
-```bash
-ls .workflows/.cache/{work_unit}/discussion/{topic}/ 2>/dev/null
-```
-
-Use the next available `{NNN}` (zero-padded, e.g., `001`, `002`). All agents in this set share the same `{NNN}`.
-
-**Agent path**: `../../../agents/workflow-discussion-perspective.md`
+**Agent path**: `.claude/agents/workflow-discussion-perspective.md`
 
 Dispatch **all perspective agents in parallel** via the Task tool with `run_in_background: true`.
 
@@ -84,18 +75,7 @@ Each perspective agent receives:
 1. **Lens** — the assigned lens from the polarity pair (e.g., `Formal Systems`, `Tail-Risk`)
 2. **Decision topic** — the decision being explored
 3. **Discussion file path** — `.workflows/{work_unit}/discussion/{topic}.md`
-4. **Output file path** — `.workflows/.cache/{work_unit}/discussion/{topic}/perspective-{NNN}-{lens}.md`
-5. **Frontmatter** — the frontmatter block to write:
-   ```yaml
-   ---
-   type: perspective
-   status: pending
-   created: {date}
-   set: {NNN}
-   lens: {lens}
-   decision: {decision topic}
-   ---
-   ```
+4. **Output file path** — that lens's `file` from the dispatch response. The agent writes its completed argument there — pure markdown, never frontmatter.
 
 Each perspective agent restates the decision through its lens before arguing (Problem Restate Gate) and returns:
 
@@ -106,9 +86,9 @@ RESTATEMENT: {one sentence}
 SUMMARY: {1 sentence}
 ```
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Dispatched 2 perspective agents: {lens A}, {lens B}.
 Results will be surfaced when available.
 ```
@@ -121,7 +101,25 @@ The discussion continues — do not wait for agents to return.
 
 This section is reached when all perspective agents in a set have completed. The synthesis agent reconciles their findings into a tradeoff landscape.
 
-**Agent path**: `../../../agents/workflow-discussion-synthesis.md`
+Record the dispatch against the completed set — the engine joins the synthesis to its perspectives by the set number and refuses a second live synthesis for the same set (re-dispatch over a closed one replaces it — the engine discards the stale report):
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs agent dispatch {work_unit} discussion {topic} --kind synthesis --set {set}
+```
+
+Then close out the consumed perspective rows — synthesis has read them; they are never surfaced. One call per perspective id in the set still `pending` (a re-dispatch for a dead synthesis arrives with the lenses already closed — skip them):
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs agent incorporate {work_unit} discussion {topic} {perspective_id}
+```
+
+Read the topic's dismissed grounds — the user's standing rulings on what not to report. Empty output means none:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.discussion.{topic} dismissed_grounds
+```
+
+**Agent path**: `.claude/agents/workflow-discussion-synthesis.md`
 
 Dispatch **one agent** via the Task tool with `run_in_background: true`.
 
@@ -129,22 +127,8 @@ The synthesis agent receives:
 
 1. **Perspective file paths** — paths to all perspective files in this set
 2. **Decision topic** — the decision being explored
-3. **Output file path** — `.workflows/.cache/{work_unit}/discussion/{topic}/synthesis-{NNN}.md`
-4. **Frontmatter** — the frontmatter block to write:
-   ```yaml
-   ---
-   type: synthesis
-   status: pending
-   created: {date}
-   set: {NNN}
-   decision: {decision topic}
-   tensions: []   # sub-agent populates with T1/T2/... IDs
-   surfaced: []
-   announced: false
-   ---
-   ```
-
-The sub-agent writes tension entries with stable IDs (`T1`, `T2`, …) into the `tensions:` list. See `agents/workflow-discussion-synthesis.md` for the schema.
+3. **Output file path** — the `file` from the dispatch response. The agent writes its completed landscape there — pure markdown with one `### {ID}: {label}` section per tension (`T1`, `T2`, …), never frontmatter.
+4. **Dismissed grounds** — the list read above, verbatim. Omit this input entirely when the list is empty.
 
 The synthesis agent also compares the Restatement sections from each perspective. If lenses diverge meaningfully on what the decision IS — different scope, different question, or one lens answering an unasked question — synthesis records a **Framing alignment** tension as `T1` so it surfaces first. This is the Problem Restate Gate's payoff: wrong-question failures get caught before the user acts on a tradeoff landscape.
 
@@ -153,7 +137,8 @@ The synthesis agent returns:
 ```
 STATUS: complete
 DECISION: {topic}
-TENSIONS: {N}
+TENSIONS: {T1,T2,… — every id in the report; omit when none}
+TENSIONS_COUNT: {N}
 SUMMARY: {1-2 sentences}
 ```
 
@@ -165,12 +150,12 @@ The discussion continues — do not wait for the agent to return.
 
 This section handles two responsibilities: promoting completed perspective sets to synthesis, and surfacing synthesis findings via the never-dump protocol.
 
-**Perspective completion check** — scan the cache directory for perspective files. For each set `{NNN}`, if all perspective files in the set have returned AND no synthesis file exists for that set, proceed to **C. Dispatch Synthesis Agent** for that set.
+**Perspective completion check** — run `agent scan` and group the `perspective` rows by their `set` field. For each set, if every perspective row in the set is `pending` (one still `in-flight` is an agent still running) AND no live `synthesis` row carries that `set` (an `incorporated` one is closed — the engine permits a fresh dispatch over it), proceed to **C. Dispatch Synthesis Agent** for that set. Rows an earlier session dispatched are dead, not running: incorporate a dead lens together with its set's landed siblings (a half-dead council can no longer synthesise — re-offer the pair if the decision still matters). A dead synthesis: incorporate it, then re-dispatch via **C. Dispatch Synthesis Agent** for its set — the engine permits the fresh `--kind synthesis --set {set}`, and the lens files persist for the new agent to read. A set whose synthesis row is already `incorporated` with **no report file on disk** is that recovery crashed between the two calls (a drained synthesis always has its report) — re-dispatch via **C** for it too.
 
-**Synthesis surfacing** — synthesis files carry findings (`tensions:`) that must NOT be dumped. Delegate presentation to the shared surfacing protocol.
+**Synthesis surfacing** — a synthesis report carries tensions that must NOT be dumped. Delegate presentation to the surfacing protocol.
 
-→ Load **[background-agent-surfacing.md](../../workflow-shared/references/background-agent-surfacing.md)** with agent_type = `synthesis`, cache_dir = `.workflows/.cache/{work_unit}/discussion/{topic}`, cache_glob = `synthesis-*.md`, findings_key = `tensions`.
+→ Load **[background-agent-surfacing.md](background-agent-surfacing.md)** with agent_type = `synthesis`, work_unit = `{work_unit}`, phase = `discussion`, topic = `{topic}`.
 
-**Deriving subtopics during presentation**: When the user engages with a raised tension, reframe it as a practical subtopic tied to project constraints and add it to the Discussion Map as `pending`. Commit the update.
+**Deriving subtopics during presentation**: When the user engages with a raised tension, reframe it as a practical subtopic tied to project constraints and record it on the Discussion Map as `pending` (`node .claude/skills/workflow-engine/scripts/engine.cjs discussion-map add {work_unit} {topic} {subtopic}`). Commit the update.
 
-**Perspective files**: The shared protocol handles the synthesis file only. The individual perspective files remain available for reference if the user wants to drill into a specific angle — mention their existence during presentation if relevant, but do not read them out.
+**Perspective files**: The surfacing protocol handles the synthesis file only. The individual perspective files remain available for reference if the user wants to drill into a specific angle — mention their existence during presentation if relevant, but do not read them out.

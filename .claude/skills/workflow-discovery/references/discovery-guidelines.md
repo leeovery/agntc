@@ -14,10 +14,6 @@
 - **Tentative grouping.** Mirror a surface boundary back so the user can confirm or correct it. *"Sounds like the offline-mode bits all live together — agree?"* — a surface boundary, not a topic.
 - **Coarseness check.** When a pile of small operational items lands, note that most will get absorbed into bigger topics later. *"That's a lot of small operational things — most will fall out inside bigger topics; leave them off for now?"*
 
-→ Load **[topic-granularity.md](../../workflow-shared/references/topic-granularity.md)** and follow its instructions as written. The rules apply at the harvest, not during exploration — but having them in context helps you avoid pre-emptively splitting things you don't yet need to.
-
-→ Load **[routing-inference.md](routing-inference.md)** and follow its instructions as written. Routing is proposed at the harvest based on cues from how each surface was framed.
-
 ## B. The Exploration Stance — How
 
 Deep discovery is substantive: you explore the whole shape **and** work through the decisions that shape forces — breadth and depth together. The register is **collaborative challenge** — opinionated, willing to disagree, ready to counter-frame and propose alternatives. Two senior engineers throwing an idea around: not an interviewer running a checklist, not a lecturer delivering a monologue.
@@ -59,13 +55,15 @@ When you read these, surface the ambient nudge — see [harvest-nudge.md](harves
 - **No inline topic decomposition.** Don't surface "I'm hearing X, Y, Z as topics" during the loop. Topics are the harvest output, synthesised when the user pulls — not named mid-conversation.
 - **The user pulls the harvest.** Never push synthesis. Surface the ambient nudge at convergence (per **C**); the user decides when to harvest.
 - **Conversational, not autonomous.** Substance and soft decisions are welcome, but no automatic deep-dive — spin up a background agent or research thread only if the user asks.
-- **The initial map need not be exhaustive.** 2 topics is fine, 20 is fine. The map fills as work progresses — analyses auto-add, splits and reroutes spawn. Don't push for completeness at the harvest.
+- **The initial map need not be exhaustive.** 2 topics is fine, 20 is fine. The map fills as work progresses — the gap analysis auto-adds, reroutes land new topics. Don't push for completeness at the harvest.
 
 ## E. Soft by Location
 
 Discovery makes real decisions — and records them **plainly, as decisions**. They are soft not because of how they are worded but because of **where they live**: firmness is conferred by position on the gradient — discovery (soft) → discussion (hardened) → spec (golden) → plan. Later phases infer this from the artifact's origin; you don't mark it.
 
-So **don't hedge.** Make the call, word it naturally, let position carry the softness. Don't weave "leaning…", "maybe…", "we could…" through the record — that buries the decision you actually reached. The per-topic discussion is where these harden via convergence, so nothing trustworthy is bypassed: discovery explores substance freely, and discussion still ratifies.
+So **don't hedge.** Make the call, word it naturally, let position carry the softness. Don't weave "leaning…", "maybe…", "we could…" through a decision you reached — that buries it. The per-topic discussion is where these harden via convergence, so nothing trustworthy is bypassed: discovery explores substance freely, and discussion still ratifies.
+
+**A decision is what the conversation settled.** Record it unhedged — and record nothing else as one. The user's own uncertainty is substance, not hedging to strip: a point they left open (*"I suspect we should…"*, *"I don't know…"*) stays an open question, its lean recorded as theirs, and a suggestion of yours they never took up is not a decision.
 
 ## F. Worked Examples
 

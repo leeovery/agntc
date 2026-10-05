@@ -18,6 +18,16 @@ You should never do the following:
 
 If a description contains double quotes, escape them with `\"`. That's it.
 
+## Storage Pathspecs
+
+The git pathspecs this format writes **outside `--plan`'s own scope** — the planning topic's directory and the manifests. The array below is recorded verbatim as `storage_paths` on the planning item at plan init; workflow commits (`engine commit --plan`) stage every entry, and restart cleanups stage the same entries when removing authored tasks. Relative pathspecs only — `[]` when the format stores inside that scope.
+
+```json
+[".tick/"]
+```
+
+The task store lives in `.tick/` at the project root.
+
 ## Plan Structure
 
 Create the topic task — this is the plan-level entity in tick. Always set `--refs` to store the workflow's internal ID.
@@ -26,7 +36,7 @@ Create the topic task — this is the plan-level entity in tick. Always set `--r
 tick create "{topic:(titlecase)}" --refs "{topic}"
 ```
 
-Returns the topic task ID (e.g., `tick-a1b2`). This is the plan's external identifier.
+The `id:` line of the returned document is the topic's tick id (e.g., `tick-a1b2`) — the plan's external identifier.
 
 ## Phase Structure
 
@@ -39,11 +49,11 @@ tick create "Phase 1: {phase:(titlecase)}" --parent <topic-tick-id> --refs "{top
 tick create "Phase 2: {phase:(titlecase)}" --parent <topic-tick-id> --refs "{topic}-2"  # returns tick-e5f6
 ```
 
-Each command returns the phase's tick ID — this is the phase's external identifier.
+The `id:` line of each returned document is that phase's tick id — the phase's external identifier.
 
 ## Task Storage
 
-Create tasks as children of their phase task. Always set `--refs` to store the workflow's internal ID.
+Create tasks as children of their phase task. Always set `--refs` to store the workflow's internal ID. Creating an open task under a `done` parent reopens that parent's `done` ancestors (recursively upward) — the hierarchy stays consistent, no manual reopen needed.
 
 ```bash
 tick create "{task:(titlecase)}" --parent tick-c3d4 \
@@ -75,11 +85,11 @@ See **Task Properties** below for details on each flag.
 
 ## Post-Creation Verification
 
-After every `tick create`, run `tick show <tick-id>` and confirm that the title, description, and parent were all set correctly.
+`tick create` answers with the stored record read back — the same document `tick show <tick-id>` prints. Confirm from it that the title, parent, and description are what was passed; a task created without a description carries no `description:` line at all. Never move on from a create whose document lacks a field that was passed.
 
 #### If any field is empty or wrong
 
-Load **[updating.md](updating.md)** and follow its instructions to correct the field using `tick update`.
+→ Load **[updating.md](updating.md)** and follow its instructions to correct the field using `tick update`.
 
 ## Task Properties
 
@@ -106,9 +116,9 @@ tick list --parent <phase-tick-id>
 
 ### Type
 
-Optional. Set via `--type`. Valid types: `bug`, `feature`, `task`, `chore`. Use `bug` for bugfix work types, `feature` for feature work types, and `task` or `chore` as appropriate for individual tasks within any work type. Doesn't hurt to set — adds useful categorisation at no cost.
+Optional. Set via `--type`. Valid types: `bug`, `feature`, `task`, `chore`. Use `bug` for bugfix work types, `feature` for feature work types, and `task` or `chore` as appropriate for individual tasks within any work type.
 
-### Tags
+### Labels / Tags
 
 Optional — not necessary in most cases, but available if needed. Set via `--tags` with comma-separated, kebab-case values. Tags provide additional categorisation beyond the parent/child hierarchy. Filter tasks by tag:
 
@@ -121,22 +131,9 @@ tick ready --parent <tick-id> --tag security
 
 Set via `--refs` to store the internal ID on each tick task, linking it back to the planning system. Set at all levels — topic, phase, and task — as shown in the Task Storage examples above. References are comma-separated if multiple are needed.
 
-## Flagging
-
-When information is missing, prefix the task title with `[NEEDS INFO]` and include questions in the description:
-
-```bash
-tick create "[NEEDS INFO] Rate limiting strategy" \
-  --parent tick-c3d4 \
-  --description "Needs clarification:
-- What is the rate limit threshold?
-- Per-user or per-IP?
-- What response code on limit exceeded?"
-```
-
 ## Cleanup (Restart)
 
-Remove the topic task and all its descendants:
+Remove the topic task and all its descendants. `<topic-tick-id>` is the plan's `external_id` in the manifest:
 
 ```bash
 tick remove <topic-tick-id> --force

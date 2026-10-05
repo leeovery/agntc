@@ -10,11 +10,13 @@ Best practices for documenting discussions. For DOCUMENTATION only - no plans or
 
 **Follow the conversation**: Explore subtopics in whatever order makes sense. The Discussion Map tracks coverage — you don't need to force sequencing.
 
-**Multiple-choice preferred**: When presenting options, concrete choices are easier to reason about than open-ended questions. Present 2-3 approaches with trade-offs.
+**Multiple-choice preferred**: When a genuine choice is being put to the user, concrete options are easier to reason about than open-ended questions. Present 2-3 approaches with trade-offs.
+
+**Concrete before abstract**: Lead with a worked instance, not a description of a mechanism. Show the case — specific values, named actors, an actual sequence, a small ASCII diagram or step-by-step walkthrough where shape helps — then generalise. A reader who can picture the failure can judge the fix; a reader parsing a mechanism is still building the picture when the question arrives.
 
 **YAGNI ruthlessly**: Remove unnecessary features from all designs. If not discussed, don't add it.
 
-**Explore alternatives**: Always propose 2-3 approaches before settling. Show trade-offs.
+**Explore alternatives**: Propose 2-3 approaches before settling where the record leaves the choice open. Show trade-offs. A point the record settles is called and queued (ask-or-decide.md), never surveyed.
 
 **Be flexible**: Go back and clarify when something doesn't make sense. Circle back to partially explored subtopics when new context changes the thinking.
 
@@ -32,7 +34,7 @@ Best practices for documenting discussions. For DOCUMENTATION only - no plans or
 
 **Document uncertainty**: "Confidence: Medium. Confirmed throughput OK. Uncertain on memory/cost at scale"
 
-**Facts vs assumptions**: Label what's verified, what's assumed, what needs validation
+**Facts vs assumptions**: A fact-shaped claim about the codebase is measured before it's asserted — for everything else, label what's verified, what's assumed, what needs validation
 
 ## When to Document
 
@@ -59,14 +61,13 @@ Best practices for documenting discussions. For DOCUMENTATION only - no plans or
 
 At natural pauses — not every exchange, but when something meaningful has been completed, explored, or uncovered — update the file on disk:
 
-- Update Discussion Map states as subtopics progress
+- Record Discussion Map state changes as subtopics progress (engine `discussion-map set`) and new subtopics as they emerge (engine `discussion-map add`)
 - Document subtopics when they reach `decided`
-- Add new subtopics to the map as they emerge
 - Document false paths when identified
 - Record decisions (even provisional ones) with rationale
 - Capture provisional thinking for in-progress subtopics before context refresh
 
-Then commit. The file is the source of truth, not the conversation.
+Then commit. The file and manifest are the source of truth, not the conversation.
 
 ## Common Pitfalls
 
@@ -83,7 +84,7 @@ Then commit. The file is the source of truth, not the conversation.
 ## Quality Check
 
 Before marking discussion complete:
-- ✅ All Discussion Map subtopics are `decided` or deliberately deferred
+- ✅ All Discussion Map subtopics are `decided` or `deferred`
 - ✅ Context clear
 - ✅ Options explored with trade-offs
 - ✅ False paths documented
@@ -91,3 +92,5 @@ Before marking discussion complete:
 - ✅ Confidence stated where uncertain
 - ✅ No hallucination
 - ✅ Open threads noted in Summary
+
+→ Return to caller.

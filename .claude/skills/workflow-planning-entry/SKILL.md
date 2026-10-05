@@ -1,7 +1,7 @@
 ---
 name: workflow-planning-entry
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-engine/scripts/engine.cjs)
 ---
 
 Act as **precise intake coordinator**. Follow each step literally without interpretation. Do not engage with the subject matter — your role is preparation, not processing.
@@ -14,7 +14,7 @@ You are in the **Planning** phase — defining HOW: phases, tasks, acceptance cr
 
 | Work type | Pipeline |
 |---|---|
-| Epic | Discovery → Research → Discussion → Specification → **Planning** → Implementation → Review |
+| Epic | Discovery → Research → (Experiment) → Discussion → Specification → **Planning** → Implementation → Review |
 | Feature | Discussion → Specification → **Planning** → Implementation → Review |
 | Bugfix | Investigation → Specification → **Planning** → Implementation → Review |
 
@@ -24,37 +24,11 @@ You are in the **Planning** phase — defining HOW: phases, tasks, acceptance cr
 
 ## Instructions
 
-Follow these steps EXACTLY as written. Do not skip steps or combine them. Present output using the EXACT format shown in examples - do not simplify or alter the formatting.
-
-**CRITICAL**: This guidance is mandatory.
-
-- After each user interaction, STOP and wait for their response before proceeding
-- Never assume or anticipate user choices
-- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
-- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
-- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
-- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
-- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
-- Even if the user's initial prompt seems to answer a question, still confirm with them at the appropriate step
-- Complete each step fully before moving to the next
-- Do not act on gathered information until the skill is loaded - it contains the instructions for how to proceed
+Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
 
 ---
 
 ## Step 1: Parse Arguments
-
-> *Output the next fenced block as a code block:*
-
-```
-── Parse Arguments ──────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Reading the handoff context to identify which
-> topic to plan.
-```
 
 Arguments: work_type = `$0`, work_unit = `$1`, topic = `$2` (optional).
 Resolve topic: topic = `$2`, or if not provided and work_type is not `epic`, topic = `$1`.
@@ -67,39 +41,13 @@ Store work_unit for the handoff.
 
 ## Step 2: Validate Specification
 
-> *Output the next fenced block as a code block:*
-
-```
-── Validate Specification ───────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking that a completed specification exists
-> for this topic.
-```
-
 Load **[validate-spec.md](references/validate-spec.md)** and follow its instructions as written.
 
-→ Proceed to **Step 3**.
+→ On return, proceed to **Step 3**.
 
 ---
 
 ## Step 3: Validate Phase
-
-> *Output the next fenced block as a code block:*
-
-```
-── Validate Phase ───────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking whether a plan already exists for this
-> topic.
-```
 
 Load **[validate-phase.md](references/validate-phase.md)** and follow its instructions as written.
 
@@ -115,38 +63,12 @@ Load **[validate-phase.md](references/validate-phase.md)** and follow its instru
 
 ## Step 4: Cross-Cutting Context
 
-> *Output the next fenced block as a code block:*
-
-```
-── Cross-Cutting Context ────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading any cross-cutting specifications that apply
-> to this plan.
-```
-
 Load **[cross-cutting-context.md](references/cross-cutting-context.md)** and follow its instructions as written.
 
-→ Proceed to **Step 5**.
+→ On return, proceed to **Step 5**.
 
 ---
 
 ## Step 5: Invoke the Skill
-
-> *Output the next fenced block as a code block:*
-
-```
-── Invoke Planning ──────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Handing off to the planning process with
-> specification and context.
-```
 
 Load **[invoke-skill.md](references/invoke-skill.md)** and follow its instructions as written.

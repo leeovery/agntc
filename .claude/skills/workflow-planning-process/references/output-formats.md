@@ -4,51 +4,28 @@
 
 ---
 
-**IMPORTANT**: Only offer formats listed below. Do not invent or suggest formats that don't have corresponding directories in the [output-formats/](output-formats/) directory.
+**IMPORTANT**: Only offer the formats below. Do not invent or suggest formats that don't have corresponding directories in the [output-formats/](output-formats/) directory.
 
-> *Output the next fenced block as a code block:*
+Write the offer to `.workflows/.cache/{work_unit}/{phase}/{topic}/format-offer.json` with the Write tool, exactly as written here:
 
-```
-Available output formats:
-
-  1. Tick
-     CLI task management with native dependency graph and priority.
-     Requires Tick CLI installation.
-     Best for: AI-driven workflows needing structured task tracking
-
-  2. Local Markdown
-     Task files stored as markdown in the planning directory.
-     No external tools required.
-     Best for: simple features, small plans, quick iterations
-
-  3. Linear
-     Tasks managed as Linear issues within a Linear project.
-     Requires Linear account and MCP server.
-     Best for: teams already using Linear, collaborative projects
+```json
+{"formats": [
+  {"name": "tick", "label": "Tick — CLI task management with a native dependency graph and priority; requires the Tick CLI. Best for AI-driven workflows needing structured task tracking."},
+  {"name": "local-markdown", "label": "Local Markdown — task files stored as markdown in the planning directory; no external tools. Best for simple features, small plans, quick iterations."},
+  {"name": "linear", "label": "Linear — tasks managed as Linear issues in a Linear project; requires a Linear account and MCP server. Best for teams already using Linear."}
+]}
 ```
 
-> *Output the next fenced block as markdown (not a code block):*
+Render the offer:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render plan-format-gate --variant select --file .workflows/.cache/{work_unit}/{phase}/{topic}/format-offer.json
 ```
-· · · · · · · · · · · ·
-Select a format:
 
-- **`1`** — Tick
-- **`2`** — Local Markdown
-- **`3`** — Linear
-· · · · · · · · · · · ·
-```
+Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-#### If `1`
+The surface numbers the rows in payload order — set `chosen-format` to the picked row's `name`.
 
-Set `chosen-format` = `tick`.
-
-#### If `2`
-
-Set `chosen-format` = `local-markdown`.
-
-#### If `3`
-
-Set `chosen-format` = `linear`.
+→ Return to caller.

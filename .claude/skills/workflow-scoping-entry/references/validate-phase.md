@@ -9,7 +9,7 @@ Check if scoping entry exists and determine entry state.
 ## A. Scoping Check
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.scoping.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.scoping.{topic} status
 ```
 
 #### If output is empty (scoping doesn't exist)
@@ -20,16 +20,16 @@ Proceed normally (new entry).
 
 #### If status is `completed`
 
-Reset to in-progress:
+Reopen it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.scoping.{topic} status in-progress
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} scoping {topic}
 ```
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Reopening scoping: {topic:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.scoping.{topic} --verb Reopening
 ```
 
 → Return to caller.

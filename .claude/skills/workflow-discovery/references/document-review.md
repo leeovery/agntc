@@ -4,21 +4,6 @@
 
 ---
 
-> *Output the next fenced block as a code block:*
-
-```
-·· Document Review ······························
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Reconciling the session log against the conversation before
-> persisting. The audit covers the durable record — Exploration
-> narrative, Edits structured entries, and the synthesised topic
-> set held in conversation memory.
-```
-
 ## A. Check for an Active Log
 
 The session log is created lazily — if no Exploration write, edit, or topic synthesis produced content, no file exists and there is nothing to reconcile.
@@ -29,15 +14,27 @@ Check whether the active log exists at `.workflows/{work_unit}/discovery/session
 
 Browse-only session — no log to review.
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Document review — no log file (browse only). Nothing to reconcile.
 ```
 
 → Return to caller.
 
 #### Otherwise
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+**`□ Document Review`**
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Reconciling the session log against the conversation before persisting. The audit covers the durable record — Exploration narrative, Edits structured entries, and the synthesised topic set held in conversation memory.
+```
 
 → Proceed to **B. Re-Read the Session Log**.
 
@@ -63,11 +60,10 @@ Walk the conversation against the log. Five checks:
 
 Briefs (`discovery/briefs/`) are views — regenerated at each harvest, never records — and are **out of scope** here. Reconcile only the log's narrative sections.
 
-Apply corrections directly to the file. Stage and commit the fixes:
+Apply corrections directly to the file, then commit:
 
 ```bash
-git add .workflows/{work_unit}/discovery/sessions/session-{session_number:03d}.md
-git commit -m "docs(discovery/{work_unit}): reconcile session log with conversation"
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "docs(discovery/{work_unit}): reconcile session log with conversation" --discovery
 ```
 
 → Proceed to **D. Brief the User**.
@@ -79,17 +75,16 @@ git commit -m "docs(discovery/{work_unit}): reconcile session log with conversat
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Document review complete. {N} correction(s) applied to the
-> session log.
+> Document review complete. {N} correction(s) applied to the session log.
 ```
 
 → Return to caller.
 
 #### If the log is accurate
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as a text code block (```text fence):*
 
-```
+```text
 Document review — session log reflects the conversation. No changes needed.
 ```
 

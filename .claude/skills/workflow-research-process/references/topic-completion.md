@@ -8,28 +8,101 @@
 
 The current topic is converging — tradeoffs are clear, it's approaching decision territory.
 
-→ Load **[final-review.md](final-review.md)** and follow its instructions as written.
+First check the topic's triage queue — a queued concern is work the conclusion cannot pass:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs topic queue {work_unit} research {topic}
+```
+
+**If `count` is non-zero:**
+
+Render the blocker and emit both its sections verbatim per their markers — the red blocker line, then its guidance:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render triage-block {work_unit}.research.{topic}
+```
+
+→ Return to caller.
+
+**If `count` is `0`:**
+
+Check for landed evidence next — follow **Landed Evidence** in **[session-loop.md](session-loop.md)**: a release between the rhythm's last check and this conclusion is read here, never concluded over (the engine refuses the completion while the flag stands). Its landed branch puts the evidence to the user and returns the conversation to the rhythm, where the next done-signal re-enters here; every other return continues here.
+
+Check the topic's waits next — a wait still open means the conclusion cannot pass, and the engine would refuse the completion anyway. Fetch the gate (empty when nothing is owed):
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render wait-gate {work_unit}.research.{topic}
+```
+
+**If sections are returned:**
+
+Emit them verbatim per their markers — the blocker naming what is owed, its guidance, then the menu.
+
+**STOP.** Wait for user response.
+
+**If `yes`:**
+
+Commit any uncommitted session work with the session's cadence commit:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} --topic research/{topic} -m "research({work_unit}/{topic}): {what changed}"
+```
+
+Then hand off to the pipeline bridge as a pause:
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Paused with the waits queued — the closing ceremony runs once everything this research waits on has landed, and this research concludes once every wait releases.
+```
+
+Invoke `/workflow-bridge {work_unit} research none paused`.
+
+**If `keep`:**
+
+→ Return to caller.
+
+**If the output is empty:**
 
 → Load **[document-review.md](document-review.md)** and follow its instructions as written.
 
 → Load **[compliance-check.md](../../workflow-shared/references/compliance-check.md)** and follow its instructions as written.
 
-> *Output the next fenced block as markdown (not a code block):*
+Judge the dead-end question before rendering: pass `--dead-end` **only** when `work_type` is `epic` and the session's own conclusion is that this topic gives the product nothing to carry forward under its own name — the thread didn't pan out, or its useful facts serve only other topics, where provenance and the knowledge base already deliver them. In the common case — the research surfaced material this topic's discussion will ratify — the flag is omitted and the row never appears.
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render research-conclude-gate {work_unit}.research.{topic} [--dead-end]
 ```
-· · · · · · · · · · · ·
-- **`c`/`conclude`** — Mark this topic as complete, ready for discussion
-- **`k`/`keep`** — Keep digging, there's more to understand
-· · · · · · · · · · · ·
-```
+
+The response carries the thread register as a DISPLAY section whenever the topic holds a thread — the hand-off, open threads included; nothing blocks on a thread's state. Emit that section verbatim per its marker when present, then the MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
-#### If the user concludes
+#### If `yes`
 
-→ Load **[conclude-research.md](conclude-research.md)** and follow its instructions as written.
+→ Load **[conclude-research.md](conclude-research.md)** with closure = `discussion`.
 
-#### If the user keeps digging
+#### If `dead-end`
+
+Mark the map item first — no commit; the conclusion's own commit carries the manifest change:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs discovery-map handle {work_unit} {topic}
+```
+
+Concluding leaves the research completed and indexed as normal; the file stays on the map and in the knowledge base as record and seed material. Route on the response:
+
+**If the write succeeded, or `ok: false` reports the topic already closed** (a resumed conclusion, or a peer session's close — the marker is set either way):
+
+→ Load **[conclude-research.md](conclude-research.md)** with closure = `dead-end`.
+
+**If `ok: false` for any other reason:**
+
+The marker never landed, so nothing concludes over it. Surface the engine's error verbatim.
+
+→ Return to caller.
+
+#### If `keep`
 
 Continue exploring. The convergence signal isn't a stop sign — it's an awareness check. The user might want to stress-test the emerging conclusion, explore edge cases, or understand the problem more deeply before moving on.
 

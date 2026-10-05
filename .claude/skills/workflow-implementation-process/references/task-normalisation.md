@@ -20,7 +20,7 @@ INSTRUCTIONS:
 
 ## Rules
 
-- **Include** everything instructional: goal, implementation steps, acceptance criteria, tests, edge cases, context, notes
+- **Include** everything instructional the task carries — goal, acceptance criteria, what the record decided about the how, context, notes, and any other instructional field the task holds
 - **Strip** meta fields: status, priority, dependencies, dates, progress markers
 - **Preserve** the internal structure of the instructional content as-is from the plan — do not summarise, reorder, or rewrite
 
@@ -28,7 +28,7 @@ INSTRUCTIONS:
 
 The `{internal_id}` in the template is always the **internal ID** (format: `{topic}-{phase_id}-{task_id}`).
 
-If the format adapter returns an external ID, resolve the internal ID via the manifest CLI:
+If the format adapter returns an external ID, resolve the internal ID via `engine manifest`:
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs key-of {work_unit}.planning.{topic} task_map {external_id}
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest key-of {work_unit}.planning.{topic} task_map {external_id}
 ```

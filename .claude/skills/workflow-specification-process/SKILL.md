@@ -1,7 +1,7 @@
 ---
 name: workflow-specification-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs), Bash(mkdir -p .workflows/), Bash(mv .workflows/)
+allowed-tools: Bash(node .claude/skills/workflow-engine/scripts/engine.cjs), Bash(node .claude/skills/workflow-discovery/scripts/gateway.cjs), Bash(git log), Bash(grep), Bash(rg), Bash(ls), Bash(wc), Bash(find)
 ---
 
 # Specification Process
@@ -21,11 +21,10 @@ Follows discussion (or investigation for bugfix). Transform prior-phase source m
 
 **If source material seems incomplete or unclear:**
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-I have the source material, but {concern}. Should I proceed as-is, or is there
-additional material I should review?
+I have the source material, but {concern}. Should I proceed as-is, or is there additional material I should review?
 ```
 
 **STOP.** Wait for user response.
@@ -36,18 +35,7 @@ additional material I should review?
 
 ## Instructions
 
-Follow these steps EXACTLY as written. Do not skip steps or combine them.
-
-**CRITICAL**: This guidance is mandatory.
-
-- After each user interaction, STOP and wait for their response before proceeding
-- Never assume or anticipate user choices
-- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
-- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
-- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
-- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
-- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
-- Complete each step fully before moving to the next
+Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
 
 ---
 
@@ -55,11 +43,11 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 
 Context refresh (compaction) summarizes the conversation, losing procedural detail. When you detect a context refresh has occurred — the conversation feels abruptly shorter, you lack memory of recent steps, or a summary precedes this message — follow this recovery protocol:
 
-1. **Re-read this skill file completely.** Do not rely on your summary of it. The full process, steps, and rules must be reloaded.
+1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
 2. **Read all tracking and state files** for the current topic — the specification file, review tracking files, or any working documents this skill creates. These are your source of truth for progress.
 3. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
 4. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
-5. **Check `finding_gate_mode` and `construction_gate_mode`** via manifest CLI (`node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.specification.{topic} finding_gate_mode` and `... construction_gate_mode`) — if either is `auto`, the user previously opted in during this session. Preserve that value.
+5. **Check `finding_gate_mode` and `construction_gate_mode`** via `engine manifest` (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} finding_gate_mode` and `... construction_gate_mode`) — if either is `auto`, the user previously opted in during this session. Preserve that value.
 
 Do not guess at progress or continue from memory. The files on disk and git history are authoritative — your recollection is not.
 
@@ -67,25 +55,45 @@ Do not guess at progress or continue from memory. The files on disk and git hist
 
 ## Hard Rules
 
-1. **STOP AND WAIT** for explicit approval before any write to the specification. Present content, wait for the user to explicitly approve (`y`/`yes` or equivalent), then log. No exceptions.
+1. **STOP AND WAIT** for explicit approval before any write to the specification. Present content, wait for the user to explicitly approve (`y/yes` or equivalent), then log. No exceptions.
 2. **Log verbatim** — when approved, write exactly what was presented. No silent modifications.
-3. **Commit frequently** — commit at natural breaks and before any context refresh. Context refresh = lost work.
+3. **Commit frequently** — commit at natural breaks and before any context refresh. Context refresh = lost work. Commits go through the scoped helper, action-scoped to this topic — the specification directory and the work-unit manifest, never a sibling session's files:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "{message}" --topic specification/{topic}
+   ```
+
+---
+
+## Backlogging
+
+The user says to put an idea aside — "roadmap it", "inbox it", "backlog that", "push it back" — and the words take this door whatever else is in flight. An idea, not a topic: a topic takes the postponing door. Load **[backlogging.md](../workflow-shared/references/backlogging.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `specification`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Postponing the Topic
+
+The user pushes a topic back to the roadmap — "postpone this", "move the loyalty topic to v2", "take this whole topic back to the roadmap" — this one, or one on the map by name; `{name}` is that topic. The request is taken as said — never argued, and never checked back with a question first: load **[postponing-the-topic.md](../workflow-shared/references/postponing-the-topic.md)** with work_unit = `{work_unit}`, name = `{name}`, topic = `{topic}`, phase = `specification`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Cancelling the Topic
+
+The user calls the topic off — they say to cancel, or the conversation agrees it is not worth pursuing. Never is not yet: a topic wanted later takes the postponing door. The call-off is taken as said — never argued, and never checked back with a question first: load **[cancelling-the-topic.md](../workflow-shared/references/cancelling-the-topic.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `specification`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
 
 ---
 
 ## Step 0: Resume Detection
 
-> *Output the next fenced block as a code block:*
+Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
 
-```
-── Resume Detection ─────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking for an existing specification. If one exists, you can
-> pick up where you left off or start fresh.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} specification {topic}
 ```
 
 Check if `.workflows/{work_unit}/specification/{topic}/specification.md` exists.
@@ -96,201 +104,163 @@ Check if `.workflows/{work_unit}/specification/{topic}/specification.md` exists.
 
 #### If file exists
 
-Load **[resume-detection.md](../workflow-shared/references/resume-detection.md)** with artifact = `specification`, file = `.workflows/{work_unit}/specification/{topic}/specification.md`, continue_step = `Step 3`, restart_targets = `the specification file and all review tracking files (review-*-tracking-c*.md) in .workflows/{work_unit}/specification/{topic}/`, commit = `spec({work_unit}): restart specification`.
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+**`□ Resume Detection`**
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> An in-progress specification exists for this topic — choose whether to pick it up or start fresh.
+```
+
+Load **[resume-detection.md](../workflow-shared/references/resume-detection.md)** with artifact = `specification`, file = `.workflows/{work_unit}/specification/{topic}/specification.md`, continue_step = `Step 3`, restart_targets = `the specification file and all review tracking files (review-*-tracking-c*.md) in .workflows/{work_unit}/specification/{topic}/`, restart_resets = `every sources.{name}.status and consult_references.{name}.status row under {work_unit}.specification.{topic} to pending via engine manifest set — initialization never overwrites an existing row, so without this reset the fresh file would never get its content re-extracted — and the tracking subtree and review_baseline_words deleted where present (engine manifest delete {work_unit}.specification.{topic} tracking, then the same for review_baseline_words — an absent field's delete errors and is skipped) to match the deleted tracking files`, commit = `spec({work_unit}): restart specification`.
+
+→ On return, proceed as the reference directed — `continue` lands on **Step 3**, `restart` on **Step 1**.
 
 ---
 
 ## Step 1: Verify Source Material
 
-> *Output the next fenced block as a code block:*
-
-```
-── Verify Source Material ───────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking your discussions and research are ready. The
-> specification is built from these — if anything's missing or
-> incomplete, we'll flag it now.
-```
-
 Load **[verify-source-material.md](references/verify-source-material.md)** and follow its instructions as written.
 
-→ Proceed to **Step 2**.
+→ On return, proceed to **Step 2**.
 
 ---
 
 ## Step 2: Initialize Specification
 
-> *Output the next fenced block as a code block:*
-
-```
-── Initialize Specification ─────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Creating the specification file. Setting up the document
-> structure that we'll populate together in the next step.
-```
-
 Load **[initialize-specification.md](references/initialize-specification.md)** and follow its instructions as written.
 
-→ Proceed to **Step 3**.
+→ On return, proceed to **Step 3**.
 
 ---
 
 ## Step 3: Session Setup
 
-> *Output the next fenced block as a code block:*
-
-```
-── Session Setup ────────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading context from previous work. Reading your source
-> material and any existing progress so we're working from the
-> full picture.
-```
-
 Load **[session-setup.md](references/session-setup.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+→ On return, proceed to **Step 4**.
 
 ---
 
 ## Step 4: Load Specification Principles
 
-> *Output the next fenced block as a code block:*
-
-```
-── Load Specification Principles ────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading the guidelines for how specifications are built.
-> These ensure consistency and completeness across the document.
-```
-
 Load **[specification-principles.md](references/specification-principles.md)** and follow its instructions as written.
 
-→ Proceed to **Step 5**.
+→ On return, proceed to **Step 5**.
 
 ---
 
 ## Step 5: Spec Construction
 
-> *Output the next fenced block as a code block:*
+Read the sources map and the consult references:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} sources
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} consult_references
+```
+
+#### If no source row and no consult reference reads `pending`
+
+Set `constructed` = `false`.
+
+→ Proceed to **Step 6**.
+
+#### Otherwise
+
+Set `constructed` = `true`.
+
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Spec Construction ────────────────────────────
+**`□ Spec Construction`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Building the specification. Topics from your source material will
-> be extracted and presented one at a time. Nothing gets written without
-> your explicit approval.
+> Building the specification. Topics from your source material will be extracted and presented one at a time. Nothing gets written without your explicit approval.
 ```
 
 Load **[spec-construction.md](references/spec-construction.md)** and follow its instructions as written.
 
-→ Proceed to **Step 6**.
+→ On return, proceed to **Step 6**.
 
 ---
 
 ## Step 6: Document Dependencies
 
-> *Output the next fenced block as a code block:*
-
-```
-── Document Dependencies ────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Recording cross-topic dependencies. For epics, specifications
-> may depend on each other — this step captures those relationships.
-```
-
 #### If work_type is not `epic`
+
+→ Proceed to **Step 7**.
+
+#### If `constructed` is `false` and the specification carries a `## Dependencies` section
 
 → Proceed to **Step 7**.
 
 #### Otherwise
 
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+**`□ Document Dependencies`**
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Recording cross-topic dependencies — for epics, specifications may depend on each other.
+```
+
 Load **[dependencies.md](references/dependencies.md)** and follow its instructions as written.
 
-→ Proceed to **Step 7**.
+→ On return, proceed to **Step 7**.
 
 ---
 
 ## Step 7: Specification Review
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Specification Review ─────────────────────────
+**`□ Specification Review`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Reviewing the specification. Agents will analyse it against
-> source material for gaps and inconsistencies. You'll approve or
-> dismiss each finding.
+> Reviewing the specification. Agents will measure its claims against the codebase and analyse it against source material for gaps and inconsistencies. Settled findings come as a batch, each carrying the call and what it rests on; genuine choices stop for your call, and any finding can be talked through — adjusted, challenged, or declined.
 ```
 
 Load **[spec-review.md](references/spec-review.md)** and follow its instructions as written.
 
-→ Proceed to **Step 8**.
+→ On return, proceed to **Step 8**.
 
 ---
 
 ## Step 8: Compliance Self-Check
 
-> *Output the next fenced block as a code block:*
-
-```
-── Compliance Self-Check ────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Verifying the specification follows workflow conventions.
-> A quick internal check before we wrap up.
-```
-
 Load **[compliance-check.md](../workflow-shared/references/compliance-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 9**.
+→ On return, proceed to **Step 9**.
 
 ---
 
 ## Step 9: Assess Cross-Cutting & Conclude
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Conclude ─────────────────────────────────────
+**`□ Conclude`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Wrapping up. Final assessment, sign-off, and handover to the
-> planning phase.
+> Wrapping up. Final assessment, sign-off, and @if(work_type is cross-cutting) closure — the pipeline completes here @else handover to the planning phase @endif.
 ```
 
 Load **[spec-completion.md](references/spec-completion.md)** and follow its instructions as written.

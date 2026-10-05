@@ -1,5 +1,15 @@
 # Local Markdown: Authoring
 
+## Storage Pathspecs
+
+The git pathspecs this format writes **outside `--plan`'s own scope** — the planning topic's directory and the manifests. The array below is recorded verbatim as `storage_paths` on the planning item at plan init; workflow commits (`engine commit --plan`) stage every entry, and restart cleanups stage the same entries when removing authored tasks. Relative pathspecs only — `[]` when the format stores inside that scope.
+
+```json
+[]
+```
+
+Task files live under `.workflows/{work_unit}/planning/{topic}/tasks/` — inside the planning topic's own directory, which `--plan` already stages.
+
 ## Plan Structure
 
 The plan is represented by the `tasks/` directory at `.workflows/{work_unit}/planning/{topic}/tasks/`. Create this directory when authoring the first task. The external identifier is the topic name (`{topic}`).
@@ -50,17 +60,7 @@ Phases are encoded in the internal ID: `{topic}-{phase_id}-{task_id}`. The `phas
 Add a `tags` field to frontmatter if additional categorisation is needed:
 
 ```yaml
-tags: [edge-case, needs-info]
-```
-
-## Flagging
-
-In the task file, add a **Needs Clarification** section:
-
-```markdown
-**Needs Clarification**:
-- What's the rate limit threshold?
-- Per-user or per-IP?
+tags: [edge-case]
 ```
 
 ## Cleanup (Restart)

@@ -4,7 +4,11 @@
 
 ---
 
-This skill's purpose is now fulfilled. Invoke the [workflow-specification-process](../../../workflow-specification-process/SKILL.md) skill for your next instructions. Do not act on the gathered information until the skill is loaded — it contains the instructions for how to proceed.
+This skill's purpose is now fulfilled.
+
+Omit the `Consult references` block when the grouping owes none. A proposed grouping is never an "existing specification to incorporate" — it has no file; absorbing it is a delete handled by reconcile, not a supersede.
+
+Invoke the **workflow-specification-process** skill (Skill tool) with the next fenced block as its arguments. Do not act on the gathered context until its instructions load — the skill defines the process.
 
 ```
 Specification session for: {Title Case Name}
@@ -23,13 +27,7 @@ Output: .workflows/{work_unit}/specification/{topic}/specification.md
 
 Context: This consolidates multiple sources. The existing specification should be incorporated - extract and adapt its content alongside the discussion material. The result should be a unified specification, not a simple merge.
 
-After the specification is complete, mark the incorporated specs as superseded via manifest CLI — only specs whose status is not `proposed`:
+After the specification is complete, mark the incorporated specs as superseded via the engine — only specs whose status is not `proposed`:
 
-    set {source-work-unit}.specification.{source-topic} status superseded
-    set {source-work-unit}.specification.{source-topic} superseded_by {work_unit}
-
----
-Invoke the workflow-specification-process skill.
+    node .claude/skills/workflow-engine/scripts/engine.cjs topic supersede {work_unit} specification {source-topic} --by {topic}
 ```
-
-Omit the `Consult references` block when the grouping owes none. A proposed grouping is never an "existing specification to incorporate" — it has no file; absorbing it is a delete handled by reconcile, not a supersede.

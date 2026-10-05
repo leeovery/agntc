@@ -24,32 +24,9 @@ What this is about, why we're discussing it, the problem or opportunity, current
 - [Related spec or doc](link)
 - [Prior discussion](link)
 
-## Discussion Map
-
-A living index of subtopics tracked during the discussion. This is the structural backbone — it grows as the conversation branches, and converges as decisions land. You maintain this section throughout.
-
-### States
-
-- **pending** (`○`) — identified but not yet explored
-- **exploring** (`◐`) — actively being discussed
-- **converging** (`→`) — narrowing toward a decision
-- **decided** (`✓`) — decision reached with rationale documented
-
-### Map
-
-  Discussion Map — {Topic} ({total} subtopics{state_breakdown})
-
-  ┌─ ✓ {Subtopic A} [decided]
-  │  ├─ ✓ {Child subtopic} [decided]
-  │  └─ → {Child subtopic} [converging]
-  ├─ ◐ {Subtopic B} [exploring]
-  │  ├─ ◐ {Child subtopic} [exploring]
-  │  └─ ○ {Child subtopic} [pending]
-  └─ ○ {Subtopic C} [pending]
-
 ---
 
-*Subtopics are documented below as they reach `decided` or accumulate enough exploration to capture. Not every subtopic needs its own section — minor items resolved in passing can be folded into their parent.*
+*Subtopics are documented below as they reach `decided` or accumulate enough exploration to capture. Not every subtopic needs its own section — minor items resolved in passing can be folded into their parent. The Discussion Map (which subtopics exist and their states) lives in the manifest, not this file.*
 
 ---
 
@@ -100,10 +77,6 @@ What we chose, why, the deciding factor, trade-offs accepted, confidence level.
 ### Current State
 - What's resolved
 - What's still uncertain
-
-## Triage
-
-(none)
 ```
 
 ## Usage Notes
@@ -112,14 +85,13 @@ What we chose, why, the deciding factor, trade-offs accepted, confidence level.
 1. Ensure discussion directory exists: `.workflows/{work_unit}/discussion/`
 2. Create file: `.workflows/{work_unit}/discussion/{topic}.md`
 3. Start with context: why discussing?
-4. Seed the Discussion Map with initial subtopics (derived from research, handoff, or user input)
-5. Set status via manifest CLI (the skill handles this)
+4. Register in the manifest and seed the Discussion Map via the engine `discussion-map add` command (the skill handles this)
 
 **During discussion**:
 - Follow the conversation organically — don't force a rigid question order
-- Update the Discussion Map as subtopics are identified, explored, and decided
+- Track subtopics on the Discussion Map (manifest state, maintained via the engine `discussion-map` commands)
 - Document subtopics when they reach `decided` (or accumulate enough exploration to capture)
-- New subtopics emerge naturally — add them to the map as `pending`
+- New subtopics emerge naturally — record them on the map as `pending`
 - Minor items resolved in passing can be folded into their parent subtopic's documentation
 
 **Per-subtopic structure** (when documenting):
@@ -128,9 +100,36 @@ What we chose, why, the deciding factor, trade-offs accepted, confidence level.
 - **Journey**: The exploration — what we thought, what changed, false paths, debates, insights
 - **Decision**: What we chose, why, the deciding factor
 
-**Discussion Map maintenance**:
-- Update states as the conversation progresses
-- New child subtopics can be added under parents
+**Decision revisions**: A Decision block written in an earlier sitting is never rewritten in place — when a later sitting re-decides it, the block becomes a dated timeline. On the first revision, wrap the block's existing prose verbatim under `#### Initial` (use `#### {YYYY-MM-DD}` instead when the original date is known) and place the new decision above it:
+
+```markdown
+#### {YYYY-MM-DD} — revised
+*Trigger: {substance — e.g. triage from {origin}: "{concern title}" — {one-line substance} / review finding: {one-line substance} / user reversal: {what changed}}*
+
+{the current decision — what we now choose, why, what changed from the entry below}
+
+#### Initial
+{the block's original prose, wrapped verbatim — never edited again}
+```
+
+- Entries land only on revision — a block decided once and never revisited stays a plain block
+- The latest entry sits directly under the decision heading: the text there is always the current truth. Same-day revisions stack latest-first
+- Earlier entries are never edited
+- The trigger line carries the substance of what prompted the revision, never a bare cache id — cache files are purged; ids like `review-003 F5` may appear alongside the substance
+
+**Derivation marker**: a decision landed as a settled call — approved from a batch screen rather than argued in conversation — carries a marker line naming what determined it:
+
+```markdown
+**Settled by derivation** — not discussed. Determined by {what determined the call — the decision, sibling ground, convention, or principle}@if(from_review_finding) ({id} {finding})@endif.
+```
+
+The finding id rides only where this discussion's own review raised the call; a call landed from another phase's review names no finding — the document reads as its own record. The marker opens the Decision block on a fresh section, and follows the `*Trigger:*` line inside the dated entry on a revision — it marks the derived text, never a block whose `#### Initial` was argued. A fresh section written for a settled call keeps its Journey though nothing was debated — the Journey carries the derivation, not a debate; a later revision wraps the block exactly as above.
+
+**Measured claims**: when a claim about the codebase or toolchain is load-bearing — a decision or insight leans on it — measure it in the moment it's written and record the command with the result, the command alone in its span so it re-runs by copy (`` `rg -l 'pattern' | wc -l` → 14 ``). A claim that can't be measured is written as observation, not fact. Downstream phases re-run these commands; an unmeasured load-bearing claim is the defect they inherit.
+
+**Discussion Map**:
+- Subtopic states (`pending`, `exploring`, `converging`, `decided`, `deferred`) live in the manifest — the file holds the knowledge, the map holds the live state
+- New child subtopics can be added under top-level parents (two levels max)
 - The map is the user's visibility into discussion shape and your tracking mechanism
 
 **Flexibility**: Not every subtopic needs all sections. Some have clear options with pros/cons. Some have heated debate worth capturing. Some are straightforward. Document what naturally came up — don't force structure onto a simple discussion.
@@ -141,12 +140,10 @@ What we chose, why, the deciding factor, trade-offs accepted, confidence level.
 - Don't write code — unless it came up in discussion (e.g., API shape, pattern example) and is relevant to capture
 - Don't summarise the journey — document it
 - Don't stuff concerns that belong to a different topic into subtopics — reroute them to that topic
-
-**Triage section**:
-- `## Triage` is a fixed terminal landing zone for off-topic concerns rerouted from other topics; working discussion content stays above it; left as `(none)` until an entry lands
+- Don't assert tree facts from memory — a load-bearing count, enumeration, or "all X are Y" is measured when written, and carries its command
+- Don't record the pipeline — no readiness declarations ("ready for specification"), decided-subtopic counts, or review-cycle tallies, in Current State or anywhere else; the resolved/uncertain rows carry substance, the manifest carries state
 
 **Complete when**:
-- All subtopics on the Discussion Map are `decided` (or deliberately deferred)
+- All subtopics on the Discussion Map are `decided` (or `deferred`)
 - Trade-offs understood
 - Path forward clear
-- No new subtopics emerging without breaking scope

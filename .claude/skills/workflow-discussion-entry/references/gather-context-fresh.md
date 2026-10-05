@@ -4,21 +4,25 @@
 
 ---
 
-Ask each question below **one at a time**. After each, **STOP** and wait for the user's response before proceeding.
+Ask each question below **one at a time**. After each, stop and wait for the user's response before proceeding.
 
 ---
-
-## A. Core Problem
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Setting up the discussion. I'll ask a few questions to
-> understand the problem, constraints, and any relevant code
-> before we begin.
+**`□ Gather Context`**
 ```
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Setting up the discussion. I'll ask a few questions to understand the problem, constraints, and any relevant code before we begin.
+```
+
+## A. Core Problem
+
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
 New discussion: {topic}
@@ -36,7 +40,7 @@ Remember the response — it defines the central problem or decision that the di
 
 ## B. Constraints
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
 Any constraints or context I should know about?
@@ -52,7 +56,7 @@ Remember the response — these constraints will bound the solution space during
 
 ## C. Codebase
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
 Are there specific files in the codebase I should review first?

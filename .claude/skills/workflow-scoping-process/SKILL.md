@@ -1,7 +1,7 @@
 ---
 name: workflow-scoping-process
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(node .claude/skills/workflow-knowledge/scripts/knowledge.cjs)
+allowed-tools: Bash(node .claude/skills/workflow-engine/scripts/engine.cjs), Bash(ls .workflows/), Bash(rm -rf .workflows/), Bash(git log), Bash(git status), Bash(git rev-parse)
 ---
 
 # Scoping Process
@@ -22,18 +22,7 @@ Scope a mechanical change — gather context, write a specification, and produce
 
 ## Instructions
 
-Follow these steps EXACTLY as written. Do not skip steps or combine them.
-
-**CRITICAL**: This guidance is mandatory.
-
-- After each user interaction, STOP and wait for their response before proceeding
-- Never assume or anticipate user choices
-- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
-- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
-- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
-- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
-- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
-- Complete each step fully before moving to the next
+Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
 
 ---
 
@@ -41,7 +30,7 @@ Follow these steps EXACTLY as written. Do not skip steps or combine them.
 
 Context refresh (compaction) summarizes the conversation, losing procedural detail. When you detect a context refresh has occurred — the conversation feels abruptly shorter, you lack memory of recent steps, or a summary precedes this message — follow this recovery protocol:
 
-1. **Re-read this skill file completely.** Do not rely on your summary of it. The full process, steps, and rules must be reloaded.
+1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
 2. **Check what artifacts exist on disk** — spec file, plan file, task files. Their presence reveals which steps completed.
 3. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits.
 4. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
@@ -56,19 +45,38 @@ Do not guess at progress or continue from memory. The files on disk and git hist
 2. **No acceptance criteria** — mechanical changes are verified by test baselines and completeness checks, not by acceptance criteria.
 3. **No agents** — scoping writes specs and tasks directly, without invoking planning agents or review cycles.
 
+---
+
+## Backlogging
+
+The user says to put an idea aside — "roadmap it", "inbox it", "backlog that", "push it back" — and the words take this door whatever else is in flight. An idea, not a topic: a topic takes the postponing door. Load **[backlogging.md](../workflow-shared/references/backlogging.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `scoping`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Postponing the Topic
+
+The user pushes a topic back to the roadmap — "postpone this", "move the loyalty topic to v2", "take this whole topic back to the roadmap" — this one, or one on the map by name; `{name}` is that topic. The request is taken as said — never argued, and never checked back with a question first: load **[postponing-the-topic.md](../workflow-shared/references/postponing-the-topic.md)** with work_unit = `{work_unit}`, name = `{name}`, topic = `{topic}`, phase = `scoping`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
+## Cancelling the Topic
+
+The user calls the topic off — they say to cancel, or the conversation agrees it is not worth pursuing. Never is not yet: a topic wanted later takes the postponing door. The call-off is taken as said — never argued, and never checked back with a question first: load **[cancelling-the-topic.md](../workflow-shared/references/cancelling-the-topic.md)** with work_unit = `{work_unit}`, topic = `{topic}`, phase = `scoping`, from any point in the phase.
+
+→ On return, resume the interrupted flow — a gate that was pending was set aside; once the exchange looks settled, ask in conversation whether the person is ready to move on, and on yes put it back — never fall through to Step 0.
+
+---
+
 ## Step 0: Resume Detection
 
-> *Output the next fenced block as a code block:*
+Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
 
-```
-── Resume Detection ─────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking for existing scoping work. If a spec and plan
-> already exist, we can skip ahead.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} scoping {topic}
 ```
 
 Check if a specification already exists:
@@ -77,42 +85,156 @@ Check if a specification already exists:
 ls .workflows/{work_unit}/specification/{topic}/specification.md 2>/dev/null && echo "exists" || echo "none"
 ```
 
+#### If specification does not exist
+
+→ Proceed to **Step 1**.
+
 #### If specification exists
 
-Check if a plan also exists:
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+**`□ Resume Detection`**
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> An in-progress scoping specification exists — choose whether to pick it up or start fresh.
+```
+
+Read the plan and scoping statuses:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.planning.{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.scoping.{topic} status
 ```
 
-**If plan exists and is completed:**
+**If plan status is `completed` and scoping status is `in-progress`** (reopened for revisit):
 
-> *Output the next fenced block as a code block:*
+Render the resume menu and emit its section verbatim per its marker:
 
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render resume-gate {work_unit}.scoping.{topic} --variant scoping
 ```
+
+**STOP.** Wait for user response.
+
+**If plan status is `completed` and scoping status is not `in-progress`:**
+
+> *Output the next fenced block as a text code block (```text fence):*
+
+```text
 Scoping already completed for "{topic:(titlecase)}". Spec and plan are in place.
 ```
 
-Mark scoping as completed if not already, then invoke the bridge:
+If the scoping status read was empty (item missing), register and complete it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.scoping.{topic}
-```
-
-If scoping doesn't exist, init and complete it:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs init-phase {work_unit}.scoping.{topic}
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.scoping.{topic} status completed
+node .claude/skills/workflow-engine/scripts/engine.cjs topic start {work_unit} scoping {topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs topic complete {work_unit} scoping {topic}
 ```
 
 → Proceed to **Step 8**.
 
-**Otherwise:**
+**If plan status is not `completed`** (empty or `in-progress`):
 
-→ Proceed to **Step 6** (spec exists but plan is incomplete — resume from format selection).
+The spec exists but the plan is incomplete — an interrupted prior run. Rebuild the context the interrupted run had:
 
-#### If specification does not exist
+1. Read `.workflows/{work_unit}/specification/{topic}/specification.md` in full — it is the gathered context Step 7 authors tasks from.
+2. Read the specification item's status:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} status
+   ```
+   If the output is empty (the run crashed between writing the spec file and registering it), register and index it now:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs topic start {work_unit} specification {topic}
+   node .claude/skills/workflow-engine/scripts/engine.cjs topic complete {work_unit} specification {topic}
+   ```
+   If the `complete` response carries `warnings`, display them but do not block — the artifact is already saved.
+3. Reconcile tasks the interrupted run may already have created in an external backend:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} format
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} external_id
+   ```
+   If both are set, load the format's **[reading.md](../workflow-planning-process/references/output-formats/{format}/reading.md)** and list the tasks already created under `external_id`. Carry that list into Step 7 — existing tasks are adjusted or completed, never re-authored as duplicates. If either read is empty, nothing was authored — resume cleanly.
+
+→ Proceed to **Step 6** (resume from format selection).
+
+#### If `continue`
+
+Load the artifacts as session context: read the spec (`.workflows/{work_unit}/specification/{topic}/specification.md`) and the plan (`.workflows/{work_unit}/planning/{topic}/planning.md`) in full, then read the planning item once — `format`, `external_id`, and `storage_paths` all ride the subtree — and locate and read the task files via the format's **[reading.md](../workflow-planning-process/references/output-formats/{format}/reading.md)**:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic}
+```
+
+**If the subtree carries no `storage_paths` field** (absent, not empty — a plan initialised before the field existed): record it now, before anything commits — read the format's authoring.md → Storage Pathspecs and copy the fenced array:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} storage_paths '{format storage pathspecs}'
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+Revisiting scoping for "{topic:(titlecase)}".
+
+What should change in the spec or plan?
+```
+
+**STOP.** Wait for user response.
+
+Apply the requested edits — the spec and `planning.md` directly, task file content per the format's **[authoring.md](../workflow-planning-process/references/output-formats/{format}/authoring.md)**. Hard rules still hold: maximum 2 tasks, no acceptance criteria. Then:
+
+1. If the spec changed, re-index it (re-completion re-indexes over the same identity):
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs topic complete {work_unit} specification {topic}
+   ```
+2. Re-complete scoping:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs topic complete {work_unit} scoping {topic}
+   ```
+3. Commit each edit under its own scope — the specification, then the plan with its declared storage:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "spec({work_unit}): adjust quick-fix specification" --topic specification/{topic} --sweep
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "scoping({work_unit}): adjust plan" --plan {topic}
+   ```
+
+→ Proceed to **Step 8**.
+
+#### If `restart`
+
+Order matters — the plan's cleanup commits while the planning item still exists, so `--plan` resolves the plan's declared storage, and the manifest entries are deleted last.
+
+1. Read the planning item once — `format`, `external_id`, and `storage_paths` all ride the subtree:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic}
+   ```
+2. **If the subtree carries no `storage_paths` field** (absent, not empty — a plan initialised before the field existed): record it now, before anything commits — read the format's authoring.md → Storage Pathspecs and copy the fenced array:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} storage_paths '{format storage pathspecs}'
+   ```
+3. Load the format's **[authoring.md](../workflow-planning-process/references/output-formats/{format}/authoring.md)**
+4. Follow the authoring file's cleanup instructions to remove authored tasks for this topic — the cleanup targets the entity identified by `external_id`
+5. Delete the spec and plan files: `rm -rf .workflows/{work_unit}/specification/{topic}/ .workflows/{work_unit}/planning/{topic}/`
+6. Remove the spec's knowledge-base entry. A failed removal never blocks: tell the user in one line that the next start removes it, and continue:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs knowledge remove --work-unit {work_unit} --phase specification --topic {topic}
+   ```
+7. Commit the plan's cleanup — `--plan` stages the planning topic, both manifests, and the plan's declared storage, so the deleted plan files and the format's own cleanup land together:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "scoping({work_unit}): restart scoping — clear the authored plan" --plan {topic}
+   ```
+8. Delete the specification and planning manifest entries — the scoping item stays `in-progress`; the fresh run re-completes it at Write Tasks:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.specification items.{topic}
+   node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.planning items.{topic}
+   ```
+9. Commit what remains — the deleted specification and the two manifest entries. A quick-fix's topic is its work unit, so the work-unit scope is this action's own:
+   ```bash
+   node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "scoping({work_unit}): restart scoping"
+   ```
 
 → Proceed to **Step 1**.
 
@@ -120,117 +242,76 @@ node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.scopi
 
 ## Step 1: Knowledge Usage
 
-> *Output the next fenced block as a code block:*
+Load **[knowledge-usage.md](../workflow-shared/references/knowledge-usage.md)** and follow its instructions as written.
 
-```
-── Knowledge Usage ──────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Loading the usage guide for the knowledge base so
-> proactive querying is available while scoping the change.
-```
-
-Load **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)** and follow its instructions as written.
-
-→ Proceed to **Step 2**.
+→ On return, proceed to **Step 2**.
 
 ---
 
 ## Step 2: Gather Context
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Gather Context ───────────────────────────────
+**`□ Gather Context`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Understanding what needs changing — reading code, asking
-> clarifying questions, and building a picture of the change.
+> Understanding what needs changing — reading code, asking clarifying questions, and building a picture of the change.
 ```
 
 Load **[gather-context.md](references/gather-context.md)** and follow its instructions as written.
 
-*Knowledge-base nudge — if the change touches an area with prior discussions, investigations, or specs, query the knowledge base while gathering context. A "mechanical change" often has a history. See **[knowledge-usage.md](../workflow-knowledge/references/knowledge-usage.md)**.*
+*Knowledge-base nudge — if the change touches an area with prior discussions, investigations, or specs, query the knowledge base while gathering context. A "mechanical change" often has a history. See **[knowledge-usage.md](../workflow-shared/references/knowledge-usage.md)**.*
 
-→ Proceed to **Step 3**.
+→ On return, proceed to **Step 3**.
 
 ---
 
 ## Step 3: Contextual Query
 
-> *Output the next fenced block as a code block:*
+Load **[contextual-query.md](../workflow-shared/references/contextual-query.md)** and follow its instructions as written.
 
-```
-── Contextual Query ─────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Checking the knowledge base for prior discussions, investigations,
-> or specs that touch the area being changed.
-```
-
-Load **[contextual-query.md](../workflow-knowledge/references/contextual-query.md)** and follow its instructions as written.
-
-→ Proceed to **Step 4**.
+→ On return, proceed to **Step 4**.
 
 ---
 
 ## Step 4: Complexity Check
 
-> *Output the next fenced block as a code block:*
-
-```
-── Complexity Check ─────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Assessing whether this change fits the quick-fix model.
-> If it's too complex, it should be promoted to a feature.
-```
-
 Load **[complexity-check.md](references/complexity-check.md)** and follow its instructions as written.
 
-→ Proceed to **Step 5**.
+→ On return, proceed to **Step 5**.
 
 ---
 
 ## Step 5: Write Specification
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Write Specification ──────────────────────────
+**`□ Write Specification`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Writing a lightweight specification for the change.
-> This captures what's changing and why.
+> Writing a lightweight specification for the change. This captures what's changing and why.
 ```
 
 Load **[write-specification.md](references/write-specification.md)** and follow its instructions as written.
 
-→ Proceed to **Step 6**.
+→ On return, proceed to **Step 6**.
 
 ---
 
 ## Step 6: Select Output Format
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Select Output Format ─────────────────────────
+**`□ Select Output Format`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
@@ -241,37 +322,36 @@ Load **[write-specification.md](references/write-specification.md)** and follow 
 
 Load **[select-format.md](references/select-format.md)** and follow its instructions as written.
 
-→ Proceed to **Step 7**.
+→ On return, proceed to **Step 7**.
 
 ---
 
 ## Step 7: Write Tasks
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Write Tasks ──────────────────────────────────
+**`□ Write Tasks`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Writing 1-2 task files for the change. Quick-fixes
-> are limited to two tasks maximum.
+> Writing 1-2 task files for the change. Quick-fixes are limited to two tasks maximum.
 ```
 
 Load **[write-tasks.md](references/write-tasks.md)** and follow its instructions as written.
 
-→ Proceed to **Step 8**.
+→ On return, proceed to **Step 8**.
 
 ---
 
 ## Step 8: Conclude Scoping
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-── Conclude Scoping ─────────────────────────────
+**`□ Conclude Scoping`**
 ```
 
 > *Output the next fenced block as markdown (not a code block):*

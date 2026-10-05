@@ -31,13 +31,13 @@ Before starting any topic, identify ALL available reference material from prior 
 
 **This is a collaborative, interactive process. You MUST wait for explicit user approval before writing ANYTHING to the specification file.**
 
-> **CHECKPOINT**: If you are about to write to the specification file and haven't received explicit approval (e.g., `y`/`yes`) for this specific content, **STOP**. You are violating the workflow. Go back and present the content first.
+> **CHECKPOINT**: If you are about to write to the specification file and haven't received explicit approval (e.g., `y/yes`) for this specific content, **STOP**. You are violating the workflow. Go back and present the content first.
 
 ### Explicit Approval Required
 
 At every stop point, the user must explicitly approve before you proceed or log content.
 
-**What counts as approval:** `y`/`yes` or equivalent explicit confirmation: "Approved", "Add it", "That's good".
+**What counts as approval:** `y/yes` or equivalent explicit confirmation: "Approved", "Add it", "That's good".
 
 **What does NOT count as approval:**
 - Silence
@@ -63,7 +63,7 @@ When uncertain whether the user approved, ask: "Ready to log it, or do you want 
 
 ## What You Do
 
-1. **Extract exhaustively**: For each topic, re-scan ALL source materials. When working with multiple sources, search each one — information about a single topic may be scattered across documents. Search for keywords and related terms. Collect everything before synthesizing. Include only what we're building (not discarded alternatives).
+1. **Extract exhaustively**: For each topic, re-scan ALL source materials. When working with multiple sources, search each one — information about a single topic may be scattered across documents. Search for keywords and related terms. Collect everything the sources decided before synthesizing — what the product does and the decisions behind it; the how they left open is the implementer's. Include only what we're building (not discarded alternatives).
 2. **Filter**: Reference material may contain hallucinations, inaccuracies, or outdated concepts. Validate before including.
 3. **Enrich**: Reference material may have gaps. Fill them through discussion.
 4. **Present**: Synthesize and present content to the user in the format it would appear in the specification.
@@ -85,7 +85,9 @@ The specification is the **golden document** — planning uses only this. If inf
 
 **Trust nothing without validation**: Synthesize and present, but never assume source material is correct.
 
-**Surface conflicts**: When sources contain conflicting decisions, flag the conflict to the user. Don't silently pick one — let the user decide what makes it into the specification.
+**Surface conflicts**: When sources contain conflicting decisions, flag the conflict to the user. Don't silently pick one — let the user decide what makes it into the specification, per **[resolve-source-incoherence.md](resolve-source-incoherence.md)**. Dated supersession inside one Decision block's timeline is not a conflict — the top entry governs.
+
+**Measure load-bearing claims**: When a source claim about the codebase or toolchain is load-bearing — a decision, gate, or scope leans on it — verify it against the tree before extracting it, and extract it with the command and result. A claim that fails measurement routes per **[resolve-source-incoherence.md](resolve-source-incoherence.md)** — never extracted as-is, never corrected only in the spec: a "validated correction" the owning document never received is the source rotting in place.
 
 ## Self-Check: Are You Following the Rules?
 
@@ -94,7 +96,7 @@ Before ANY write operation to the specification, ask yourself:
 | Question | If No... |
 |----------|----------|
 | Did I present this specific content to the user? | **STOP**. Present it first. |
-| Did the user explicitly approve? (e.g., `y`/`yes`) | **STOP**. Wait for approval or ask. |
+| Did the user explicitly approve? (e.g., `y/yes`) | **STOP**. Wait for approval or ask. |
 | Am I writing exactly what was approved, with no additions? | **STOP**. Present any changes first. |
 
 > **If you have written to the specification file and cannot answer "yes" to all three questions above for that content, you have violated the workflow.** Every piece of content requires explicit user approval before logging. There are no exceptions.

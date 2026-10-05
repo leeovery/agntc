@@ -7,7 +7,7 @@
 Read the specification item's status from the manifest — not the file on disk. A `proposed` grouping has no file yet but is a real item:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.specification.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} status
 ```
 
 #### If the output is empty
@@ -24,30 +24,50 @@ The grouping exists as a proposed item; the process skill flips it to in-progres
 
 #### If the status is `in-progress`
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Resuming specification: {work_unit:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.specification.{topic} --verb Resuming
 ```
 
 Set verb = "Continuing".
+
+→ Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `specification`.
 
 → Return to caller.
 
 #### If the status is `completed`
 
-Reset to in-progress:
+Reopen it:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.specification.{topic} status in-progress
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} specification {topic}
 ```
 
-> *Output the next fenced block as a code block:*
+Render and emit the section verbatim per its marker:
 
-```
-Reopening specification: {work_unit:(titlecase)}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.specification.{topic} --verb Reopening
 ```
 
 Set verb = "Continuing".
 
+→ Load **[reconcile-advisory.md](../../workflow-shared/references/reconcile-advisory.md)** with downstream_phase = `specification`.
+
 → Return to caller.
+
+#### If the status is `cancelled`
+
+The specification is cancelled — it returns through the epic menu's reactivate option, never through entry. Tell the user in one line.
+
+**STOP.** Do not proceed — terminal condition.
+
+#### If the status is `superseded` or `promoted`
+
+Render the terminal blocker — the engine derives which from the item's status — and emit the section verbatim per its marker:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render entry-gate {work_unit}.specification.{topic} --own
+```
+
+**STOP.** Do not proceed — terminal condition.

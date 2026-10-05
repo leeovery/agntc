@@ -4,29 +4,18 @@
 
 ---
 
-> *Output the next fenced block as a code block:*
+Render the completion display — the artifact paths derive from the work unit — and emit its section verbatim per its marker:
 
-```
-Scoping complete for "{topic:(titlecase)}".
-
-  Spec: .workflows/{work_unit}/specification/{topic}/specification.md
-  Plan: .workflows/{work_unit}/planning/{topic}/
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-completed {work_unit} --phase scoping --paths
 ```
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-> Scoping complete. The implementation phase will execute
-> these tasks using the verification workflow.
+> Scoping complete. The implementation phase will execute these tasks using the verification workflow.
 ```
 
-**Pipeline continuation** — Invoke the bridge:
-
-```
-Pipeline bridge for: {work_unit}
-Completed phase: scoping
-
-Invoke the workflow-bridge skill to enter plan mode with continuation instructions.
-```
+**Pipeline continuation** — Invoke `/workflow-bridge {work_unit} scoping`.
 
 **STOP.** Do not proceed — terminal condition.

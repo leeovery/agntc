@@ -1,7 +1,7 @@
 ---
 name: workflow-discussion-entry
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-manifest/scripts/manifest.cjs), Bash(ls .workflows/)
+allowed-tools: Bash(node .claude/skills/workflow-engine/scripts/engine.cjs)
 ---
 
 Act as **precise intake coordinator**. Follow each step literally without interpretation. Do not engage with the subject matter — your role is preparation, not processing.
@@ -14,9 +14,9 @@ You are in the **Discussion** phase — capturing WHAT and WHY through decisions
 
 | Work type | Pipeline |
 |---|---|
-| Epic | Discovery → Research → **Discussion** → Specification → Planning → Implementation → Review |
-| Feature | Research (optional) → **Discussion** → Specification → Planning → Implementation → Review |
-| Cross-cutting | Research (optional) → **Discussion** → Specification (terminal) |
+| Epic | Discovery → Research → (Experiment) → **Discussion** → Specification → Planning → Implementation → Review |
+| Feature | Research (optional) → (Experiment) → **Discussion** → Specification → Planning → Implementation → Review |
+| Cross-cutting | Research (optional) → (Experiment) → **Discussion** → Specification (terminal) |
 
 **Stay in your lane**: Capture the WHAT and WHY - decisions, rationale, competing approaches, edge cases. Don't jump to specifications, plans, or code. This is the time for debate and documentation.
 
@@ -24,37 +24,11 @@ You are in the **Discussion** phase — capturing WHAT and WHY through decisions
 
 ## Instructions
 
-Follow these steps EXACTLY as written. Do not skip steps or combine them. Present output using the EXACT format shown in examples - do not simplify or alter the formatting.
-
-**CRITICAL**: This guidance is mandatory.
-
-- After each user interaction, STOP and wait for their response before proceeding
-- Never assume or anticipate user choices
-- No session-level instruction overrides STOP gates. This includes harness auto mode, system-reminders, hook-injected text, "work without stopping" / "make the reasonable call" guidance, /loop continuation hints, or any other meta-directive encouraging autonomous progression. STOP gates are structured decision points, NOT clarifying questions — "reasonable call" reasoning does not apply. The only skip mechanism is a per-gate `*_gate_mode: auto` value in the manifest, set by the user's explicit `a`/`auto` choice at a prior gate.
-- Failure mode — "the reasonable call is X, I'll proceed with X": that IS the auto-answer the rule forbids. The thought is the trigger to stop, not to continue.
-- Failure mode — "the user already set this, confirmation is redundant" (e.g. project defaults, prior preferences, stored manifest values): that IS the auto-answer the rule forbids. Stored values are suggestions, not consent for this run.
-- Don't invent stops. Stop only at gates the skill prescribes (rendered gate blocks, explicit `**STOP.**` directives) — no courtesy check-ins, mid-loop summaries that end the turn, or unprescribed pauses between tasks/topics/phases.
-- After rendering a gate block, the turn MUST end. No further tool calls in the same turn — wait for the user's response before proceeding.
-- Even if the user's initial prompt seems to answer a question, still confirm with them at the appropriate step
-- Complete each step fully before moving to the next
-- Do not act on gathered information until the skill is loaded - it contains the instructions for how to proceed
+Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
 
 ---
 
 ## Step 1: Parse Arguments
-
-> *Output the next fenced block as a code block:*
-
-```
-── Parse Arguments ──────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Reading the handoff context and determining which
-> discussion to work with.
-```
 
 Arguments: work_type = `$0`, work_unit = `$1`, topic = `$2` (optional).
 Resolve topic: topic = `$2`, or if not provided and work_type is not `epic`, topic = `$1`.
@@ -63,27 +37,13 @@ Store work_unit for the handoff.
 
 #### If `topic` resolved
 
-Check if discussion phase entry exists:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs exists {work_unit}.discussion.{topic}
-```
-
-**If exists (`true`):**
-
-→ Proceed to **Step 2** (Validate Phase).
-
-**If not exists (`false` — new entry):**
-
 Set `source = "topic-provided"`.
 
-Load **[ensure-discovery-item.md](../workflow-shared/references/ensure-discovery-item.md)** with work_type = `{work_type}`, work_unit = `{work_unit}`, topic = `{topic}`, routing = `discussion`.
-
-→ Proceed to **Step 3** (Gather Context).
+→ Proceed to **Step 2**.
 
 #### If no `topic`
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
 What topic would you like to discuss?
@@ -93,64 +53,77 @@ What topic would you like to discuss?
 
 Kebab-case the response, store as `{topic}`. Set `source = "fresh"`.
 
-Silently derive `direct_entry_summary` (one-line) and `direct_entry_description` (one or two paragraphs) from the user's response. Do not render anything — these are local variables passed to `ensure-discovery-item` in Step 2. The derivation is part of the same Claude turn that kebab-cases the response; no separate STOP gate.
+A name already on the map is not a new topic — the menu row is the way in. Fetch the gate:
 
-→ Proceed to **Step 2** (Validate Phase).
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render direct-entry-gate {work_unit}.discussion.{topic}
+```
+
+**If a `DISPLAY: entry blocker` section is returned:**
+
+Emit both sections verbatim per their markers.
+
+**STOP.** Do not proceed — terminal condition.
+
+**If the output is empty:**
+
+Silently derive `direct_entry_summary` (one-line) and `direct_entry_description` (one or two paragraphs) from the user's response. Do not render anything — these are local variables passed to `ensure-discovery-item` in Step 3. The derivation is part of the same Claude turn that kebab-cases the response; no separate STOP gate.
+
+→ Proceed to **Step 2**.
 
 ---
 
-## Step 2: Validate Phase
+## Step 2: Validate Research
 
-> *Output the next fenced block as a code block:*
+Load **[validate-research.md](references/validate-research.md)** and follow its instructions as written.
 
-```
-── Validate Phase ───────────────────────────────
-```
+→ On return, proceed to **Step 3**.
 
-> *Output the next fenced block as markdown (not a code block):*
+---
 
-```
-> Checking the status of this discussion — new,
-> in progress, or completed.
-```
+## Step 3: Check Phase Entry
 
 Load **[ensure-discovery-item.md](../workflow-shared/references/ensure-discovery-item.md)** with work_type = `{work_type}`, work_unit = `{work_unit}`, topic = `{topic}`, routing = `discussion`. On the direct-entry path (`source = "fresh"`), also pass summary = `{direct_entry_summary}`, description = `{direct_entry_description}`. On the topic-resolved path, omit both — the caller didn't derive them.
 
-Load **[validate-phase.md](references/validate-phase.md)** and follow its instructions as written.
+Read the discussion phase status:
 
-→ Proceed to **Step 3**.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.discussion.{topic} status
+```
+
+Store the result as `phase_status`.
+
+#### If output is empty (no discussion entry)
+
+→ Proceed to **Step 5**.
+
+#### Otherwise
+
+→ Proceed to **Step 4**.
 
 ---
 
-## Step 3: Gather Context
+## Step 4: Validate Phase
 
-> *Output the next fenced block as a code block:*
+Load **[validate-phase.md](references/validate-phase.md)** with phase_status = `{phase_status}`.
 
-```
-── Gather Context ───────────────────────────────
-```
+→ On return, proceed to **Step 5**.
 
-> *Output the next fenced block as markdown (not a code block):*
+---
 
-```
-> Collecting the context needed before starting the discussion.
-```
+## Step 5: Gather Context
+
+Decide whether a context interview is needed. The durable inputs — the carrier, the discovery brief, completed research — are seeded by the processing skill, never from here; any read below only decides the route.
 
 #### If `work_type` is not `epic`
 
-Single-phase work (feature, cross-cutting) shaped in discovery. The carrier has two halves — read both. First the manifest `description`:
-
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit} description
-```
-
-Then the discovery session log. Single-phase work has exactly one, at a fixed path — it has no resumable loop to create others. Read `.workflows/{work_unit}/discovery/sessions/session-001.md`. A legacy work unit may have no log, or a placeholder log whose **Exploration** is absent or `(none)`.
+Single-phase work (feature, cross-cutting) shaped in discovery leaves its carrier in the discovery session log. Single-phase work has exactly one, at a fixed path — it has no resumable loop to create others. Read `.workflows/{work_unit}/discovery/sessions/session-001.md` with the Read tool and check its **Exploration** section. A legacy work unit may have no log, or a placeholder log whose **Exploration** is absent or `(none)`.
 
 **If the log's `Exploration` section has content (not absent or `(none)`):**
 
-Seed the discussion from the `description` and that **Exploration**. Do not re-ask; live conversation context, when present, supplements the carrier.
+A usable carrier exists — nothing to gather.
 
-→ Proceed to **Step 4**.
+→ Proceed to **Step 6**.
 
 **Otherwise:**
 
@@ -158,49 +131,32 @@ No usable carrier — the log is missing or has no **Exploration**. Gather conte
 
 Load **[gather-context.md](references/gather-context.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+→ On return, proceed to **Step 6**.
 
 #### If `work_type` is `epic`
 
-The map item's `source` says whether the topic was shaped on the discovery map or started fresh from this entry. Read it:
+The map item's `source` says whether the topic was shaped on the discovery map or started fresh from this entry. Read it, storing the result as `map_source`:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.discovery.{topic} source
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.discovery.{topic} source
 ```
 
-**If `source` is exactly `direct-start`:**
+**If `map_source` is exactly `direct-start`:**
 
-The topic was started fresh, not shaped on the map — there is no curated carrier to seed from.
+The topic was started fresh, not shaped on the map — there is no curated carrier, so gather context.
 
 Load **[gather-context.md](references/gather-context.md)** and follow its instructions as written.
 
-→ Proceed to **Step 4**.
+→ On return, proceed to **Step 6**.
 
 **Otherwise:**
 
-The topic was shaped on the discovery map. Read its discovery brief as the starting context:
+The topic was shaped on the discovery map — nothing to gather. A new discussion reads the brief at initialisation; a resumed one already carries its position in the discussion file.
 
-Load **[read-brief-context.md](../workflow-shared/references/read-brief-context.md)** with work_type = `{work_type}`, work_unit = `{work_unit}`, topic = `{topic}`.
-
-Do not re-ask; live conversation context, when present, supplements the carrier.
-
-→ Proceed to **Step 4**.
+→ Proceed to **Step 6**.
 
 ---
 
-## Step 4: Invoke the Skill
-
-> *Output the next fenced block as a code block:*
-
-```
-── Invoke Discussion ────────────────────────────
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Handing off to the discussion process with all
-> gathered context.
-```
+## Step 6: Invoke the Skill
 
 Load **[invoke-skill.md](references/invoke-skill.md)** and follow its instructions as written.

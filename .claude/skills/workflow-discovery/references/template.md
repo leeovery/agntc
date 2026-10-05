@@ -11,7 +11,7 @@ One template, all sessions. Sections that don't apply this session write `(none)
 The session has two distinct flavours of content recorded in two distinct sections:
 
 - **Exploration** is **narrative** — a prose record of the conversation. The writer sets its fidelity and write-timing: an epic writes a running record across the session; single-phase work backfills once at creation. It's the durable record of what got discussed — read downstream, and a hedge against context refresh.
-- **Edits** is **structured** — a deterministic record of map-operations applied to existing items during the session. Only meaningful for continuing sessions where the map is non-empty.
+- **Edits** is **structured** — a deterministic record of the operations this session applied: a map operation on an existing item, a file landed in `imports/`, a thought parked on the roadmap.
 
 **Topics Identified** is filled at the harvest, from analysing the exploration as a whole.
 
@@ -34,11 +34,11 @@ session worked from.}
 {The seed (promoted inbox item) the work unit originated from, or
 `(none)`.}
 
-- seeds/{filename}.md ({source})
+- seeds/{filename} ({source})
 
 ## Imports
 
-- imports/{filename}.md
+- imports/{filename}
 - ...
 
 ## Map State at Start
@@ -59,13 +59,16 @@ topics from the picture as a whole.}
 
 ## Edits
 
-{Structured per-op entries when continuing sessions edit the
-existing map. Format:}
+{Structured per-op entries, one per operation the session
+applied. Format:}
 - Removed: {name} — {short reason}
 - Renamed: {old} → {new} — {short reason}
 - Edited summary: {name} — {short note}
 - Edited description: {name} — {short note}
 - Changed routing: {name} → {new routing} — {short reason}
+- Closed as dead end: {name} — {short reason}
+- Reopened: {name} — {short reason}
+- Imported: {filename}
 
 ## Topics Identified
 
@@ -86,7 +89,9 @@ existing map. Format:}
 
 ## Lazy creation and finalisation
 
-The log file is **not created at session start**. It is conjured on the **first state change of any kind**:
+While the `phases.discovery.active_session` marker is set, the session's log is installed — the confirm-trigger's, the roadmap pull's, or the interrupted one a resume picked up — and every write edits it in place. Never open a second session over it.
+
+A fresh session — no log on disk for `session_number` — does **not create its log at session start**. It is conjured on the **first state change of any kind**:
 
 - A natural pause in the exploration produces an Exploration entry
 - An edit operation is applied to an existing map item
@@ -94,15 +99,13 @@ The log file is **not created at session start**. It is conjured on the **first 
 
 Browse-and-bail produces no file.
 
-When the file is first created, populate the header, **Description (as of session)**, **Seed**, **Imports**, and **Map State at Start** at the same write that adds the first content. Other sections start as `(none)`.
-
-At that same first-creation write, set the active-session marker so it always pairs with an existing log:
+To create it, draft the complete log at the staging path `.workflows/.cache/{work_unit}/discovery/session-draft.md`: populate the header, **Description (as of session)**, **Seed**, **Imports**, and **Map State at Start**, plus the first content. Other sections start as `(none)`. Then open the session:
 
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.discovery active_session "{session_number:03d}"
+node .claude/skills/workflow-engine/scripts/engine.cjs discovery-session open {work_unit} --session-log-file .workflows/.cache/{work_unit}/discovery/session-draft.md
 ```
 
-The caller's own commit step stages and commits this alongside the log.
+The engine allocates the session number, resolves any literal `{NNN}` in the draft to it (leave the header as the template writes it), installs the log as `discovery/sessions/session-{NNN}.md`, and sets the active-session marker so it always pairs with an existing log. The response's `session` is authoritative — set `session_number` from it. Later writes this session edit the installed file directly. The caller's own commit step stages and commits the log and marker.
 
 The `(none)` Conclusion is the **resume-detection signal** in concert with the `phases.discovery.active_session` manifest marker (see [resume-detection](resume-detection.md)). Always replace it at finalisation so the next entry sees a closed state.
 

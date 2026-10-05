@@ -24,15 +24,13 @@ Navigation stays within plan construction. It cannot skip past the end of this s
 
 → Load **[define-phases.md](define-phases.md)** and follow its instructions as written.
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
-I'll now work through each phase — presenting existing work for review
-and designing or authoring anything still pending. You'll approve at
-every stage.
+I'll now work through each phase — presenting existing work for review and designing or authoring anything still pending. You'll approve at every stage.
 ```
 
-→ Proceed to **B. Process Current Phase**.
+→ On return, proceed to **B. Process Current Phase**.
 
 ---
 
@@ -40,56 +38,31 @@ every stage.
 
 Work through each phase in order. Check the current phase's state.
 
-Check `task_list_gate_mode` via manifest CLI:
-```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{topic} task_list_gate_mode
-```
+#### If the manifest position is past the last phase
+
+→ Proceed to **E. Loop Complete**.
 
 #### If the phase has no task table in the planning file
 
 → Load **[define-tasks.md](define-tasks.md)** and follow its instructions as written.
 
-→ Proceed to **C. Author Phase Tasks**.
+→ On return, proceed to **C. Author Phase Tasks**.
 
-#### If the phase has a task table and `task_list_gate_mode` is `auto`
+#### If the phase has a task table
 
-> *Output the next fenced block as markdown (not a code block):*
+Write the task-list payload to `.workflows/.cache/{work_unit}/planning/{topic}/task-list-phase-{N}.json` with the Write tool (`{"phase": {N}, "phase_name": "{Phase Name}", "tasks": [{"name": "…", "summary": "…", "edge_cases": ["…"]}]}` from the planning file's task table), render, and emit each section verbatim per its marker:
 
-```
-**Phase {N}: {Phase Name}** — {M} tasks.
-
-{task list from the planning file}
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render task-list {work_unit}.planning.{topic} --file .workflows/.cache/{work_unit}/planning/{topic}/task-list-phase-{N}.json --variant existing
 ```
 
-> *Output the next fenced block as a code block:*
+The response carries the task-list display plus the surface for the current gate mode.
 
-```
-Phase {N}: {Phase Name} — task list confirmed. Proceeding to authoring.
-```
+**If the response carried `DISPLAY: task list auto-approved`:**
 
 → Proceed to **C. Author Phase Tasks**.
 
-#### If the phase has a task table and `task_list_gate_mode` is `gated`
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**Phase {N}: {Phase Name}** — {M} tasks.
-
-{task list from the planning file}
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-· · · · · · · · · · · ·
-Approve this task list?
-
-- **`y`/`yes`** — Proceed to authoring
-- **Tell me what to change** — Revise tasks in this phase
-- **Navigate** — a different phase or task, or the leading edge
-· · · · · · · · · · · ·
-```
+**If the response carried `MENU: task list gate`:**
 
 **STOP.** Wait for user response.
 
@@ -97,9 +70,15 @@ Approve this task list?
 
 → Load **[define-tasks.md](define-tasks.md)** and follow its instructions as written.
 
-→ Proceed to **C. Author Phase Tasks**.
+→ On return, proceed to **C. Author Phase Tasks**.
 
-**If confirmed:**
+**If the user navigates:**
+
+Resolve the destination per **Navigation** above — the user's position moves, the leading edge does not.
+
+→ Return to **B. Process Current Phase** for the phase navigated to.
+
+**If `yes`:**
 
 → Proceed to **C. Author Phase Tasks**.
 
@@ -113,10 +92,15 @@ Tasks are authored in a single batch per phase. One sub-agent authors all tasks 
 
 All tasks already authored. Check via manifest:
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs get {work_unit}.planning.{topic} task_map
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} task_map
 ```
 
-> *Output the next fenced block as a code block:*
+If the manifest still carries a `staging.author-p{N}` subtree for this phase (check with `manifest exists {work_unit}.planning.{topic} staging.author-p{N}` — a crash landed the last task but not the clear), delete it — the plan's tasks are the record:
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.planning.{topic} staging.author-p{N}
+```
+
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
 Phase {N}: {Phase Name} — all tasks already authored.
@@ -128,21 +112,31 @@ Phase {N}: {Phase Name} — all tasks already authored.
 
 → Load **[author-tasks.md](author-tasks.md)** and follow its instructions as written.
 
+**If authoring reported complete** (every task written to the plan):
+
 → Proceed to **D. Advance Phase**.
+
+**If authoring reported incomplete** (the user navigated away):
+
+Do not advance the manifest position — the phase is unauthored and remains the leading edge.
+
+→ Return to **B. Process Current Phase** for the phase the user navigated to.
 
 ---
 
 ## D. Advance Phase
 
-Advance the manifest planning position to the next phase:
+Advance the manifest planning position to the next phase — one batched write:
 ```bash
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} phase {N+1}
-node .claude/skills/workflow-manifest/scripts/manifest.cjs set {work_unit}.planning.{topic} task ~
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} phase={N+1} task='~'
 ```
 
-Commit: `planning({work_unit}): complete Phase {N} tasks`
+Commit:
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "planning({work_unit}): complete Phase {N} tasks" --topic planning/{topic}
+```
 
-> *Output the next fenced block as a code block:*
+> *Output the next fenced block as markdown (not a code block):*
 
 ```
 Phase {N}: {Phase Name} — complete ({M} tasks authored).
