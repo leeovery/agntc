@@ -41,7 +41,8 @@
         "name": "tsc",
         "command": "npx tsc --noEmit"
       }
-    ]
+    ],
+    "tmux_labels": true
   },
   "walkthrough": {
     "status": "skipped"
