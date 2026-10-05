@@ -17,3 +17,15 @@ What we know so far:
 - Starting point is technical: audit the Vercel surface first, then map it onto agntc.
 
 ---
+
+## First read — agntc's `add` line against Vercel's (2026-10-05)
+
+Prior ground: the configless-install research (2026-06-04) reverse-engineered `vercel-labs/skills` @ v1.5.10. Its source-string superset: `owner/repo`, `owner/repo@skill`, `owner/repo/subpath`, GitHub `tree/<branch>/<path>` URLs, GitLab incl. nested subgroups, `github:`/`gitlab:` prefixes, SSH, local paths, `#ref` and `#ref@skill` fragments, source aliases, fallback to a direct git URL. Its `add` flags: `--skill`, `-a/--agent`, `-g`, `--all`, `--full-depth`, `-y`. Whether v1.5.10 is still Vercel's current surface is unverified — the audit thread owns that.
+
+Measured against agntc today:
+
+- **`add` takes one flag.** `grep -rn "\.option(" src/ | grep -v test` → one hit, `src/commands/add.ts:914`, `--plugin`. No agent, skill-selection, yes, global, or list flags.
+- **The `@` suffix means opposite things.** In agntc, `owner/repo@X` is a ref or a semver constraint (`^`/`~` → constraint, anything else → ref; `classifyRefOrConstraint`, `src/source-parser.ts`). In Vercel, `owner/repo@X` selects the skill named X, and a ref goes in a `#ref` fragment. A Vercel line `npx skills add owner/repo@some-skill` swapped to `agntc` is not refused — it is read as "clone at ref `some-skill`", which fails on the missing ref or, if a branch or tag of that name exists, installs the wrong thing. A collision, not a gap.
+- **`owner/repo/subpath` shorthand is refused.** `grep -n "too many slashes" src/source-parser.ts` → line 365, error "too many slashes in source … — expected owner/repo". Vercel accepts it. (agntc reaches a subpath only through a `tree/<branch>/<path>` URL.)
+- **A standing spec decision sits in the way of flag parity.** `grep -n "No install-command flags" .workflows/configless-install/specification/configless-install/specification.md` → line 52: "No install-command flags for type or unit selection, except the single narrow `--plugin` installer override … Unit selection from a collection is via interactive prompt or a source-string selector." The configless-install research recorded this as a deliberate reaction against Vercel's flag-heavy `add` (`--skill`, `-a`, `-g`, `--all`, `--full-depth`, `-y`). The carrier's "same source formats and flags" meets it head-on — a high-confidence decision of another work unit, not reopened here; the tension is the material.
+- An earlier investigation (update-check-fails-on-branch-ref, 2026-07-02) parked "`npx skills add nuxt/ui` resolving to the right subpath" as this idea's ground.
