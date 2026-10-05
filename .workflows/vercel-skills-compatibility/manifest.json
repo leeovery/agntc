@@ -12,12 +12,12 @@
           "threads": {
             "vercel-cli-surface": {
               "question": "What is the full, current surface of Vercel's skills CLI — commands, add flags, source-string grammar (what @, # and subpaths select, and matched against what), agent targeting, non-interactive behaviour, and install semantics?",
-              "status": "digging",
+              "status": "learned",
               "origin": "seed",
               "parent": null
             },
             "vercel-capability-gaps": {
-              "question": "Does Vercel's CLI have whole capabilities agntc has no equivalent for — installing once for every project rather than per project, searching their directory — that would reshape this into several pieces?",
+              "question": "Of Vercel's capabilities beyond project install from git — global scope, find/search, use, well-known endpoints, packs, direct URLs, Notion — which does like-for-like need, and would any make this several pieces?",
               "status": "open",
               "origin": "seed",
               "parent": "vercel-cli-surface"
@@ -47,7 +47,7 @@
               "parent": null
             },
             "unattended-hook-scripts": {
-              "question": "Unattended installs remove the last human look before hook scripts land — what does that change, and how does Vercel handle it?",
+              "question": "Unattended installs remove the last human look before hook scripts land — what does that change for agntc, given Vercel installs no hooks and its only gate is a proceed prompt that -y and agent detection skip?",
               "status": "open",
               "origin": "seed",
               "parent": "unattended-install"
@@ -59,7 +59,7 @@
               "parent": null
             },
             "frontmatter-validity-stance": {
-              "question": "Vercel rejects a skill whose frontmatter lacks name and description — what are the options for agntc's position on repos Vercel would refuse?",
+              "question": "Vercel skips, with a warning, any skill lacking a string name and description, failing only when none is valid — what are the options for agntc's position on skills Vercel would skip?",
               "status": "open",
               "origin": "seed",
               "parent": null
@@ -81,6 +81,36 @@
               "status": "open",
               "origin": "conversation",
               "parent": "unattended-install"
+            },
+            "name-folder-divergence": {
+              "question": "How often does a skill's folder name differ from its frontmatter name across skills.sh repos — and does skills.sh ever print a --skill value that isn't the frontmatter name?",
+              "status": "open",
+              "origin": "deep-dive-001",
+              "parent": "vercel-cli-surface"
+            },
+            "install-line-forms": {
+              "question": "Which npx skills add forms appear in public READMEs, and how often — @skill, --skill, #ref, /subpath, tree URLs, -g, -a, -y, --all, --copy — i.e. which forms does paste-and-go have to cover?",
+              "status": "open",
+              "origin": "deep-dive-001",
+              "parent": "vercel-cli-surface"
+            },
+            "agent-detection": {
+              "question": "How does Vercel's CLI detect that it is running inside an AI agent such as Claude Code or Codex, and how reliable is that signal?",
+              "status": "open",
+              "origin": "deep-dive-001",
+              "parent": "vercel-cli-surface"
+            },
+            "skill-identity": {
+              "question": "Vercel selects, names and locks skills by frontmatter name; agntc by folder name — what are the options for matching a pasted --skill or @skill, and for the installed directory's name?",
+              "status": "open",
+              "origin": "conversation",
+              "parent": "compatibility-matrix"
+            },
+            "vercel-installed-coexistence": {
+              "question": "When a project already has skills installed by Vercel's CLI (.agents/skills, symlinks, skills-lock.json), what happens when agntc installs or manages the same skills?",
+              "status": "open",
+              "origin": "conversation",
+              "parent": "compatibility-matrix"
             }
           }
         }
