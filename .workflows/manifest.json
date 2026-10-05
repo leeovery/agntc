@@ -23,6 +23,9 @@
     },
     "update-output-overhaul": {
       "work_type": "feature"
+    },
+    "vercel-skills-compatibility": {
+      "work_type": "feature"
     }
   },
   "defaults": {
