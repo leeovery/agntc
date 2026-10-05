@@ -12,7 +12,7 @@
           "threads": {
             "vercel-cli-surface": {
               "question": "What is the full, current surface of Vercel's skills CLI — commands, add flags, source-string grammar (what @, # and subpaths select, and matched against what), agent targeting, non-interactive behaviour, and install semantics?",
-              "status": "open",
+              "status": "digging",
               "origin": "seed",
               "parent": null
             },
@@ -65,8 +65,8 @@
               "parent": null
             },
             "plugin-readd-defect": {
-              "question": "Does update's out-of-constraint re-add advice drop --plugin for a bundled install, what exactly happens, and where else do partially-done paths lose --plugin?",
-              "status": "open",
+              "question": "Which of agntc's printed re-add and upgrade commands fail to reproduce the install they advise on — dropping --plugin, or printing member keys the parser refuses — and what happens when they're followed?",
+              "status": "learned",
               "origin": "seed",
               "parent": null
             },

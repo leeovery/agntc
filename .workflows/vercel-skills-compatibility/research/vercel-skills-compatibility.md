@@ -48,3 +48,29 @@ Option landscape as it stands (not exhaustive, pending what the audit finds):
 4. **Separate grammars by entry point** — agntc's grammar by default, Vercel's under some compatibility switch. Fails paste-and-go unless the switch is automatic.
 
 Lean at this point: (2) gets the most real lines working in both directions for the smallest break, but it hangs on facts the audit has to supply — notably what Vercel's `@skill` matches against. Vercel dedups skills by frontmatter `name`; agntc's identity is the directory basename. If Vercel's selector matches the frontmatter name, a selector that works in Vercel can miss in agntc even with `@` settled.
+
+## agntc's own printed re-add advice — the `--plugin` defect, and a second one (2026-10-05)
+
+`grep -rn "npx agntc add" src/ | grep -v test` → four advice sites (plus `list`'s empty-state hint). None carries `--plugin`:
+
+| Site | When it prints | Command printed |
+|---|---|---|
+| `src/summary.ts:355` (`renderOutOfConstraintSection`) | `update`, newer major outside a caret constraint | `npx agntc add <owner/repo>` |
+| `src/update-render.ts` (`formatNewerTagsLine`) | all-mode `update`, exact-pinned group with newer tags | `npx agntc add <owner/repo>@<newest>` |
+| `src/commands/update.ts:173` | single-key `update <key>`, exact pin with newer tags | `npx agntc add <key>@<newest>` |
+| `src/clone-reinstall.ts:270` (`buildAbortMessage`) | derive-before-delete abort | `npx agntc remove <key> then npx agntc add <key>` |
+
+- **The `--plugin` drop is confirmed, at every site.** The manifest records `type: "skill" | "plugin"` (`src/manifest.ts:18`) but not *why* — a structural plugin (`skills/` + `agents/`/`hooks/`) and a skills-only source bundled by `--plugin` both record `plugin`. Following the bare advice for a `--plugin` bundle re-detects the source as skills-only and takes the default collection-menu path. Code read (not run end-to-end): members key as `owner/repo/<member>`, distinct from the bundle's `owner/repo` key, so their files collide with the bundle's and the collision prompt offers "Remove owner/repo and continue" — following the advice to completion converts the bundle into separate members rather than upgrading it. The owner's recollection ("following it fails") is close: it doesn't error, it silently changes the install's shape or stops at a collision prompt.
+- Observation: because a `--plugin` on a structure that already reads as a plugin is a redundant no-op under the configless-install spec (type agrees → no-op), advice carrying `--plugin` whenever the recorded type is `plugin` would not misfire on structural plugins. Material, not a fix decision.
+- **Second defect — member-scoped advice is refused by agntc's own parser.** The single-key newer-tags site and the abort message print the manifest key, which for a collection member is `owner/repo/<member>`. Run against the parser: `npx tsx -e '…parseSource("owner/repo/member@v2.0.0")…'` → `ERROR: too many slashes in source "owner/repo/member" — expected owner/repo`; same for `owner/repo/member` bare. So for any collection member, those two printed commands cannot be run as printed. (The all-mode newer-tags line already uses the bare `owner/repo` — its doc comment notes it mirrors the single-key path "at group granularity" — so the two surfaces disagree.) This connects to the Vercel audit: accepting `owner/repo/subpath` shorthand, which Vercel does, would make these lines parse.
+
+## Prompts `add` can show today (2026-10-05)
+
+`grep -rnE "(select|multiselect|confirm|text)\(\{" src | grep -v "\.test\.ts"` plus the clack imports → the prompts on the `add` path:
+
+1. **Collection member pick** — multiselect, nothing required (`src/collection-select.ts:34`). Shown for any collection, including the skills-only default.
+2. **Agent pick** — multiselect over the author's declared agents or, with none declared, all known agents; detected agents pre-ticked; an empty pick is a deliberate "none" (`src/agent-select.ts:63`). Auto-skipped only when the author declared exactly one agent and it is detected (`src/agent-select.ts:39–47`).
+3. **Collision with another managed install** — per colliding key: "Remove <key> and continue" / "Cancel installation" (`src/collision-resolve.ts:36`). Reinstalling the *same* key never asks — its files are nuked and replaced (`src/commands/add.ts:413–415`, `:775–778`).
+4. **Unmanaged files in the way** — "Overwrite all" / "Cancel this plugin's install", then a second "Are you sure? These files will be permanently replaced." (`src/unmanaged-resolve.ts:37`, `:57`).
+
+An unattended `add` has to answer all four; (3) and (4) are destructive — the only prompts whose "yes" deletes something.
