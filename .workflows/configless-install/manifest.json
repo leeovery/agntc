@@ -30,6 +30,10 @@
             "configless-install": {
               "status": "incorporated"
             }
+          },
+          "tracking": {
+            "review-gap-analysis-tracking-c1": "complete",
+            "review-gap-analysis-tracking-c2": "complete"
           }
         }
       }
@@ -117,7 +121,21 @@
             "configless-install-analysis-11-1": "tick-c22321",
             "configless-install-analysis-11-2": "tick-e958ba"
           },
-          "external_id": "tick-15d5f6"
+          "external_id": "tick-15d5f6",
+          "tracking": {
+            "review-integrity-tracking-c1": "complete",
+            "review-integrity-tracking-c2": "complete",
+            "review-integrity-tracking-c3": "complete",
+            "review-integrity-tracking-c4": "complete",
+            "review-integrity-tracking-c5": "complete",
+            "review-integrity-tracking-c6": "complete",
+            "review-traceability-tracking-c1": "complete",
+            "review-traceability-tracking-c2": "complete",
+            "review-traceability-tracking-c3": "complete",
+            "review-traceability-tracking-c4": "complete",
+            "review-traceability-tracking-c5": "complete",
+            "review-traceability-tracking-c6": "complete"
+          }
         }
       }
     },
@@ -221,7 +239,75 @@
             15,
             16
           ],
-          "updated": "2026-06-08"
+          "updated": "2026-06-08",
+          "staging": {
+            "c1": {
+              "tasks": {
+                "1": "approved",
+                "2": "approved",
+                "3": "approved",
+                "4": "approved",
+                "5": "approved",
+                "6": "approved"
+              }
+            },
+            "c10": {
+              "tasks": {
+                "1": "approved",
+                "2": "approved"
+              }
+            },
+            "c11": {
+              "tasks": {
+                "1": "approved",
+                "2": "approved"
+              }
+            },
+            "c2": {
+              "tasks": {
+                "1": "approved",
+                "2": "approved",
+                "3": "approved",
+                "4": "approved",
+                "5": "approved",
+                "6": "approved",
+                "7": "approved"
+              }
+            },
+            "c3": {
+              "tasks": {
+                "1": "approved",
+                "2": "approved"
+              }
+            },
+            "c4": {
+              "tasks": {
+                "1": "approved",
+                "2": "approved"
+              }
+            },
+            "c5": {
+              "tasks": {
+                "1": "approved"
+              }
+            },
+            "c7": {
+              "tasks": {
+                "1": "approved",
+                "2": "approved"
+              }
+            },
+            "c8": {
+              "tasks": {
+                "1": "approved"
+              }
+            },
+            "c9": {
+              "tasks": {
+                "1": "approved"
+              }
+            }
+          }
         }
       }
     },
@@ -283,7 +369,16 @@
             "configless-install-analysis-10-2",
             "configless-install-analysis-11-1",
             "configless-install-analysis-11-2"
-          ]
+          ],
+          "staging": {
+            "c1": {
+              "gate_mode": "auto",
+              "tasks": {
+                "1": "approved",
+                "2": "approved"
+              }
+            }
+          }
         }
       }
     }

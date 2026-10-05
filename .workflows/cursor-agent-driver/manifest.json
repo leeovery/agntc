@@ -23,6 +23,10 @@
             "cursor-agent-driver": {
               "status": "incorporated"
             }
+          },
+          "tracking": {
+            "review-gap-analysis-tracking-c1": "complete",
+            "review-input-tracking-c1": "complete"
           }
         }
       }
@@ -51,7 +55,12 @@
             "cursor-agent-driver-3": "tick-6c5998",
             "cursor-agent-driver-3-1": "tick-c9764e"
           },
-          "external_id": "tick-e7bb52"
+          "external_id": "tick-e7bb52",
+          "tracking": {
+            "review-integrity-tracking-c1": "complete",
+            "review-integrity-tracking-c2": "in-progress",
+            "review-traceability-tracking-c1": "complete"
+          }
         }
       }
     },
@@ -95,7 +104,14 @@
             3
           ],
           "analysis_cycle_total": 2,
-          "analysis_cycle_session": 0
+          "analysis_cycle_session": 0,
+          "staging": {
+            "c1": {
+              "tasks": {
+                "1": "approved"
+              }
+            }
+          }
         }
       }
     },

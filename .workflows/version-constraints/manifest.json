@@ -30,6 +30,12 @@
             "version-constraints": {
               "status": "incorporated"
             }
+          },
+          "tracking": {
+            "review-gap-analysis-tracking-c1": "complete",
+            "review-gap-analysis-tracking-c2": "complete",
+            "review-gap-analysis-tracking-c3": "complete",
+            "review-input-tracking-c1": "complete"
           }
         }
       }
@@ -92,7 +98,15 @@
             "vc-9": "tick-4f8398",
             "vc-9-1": "tick-88c3da"
           },
-          "external_id": "tick-1f1525"
+          "external_id": "tick-1f1525",
+          "tracking": {
+            "review-integrity-tracking-c1": "complete",
+            "review-integrity-tracking-c2": "complete",
+            "review-integrity-tracking-c3": "in-progress",
+            "review-traceability-tracking-c1": "complete",
+            "review-traceability-tracking-c2": "complete",
+            "review-traceability-tracking-c3": "complete"
+          }
         }
       }
     },
@@ -171,7 +185,21 @@
           ],
           "updated": "2026-03-25",
           "analysis_cycle_total": 3,
-          "analysis_cycle_session": 0
+          "analysis_cycle_session": 0,
+          "staging": {
+            "c1": {
+              "tasks": {
+                "1": "pending",
+                "2": "pending",
+                "3": "pending"
+              }
+            },
+            "c2": {
+              "tasks": {
+                "1": "pending"
+              }
+            }
+          }
         }
       }
     },
@@ -215,7 +243,15 @@
             "vc-8-2",
             "vc-8-3",
             "vc-9-1"
-          ]
+          ],
+          "staging": {
+            "c1": {
+              "gate_mode": "auto",
+              "tasks": {
+                "1": "approved"
+              }
+            }
+          }
         }
       }
     }

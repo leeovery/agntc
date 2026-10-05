@@ -23,6 +23,11 @@
             "collision-prompt-duplicates-on-toggle": {
               "status": "incorporated"
             }
+          },
+          "tracking": {
+            "review-gap-analysis-tracking-c1": "complete",
+            "review-gap-analysis-tracking-c2": "complete",
+            "review-input-tracking-c2": "complete"
           }
         }
       }
@@ -44,7 +49,11 @@
             "collision-prompt-duplicates-on-toggle-1": "tick-99b478",
             "collision-prompt-duplicates-on-toggle-1-2": "tick-a38051"
           },
-          "external_id": "tick-86a235"
+          "external_id": "tick-86a235",
+          "tracking": {
+            "review-integrity-tracking-c1": "complete",
+            "review-traceability-tracking-c1": "complete"
+          }
         }
       }
     },
