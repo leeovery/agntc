@@ -11,7 +11,7 @@
           "status": "in-progress",
           "threads": {
             "vercel-cli-surface": {
-              "question": "What is the full surface of Vercel's skills CLI — commands, add flags and options, source-string formats, selectors, agent targeting, and install semantics?",
+              "question": "What is the full, current surface of Vercel's skills CLI — commands, add flags, source-string grammar (what @, # and subpaths select, and matched against what), agent targeting, non-interactive behaviour, and install semantics?",
               "status": "open",
               "origin": "seed",
               "parent": null
@@ -23,7 +23,7 @@
               "parent": "vercel-cli-surface"
             },
             "compatibility-matrix": {
-              "question": "For each Vercel flag and behaviour, is agntc already supporting it, an alias away, missing the feature, or deliberately diverging?",
+              "question": "For each Vercel flag, source format and behaviour, does agntc already match it — and where it doesn't, what are the options: adapt agntc's rules, change them, or support both?",
               "status": "open",
               "origin": "seed",
               "parent": null
@@ -69,6 +69,12 @@
               "status": "open",
               "origin": "seed",
               "parent": null
+            },
+            "at-sign-meaning": {
+              "question": "What should @ mean in an agntc source string, given Vercel uses it to select a skill and agntc uses it for a version or branch?",
+              "status": "open",
+              "origin": "user",
+              "parent": "compatibility-matrix"
             }
           }
         }

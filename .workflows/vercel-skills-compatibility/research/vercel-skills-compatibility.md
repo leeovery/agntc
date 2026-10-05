@@ -29,3 +29,22 @@ Measured against agntc today:
 - **`owner/repo/subpath` shorthand is refused.** `grep -n "too many slashes" src/source-parser.ts` → line 365, error "too many slashes in source … — expected owner/repo". Vercel accepts it. (agntc reaches a subpath only through a `tree/<branch>/<path>` URL.)
 - **A standing spec decision sits in the way of flag parity.** `grep -n "No install-command flags" .workflows/configless-install/specification/configless-install/specification.md` → line 52: "No install-command flags for type or unit selection, except the single narrow `--plugin` installer override … Unit selection from a collection is via interactive prompt or a source-string selector." The configless-install research recorded this as a deliberate reaction against Vercel's flag-heavy `add` (`--skill`, `-a`, `-g`, `--all`, `--full-depth`, `-y`). The carrier's "same source formats and flags" meets it head-on — a high-confidence decision of another work unit, not reopened here; the tension is the material.
 - An earlier investigation (update-check-fails-on-branch-ref, 2026-07-02) parked "`npx skills add nuxt/ui` resolving to the right subpath" as this idea's ground.
+
+## Owner's framing — the method and what's open (2026-10-05)
+
+- **The no-install-flags decision is open to reopening.** The owner is not attached to it: the bar is that Vercel install lines work as expected. For each mismatch the paths are adapt agntc's rules, change them, or make both work.
+- **Method:** work through everything Vercel's system can do, line it up against what agntc has built, and see what's left. The residue is the discussion agenda.
+- **`@` has to be given one meaning** (or a rule that reads it) — it is on that agenda by name.
+
+### `@` — the shape of the problem (preliminary, ahead of the Vercel audit)
+
+What each tool puts after `@` today: Vercel (v1.5.10) — a skill name, with the ref in a `#ref` fragment and `#ref@skill` composing both. agntc — a semver constraint (`^`/`~`), an exact tag (`v2.0.0`), or any other ref such as a branch. agntc's own surfaces also emit `@`: the out-of-constraint footer's re-add advice prints `npx agntc add <repo>@<newest>` for an exact-pin user, so whatever `@` comes to mean reaches that advice too (and the `plugin-readd-defect` thread sits on the same line).
+
+Option landscape as it stands (not exhaustive, pending what the audit finds):
+
+1. **Vercel grammar wholesale** — `@` selects a skill, `#` carries ref/constraint (`owner/repo#^1.0`, `#v2.0.0`, `#main`). Every pasted Vercel line works; every agntc line already written (docs, READMEs, the footer's advice, habit) breaks or needs a deprecation path.
+2. **Read the suffix by shape** — `^`/`~` ranges and semver-shaped tags stay versions; anything else selects a skill; `#` carries arbitrary refs. Common lines from both tools work. Cost: agntc's `@branch` form moves to `#branch`; the residual ambiguity is a skill whose name is version-shaped.
+3. **Read the suffix against the repo** — clone, then treat `@X` as a skill if one named X exists, else as a ref. Chicken-and-egg: the ref decides what is cloned, so this means a default-branch probe first; and a repo with both a branch and a skill named X stays ambiguous.
+4. **Separate grammars by entry point** — agntc's grammar by default, Vercel's under some compatibility switch. Fails paste-and-go unless the switch is automatic.
+
+Lean at this point: (2) gets the most real lines working in both directions for the smallest break, but it hangs on facts the audit has to supply — notably what Vercel's `@skill` matches against. Vercel dedups skills by frontmatter `name`; agntc's identity is the directory basename. If Vercel's selector matches the frontmatter name, a selector that works in Vercel can miss in agntc even with `@` settled.
