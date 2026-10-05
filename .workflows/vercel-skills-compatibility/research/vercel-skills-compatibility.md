@@ -74,3 +74,22 @@ Lean at this point: (2) gets the most real lines working in both directions for 
 4. **Unmanaged files in the way** — "Overwrite all" / "Cancel this plugin's install", then a second "Are you sure? These files will be permanently replaced." (`src/unmanaged-resolve.ts:37`, `:57`).
 
 An unattended `add` has to answer all four; (3) and (4) are destructive — the only prompts whose "yes" deletes something.
+
+## Who runs agntc unattended — and what happens to them today (2026-10-05)
+
+**The owner's picture of the callers:** either the owner at a terminal, or an AI agent (Claude, or another agent) running `npx agntc add` mid-task. CI is possible but not what they imagine.
+
+**What an agent gets today — measured.** Fixture: a skills-only collection (`skills/alpha`, `skills/beta`) added from a scratch project via `npx tsx src/cli.ts add ../coll`:
+
+- From this Claude Code session's own shell (`test -t 0` → "stdin not a TTY"): `timeout 15 npx tsx …/src/cli.ts add ../coll` → `rc=0 elapsed=1s`, and `find proj -not -path '*/.git*'` shows nothing installed (no `.agntc/`, empty `.claude/`). The first prompt ("Select plugins to install") renders, reads end-of-input as a cancel, and the command exits **0 with nothing done and no message saying so**.
+- Same with stdin explicitly closed (`</dev/null`): `rc=0 elapsed=0s`, nothing installed.
+- With stdin held open but silent (`sleep 30 | timeout 12 …`): `rc=124` — it **hangs** until killed.
+
+The exit-0 is by design for a human: agntc treats a cancelled prompt as a deliberate no-op (`throw new ExitSignal(0)` at the cancel sites, e.g. `src/commands/add.ts:385`, `:703`). For an agent caller the same design reads as success. So the agent case isn't only about missing flags — today an agent either hangs or gets a quiet success that isn't one.
+
+**What changes when the unattended caller is an agent rather than a script:**
+
+- **The caller can make choices — it just can't see a prompt.** An agent can pass whichever agents, skills, and conflict policy the user asked for. That makes flags that state a choice explicitly (which agents, which skills, what to do on a clash) carry more weight than a blanket "yes to everything", which mostly serves a human skipping prompts they would have accepted anyway.
+- **The human's last look moves to the agent's permission prompt.** When Claude runs a command, the owner approves the command line. A line that states its choices (`--agents claude --skill foo`) is reviewable there; a bare `-y` hides what it will do, including the two destructive answers. This bears on the hook-scripts thread: the approval moment still exists, it just sees the command, not the prompts.
+- **The caller needs to know what's in a repo before choosing.** A human reads the collection menu; an agent needs that information in output it can read before it commits to a selection — either a look-without-installing mode or a pre-install summary the agent can act on. Connects to the pre-install-summary thread.
+- **Not-a-terminal is detectable.** Whatever the flag set ends up being, a run with no terminal and an unanswered choice has two broad options: stop with a non-zero exit naming the choice and the flag that answers it, or fall back to a default. The defaults are harmless for some prompts (agents pre-ticked by detection) and not for others (the two destructive ones).
