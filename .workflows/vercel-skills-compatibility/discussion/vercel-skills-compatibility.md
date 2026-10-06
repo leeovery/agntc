@@ -116,6 +116,8 @@ Confidence: high on the cut; the principle is the owner's own.
 
 Sibling check: configless-install — its spec (`.workflows/configless-install/specification/configless-install/specification.md:52`) holds "no install-command flags for type or unit selection, except `--plugin`". This scope commits to Vercel's flag syntax, so that decision is reopened; the contradiction becomes concrete, and the correction is routed, where the flag set is decided (`install-flag-set`). version-constraints — its spec fixes `@` as ref-or-constraint; the principle above puts that on the table at `at-suffix-meaning`.
 
+*(Amended 2026-10-06 — the scope's in-scope structural breakage and the syntax-parity principle reopen three further configless-install decisions, each on the table where named: **Source selector grammar (canonical)** (spec line 152) — `@` is never a unit selector, no `owner/repo@unit` shorthand, the tree URL is the member selector → `at-suffix-meaning`, `fragment-and-subpath-forms`; **Structural Type Detection** (line 72) and **Collection Membership & Selection Flow** (line 304) — a `SKILL.md` beside an asset dir is a plugin, collection membership exactly one level down → `skill-local-agents-dir`, `container-depth`; **Identity & Naming** (line 170) — identity = directory basename, no frontmatter parsing → `skill-identity`. Corrections are routed where each is decided.)*
+
 ---
 
 ## Summary
