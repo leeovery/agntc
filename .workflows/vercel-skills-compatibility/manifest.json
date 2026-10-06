@@ -184,7 +184,7 @@
               "parent": "structural-detection"
             },
             "selection-from-a-unit": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "agent-targeting": {

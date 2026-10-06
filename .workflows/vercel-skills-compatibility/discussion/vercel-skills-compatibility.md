@@ -187,6 +187,46 @@ Sibling check: v1/core-system — its spec's source table (`.workflows/v1/specif
 
 ---
 
+## Selection From a Unit
+
+### Context
+
+The owner's stated concern for the whole feature: agntc's syntax may go, but installing several skills as one unit must survive — including on a Vercel-style repository of skills, which is exactly how `--plugin` has been used (a large set by one author, published to be installed one by one through Vercel's CLI). Vercel's selection syntax (`--skill x`, `@x`, `--skill '*'`, `--all`, `-y`) has no notion of a unit, so it meets agntc's units in two places: a bundle built from a skills-only repo, and a pick aimed at a repo agntc reads as a unit. The ten-repo run found the second in the wild: `juliusbrussee/caveman` (skills + 12 agents) and `microsoft/azure-skills` (skills + hooks) install as one plugin under agntc, while skills.sh lists — and prints install lines for — their individual skills.
+
+### Options Considered
+
+For the one open fork — `--skill x` aimed at a repo agntc reads as a unit:
+
+**Install the picked skill alone, with a warning; refuse only when the author declared the repo a plugin**
+- Pros: the pasted line works as it does in Vercel; the whole unit stays one plain `add` away; an author whose skills break when split has a one-line way to say so
+- Cons: a repo whose skills depend on its agents or hooks can be installed partially unless its author declares it; the declaration widens what `type: "plugin"` means
+
+**Refuse every pick from a unit, pointing at installing the whole unit**
+- Pros: units stay whole by default, no partial installs ever
+- Cons: pasted lines for plugin-shaped repos fail
+
+### Journey
+
+Most of the shape follows from the scope principle without a choice: a plain add of a repo that is skills plus agents or hooks keeps installing the whole unit (Vercel would install only the skills); `--plugin` stays as agntc's own flag and applies to any Vercel-style repo; without `--plugin`, Vercel's "all skills" forms install each skill separately exactly as Vercel does. Two pieces needed stating: `--plugin` today copies each child of `skills/` as-is (`src/copy-plugin-assets.ts:68–73`), so on a repo nesting skills in category folders it would land category folders where skills belong — the bundle has to take the skills discovery finds, wherever they sit; and `--plugin` together with `--skill` has no coherent reading once a bundle means "the whole source", so it is refused (a subset bundle was not pursued — nothing asked for it, and refusing now leaves it addable later).
+
+The pick-from-a-unit fork is where Vercel's syntax and agntc's guarantee collide head-on. The lean put to the owner rested on the principle: refusing a pick adds no capability, and honouring it removes none — the unit is still one plain `add` away. The risk is a repo whose skills only work together; the owner's own workflows repo is one (its skills call its agents). Reusing the author's existing `type: "plugin"` declaration as "keep this whole" gives such an author a one-line guard without new config. The owner agreed.
+
+### Decision
+
+**Units survive Vercel syntax:**
+
+- **A plain add installs a unit whole.** A repo agntc reads as a plugin (skills plus agents and/or hooks) installs as one unit, as today.
+- **`--plugin` bundles any skills-only source, Vercel-style repos included.** Every skill discovery finds — category folders included, installed flat as skills — becomes one entry, updated, removed and version-pinned together. A subpath in the source narrows what is bundled.
+- **Without `--plugin`, "all skills" installs skills separately.** `-y`, `--skill '*'` and `--all` on a skills-only repo install each skill as its own entry, as Vercel does.
+- **`--plugin` with `--skill` (or `@skill`) is refused** — a bundle is the whole source.
+- **A pick aimed at a unit installs that skill alone, with a warning naming what it leaves out** (the unit's agents, hooks and other skills). **Exception: when the repo's `agntc.json` declares `"type": "plugin"`, the pick is refused** (pre-flight, non-zero exit, nothing written), naming the whole-unit install. For a structural plugin the declaration now means "keep this whole"; for a skills-only repo it keeps its existing meaning (bundle by default) and the same refusal applies. The owner's workflows repo would add `"type": "plugin"` to keep its skills together.
+
+Confidence: high on the shape; medium that the warning is enough for repos whose authors never declare.
+
+Sibling check: configless-install — its spec reserves `type: "plugin"` "strictly for a pure skills-only repo" and makes it a no-op on a structural plugin, and defines selector + `--plugin` as orthogonal (a path selector picks the unit, `--plugin` resolves its ambiguity). This widens `type: "plugin"` to "keep whole" on structural plugins, and keeps path + `--plugin` orthogonal while refusing skill-pick + `--plugin`. A correction is owed; it is routed with the other configless-install corrections.
+
+---
+
 ## Summary
 
 ### Key Insights
