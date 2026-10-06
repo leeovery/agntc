@@ -313,6 +313,26 @@ Sibling check: configless-install — its Identity & Naming ("Identity = directo
 
 ---
 
+## Container Depth and Discovery Roots
+
+### Context
+
+agntc reads a skills-only repo one level into `skills/`; `mattpocock/skills` (second-largest source on the skills.sh leaderboard) nests every skill under `skills/<category>/<skill>`, so agntc finds no units and ends "Cancelled — no plugins selected", exit 0, where Vercel installs 38. Vercel's discovery: root `SKILL.md` early-out (unless `--full-depth`); otherwise the root plus `skills/`, `skills/.curated|.experimental|.system` and ~30 agent directories (`.claude/skills`, `.agents/skills`, …), each walked 3 levels, never below a found skill, skipping `node_modules`/`.git`/`dist`/`build`/`__pycache__`, symlinked directories not followed; plus skill paths declared in `.claude-plugin/marketplace.json` and `plugin.json`; dedup by declared name, first in priority order wins. The background review added the edges deeper discovery brings: same-name skills in different categories, `--plugin` on a category-nested repo (settled at `selection-from-a-unit`: bundles install flat), and the extra roots (`template/`, the source's own `.claude/skills`/`.agents/skills`), which `claude-plugin-manifests` shares.
+
+### Journey
+
+Settled by the owner's rule — Vercel's way unless it clashes with what agntc keeps. Nothing here does: deeper and wider discovery only finds more of what Vercel finds. Same-name dedup follows Vercel (first found wins) rather than refusing.
+
+### Decision
+
+**agntc discovers skills where and as deep as Vercel does:** the same roots (repo root, `skills/` and its curated/experimental/system variants, the agent directories Vercel scans), three levels deep, never below a found skill, the same skip list, symlinked directories not followed, plus skill directories declared in `.claude-plugin/marketplace.json` / `plugin.json` (read only to find skills — never a type signal). `--full-depth` has Vercel's meaning. Two skills declaring the same name: the first in Vercel's priority order is kept.
+
+Confidence: high — follows the owner's rule.
+
+Sibling check: configless-install — its Collection Membership holds "exactly one level down", nested collections unsupported; this reverses it. A correction is owed; it is routed with the other configless-install corrections.
+
+---
+
 ## Summary
 
 ### Key Insights

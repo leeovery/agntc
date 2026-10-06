@@ -172,7 +172,7 @@
               "parent": "structural-detection"
             },
             "container-depth": {
-              "status": "pending",
+              "status": "decided",
               "parent": "structural-detection"
             },
             "validity-position": {
@@ -180,7 +180,7 @@
               "parent": "structural-detection"
             },
             "claude-plugin-manifests": {
-              "status": "pending",
+              "status": "decided",
               "parent": "structural-detection"
             },
             "selection-from-a-unit": {
