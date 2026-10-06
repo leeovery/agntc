@@ -354,6 +354,30 @@ Sibling check: configless-install — its Structural Type Detection (`SKILL.md` 
 
 ---
 
+## Agent Targeting
+
+### Context
+
+Vercel drives 79 agents; agntc drives three. Vercel's identifiers are `claude-code`, `codex`, `cursor` (`--agent claude` is rejected); `-a/--agent` is variadic and repeatable; `'*'` means all 79; an unknown name → "Invalid agents", exit 1; `--all` = `--skill '*' --agent '*' -y`; with `-y` and no agent detected Vercel installs to all 79. Vercel has no author agent ceiling. Project paths differ for Cursor: Vercel `.agents/skills/`, agntc `.cursor/skills/` (`src/drivers/cursor-driver.ts:8`). The background review asked where the line falls between "an agent agntc doesn't drive" and the decided fail-loud rule for out-of-scope capabilities, and what `'*'`/`--all` mean against the author's ceiling.
+
+### Journey
+
+Settled by the owner's rule. Vercel's names and `'*'` are adopted; an agent agntc does not drive is refused exactly as Vercel refuses a name it does not know, which is also the fail-loud rule. The author's agent ceiling is a capability agntc keeps, so flagged agents intersect with it per unit. Cursor's path stays: the skill behaves the same from `.cursor/skills/` (the "behaves the same" bar from the scope decision).
+
+### Decision
+
+- **`-a/--agent` accepts Vercel's identifiers** (`claude-code`, `codex`, `cursor`) and agntc's `claude`; variadic and repeatable, as Vercel.
+- **`'*'` means every agent agntc supports.**
+- **Naming an agent agntc doesn't drive is refused** (pre-flight, non-zero exit, nothing written), listing the three it does.
+- **The author's ceiling applies per unit:** a unit installs to the named agents within its ceiling and the output names those left out; a unit whose ceiling excludes every named agent is refused.
+- **Cursor stays at `.cursor/skills/`.**
+
+Confidence: high — follows the owner's rule.
+
+Sibling check: cursor-agent-driver — its spec puts Cursor skills in `.cursor/skills/`; unchanged. configless-install — its Agent Selection makes a valid declared `agents` list a hard ceiling; held.
+
+---
+
 ## Summary
 
 ### Key Insights

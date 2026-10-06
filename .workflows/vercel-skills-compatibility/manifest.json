@@ -188,7 +188,7 @@
               "parent": null
             },
             "agent-targeting": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "unattended-add": {
