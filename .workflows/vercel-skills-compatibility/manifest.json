@@ -200,7 +200,7 @@
               "parent": "unattended-add"
             },
             "yes-and-destructive-prompts": {
-              "status": "pending",
+              "status": "decided",
               "parent": "unattended-add"
             },
             "no-tty-behaviour": {

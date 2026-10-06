@@ -489,6 +489,25 @@ Sibling check: configless-install — its "no frontmatter parsing, no validation
 
 ---
 
+## Yes and Destructive Prompts
+
+### Context
+
+An unattended `add` has to answer four prompts (research): the collection member pick, the agent pick, a collision with another managed install ("Remove <key> and continue", `src/collision-resolve.ts:36`), and untracked files in the way ("Overwrite all", double-confirmed, `src/unmanaged-resolve.ts:37`, `:57`). The last two are the only prompts whose "yes" deletes something. Vercel's `-y` answers everything — all skills; detected agents plus universal agents (all 79 when none detected); and conflicts are never prompted: existing directories are listed as `overwrites:` and replaced. The owner's recorded lean (research): when an agent-driven install hits another install's files or untracked files, stop and come back rather than replace silently, with an explicit override the owner sees in the command they approve.
+
+### Journey
+
+The only part of `-y` that clashes with something agntc keeps is the silent replacement — the owner's own lean decides it. The agent answer follows the agent-targeting decision (the author's ceiling applies).
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the owner's recorded stop-and-come-back lean and the agent-targeting decision.
+
+- **`-y` answers every prompt that deletes nothing:** every skill is picked, agents are the detected ones within the author's ceiling (every supported agent within it when none is detected), nothing is confirmed.
+- **Diverges from Vercel: replacing anything in the way needs `--overwrite`.** Under `-y` without it, a clash with another install or with untracked files stops that unit (non-zero exit) with a message naming `--overwrite`.
+
+---
+
 ## Summary
 
 ### Key Insights
