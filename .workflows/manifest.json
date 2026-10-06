@@ -65,6 +65,14 @@
         "sources": [
           "vercel-skills-compatibility/discussion/vercel-skills-compatibility.md"
         ]
+      },
+      "website-skill-sources": {
+        "horizon": "later",
+        "summary": "Install skills published from a website index (well-known endpoints such as open.feishu.cn) rather than a git repo",
+        "origin": "park:vercel-skills-compatibility",
+        "sources": [
+          "vercel-skills-compatibility/discussion/vercel-skills-compatibility.md"
+        ]
       }
     }
   }
