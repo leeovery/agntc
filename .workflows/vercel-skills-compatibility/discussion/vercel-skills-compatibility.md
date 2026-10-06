@@ -124,7 +124,8 @@ Sibling check: configless-install — its spec (`.workflows/configless-install/s
 1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
 
 ### Open Threads
-- Global installs and website (well-known-endpoint) sources — roadmap candidates, the owner to decide later.
+- Global installs — parked on the roadmap as `global-skill-installs` (horizon: later); the owner decides later whether it is wanted.
+- Website (well-known-endpoint) sources — parked on the roadmap as `website-skill-sources` (horizon: later); the owner decides later whether it is wanted.
 
 ### Current State
 - Resolved: scope — `add`/`update`/`remove` syntax parity, project scope, git/local sources.
