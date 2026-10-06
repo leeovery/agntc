@@ -222,3 +222,23 @@ None of these forces giving bundles up; each is a place where agntc either follo
 Findings 1 and 2 sit on ground the configless-install spec decided (structure → type: `SKILL.md` alongside asset dirs → plugin; collection membership one level down).
 
 **Leaderboard shape (observation, from the fetched page's summary, approximate):** besides git repos, `open.feishu.cn` — a well-known-endpoint site, not a git repo — holds roughly 26 of the top ~70 leaderboard positions (rank 19, ranks 20–40 folded as "+21 more", and ranks 42, 44, 48, 58). agntc has no way to install from a well-known endpoint, so a large share of the most-installed skills can't be reached by a git-only installer at all. Material for the capability-gaps thread.
+
+## Open Threads
+
+- For each Vercel flag, source format and behaviour, does agntc already match it — and where it doesn't, what are the options: adapt agntc's rules, change them, or support both? — open
+- Where do Vercel's selection, discovery and defaults press on agntc's guarantees — picking a skill out of a unit, the validity gate, the author's agent restriction, unattended defaults — and what are the options at each? — open
+- What should @ mean in an agntc source string, given Vercel uses it to select a skill and agntc uses it for a version or branch? — open
+- Vercel selects, names and locks skills by frontmatter name; agntc by folder name — what are the options for matching a pasted --skill or @skill, and for the installed directory's name? — open
+- When a project already has skills installed by Vercel's CLI (.agents/skills, symlinks, skills-lock.json), what happens when agntc installs or manages the same skills? — open
+- What does an unattended add need — agent preselection against a unit's ceiling, what --yes answers at each prompt, conflict resolution, collection member selection, interaction with auto-select, and error behaviour when a flagged agent is outside the ceiling? — open
+- Unattended installs remove the last human look before hook scripts land — what does that change for agntc, given Vercel installs no hooks and its only gate is a proceed prompt that -y and agent detection skip? — open
+- When an agent drives agntc, how does it learn what a repo contains before choosing — does it need a look-without-installing mode, or is the pre-install summary enough? — open
+- What should the post-clone summary show — source, detected type, member count, unit names — and is a display-only SKILL.md description read worth adding? — open
+- Vercel skips, with a warning, any skill lacking a string name and description, failing only when none is valid — what are the options for agntc's position on skills Vercel would skip? — open
+- Of Vercel's capabilities beyond project install from git — global scope, find/search, use, well-known endpoints, packs, direct URLs, Notion — which does like-for-like need, and would any make this several pieces? — open
+- How often does a skill's folder name differ from its frontmatter name across skills.sh repos — and does skills.sh ever print a --skill value that isn't the frontmatter name? — open (a measurement)
+- Which npx skills add forms appear in public READMEs, and how often — @skill, --skill, #ref, /subpath, tree URLs, -g, -a, -y, --all, --copy — i.e. which forms does paste-and-go have to cover? — open (a measurement)
+- How does Vercel's CLI detect that it is running inside an AI agent such as Claude Code or Codex, and how reliable is that signal? — open
+- Skills carry their own agents/ folders — OpenAI's agents/openai.yaml and skill-local helper prompts — which agntc reads as a plugin, dropping the SKILL.md; what are the options for telling a skill's own agents/ from a plugin's? — open
+- Directory repos nest skills in category folders (skills/<category>/<skill>) that agntc's one-level collection read misses — what are the options for how deep agntc looks? — open
+- agntc's bare add installs the latest semver tag where Vercel installs the default branch — for a pasted line, which install counts as the same? — open

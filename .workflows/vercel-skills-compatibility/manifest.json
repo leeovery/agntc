@@ -8,7 +8,7 @@
     "research": {
       "items": {
         "vercel-skills-compatibility": {
-          "status": "in-progress",
+          "status": "completed",
           "threads": {
             "vercel-cli-surface": {
               "question": "What is the full, current surface of Vercel's skills CLI — commands, add flags, source-string grammar (what @, # and subpaths select, and matched against what), agent targeting, non-interactive behaviour, and install semantics?",
