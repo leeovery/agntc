@@ -156,7 +156,7 @@
               "parent": "source-grammar"
             },
             "bare-add-version": {
-              "status": "pending",
+              "status": "decided",
               "parent": "source-grammar"
             },
             "skill-identity": {

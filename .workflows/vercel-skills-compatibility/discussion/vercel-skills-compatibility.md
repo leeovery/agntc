@@ -448,6 +448,26 @@ Sibling check: configless-install — its canonical selector grammar makes the t
 
 ---
 
+## Bare Add Version
+
+### Context
+
+A pasted bare line installs different content in the two tools. agntc resolves the newest semver tag and records a `^X.Y.Z` constraint (version-constraints spec: bare-add default); Vercel has no version concept and always installs the default branch HEAD. In the ten-repo run 5 of 10 repos had semver tags (`vercel-labs/skills` installed at `v1.7.0`, `heygen-com/hyperframes` at `v0.8.137`, …), so for those a pasted bare line gives a different install wherever the default branch has moved past the last tag.
+
+### Journey
+
+This is the one place where matching Vercel's behaviour would remove an agntc capability rather than change syntax: semver constraints with constrained update are on the scope principle's capability list, and bare add is where most installs acquire one. A tag is the publisher's own statement of what a release is. The default branch stays one explicit fragment away.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by semver constraints with constrained update being a capability the scope principle keeps.
+
+**Diverges from Vercel: a bare add keeps agntc's default** — the newest semver tag, recorded with a caret constraint so updates stay within its major; the default branch when the repo has no tags; `#main` (or any branch) asks for the branch explicitly.
+
+Sibling check: version-constraints — its bare-add default (resolve latest semver tag, apply `^X.Y.Z`) is held unchanged.
+
+---
+
 ## Summary
 
 ### Key Insights
