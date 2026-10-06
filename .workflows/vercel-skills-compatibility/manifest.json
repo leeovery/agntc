@@ -160,7 +160,7 @@
               "parent": "source-grammar"
             },
             "skill-identity": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "structural-detection": {
