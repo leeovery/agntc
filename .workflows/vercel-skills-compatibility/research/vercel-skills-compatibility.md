@@ -187,3 +187,34 @@ So the gap is not closed — Vercel's model is "a repo is a bag of independent s
 5. **`@` and identity** (their own threads) — grammar and naming, not guarantees; they decide whether pasted lines work, not whether bundles survive.
 
 None of these forces giving bundles up; each is a place where agntc either follows Vercel or keeps its own rule, and in each the "keep" side is a rule agntc already has.
+
+## Exploratory run — today's agntc against ten popular directory repos (2026-10-06)
+
+*Exploratory sighting, not a controlled measurement: n=10, one run each, installing for Claude only.* Repos picked from the skills.sh all-time leaderboard (fetched 2026-10-06 — top sources by install count include `vercel-labs/skills`, `mattpocock/skills`, `vercel-labs/agent-browser`, `anthropics/skills`, `heygen-com/hyperframes`, `vercel-labs/agent-skills`, `remotion-dev/skills`, `microsoft/azure-skills`, `leonxlnx/taste-skill`, `juliusbrussee/caveman`, plus `open.feishu.cn`, a well-known-endpoint site that is not a git repo and was not run).
+
+**Harness** (scratchpad, not in the repo): each repo added into a fresh scratch project (`.claude/` present, so only Claude detected) via `expect` driving `npx -y tsx src/cli.ts add <owner/repo>` in a 220-column pty — select every collection member (`a`), accept the pre-ticked agent (Claude), cancel any collision/overwrite prompt. Then `.agntc/manifest.json` read for entries, types and files. Separately, each repo shallow-cloned and every `SKILL.md` (skipping `node_modules/.git/dist/build/__pycache__`) checked for frontmatter `name`/`description`, folder-vs-name, and an `agents/` subdir.
+
+**Results:**
+
+| Repo | agntc installed | Against what Vercel would install (per deep-dive-001's rules, not run) |
+|---|---|---|
+| `vercel-labs/agent-skills` | 9 skills | Same 9 — but 4 install under folder names (`composition-patterns`) where Vercel uses declared names (`vercel-composition-patterns`) |
+| `vercel-labs/skills` | 1 skill (`find-skills`), **at tag `v1.7.0`** | Same skill, at default-branch HEAD |
+| `vercel-labs/agent-browser` | 1 skill, **at tag `v0.38.2`** | Same skill (its marketplace manifest declares only `./skills/agent-browser`), at HEAD |
+| `leonxlnx/taste-skill` | 13 skills | Same 13 — **10 of 13 under different names** (folder `taste-skill` vs declared `design-taste-frontend`, which is what the leaderboard lists) |
+| `anthropics/skills` | 19 entries; **`skill-creator` broken** | Vercel: 20 (it also finds root `template/` → `template-skill`) |
+| `heygen-com/hyperframes` | 21 entries, **at tag `v0.8.137`**; **`hyperframes-keyframes` and `motion-graphics` broken** | Vercel also picks up ~6 repo-internal skills from `.agents/skills` / `.claude/skills` (`captions-overlay`, `seam-craft`, …) |
+| `remotion-dev/skills` | 12 entries, **all 12 broken** — every one recorded as a "plugin" whose only file is `.claude/agents/openai.yaml`; no `SKILL.md` landed (`find .claude -type f` → that one file) | 12 working skills |
+| `mattpocock/skills` (2nd-largest source on the leaderboard) | **Nothing.** No menu shown; "Cancelled — no plugins selected", exit 0 | 38 skills under `skills/<category>/<skill>` (engineering, misc, productivity, in-progress, deprecated) |
+| `microsoft/azure-skills` | **One plugin**: 28 skills + 4 hooks, at tag `v1.2.79` | 28 individual skills, no hooks |
+| `juliusbrussee/caveman` | **One plugin**: 29 skills + 12 agents, at tag `v3.1.0` | Individual skills only, no agents |
+
+**What the run found that the code reading did not:**
+
+1. **A skill's own `agents/` folder breaks it.** `src/type-detection.ts:144–155`: a directory with `SKILL.md` *and* an asset dir is a plugin — "SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored". Real skills carry `agents/` folders for two unrelated reasons: OpenAI's `agents/openai.yaml` skill-metadata convention (`find … -path '*/agents/*' -name '*.yaml' | sort | uniq -c` → 71 `openai.yaml` files across the ten repos), and skill-local helper prompts the skill itself reads (`skill-creator`'s `analyzer.md`/`comparator.md`/`grader.md`; `motion-graphics`'s `builder.md`/`director.md`/`finalize.md`). agntc drops the `SKILL.md` and copies those files into `.claude/agents/` as if they were Claude subagents — for remotion, twelve entries all pointing at one overwritten `openai.yaml`. Skill dirs carrying an `agents/` subdir: 61 of 258 across the ten repos (mattpocock 38/38, remotion 12/12, caveman 7/28, hyperframes 2/40, anthropics 1/20, azure 1/86, the rest 0). The warning is printed (15 times across three runs) but every run ends "Installed …" with exit 0 — an agent caller reads success.
+2. **Category folders hide whole collections.** `mattpocock/skills` nests every skill one level down under category folders. agntc's skills-only read looks one level into `skills/`, finds category dirs that aren't units, and ends with an empty pick that reads as a cancel. Vercel walks containers 3 levels deep. And were agntc to reach them, all 38 carry `agents/openai.yaml` — they would hit finding 1.
+3. **A bare add installs a different version than Vercel.** agntc resolves the latest semver tag (5 of 10 repos had one); Vercel always installs the default branch HEAD. For a pasted bare line, "the same install" is not the same content wherever the default branch has moved past the last tag.
+4. **Repos that are plugins to agntc are bags of skills to Vercel.** `azure-skills` (skills + hooks) and `caveman` (skills + agents) install as one unit with hooks/agents under agntc — arguably the richer install — but a pasted `--skill x` aimed at either is the pick-from-a-unit collision in the wild, not just in principle.
+5. Lesser: Vercel's scan of root-level and agent-dir skills (`template/`, `.agents/skills`, `.claude/skills`) finds skills agntc doesn't — in these two repos, a template and the repo's own development skills.
+
+These sit on ground the configless-install spec decided (structure → type: `SKILL.md` alongside asset dirs → plugin; collection membership one level down). Not reopened here — the run is material for discussion; the decisions are that phase's.

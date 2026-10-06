@@ -35,8 +35,8 @@
               "parent": "compatibility-matrix"
             },
             "directory-install-coverage": {
-              "question": "Does every repo in Vercel's skills directory install cleanly through agntc today, and where does it fail?",
-              "status": "open",
+              "question": "Do popular directory repos install cleanly through agntc today, and where do they fail?",
+              "status": "learned",
               "origin": "seed",
               "parent": null
             },
@@ -111,6 +111,24 @@
               "status": "open",
               "origin": "conversation",
               "parent": "compatibility-matrix"
+            },
+            "skill-local-agents-dir": {
+              "question": "Skills carry their own agents/ folders — OpenAI's agents/openai.yaml and skill-local helper prompts — which agntc reads as a plugin, dropping the SKILL.md; what are the options for telling a skill's own agents/ from a plugin's?",
+              "status": "open",
+              "origin": "conversation",
+              "parent": "directory-install-coverage"
+            },
+            "category-depth": {
+              "question": "Directory repos nest skills in category folders (skills/<category>/<skill>) that agntc's one-level collection read misses — what are the options for how deep agntc looks?",
+              "status": "open",
+              "origin": "conversation",
+              "parent": "directory-install-coverage"
+            },
+            "tag-vs-head": {
+              "question": "agntc's bare add installs the latest semver tag where Vercel installs the default branch — for a pasted line, which install counts as the same?",
+              "status": "open",
+              "origin": "conversation",
+              "parent": "directory-install-coverage"
             }
           }
         }
