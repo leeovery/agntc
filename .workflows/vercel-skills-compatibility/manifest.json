@@ -29,7 +29,7 @@
               "parent": null
             },
             "plugin-bundling-coexistence": {
-              "question": "Where could Vercel's flags, source formats, or selection semantics collide with agntc's own — --plugin bundling, config type, collection detection — and how would both coexist?",
+              "question": "Where do Vercel's selection, discovery and defaults press on agntc's guarantees — picking a skill out of a unit, the validity gate, the author's agent restriction, unattended defaults — and what are the options at each?",
               "status": "open",
               "origin": "seed",
               "parent": "compatibility-matrix"

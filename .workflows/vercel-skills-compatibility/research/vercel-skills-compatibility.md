@@ -158,3 +158,32 @@ Where the two diverge, read straight off the answers and agntc's measured state 
 - **Unknown flags** are silently ignored by Vercel; a pasted line carrying a flag agntc doesn't know will be refused by commander unless agntc chooses otherwise.
 
 Notes on the dive's other opened lines (not carried as threads): whether a folder-name selector fails on Vercel's blob fast path, and whether forced `-y` inside Claude Code installs everything, are confirmable by a sandbox run of Vercel's CLI — the code reading is consistent and nothing turns on the confirmation. How many listed repos contain skills Vercel would skip sizes the frontmatter-validity question; small value while agntc installs them regardless. Whether Codex and Cursor read `~/.agents/skills` globally matters only if global scope is pursued. The skills.sh pack index (`/p/<id>`), the tree-URL branch-with-`/` split, and whether Vercel's GitHub privacy probe fires under telemetry opt-out are Vercel's own concerns. Whether Vercel has an upstream proposal for version ranges was not searched — relevant to the `@` thread if it exists (a future `#^1.0` would align with option 1 or 2 above).
+
+## Does agntc still have a reason to exist? — the owner's workflows against Vercel v1.7.0 (2026-10-06)
+
+**The owner's question:** agntc was built to install the owner's workflows — a set of skills and agents that only work installed together as one unit — which Vercel's library couldn't do. Has Vercel closed that gap? And if agntc is still needed, is there a clear road to keeping its benefits while supporting everything Vercel does?
+
+**The workflows repo, measured** (`~/Code/agentic-workflows`):
+
+- `find skills -mindepth 1 -maxdepth 1 -type d | wc -l` → 38 skill dirs; `find agents -mindepth 1 -maxdepth 1 | wc -l` → 34 agent files; no `hooks/`, no `.claude-plugin/`; `agntc.json` → `{"agents": ["claude"]}`.
+- Frontmatter check — `for f in skills/*/SKILL.md; do head -20 "$f" | grep -q '^name:' && head -20 "$f" | grep -q '^description:' || echo "$f"; done` → 32 of 38 have a `name` but **no `description`** (internal, non-invocable skills: e.g. `workflow-research-process` carries `name`, `user-invocable: false`, `allowed-tools`). Folder name equals frontmatter `name` for all 38.
+
+**What Vercel v1.7.0 would do with it** (from deep-dive-001's reading of the code — not run):
+
+- **Installs 6 of the 38 skills.** The 32 without a `description` are skipped with `⚠ Skipped … missing required frontmatter field(s)` — Vercel's validity rule, applied to the owner's own repo, drops most of it.
+- **Installs none of the 34 agents.** Vercel installs only skill directories; agents, hooks and commands are never routed, even when found through a Claude plugin manifest.
+- **No unit.** Each installed skill is its own lock entry, updated and removed independently; there is no record that they belong together and no way to update them as one.
+- **Ignores the author's Claude-only restriction.** Vercel has no author-declared agent ceiling; `-y` fans out to the detected agents plus every agent reading `.agents/skills` (Codex, Cursor, …), and inside an AI agent `-y` is forced.
+- **No version ranges.** Same-ref refresh only; agntc's semver constraints have no counterpart.
+
+So the gap is not closed — Vercel's model is "a repo is a bag of independent skills", and on the owner's workflows it would produce a partial, unusable install. agntc's reason to exist stands on four things Vercel has none of: units (bundles of skills + agents + hooks, including `--plugin` bundling of skills-only sources), the author's agent restriction, semver constraints with constrained update, and a lenient validity posture (no frontmatter gate). Plus copy-safety (symlink-escape blocking), where Vercel is looser.
+
+**Is there a clear road? — synthesis, not a decision.** The two tools sit on different axes. Vercel's surface is breadth on the "individual skills" axis: many agents, project/global scope, grammar breadth, search, `use`, published indexes. agntc's distinctive value is the "unit" axis, which Vercel doesn't occupy. Most of Vercel's surface is additive for agntc — new source forms, flags, agent mapping, scope, non-TTY behaviour — and does not touch bundling. The points where "everything Vercel does" presses on what agntc guarantees are few and nameable:
+
+1. **Picking a skill out of a unit.** Vercel's `--skill x` / `@x` picks any skill from any repo. agntc keeps a plugin whole because a partial install breaks it. A pasted `--skill` aimed at a repo agntc reads as a unit is the one place Vercel's selection collides with bundling head-on.
+2. **The validity gate.** Matching Vercel's "skip skills without name + description" would drop 32 of the owner's own 38 skills. agntc reading frontmatter for *matching* (the identity thread) is a different thing from *gating* on it.
+3. **Author agent restriction vs `--agent '*'` / agent-forced `-y`.** Vercel's defaults fan out to every agent; agntc honours the author's ceiling.
+4. **Unattended defaults.** Vercel's `-y` installs every skill and replaces whatever is in the way without asking; agntc asks today.
+5. **`@` and identity** (their own threads) — grammar and naming, not guarantees; they decide whether pasted lines work, not whether bundles survive.
+
+None of these forces giving bundles up; each is a place where agntc either follows Vercel or keeps its own rule, and in each the "keep" side is a rule agntc already has.
