@@ -168,7 +168,7 @@
               "parent": null
             },
             "skill-local-agents-dir": {
-              "status": "pending",
+              "status": "decided",
               "parent": "structural-detection"
             },
             "container-depth": {

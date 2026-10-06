@@ -333,6 +333,27 @@ Sibling check: configless-install — its Collection Membership holds "exactly o
 
 ---
 
+## Skill-Local Agents Folders
+
+### Context
+
+`src/type-detection.ts:144–155` treats a directory holding `SKILL.md` alongside an asset dir as a plugin ("SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored"). Real skills carry `agents/` folders for two unrelated reasons — OpenAI's `agents/openai.yaml` skill-metadata convention (71 such files across the ten-repo run) and skill-local helper prompts the skill itself reads (`skill-creator`'s `analyzer.md`/`grader.md`, `motion-graphics`'s `builder.md`/`director.md`). agntc drops the `SKILL.md` and copies those files into `.claude/agents/` as subagents: 61 of 258 skill dirs across the ten repos carry `agents/` (mattpocock 38/38, remotion 12/12, caveman 7/28), and every run ended "Installed …", exit 0. Vercel's rule: a directory with `SKILL.md` is a skill; a root `SKILL.md` ends discovery. The background review added that fixing detection would not repair installs already made: update replays the recorded `plugin` type (`src/nuke-reinstall-pipeline.ts:128–133`), and `agents/` is still present, so the broken shape persists while a fresh `add` of the same source installs differently.
+
+### Journey
+
+Settled by the owner's rule — Vercel's reading, and nothing agntc keeps is lost: a real plugin (skills plus `agents/`/`hooks/` at the root, no root `SKILL.md`) is untouched. The repair condition is unambiguous because a recorded plugin with a `SKILL.md` at its unit root can only have come from the old rule — neither a structural plugin nor a `--plugin` bundle has one.
+
+### Decision
+
+- **A directory containing `SKILL.md` is a skill.** Everything in it, `agents/` included, is copied with it; nothing in it is routed as a plugin asset.
+- **Existing broken installs are repaired on their next update:** an entry recorded as a plugin whose source has a `SKILL.md` at its unit root is reinstalled as a skill, and the update says so.
+
+Confidence: high — follows the owner's rule.
+
+Sibling check: configless-install — its Structural Type Detection (`SKILL.md` alongside asset dirs → plugin, `SKILL.md` ignored) is reversed, and its update strategy (replay the recorded type, never re-detect) gains this one repair. A correction is owed; it is routed with the other configless-install corrections.
+
+---
+
 ## Summary
 
 ### Key Insights
