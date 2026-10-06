@@ -78,3 +78,54 @@ Its open threads, carried as this discussion's starting material: the per-flag/f
 *Subtopics are documented below as they reach `decided` or accumulate enough exploration to capture. Not every subtopic needs its own section — minor items resolved in passing can be folded into their parent. The Discussion Map (which subtopics exist and their states) lives in the manifest, not this file.*
 
 ---
+
+## Like-for-Like Scope
+
+### Context
+
+"Like-for-like replacement" could mean anything from "a pasted `add` line works" to "every Vercel command and source works". Two Vercel capabilities are large enough to decide whether this stays one feature — the reshape cue discovery left. Global scope (`-g`): Vercel asks "Installation scope" on every interactive `add` where a target supports it, so global installs are habitual for its users; for agntc it is not a flag but a second install location with its own record, and `update`/`list`/`remove` all needing to know which they act on. Well-known endpoints: a non-git source (an HTTP index) with no tags or commits for update and constraints to stand on — and `open.feishu.cn` alone holds roughly 26 of the top ~70 skills.sh leaderboard positions (research observation, approximate). The rest of Vercel's surface beyond install — `find`/search, `use`, skills.sh packs, Notion, direct archive/`SKILL.md` URLs — is separate commands or niche sources.
+
+### Options Considered
+
+**Keep one feature, project-scope install from git/local; roadmap global and website sources**
+- Pros: covers the lines people actually paste; keeps the work a single feature; doesn't add a second install location or a source with no versioning
+- Cons: a pasted `-g` line, and every feishu-style skill, still can't install through agntc
+
+**Reshape now into several connected pieces including global scope and/or well-known endpoints**
+- Pros: reaches the most-installed skills; matches Vercel's habitual global installs
+- Cons: two new axes (install location, non-git source) touching manifest, update, list and remove; turns a feature into an epic
+
+### Journey
+
+Position put to the owner: one feature scoped to "a pasted `add` line installing from a git repo or local path into the project works", including the breakage the ten-repo run found (skills carrying their own `agents/` folder, category-nested repos) because that is the headline promise failing on popular directory repos today; global installs and well-known-endpoint sources roadmapped as their own pieces; a pasted line reaching for either stops with a message saying agntc doesn't support it yet rather than ignoring the flag and installing somewhere the user didn't ask for. What would have changed it: the owner installing globally, or compatibility being about reaching the most-installed (feishu-style) skills — either would make that capability the point rather than an extra.
+
+The owner agreed, and widened the command surface beyond `add`: the work is about replicating Vercel's syntax for adding, updating and removing, and tracking what that syntax installs through agntc's records so it keeps working. Search, `use` and the rest were never anticipated. Global installs and website sources: leaning towards not needing them, but worth putting on the roadmap to decide later.
+
+The owner also set a principle that reaches every grammar and flag subtopic: **agntc's own syntax may change to match Vercel's** — that is acceptable — **as long as agntc can still do what Vercel's library can't**; otherwise there is no point having agntc. This loosens the research-time lean on `@` (read-by-shape was chosen partly to avoid breaking agntc lines already written); taking Vercel's grammar wholesale and finding agntc's versions a new home is now on the table on equal footing.
+
+### Decision
+
+**One feature: Vercel syntax parity for `add`, `update` and `remove`, installing into the project from git repos and local paths, tracked through agntc's records.** In scope: the source grammar and flags of those commands; unattended behaviour; the pre-install summary; the structural breakage that stops Vercel-directory repos installing correctly today; whatever agntc must record so `update`/`remove` keep working on what the new syntax installs.
+
+- **Roadmapped, not built here:** global installs (`-g`) and website (well-known-endpoint) sources — the owner leans towards not needing them and decides later.
+- **Out:** `find`/search, `use`, skills.sh packs, Notion, direct archive/`SKILL.md` URLs, `init`/`experimental_*` parity.
+- **A pasted line needing an out-of-scope capability fails loudly** — a message that agntc doesn't support it — never a silently ignored flag that installs somewhere else.
+- **Principle — syntax follows Vercel, capabilities stay agntc's.** agntc's syntax may change to match Vercel's; every change must leave agntc's distinct capabilities reachable: units (skills + agents + hooks, and `--plugin` bundling of skills-only sources), the author's agent ceiling, semver constraints with constrained update, the lenient validity posture, copy-safety.
+
+Confidence: high on the cut; the principle is the owner's own.
+
+Sibling check: configless-install — its spec (`.workflows/configless-install/specification/configless-install/specification.md:52`) holds "no install-command flags for type or unit selection, except `--plugin`". This scope commits to Vercel's flag syntax, so that decision is reopened; the contradiction becomes concrete, and the correction is routed, where the flag set is decided (`install-flag-set`). version-constraints — its spec fixes `@` as ref-or-constraint; the principle above puts that on the table at `at-suffix-meaning`.
+
+---
+
+## Summary
+
+### Key Insights
+1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
+
+### Open Threads
+- Global installs and website (well-known-endpoint) sources — roadmap candidates, the owner to decide later.
+
+### Current State
+- Resolved: scope — `add`/`update`/`remove` syntax parity, project scope, git/local sources.
+- Uncertain: everything below the scope line.

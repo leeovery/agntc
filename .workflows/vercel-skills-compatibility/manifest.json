@@ -140,7 +140,7 @@
           "status": "in-progress",
           "subtopics": {
             "like-for-like-scope": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "source-grammar": {
@@ -224,6 +224,10 @@
               "parent": null
             },
             "re-add-advice-defects": {
+              "status": "pending",
+              "parent": null
+            },
+            "update-and-remove-surface": {
               "status": "pending",
               "parent": null
             }
