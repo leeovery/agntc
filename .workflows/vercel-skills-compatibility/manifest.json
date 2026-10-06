@@ -133,6 +133,103 @@
           }
         }
       }
+    },
+    "discussion": {
+      "items": {
+        "vercel-skills-compatibility": {
+          "status": "in-progress",
+          "subtopics": {
+            "like-for-like-scope": {
+              "status": "pending",
+              "parent": null
+            },
+            "source-grammar": {
+              "status": "pending",
+              "parent": null
+            },
+            "at-suffix-meaning": {
+              "status": "pending",
+              "parent": "source-grammar"
+            },
+            "fragment-and-subpath-forms": {
+              "status": "pending",
+              "parent": "source-grammar"
+            },
+            "bare-add-version": {
+              "status": "pending",
+              "parent": "source-grammar"
+            },
+            "skill-identity": {
+              "status": "pending",
+              "parent": null
+            },
+            "structural-detection": {
+              "status": "pending",
+              "parent": null
+            },
+            "skill-local-agents-dir": {
+              "status": "pending",
+              "parent": "structural-detection"
+            },
+            "container-depth": {
+              "status": "pending",
+              "parent": "structural-detection"
+            },
+            "validity-position": {
+              "status": "pending",
+              "parent": "structural-detection"
+            },
+            "claude-plugin-manifests": {
+              "status": "pending",
+              "parent": "structural-detection"
+            },
+            "selection-from-a-unit": {
+              "status": "pending",
+              "parent": null
+            },
+            "agent-targeting": {
+              "status": "pending",
+              "parent": null
+            },
+            "unattended-add": {
+              "status": "pending",
+              "parent": null
+            },
+            "install-flag-set": {
+              "status": "pending",
+              "parent": "unattended-add"
+            },
+            "yes-and-destructive-prompts": {
+              "status": "pending",
+              "parent": "unattended-add"
+            },
+            "no-tty-behaviour": {
+              "status": "pending",
+              "parent": "unattended-add"
+            },
+            "agent-caller-detection": {
+              "status": "pending",
+              "parent": "unattended-add"
+            },
+            "hook-scripts-gate": {
+              "status": "pending",
+              "parent": "unattended-add"
+            },
+            "pre-install-summary": {
+              "status": "pending",
+              "parent": null
+            },
+            "vercel-install-coexistence": {
+              "status": "pending",
+              "parent": null
+            },
+            "re-add-advice-defects": {
+              "status": "pending",
+              "parent": null
+            }
+          }
+        }
+      }
     }
   },
   "seeds": [
