@@ -105,6 +105,17 @@ The owner also set a principle that reaches every grammar and flag subtopic: **a
 
 ### Decision
 
+#### 2026-10-06 — revised
+*Trigger: review finding: the fail-loud rule named the message but not what the caller gets — an AI agent running `npx agntc add … -g` acts on the exit status, not the text.*
+
+**Settled by derivation** — not discussed. Determined by this document's measured trap (exit 0 with nothing installed reads as success to an agent caller), the configless-install spec's pre-flight failure rule (nothing written, non-zero exit), and Vercel exiting 1 on an unknown `--agent` and on an unanswerable no-TTY prompt (review-001 F2).
+
+The scope stands as recorded below — one feature, Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources; global installs and website sources roadmapped; search/`use`/packs/Notion/archive URLs out; syntax follows Vercel while agntc's capabilities stay reachable. What changes: **a pasted line needing an out-of-scope capability is a pre-flight refusal — it exits non-zero and writes nothing** (no installed files, no manifest entry), with a message saying agntc doesn't support it. A loud failure that exited 0 would recreate the trap this feature removes.
+
+Sibling check: configless-install — its pre-flight failures (spec line 459) write nothing and exit non-zero; this call takes the same shape.
+
+#### 2026-10-06
+
 **One feature: Vercel syntax parity for `add`, `update` and `remove`, installing into the project from git repos and local paths, tracked through agntc's records.** In scope: the source grammar and flags of those commands; unattended behaviour; the pre-install summary; the structural breakage that stops Vercel-directory repos installing correctly today; whatever agntc must record so `update`/`remove` keep working on what the new syntax installs.
 
 - **Roadmapped, not built here:** global installs (`-g`) and website (well-known-endpoint) sources — the owner leans towards not needing them and decides later.
