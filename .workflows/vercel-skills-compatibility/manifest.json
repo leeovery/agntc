@@ -152,7 +152,7 @@
               "parent": "source-grammar"
             },
             "fragment-and-subpath-forms": {
-              "status": "pending",
+              "status": "decided",
               "parent": "source-grammar"
             },
             "bare-add-version": {

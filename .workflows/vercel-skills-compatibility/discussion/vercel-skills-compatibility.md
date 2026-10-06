@@ -428,6 +428,26 @@ Sibling check: version-constraints — its spec classifies `@^`/`@~` as constrai
 
 ---
 
+## Fragment and Subpath Forms
+
+### Context
+
+Beyond `@` and `#`, Vercel's source grammar accepts forms agntc refuses or mis-reads: `owner/repo/sub/path` subpath shorthand (agntc: "too many slashes", `src/source-parser.ts:365`); `github:`/`gitlab:` prefixes (agntc: none — `grep -n "gitlab\|github:" src/source-parser.ts` → no prefix handling); GitLab nested subgroups and `/-/tree/` URLs and Azure Repos `_git` URLs with `?path=`/`?version=` (agntc keeps only the last two https path segments as owner/repo, `src/source-parser.ts:297–299`, so these clone the wrong path); a GitHub Enterprise host named by `GH_HOST` read as GitHub. The scope decision put other git hosts in.
+
+### Journey
+
+No choice in it once the scope principle and the other-git-hosts call stand. The shape-collision the subpath shorthand creates with member keys is settled at `skill-identity` (one key per skill; a path in a source is always a path; nothing printed offers a key as a source).
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the scope principle and the scope call that other git hosts and private repos are in.
+
+**Adopt Vercel's source forms:** `owner/repo/path` subpaths (a path into the repo; `..` refused by copy-safety), `github:`/`gitlab:` prefixes, GitLab nested groups and `/-/tree/` URLs, Azure Repos `_git` URLs with `?path=`/`?version=`, and a `GH_HOST` Enterprise host read as GitHub.
+
+Sibling check: configless-install — its canonical selector grammar makes the tree URL the only member selector and the parser refuses `owner/repo/subpath`; this adds the shorthand. A correction is owed, routed with the other configless-install corrections.
+
+---
+
 ## Summary
 
 ### Key Insights
