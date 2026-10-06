@@ -227,6 +227,34 @@ Sibling check: configless-install — its spec reserves `type: "plugin"` "strict
 
 ---
 
+## Update and Remove Surface
+
+### Context
+
+The scope commits to Vercel syntax parity for `update` and `remove`, not only `add`, but only `add`'s surface had been mapped. Vercel's `remove [skills…]` (aliases `rm`, `r`; `-g`, `-a`, `-s`, `-y`, `--all`) matches sanitized install-folder names and lock keys — i.e. skill names — and without `--agent` deletes from every agent's path. Vercel's `update` (alias `upgrade`, plus `check`, an undocumented alias that runs the full update; `-g`, `-p`, `-y`) re-runs `add … --skill <name> -y` with no `--agent`, re-detecting targets. agntc's `remove [key]` and `update [key]` take one manifest key — `owner/repo` or `owner/repo/<member>` (`src/commands/remove.ts:167`, `src/commands/update.ts:1035`) — so a Vercel-style `npx agntc remove vercel-composition-patterns` fails today. Raised by the background review, which also tied it to the unit decision: removing one skill that sits inside a unit.
+
+### Journey
+
+Presented as a single defensible shape — every piece follows from the scope principle (syntax follows Vercel) or from decisions already made — and the owner accepted it as stated. The two places agntc keeps its own behaviour, each for a stated reason:
+
+- **Removing a skill inside a unit is refused** — the remove-side mirror of the unit decision: units go in whole and come out whole. Vercel never meets this, since it has no units.
+- **Update replays the agents recorded at install** rather than re-detecting. Re-detection means adding Cursor to a project later quietly widens every subsequent update; in agntc an update means "the same thing, newer", and changing targets stays an explicit `add` or `remove -a`.
+- **`check` is not adopted.** In Vercel it is undocumented and runs a full update — a footgun; README lines will not carry it. A pasted `check` fails as an unknown command rather than changing anything.
+
+### Decision
+
+- **Positional arguments name skills or keys.** `remove` and `update` accept one or more skill names — the skill's declared name or its folder name — as well as agntc keys. A name matching installs from two different repos is refused, listing both keys.
+- **A skill inside a unit (structural plugin or `--plugin` bundle) cannot be removed alone** — refused, naming the unit to remove.
+- **`remove` flags:** `-s <skills…>` (same as positional names), `-y` (skip the confirmation), `--all` (remove every install), `-a <agents…>` (remove from those agents only; the entry keeps its other agents). `-g` is refused as out of scope. Aliases `rm`, `r`.
+- **`update` flags:** alias `upgrade`; `-y` accepted; `-p` accepted as a no-op (project is the only scope); `-g` refused. `check` is not registered.
+- **Update keeps the agents chosen at install.**
+
+Confidence: high.
+
+Sibling check: v1/core-system — its spec gives `remove` and `update` a single plugin-key argument; this keeps keys working and adds skill names and multiple arguments — an extension, not a contradiction. Update's recorded-agent replay is unchanged from the update strategy in this repo's `CLAUDE.md` (nuke-and-reinstall for the same agents).
+
+---
+
 ## Summary
 
 ### Key Insights

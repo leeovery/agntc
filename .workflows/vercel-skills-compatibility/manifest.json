@@ -228,7 +228,7 @@
               "parent": null
             },
             "update-and-remove-surface": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "website-vs-git-urls": {
