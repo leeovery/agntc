@@ -144,7 +144,7 @@
               "parent": null
             },
             "source-grammar": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "at-suffix-meaning": {
@@ -164,7 +164,7 @@
               "parent": null
             },
             "structural-detection": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "skill-local-agents-dir": {
