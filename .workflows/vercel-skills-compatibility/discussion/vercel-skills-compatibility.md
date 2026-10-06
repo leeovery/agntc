@@ -103,7 +103,26 @@ The owner agreed, and widened the command surface beyond `add`: the work is abou
 
 The owner also set a principle that reaches every grammar and flag subtopic: **agntc's own syntax may change to match Vercel's** — that is acceptable — **as long as agntc can still do what Vercel's library can't**; otherwise there is no point having agntc. This loosens the research-time lean on `@` (read-by-shape was chosen partly to avoid breaking agntc lines already written); taking Vercel's grammar wholesale and finding agntc's versions a new home is now on the table on equal footing.
 
+A review of the first cut found three items from Vercel's beyond-project list that sat in none of the buckets. Each was sorted with the owner:
+
+- **Other git hosts and private repos** — `gitlab:`/`github:` prefixes, GitLab nested groups, Azure Repos, GitHub Enterprise. They are git repos, so the "git repos" line already admits them; what they lack is grammar. Measured today: `grep -n "gitlab\|github:" src/source-parser.ts` → no prefix handling; the HTTPS branch keeps only the last two path segments as owner/repo (`src/source-parser.ts:297–299`), so a GitLab subgroup URL or an Azure `_git` URL clones the wrong path. Private repos work wherever the user's own git credentials work — agntc does not need Vercel's credential chain.
+- **Vercel's install layout** — one canonical copy in `.agents/skills/` with each non-universal agent's directory symlinked to it. The only one of the three with a real choice in it: "producing an equivalent install" could mean the same files in the same places. Judged on behaviour instead: a skill behaves the same from a copy or a link, and matching the layout would have agntc tracking shared files and links rather than plain per-agent copies. The layout matters only when Vercel's own tools touch an agntc install, which is `vercel-install-coexistence` ground. The owner agreed with "behaves the same" as the bar.
+- **The skills.sh blob fast path** — for allowlisted owners (`vercel`, `vercel-labs`, `heygen-com`, `remotion-dev`, `zapier/connectors`) Vercel downloads files from skills.sh rather than cloning. agntc clones; the files are the publisher's own repo either way.
+
 ### Decision
+
+#### 2026-10-06 — revised
+*Trigger: review finding: three items from Vercel's beyond-project list — other git hosts and private repos, the canonical-store-plus-symlinks layout, the skills.sh blob fast path — sat in none of the scope's buckets.*
+
+The scope stands as recorded in the entries below — one feature, Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources; global installs and website sources roadmapped; search/`use`/packs/Notion/archive URLs out; a pasted line needing an out-of-scope capability is a pre-flight refusal that exits non-zero and writes nothing; syntax follows Vercel while agntc's capabilities stay reachable. The three unsorted items are now sorted:
+
+- **In — other git hosts and private repos.** `gitlab:`/`github:` prefixes, GitLab nested groups, Azure Repos, GitHub Enterprise are git repos; the grammar they need is decided with the other source forms (`fragment-and-subpath-forms`). Private repos work wherever the user's own git credentials work.
+- **Out — the canonical `.agents/skills` store with symlink fan-out.** agntc keeps a real copy per agent. The bar for "equivalent install" is that the skill behaves the same, not that the files sit where Vercel would put them.
+- **Out — the skills.sh blob fast path.** agntc installs from git; the content is the publisher's repo either way.
+
+Confidence: high; the layout call rests on "behaves the same" as the bar, which the owner confirmed.
+
+Sibling check: cursor-agent-driver — its spec has each agent own its directory (Claude `.claude/skills/`, Codex `.agents/skills/`, Cursor `.cursor/skills/`), accepting duplicated copies for clean ownership; keeping per-agent copies holds that.
 
 #### 2026-10-06 — revised
 *Trigger: review finding: the fail-loud rule named the message but not what the caller gets — an AI agent running `npx agntc add … -g` acts on the exit status, not the text.*
