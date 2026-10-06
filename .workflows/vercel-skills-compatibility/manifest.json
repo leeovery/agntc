@@ -176,7 +176,7 @@
               "parent": "structural-detection"
             },
             "validity-position": {
-              "status": "pending",
+              "status": "decided",
               "parent": "structural-detection"
             },
             "claude-plugin-manifests": {

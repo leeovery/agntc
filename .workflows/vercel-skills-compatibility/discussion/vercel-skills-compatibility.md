@@ -468,6 +468,27 @@ Sibling check: version-constraints — its bare-add default (resolve latest semv
 
 ---
 
+## Validity Position
+
+### Context
+
+Vercel skips, with a visible `⚠ Skipped` warning, any skill whose `SKILL.md` lacks a string `name` and `description`, failing only when no skill is valid; and a skill marked `metadata.internal: true` is hidden from `'*'` and the picker unless requested by name. agntc installs every skill regardless of frontmatter. Applied to the owner's own workflows repo, Vercel's rule would drop 32 of 38 skills (`for f in skills/*/SKILL.md; do head -20 "$f" | grep -q '^name:' && head -20 "$f" | grep -q '^description:' || echo "$f"; done` in `~/Code/agentic-workflows` → 32 lines, measured in research).
+
+### Journey
+
+Lenient validity is on the scope principle's capability list, so the skip rule is not adopted; the frontmatter-reading decision already gives a nameless skill its folder name. Hiding internal skills from the default sets is adopted: it loses nothing, since naming an internal skill still installs it, and a `--plugin` bundle takes the whole source.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by lenient validity being a capability the scope principle keeps, and the frontmatter-reading fallback.
+
+- **Diverges from Vercel: a skill without a `name` or `description` still installs**, named by its folder, with no warning.
+- **Skills marked internal follow Vercel:** left out of "all" (`'*'`, `--all`, `-y`) and the menu, installed when named; a `--plugin` bundle includes them.
+
+Sibling check: configless-install — its "no frontmatter parsing, no validation" posture is held for validity (no gate); the internal-skill read is part of the frontmatter-reading correction already owed.
+
+---
+
 ## Summary
 
 ### Key Insights
