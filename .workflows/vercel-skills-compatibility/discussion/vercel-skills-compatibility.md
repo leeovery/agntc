@@ -255,6 +255,29 @@ Sibling check: v1/core-system — its spec gives `remove` and `update` a single 
 
 ---
 
+## Frontmatter Reading
+
+### Context
+
+Vercel selects skills by the `name` declared in `SKILL.md` frontmatter, never by folder — `leonxlnx/taste-skill`'s folder `taste-skill` declares `name: design-taste-frontend`, which is what skills.sh lists and prints in `--skill` lines. Parity therefore means agntc reads frontmatter for the first time; configless-install decided it never would ("no frontmatter parsing, no validation") and parked untrusted-frontmatter parsing safety in the validation inbox. Three calls lean on the read — selection by declared name, descriptions in the pre-install summary, and the internal-skill rule — so the edges of reading third-party headers are shared ground: a `SKILL.md` with no frontmatter, frontmatter with no `name`, YAML that fails to parse, a fence that is not YAML, and descriptions carrying terminal escape sequences that would repaint the screen when printed (Vercel strips these). Raised by the background review as ground no single subtopic owned.
+
+### Journey
+
+Presented as a single defensible shape, derived from the lenient validity posture (a capability the scope principle protects — the owner's own workflows repo has 32 of 38 skills without a `description`) and from Vercel's own display safety. The owner agreed. Left open deliberately: whether the installed folder and agntc's key use the declared name — that is `skill-identity`, taken with the review's key question.
+
+### Decision
+
+- **agntc reads a skill's declared `name` and `description`, for selecting and displaying skills only.** Frontmatter never decides type or validity.
+- **Fallback is the folder.** No frontmatter, no `name`, unparseable YAML, or a non-YAML fence → the skill goes by its folder name, has no description, and installs normally, with no warning — today's behaviour.
+- **Displayed text is stripped** of control characters and terminal escape sequences.
+- **Frontmatter is parsed as plain data** — no formats that execute code on parse.
+
+Confidence: high.
+
+Sibling check: configless-install — its Identity & Naming decision holds "no frontmatter parsing"; this reads frontmatter for selection and display. A correction is owed; it is routed with the other configless-install corrections.
+
+---
+
 ## Summary
 
 ### Key Insights
