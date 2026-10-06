@@ -52,5 +52,20 @@
   },
   "baseline": {
     "status": "native"
+  },
+  "roadmap": {
+    "horizons": [
+      "later"
+    ],
+    "items": {
+      "global-skill-installs": {
+        "horizon": "later",
+        "summary": "Install skills once for every project (Vercel's -g), with update, list and remove aware of which scope they act on",
+        "origin": "park:vercel-skills-compatibility",
+        "sources": [
+          "vercel-skills-compatibility/discussion/vercel-skills-compatibility.md"
+        ]
+      }
+    }
   }
 }
