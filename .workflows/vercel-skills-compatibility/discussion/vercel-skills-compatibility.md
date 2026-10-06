@@ -150,6 +150,43 @@ Sibling check: configless-install — its spec (`.workflows/configless-install/s
 
 ---
 
+## Website vs Git URLs
+
+### Context
+
+The scope decision makes a pasted website-source line (a well-known-endpoint site such as `open.feishu.cn`) a pre-flight refusal: "agntc doesn't support this", non-zero exit, nothing written. To refuse it, agntc has to recognise it — and today it can't. agntc reads any `https://host/owner/repo` as a git repo and appends `.git` (`src/source-parser.ts:299`); a bare host fails "invalid HTTPS URL: no path segments". Vercel reads the same shapes the other way: any http(s) URL that is not GitHub or GitLab and does not end `.git` is a well-known endpoint, never cloned. So a feishu-style line currently ends in a generic clone failure after retries, not the decided refusal.
+
+```text
+https://git.acme.dev/team/tools      agntc today: git repo    Vercel: website
+https://git.acme.dev/team/tools.git  agntc today: git repo    Vercel: git repo
+```
+
+Raised by the background review against the scope decision.
+
+### Options Considered
+
+**Adopt Vercel's reading**
+- Pros: no line that works in Vercel is lost (Vercel would never clone the first URL either); the roadmapped website-sources item would read URLs the same way if built; a website line is refused by shape, instantly
+- Cons: agntc users installing from a self-hosted git server by an https URL without `.git` must add `.git` (or use SSH)
+
+**Probe before deciding** — try the clone, or look for a website index, then choose
+- Pros: self-hosted URLs without `.git` keep working
+- Cons: a network round-trip and a guess on every self-hosted URL
+
+### Journey
+
+The cost of adopting Vercel's reading falls only on agntc's own syntax — self-hosted `https` lines without `.git` — which the scope's principle (syntax follows Vercel, capabilities stay agntc's) allows: installing from a self-hosted git server stays reachable through `.git` or SSH. What would have flipped it: the owner, or a known user pattern, relying on `.git`-less self-hosted URLs. The owner agreed, and added that calls of this kind — agntc syntax given up for Vercel parity — are the session's to make.
+
+### Decision
+
+**Adopt Vercel's reading of https URLs.** A GitHub or GitLab URL, or any URL ending `.git`, is a git source. Any other http(s) URL is a website source and is refused as out of scope (non-zero exit, nothing written, message naming website sources as unsupported). Self-hosted git servers are reached with `.git` or an SSH address. The other out-of-scope source forms — skills.sh pack links, Notion, direct links to a single `SKILL.md` or an archive — are recognised by shape and refused the same way.
+
+Confidence: high.
+
+Sibling check: v1/core-system — its spec's source table (`.workflows/v1/specification/core-system/specification.md:277`) lists "HTTPS URL — Any git host"; this narrows https to GitHub/GitLab or `.git`-suffixed URLs. A correction is owed; it is routed with the other source-grammar corrections once that grammar is settled.
+
+---
+
 ## Summary
 
 ### Key Insights
