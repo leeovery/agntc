@@ -402,6 +402,32 @@ Sibling check: configless-install — its spec (line 52) holds "no install-comma
 
 ---
 
+## At-Suffix Meaning
+
+### Context
+
+`@` means opposite things in the two tools. agntc: `owner/repo@X` is a ref or a semver constraint (`^`/`~` → constraint, anything else → ref; `classifyRefOrConstraint`, `src/source-parser.ts`). Vercel: `owner/repo@X` always selects the skill whose declared name is X — `owner/repo@v1.2.0` selects a skill named "v1.2.0" — and the ref lives in a `#ref` fragment, with `#ref@skill` composing both. A pasted Vercel `owner/repo@some-skill` swapped to agntc today is read as "clone at ref `some-skill`": it fails on the missing ref, or installs the wrong thing if a branch or tag of that name exists. agntc's own surfaces also print `@` (the re-add advice's `npx agntc add <repo>@<newest>`).
+
+### Options Considered
+
+From research: (1) Vercel's grammar wholesale — `@` selects, `#` carries ref/constraint; (2) read the suffix by shape — ranges and semver-shaped tags stay versions, anything else selects; (3) read the suffix against the repo after a default-branch probe; (4) separate grammars behind a compatibility switch.
+
+### Journey
+
+Research leaned to (2) because it broke the fewest agntc lines already written. The owner's scope principle — agntc's syntax may change to match Vercel's, as long as agntc's capabilities stay reachable — removed that constraint, leaving (1) the only option under which every pasted Vercel line reads exactly as Vercel reads it, with no residual ambiguity for a version-shaped skill name. The capability `@` carried in agntc — semver constraints — keeps a home in the fragment, the same place Vercel puts refs.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the scope principle (syntax follows Vercel, capabilities stay agntc's) and semver constraints being a capability agntc keeps.
+
+- **`@` selects a skill** by declared name (folder name as fallback), Vercel's grammar: `owner/repo@skill`.
+- **Versions and refs go in the `#` fragment:** `#^1.0`, `#~1.2` (constraints), `#v2.0.0` (exact tag), `#main` (branch); `#ref@skill` composes a ref with a selection.
+- **An `@` value that looks like a version and matches no skill** is refused with an error pointing at the `#` form — the migration path for lines written in agntc's old grammar.
+
+Sibling check: version-constraints — its spec classifies `@^`/`@~` as constraints and any other `@` suffix as a ref in the parser output; configless-install — its canonical selector grammar holds "`@` is never a unit selector"; v1/core-system — its source table gives every format an `@ref` suffix. All three are reversed; corrections are owed, routed together.
+
+---
+
 ## Summary
 
 ### Key Insights

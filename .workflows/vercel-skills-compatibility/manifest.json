@@ -148,7 +148,7 @@
               "parent": null
             },
             "at-suffix-meaning": {
-              "status": "pending",
+              "status": "decided",
               "parent": "source-grammar"
             },
             "fragment-and-subpath-forms": {
