@@ -196,7 +196,7 @@
               "parent": null
             },
             "install-flag-set": {
-              "status": "pending",
+              "status": "decided",
               "parent": "unattended-add"
             },
             "yes-and-destructive-prompts": {

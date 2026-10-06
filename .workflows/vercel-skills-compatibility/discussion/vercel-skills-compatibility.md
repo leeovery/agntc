@@ -378,6 +378,30 @@ Sibling check: cursor-agent-driver — its spec puts Cursor skills in `.cursor/s
 
 ---
 
+## Install Flag Set
+
+### Context
+
+`add` takes one flag today — `grep -rn "\.option(" src/ | grep -v "\.test\.ts"` → one hit, `src/commands/add.ts:914`, `--plugin` — and the configless-install spec decided against install flags for unit selection. Vercel's `add` flags: `-g/--global`, `-a/--agent <agents…>`, `-s/--skill <skills…>`, `-l/--list`, `-y/--yes`, `--copy`, `--all`, `--full-depth`, `--json` (requires `-y`/`--all`), `--subagent`, `--metadata`; aliases `a`, `i`, `install`; unknown flags silently ignored. The background review noted the flags with no unattended role (`--copy`, `--full-depth`, `--json`, `--subagent`, `--metadata`, `-l`), the aliases, and unknown-flag handling had no owner, and that `-l` is the research's open question of how an agent caller sees a repo's contents before choosing.
+
+### Journey
+
+Settled by the owner's rule, with one deliberate difference grounded in the scope decision: Vercel silently ignores flags it doesn't know; the scope decided a pasted line is never met by a silently ignored flag, so agntc refuses an unrecognised flag. `-l/--list` answers the agent-preview question — the agent lists, then chooses with `--skill`/`-a`.
+
+### Decision
+
+- **Vercel's `add` flags with Vercel's meanings:** `-a/--agent`, `-s/--skill`, `-y/--yes`, `--all`, `--full-depth`, `--json` (with `-y` or `--all`, as Vercel requires), and `-l/--list` (names and descriptions, installs nothing, exit 0).
+- **`--copy` is accepted as a no-op** — agntc always copies.
+- **Aliases `a`, `i`, `install`.**
+- **agntc's own flags stay:** `--plugin`, `--overwrite`.
+- **Refused:** `-g` (roadmapped), `--subagent` and `--metadata` (Vercel-internal), and any flag agntc does not recognise.
+
+Confidence: high.
+
+Sibling check: configless-install — its spec (line 52) holds "no install-command flags for type or unit selection, except `--plugin`", with unit selection only by prompt or tree URL; this adopts Vercel's selection flags. A correction is owed; it is routed with the other configless-install corrections.
+
+---
+
 ## Summary
 
 ### Key Insights
