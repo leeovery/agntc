@@ -150,6 +150,37 @@ A branch is always one explicit fragment away (`#main`).
 
 The fallback keeps two cases working: a pasted pick for a skill added after the repo's last release, and a repo whose tags predate its skills.
 
+### 3. Reading SKILL.md Frontmatter
+
+agntc reads a skill's `SKILL.md` frontmatter for the first time. Today nothing in `src/` parses frontmatter or depends on a YAML library (`grep -rln "frontmatter\|yaml\|gray-matter" src/ | grep -v "\.test\.ts"` → no hits).
+
+#### 3.1 What is read, and for what
+
+agntc reads three fields, and uses them only for selecting and displaying skills:
+
+| Field | Used for |
+|---|---|
+| `name` | The skill's declared name: selection (§7), identity and install folder (§4) |
+| `description` | The one-line description in the pre-install summary and `--list` (§11) |
+| `metadata.internal` | Marking a skill as internal (§5) |
+
+Frontmatter never decides a source's type or whether a skill is valid. Structure decides type, and every skill installs whatever its frontmatter holds (§5).
+
+#### 3.2 Fallback to the folder
+
+The skill goes by its folder name when its `SKILL.md` has any of the following:
+- no frontmatter;
+- frontmatter with no string `name`;
+- YAML that fails to parse;
+- a fence that is not YAML.
+
+In each case the skill has no description and installs normally, with no warning, as it does today. A `description` that is not a string counts as no description.
+
+#### 3.3 Reading safely
+
+- Frontmatter is parsed as plain data. YAML features that execute code or construct objects during parsing are not used.
+- Before agntc prints frontmatter text (names and descriptions), it strips control characters and terminal escape sequences, as Vercel does.
+
 ---
 
 ## Working Notes
