@@ -288,7 +288,7 @@ Sibling check: configless-install — its Identity & Naming decision holds "no f
 
 ### Context
 
-Vercel names a skill by its declared frontmatter `name` everywhere: selection, the install folder (sanitized: lowercase, runs of non-`[a-z0-9._]` → `-`), and its lock keys. agntc names it by folder basename (configless-install: "Identity = directory basename, throughout"). The ten-repo run measured how often the two differ: `vercel-labs/agent-skills` 4 of 9, `leonxlnx/taste-skill` 10 of 13. With selection by declared name already decided (frontmatter reading), what remained was the installed folder and agntc's key. The background review added the key problem: one skill already gets two keys depending on route — the menu keys a member by basename (`owner/repo/composition-patterns`), a tree URL by its full subpath (`owner/repo/skills/composition-patterns`, configless spec "Source selector grammar") — and once Vercel's `owner/repo/<path>` shorthand is adopted, a basename key also reads as a path, pointing at a folder that does not exist.
+Vercel names a skill by its declared frontmatter `name` everywhere: selection, the install folder (sanitized — see Decision), and its lock keys. agntc names it by folder basename (configless-install: "Identity = directory basename, throughout"). The ten-repo run measured how often the two differ: `vercel-labs/agent-skills` 4 of 9, `leonxlnx/taste-skill` 10 of 13. With selection by declared name already decided (frontmatter reading), what remained was the installed folder and agntc's key. The background review added the key problem: one skill already gets two keys depending on route — the menu keys a member by basename (`owner/repo/composition-patterns`), a tree URL by its full subpath (`owner/repo/skills/composition-patterns`, configless spec "Source selector grammar") — and once Vercel's `owner/repo/<path>` shorthand is adopted, a basename key also reads as a path, pointing at a folder that does not exist.
 
 ### Options Considered
 
@@ -308,7 +308,7 @@ Put to the owner as a question because it reverses a configless-install decision
 
 **A skill's identity is its declared name, Vercel's way, falling back to its folder name when none is declared.**
 
-- **The install folder is the declared name, sanitized as Vercel sanitizes it.**
+- **The install folder is the declared name, sanitized as Vercel sanitizes it:** lowercase; runs of characters outside `[a-z0-9._]` become `-`; leading and trailing `.` and `-` are stripped; the result is capped at 255 characters; `unnamed-skill` when nothing remains. Applied to the declared name, or the folder name when none is declared. *(Amended 2026-10-07 — the rule was paraphrased without the strip, cap and fallback, under which a declared `name: ..` would install into `.claude/` itself.)*
 - **One key per skill, however it was selected** (menu, `@name`, `--skill`, subpath, tree URL) — built from the declared name, so every route lands on the same entry.
 - **A path in a source string is always a path** into the repo; nothing agntc prints offers a key as an install source (the re-add advice prints a selector).
 - **Existing installs move to the declared-name folder and key on their next update.**
