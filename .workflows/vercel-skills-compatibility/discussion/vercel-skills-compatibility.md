@@ -675,6 +675,13 @@ Follows Vercel's display; the one agntc-specific addition is the detected shape,
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: the summary's list stopped at the target agents without saying whether a confirmation follows — and at a terminal a single skill, or a plugin whose one declared agent is detected (`src/agent-select.ts:39–47`), installs with no prompt at all, so the summary would scroll past mid-install; Vercel's display ends with "Proceed with installation?".*
+
+Put to the owner with a call; the owner agreed. The summary stands as recorded below. Added: **an attended `add` ends its summary with "Proceed with installation?"**; `-y` and agent detection answer it.
+
+#### 2026-10-06
+
 **Settled by derivation** — not discussed. Determined by the seed, Vercel's display, and the frontmatter-reading decision.
 
 **After cloning, `add` shows:** the source and version; the detected shape (single skill / plugin with its skills, agents and hooks / N skills); each skill's name and one-line description from `SKILL.md`; and the target agents. Sized for three agents. `-l/--list` shows the same skill list and installs nothing.
