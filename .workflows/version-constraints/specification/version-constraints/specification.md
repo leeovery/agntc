@@ -35,27 +35,29 @@ This gives plugin authors the standard semver tools to communicate breaking chan
 
 ### Parser Disambiguation
 
+Versions and refs are written in the `#` fragment (`owner/repo#^1.0`); `@` after the repo selects a skill by its declared name, Vercel's grammar (from `vercel-skills-compatibility`, 2026-10-07).
+
 Constraints are unambiguous — no git ref starts with `^` or `~`. The source parser can distinguish constraints from literal refs by prefix.
 
 ### Parser Output
 
-The source parser will detect constraint prefixes (`^`, `~`) in the `@` suffix and classify accordingly. `ParsedSource` will gain an optional `constraint` field:
+The source parser will detect constraint prefixes (`^`, `~`) in the `#` fragment and classify accordingly. `ParsedSource` will gain an optional `constraint` field:
 
-- `owner/repo@^1.0` → `{ constraint: "^1.0", ref: null }`
-- `owner/repo@~1.2` → `{ constraint: "~1.2", ref: null }`
-- `owner/repo@v1.2.3` → `{ constraint: null, ref: "v1.2.3" }`
-- `owner/repo@main` → `{ constraint: null, ref: "main" }`
+- `owner/repo#^1.0` → `{ constraint: "^1.0", ref: null }`
+- `owner/repo#~1.2` → `{ constraint: "~1.2", ref: null }`
+- `owner/repo#v1.2.3` → `{ constraint: null, ref: "v1.2.3" }`
+- `owner/repo#main` → `{ constraint: null, ref: "main" }`
 - `owner/repo` (bare) → `{ constraint: null, ref: null }`
 
 The bare-add default behavior (resolve latest semver tag, apply `^X.Y.Z`) is the responsibility of the add command, not the parser. The parser only classifies user input — it does not resolve tags or derive constraints.
 
 ### Source Type Support
 
-Constraints are supported on all remote source types that accept an `@` suffix:
+Constraints are supported on all remote source types that accept a `#` fragment:
 
-- GitHub shorthand: `owner/repo@^1.0`
-- HTTPS URL: `https://github.com/owner/repo@^1.0`
-- SSH URL: `git@github.com:owner/repo@^1.0`
+- GitHub shorthand: `owner/repo#^1.0`
+- HTTPS URL: `https://github.com/owner/repo#^1.0`
+- SSH URL: `git@github.com:owner/repo#^1.0`
 
 Constraints are not supported on:
 
@@ -64,7 +66,7 @@ Constraints are not supported on:
 
 ### Constraint Validation
 
-The parser will validate the constraint expression after extracting it. If the version portion is not valid semver (as determined by `semver.validRange()`), reject at parse time with a clear error message. Examples of invalid input: `@^abc`, `@^`, `@~`, `@^1.2.3.4`.
+The parser will validate the constraint expression after extracting it. If the version portion is not valid semver (as determined by `semver.validRange()`), reject at parse time with a clear error message. Examples of invalid input: `#^abc`, `#^`, `#~`, `#^1.2.3.4`.
 
 ## Manifest Storage
 
@@ -175,32 +177,33 @@ If no stable semver tags exist, fall back to HEAD with no constraint.
 The full `add` resolution order:
 
 1. `agntc add owner/repo` — resolve latest semver tag, apply `^X.Y.Z`
-2. `agntc add owner/repo@^1` — explicit constraint, resolve best match
-3. `agntc add owner/repo@~1.2` — explicit constraint, resolve best match
-4. `agntc add owner/repo@v1.2.3` — exact pin, no constraint
-5. `agntc add owner/repo@main` — track branch HEAD, no constraint
+2. `agntc add owner/repo#^1` — explicit constraint, resolve best match
+3. `agntc add owner/repo#~1.2` — explicit constraint, resolve best match
+4. `agntc add owner/repo#v1.2.3` — exact pin, no constraint
+5. `agntc add owner/repo#main` — track branch HEAD, no constraint
 6. `agntc add owner/repo` (no semver tags) — fall back to HEAD, no constraint
+7. `agntc add owner/repo` where the newest tag lacks a skill the line names (`@skill`/`--skill`), or holds no skills — fall back to the default branch, say so, no constraint (from `vercel-skills-compatibility`, 2026-10-07)
 
-The `@^` and `@~` forms are power-user options. The `@branch` syntax (`@main`, `@develop`, feature branches) is kept as an escape hatch for testing PRs or unreleased work.
+The `#^` and `#~` forms are power-user options. The `#branch` syntax (`#main`, `#develop`, feature branches) is kept as an escape hatch for testing PRs or unreleased work.
 
 ### Re-Add Behavior
 
 Re-adding an already-installed plugin follows the same resolution order as a fresh install. The existing manifest entry is overwritten via the standard nuke-and-reinstall — the new `constraint`, `ref`, and `commit` values replace the old ones entirely.
 
 Examples:
-- Installed with `^1.0` → re-add with `@^2.0` → constraint changes to `^2.0`, resolves new tag
-- Installed with `^1.0` → re-add with `@v1.5.0` → constraint removed, exact pin
+- Installed with `^1.0` → re-add with `#^2.0` → constraint changes to `^2.0`, resolves new tag
+- Installed with `^1.0` → re-add with `#v1.5.0` → constraint removed, exact pin
 - Installed with exact pin → bare re-add → constraint auto-applied per default behavior
 
 No confirmation prompt for constraint changes — the user explicitly chose the new form.
 
 ### Explicit Tags Are Exact Pins
 
-`agntc add owner/repo@v1.2.3` means exact pin — no constraint applied. If you typed a specific version, you meant it. The `@^1` syntax exists for when you want constraints.
+`agntc add owner/repo#v1.2.3` means exact pin — no constraint applied. If you typed a specific version, you meant it. The `#^1` syntax exists for when you want constraints.
 
 ### Documentation Guidance
 
-Plugin READMEs and getting-started docs should advertise `agntc add owner/repo` — no version syntax. The `@^1`, `@~1.2`, and `@v1.2.3` forms are power-user options and should not appear in introductory documentation.
+Plugin READMEs and getting-started docs should advertise `agntc add owner/repo` — no version syntax. The `#^1`, `#~1.2`, and `#v1.2.3` forms are power-user options and should not appear in introductory documentation.
 
 ### Semver Compliance
 
@@ -243,13 +246,19 @@ The `list` dashboard will surface constraint information:
 
 Each plugin installed from a collection is tracked independently in the manifest with its own `constraint`, `ref`, and `commit`. A collection presents items for individual selection — this is distinct from a plugin that bundles multiple assets (skills, agents, hooks) installed as a single unit.
 
-- `agntc add owner/collection@^1.0` — user selects which plugins to install; each selected plugin gets `constraint: "^1.0"` in its own manifest entry
+- `agntc add owner/collection#^1.0` — user selects which plugins to install; each selected plugin gets `constraint: "^1.0"` in its own manifest entry
 - Bare `agntc add owner/collection` — auto-applies `^X.Y.Z` per default behavior to each selected plugin
 - On `update`, each plugin resolves its constraint independently — they may diverge if installed at different times or with different constraints
-- Individual plugins from a collection can be re-added with different constraints (e.g. `agntc add owner/collection@^2.0` and selecting only one plugin)
+- Individual plugins from a collection can be re-added with different constraints (e.g. `agntc add owner/collection#^2.0` and selecting only one plugin)
 
 ---
 
 ## Working Notes
 
 [Optional - capture in-progress discussion if needed]
+
+## Corrigenda
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): the version suffix `@` (`owner/repo@^1.0`, `@~1.2`, `@v1.2.3`, `@main`) → the `#` fragment (`owner/repo#^1.0`, `#~1.2`, `#v1.2.3`, `#main`), throughout; `@` after the repo now selects a skill by declared name.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): the resolution order ended at "`agntc add owner/repo` (no semver tags) — fall back to HEAD, no constraint" — corrected: a bare add also falls back to the default branch, with no constraint, when the newest tag lacks a skill the line names or holds no skills.
