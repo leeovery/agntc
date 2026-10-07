@@ -409,6 +409,13 @@ Settled by the owner's rule. Vercel's names and `'*'` are adopted; an agent agnt
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: re-adding an installed entry deletes its files and reinstalls for the chosen agents only (`src/commands/add.ts:413–415`, `:775–779` for collection members), so `add … -a cursor` on a Claude install silently deletes Claude's copy — likewise a `-y` re-add (detected agents now) and a version-only re-add; Vercel's `add -a cursor` adds Cursor and leaves Claude alone.*
+
+Put to the owner with a call; the owner agreed. The targeting stands as recorded below. Added: **a re-add of an installed entry adds the agents it names and never drops the agents already recorded**; a version-only re-add (`#v2.0.0`) reinstalls for every recorded agent; a `-y` re-add keeps the recorded agents and adds any detected within the ceiling. Taking an agent away is `remove -a`.
+
+#### 2026-10-06
+
 - **`-a/--agent` accepts Vercel's identifiers** (`claude-code`, `codex`, `cursor`) and agntc's `claude`; variadic and repeatable, as Vercel.
 - **`'*'` means every agent agntc supports.**
 - **Naming an agent agntc doesn't drive is refused** (pre-flight, non-zero exit, nothing written), listing the three it does.
