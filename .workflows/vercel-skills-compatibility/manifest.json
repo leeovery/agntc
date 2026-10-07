@@ -224,7 +224,7 @@
               "parent": null
             },
             "re-add-advice-defects": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "update-and-remove-surface": {

@@ -600,6 +600,24 @@ No clash: Vercel's files are, to agntc, files it does not manage, and the existi
 
 ---
 
+## Re-Add Advice Defects
+
+### Context
+
+`grep -rn "npx agntc add" src/ | grep -v "\.test\.ts"` → four advice sites: `src/summary.ts:355` (caret out-of-constraint: `npx agntc add <owner/repo>`), `src/update-render.ts:80` (all-mode exact-pin newer tags: `npx agntc add <owner/repo>@<newest>`), `src/commands/update.ts:173` (single-key exact-pin newer tags: `npx agntc add <key>@<newest>`), `src/clone-reinstall.ts:270` (derive-before-delete abort: `npx agntc remove <key> then npx agntc add <key>`). Two confirmed defects: none carries `--plugin`, so following the advice for a `--plugin` bundle re-detects a skills-only source and takes the collection path — its members collide with the bundle's files and the collision prompt offers removing the bundle, converting it into separate members (code read); and the single-key and abort sites print a collection member's manifest key `owner/repo/<member>`, which agntc's own parser refuses ("too many slashes"). The owner's original report ("following it fails") was close: it doesn't error, it silently changes the install's shape or stops at a collision prompt.
+
+### Journey
+
+The fix follows from decisions made in this discussion: versions now live after `#` (at-suffix-meaning); a single skill is named by a selector, never by a key (skill-identity); and a `--plugin` on a structure that already reads as a plugin is a redundant no-op (configless-install), so carrying it whenever the recorded type is `plugin` never misfires on structural plugins.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the two confirmed defects, the `@`/`#` and skill-identity decisions, and the configless rule that a redundant `--plugin` is a no-op.
+
+**Every command agntc prints is one it accepts and that reproduces the install:** re-add and remove advice carries `--plugin` whenever the entry is a plugin, names a single skill the way a user selects it rather than by manifest key, and puts versions after `#`.
+
+---
+
 ## Summary
 
 ### Key Insights
