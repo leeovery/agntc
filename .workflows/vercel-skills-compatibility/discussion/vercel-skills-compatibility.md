@@ -179,7 +179,13 @@ The cost of adopting Vercel's reading falls only on agntc's own syntax — self-
 
 ### Decision
 
-**Adopt Vercel's reading of https URLs.** A GitHub or GitLab URL, or any URL ending `.git`, is a git source. Any other http(s) URL is a website source and is refused as out of scope (non-zero exit, nothing written, message naming website sources as unsupported). Self-hosted git servers are reached with `.git` or an SSH address. The other out-of-scope source forms — skills.sh pack links, Notion, direct links to a single `SKILL.md` or an archive — are recognised by shape and refused the same way.
+**Adopt Vercel's reading of https URLs**, in Vercel's order:
+
+1. **Git sources:** GitHub (including the host named by `GH_HOST`), gitlab.com and a `/-/tree/` URL on any host, Azure Repos `_git` URLs, and any URL ending `.git`.
+2. **Direct-download links, refused like the other direct links:** GitHub's hosted-artifact links — raw.githubusercontent.com, codeload.github.com, objects.githubusercontent.com, and github.com `/archive/`, `/raw/` and `/releases/(latest/)download/` paths.
+3. **Website sources:** every other http(s) URL — refused as out of scope (non-zero exit, nothing written, message naming website sources as unsupported).
+
+*(Amended 2026-10-07 — this read "A GitHub or GitLab URL, or any URL ending `.git`, is a git source; any other http(s) URL is a website source", which refused Azure `_git`, `GH_HOST` and self-hosted `/-/tree/` URLs the scope put in and treated GitHub download links as repos; corrected to Vercel's parse order, which the decision adopts.)* Self-hosted git servers are reached with `.git` or an SSH address. The other out-of-scope source forms — skills.sh pack links, Notion, direct links to a single `SKILL.md` or an archive — are recognised by shape and refused the same way.
 
 Confidence: high.
 
