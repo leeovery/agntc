@@ -273,17 +273,17 @@ Always required (no no-arg mode). One source per invocation.
 
 | Format | Example | Notes |
 |--------|---------|-------|
-| GitHub shorthand | `owner/repo`, `owner/repo@v2.0` | Primary format. `@ref` for tag or branch. |
-| HTTPS URL | `https://github.com/owner/repo`, `https://gitlab.com/org/repo` | Any git host. |
+| GitHub shorthand | `owner/repo`, `owner/repo#v2.0`, `owner/repo@skill`, `owner/repo/sub/path`, `github:`/`gitlab:` prefixes | Primary format. `#ref` for tag, branch or constraint; `@skill` selects a skill by declared name; a trailing path selects inside the repo (from `vercel-skills-compatibility`, 2026-10-07). |
+| HTTPS URL | `https://github.com/owner/repo`, `https://gitlab.com/org/repo` | GitHub (incl. a `GH_HOST` Enterprise host), gitlab.com and any `/-/tree/` URL, Azure Repos `_git` URLs, and any URL ending `.git`. GitHub download links and every other http(s) URL (website sources) are refused (from `vercel-skills-compatibility`, 2026-10-07). |
 | SSH URL | `git@github.com:owner/repo.git` | For SSH auth setups. |
 | Local path | `./my-plugin`, `/absolute/path`, `~/my-plugin` | For local development/testing. No git clone — files copied directly. |
 | Direct path to plugin | `https://github.com/owner/repo/tree/main/plugin-name` | Collection shortcut — skips plugin multiselect, installs the specified plugin directly. Ref is embedded in the URL path. |
 
-**Version pinning:** All formats except direct path and local path support `@ref` suffix (e.g., `owner/repo@v2.0`, `https://gitlab.com/org/repo@v2.0`). Direct path URLs carry the ref in the URL structure (`/tree/{ref}/...`). Local paths have no ref concept. When no ref is specified, HEAD is used.
+**Version pinning:** All formats except direct path and local path support a `#ref` fragment (e.g., `owner/repo#v2.0`, `https://gitlab.com/org/repo#v2.0`) (from `vercel-skills-compatibility`, 2026-10-07). Direct path URLs carry the ref in the URL structure (`/tree/{ref}/...`). Local paths have no ref concept. When no ref is specified, the newest semver tag is installed with a caret constraint, falling back to the default branch (version-constraints; `vercel-skills-compatibility`).
 
 **Direct path behavior:** When a source points to a specific plugin within a collection (via tree URL path), the tool skips the collection multiselect and installs that plugin directly. The remainder of the flow (agent selection, collision check, copy) proceeds as normal.
 
-**Manifest key derivation:** Owner and repo are extracted from any format and used as the manifest key (`owner/repo` for standalone, `owner/repo/plugin-name` for collection plugins) regardless of source format. For local paths, the resolved absolute path is the manifest key (e.g., `/Users/lee/Code/my-plugin`). Collection plugins from local paths use `{absolute-path}/{plugin-name}`. `~` is expanded before storing.
+**Manifest key derivation:** Owner and repo are extracted from any format and used as the manifest key (`owner/repo` for standalone, `owner/repo/<declared-name>` for an individually installed skill — one key per skill however it was selected (from `vercel-skills-compatibility`, 2026-10-07)) regardless of source format. For local paths, the resolved absolute path is the manifest key (e.g., `/Users/lee/Code/my-plugin`). Collection plugins from local paths use `{absolute-path}/{plugin-name}`. `~` is expanded before storing.
 
 #### Full Flow
 
@@ -575,3 +575,11 @@ No internal system dependencies. agntc is a standalone CLI tool.
 **Runtime prerequisites** (not build dependencies):
 - Git — required for clone, ls-remote operations. Expected to be available on the user's system.
 - npm — distribution channel (`npx agntc`). Standard Node.js toolchain.
+
+## Corrigenda
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "`@ref` for tag or branch" / "All formats … support `@ref` suffix" — corrected: refs and constraints go in the `#` fragment; `@` selects a skill by declared name; subpath shorthand and `github:`/`gitlab:` prefixes are accepted.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "HTTPS URL … Any git host" — corrected: GitHub (incl. a `GH_HOST` host), gitlab.com and `/-/tree/` URLs, Azure Repos `_git` URLs and `.git`-suffixed URLs are git sources; GitHub download links and other http(s) URLs are refused. Also: "When no ref is specified, HEAD is used" — corrected (stale since version-constraints): the newest semver tag with a caret constraint, falling back to the default branch.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "`owner/repo/plugin-name` for collection plugins" — corrected: `owner/repo/<declared-name>`, one key per skill however it was selected.
