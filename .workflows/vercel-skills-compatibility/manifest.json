@@ -204,7 +204,7 @@
               "parent": "unattended-add"
             },
             "no-tty-behaviour": {
-              "status": "pending",
+              "status": "decided",
               "parent": "unattended-add"
             },
             "agent-caller-detection": {

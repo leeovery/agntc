@@ -508,6 +508,24 @@ The only part of `-y` that clashes with something agntc keeps is the silent repl
 
 ---
 
+## No-TTY Behaviour
+
+### Context
+
+Measured in research: an unattended `add` from a non-terminal shell reads end-of-input at the first prompt as a cancel and exits **0 with nothing installed and no message**; with stdin held open but silent it hangs until killed. The exit-0 is by design for a human cancel (`throw new ExitSignal(0)`, e.g. `src/commands/add.ts:385`, `:703`) and reads as success to an agent caller. Vercel, when a prompt is reached without a TTY, prints "Interactive prompt required but stdin is not a TTY. Nothing was installed." and "Use --agent <name> (or --agent '*') and -y to run non-interactively.", exiting 1; a deliberate cancel on a TTY exits 0.
+
+### Journey
+
+No choice: Vercel's behaviour is also the shape this discussion already gave every refusal (non-zero, nothing written, a message naming the way through).
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the measured trap, Vercel's identical behaviour, and the decided shape of a refusal.
+
+**A prompt that cannot be shown stops the install:** non-zero exit, nothing written, a message naming the flag that answers the prompt. Whether a prompt can be shown is decided from the terminal itself, so a run never waits on silent input. A deliberate cancel at a terminal keeps exiting 0.
+
+---
+
 ## Summary
 
 ### Key Insights
