@@ -623,11 +623,13 @@ The fix follows from decisions made in this discussion: versions now live after 
 ### Key Insights
 1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
 2. Vercel's way is the default answer. A point goes to the owner only where Vercel's way clashes with what agntc must keep and no call is obvious — edge cases follow Vercel.
+3. The deliberate divergences from Vercel are few and each guards a kept capability or an owner position: bare add installs the newest release tag (semver); skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite` (stop and come back); a pick from a unit warns, and is refused when the author declared the repo a plugin (units); unrecognised flags are refused (never silently ignore); Cursor stays at `.cursor/skills/` (behaves the same).
+4. Several of agntc's earlier decisions are reversed by parity: `@` as a version, folder-name identity with no frontmatter reading, `SKILL.md` beside `agents/` read as a plugin, one-level collection membership, no install flags for selection.
 
 ### Open Threads
 - Global installs — parked on the roadmap as `global-skill-installs` (horizon: later); the owner decides later whether it is wanted.
 - Website (well-known-endpoint) sources — parked on the roadmap as `website-skill-sources` (horizon: later); the owner decides later whether it is wanted.
 
 ### Current State
-- Resolved: scope — `add`/`update`/`remove` syntax parity, project scope, git/local sources.
-- Uncertain: everything below the scope line.
+- Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
+- Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
