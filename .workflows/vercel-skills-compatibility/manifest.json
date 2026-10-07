@@ -220,7 +220,7 @@
               "parent": null
             },
             "vercel-install-coexistence": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "re-add-advice-defects": {

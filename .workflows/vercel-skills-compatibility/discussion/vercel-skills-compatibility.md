@@ -580,6 +580,26 @@ Follows Vercel's display; the one agntc-specific addition is the detected shape,
 
 ---
 
+## Vercel Install Coexistence
+
+### Context
+
+A project may already hold skills installed by Vercel's CLI: a canonical copy in `.agents/skills/<name>`, relative symlinks from non-universal agents' directories (`.claude/skills/<name>` → `.agents/skills/<name>`), and a committed `./skills-lock.json` keyed by declared name. agntc installs Codex skills into `.agents/skills/` too, and — with identity now the declared name — lands on the same folder names Vercel uses. Writing into a `.claude/skills/<name>` that is a symlink would write through into Vercel's canonical copy.
+
+### Journey
+
+No clash: Vercel's files are, to agntc, files it does not manage, and the existing untracked-files path (prompt; `--overwrite` unattended) already handles them. Copy-safety's boundary rules out writing through a link.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by copy-safety's boundary, the per-agent copy layout, and the decided `-y`/`--overwrite` meaning.
+
+- **Skills installed by Vercel are files agntc does not manage:** they take the untracked-files path (prompt, or `--overwrite` unattended).
+- **`skills-lock.json` is neither read nor written.**
+- **A target that is a symlink is replaced as a link, never written through.**
+
+---
+
 ## Summary
 
 ### Key Insights
