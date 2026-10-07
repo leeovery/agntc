@@ -144,9 +144,9 @@ Sibling check: configless-install — its pre-flight failures (spec line 459) wr
 
 Confidence: high on the cut; the principle is the owner's own.
 
-Sibling check: configless-install — its spec (`.workflows/configless-install/specification/configless-install/specification.md:52`) holds "no install-command flags for type or unit selection, except `--plugin`". This scope commits to Vercel's flag syntax, so that decision is reopened; the contradiction becomes concrete, and the correction is routed, where the flag set is decided (`install-flag-set`). version-constraints — its spec fixes `@` as ref-or-constraint; the principle above puts that on the table at `at-suffix-meaning`.
+Sibling check: configless-install — its spec (`.workflows/configless-install/specification/configless-install/specification.md:52`) holds "no install-command flags for type or unit selection, except `--plugin`". This scope commits to Vercel's flag syntax, so that decision is reopened; it is reversed at `install-flag-set` and corrected in that spec (corrigendum 2026-10-07). version-constraints — its spec fixes `@` as ref-or-constraint; the principle above puts that on the table at `at-suffix-meaning`.
 
-*(Amended 2026-10-06 — the scope's in-scope structural breakage and the syntax-parity principle reopen three further configless-install decisions, each on the table where named: **Source selector grammar (canonical)** (spec line 152) — `@` is never a unit selector, no `owner/repo@unit` shorthand, the tree URL is the member selector → `at-suffix-meaning`, `fragment-and-subpath-forms`; **Structural Type Detection** (line 72) and **Collection Membership & Selection Flow** (line 304) — a `SKILL.md` beside an asset dir is a plugin, collection membership exactly one level down → `skill-local-agents-dir`, `container-depth`; **Identity & Naming** (line 170) — identity = directory basename, no frontmatter parsing → `skill-identity`. Corrections are routed where each is decided.)*
+*(Amended 2026-10-06 — the scope's in-scope structural breakage and the syntax-parity principle reopen three further configless-install decisions, each on the table where named: **Source selector grammar (canonical)** (spec line 152) — `@` is never a unit selector, no `owner/repo@unit` shorthand, the tree URL is the member selector → `at-suffix-meaning`, `fragment-and-subpath-forms`; **Structural Type Detection** (line 72) and **Collection Membership & Selection Flow** (line 304) — a `SKILL.md` beside an asset dir is a plugin, collection membership exactly one level down → `skill-local-agents-dir`, `container-depth`; **Identity & Naming** (line 170) — identity = directory basename, no frontmatter parsing → `skill-identity`. Each is corrected in that spec (corrigendum 2026-10-07).)*
 
 ---
 
@@ -189,7 +189,7 @@ The cost of adopting Vercel's reading falls only on agntc's own syntax — self-
 
 Confidence: high.
 
-Sibling check: v1/core-system — its spec's source table (`.workflows/v1/specification/core-system/specification.md:277`) lists "HTTPS URL — Any git host"; this narrows https to GitHub/GitLab or `.git`-suffixed URLs. A correction is owed; it is routed with the other source-grammar corrections once that grammar is settled.
+Sibling check: v1/core-system — its spec's source table (`.workflows/v1/specification/core-system/specification.md:277`) lists "HTTPS URL — Any git host"; this narrows https to GitHub/GitLab or `.git`-suffixed URLs. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -236,7 +236,7 @@ Put to the owner with a call; the owner agreed. The decision stands as recorded 
 
 Confidence: high on the shape; medium that the warning is enough for repos whose authors never declare.
 
-Sibling check: configless-install — its spec reserves `type: "plugin"` "strictly for a pure skills-only repo" and makes it a no-op on a structural plugin, and defines selector + `--plugin` as orthogonal (a path selector picks the unit, `--plugin` resolves its ambiguity). This widens `type: "plugin"` to "keep whole" on structural plugins, and keeps path + `--plugin` orthogonal while refusing skill-pick + `--plugin`. A correction is owed; it is routed with the other configless-install corrections.
+Sibling check: configless-install — its spec reserves `type: "plugin"` "strictly for a pure skills-only repo" and makes it a no-op on a structural plugin, and defines selector + `--plugin` as orthogonal (a path selector picks the unit, `--plugin` resolves its ambiguity). This widens `type: "plugin"` to "keep whole" on structural plugins, and keeps path + `--plugin` orthogonal while refusing skill-pick + `--plugin`. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -311,7 +311,7 @@ Presented as a single defensible shape, derived from the lenient validity postur
 
 Confidence: high.
 
-Sibling check: configless-install — its Identity & Naming decision holds "no frontmatter parsing"; this reads frontmatter for selection and display. A correction is owed; it is routed with the other configless-install corrections.
+Sibling check: configless-install — its Identity & Naming decision holds "no frontmatter parsing"; this reads frontmatter for selection and display. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -346,7 +346,7 @@ Put to the owner as a question because it reverses a configless-install decision
 
 Confidence: high — follows the owner's rule.
 
-Sibling check: configless-install — its Identity & Naming ("Identity = directory basename, throughout … No frontmatter-derived keys") and Manifest Keying ("keys are unchanged from today") are reversed here. A correction is owed; it is routed with the other configless-install corrections.
+Sibling check: configless-install — its Identity & Naming ("Identity = directory basename, throughout … No frontmatter-derived keys") and Manifest Keying ("keys are unchanged from today") are reversed here. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -366,7 +366,7 @@ Settled by the owner's rule — Vercel's way unless it clashes with what agntc k
 
 Confidence: high — follows the owner's rule.
 
-Sibling check: configless-install — its Collection Membership holds "exactly one level down", nested collections unsupported; this reverses it. A correction is owed; it is routed with the other configless-install corrections.
+Sibling check: configless-install — its Collection Membership holds "exactly one level down", nested collections unsupported; this reverses it. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -398,7 +398,7 @@ Put to the owner with a call; the owner agreed. The distinguishing signal is a `
 
 Confidence: high — follows the owner's rule.
 
-Sibling check: configless-install — its Structural Type Detection (`SKILL.md` alongside asset dirs → plugin, `SKILL.md` ignored) is reversed, and its update strategy (replay the recorded type, never re-detect) gains this one repair. A correction is owed; it is routed with the other configless-install corrections.
+Sibling check: configless-install — its Structural Type Detection (`SKILL.md` alongside asset dirs → plugin, `SKILL.md` ignored) is reversed, and its update strategy (replay the recorded type, never re-detect) gains this one repair. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -460,7 +460,7 @@ Settled by the owner's rule, with one deliberate difference grounded in the scop
 
 Confidence: high.
 
-Sibling check: configless-install — its spec (line 52) holds "no install-command flags for type or unit selection, except `--plugin`", with unit selection only by prompt or tree URL; this adopts Vercel's selection flags. A correction is owed; it is routed with the other configless-install corrections.
+Sibling check: configless-install — its spec (line 52) holds "no install-command flags for type or unit selection, except `--plugin`", with unit selection only by prompt or tree URL; this adopts Vercel's selection flags. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -500,7 +500,7 @@ The grammar stands as recorded below — `@` selects a skill, versions and refs 
 - **Versions and refs go in the `#` fragment:** `#^1.0`, `#~1.2` (constraints), `#v2.0.0` (exact tag), `#main` (branch); `#ref@skill` composes a ref with a selection.
 - **An `@` value that looks like a version and matches no skill** is refused with an error pointing at the `#` form — the migration path for lines written in agntc's old grammar.
 
-Sibling check: version-constraints — its spec classifies `@^`/`@~` as constraints and any other `@` suffix as a ref in the parser output; configless-install — its canonical selector grammar holds "`@` is never a unit selector"; v1/core-system — its source table gives every format an `@ref` suffix. All three are reversed; corrections are owed, routed together.
+Sibling check: version-constraints — its spec classifies `@^`/`@~` as constraints and any other `@` suffix as a ref in the parser output; configless-install — its canonical selector grammar holds "`@` is never a unit selector"; v1/core-system — its source table gives every format an `@ref` suffix. All three are reversed; each spec is corrected (corrigenda 2026-10-07).
 
 ---
 
@@ -520,7 +520,7 @@ No choice in it once the scope principle and the other-git-hosts call stand. The
 
 **Adopt Vercel's source forms:** `owner/repo/path` subpaths (a path into the repo; `..` refused by copy-safety), `github:`/`gitlab:` prefixes, GitLab nested groups and `/-/tree/` URLs, Azure Repos `_git` URLs with `?path=`/`?version=`, and a `GH_HOST` Enterprise host read as GitHub.
 
-Sibling check: configless-install — its canonical selector grammar makes the tree URL the only member selector and the parser refuses `owner/repo/subpath`; this adds the shorthand. A correction is owed, routed with the other configless-install corrections.
+Sibling check: configless-install — its canonical selector grammar makes the tree URL the only member selector and the parser refuses `owner/repo/subpath`; this adds the shorthand. Corrected in that spec (corrigendum 2026-10-07).
 
 ---
 
@@ -731,8 +731,8 @@ The fix follows from decisions made in this discussion: versions now live after 
 ### Key Insights
 1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
 2. Vercel's way is the default answer. A point goes to the owner only where Vercel's way clashes with what agntc must keep and no call is obvious — edge cases follow Vercel.
-3. The deliberate divergences from Vercel are few and each guards a kept capability or an owner position: bare add installs the newest release tag (semver); skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite` (stop and come back); a pick from a unit warns, and is refused when the author declared the repo a plugin (units); unrecognised flags are refused (never silently ignore); Cursor stays at `.cursor/skills/` (behaves the same).
-4. Several of agntc's earlier decisions are reversed by parity: `@` as a version, folder-name identity with no frontmatter reading, `SKILL.md` beside `agents/` read as a plugin, one-level collection membership, no install flags for selection.
+3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; per-agent copies, not Vercel's shared store; `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
+4. Several of agntc's earlier decisions are reversed by parity — `@` as a version, folder-name identity with no frontmatter reading, `SKILL.md` beside `agents/` read as a plugin, one-level collection membership, no install flags for selection, https from any host — and the owning specs (configless-install, version-constraints, v1/core-system, update-output-overhaul) carry corrigenda.
 
 ### Open Threads
 - Global installs — parked on the roadmap as `global-skill-installs` (horizon: later); the owner decides later whether it is wanted.
@@ -740,4 +740,5 @@ The fix follows from decisions made in this discussion: versions now live after 
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
+- Resolved at the final review: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, and an attended proceed confirmation.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
