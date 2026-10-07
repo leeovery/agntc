@@ -219,6 +219,13 @@ The pick-from-a-unit fork is where Vercel's syntax and agntc's guarantee collide
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: `--skill '*'` and `--all` aimed at a unit fit two readings — "install the unit", or "a pick of every skill from it" (each alone, agents and hooks left out, refused when the author declared `"type": "plugin"`).*
+
+Put to the owner with a call; the owner agreed. The decision stands as recorded below. Added: **`--skill '*'` and `--all` on a repo agntc reads as a unit — a structural plugin, or a repo declaring `"type": "plugin"` — install the whole unit**, agents and hooks included; "everything" is never read as picking every skill one by one. On a skills-only repo without `--plugin` they keep installing each skill separately.
+
+#### 2026-10-06
+
 **Units survive Vercel syntax:**
 
 - **A plain add installs a unit whole.** A repo agntc reads as a plugin (skills plus agents and/or hooks) installs as one unit, as today.
