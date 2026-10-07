@@ -544,6 +544,24 @@ Queued first as "no detection" on the research reasoning; reversed before the sc
 
 ---
 
+## Hook Scripts Gate
+
+### Context
+
+Discovery flagged that unattended installs remove the last human look before hook scripts land. Vercel installs no hooks, and its only gate — "Proceed with installation?" — is skipped by `-y` and by agent detection; its security-risk table is advisory. agntc installs a plugin's `hooks/` for Claude. With an agent caller, the human's look is the permission prompt on the command line the agent runs.
+
+### Journey
+
+No clash with anything agntc keeps, and nothing in Vercel to match; hooks delete nothing, so `-y` answers them like any other install. The pre-install summary names them, so the output says what landed.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the owner's caller picture (the owner approves the command line), the decided `-y` meaning, and Vercel having no hook gate.
+
+**No extra gate for hooks on unattended installs.** A unit carrying hooks installs under `-y` like any other; the pre-install summary lists the hooks it lands.
+
+---
+
 ## Summary
 
 ### Key Insights

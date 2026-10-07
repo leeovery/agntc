@@ -212,7 +212,7 @@
               "parent": "unattended-add"
             },
             "hook-scripts-gate": {
-              "status": "pending",
+              "status": "decided",
               "parent": "unattended-add"
             },
             "pre-install-summary": {
