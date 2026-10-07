@@ -250,6 +250,13 @@ Presented as a single defensible shape — every piece follows from the scope pr
 ### Decision
 
 #### 2026-10-07 — revised
+*Trigger: review finding: removing a skill that sits inside a unit was refused, but updating one by name had no stated outcome.*
+
+**Settled by derivation** — not discussed. Determined by a unit being one entry (Selection From a Unit: "updated, removed and version-pinned together") — update has nothing to split, so a refusal would only send the user to the same update under another name (review-002 F8).
+
+The surface stands as recorded in the entries below, with `remove`'s flag edges. Added: **`update <skill>` where the skill sits inside a unit (structural plugin or `--plugin` bundle) updates the whole unit**, and the output names the unit.
+
+#### 2026-10-07 — revised
 *Trigger: review finding: `remove`'s flags were listed without their edges — which names `-a` takes, removing an entry's last agent, and whether `--all` or `-s '*'` confirm.*
 
 **Settled by derivation** — not discussed. Determined by Agent Targeting's rule for `-a` on `add`, and the owner's rule applied to Vercel's `remove` (`--all` implies `-y` and takes no names; `-s '*'` selects everything but does not imply `-y`; `--agent` deletes only those agents' paths, the record going once no agent uses it) (review-002 F7).
