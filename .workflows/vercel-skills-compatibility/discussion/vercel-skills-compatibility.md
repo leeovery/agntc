@@ -562,6 +562,24 @@ No clash with anything agntc keeps, and nothing in Vercel to match; hooks delete
 
 ---
 
+## Pre-Install Summary
+
+### Context
+
+Seed: after cloning, `add` jumps to the agent prompt with little context; Vercel shows `Source:`, "Repository cloned", `Found N skills`, then names and descriptions (single skill, picker description pane, `--list`), `Installing to:`, an "Installation Summary" and a proceed prompt. The ASCII banner half shipped already (`abfe6c9`, `src/banner.ts`). The description line needed a frontmatter read, now decided (frontmatter reading: display only, escapes stripped). The seed also asked to keep it sized for agntc's three agents rather than mimic Vercel's 79-agent list.
+
+### Journey
+
+Follows Vercel's display; the one agntc-specific addition is the detected shape, since agntc installs units Vercel has no notion of.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the seed, Vercel's display, and the frontmatter-reading decision.
+
+**After cloning, `add` shows:** the source and version; the detected shape (single skill / plugin with its skills, agents and hooks / N skills); each skill's name and one-line description from `SKILL.md`; and the target agents. Sized for three agents. `-l/--list` shows the same skill list and installs nothing.
+
+---
+
 ## Summary
 
 ### Key Insights

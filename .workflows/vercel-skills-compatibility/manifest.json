@@ -216,7 +216,7 @@
               "parent": "unattended-add"
             },
             "pre-install-summary": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "vercel-install-coexistence": {
