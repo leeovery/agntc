@@ -249,6 +249,18 @@ Presented as a single defensible shape — every piece follows from the scope pr
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: `remove`'s flags were listed without their edges — which names `-a` takes, removing an entry's last agent, and whether `--all` or `-s '*'` confirm.*
+
+**Settled by derivation** — not discussed. Determined by Agent Targeting's rule for `-a` on `add`, and the owner's rule applied to Vercel's `remove` (`--all` implies `-y` and takes no names; `-s '*'` selects everything but does not imply `-y`; `--agent` deletes only those agents' paths, the record going once no agent uses it) (review-002 F7).
+
+The surface stands as recorded below. Added, `remove`'s flag edges:
+- **`-a` takes the agent names `add` takes** (`claude-code`, `codex`, `cursor`, agntc's `claude`) and refuses an agent agntc doesn't drive, listing the three it does.
+- **Removing an entry from every agent it is installed for removes the entry.**
+- **`--all` implies `-y` and cannot be combined with names; `-s '*'` selects every install but still confirms.**
+
+#### 2026-10-06
+
 - **Positional arguments name skills or keys.** `remove` and `update` accept one or more skill names — the skill's declared name or its folder name — as well as agntc keys. A name matching installs from two different repos is refused, listing both keys.
 - **A skill inside a unit (structural plugin or `--plugin` bundle) cannot be removed alone** — refused, naming the unit to remove.
 - **`remove` flags:** `-s <skills…>` (same as positional names), `-y` (skip the confirmation), `--all` (remove every install), `-a <agents…>` (remove from those agents only; the entry keeps its other agents). `-g` is refused as out of scope. Aliases `rm`, `r`.
