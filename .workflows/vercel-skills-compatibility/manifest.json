@@ -192,7 +192,7 @@
               "parent": null
             },
             "unattended-add": {
-              "status": "pending",
+              "status": "decided",
               "parent": null
             },
             "install-flag-set": {
