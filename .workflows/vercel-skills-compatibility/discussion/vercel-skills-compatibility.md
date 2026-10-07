@@ -481,6 +481,11 @@ Research leaned to (2) because it broke the fewest agntc lines already written. 
 ### Decision
 
 #### 2026-10-07 — revised
+*Trigger: review finding: with several names given and only some matching (`add --skill a b` where `a` doesn't exist, `remove a b` where only `b` is installed), Vercel installs or removes the matches and drops the rest silently (exit 0; `--json` reports `skipped` and exits 1) — no outcome was stated here, against the scope's rule that a pasted line is never met by a silently ignored part.*
+
+Put to the owner with a call; the owner agreed. The grammar stands as recorded in the entries below, with an unmatched name refused. Added: **when some named skills match and some don't, on `add`, `remove` or `update`, the whole command is refused** — nothing written or removed, the unmatched names listed with what is available, non-zero exit. Diverges from Vercel's silent drop, under the scope's never-silently-ignore rule.
+
+#### 2026-10-07 — revised
 *Trigger: review finding: only the version-shaped `@` miss had a stated outcome; a `--skill` or `@` name that matches nothing (a typo, a skill the repo doesn't have) had none.*
 
 **Settled by derivation** — not discussed. Determined by Vercel's own no-match behaviour ("No matching skills found for: X" plus the available list, exit 1), every refusal in this document taking the pre-flight non-zero shape, and `remove`/`update` already exiting 1 on an unknown name (`src/resolve-target-keys.ts:14–17`) (review-002 F4).
