@@ -370,6 +370,17 @@ Settled by the owner's rule — Vercel's reading, and nothing agntc keeps is los
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: a real plugin whose author added a root `SKILL.md` beside `skills/` and `agents/`/`hooks/` would become a single skill under "a directory containing `SKILL.md` is a skill" (the root early-out) — its agents and hooks never routed, its inner skills nested where agents won't load them — and the repair's condition matched its existing installs too. Units are a kept capability, so this was put to the owner.*
+
+Put to the owner with a call; the owner agreed. The distinguishing signal is a `skills/` directory: the broken shapes the fix targets are skill folders carrying `agents/` (helper prompts, `agents/openai.yaml`) with no `skills/` of their own.
+
+- **A directory containing `SKILL.md` is a skill** — everything in it, `agents/` included, is copied with it — **unless it also has a `skills/` directory beside `agents/` and/or `hooks/`: that is a plugin**, and its root `SKILL.md` is ignored, as today. A repo declaring `"type": "plugin"` in `agntc.json` is also kept whole.
+- **The update repair applies only to an entry recorded as a plugin whose source has a `SKILL.md` at its unit root and no `skills/` directory**; it is reinstalled as a skill, and the update says so. Real plugins are untouched.
+- Diverges from Vercel, whose root `SKILL.md` early-out would install such a repo as one skill — guarded by units being a kept capability.
+
+#### 2026-10-06
+
 - **A directory containing `SKILL.md` is a skill.** Everything in it, `agents/` included, is copied with it; nothing in it is routed as a plugin asset.
 - **Existing broken installs are repaired on their next update:** an entry recorded as a plugin whose source has a `SKILL.md` at its unit root is reinstalled as a skill, and the update says so.
 
