@@ -14,7 +14,7 @@ Carried forward as working ground — soft, movable when this discussion surface
 - **The owner's bar:** Vercel install lines work as expected. For each mismatch the paths are adapt agntc's rules, change them, or make both work. The configless-install spec's "no install-command flags for type or unit selection, except `--plugin`" decision (`.workflows/configless-install/specification/configless-install/specification.md:52`) is open to reopening — it was recorded as a deliberate reaction against Vercel's flag-heavy `add`, and the carrier's "same flags" meets it head-on.
 - **`@` must get one meaning** (or a rule that reads it) — named by the owner.
 - **The re-add defect rides along**, not as a separate bugfix.
-- **agntc's reason to exist stands** (research, 2026-10-06): Vercel's model is "a repo is a bag of independent skills". On the owner's workflows repo (38 skills, 34 agents, `agntc.json` → `{"agents": ["claude"]}`) Vercel v1.7.0 would install 6 of 38 skills (32 lack a frontmatter `description`), none of the agents, no unit, ignoring the Claude-only restriction. agntc's distinct value: units (skills + agents + hooks, plus `--plugin` bundling), the author's agent ceiling, semver constraints with constrained update, a lenient validity posture (no frontmatter gate), and copy-safety (symlink-escape blocking). Most of Vercel's surface is additive for agntc; the points where it presses on agntc's guarantees are few and nameable — picking a skill out of a unit, the validity gate, the author's agent restriction vs Vercel's fan-out, unattended defaults, and (as grammar rather than guarantee) `@` and identity.
+- **agntc's reason to exist stands** (research, 2026-10-06): Vercel's model is "a repo is a bag of independent skills". On the owner's workflows repo — re-measured 2026-10-07 at `7debaaf`: `find skills -mindepth 1 -maxdepth 1 -type d | wc -l` → 26 skill dirs, `find agents -mindepth 1 -maxdepth 1 | wc -l` → 34 agents, `agntc.json` → `{"agents": ["claude"]}` (research measured 38 skills a day earlier) — Vercel v1.7.0 would install 6 of 26 skills (20 lack a frontmatter `description`), none of the agents, no unit, ignoring the Claude-only restriction. agntc's distinct value: units (skills + agents + hooks, plus `--plugin` bundling), the author's agent ceiling, semver constraints with constrained update, a lenient validity posture (no frontmatter gate), and copy-safety (symlink-escape blocking). Most of Vercel's surface is additive for agntc; the points where it presses on agntc's guarantees are few and nameable — picking a skill out of a unit, the validity gate, the author's agent restriction vs Vercel's fan-out, unattended defaults, and (as grammar rather than guarantee) `@` and identity.
 
 ### Leans recorded in research (positions, not decisions)
 
@@ -103,7 +103,7 @@ The owner agreed, and widened the command surface beyond `add`: the work is abou
 
 The owner also set a principle that reaches every grammar and flag subtopic: **agntc's own syntax may change to match Vercel's** — that is acceptable — **as long as agntc can still do what Vercel's library can't**; otherwise there is no point having agntc. This loosens the research-time lean on `@` (read-by-shape was chosen partly to avoid breaking agntc lines already written); taking Vercel's grammar wholesale and finding agntc's versions a new home is now on the table on equal footing.
 
-A review of the first cut found three items from Vercel's beyond-project list that sat in none of the buckets. Each was sorted with the owner:
+Three items from Vercel's beyond-project list sat in none of the first cut's buckets. Each was sorted with the owner:
 
 - **Other git hosts and private repos** — `gitlab:`/`github:` prefixes, GitLab nested groups, Azure Repos, GitHub Enterprise. They are git repos, so the "git repos" line already admits them; what they lack is grammar. Measured today: `grep -n "gitlab\|github:" src/source-parser.ts` → no prefix handling; the HTTPS branch keeps only the last two path segments as owner/repo (`src/source-parser.ts:297–299`), so a GitLab subgroup URL or an Azure `_git` URL clones the wrong path. Private repos work wherever the user's own git credentials work — agntc does not need Vercel's credential chain.
 - **Vercel's install layout** — one canonical copy in `.agents/skills/` with each non-universal agent's directory symlinked to it. The only one of the three with a real choice in it: "producing an equivalent install" could mean the same files in the same places. Judged on behaviour instead: a skill behaves the same from a copy or a link, and matching the layout would have agntc tracking shared files and links rather than plain per-agent copies. The layout matters only when Vercel's own tools touch an agntc install, which is `vercel-install-coexistence` ground. The owner agreed with "behaves the same" as the bar.
@@ -160,8 +160,6 @@ The scope decision makes a pasted website-source line (a well-known-endpoint sit
 https://git.acme.dev/team/tools      agntc today: git repo    Vercel: website
 https://git.acme.dev/team/tools.git  agntc today: git repo    Vercel: git repo
 ```
-
-Raised by the background review against the scope decision.
 
 ### Options Considered
 
@@ -244,7 +242,7 @@ Sibling check: configless-install — its spec reserves `type: "plugin"` "strict
 
 ### Context
 
-The scope commits to Vercel syntax parity for `update` and `remove`, not only `add`, but only `add`'s surface had been mapped. Vercel's `remove [skills…]` (aliases `rm`, `r`; `-g`, `-a`, `-s`, `-y`, `--all`) matches sanitized install-folder names and lock keys — i.e. skill names — and without `--agent` deletes from every agent's path. Vercel's `update` (alias `upgrade`, plus `check`, an undocumented alias that runs the full update; `-g`, `-p`, `-y`) re-runs `add … --skill <name> -y` with no `--agent`, re-detecting targets. agntc's `remove [key]` and `update [key]` take one manifest key — `owner/repo` or `owner/repo/<member>` (`src/commands/remove.ts:167`, `src/commands/update.ts:1035`) — so a Vercel-style `npx agntc remove vercel-composition-patterns` fails today. Raised by the background review, which also tied it to the unit decision: removing one skill that sits inside a unit.
+The scope commits to Vercel syntax parity for `update` and `remove`, not only `add`, but only `add`'s surface had been mapped. Vercel's `remove [skills…]` (aliases `rm`, `r`; `-g`, `-a`, `-s`, `-y`, `--all`) matches sanitized install-folder names and lock keys — i.e. skill names — and without `--agent` deletes from every agent's path. Vercel's `update` (alias `upgrade`, plus `check`, an undocumented alias that runs the full update; `-g`, `-p`, `-y`) re-runs `add … --skill <name> -y` with no `--agent`, re-detecting targets. agntc's `remove [key]` and `update [key]` take one manifest key — `owner/repo` or `owner/repo/<member>` (`src/commands/remove.ts:167`, `src/commands/update.ts:1035`) — so a Vercel-style `npx agntc remove vercel-composition-patterns` fails today. It also meets the unit decision: removing one skill that sits inside a unit.
 
 ### Journey
 
@@ -296,11 +294,11 @@ Sibling check: v1/core-system — its spec gives `remove` and `update` a single 
 
 ### Context
 
-Vercel selects skills by the `name` declared in `SKILL.md` frontmatter, never by folder — `leonxlnx/taste-skill`'s folder `taste-skill` declares `name: design-taste-frontend`, which is what skills.sh lists and prints in `--skill` lines. Parity therefore means agntc reads frontmatter for the first time; configless-install decided it never would ("no frontmatter parsing, no validation") and parked untrusted-frontmatter parsing safety in the validation inbox. Three calls lean on the read — selection by declared name, descriptions in the pre-install summary, and the internal-skill rule — so the edges of reading third-party headers are shared ground: a `SKILL.md` with no frontmatter, frontmatter with no `name`, YAML that fails to parse, a fence that is not YAML, and descriptions carrying terminal escape sequences that would repaint the screen when printed (Vercel strips these). Raised by the background review as ground no single subtopic owned.
+Vercel selects skills by the `name` declared in `SKILL.md` frontmatter, never by folder — `leonxlnx/taste-skill`'s folder `taste-skill` declares `name: design-taste-frontend`, which is what skills.sh lists and prints in `--skill` lines. Parity therefore means agntc reads frontmatter for the first time; configless-install decided it never would ("no frontmatter parsing, no validation") and parked untrusted-frontmatter parsing safety in the validation inbox. Three calls lean on the read — selection by declared name, descriptions in the pre-install summary, and the internal-skill rule — so the edges of reading third-party headers are shared ground: a `SKILL.md` with no frontmatter, frontmatter with no `name`, YAML that fails to parse, a fence that is not YAML, and descriptions carrying terminal escape sequences that would repaint the screen when printed (Vercel strips these). No single subtopic owned this ground.
 
 ### Journey
 
-Presented as a single defensible shape, derived from the lenient validity posture (a capability the scope principle protects — the owner's own workflows repo has 32 of 38 skills without a `description`) and from Vercel's own display safety. The owner agreed. Left open deliberately: whether the installed folder and agntc's key use the declared name — that is `skill-identity`, taken with the review's key question.
+Presented as a single defensible shape, derived from the lenient validity posture (a capability the scope principle protects — the owner's own workflows repo has 20 of 26 skills without a `description`) and from Vercel's own display safety. The owner agreed. Left open deliberately: whether the installed folder and agntc's key use the declared name — that is `skill-identity`, taken with the review's key question.
 
 ### Decision
 
@@ -319,7 +317,7 @@ Sibling check: configless-install — its Identity & Naming decision holds "no f
 
 ### Context
 
-Vercel names a skill by its declared frontmatter `name` everywhere: selection, the install folder (sanitized — see Decision), and its lock keys. agntc names it by folder basename (configless-install: "Identity = directory basename, throughout"). The ten-repo run measured how often the two differ: `vercel-labs/agent-skills` 4 of 9, `leonxlnx/taste-skill` 10 of 13. With selection by declared name already decided (frontmatter reading), what remained was the installed folder and agntc's key. The background review added the key problem: one skill already gets two keys depending on route — the menu keys a member by basename (`owner/repo/composition-patterns`), a tree URL by its full subpath (`owner/repo/skills/composition-patterns`, configless spec "Source selector grammar") — and once Vercel's `owner/repo/<path>` shorthand is adopted, a basename key also reads as a path, pointing at a folder that does not exist.
+Vercel names a skill by its declared frontmatter `name` everywhere: selection, the install folder (sanitized — see Decision), and its lock keys. agntc names it by folder basename (configless-install: "Identity = directory basename, throughout"). The ten-repo run measured how often the two differ: `vercel-labs/agent-skills` 4 of 9, `leonxlnx/taste-skill` 10 of 13. With selection by declared name already decided (frontmatter reading), what remained was the installed folder and agntc's key. A key problem rides with it: one skill already gets two keys depending on route — the menu keys a member by basename (`owner/repo/composition-patterns`), a tree URL by its full subpath (`owner/repo/skills/composition-patterns`, configless spec "Source selector grammar") — and once Vercel's `owner/repo/<path>` shorthand is adopted, a basename key also reads as a path, pointing at a folder that does not exist.
 
 ### Options Considered
 
@@ -354,7 +352,7 @@ Sibling check: configless-install — its Identity & Naming ("Identity = directo
 
 ### Context
 
-agntc reads a skills-only repo one level into `skills/`; `mattpocock/skills` (second-largest source on the skills.sh leaderboard) nests every skill under `skills/<category>/<skill>`, so agntc finds no units and ends "Cancelled — no plugins selected", exit 0, where Vercel installs 38. Vercel's discovery: root `SKILL.md` early-out (unless `--full-depth`); otherwise the root plus `skills/`, `skills/.curated|.experimental|.system` and ~30 agent directories (`.claude/skills`, `.agents/skills`, …), each walked 3 levels, never below a found skill, skipping `node_modules`/`.git`/`dist`/`build`/`__pycache__`, symlinked directories not followed; plus skill paths declared in `.claude-plugin/marketplace.json` and `plugin.json`; dedup by declared name, first in priority order wins. The background review added the edges deeper discovery brings: same-name skills in different categories, `--plugin` on a category-nested repo (settled at `selection-from-a-unit`: bundles install flat), and the extra roots (`template/`, the source's own `.claude/skills`/`.agents/skills`), which `claude-plugin-manifests` shares.
+agntc reads a skills-only repo one level into `skills/`; `mattpocock/skills` (second-largest source on the skills.sh leaderboard) nests every skill under `skills/<category>/<skill>`, so agntc finds no units and ends "Cancelled — no plugins selected", exit 0, where Vercel installs 38. Vercel's discovery: root `SKILL.md` early-out (unless `--full-depth`); otherwise the root plus `skills/`, `skills/.curated|.experimental|.system` and ~30 agent directories (`.claude/skills`, `.agents/skills`, …), each walked 3 levels, never below a found skill, skipping `node_modules`/`.git`/`dist`/`build`/`__pycache__`, symlinked directories not followed; plus skill paths declared in `.claude-plugin/marketplace.json` and `plugin.json`; dedup by declared name, first in priority order wins. Deeper discovery brings its own edges: same-name skills in different categories, `--plugin` on a category-nested repo (settled at `selection-from-a-unit`: bundles install flat), and the extra roots (`template/`, the source's own `.claude/skills`/`.agents/skills`), which `claude-plugin-manifests` shares.
 
 ### Journey
 
@@ -374,11 +372,11 @@ Sibling check: configless-install — its Collection Membership holds "exactly o
 
 ### Context
 
-`src/type-detection.ts:144–155` treats a directory holding `SKILL.md` alongside an asset dir as a plugin ("SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored"). Real skills carry `agents/` folders for two unrelated reasons — OpenAI's `agents/openai.yaml` skill-metadata convention (71 such files across the ten-repo run) and skill-local helper prompts the skill itself reads (`skill-creator`'s `analyzer.md`/`grader.md`, `motion-graphics`'s `builder.md`/`director.md`). agntc drops the `SKILL.md` and copies those files into `.claude/agents/` as subagents: 61 of 258 skill dirs across the ten repos carry `agents/` (mattpocock 38/38, remotion 12/12, caveman 7/28), and every run ended "Installed …", exit 0. Vercel's rule: a directory with `SKILL.md` is a skill; a root `SKILL.md` ends discovery. The background review added that fixing detection would not repair installs already made: update replays the recorded `plugin` type (`src/nuke-reinstall-pipeline.ts:128–133`), and `agents/` is still present, so the broken shape persists while a fresh `add` of the same source installs differently.
+`src/type-detection.ts:144–155` treats a directory holding `SKILL.md` alongside an asset dir as a plugin ("SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored"). Real skills carry `agents/` folders for two unrelated reasons — OpenAI's `agents/openai.yaml` skill-metadata convention (71 such files across the ten-repo run) and skill-local helper prompts the skill itself reads (`skill-creator`'s `analyzer.md`/`grader.md`, `motion-graphics`'s `builder.md`/`director.md`). agntc drops the `SKILL.md` and copies those files into `.claude/agents/` as subagents: 61 of 258 skill dirs across the ten repos carry `agents/` (mattpocock 38/38, remotion 12/12, caveman 7/28), and every run ended "Installed …", exit 0. Vercel's rule: a directory with `SKILL.md` is a skill; a root `SKILL.md` ends discovery. Fixing detection alone would not repair installs already made: update replays the recorded `plugin` type (`src/nuke-reinstall-pipeline.ts:128–133`), and `agents/` is still present, so the broken shape persists while a fresh `add` of the same source installs differently.
 
 ### Journey
 
-Settled by the owner's rule — Vercel's reading, and nothing agntc keeps is lost: a real plugin (skills plus `agents/`/`hooks/` at the root, no root `SKILL.md`) is untouched. The repair condition is unambiguous because a recorded plugin with a `SKILL.md` at its unit root can only have come from the old rule — neither a structural plugin nor a `--plugin` bundle has one.
+Settled by the owner's rule — Vercel's reading, and nothing agntc keeps is lost: a real plugin (skills plus `agents/`/`hooks/` at the root, no root `SKILL.md`) is untouched. The repair condition was first taken as unambiguous — a recorded plugin with a `SKILL.md` at its unit root was assumed to come only from the old rule. That holds for skill folders carrying their own `agents/`, but not for a plugin whose author added a root `SKILL.md` beside `skills/` and `agents/`/`hooks/`; the revised decision separates the two by the `skills/` directory.
 
 ### Decision
 
@@ -406,7 +404,7 @@ Sibling check: configless-install — its Structural Type Detection (`SKILL.md` 
 
 ### Context
 
-Vercel drives 79 agents; agntc drives three. Vercel's identifiers are `claude-code`, `codex`, `cursor` (`--agent claude` is rejected); `-a/--agent` is variadic and repeatable; `'*'` means all 79; an unknown name → "Invalid agents", exit 1; `--all` = `--skill '*' --agent '*' -y`; with `-y` and no agent detected Vercel installs to all 79. Vercel has no author agent ceiling. Project paths differ for Cursor: Vercel `.agents/skills/`, agntc `.cursor/skills/` (`src/drivers/cursor-driver.ts:8`). The background review asked where the line falls between "an agent agntc doesn't drive" and the decided fail-loud rule for out-of-scope capabilities, and what `'*'`/`--all` mean against the author's ceiling.
+Vercel drives 79 agents; agntc drives three. Vercel's identifiers are `claude-code`, `codex`, `cursor` (`--agent claude` is rejected); `-a/--agent` is variadic and repeatable; `'*'` means all 79; an unknown name → "Invalid agents", exit 1; `--all` = `--skill '*' --agent '*' -y`; with `-y` and no agent detected Vercel installs to all 79. Vercel has no author agent ceiling. Project paths differ for Cursor: Vercel `.agents/skills/`, agntc `.cursor/skills/` (`src/drivers/cursor-driver.ts:8`). Open at the start: where the line falls between "an agent agntc doesn't drive" and the decided fail-loud rule for out-of-scope capabilities, and what `'*'`/`--all` mean against the author's ceiling.
 
 ### Journey
 
@@ -444,7 +442,7 @@ Sibling check: cursor-agent-driver — its spec puts Cursor skills in `.cursor/s
 
 ### Context
 
-`add` takes one flag today — `grep -rn "\.option(" src/ | grep -v "\.test\.ts"` → one hit, `src/commands/add.ts:914`, `--plugin` — and the configless-install spec decided against install flags for unit selection. Vercel's `add` flags: `-g/--global`, `-a/--agent <agents…>`, `-s/--skill <skills…>`, `-l/--list`, `-y/--yes`, `--copy`, `--all`, `--full-depth`, `--json` (requires `-y`/`--all`), `--subagent`, `--metadata`; aliases `a`, `i`, `install`; unknown flags silently ignored. The background review noted the flags with no unattended role (`--copy`, `--full-depth`, `--json`, `--subagent`, `--metadata`, `-l`), the aliases, and unknown-flag handling had no owner, and that `-l` is the research's open question of how an agent caller sees a repo's contents before choosing.
+`add` takes one flag today — `grep -rn "\.option(" src/ | grep -v "\.test\.ts"` → one hit, `src/commands/add.ts:914`, `--plugin` — and the configless-install spec decided against install flags for unit selection. Vercel's `add` flags: `-g/--global`, `-a/--agent <agents…>`, `-s/--skill <skills…>`, `-l/--list`, `-y/--yes`, `--copy`, `--all`, `--full-depth`, `--json` (requires `-y`/`--all`), `--subagent`, `--metadata`; aliases `a`, `i`, `install`; unknown flags silently ignored. The flags with no unattended role (`--copy`, `--full-depth`, `--json`, `--subagent`, `--metadata`, `-l`), the aliases, and unknown-flag handling also needed a position; `-l` is the research's open question of how an agent caller sees a repo's contents before choosing.
 
 ### Journey
 
@@ -532,7 +530,7 @@ A pasted bare line installs different content in the two tools. agntc resolves t
 
 ### Journey
 
-This is the one place where matching Vercel's behaviour would remove an agntc capability rather than change syntax: semver constraints with constrained update are on the scope principle's capability list, and bare add is where most installs acquire one. A tag is the publisher's own statement of what a release is. The default branch stays one explicit fragment away.
+Here matching Vercel's behaviour would remove an agntc capability rather than change syntax: semver constraints with constrained update are on the scope principle's capability list, and bare add is where most installs acquire one. A tag is the publisher's own statement of what a release is. The default branch stays one explicit fragment away.
 
 ### Decision
 
@@ -555,7 +553,7 @@ Sibling check: version-constraints — its bare-add default (resolve latest semv
 
 ### Context
 
-Vercel skips, with a visible `⚠ Skipped` warning, any skill whose `SKILL.md` lacks a string `name` and `description`, failing only when no skill is valid; and a skill marked `metadata.internal: true` is hidden from `'*'` and the picker unless requested by name. agntc installs every skill regardless of frontmatter. Applied to the owner's own workflows repo, Vercel's rule would drop 32 of 38 skills (`for f in skills/*/SKILL.md; do head -20 "$f" | grep -q '^name:' && head -20 "$f" | grep -q '^description:' || echo "$f"; done` in `~/Code/agentic-workflows` → 32 lines, measured in research).
+Vercel skips, with a visible `⚠ Skipped` warning, any skill whose `SKILL.md` lacks a string `name` and `description`, failing only when no skill is valid; and a skill marked `metadata.internal: true` is hidden from `'*'` and the picker unless requested by name. agntc installs every skill regardless of frontmatter. Applied to the owner's own workflows repo, Vercel's rule would drop 20 of its 26 skills — in `~/Code/agentic-workflows` at `7debaaf` (2026-10-07): `for f in skills/*/SKILL.md; do head -20 "$f" | grep -q '^name:' && head -20 "$f" | grep -q '^description:' || echo "$f"; done | wc -l` → 20; `ls -d skills/*/ | wc -l` → 26 (research measured 32 of 38 the day before, when the repo held more skills).
 
 ### Journey
 
@@ -626,7 +624,7 @@ The owner's picture of unattended callers is an AI agent (Claude or another) run
 
 ### Journey
 
-Queued first as "no detection" on the research reasoning; reversed before the screen under the owner's rule that Vercel's way is the default unless it clashes with what agntc keeps. It does not clash: detection only implies `-y`, and agntc's `-y` already keeps the owner's stop-and-come-back lean for files in the way and the author's agent ceiling.
+First called as "no detection" on the research reasoning; reversed under the owner's rule that Vercel's way is the default unless it clashes with what agntc keeps. It does not clash: detection only implies `-y`, and agntc's `-y` already keeps the owner's stop-and-come-back lean for files in the way and the author's agent ceiling.
 
 ### Decision
 
@@ -740,5 +738,5 @@ The fix follows from decisions made in this discussion: versions now live after 
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
-- Resolved at the final review: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, and an attended proceed confirmation.
+- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, and an attended proceed confirmation.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
