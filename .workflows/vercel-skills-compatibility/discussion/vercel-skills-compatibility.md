@@ -410,6 +410,13 @@ Settled by the owner's rule. Vercel's names and `'*'` are adopted; an agent agnt
 ### Decision
 
 #### 2026-10-07 — revised
+*Trigger: review finding: two runs end with no agent the author allows and had no stated outcome — `-y` where agents are detected but none is inside the ceiling, and a multi-unit run with `-a` where one unit's ceiling excludes every named agent ("refused" read as pre-flight would also stop its siblings; today the collection path skips that member and exits 0, `src/commands/add.ts:730`, `:906`).*
+
+Put to the owner with a call; the owner agreed. The targeting stands as recorded in the entries below, with re-adds adding agents. Added:
+- **`-y` where every detected agent is outside the unit's ceiling counts as none detected** — the unit installs for every agent within its ceiling.
+- **In a run installing several units, a unit whose ceiling excludes every named agent is skipped with a message; the others install, and the command exits non-zero** so a calling agent sees the partial result — the same partial-success reporting `update` uses. A single-unit run in that position is refused pre-flight, as recorded below.
+
+#### 2026-10-07 — revised
 *Trigger: review finding: re-adding an installed entry deletes its files and reinstalls for the chosen agents only (`src/commands/add.ts:413–415`, `:775–779` for collection members), so `add … -a cursor` on a Claude install silently deletes Claude's copy — likewise a `-y` re-add (detected agents now) and a version-only re-add; Vercel's `add -a cursor` adds Cursor and leaves Claude alone.*
 
 Put to the owner with a call; the owner agreed. The targeting stands as recorded below. Added: **a re-add of an installed entry adds the agents it names and never drops the agents already recorded**; a version-only re-add (`#v2.0.0`) reinstalls for every recorded agent; a `-y` re-add keeps the recorded agents and adds any detected within the ceiling. Taking an agent away is `remove -a`.
