@@ -526,6 +526,24 @@ No choice: Vercel's behaviour is also the shape this discussion already gave eve
 
 ---
 
+## Agent Caller Detection
+
+### Context
+
+The owner's picture of unattended callers is an AI agent (Claude or another) running `npx agntc add` mid-task. Vercel detects that it is running inside an AI agent (via `@vercel/detect-agent`), replaces its banner with "Agent detected — installing non-interactively", and forces `yes`: with no selector every skill in the source installs, to the detected agent plus every universal agent. Research had leaned the other way — let the no-terminal rule stop the run so the agent re-runs with explicit choices visible in the owner's permission prompt — as synthesis, not an owner position.
+
+### Journey
+
+Queued first as "no detection" on the research reasoning; reversed before the screen under the owner's rule that Vercel's way is the default unless it clashes with what agntc keeps. It does not clash: detection only implies `-y`, and agntc's `-y` already keeps the owner's stop-and-come-back lean for files in the way and the author's agent ceiling.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by the owner's rule (Vercel's way by default) and the decided meaning of `-y`.
+
+**Run inside an AI agent, detected as Vercel detects it, `add` behaves as if `-y` was given** — agntc's `-y`: every skill, detected agents within the author's ceiling, and anything in the way still stops the unit unless `--overwrite` is given. A detected agent caller therefore never meets the no-terminal refusal for the choices `-y` answers.
+
+---
+
 ## Summary
 
 ### Key Insights

@@ -208,7 +208,7 @@
               "parent": "unattended-add"
             },
             "agent-caller-detection": {
-              "status": "pending",
+              "status": "decided",
               "parent": "unattended-add"
             },
             "hook-scripts-gate": {
