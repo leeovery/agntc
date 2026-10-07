@@ -562,6 +562,15 @@ Queued first as "no detection" on the research reasoning; reversed before the sc
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: detection was decided for `add` only; Vercel's `remove` also detects an agent caller and forces yes, so an agent's plain `remove` would meet the no-terminal refusal where Vercel's needs no re-run.*
+
+**Settled by derivation** — not discussed. Determined by the owner's rule (Vercel's way by default), this decision's own reasoning (detection only implies `-y`), and nothing agntc keeps riding on `remove`'s confirmation — the stop-and-come-back lean is about files in an install's way, and the approved command line names what is removed (review-002 F6).
+
+**Run inside an AI agent, detected as Vercel detects it, `add` and `remove` behave as if `-y` was given** — for `add`, agntc's `-y` (every skill, detected agents within the author's ceiling, anything in the way still stops the unit unless `--overwrite`); for `remove`, no confirmation. `update` is unchanged: Vercel's `update` does not detect agents, and agntc's update shows no prompt.
+
+#### 2026-10-06
+
 **Settled by derivation** — not discussed. Determined by the owner's rule (Vercel's way by default) and the decided meaning of `-y`.
 
 **Run inside an AI agent, detected as Vercel detects it, `add` behaves as if `-y` was given** — agntc's `-y`: every skill, detected agents within the author's ceiling, and anything in the way still stops the unit unless `--overwrite` is given. A detected agent caller therefore never meets the no-terminal refusal for the choices `-y` answers.
