@@ -181,6 +181,40 @@ In each case the skill has no description and installs normally, with no warning
 - Frontmatter is parsed as plain data. YAML features that execute code or construct objects during parsing are not used.
 - Before agntc prints frontmatter text (names and descriptions), it strips control characters and terminal escape sequences, as Vercel does.
 
+### 4. Skill Identity
+
+#### 4.1 Identity is the declared name
+
+A skill's identity is its declared name (§3), or its folder name when it declares none. This is Vercel's rule, and it replaces agntc's directory-basename identity.
+
+In Vercel-directory repos the declared name and the folder name often differ. Observed in an exploratory run against skills.sh leaderboard repos: 4 of 9 skills in `vercel-labs/agent-skills` differ, and 10 of 13 in `leonxlnx/taste-skill`. For example, the folder `taste-skill` declares `design-taste-frontend`, and skills.sh lists that declared name and prints it in `--skill` lines.
+
+#### 4.2 Install folder
+
+A skill installs into a folder named after its identity, sanitized the way Vercel sanitizes it:
+
+1. Lowercase the name.
+2. Replace every run of characters outside `[a-z0-9._]` with a single `-`.
+3. Strip leading and trailing `.` and `-`.
+4. Cap the result at 255 characters.
+5. Use `unnamed-skill` if nothing remains.
+
+Sanitizing keeps a declared name such as `..` or `../x` from installing outside the agent's skills directory.
+
+When a skill is installed by both agntc and Vercel's CLI, both land on the same folder. This shows up as a visible clash through the untracked-files path (§13), not as two copies the agent sees side by side.
+
+#### 4.3 One key per skill
+
+A skill installed on its own has exactly one manifest key, `owner/repo/<folder>`, where `<folder>` is its install folder name (§4.2). The key is the same however the skill was selected: from the menu, by `@name`, by `--skill`, by a subpath, or by a tree URL. A skill that is the whole repo (a root `SKILL.md`) keys as `owner/repo`, as it does today.
+
+Today one skill can end up with two keys depending on how it was selected. The collection menu keys a member by its folder basename (`owner/repo/composition-patterns`). A tree URL keys it by its full subpath (`owner/repo/skills/composition-patterns`), because `parseDirectPath` in `src/source-parser.ts` builds the key from everything after the ref.
+
+A key is never an install source. A path in a source string is always a path into the repo (§2.1), and agntc never prints a key as a source (§14). `remove` and `update` accept keys (§12).
+
+#### 4.4 Existing installs move on their next update
+
+An existing install moves to its declared-name folder and key on its next update. If the target folder is already occupied, update handles it as §12 sets out.
+
 ---
 
 ## Working Notes
