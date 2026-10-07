@@ -257,6 +257,11 @@ Presented as a single defensible shape — every piece follows from the scope pr
 ### Decision
 
 #### 2026-10-07 — revised
+*Trigger: review finding: two decisions make `update` write into folders it never owned — the move to declared-name folders and keys, and the repair of broken `agents/` installs — and the folder may be occupied (a Vercel copy, the user's own copy, another entry's same-named skill); the update path has no conflict check (`grep -n "unmanaged\|collision" src/clone-reinstall.ts src/nuke-reinstall-pipeline.ts src/update-groups.ts src/commands/update.ts` → nothing) and no `--overwrite`.*
+
+Put to the owner with a call; the owner agreed. The surface stands as recorded in the entries below. Added: **`update` meets an occupied target folder the way `add` does** — without `--overwrite` it stops that entry, leaves the existing install intact, says why, and exits non-zero (partial success across entries, as today); with `--overwrite` it replaces what is in the way. **`update` gains `--overwrite`**, single-key and all-mode.
+
+#### 2026-10-07 — revised
 *Trigger: review finding: removing a skill that sits inside a unit was refused, but updating one by name had no stated outcome.*
 
 **Settled by derivation** — not discussed. Determined by a unit being one entry (Selection From a Unit: "updated, removed and version-pinned together") — update has nothing to split, so a refusal would only send the user to the same update under another name (review-002 F8).
