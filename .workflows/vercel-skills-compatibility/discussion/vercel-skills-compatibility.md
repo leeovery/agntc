@@ -620,7 +620,7 @@ The fix follows from decisions made in this discussion: versions now live after 
 
 **Settled by derivation** — not discussed. Determined by the two confirmed defects, the `@`/`#` and skill-identity decisions, and the configless rule that a redundant `--plugin` is a no-op.
 
-**Every command agntc prints is one it accepts and that reproduces the install:** re-add and remove advice carries `--plugin` whenever the entry is a plugin, names a single skill the way a user selects it rather than by manifest key, and puts versions after `#`.
+**Every command agntc prints is one it accepts and that reproduces the install:** printed `add` commands carry `--plugin` whenever the entry is a plugin, name a single skill the way a user selects it rather than by manifest key, and put versions after `#`; printed `remove` commands name the entry the way `remove` accepts it (its key or skill name) and carry no `--plugin`. *(Amended 2026-10-07 — this read "re-add and remove advice carries `--plugin`"; `remove` accepts no `--plugin`, so the printed remove would fail.)*
 
 ---
 
