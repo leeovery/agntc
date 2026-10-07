@@ -526,6 +526,13 @@ This is the one place where matching Vercel's behaviour would remove an agntc ca
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: a pasted pick for a skill added after the repo's newest semver tag fails as a no-match under the tag default, where the publisher's listing and Vercel's install read the default branch; and a repo whose tags predate its skills resolves to a tree with no skills — a different install becomes a failed one.*
+
+Put to the owner with a call; the owner agreed. The semver default stands as recorded below — newest semver tag with a caret constraint; default branch when untagged; `#main` asks for a branch. Added: **when the newest tag lacks a skill the line names, or holds no skills at all, the bare add installs from the default branch instead, says so, and records no constraint.** Every other bare add keeps the semver default.
+
+#### 2026-10-06
+
 **Settled by derivation** — not discussed. Determined by semver constraints with constrained update being a capability the scope principle keeps.
 
 **Diverges from Vercel: a bare add keeps agntc's default** — the newest semver tag, recorded with a caret constraint so updates stay within its major; the default branch when the repo has no tags; `#main` (or any branch) asks for the branch explicitly.
