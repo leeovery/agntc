@@ -71,6 +71,85 @@ An agntc install is equivalent to Vercel's when the skill behaves the same for t
 
 Vercel instead keeps one canonical copy in `.agents/skills/` with symlinks from each agent's directory; agntc does not.
 
+### 2. Source Grammar
+
+#### 2.1 Source forms
+
+agntc accepts Vercel's source forms as well as the forms it already reads. Each form is parsed the way Vercel parses it.
+
+- `owner/repo` is GitHub shorthand.
+- `owner/repo/path` is a path into the repository.
+  - In a source string this is always a path into the repo, never a manifest key (§4).
+  - A path that escapes the repo with `..` is refused by copy-safety.
+  - agntc today refuses this form as "too many slashes" (`grep -n "too many slashes" src/source-parser.ts` → line 365).
+- `github:owner/repo` and `gitlab:owner/repo` prefixes. agntc today has no prefix handling (`grep -n "gitlab\|github:" src/source-parser.ts` → no hits).
+- GitHub tree URLs, `https://github.com/owner/repo/tree/<ref>[/<path>]`. The path is optional, as in Vercel; agntc today requires one.
+- GitLab URLs, including nested groups (`https://gitlab.com/group/subgroup/repo`) and `/-/tree/<ref>/<path>` URLs.
+- Azure Repos `_git` URLs, with `?path=` and `?version=`.
+- A GitHub Enterprise host named by the `GH_HOST` environment variable, read as GitHub.
+- SSH addresses, `https://….git` URLs and local paths, as today.
+
+agntc today keeps only the last two path segments of an https URL as owner/repo (`parseHttpsUrl` in `src/source-parser.ts`). So a GitLab subgroup URL or an Azure `_git` URL clones the wrong path.
+
+#### 2.2 Reading an https URL
+
+An http(s) URL is read in Vercel's order:
+
+1. **Git source.** Any of these is cloned:
+   - GitHub, including the `GH_HOST` host;
+   - gitlab.com;
+   - a `/-/tree/` URL on any host;
+   - an Azure Repos `_git` URL;
+   - any URL ending `.git`.
+2. **Direct-download link, refused (§1.5).** These are GitHub's hosted-artifact links:
+   - raw.githubusercontent.com;
+   - codeload.github.com;
+   - objects.githubusercontent.com;
+   - github.com paths under `/archive/`, `/raw/`, `/releases/download/` and `/releases/latest/download/`.
+3. **Website source, refused (§1.3).** This is every other http(s) URL. The message names website sources as unsupported.
+
+This changes agntc's own syntax. Today any `https://host/owner/repo` is cloned as git. Under this order, a self-hosted URL without `.git` is a website source. Self-hosted git servers are reached with a `.git` URL or an SSH address.
+
+The other out-of-scope source forms from §1.3 are recognised by shape and refused the same way:
+- skills.sh pack links (`https://skills.sh/p/<id>`);
+- Notion sources;
+- direct links to a single `SKILL.md` or an archive.
+
+#### 2.3 `@` selects a skill
+
+`owner/repo@skill` selects the skill named `skill`. A skill's name is its declared name (§3), and §7 covers how names match. This is Vercel's grammar: `@` never carries a version or a ref.
+
+agntc today reads `@X` as a ref, or as a semver constraint when `X` starts with `^` or `~` (`classifyRefOrConstraint` in `src/source-parser.ts`). A pasted Vercel line `owner/repo@some-skill` therefore either fails on a missing ref, or installs the wrong thing when a branch or tag of that name exists.
+
+Some `@` values look like a version: a `^`/`~` range, or a semver-shaped tag such as `v2.0.0`. Such a value that matches no skill is refused (§1.5), and the message points at the `#` form (§2.4). This is the migration path for lines written in agntc's previous grammar.
+
+#### 2.4 `#` carries versions and refs
+
+The `#` fragment holds what `@` held before:
+
+| Fragment | Meaning |
+|---|---|
+| `#^1.0`, `#~1.2` | Semver constraint. Resolves the best matching tag and is recorded for constrained update. |
+| `#v2.0.0` | Exact tag. No constraint is recorded. |
+| `#main` | That branch. |
+
+A fragment that does not start with `^` or `~` is a ref (a tag or a branch), read the way `@` was read before. `#ref@skill` combines a ref with a skill selection, for example `owner/repo#v2.0.0@skill`.
+
+#### 2.5 Version a bare add installs
+
+**This diverges from Vercel, to protect semver constraints (§1.4).** Vercel has no version concept and always installs the default branch HEAD. A bare add, meaning one with no `#` fragment, keeps agntc's default:
+
+- It installs the newest semver tag and records a caret constraint (`^X.Y.Z`), so updates stay within that major version.
+- It installs the default branch when the repo has no semver tags.
+
+A branch is always one explicit fragment away (`#main`).
+
+**Fallback to the default branch.** In two cases the bare add installs from the default branch instead, says so in its output, and records no constraint:
+- The newest tag lacks something the line names: a skill selected by `@` or `--skill`, or the path in the source.
+- The newest tag holds no skills at all.
+
+The fallback keeps two cases working: a pasted pick for a skill added after the repo's last release, and a repo whose tags predate its skills.
+
 ---
 
 ## Working Notes
