@@ -535,6 +535,15 @@ No choice: Vercel's behaviour is also the shape this discussion already gave eve
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: the no-terminal rule was phrased for `add` only, while `remove` without a terminal reads end-of-input as a cancel, prints "Cancelled" and exits 0 with nothing removed (`src/commands/remove.ts:134–136`; the no-argument picker at `:99–101`).*
+
+**Settled by derivation** — not discussed. Determined by this decision's own grounds (the measured exit-0 trap, the refusal shape), `remove` being in parity scope, and `remove -y` only meaning something if an unanswerable confirmation is not a silent cancel (review-002 F5).
+
+**A prompt that cannot be shown stops the command — `add`, `remove`, and any prompt `update` comes to show:** non-zero exit, nothing written or removed, a message naming what answers it (`-y` for a confirmation; skill names, keys or `--all` for `remove`'s picker; the flags for `add`'s choices). Decided from the terminal itself, so a run never waits on silent input. A deliberate cancel at a terminal keeps exiting 0.
+
+#### 2026-10-06
+
 **Settled by derivation** — not discussed. Determined by the measured trap, Vercel's identical behaviour, and the decided shape of a refusal.
 
 **A prompt that cannot be shown stops the install:** non-zero exit, nothing written, a message naming the flag that answers the prompt. Whether a prompt can be shown is decided from the terminal itself, so a run never waits on silent input. A deliberate cancel at a terminal keeps exiting 0.
