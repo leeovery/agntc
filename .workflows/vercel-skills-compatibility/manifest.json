@@ -242,6 +242,22 @@
           }
         }
       }
+    },
+    "specification": {
+      "items": {
+        "vercel-skills-compatibility": {
+          "status": "in-progress",
+          "sources": {
+            "vercel-skills-compatibility": {
+              "status": "pending"
+            }
+          },
+          "review_cycle": 0,
+          "finding_gate_mode": "gated",
+          "construction_gate_mode": "gated",
+          "date": "2026-10-07"
+        }
+      }
     }
   },
   "seeds": [
