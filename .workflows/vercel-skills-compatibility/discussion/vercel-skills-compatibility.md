@@ -424,6 +424,15 @@ Research leaned to (2) because it broke the fewest agntc lines already written. 
 
 ### Decision
 
+#### 2026-10-07 — revised
+*Trigger: review finding: only the version-shaped `@` miss had a stated outcome; a `--skill` or `@` name that matches nothing (a typo, a skill the repo doesn't have) had none.*
+
+**Settled by derivation** — not discussed. Determined by Vercel's own no-match behaviour ("No matching skills found for: X" plus the available list, exit 1), every refusal in this document taking the pre-flight non-zero shape, and `remove`/`update` already exiting 1 on an unknown name (`src/resolve-target-keys.ts:14–17`) (review-002 F4).
+
+The grammar stands as recorded below — `@` selects a skill, versions and refs go after `#`. Added: **a `--skill` or `@` name that matches no skill in the source is refused** pre-flight (non-zero exit, nothing written), naming the unmatched name and listing the skills the source offers. The version-shaped `@` refusal below is the special case of this, with its pointer to `#`.
+
+#### 2026-10-06
+
 **Settled by derivation** — not discussed. Determined by the scope principle (syntax follows Vercel, capabilities stay agntc's) and semver constraints being a capability agntc keeps.
 
 - **`@` selects a skill** by declared name (folder name as fallback), Vercel's grammar: `owner/repo@skill`.
