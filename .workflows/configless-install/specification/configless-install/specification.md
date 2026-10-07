@@ -41,7 +41,7 @@ A clean split of responsibilities replaces v1's "config means I am installable" 
 `agntc.json` is `{ "agents": [...], "type"?: "plugin" }`:
 
 - **`agents`** (optional) — author-side restriction of target agents. A hard ceiling when valid and non-empty (see *Agent Selection*).
-- **`type`** (optional) — author-side disambiguator for the single structurally-ambiguous case only (skills-only repo → bundle vs menu). Reserved strictly for a pure skills-only repo the author wants bundled as a plugin. See *Structural Type Detection*.
+- **`type`** (optional) — author-side disambiguator for the single structurally-ambiguous case only (skills-only repo → bundle vs menu). On a pure skills-only repo it bundles the repo as a plugin; on any repo it also declares the repo keep-whole — a pick of one skill from it is refused (superseded by `vercel-skills-compatibility`, 2026-10-07). See *Structural Type Detection*.
 
 ### Rules
 
@@ -49,7 +49,7 @@ A clean split of responsibilities replaces v1's "config means I am installable" 
 - **A collection is not an installable unit** (it's a container of units), so a collection container **never carries config**.
 - **Config *presence* never signals type.** Only an explicit `type` *property* is read, and only to disambiguate the skills-only case. A config carrying only `agents` has zero effect on type. (The v1 "config present → plugin; no root config → collection" boundary-marker behaviour stays dead.)
 - **Unknown config keys are ignored** (lenient) — older/newer agntc versions don't choke on each other's configs.
-- **No install-command flags for type or unit selection**, except the single narrow `--plugin` installer override defined in *Structural Type Detection*. Unit selection from a collection is via interactive prompt or a source-string selector.
+- **Install-command flags follow Vercel's `add` surface** — `-s/--skill`, `-a/--agent`, `-y`, `--all`, `-l/--list`, `--full-depth`, `--json`, `--copy` (a no-op) — alongside agntc's own `--plugin` and `--overwrite` (superseded by `vercel-skills-compatibility`, 2026-10-07). Unit selection is via the interactive prompt, `@skill`/`--skill`, or a path in the source.
 
 ### Recognised `type` values and the leniency-vs-error boundary
 
@@ -60,7 +60,7 @@ Two leniency rules coexist and must be reconciled explicitly:
 
 So the boundary is: **unparseable / unusable config → lenient (ignored); well-formed config with a recognised `type` that can't be realized → loud error.**
 
-- **The only recognised `type` value is `"plugin"`.** It is the skills-only bundle disambiguator.
+- **The only recognised `type` value is `"plugin"`.** It is the skills-only bundle disambiguator and, on any repo, the author's keep-whole declaration (superseded by `vercel-skills-compatibility`, 2026-10-07).
 - **Any other `type` value — including `"collection"` — is unrecognised and ignored** (lenient, like any unknown key). `"collection"` is *not* a supported declaration; structure already expresses collection, so an author never needs it. (This supersedes the discussion's incidental "`type: collection` on a multi-asset plugin → error" example — that value simply isn't honoured; the realizability error applies to `type: "plugin"` on a non-bundleable structure.)
 
 ### Rationale
@@ -77,7 +77,7 @@ Type is detected from structure alone, by a single detection path, with a two-le
 
 | Structure | Type | Ambiguous? |
 |---|---|---|
-| `SKILL.md` at root | bare skill | no |
+| `SKILL.md` at root, without `skills/` beside `agents/`/`hooks/` | bare skill (`agents/` etc. copied as part of it) | no |
 | `skills/` **+** (`agents/` or `hooks/`) | plugin (atomic) | no — Vercel has no multi-asset shape; `agentic-workflows` lands here |
 | named member dirs, each a unit (`SKILL.md` or its own `skills/`) | collection | no |
 | **`skills/`-only at root** | **plugin or collection** | **yes — the only ambiguous case** |
@@ -97,7 +97,7 @@ A root `skills/` dir means opposite things in the two ecosystems: "one plugin / 
 
 There is **one** detection path and it is always structural. Config `type` and `--plugin` are *override inputs* to the ambiguous case only — never a parallel or fallback detection mechanism.
 
-1. root `SKILL.md` → **bare skill**
+1. root `SKILL.md` → **bare skill** — unless the root also has `skills/` beside `agents/` and/or `hooks/`, which is a **plugin** (its root `SKILL.md` ignored). A skill's own `agents/` (helper prompts, `agents/openai.yaml`) is copied with the skill, never routed (superseded by `vercel-skills-compatibility`, 2026-10-07).
 2. root **asset-kind dirs** (`skills/` / `agents/` / `hooks/`) recognised as plugin parts → **plugin** — *checked before any member scan*, so `skills/` is never mistaken for "a collection of skills." Exception: `skills/`-only (no `agents/`/`hooks/`) → falls to the skills-only ambiguous case.
 3. otherwise, scan **non-asset-kind child dirs** as potential collection members → **collection**
 4. else **reject** as not-agntc
@@ -107,7 +107,7 @@ There is **one** detection path and it is always structural. Config `type` and `
 A **plugin** is structurally: *a root containing one or more asset-kind dirs (`skills/`, `agents/`, `hooks/`), with the single skills-only exception.* The four-shapes table's `skills/` **+** (`agents/` or `hooks/`) is the common illustrative case, **not** the exhaustive rule. Concretely:
 
 - `skills/` + `agents/` and/or `hooks/` → **plugin**
-- `agents/`-only, `hooks/`-only, or `agents/` + `hooks/` (no `skills/`) → **plugin** (≥1 asset dir, not skills-only)
+- `agents/`-only, `hooks/`-only, or `agents/` + `hooks/` (no `skills/`) → **plugin** (≥1 asset dir, not skills-only) — when there is no `SKILL.md`; with a `SKILL.md` it is a bare skill (superseded by `vercel-skills-compatibility`, 2026-10-07)
 - `skills/`-only (no other asset dir) → **the skills-only ambiguous case** (default collection; see resolution above)
 
 This is consistent with the existing `detectType` behaviour (`foundAssetDirs.length > 0 → plugin`). The same rule applies one level down for collection membership (a child with ≥1 asset-kind dir is a plugin member).
@@ -147,22 +147,21 @@ A source selector (the tree-path URL — see *Source selector grammar*) and `--p
 - **Selector = *which* unit** to install.
 - **`--plugin` = *how to resolve the selected unit's* skills-only ambiguity.**
 
-So a selector + `--plugin` reads as "install the selected unit, resolve *its* ambiguity as plugin." If the selected unit isn't skills-only/bundleable, the type-vs-structure conflict rule applies (agrees → redundant/no-op; contradicts → error). There is no bespoke selector+flag combination rule.
+So a selector + `--plugin` reads as "install the selected unit, resolve *its* ambiguity as plugin." If the selected unit isn't skills-only/bundleable, the type-vs-structure conflict rule applies (agrees → redundant/no-op; contradicts → error). A path selector and `--plugin` stay orthogonal; a skill selector (`@skill`, `--skill`) with `--plugin` is refused — a bundle is the whole source (superseded by `vercel-skills-compatibility`, 2026-10-07).
 
 ### Source selector grammar (canonical)
 
 The discussion referred informally to `owner/repo@unit` for member selection, but the existing source parser already assigns `@` a different meaning. To stay implementable and internally consistent, the canonical grammar is:
 
-- **`@<ref>` / `#`-style suffix = version ref or constraint only.** A bare-shorthand or URL suffix `@v1.2.0`, `@main`, `@^1.2`, `@~1.2` selects a tag/branch (or semver constraint). `@` is **never** a unit selector. (This is the existing `parseSource` behaviour — `classifyRefOrConstraint`.)
-- **Unit / member selection = the GitHub tree-path URL** `https://<host>/<owner>/<repo>/tree/<ref>/<subpath>`. This is the existing `DirectPathSource`: it yields `ref = <ref>`, `targetPlugin = <subpath>`, and manifest key `owner/repo/<subpath>`. The `<subpath>` is the in-repo path of the unit to install (a collection member, or any nested unit). Tree URLs **cannot** also carry an `@ref` suffix (the parser rejects it; the ref lives in the URL path).
-- **No `owner/repo@unit` shorthand is introduced** — it would be indistinguishable from `owner/repo@ref`. Direct member targeting without prompting uses the tree-path URL.
+- **`@` selects a skill by its declared name** (folder name as fallback), Vercel's grammar: `owner/repo@skill`. **Versions and refs go in the `#` fragment** — `#^1.2`, `#~1.2`, `#v1.2.0`, `#main`; `#ref@skill` composes both (superseded by `vercel-skills-compatibility`, 2026-10-07).
+- **Unit / member selection** = `@skill`, `--skill`, a path in the source (`owner/repo/<subpath>`, Vercel's shorthand), or the GitHub tree-path URL `https://<host>/<owner>/<repo>/tree/<ref>/<subpath>`. Every route to the same skill yields one manifest key (superseded by `vercel-skills-compatibility`, 2026-10-07).
 - Whole-repo install (no selector) uses bare shorthand / plain HTTPS / SSH URL / local path, exactly as today.
 
 The **path-traversal guard** (see *Copy-Safety*) validates that a selector's `<subpath>` resolves *within* the clone before any copy.
 
 ### Consequences
 
-- `agentic-workflows` (multi-asset: `skills/` + `agents/`/`hooks/`) is a plugin by structure and needs **no** `type: plugin`. `type: plugin` is reserved strictly for a pure skills-only repo the author wants bundled.
+- `agentic-workflows` (multi-asset: `skills/` + `agents/`/`hooks/`) is a plugin by structure and needs no `type: plugin` to be detected as one; it declares `type: plugin` to keep its skills from being picked out individually (superseded by `vercel-skills-compatibility`, 2026-10-07).
 - The resolved type — however derived (structure, config `type`, or `--plugin`) — is what gets recorded in the manifest (see *Manifest Keying & Lifecycle*).
 
 ---
@@ -171,12 +170,11 @@ The **path-traversal guard** (see *Copy-Safety*) validates that a selector's `<s
 
 ### Decision
 
-**Identity = directory basename, throughout. No frontmatter parsing, no validation.**
+**Identity = the skill's declared frontmatter `name`, falling back to the directory basename when none is declared. Frontmatter is read for selection and display only; no validation** (superseded by `vercel-skills-compatibility`, 2026-10-07).
 
-- **Bare skill** → installed folder + manifest key = repo name (the directory basename).
-- **Plugin** → install its asset directories; each skill keeps its own repo directory name.
-- **Collection** → pick units; each installs under its repo directory name. Same principle.
-- Frontmatter `name` is the skill's own business; agntc neither reads nor reconciles it.
+- The install folder is the declared name sanitized as Vercel sanitizes it (lowercase; runs outside `[a-z0-9._]` → `-`; leading/trailing `.`/`-` stripped; capped at 255; `unnamed-skill` when empty).
+- `name` and `description` are read as plain YAML data; displayed text has control characters and terminal escapes stripped; a missing or unparseable header falls back to the folder name.
+- Existing installs move to the declared-name folder on their next update.
 
 ### Rationale
 
@@ -184,7 +182,7 @@ The agent loads a skill by its frontmatter `name`, so the install folder is just
 
 ### Consequences
 
-- **agntc needs no YAML-frontmatter parser** — nothing reads frontmatter; detection only checks that `SKILL.md` *exists*.
+- **agntc reads frontmatter `name` and `description`** for selection and display; detection still only checks that `SKILL.md` exists (superseded by `vercel-skills-compatibility`, 2026-10-07).
 - **agntc needs no name+description validation gate** (Vercel's model) — skill validation is explicitly out of scope.
 - **The install is a recursive copy of the unit's directory** — keep everything (scripts, references); agntc can't know what the skill needs.
 
@@ -196,7 +194,7 @@ For third-party repos where repo name ≠ frontmatter name (e.g. `refero_skill` 
 
 Because agntc keys on directory basename, no frontmatter-name namespacing policy is needed:
 
-- **agntc-level collisions are directory collisions** — two installs landing in the same `.claude/skills/<name>` path. Already detected and handled by the existing conflict flow (overwrite/skip prompt). Configless changes nothing here.
+- **agntc-level collisions are directory collisions** — two installs landing in the same `.claude/skills/<name>` path; with declared-name folders, two skills declaring the same name meet here (superseded by `vercel-skills-compatibility`, 2026-10-07). Already detected and handled by the existing conflict flow (overwrite/skip prompt). Configless changes nothing here.
 - **Agent-level collisions** — two skills in different folders that self-declare the same frontmatter `name` — are invisible to agntc and **out of scope**. That's the skills' (and the agent's) problem. Accepted limitation, not a feature to build.
 
 ---
@@ -215,7 +213,7 @@ agntc's value over a one-shot `cp` is *lifecycle* — `update` (nuke-and-reinsta
 ### Decision: record the resolved type, replay it, never silently morph
 
 - **Add a `type` field to `ManifestEntry`**, values `"skill" | "plugin"` only. A collection is never stored — its selected children persist as their own skill/plugin entries keyed `owner/repo/<unit>`. However the type was derived (structure, config `type`, or `--plugin`), the *resolved* value is what's persisted. The three derivation paths collapse to one recorded fact.
-- **`update` replays the recorded type**, not blind re-detection. Reinstalling the recorded unit re-copies whatever is in the tree now, so benign additions (e.g. the author adds an `agents/` dir to an existing plugin) are picked up *without* changing the recorded type — we're replaying "plugin," not re-deriving it.
+- **`update` replays the recorded type**, not blind re-detection. Reinstalling the recorded unit re-copies whatever is in the tree now, so benign additions (e.g. the author adds an `agents/` dir to an existing plugin) are picked up *without* changing the recorded type — we're replaying "plugin," not re-deriving it. One exception repairs installs made under the old `SKILL.md`-beside-`agents/` rule: an entry recorded as a plugin whose source has a `SKILL.md` at its unit root and no `skills/` directory is reinstalled as a skill, and the update says so (superseded by `vercel-skills-compatibility`, 2026-10-07).
 - **Derive-before-delete.** On `update`, validate the unit can still be reinstalled as its recorded type *before* removing any existing files. Never delete first and discover failure.
 - **Irreconcilable change → abort + loud alert, existing install left intact.** If the tree no longer supports the recorded type (unit/path gone, structure incompatible — e.g. was a bare skill, now a collection), do **not** try to save it or auto-migrate. Abort that unit's update, keep what's installed, emit a clear error describing what changed. The remedy is manual (`remove` then `add` — the user's call).
 - **Member entries replay by path, not by repo re-classification.** A collection member persists as `owner/repo/<unit>` with its own recorded type, and `update` re-copies *its own subdir*. A later root-level reshape of the source repo (e.g. skills-only → plugin once the author adds an `agents/` dir) does **not** reach into or retroactively bundle existing member entries — they stay independent units as originally chosen. Only a vanished member subdir trips the abort path.
@@ -250,7 +248,7 @@ Validation runs entirely against the re-cloned tree before any file removal; on 
 
 ### Keying
 
-Identity is dir-basename (see *Identity & Naming*), so manifest keys are **unchanged from today**: `owner/repo` for a standalone bare skill or plugin, `owner/repo/<unit-dir>` for a collection member. No frontmatter-derived keys. Configless adds no new keying scheme — it reuses the existing one.
+Keys follow identity (see *Identity & Naming*): `owner/repo` for a standalone bare skill or plugin, `owner/repo/<declared-name>` for an individually installed skill — one key per skill however it was selected (superseded by `vercel-skills-compatibility`, 2026-10-07).
 
 ### Deferred
 
@@ -307,9 +305,9 @@ The current collection pipeline enumerates installable members by scanning immed
 
 ### Decision
 
-**Collection membership = "a child dir that structurally resolves to a unit." Recurse the same structural detection one level down; drive selection with the existing prompt + source-string selector. No flags.**
+**Collection membership = every skill Vercel's discovery finds** — the repo root, `skills/` and its curated/experimental/system variants, and the agent directories Vercel scans, each walked three levels, never below a found skill, plus skill directories declared in `.claude-plugin/marketplace.json`/`plugin.json`; same-named skills keep the first found. Selection by prompt, `@skill`/`--skill`, a path, or `-y`/`--all` (superseded by `vercel-skills-compatibility`, 2026-10-07).
 
-### Membership (structural, one level down)
+### Membership (structural)
 
 For each immediate child dir, run the *same* structural detection used at the root:
 
@@ -325,20 +323,20 @@ Agents are chosen **once for the whole collection**, not per member — promptin
 
 - **Candidates = the union of the installable members' ceilings.** A configless member contributes all `KNOWN_AGENTS`; a member declaring `agents` contributes that set. So the prompt offers every agent that *at least one* member supports. Detected agents are pre-ticked.
 - **The installer picks once.** Each member then installs for **(the pick ∩ that member's own ceiling)** — the author's hard ceiling is honoured per unit, silently (a configless member just takes the whole pick).
-- **A member with zero overlap** (the pick excludes everything its author allows) is **skipped and noted** in the summary (e.g. `alpha: skipped — author restricts to claude, none selected`) — non-fatal, siblings proceed.
+- **A member with zero overlap** (the pick excludes everything its author allows) is **skipped and noted** in the summary (e.g. `alpha: skipped — author restricts to claude, none selected`) — siblings proceed, and the command exits non-zero to report the partial result (superseded by `vercel-skills-compatibility`, 2026-10-07).
 - **Auto-select** when the union is a single detected agent (no prompt), matching the standalone single-agent rule.
 - **Empty selection / cancel** aborts the whole collection cleanly (there is nothing to install for).
 - Config-bearing and configless members coexist in one collection; the union + per-member intersection is what reconciles their differing ceilings behind a single prompt.
 
-### Selection UX (unchanged, flag-free)
+### Selection UX
 
 - The existing interactive prompt for "which member(s)?" (one / some / all).
-- A source-string selector — the GitHub tree-path URL `https://<host>/<owner>/<repo>/tree/<ref>/<subpath>` (see *Source selector grammar*) — to pick a member directly without prompting. (`@` remains a version ref, not a member selector.)
+- A source-string selector — `@skill`, a path, or the tree-path URL (see *Source selector grammar*) — or `--skill`, to pick members without prompting (superseded by `vercel-skills-compatibility`, 2026-10-07).
 - **"Install every member" is select-all in the prompt**, not `--plugin` (which only resolves a unit's skills-only ambiguity).
 
 ### Nested collections
 
-Remain **unsupported** — a collection member that is itself a collection is not recursed into. Membership detection goes exactly **one level** down.
+Category folders are walked: discovery goes three levels deep, as Vercel's does (superseded by `vercel-skills-compatibility`, 2026-10-07).
 
 ---
 
@@ -409,7 +407,7 @@ The current bare-skill copy deletes `agntc.json` from the destination after copy
 
 ### Deferred (out of scope → validation idea)
 
-Logged to `.inbox/ideas/2026-06-05--validation.md`, which also collects other validation concerns surfaced here (skill-validity gate, untrusted-frontmatter parsing safety, config-schema validation depth, agent-level identity collisions):
+Logged to `.inbox/ideas/2026-06-05--validation.md`, which also collects other validation concerns surfaced here (skill-validity gate, config-schema validation depth, agent-level identity collisions; untrusted-frontmatter parsing safety is now settled — plain YAML data, displayed text escape-stripped (superseded by `vercel-skills-compatibility`, 2026-10-07)):
 
 3. Tree size / file-count / depth caps.
 4. Executable / hook safety (a configless plugin's `hooks/` = code that runs on the agent's next invocation).
@@ -485,3 +483,27 @@ Derive-before-delete eliminates the *type-incompatibility* stranding case, but a
 ---
 
 ## Working Notes
+
+## Corrigenda
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "No install-command flags for type or unit selection, except the single narrow `--plugin` installer override" — corrected: Vercel's `add` flags are adopted (`-s/--skill`, `-a/--agent`, `-y`, `--all`, `-l/--list`, `--full-depth`, `--json`, `--copy` as a no-op) beside agntc's `--plugin` and `--overwrite`.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "`type` … Reserved strictly for a pure skills-only repo the author wants bundled as a plugin" — corrected: on any repo, `"type": "plugin"` also declares the repo keep-whole; a pick of one skill from it is refused.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "root `SKILL.md` → bare skill" (with `SKILL.md` beside asset dirs read as a plugin, `SKILL.md` ignored) — corrected: a directory with `SKILL.md` is a bare skill, its `agents/` copied as part of it, unless it also has `skills/` beside `agents/`/`hooks/`, which is a plugin.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "There is no bespoke selector+flag combination rule" — corrected: a skill selector (`@skill`, `--skill`) with `--plugin` is refused; a path selector stays orthogonal to `--plugin`.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "`@` is **never** a unit selector … No `owner/repo@unit` shorthand is introduced" — corrected: `@` selects a skill by declared name; versions and refs go after `#`; members are also selectable by `--skill` and by a path in the source.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "Identity = directory basename, throughout. No frontmatter parsing" — corrected: identity is the declared frontmatter `name` (folder name as fallback), read for selection and display; the install folder is the sanitized declared name.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "manifest keys are **unchanged from today** … No frontmatter-derived keys" — corrected: one key per skill, built from its declared name, however it was selected.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "`update` replays the recorded type, not blind re-detection" — corrected: with one repair exception — a recorded plugin whose source has a root `SKILL.md` and no `skills/` is reinstalled as a skill.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "Membership detection goes exactly **one level** down" / "No flags" — corrected: membership is every skill Vercel's discovery finds (its roots, three levels deep, plugin-manifest paths), selectable by prompt, `@skill`, `--skill`, a path, or `-y`/`--all`.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "A member with zero overlap … is skipped and noted … non-fatal" — corrected: still skipped and noted with siblings proceeding, but the command exits non-zero to report the partial result.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "untrusted-frontmatter parsing safety" deferred to the validation idea — corrected: settled — frontmatter is read as plain YAML data and displayed text is escape-stripped.
