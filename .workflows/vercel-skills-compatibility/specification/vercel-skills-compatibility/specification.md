@@ -443,6 +443,72 @@ Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` �
 - A refusal still emits the array, holding one `failed` entry that carries the error.
 - The command exits non-zero when any entry failed or was skipped. A skipped entry is, for example, a unit outside every named agent's ceiling (§8.2).
 
+### 10. Unattended Runs
+
+Two kinds of caller run agntc unattended. One is the owner at a terminal. The other is an AI agent running `npx agntc add` in the middle of a task. CI is possible but is not the main case.
+
+An agent caller can make choices but cannot see a prompt. The human's last look is the agent's permission prompt, which shows the command line. A line that states its choices can be reviewed there. A bare `-y` hides what the command will do.
+
+#### 10.1 The prompts an `add` can meet
+
+- Which members to install (`src/collection-select.ts`).
+- Which agents (`src/agent-select.ts`). This prompt is skipped when the author declares exactly one agent and that agent is detected.
+- A clash with another managed install: "Remove <key> and continue" (`src/collision-resolve.ts`).
+- Untracked files in the way: "Overwrite all", confirmed twice (`src/unmanaged-resolve.ts`).
+- "Proceed with installation?" (§11). This prompt is new.
+
+Only the two clash prompts delete anything when answered yes.
+
+#### 10.2 `-y` answers every prompt that deletes nothing
+
+Under `-y`, nothing is asked:
+- **Members:** every skill is picked. Internal skills are left out (§5.4), and units follow §6.3–§6.4.
+- **Agents:** §8.3.
+- **"Proceed with installation?":** answered yes.
+
+The clash prompts are not answered by `-y` (§10.3).
+
+#### 10.3 Replacing what is in the way needs `--overwrite`
+
+**This diverges from Vercel, to keep the owner's stop-and-come-back position.** Vercel never prompts on a clash. It lists the existing folders as `overwrites:` and replaces them. agntc behaves like this instead:
+
+- **Under `-y` (or a detected agent caller, §10.5) without `--overwrite`:** a clash with another managed install, or with untracked files, stops that unit. Nothing is written for it, and what was in the way stays as it was. The message names `--overwrite`, and the command exits non-zero. Other units in the same run proceed.
+- **With `--overwrite`:** what is in the way is replaced, and no clash prompt is shown. A clashing managed install is removed, as "Remove <key> and continue" removes it. Untracked files are overwritten. The replacement is then stated in the command line the owner approves.
+- **At a terminal without `-y` or `--overwrite`:** the clash prompts work as they do today.
+
+`update` meets an occupied target folder the same way (§12).
+
+#### 10.4 A prompt that cannot be shown stops the command
+
+This rule applies to `add`, to `remove`, and to any prompt `update` reaches. When a prompt cannot be shown, the command is refused (§1.5). Nothing is written or removed. The message names what answers the prompt:
+
+| Prompt | What answers it |
+|---|---|
+| A confirmation | `-y` |
+| `remove`'s picker | Skill names, keys, or `--all` |
+| `add`'s choices | `-s`/`--skill`, `-a`/`--agent`, `-y` |
+| A clash | `--overwrite` |
+
+Whether a prompt can be shown is decided from the terminal itself, so a run never waits on silent input. A deliberate cancel at a terminal still exits 0.
+
+Today, with no terminal, `add` reads end-of-input at the first prompt as a cancel. It exits 0 with nothing installed and no message, which reads as success to an agent caller. With stdin held open but silent, it hangs until killed. `remove` likewise prints "Cancelled" and exits 0 with nothing removed (`src/commands/remove.ts`, at the confirmation and at the no-argument picker).
+
+Vercel stops with "Interactive prompt required but stdin is not a TTY. Nothing was installed." and "Use --agent <name> (or --agent '*') and -y to run non-interactively.", and exits 1.
+
+#### 10.5 Agent callers behave as `-y`
+
+When agntc runs inside an AI agent, `add` and `remove` behave as if `-y` were given. The agent caller is detected as Vercel detects it: with `@vercel/detect-agent`, plus Vercel's refinement for Cursor. Cursor counts as an agent caller only when `CURSOR_AGENT` is set or `CURSOR_EXTENSION_HOST_ROLE` is `agent-exec`. The reason is that `CURSOR_TRACE_ID` is also present in Cursor's integrated terminal for ordinary users (Vercel's `src/detect-agent.ts`).
+
+- **`add`:** agntc's `-y` (§10.2). Anything in the way still stops the unit unless `--overwrite` is given (§10.3).
+- **`remove`:** no confirmation is asked.
+- **`update`:** unchanged. Vercel's `update` does not detect agent callers.
+
+A detected agent caller therefore never meets §10.4's refusal for a choice that `-y` answers.
+
+#### 10.6 Hooks get no extra gate
+
+A unit carrying hooks installs under `-y` like any other unit. The pre-install summary lists the hooks it lands (§11). The owner's look at an unattended install is the command line the calling agent asks permission to run. Vercel installs no hooks and has no hook gate.
+
 ---
 
 ## Working Notes
