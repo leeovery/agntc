@@ -431,7 +431,7 @@ Folders carrying `agents/` or `hooks/` needed no choice: units are a kept capabi
 
 Confidence: high.
 
-Sibling check: configless-install — its Collection Membership, as corrected 2026-10-07 ("membership is every skill Vercel's discovery finds"), drops plugin members that its Membership (structural) rule still keeps; the corrected line owes plugin and skill-pack members back.
+Sibling check: configless-install — its Collection Membership, as corrected 2026-10-07 ("membership is every skill Vercel's discovery finds"), drops plugin members that its Membership (structural) rule still keeps. Corrected in that spec (corrigendum 2026-10-08).
 
 ---
 
