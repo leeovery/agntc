@@ -397,6 +397,52 @@ A version-only re-add, such as `owner/repo#v2.0.0`, reinstalls for every recorde
 
 Today a re-add deletes the entry's files and reinstalls for the chosen agents only. Both the single-unit and the multi-unit paths call `nukeManifestFiles` on the existing entry (`src/commands/add.ts`). So `add … -a cursor` on a Claude install silently deletes Claude's copy. Vercel's `add -a cursor` adds Cursor and leaves Claude alone.
 
+### 9. `add` Flags
+
+Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` → one hit, `src/commands/add.ts`, `--plugin`).
+
+#### 9.1 The flag set
+
+`add` takes Vercel's flags with Vercel's meanings, alongside agntc's own two:
+
+| Flag | Meaning | Defined in |
+|---|---|---|
+| `-a`, `--agent <agents…>` | Target agents | §8 |
+| `-s`, `--skill <skills…>` | Select skills by name; `'*'` selects all | §6, §7 |
+| `-y`, `--yes` | Answer every prompt that deletes nothing | §10 |
+| `--all` | Shorthand for `--skill '*' --agent '*' -y`, as in Vercel | §6.3, §6.4 |
+| `-l`, `--list` | List the source's skills and install nothing | §11 |
+| `--full-depth` | Turn off the root early-out and walk the whole source | §5.1, §5.2 |
+| `--json` | Machine-readable result | §9.2 |
+| `--copy` | Accepted with no effect, because agntc always copies (§1.6) | — |
+| `--plugin` | agntc's own: bundle a skills-only source | §6 |
+| `--overwrite` | agntc's own: replace what is in an install's way | §10 |
+
+`add` also takes Vercel's aliases `a`, `i` and `install`.
+
+**Refused (§1.5):**
+- `-g`/`--global`, because global installs are out of scope (§1.3);
+- `--subagent` and `--metadata`, which are Vercel-internal;
+- any flag agntc does not recognise.
+
+**This diverges from Vercel, under never-silently-ignore (§1.5).** Vercel silently ignores flags it does not know.
+
+#### 9.2 `--json`
+
+`--json` follows Vercel's contract:
+
+- It requires `-y` or `--all`. Without one of them it is refused.
+- It cannot be combined with `--list`, and that combination is refused too.
+- stdout carries exactly one JSON array and nothing else. Human-facing progress and diagnostics go to stderr.
+- The array holds one entry per skill, with Vercel's fields (`AddJsonResult` in Vercel's `src/add.ts`):
+  - `name`;
+  - `status`, one of `installed`, `skipped` or `failed`;
+  - for installed skills, where the install came from and went to: `source`, `ref`, `path`, `scope` (always `project`), `agents` and `mode` (always `copy`).
+
+  Skills installed as part of a unit appear as entries like any other skill.
+- A refusal still emits the array, holding one `failed` entry that carries the error.
+- The command exits non-zero when any entry failed or was skipped. A skipped entry is, for example, a unit outside every named agent's ceiling (§8.2).
+
 ---
 
 ## Working Notes
