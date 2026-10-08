@@ -305,7 +305,7 @@ The current collection pipeline enumerates installable members by scanning immed
 
 ### Decision
 
-**Collection membership = every skill Vercel's discovery finds** — the repo root, `skills/` and its curated/experimental/system variants, and the agent directories Vercel scans, each walked three levels, never below a found skill, plus skill directories declared in `.claude-plugin/marketplace.json`/`plugin.json`; same-named skills keep the first found. Selection by prompt, `@skill`/`--skill`, a path, or `-y`/`--all` (superseded by `vercel-skills-compatibility`, 2026-10-07).
+**Collection membership = every unit Vercel's discovery walk reaches** — skills found where and as deep as Vercel finds them (the repo root one level; `skills/`, its curated/experimental/system variants and the agent directories Vercel scans three levels; skill directories declared in `.claude-plugin/marketplace.json`/`plugin.json` one level; Vercel's five-level fallback walk when that finds nothing), never below a found skill; and every non-hidden folder the walk reaches holding `skills/`, `agents/` or `hooks/`, as a whole plugin member the walk does not descend into (a skill pack holding only `skills/` included). Same-named skills keep the first found; skills a source's own `skills-lock.json` records as installed are skipped. Selection by prompt, `@skill`/`--skill`, a path, or `-y`/`--all` (superseded by `vercel-skills-compatibility`, 2026-10-07, 2026-10-08).
 
 ### Membership (structural)
 
@@ -336,7 +336,7 @@ Agents are chosen **once for the whole collection**, not per member — promptin
 
 ### Nested collections
 
-Category folders are walked: discovery goes three levels deep, as Vercel's does (superseded by `vercel-skills-compatibility`, 2026-10-07).
+Category folders are walked: discovery goes three levels into `skills/` and the agent directories, one level at the repo root with a five-level fallback walk, as Vercel's does (superseded by `vercel-skills-compatibility`, 2026-10-07, 2026-10-08).
 
 ---
 
@@ -507,3 +507,5 @@ Derive-before-delete eliminates the *type-incompatibility* stranding case, but a
 > **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "A member with zero overlap … is skipped and noted … non-fatal" — corrected: still skipped and noted with siblings proceeding, but the command exits non-zero to report the partial result.
 
 > **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "untrusted-frontmatter parsing safety" deferred to the validation idea — corrected: settled — frontmatter is read as plain YAML data and displayed text is escape-stripped.
+
+> **Corrigendum 2026-10-08** (from `vercel-skills-compatibility`): "Collection membership = every skill Vercel's discovery finds — the repo root, `skills/` … each walked three levels" — corrected: membership is every unit the discovery walk reaches — skills as Vercel finds them (repo root and manifest paths one level, `skills/` and agent directories three, a five-level fallback walk when nothing is found), plus non-hidden folders holding `skills/`, `agents/` or `hooks/` as whole plugin members the walk does not descend into; skills a source's own `skills-lock.json` records as installed are skipped.
