@@ -41,8 +41,8 @@ Source carries it: discussion, "Website vs Git URLs", Decision (lines 180–186)
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measured correction landed in the discussion, "Website vs Git URLs" Decision (order repaired in place, amendment note); §2.2 re-aligned.
 
 ---
 
@@ -81,8 +81,8 @@ Source carries it: discussion, "Container Depth and Discovery Roots":
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measured correction landed in the discussion as a dated revision of "Container Depth and Discovery Roots" (and the Units Among Discovered Skills wording); §5.2 re-aligned.
 
 ---
 

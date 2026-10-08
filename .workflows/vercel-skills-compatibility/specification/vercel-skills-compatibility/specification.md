@@ -95,17 +95,20 @@ agntc today keeps only the last two path segments of an https URL as owner/repo 
 
 An http(s) URL is read in Vercel's order:
 
-1. **Git source.** Any of these is cloned:
+1. **Direct-download link, refused (§1.5).** These are hosted-artifact links:
+   - raw.githubusercontent.com;
+   - codeload.github.com;
+   - objects.githubusercontent.com;
+   - github.com paths under `/archive/`, `/raw/`, `/releases/download/` and `/releases/latest/download/`;
+   - gitlab.com paths under `/-/archive/` and `/-/raw/`.
+
+   They are checked first because every such GitHub link also matches the GitHub repo pattern. Read as git, a pasted raw `SKILL.md` link would clone the whole repo. Vercel v1.7.0 checks them at `src/source-parser.ts:398`, before its GitHub repo match at `:455`.
+2. **Git source.** Any of these is cloned:
    - GitHub, including the `GH_HOST` host;
    - gitlab.com;
    - a `/-/tree/` URL on any host;
    - an Azure Repos `_git` URL;
    - any URL ending `.git`.
-2. **Direct-download link, refused (§1.5).** These are GitHub's hosted-artifact links:
-   - raw.githubusercontent.com;
-   - codeload.github.com;
-   - objects.githubusercontent.com;
-   - github.com paths under `/archive/`, `/raw/`, `/releases/download/` and `/releases/latest/download/`.
 3. **Website source, refused (§1.3).** This is every other http(s) URL. The message names website sources as unsupported.
 
 This changes agntc's own syntax. Today any `https://host/owner/repo` is cloned as git. Under this order, a self-hosted URL without `.git` is a website source. Self-hosted git servers are reached with a `.git` URL or an SSH address.
@@ -245,7 +248,8 @@ When those roots find nothing, or when `--full-depth` is given, the whole source
 
 Every walk follows these rules:
 
-- It never descends into a member it has found (§5.3).
+- It never enters a plugin member (§5.3).
+- The walks over the search roots never go below a skill they have found. The fallback walk, as Vercel's does (`findSkillDirs`, Vercel's `src/skills.ts:135–153`), keeps descending into a skill's folder, and lists any skill nested inside it as a skill of its own.
 - It never enters `node_modules`, `.git`, `dist`, `build` or `__pycache__`.
 - It never follows a symlinked directory.
 - When two skills declare the same name, the first in priority order is kept.
