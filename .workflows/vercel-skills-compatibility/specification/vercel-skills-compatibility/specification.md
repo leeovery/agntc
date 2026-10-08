@@ -365,6 +365,38 @@ When some of the names given match and some don't, the whole command is refused 
 
 **This diverges from Vercel, under never-silently-ignore (§1.5).** Vercel installs or removes the matches and drops the rest silently, exiting 0. Under `--json` it reports the dropped names as skipped and exits 1.
 
+### 8. Agent Targeting
+
+agntc drives three agents: Claude, Codex and Cursor. Vercel drives 79. Each agent's install path is set out in §1.6.
+
+#### 8.1 Naming agents
+
+- **`-a`/`--agent <agents…>` accepts Vercel's identifiers and agntc's own.** Vercel's are `claude-code`, `codex` and `cursor`; agntc's own is `claude`. Vercel rejects `--agent claude`; agntc accepts both spellings. The flag is variadic and repeatable, as in Vercel.
+- **`'*'` means every agent agntc drives.**
+- **Naming an agent agntc doesn't drive is refused (§1.5).** The message lists the three agents it does drive. Vercel refuses a name it doesn't know the same way ("Invalid agents", exit 1).
+
+#### 8.2 The author's ceiling applies per unit
+
+- A unit installs for the named agents that fall within its author's ceiling (the `agntc.json` `agents` list). The output names the agents it left out. Vercel has no ceiling.
+- **A single-unit run where the ceiling excludes every named agent is refused (§1.5).**
+- **A run installing several units handles that case per unit.** A unit whose ceiling excludes every named agent is skipped with a message. The other units install, and the command exits non-zero so a calling agent sees the partial result. This is the same partial-success reporting `update` uses. Today the multi-unit path skips such a member ("skipped — author restricts to …, none selected", `src/commands/add.ts`) and exits 0. Only a failed member exits non-zero.
+
+#### 8.3 Agents under `-y`
+
+`-y` targets the detected agents that fall within each unit's ceiling.
+
+When none qualifies, the unit installs for every agent within its ceiling. That covers two cases: no agent is detected, or every detected agent is outside the ceiling.
+
+This is Vercel's `-y` adapted to the ceiling. With no agent detected, Vercel installs to every agent it knows.
+
+#### 8.4 A re-add adds agents and never drops them
+
+Re-adding an installed entry adds the agents the re-add names to the agents already recorded. It never drops a recorded agent. How the agents are named makes no difference: by `-a`, through the agent prompt, or through `-y`. With `-y`, the detected agents within the ceiling are added (§8.3).
+
+A version-only re-add, such as `owner/repo#v2.0.0`, reinstalls for every recorded agent. To take an agent away, use `remove -a` (§12).
+
+Today a re-add deletes the entry's files and reinstalls for the chosen agents only. Both the single-unit and the multi-unit paths call `nukeManifestFiles` on the existing entry (`src/commands/add.ts`). So `add … -a cursor` on a Claude install silently deletes Claude's copy. Vercel's `add -a cursor` adds Cursor and leaves Claude alone.
+
 ---
 
 ## Working Notes
