@@ -276,6 +276,59 @@ An entry recorded as a plugin is reinstalled as a skill on its next update when 
 
 Without this repair, update would replay the recorded plugin type and keep the broken shape. Today the recorded type is never re-derived (`src/nuke-reinstall-pipeline.ts`: "The type is recorded, never re-derived from the clone"). Meanwhile a fresh `add` of the same source would install differently. A repaired entry also moves to its declared-name folder and key (§4.4).
 
+### 6. Units Under Vercel Selection
+
+A **unit** is any of three things:
+- a source that reads as a plugin (§5.1), or a plugin member (§5.3);
+- a source whose `agntc.json` declares `"type": "plugin"`;
+- a `--plugin` bundle.
+
+A unit is one manifest entry. It is installed, updated, removed and version-pinned together. §12 covers updating and removing a skill that sits inside one. Vercel's selection syntax has no notion of a unit. This section is where the two meet.
+
+#### 6.1 A plain add installs a unit whole
+
+A source that reads as a plugin installs as one unit, agents and hooks included, as it does today. **This diverges from Vercel, to keep units (§1.4).** Vercel installs only the skills, each one separately.
+
+#### 6.2 `--plugin` bundles any skills-only source
+
+`--plugin` bundles a skills-only source as one unit. Vercel-style repos count. The bundle holds:
+- every skill discovery finds (§5.2), including skills nested in category folders;
+- internal skills (§5.4).
+
+The skills install flat, each in its own folder (§4.2). A path in the source narrows the bundle to that folder.
+
+The bundle is reinstalled from the source on every update. A skill the author adds joins it, and a skill the author removes leaves it.
+
+Today `--plugin` copies each child of `skills/` as it stands (`copyAssetDir` in `src/copy-plugin-assets.ts`). On a category-nested repo that would land category folders where skills belong. The bundle takes the skills discovery finds, wherever they sit.
+
+#### 6.3 Without `--plugin`, "all" installs skills separately
+
+On a skills-only source, `-y`, `--skill '*'` and `--all` install each skill as its own entry, as Vercel does. Internal skills are left out (§5.4).
+
+#### 6.4 "All" never splits a unit
+
+`--skill '*'` and `--all` on a source that is a unit install the whole unit, agents and hooks included. This covers a plugin and a repo declaring `"type": "plugin"`. "Everything" is never read as picking every skill one by one.
+
+In a menu that mixes skills and plugin members (§5.3), "all" installs each skill as its own entry and each plugin member whole.
+
+#### 6.5 Picking one skill from a unit
+
+A pick by name (`@skill` or `--skill x`) aimed at a skill inside a unit installs that skill alone. A warning names what the install leaves out: the unit's agents, hooks and other skills. This applies to plugins and to plugin members (§5.3).
+
+**Exception: the pick is refused (§1.5) when the unit's `agntc.json` declares `"type": "plugin"`.** The message names the whole-unit install instead. The declaration means two things:
+- On a plugin, `"type": "plugin"` means "keep this whole".
+- On a skills-only repo it keeps its existing meaning (bundle by default), and the same refusal applies.
+
+An author whose skills only work together adds `"type": "plugin"` to keep them together.
+
+Accepted risk: a repo whose skills depend on its agents or hooks can still be installed partially when its author never declares `"type": "plugin"`. The warning is the only guard in that case.
+
+#### 6.6 What `--plugin` refuses
+
+- **`--plugin` together with `--skill` or `@skill` is refused (§1.5).** A bundle is the whole source. A path in the source is not a pick, and it works with `--plugin` (§6.2).
+- **`--plugin` on a plugin is redundant and changes nothing**, as today.
+- **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5)**, as today (`TypeConflictError` in `detectType`, `src/type-detection.ts`). A source whose members are all skills is skills-only, and `--plugin` bundles it (§6.2). That holds wherever the skills sit, including folders at the repo's top level. Today any source with member folders is refused ("its structure is a collection of N members — cannot bundle").
+
 ---
 
 ## Working Notes
