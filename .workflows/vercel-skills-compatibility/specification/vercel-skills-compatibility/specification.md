@@ -582,6 +582,19 @@ An update can write into a folder it did not own before. This happens when an en
 
 Today the update path has no clash check at all (`grep -n "unmanaged\|collision" src/clone-reinstall.ts src/nuke-reinstall-pipeline.ts src/update-groups.ts src/commands/update.ts` → no hits).
 
+### 13. Coexistence with Vercel-Installed Skills
+
+A project may already hold skills installed by Vercel's CLI. Such an install has three parts:
+- a canonical copy in `.agents/skills/<name>`;
+- relative symlinks from other agents' directories, for example `.claude/skills/<name>` → `.agents/skills/<name>`;
+- a committed `./skills-lock.json`, keyed by declared name.
+
+agntc installs Codex skills into `.agents/skills/` as well. Because identity is now the declared name (§4.2), agntc lands on the same folder names Vercel uses.
+
+- **Skills installed by Vercel are files agntc does not manage.** They take the untracked-files path: the prompt at a terminal, or `--overwrite` when unattended (§10.3).
+- **The project's `skills-lock.json` is neither read nor written.** agntc's own manifest is its record. The only `skills-lock.json` agntc ever reads is a source repo's, during discovery (§5.2).
+- **A target that is a symlink is replaced as a link, never written through.** Writing into a `.claude/skills/<name>` that links to `.agents/skills/<name>` would otherwise write into Vercel's canonical copy. When the link is replaced, agntc removes the link itself and writes a real copy in its place. The folder the link pointed to is left untouched.
+
 ---
 
 ## Working Notes
