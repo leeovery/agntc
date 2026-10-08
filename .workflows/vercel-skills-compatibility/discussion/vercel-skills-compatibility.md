@@ -435,6 +435,43 @@ Sibling check: configless-install — its Collection Membership, as corrected 20
 
 ---
 
+## `--plugin` on a Root Skill Beside `skills/`
+
+### Context
+
+Skill-Local Agents Folders makes a folder holding `SKILL.md` a skill unless it also has `skills/` beside `agents/` and/or `hooks/`. A root `SKILL.md` beside `skills/` alone therefore now reads as a single skill — Vercel's root early-out. Today agntc reads that root as skills-only, because the skills-only check runs before the `SKILL.md` check (`src/type-detection.ts`, `classifyStructure`): `--plugin` bundles its `skills/`, leaving the root `SKILL.md` out, and the bundle is recorded as a plugin. Under the rule that `--plugin` on a single skill is refused, today's line stops working, and so does the re-add printed for those bundles — Re-Add Advice Defects has printed `add` commands carry `--plugin` whenever the entry is a plugin. The update repair of Skill-Local Agents Folders meets the same printed `--plugin` from the other side: an entry it turns into a skill was recorded as a plugin.
+
+### Options Considered
+
+**Keep bundling `skills/` under `--plugin`, as today**
+- Pros: today's line and the bundles already made from this shape keep working; the flag is an explicit request; Vercel has no `--plugin`, so no parity rides on it
+- Cons: one shape excepted from "`--plugin` on a single skill is refused"
+
+**Refuse it**
+- Pros: one rule, no exception
+- Cons: today's line breaks, and the re-add printed for existing bundles is refused
+
+**Refuse it and print a path-form re-add (`owner/repo/skills --plugin`)**
+- Pros: the printed command is accepted
+- Cons: it re-adds under a different key and meets the existing bundle as a clash
+
+### Journey
+
+Without the flag the root reads as a single skill, as Vercel reads it. With the flag the installer asks for the bundle explicitly — the same role `--plugin` plays on a skills-only source — and each alternative breaks a line that works today. The printed re-add for a repaired entry follows from Re-Add Advice Defects' rule that every printed command is one agntc accepts: the repaired source reads as a single skill, so the command names it as one.
+
+### Decision
+
+**Settled by derivation** — not discussed. Determined by `--plugin`'s role as the installer's explicit bundle request, Vercel having no `--plugin`, and Re-Add Advice Defects' rule that every printed command is one agntc accepts.
+
+- **`--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/`, leaving the root `SKILL.md` out, as today.** Without the flag that root reads as a single skill.
+- **A recorded plugin that the update repair turns into a skill prints its re-add as a skill, with no `--plugin`.**
+
+Confidence: high.
+
+Sibling check: configless-install — its `--plugin` scope holds "unambiguous bare skill → `--plugin` is a hard error", and a root `SKILL.md` beside `skills/` alone reads there as a bare skill; this excepts that shape. The correction is owed to that spec.
+
+---
+
 ## Agent Targeting
 
 ### Context
@@ -771,7 +808,7 @@ The fix follows from decisions made in this discussion: versions now live after 
 ### Key Insights
 1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
 2. Vercel's way is the default answer. A point goes to the owner only where Vercel's way clashes with what agntc must keep and no call is obvious — edge cases follow Vercel.
-3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin, and a folder discovery reaches that is a plugin or a skill pack stays one member; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; per-agent copies, not Vercel's shared store; the project's `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
+3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin, and a folder discovery reaches that is a plugin or a skill pack stays one member; `--plugin` on a root `SKILL.md` beside `skills/` alone still bundles `skills/`; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; per-agent copies, not Vercel's shared store; the project's `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
 4. Several of agntc's earlier decisions are reversed by parity — `@` as a version, folder-name identity with no frontmatter reading, `SKILL.md` beside `agents/` read as a plugin, one-level collection membership, no install flags for selection, https from any host — and the owning specs (configless-install, version-constraints, v1/core-system, update-output-overhaul) carry corrigenda.
 
 ### Open Threads
@@ -780,5 +817,5 @@ The fix follows from decisions made in this discussion: versions now live after 
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
-- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, and a source's own `skills-lock.json` skipping the skills it installed.
+- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, and `--plugin` on a root skill beside `skills/`.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
