@@ -509,6 +509,29 @@ A detected agent caller therefore never meets §10.4's refusal for a choice that
 
 A unit carrying hooks installs under `-y` like any other unit. The pre-install summary lists the hooks it lands (§11). The owner's look at an unattended install is the command line the calling agent asks permission to run. Vercel installs no hooks and has no hook gate.
 
+### 11. Pre-Install Summary
+
+After cloning, `add` today goes straight to its prompts with little context. The branded banner has already shipped (`src/banner.ts`, commit `abfe6c9`). What remains is the information shown after the clone.
+
+#### 11.1 What `add` shows
+
+The display follows Vercel's order and is sized for agntc's three agents rather than Vercel's 79-agent list:
+
+1. **The source and the version** being installed. For a bare add this is the resolved tag, or the default branch, which includes the fallback of §2.5.
+2. **The detected shape:**
+   - a single skill;
+   - a plugin, with its skills, agents and hooks;
+   - or N skills. Plugin members (§5.3) are listed with their contents.
+3. **Each skill's name and one-line description**, read from its `SKILL.md` (§3). Descriptions are stripped of terminal escapes (§3.3).
+4. **The target agents.**
+5. **"Proceed with installation?"** This ends an attended `add`, even when no other prompt was shown. At a terminal, a single skill installs without a member prompt. So does a plugin whose one declared agent is detected (§10.1). Without this confirmation, the summary would scroll past mid-install. `-y` and a detected agent caller answer it (§10.2, §10.5).
+
+Hooks a unit installs appear in the summary by name (§10.6).
+
+#### 11.2 `-l` / `--list`
+
+`-l`/`--list` prints the same shape and skill list as §11.1, items 1–3. It installs nothing and exits 0. It needs no terminal, and it is how an agent caller sees a repo's contents before choosing with `--skill` and `-a`. It cannot be combined with `--json` (§9.2).
+
 ---
 
 ## Working Notes
