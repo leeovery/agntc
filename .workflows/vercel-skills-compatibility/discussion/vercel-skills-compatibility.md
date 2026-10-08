@@ -400,6 +400,41 @@ Sibling check: configless-install — its Structural Type Detection (`SKILL.md` 
 
 ---
 
+## Units Among Discovered Skills
+
+### Context
+
+Container Depth and Discovery Roots makes membership what Vercel's discovery finds, and Vercel looks only for `SKILL.md`. A repo can hold whole units side by side — `alpha/` with its own `skills/` and `agents/`, `beta/` with `skills/` and `hooks/` — which agntc offers today as menu members, each installed whole (configless-install's membership rule: a child with `SKILL.md` is a skill member, a child with an asset-kind dir is a plugin member). Such folders hold no `SKILL.md`, so under Vercel's walk they drop out of the menu; when nothing else is found, the five-level fallback walk lists their inner skills one by one, without their agents or hooks. A folder holding only `skills/` — a skill pack — is a plugin member today and meets the same fate. Separately, Vercel skips skills in a source's agent directories that the source's own `skills-lock.json` records as installed — skills the author pulled in rather than wrote (`vercel-labs/skills` v1.7.0: `grep -n "isInstalledProjectSkill" src/skills.ts` → `213` (definition), `240`, `277`, `319` (applied to the root early-out, the container walks and the fallback walk)).
+
+### Options Considered
+
+For a skill pack (a folder holding only `skills/`):
+
+**Keep it one unit, as today**
+- Pros: the pack is the author's grouping and installs that way today; pasted Vercel lines still work — an `@skill` aimed inside it is a pick from a unit
+- Cons: diverges from Vercel, whose fallback walk lists the pack's skills individually
+
+**Follow Vercel — loose skills, bundled only by `--plugin` on its path**
+- Pros: matches Vercel where Vercel finds them
+- Cons: Vercel finds them only through its fallback walk, so in a repo that also has a top-level skill the pack's skills are missed altogether; agntc's current grouping is lost
+
+### Journey
+
+Folders carrying `agents/` or `hooks/` needed no choice: units are a kept capability, and Vercel sees these folders only as loose skills or not at all. The skill pack was put to the owner with a lean to keep it whole — Vercel has no deliberate behaviour for the shape, so following it buys no parity — and the owner agreed. The source-lock skip follows Vercel; Vercel Install Coexistence's `skills-lock.json` line concerns the project's own lock, not a source's.
+
+### Decision
+
+- **A folder the discovery walk reaches that is itself a unit is a member, and the walk does not descend into it.** A folder with `SKILL.md` is a skill (with Skill-Local Agents Folders' plugin exception); a folder with `skills/`, `agents/` or `hooks/` is a plugin member, installed whole — a skill pack holding only `skills/` included. Hidden folders are never plugin members (a clone's `.git` holds `hooks/`).
+- **Diverges from Vercel**, guarded by units being a kept capability. A pick aimed at a skill inside such a member is a pick from a unit (Selection From a Unit).
+- A skills-only repo root keeps its reading: a menu of the skills discovery finds, bundled by `--plugin` or `"type": "plugin"`.
+- **Skills in a source's agent directories that the source's own `skills-lock.json` records as installed are skipped**, as Vercel skips them. The project's `skills-lock.json` stays unread (Vercel Install Coexistence).
+
+Confidence: high.
+
+Sibling check: configless-install — its Collection Membership, as corrected 2026-10-07 ("membership is every skill Vercel's discovery finds"), drops plugin members that its Membership (structural) rule still keeps; the corrected line owes plugin and skill-pack members back.
+
+---
+
 ## Agent Targeting
 
 ### Context
@@ -698,6 +733,13 @@ No clash: Vercel's files are, to agntc, files it does not manage, and the existi
 
 ### Decision
 
+#### 2026-10-08 — revised
+*Trigger: discovery reads a source repo's own `skills-lock.json` to skip the skills it records as installed (Units Among Discovered Skills); the lock line below concerns the project's lock.*
+
+The coexistence stands as recorded below, with the lock line scoped: **the project's `skills-lock.json` is neither read nor written.** A source repo's own lock is read only during discovery, to skip the skills it records as installed.
+
+#### Initial
+
 **Settled by derivation** — not discussed. Determined by copy-safety's boundary, the per-agent copy layout, and the decided `-y`/`--overwrite` meaning.
 
 - **Skills installed by Vercel are files agntc does not manage:** they take the untracked-files path (prompt, or `--overwrite` unattended).
@@ -729,7 +771,7 @@ The fix follows from decisions made in this discussion: versions now live after 
 ### Key Insights
 1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
 2. Vercel's way is the default answer. A point goes to the owner only where Vercel's way clashes with what agntc must keep and no call is obvious — edge cases follow Vercel.
-3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; per-agent copies, not Vercel's shared store; `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
+3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin, and a folder discovery reaches that is a plugin or a skill pack stays one member; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; per-agent copies, not Vercel's shared store; the project's `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
 4. Several of agntc's earlier decisions are reversed by parity — `@` as a version, folder-name identity with no frontmatter reading, `SKILL.md` beside `agents/` read as a plugin, one-level collection membership, no install flags for selection, https from any host — and the owning specs (configless-install, version-constraints, v1/core-system, update-output-overhaul) carry corrigenda.
 
 ### Open Threads
@@ -738,5 +780,5 @@ The fix follows from decisions made in this discussion: versions now live after 
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
-- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, and an attended proceed confirmation.
+- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, and a source's own `skills-lock.json` skipping the skills it installed.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
