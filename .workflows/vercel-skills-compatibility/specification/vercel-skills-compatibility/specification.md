@@ -226,7 +226,7 @@ Shape is read at the root of what the source points at: the repo root, or the pa
    - `skills/` beside `agents/` and/or `hooks/`;
    - `agents/` and/or `hooks/` with no `SKILL.md`.
 
-   A folder that holds `SKILL.md` *and* `skills/` beside `agents/`/`hooks/` is a plugin. Its root `SKILL.md` is ignored. **This diverges from Vercel, to keep units (§1.4).** Vercel's root early-out would install such a repo as a single skill. Its agents and hooks would never be routed, and its inner skills would be nested where agents don't load them.
+   A folder that holds `SKILL.md` *and* `skills/` beside `agents/`/`hooks/` is a plugin, and its root `SKILL.md` is ignored. The same holds for a folder holding `SKILL.md` beside `agents/` and/or `hooks/` whose `agntc.json` declares `"type": "plugin"`: the author's declaration keeps it whole. **This diverges from Vercel, to keep units (§1.4).** Vercel's root early-out would install such a repo as a single skill. Its agents and hooks would never be routed, and its inner skills would be nested where agents don't load them.
 3. **`skills/` only.** By default this is a menu of the skills discovery finds (§5.2). `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles it instead (§6).
 4. **Anything else.** Discovery runs (§5.2), and its members form the menu.
 
@@ -272,7 +272,7 @@ agntc copies those files into `.claude/agents/` as subagents and loses the skill
 
 #### 5.5 Repairing installs made under the old rule
 
-An entry recorded as a plugin is reinstalled as a skill on its next update when its source has a `SKILL.md` at the entry's unit root and no `skills/` folder there. The update says so in its output. Real plugins are untouched.
+An entry recorded as a plugin is reinstalled as a skill on its next update when its source has a `SKILL.md` at the entry's unit root, no `skills/` folder there, and no `"type": "plugin"` declaration (§5.1). The update says so in its output. Real plugins are untouched.
 
 Without this repair, update would replay the recorded plugin type and keep the broken shape. Today the recorded type is never re-derived (`src/nuke-reinstall-pipeline.ts`: "The type is recorded, never re-derived from the clone"). Meanwhile a fresh `add` of the same source would install differently. A repaired entry also moves to its declared-name folder and key (§4.4).
 
