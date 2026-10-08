@@ -104,7 +104,17 @@ Under the specification's shape rules, the first two now read as single skills a
 There is a knock-on for existing installs. A bundle already made from a root-`SKILL.md`-plus-`skills/` repository is recorded as a plugin. The update repair does not touch it, because the repair requires no `skills/` folder. The printed re-add advice carries `--plugin` for every plugin entry, so for these bundles it would print a command that agntc then refuses. The printed-commands rule's "never misfires" reasoning does not account for this case.
 
 **Proposal**:
-Replace "as today" with what `detectType` actually does today, as measured: it refuses a single skill only when its root `SKILL.md` has nothing beside it; it bundles a root `SKILL.md` beside `skills/` alone; it installs a root `SKILL.md` beside `agents/`/`hooks/` as a plugin; and it bundles any `skills/`-only source. The refusal rule itself is unchanged.
+The staged text corrected the "as today" wording but left the knock-on open, and that knock-on is a printed command agntc refuses. Two parts:
+
+1. **Except the one legacy shape: `--plugin` on a root `SKILL.md` beside `skills/` alone keeps bundling the skills under `skills/`, leaving the root `SKILL.md` out, as today.** This is the session's call; the record never decided it. What leaned:
+   - Without the flag, the root reads as a single skill (Vercel's early-out). The flag is the installer's explicit request for the bundle, the same role it plays in the skills-only case.
+   - Vercel has no `--plugin`, so keeping the bundle costs no parity.
+   - Existing lines keep working, and so do the bundles already made from this shape.
+
+   The alternatives that also fit:
+   - Refuse, as the configless rule for a bare skill reads. That breaks today's line, and it breaks the printed re-add for those bundles.
+   - Refuse, and print a path-form re-add (`owner/repo/skills --plugin`). That re-adds under a different key and meets the existing bundle as a clash.
+2. **A recorded plugin that the update repair turns into a skill (§5.5) prints as a skill, with no `--plugin`.** Its source now reads as a single skill, which `--plugin` refuses, and the skill form is the install the repair produces. The printed-commands rule (§14.1) and the repair together determine this.
 
 **Evidence**:
 Spec: "**`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5)**, as today (`TypeConflictError` in `detectType`, `src/type-detection.ts`)."
@@ -123,7 +133,18 @@ Spec: "**`--plugin` on a single skill (a root `SKILL.md`), or on a source whose 
 - **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5)**, as today (`TypeConflictError` in `detectType`, `src/type-detection.ts`).
 
 **Proposed Text**:
-- **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5).** Today `detectType` (`src/type-detection.ts`) refuses a single skill (`TypeConflictError`) only when its root `SKILL.md` has no `skills/`, `agents/` or `hooks/` beside it. It bundles a root `SKILL.md` beside `skills/` alone, leaving the `SKILL.md` out; it installs a root `SKILL.md` beside `agents/` or `hooks/` as a plugin, the flag changing nothing; and it bundles a `skills/`-only source whatever its inner folders hold, plugin members included.
+(§6.6, replacing the Current bullet)
+- **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5).**
+  - **One shape is excepted:** `--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/` and leaves the root `SKILL.md` out, as it does today. Without the flag that root reads as a single skill (§5.1). The flag is the installer's explicit request for the bundle, so lines written today and the bundles already made from that shape keep working.
+  - **What `detectType` does today** (`src/type-detection.ts`):
+    - it refuses a single skill (`TypeConflictError`) only when its root `SKILL.md` has no `skills/`, `agents/` or `hooks/` beside it;
+    - it bundles a root `SKILL.md` beside `skills/` alone;
+    - it installs a root `SKILL.md` beside `agents/` or `hooks/` as a plugin, and the flag changes nothing;
+    - it bundles a `skills/`-only source whatever its inner folders hold, plugin members included.
+  - **Two cases change and are now refused:** `--plugin` on a root `SKILL.md` beside `agents/` or `hooks/` that declares no `"type": "plugin"`, and `--plugin` on a `skills/`-only source that holds a plugin member.
+
+(§14.1, appended after its closing paragraph)
+A recorded plugin that the update repair turns into a skill (§5.5) prints as a skill, with no `--plugin`. Its source now reads as a single skill, which `--plugin` refuses (§6.6).
 
 **Resolution**: Pending
 **Notes**:
