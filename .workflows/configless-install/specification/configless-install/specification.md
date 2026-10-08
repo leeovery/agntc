@@ -97,7 +97,7 @@ A root `skills/` dir means opposite things in the two ecosystems: "one plugin / 
 
 There is **one** detection path and it is always structural. Config `type` and `--plugin` are *override inputs* to the ambiguous case only — never a parallel or fallback detection mechanism.
 
-1. root `SKILL.md` → **bare skill** — unless the root also has `skills/` beside `agents/` and/or `hooks/`, which is a **plugin** (its root `SKILL.md` ignored). A skill's own `agents/` (helper prompts, `agents/openai.yaml`) is copied with the skill, never routed (superseded by `vercel-skills-compatibility`, 2026-10-07).
+1. root `SKILL.md` → **bare skill** — unless the root also has `skills/` beside `agents/` and/or `hooks/`, which is a **plugin** (its root `SKILL.md` ignored); a root `SKILL.md` beside `agents/` and/or `hooks/` whose `agntc.json` declares `type: "plugin"` is also a plugin (superseded by `vercel-skills-compatibility`, 2026-10-08). A skill's own `agents/` (helper prompts, `agents/openai.yaml`) is copied with the skill, never routed (superseded by `vercel-skills-compatibility`, 2026-10-07).
 2. root **asset-kind dirs** (`skills/` / `agents/` / `hooks/`) recognised as plugin parts → **plugin** — *checked before any member scan*, so `skills/` is never mistaken for "a collection of skills." Exception: `skills/`-only (no `agents/`/`hooks/`) → falls to the skills-only ambiguous case.
 3. otherwise, scan **non-asset-kind child dirs** as potential collection members → **collection**
 4. else **reject** as not-agntc
@@ -117,9 +117,9 @@ This is consistent with the existing `detectType` behaviour (`foundAssetDirs.len
 `--plugin` acts on the **resolved unit being installed**, and resolves *only* a skills-only ambiguity:
 
 - Source resolves to a **skills-only** unit (whole repo, or a selected member) → `--plugin` bundles it as a plugin. This is its valid use.
-- Source resolves to an **unambiguous member-dirs collection** (no selector, installed via the prompt) → `--plugin` is a **hard error** (an attempt to bundle a non-bundleable collection, per the type-vs-structure conflict rule). To install every member, use **select-all in the prompt**, not `--plugin`.
+- Source resolves to a **member-dirs collection with a plugin member** (no selector, installed via the prompt) → `--plugin` is a **hard error** (an attempt to bundle a non-bundleable collection, per the type-vs-structure conflict rule). A collection whose members are all skills is skills-only, and `--plugin` bundles it (superseded by `vercel-skills-compatibility`, 2026-10-08). To install every member as its own entry, use **select-all in the prompt**, not `--plugin`.
 - Source resolves to an unambiguous **multi-asset plugin** → `--plugin` agrees (redundant, no-op) — it already is a plugin.
-- Source resolves to an unambiguous **bare skill** → `--plugin` is a **hard error** (it would force `skill`→`plugin`, exactly as `type: plugin` on a bare skill errors).
+- Source resolves to an unambiguous **bare skill** → `--plugin` is a **hard error** (it would force `skill`→`plugin`, exactly as `type: plugin` on a bare skill with no asset dirs errors) (superseded by `vercel-skills-compatibility`, 2026-10-08).
 
 ### Skills-only resolution (the ambiguous case)
 
@@ -132,9 +132,9 @@ This is consistent with the existing `detectType` behaviour (`foundAssetDirs.len
 
 `type`/`--plugin` resolve **only** the skills-only case. A declared type (or flag) that contradicts an *unambiguous* structure is **unrealizable → hard error**, not a forced interpretation:
 
-- `type: plugin` on a member-dirs collection → error.
-- `type: plugin` on a bare skill → error.
-- `--plugin` on a member-dirs collection (or any non-bundleable structure) → error, exactly as `type: plugin` would. The flag's *only* extra power is winning the tie in the ambiguous case — it cannot realize an impossible structure.
+- `type: plugin` on a member-dirs collection with a plugin member → error; on a collection whose members are all skills it bundles (superseded by `vercel-skills-compatibility`, 2026-10-08).
+- `type: plugin` on a bare skill with no asset dirs → error; on a `SKILL.md` folder beside `agents/`/`hooks/` it keeps the folder a plugin, its root `SKILL.md` ignored (superseded by `vercel-skills-compatibility`, 2026-10-08).
+- `--plugin` on a non-bundleable structure (a collection with a plugin member, a bare skill) → error, exactly as `type: plugin` would. The flag's *only* extra power is winning the tie in the ambiguous case — it cannot realize an impossible structure.
 
 (The realizability error applies only to the recognised value `type: "plugin"`. `type: "collection"` and any other value are unrecognised and silently ignored — see *Config Model → Recognised `type` values* — so they never reach this error path.)
 
@@ -509,3 +509,7 @@ Derive-before-delete eliminates the *type-incompatibility* stranding case, but a
 > **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): "untrusted-frontmatter parsing safety" deferred to the validation idea — corrected: settled — frontmatter is read as plain YAML data and displayed text is escape-stripped.
 
 > **Corrigendum 2026-10-08** (from `vercel-skills-compatibility`): "Collection membership = every skill Vercel's discovery finds — the repo root, `skills/` … each walked three levels" — corrected: membership is every unit the discovery walk reaches — skills as Vercel finds them (repo root and manifest paths one level, `skills/` and agent directories three, a five-level fallback walk when nothing is found), plus non-hidden folders holding `skills/`, `agents/` or `hooks/` as whole plugin members the walk does not descend into; skills a source's own `skills-lock.json` records as installed are skipped.
+
+> **Corrigendum 2026-10-08** (from `vercel-skills-compatibility`): "`--plugin` … unambiguous member-dirs collection → hard error" / "`type: plugin` on a member-dirs collection → error" — corrected: a collection whose members are all skills is skills-only, and `--plugin` or `type: "plugin"` bundles it; the error stands where a member is a plugin.
+
+> **Corrigendum 2026-10-08** (from `vercel-skills-compatibility`): "`type: plugin` on a bare skill → error" — corrected: a `SKILL.md` folder beside `agents/`/`hooks/` that declares `type: "plugin"` reads as a plugin, its root `SKILL.md` ignored; the error stands for a bare skill with no asset dirs.
