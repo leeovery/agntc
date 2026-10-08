@@ -146,8 +146,8 @@ Spec: "**`--plugin` on a single skill (a root `SKILL.md`), or on a source whose 
 (§14.1, appended after its closing paragraph)
 A recorded plugin that the update repair turns into a skill (§5.5) prints as a skill, with no `--plugin`. Its source now reads as a single skill, which `--plugin` refuses (§6.6).
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: The --plugin exception for a root SKILL.md beside skills/ alone landed in the discussion as a new section, "`--plugin` on a Root Skill Beside `skills/`"; §6.6 and §14.1 re-aligned to it. The configless-install --plugin scope rule owes a correction for the excepted shape.
 
 ---
 
@@ -185,8 +185,8 @@ Vercel behaves the same way ("No matching skills found for: X" plus the availabl
 **Proposed Text**:
 On `add`, Vercel behaves the same way ("No matching skills found for: X" plus the available list, exit 1). On `remove` and `update` it does not refuse: `remove` prints "No matching skills found for: X" with no list, `update` prints "No installed skills found matching: X", and both exit 0. **On `remove` and `update` this diverges from Vercel, under never-silently-ignore (§1.5):** an exit 0 reads as success to an agent caller, which acts on the exit status rather than the text. The version-shaped `@` refusal (§2.3) is a special case of this one, with its pointer to `#`.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -242,8 +242,8 @@ The source does not carry the field list. The discussion names `--json` and its 
   - for skipped skills, `reason`;
   - for failed skills, `error`.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 

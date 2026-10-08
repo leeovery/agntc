@@ -327,7 +327,16 @@ Accepted risk: a repo whose skills depend on its agents or hooks can still be in
 
 - **`--plugin` together with `--skill` or `@skill` is refused (§1.5).** A bundle is the whole source. A path in the source is not a pick, and it works with `--plugin` (§6.2).
 - **`--plugin` on a plugin is redundant and changes nothing**, as today.
-- **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5)**, as today (`TypeConflictError` in `detectType`, `src/type-detection.ts`). A source whose members are all skills is skills-only, and `--plugin` bundles it (§6.2). That holds wherever the skills sit, including folders at the repo's top level. Today any source with member folders is refused ("its structure is a collection of N members — cannot bundle").
+- **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5).**
+  - **One shape is excepted:** `--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/` and leaves the root `SKILL.md` out, as it does today. Without the flag that root reads as a single skill (§5.1). The flag is the installer's explicit request for the bundle, so lines written today and the bundles already made from that shape keep working.
+  - **What `detectType` does today** (`src/type-detection.ts`):
+    - it refuses a single skill (`TypeConflictError`) only when its root `SKILL.md` has no `skills/`, `agents/` or `hooks/` beside it;
+    - it bundles a root `SKILL.md` beside `skills/` alone;
+    - it installs a root `SKILL.md` beside `agents/` or `hooks/` as a plugin, and the flag changes nothing;
+    - it bundles a `skills/`-only source whatever its inner folders hold, plugin members included.
+  - **Two cases change and are now refused:** `--plugin` on a root `SKILL.md` beside `agents/` or `hooks/` that declares no `"type": "plugin"`, and `--plugin` on a `skills/`-only source that holds a plugin member.
+
+  A source whose members are all skills is skills-only, and `--plugin` bundles it (§6.2). That holds wherever the skills sit, including folders at the repo's top level. Today any source with member folders is refused ("its structure is a collection of N members — cannot bundle").
 
 ### 7. Name Matching
 
@@ -353,7 +362,7 @@ A name that matches nothing is refused (§1.5). The message names the unmatched 
 - on `add`, the skills the source offers;
 - on `remove` and `update`, the installs.
 
-Vercel behaves the same way ("No matching skills found for: X" plus the available list, exit 1). The version-shaped `@` refusal (§2.3) is a special case of this one, with its pointer to `#`.
+On `add`, Vercel behaves the same way ("No matching skills found for: X" plus the available list, exit 1). On `remove` and `update` it does not refuse: `remove` prints "No matching skills found for: X" with no list, `update` prints "No installed skills found matching: X", and both exit 0. **On `remove` and `update` this diverges from Vercel, under never-silently-ignore (§1.5):** an exit 0 reads as success to an agent caller, which acts on the exit status rather than the text. The version-shaped `@` refusal (§2.3) is a special case of this one, with its pointer to `#`.
 
 On a bare add, a name the newest tag lacks but the default branch has is not a miss. The add falls back to the default branch instead (§2.5).
 
@@ -437,7 +446,9 @@ Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` �
 - The array holds one entry per skill, with Vercel's fields (`AddJsonResult` in Vercel's `src/add.ts`):
   - `name`;
   - `status`, one of `installed`, `skipped` or `failed`;
-  - for installed skills, where the install came from and went to: `source`, `ref`, `path`, `scope` (always `project`), `agents` and `mode` (always `copy`).
+  - for installed skills, where the install came from and went to: `source`, `ref`, `hash` (the skill folder's content hash, as Vercel computes it), `path`, `scope` (always `project`), `agents`, `mode` (always `copy`) and `security` (always `null`, as Vercel emits it where it holds no security-audit data);
+  - for skipped skills, `reason`;
+  - for failed skills, `error`.
 
   Skills installed as part of a unit appear as entries like any other skill.
 - A refusal still emits the array, holding one `failed` entry that carries the error.
@@ -609,6 +620,8 @@ agntc installs Codex skills into `.agents/skills/` as well. Because identity is 
 - **Printed `remove` and `update` commands** name the entry the way those commands accept it, by key or skill name (§12.1). They carry no `--plugin`, which `remove` and `update` do not accept.
 
 Carrying `--plugin` whenever the recorded type is plugin never misfires. The manifest records `type: "plugin"` for a plugin and for a `--plugin` bundle alike, without recording which. On a source that already reads as a plugin, `--plugin` is redundant and changes nothing (§6.6).
+
+A recorded plugin that the update repair turns into a skill (§5.5) prints as a skill, with no `--plugin`. Its source now reads as a single skill, which `--plugin` refuses (§6.6).
 
 #### 14.2 Where agntc prints commands today
 
