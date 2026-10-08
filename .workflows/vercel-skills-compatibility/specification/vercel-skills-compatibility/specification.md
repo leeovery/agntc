@@ -329,6 +329,42 @@ Accepted risk: a repo whose skills depend on its agents or hooks can still be in
 - **`--plugin` on a plugin is redundant and changes nothing**, as today.
 - **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5)**, as today (`TypeConflictError` in `detectType`, `src/type-detection.ts`). A source whose members are all skills is skills-only, and `--plugin` bundles it (§6.2). That holds wherever the skills sit, including folders at the repo's top level. Today any source with member folders is refused ("its structure is a collection of N members — cannot bundle").
 
+### 7. Name Matching
+
+#### 7.1 What a name matches
+
+Names are matched case-insensitively and exactly, as Vercel matches them (`filterSkills` in Vercel's `src/skills.ts`).
+
+- **On `add`**, through `@skill`, `-s`/`--skill`:
+  - A name matches a skill's declared name (§3). For a skill that declares no name, it matches the folder name.
+  - `@skill` and `--skill` names combine into one list, as in Vercel.
+  - `'*'` anywhere in that list means all (§6.3, §6.4).
+  - An internal skill matches when named (§5.4).
+- **On `remove` and `update`**, through positional names and `remove -s`:
+  - A name matches an installed skill's declared name or its install folder name (§4.2).
+  - A name can also be an agntc key (§12).
+- **A name that matches installs from two different repos is refused (§1.5).** The message lists both keys.
+
+A pick that lands inside a unit is covered elsewhere: §6.5 for `add`, §12 for `remove` and `update`.
+
+#### 7.2 A name that matches nothing
+
+A name that matches nothing is refused (§1.5). The message names the unmatched name and lists the alternatives:
+- on `add`, the skills the source offers;
+- on `remove` and `update`, the installs.
+
+Vercel behaves the same way ("No matching skills found for: X" plus the available list, exit 1). The version-shaped `@` refusal (§2.3) is a special case of this one, with its pointer to `#`.
+
+On a bare add, a name the newest tag lacks but the default branch has is not a miss. The add falls back to the default branch instead (§2.5).
+
+Today `remove` and `update` already exit 1 on a key that matches nothing. `resolveTargetKeys` in `src/resolve-target-keys.ts` reports "Plugin X is not installed."
+
+#### 7.3 Some names match, some don't
+
+When some of the names given match and some don't, the whole command is refused (§1.5). This applies to `add`, `remove` and `update`. Nothing is installed or removed, and the message lists each unmatched name with what is available.
+
+**This diverges from Vercel, under never-silently-ignore (§1.5).** Vercel installs or removes the matches and drops the rest silently, exiting 0. Under `--json` it reports the dropped names as skipped and exits 1.
+
 ---
 
 ## Working Notes
