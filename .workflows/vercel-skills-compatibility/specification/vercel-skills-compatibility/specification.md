@@ -215,6 +215,67 @@ A key is never an install source. A path in a source string is always a path int
 
 An existing install moves to its declared-name folder and key on its next update. If the target folder is already occupied, update handles it as §12 sets out.
 
+### 5. Discovery and Unit Shape
+
+#### 5.1 Reading a source's shape
+
+Shape is read at the root of what the source points at: the repo root, or the path the source names. The first case that matches decides:
+
+1. **A single skill.** The folder holds a `SKILL.md`. This is Vercel's root early-out, and `--full-depth` turns it off (§5.2). There is one exception, below.
+2. **A plugin, installed whole.** Either case below counts:
+   - `skills/` beside `agents/` and/or `hooks/`;
+   - `agents/` and/or `hooks/` with no `SKILL.md`.
+
+   A folder that holds `SKILL.md` *and* `skills/` beside `agents/`/`hooks/` is a plugin. Its root `SKILL.md` is ignored. **This diverges from Vercel, to keep units (§1.4).** Vercel's root early-out would install such a repo as a single skill. Its agents and hooks would never be routed, and its inner skills would be nested where agents don't load them.
+3. **`skills/` only.** By default this is a menu of the skills discovery finds (§5.2). `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles it instead (§6).
+4. **Anything else.** Discovery runs (§5.2), and its members form the menu.
+
+A source where discovery finds nothing installable is refused (§1.5). Vercel likewise exits 1 when it finds no skills. Today a category-nested repo such as `mattpocock/skills` finds no members, because membership is read one level into `skills/` only (`scanSkillsOnlyMembers` in `src/type-detection.ts`). It then ends "Cancelled — no plugins selected" with exit 0.
+
+#### 5.2 Discovery walk
+
+agntc discovers members where Vercel's discovery finds skills (v1.7.0 `discoverSkills`, `src/skills.ts`), and as deep. Search roots, in priority order:
+
+1. The source root, walked one level.
+2. `skills/`, `skills/.curated`, `skills/.experimental` and `skills/.system`, each walked three levels.
+3. Vercel's 30 agent directories, each walked three levels: `.agents/skills`, `.claude/skills`, `.cline/skills`, `.codebuddy/skills`, `.codex/skills`, `.commandcode/skills`, `.continue/skills`, `.factory/skills`, `.github/skills`, `.goose/skills`, `.grok/skills`, `.iflow/skills`, `.junie/skills`, `.kilo/skills`, `.kilocode/skills`, `.kimchi/skills`, `.kiro/skills`, `.minimax/skills`, `.mux/skills`, `.neovate/skills`, `.opencode/skills`, `.openhands/skills`, `.pi/skills`, `.posit/assistant/skills`, `.qoder/skills`, `.roo/skills`, `.trae/skills`, `.windsurf/skills`, `.zcode/skills`, `.zencoder/skills`. Measured in `vercel-labs/skills` at `v1.7.0`: `grep -c "^  '\." src/skills.ts` → 30.
+4. Skill directories declared in `.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json`, walked one level. These manifests are read only to find skills, never as a type signal.
+
+When those roots find nothing, or when `--full-depth` is given, the whole source is walked recursively, five levels deep. That is Vercel's fallback.
+
+Every walk follows these rules:
+
+- It never descends into a member it has found (§5.3).
+- It never enters `node_modules`, `.git`, `dist`, `build` or `__pycache__`.
+- It never follows a symlinked directory.
+- When two skills declare the same name, the first in priority order is kept.
+- Skills in the source's own agent directories are skipped when the source's own `skills-lock.json` records them as installed. These are skills the author pulled in, not wrote, and Vercel skips them the same way. This is the only time agntc reads a `skills-lock.json` (§13).
+
+#### 5.3 Members
+
+Each folder the walk reaches is classified like this:
+
+- **A folder with `SKILL.md` is a skill.** Everything in it, `agents/` included, is copied with it, and nothing in it is routed as a plugin asset. The one exception is §5.1's plugin rule: a folder that also has `skills/` beside `agents/`/`hooks/` is a plugin.
+- **A non-hidden folder with `skills/`, `agents/` or `hooks/` (and no `SKILL.md`) is a plugin member, installed whole.** This includes a skill pack that holds only `skills/`. Hidden folders are never plugin members, because a clone's `.git` holds `hooks/`. **This diverges from Vercel, to keep units (§1.4).** Vercel sees such folders only as loose skills, or misses them. A pick aimed at a skill inside a plugin member is a pick from a unit (§6).
+- **Any other folder** is walked into, within the depth limits of §5.2.
+
+Today a `SKILL.md` beside any asset folder is read as a plugin, and the `SKILL.md` is dropped (`classifyStructure` in `src/type-detection.ts`: "SKILL.md found alongside asset dirs — treating as plugin, SKILL.md will be ignored"). Real skills carry `agents/` for two unrelated reasons:
+- OpenAI's `agents/openai.yaml` metadata convention;
+- helper prompts the skill reads itself (e.g. `skill-creator`'s `analyzer.md` and `grader.md`).
+
+agntc copies those files into `.claude/agents/` as subagents and loses the skill, and still reports "Installed". In an exploratory run against ten skills.sh leaderboard repos, 61 of 258 skill folders carried `agents/` (observed).
+
+#### 5.4 Validity and internal skills
+
+- **This diverges from Vercel, to keep lenient validity (§1.4).** A skill without a `name` or `description` still installs. It is named by its folder (§3.2) and no warning is shown. Vercel skips such skills with `⚠ Skipped`.
+- **Internal skills follow Vercel.** A skill whose frontmatter sets `metadata.internal: true` is left out of "all" (`'*'`, `--all`, `-y`) and out of the menu. It still installs when named. A `--plugin` bundle includes it.
+
+#### 5.5 Repairing installs made under the old rule
+
+An entry recorded as a plugin is reinstalled as a skill on its next update when its source has a `SKILL.md` at the entry's unit root and no `skills/` folder there. The update says so in its output. Real plugins are untouched.
+
+Without this repair, update would replay the recorded plugin type and keep the broken shape. Today the recorded type is never re-derived (`src/nuke-reinstall-pipeline.ts`: "The type is recorded, never re-derived from the clone"). Meanwhile a fresh `add` of the same source would install differently. A repaired entry also moves to its declared-name folder and key (§4.4).
+
 ---
 
 ## Working Notes
