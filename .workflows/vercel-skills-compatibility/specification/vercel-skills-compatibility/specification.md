@@ -532,6 +532,56 @@ Hooks a unit installs appear in the summary by name (§10.6).
 
 `-l`/`--list` prints the same shape and skill list as §11.1, items 1–3. It installs nothing and exits 0. It needs no terminal, and it is how an agent caller sees a repo's contents before choosing with `--skill` and `-a`. It cannot be combined with `--json` (§9.2).
 
+### 12. `update` and `remove`
+
+Today each command takes one optional manifest key: `owner/repo` or `owner/repo/<member>` (`.argument("[key]", …)` in `src/commands/remove.ts` and `src/commands/update.ts`). A repo key acts on every entry under it (`resolveTargetKeys` in `src/resolve-target-keys.ts`). So a Vercel-style `npx agntc remove vercel-composition-patterns` fails today.
+
+#### 12.1 What the arguments name
+
+Both commands take one or more positional arguments. Each argument is a skill name or an agntc key, matched as §7 sets out. With no argument, the behaviour is as today:
+- `update` updates everything;
+- `remove` shows its picker. Without a terminal, the picker is refused (§10.4).
+
+#### 12.2 Skills inside a unit
+
+- **`remove <skill>` is refused (§1.5) when the skill sits inside a unit.** This covers a plugin and a `--plugin` bundle. The message names the unit to remove. Units go in whole and come out whole. Vercel never meets this case, because it has no units.
+- **`update <skill>` updates the whole unit when the skill sits inside one**, and the output names the unit. A unit is one entry (§6), so there is nothing to split.
+
+#### 12.3 `remove` flags
+
+| Flag | Meaning |
+|---|---|
+| `-s`, `--skill <skills…>` | Same as positional names. `-s '*'` selects every install but still asks for confirmation. |
+| `-y`, `--yes` | Skip the confirmation. |
+| `--all` | Remove every install. Implies `-y`, and cannot be combined with names. |
+| `-a`, `--agent <agents…>` | Remove from those agents only. The entry keeps its other agents. It takes the agent names `add` takes (§8.1) and refuses an agent agntc doesn't drive. |
+
+Removing an entry from every agent it is installed for removes the entry. `remove` also takes the aliases `rm` and `r`. `-g` is refused (§1.3).
+
+#### 12.4 `update` flags and aliases
+
+| Flag | Meaning |
+|---|---|
+| `upgrade` | Alias of `update`. |
+| `-y`, `--yes` | Accepted. |
+| `-p` | Accepted with no effect, because project is the only scope. |
+| `--overwrite` | Replace what is in a target folder's way (§12.6). Applies to the single-key update and to all-mode. |
+| `-g` | Refused (§1.3). |
+
+**`check` is not registered.** In Vercel, `check` is an undocumented alias that runs a full update rather than a read-only check. A pasted `check` fails as an unknown command and changes nothing.
+
+#### 12.5 `update` keeps the agents chosen at install
+
+**This diverges from Vercel, to keep an update meaning "the same thing, newer".** `update` replays the agents recorded at install, as it does today. Vercel re-detects targets on every update, which means adding Cursor to a project later would quietly widen every later update. Changing targets stays an explicit `add` (§8.4) or `remove -a` (§12.3).
+
+#### 12.6 An occupied target folder
+
+An update can write into a folder it did not own before. This happens when an entry moves to its declared-name folder (§4.4) or is repaired from plugin to skill (§5.5). The folder may already be occupied: by a copy Vercel installed, by the user's own copy, or by another entry's same-named skill. `update` handles this the way `add` does (§10.3):
+- **Without `--overwrite`:** `update` stops that entry and leaves the existing install intact. It says why and exits non-zero. This is the partial success across entries that `update` reports today.
+- **With `--overwrite`:** `update` replaces what is in the way.
+
+Today the update path has no clash check at all (`grep -n "unmanaged\|collision" src/clone-reinstall.ts src/nuke-reinstall-pipeline.ts src/update-groups.ts src/commands/update.ts` → no hits).
+
 ---
 
 ## Working Notes
