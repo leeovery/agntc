@@ -595,6 +595,40 @@ agntc installs Codex skills into `.agents/skills/` as well. Because identity is 
 - **The project's `skills-lock.json` is neither read nor written.** agntc's own manifest is its record. The only `skills-lock.json` agntc ever reads is a source repo's, during discovery (§5.2).
 - **A target that is a symlink is replaced as a link, never written through.** Writing into a `.claude/skills/<name>` that links to `.agents/skills/<name>` would otherwise write into Vercel's canonical copy. When the link is replaced, agntc removes the link itself and writes a real copy in its place. The folder the link pointed to is left untouched.
 
+### 14. Printed Commands
+
+#### 14.1 The rule
+
+**Every command agntc prints is one agntc accepts, and following it reproduces the install it advises on.**
+
+- **Printed `add` commands:**
+  - carry `--plugin` whenever the entry is a plugin;
+  - name a single skill the way a user selects it, by `@skill` (`owner/repo@skill`), never by manifest key (§4.3);
+  - name a plugin member by its path in the repo (`owner/repo/<path>`);
+  - put versions after `#`, in the `#ref@skill` form where a skill is named (§2.4).
+- **Printed `remove` and `update` commands** name the entry the way those commands accept it, by key or skill name (§12.1). They carry no `--plugin`, which `remove` and `update` do not accept.
+
+Carrying `--plugin` whenever the recorded type is plugin never misfires. The manifest records `type: "plugin"` for a plugin and for a `--plugin` bundle alike, without recording which. On a source that already reads as a plugin, `--plugin` is redundant and changes nothing (§6.6).
+
+#### 14.2 Where agntc prints commands today
+
+`grep -rn "npx agntc " src/ | grep -v "\.test\.ts" | grep -v ":[0-9]*:[[:space:]]*\(\*\|//\)" | wc -l` → 7:
+
+| Site | Prints |
+|---|---|
+| `src/summary.ts` | Caret out-of-constraint: `To upgrade: npx agntc add <repo>` |
+| `src/update-render.ts` | All-mode exact pin with newer tags: `npx agntc add <target>@<newest>` |
+| `src/commands/update.ts` | Single-key exact pin with newer tags: `npx agntc add <key>@<newest>` |
+| `src/clone-reinstall.ts` | Derive-before-delete abort: `npx agntc remove <key> then npx agntc add <key>` |
+| `src/commands/update.ts` | `No update performed. Run npx agntc remove <key> to clean up.` |
+| `src/nuke-reinstall-pipeline.ts` | ``Run `npx agntc update <key>` to retry installation.`` |
+| `src/commands/list.ts` | `Run npx agntc add owner/repo to get started.` (a placeholder, not advice on an install) |
+
+The four `add` advice sites break the rule in two ways today:
+
+- **None carries `--plugin`.** Following the advice for a `--plugin` bundle re-detects a skills-only source and takes the menu path. Its members collide with the bundle's files, and the collision prompt offers to remove the bundle. Completing it converts the bundle into separate members (code read, not run end-to-end).
+- **The single-key and abort sites print a manifest key.** For a collection member that key is `owner/repo/<member>`. agntc's parser refuses it today ("too many slashes"). Under §2.1 it would read as a path into the repo, which may not exist. The `@<newest>` suffix is also agntc's previous grammar (§2.3).
+
 ---
 
 ## Working Notes
