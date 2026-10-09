@@ -119,7 +119,7 @@ This is consistent with the existing `detectType` behaviour (`foundAssetDirs.len
 - Source resolves to a **skills-only** unit (whole repo, or a selected member) → `--plugin` bundles it as a plugin. This is its valid use.
 - Source resolves to a **member-dirs collection with a plugin member** (no selector, installed via the prompt) → `--plugin` is a **hard error** (an attempt to bundle a non-bundleable collection, per the type-vs-structure conflict rule). A collection whose members are all skills is skills-only, and `--plugin` bundles it (superseded by `vercel-skills-compatibility`, 2026-10-08). To install every member as its own entry, use **select-all in the prompt**, not `--plugin`.
 - Source resolves to an unambiguous **multi-asset plugin** → `--plugin` agrees (redundant, no-op) — it already is a plugin.
-- Source resolves to an unambiguous **bare skill** → `--plugin` is a **hard error** (it would force `skill`→`plugin`, exactly as `type: plugin` on a bare skill with no asset dirs errors) (superseded by `vercel-skills-compatibility`, 2026-10-08).
+- Source resolves to an unambiguous **bare skill** → `--plugin` is a **hard error** (it would force `skill`→`plugin`, exactly as `type: plugin` on a bare skill with no asset dirs errors) (superseded by `vercel-skills-compatibility`, 2026-10-08). One shape is excepted: on a root `SKILL.md` beside `skills/` alone, `--plugin` bundles the skills under `skills/`, leaving the root `SKILL.md` out (superseded by `vercel-skills-compatibility`, 2026-10-09).
 
 ### Skills-only resolution (the ambiguous case)
 
@@ -134,7 +134,7 @@ This is consistent with the existing `detectType` behaviour (`foundAssetDirs.len
 
 - `type: plugin` on a member-dirs collection with a plugin member → error; on a collection whose members are all skills it bundles (superseded by `vercel-skills-compatibility`, 2026-10-08).
 - `type: plugin` on a bare skill with no asset dirs → error; on a `SKILL.md` folder beside `agents/`/`hooks/` it keeps the folder a plugin, its root `SKILL.md` ignored (superseded by `vercel-skills-compatibility`, 2026-10-08).
-- `--plugin` on a non-bundleable structure (a collection with a plugin member, a bare skill) → error, exactly as `type: plugin` would. The flag's *only* extra power is winning the tie in the ambiguous case — it cannot realize an impossible structure.
+- `--plugin` on a non-bundleable structure (a collection with a plugin member, a bare skill) → error, exactly as `type: plugin` would — except a root `SKILL.md` beside `skills/` alone, which `--plugin` bundles from its `skills/` (superseded by `vercel-skills-compatibility`, 2026-10-09). The flag's *only* extra power is winning the tie in the ambiguous case — it cannot realize an impossible structure.
 
 (The realizability error applies only to the recognised value `type: "plugin"`. `type: "collection"` and any other value are unrecognised and silently ignored — see *Config Model → Recognised `type` values* — so they never reach this error path.)
 
@@ -513,3 +513,5 @@ Derive-before-delete eliminates the *type-incompatibility* stranding case, but a
 > **Corrigendum 2026-10-08** (from `vercel-skills-compatibility`): "`--plugin` … unambiguous member-dirs collection → hard error" / "`type: plugin` on a member-dirs collection → error" — corrected: a collection whose members are all skills is skills-only, and `--plugin` or `type: "plugin"` bundles it; the error stands where a member is a plugin.
 
 > **Corrigendum 2026-10-08** (from `vercel-skills-compatibility`): "`type: plugin` on a bare skill → error" — corrected: a `SKILL.md` folder beside `agents/`/`hooks/` that declares `type: "plugin"` reads as a plugin, its root `SKILL.md` ignored; the error stands for a bare skill with no asset dirs.
+
+> **Corrigendum 2026-10-09** (from `vercel-skills-compatibility`): "Source resolves to an unambiguous **bare skill** → `--plugin` is a **hard error**" — corrected: on a root `SKILL.md` beside `skills/` alone, `--plugin` bundles the skills under `skills/`, leaving the root `SKILL.md` out, as before; every other bare skill still errors.
