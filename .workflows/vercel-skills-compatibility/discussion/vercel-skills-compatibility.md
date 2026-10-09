@@ -220,6 +220,11 @@ The pick-from-a-unit fork is where Vercel's syntax and agntc's guarantee collide
 ### Decision
 
 #### 2026-10-09 — revised
+*Trigger: `--plugin` on a source holding a plugin member — a folder with its own `skills/` and `agents/` or `hooks/` — had no stated outcome. Such a source is not skills-only, and today's bundle copies the member's folder as it stands, landing its agents inside a skill folder where no agent loads them.*
+
+Put to the owner with a call; the owner agreed. The decision stands as recorded in the entries below. Added: **`--plugin` — and `"type": "plugin"` — on a source holding a plugin member bundles the whole source as one unit:** every skill discovery finds, plus each plugin member's skills, agents and hooks, routed to their places. A bundle holding agents and hooks is a plugin; nothing new is needed for it. The bundle installs within every agent ceiling it holds — the source's own `agntc.json` and each member's — so a member restricted to Claude narrows the whole bundle to Claude. Refusing was the alternative; it would break today's lines and the re-add printed for bundles already made from that shape.
+
+#### 2026-10-09 — revised
 *Trigger: a path in the source that lands inside a unit — a subpath or tree URL to one of its skills, or to its `skills/` folder — had no stated outcome, while Skill Identity lists subpath and tree URL among the routes that select a skill; read at the path's own shape, it installs part of the unit with no warning, even where the author declared `"type": "plugin"`.*
 
 **Settled by derivation** — not discussed. Determined by what the warning and the refusal guard — the installer knowing what an install leaves out, and the author's keep-whole declaration holding — neither of which depends on how the skill was named.
