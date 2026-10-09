@@ -344,6 +344,15 @@ Put to the owner as a question because it reverses a configless-install decision
 
 ### Decision
 
+#### 2026-10-09 — revised
+*Trigger: the key of a skill that is the whole repo (a root `SKILL.md`) was never set apart from "built from the declared name"; configless-install's corrected Keying records it as `owner/repo`.*
+
+**Settled by derivation** — not discussed. Determined by configless-install's corrected Keying ("`owner/repo` for a standalone bare skill or plugin, `owner/repo/<declared-name>` for an individually installed skill") and the one-key rule below, which `owner/repo` already meets.
+
+The identity stands as recorded below. Added: **a skill that is the whole repo keys as `owner/repo`, as today**; a skill installed on its own out of a repo keys as `owner/repo/<declared-name folder>`. Every route to a whole-repo skill — `owner/repo`, `owner/repo@name` — lands on `owner/repo`, so one key per skill holds; keying it `owner/repo/<name>` instead would move every single-skill install's key for nothing. A whole-repo skill installed alongside nested skills (`--full-depth`) stays separate on `remove owner/repo`, because an exact key match is taken before the repo's other entries (`src/resolve-target-keys.ts`: `const exactMatch = manifest[key]; if (exactMatch) { return [key]; }`).
+
+#### 2026-10-06
+
 **A skill's identity is its declared name, Vercel's way, falling back to its folder name when none is declared.**
 
 - **The install folder is the declared name, sanitized as Vercel sanitizes it:** lowercase; runs of characters outside `[a-z0-9._]` become `-`; leading and trailing `.` and `-` are stripped; the result is capped at 255 characters; `unnamed-skill` when nothing remains. Applied to the declared name, or the folder name when none is declared. *(Amended 2026-10-07 — the rule was paraphrased without the strip, cap and fallback, under which a declared `name: ..` would install into `.claude/` itself.)*
