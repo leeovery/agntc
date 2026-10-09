@@ -105,7 +105,7 @@ What a bundle does with a member that is itself a unit is the owner's call to ma
 **Proposed Text**:
 
 **Resolution**: Routed
-**Notes**: Put to the owner; the owner chose bundling the whole source. Landed in the discussion as a dated revision of "Selection From a Unit" (2026-10-09); §6.2, §6.6 and §9.1 re-aligned. The configless-install --plugin/type rules for a collection with a plugin member owe a correction.
+**Notes**: Put to the owner; the owner chose bundling the whole source. Landed in the discussion as a dated revision of "Selection From a Unit" (2026-10-09); §6.2, §6.6 and §9.1 re-aligned. The configless-install --plugin/type rules for a collection with a plugin member corrected there (corrigendum 2026-10-09).
 
 ---
 
