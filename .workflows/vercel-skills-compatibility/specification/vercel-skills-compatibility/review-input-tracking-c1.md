@@ -23,8 +23,8 @@ When agntc runs inside an AI agent, `add` and `remove` behave as if `-y` were gi
 
 When it detects an agent caller, `add` says so in place of its banner, as Vercel does: "Agent detected — installing non-interactively".
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -55,8 +55,8 @@ Alternatives that also fit:
 
 A path in the source can also land inside a unit, either at one of its skills (`owner/repo/skills/x`, or a tree URL to that folder) or at a folder of its skills (`owner/repo/skills`). Such a path is handled as a pick by name is, with or without `--plugin`. What it installs carries the same warning, and the line is refused when the unit declares `"type": "plugin"`.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Selection From a Unit" (2026-10-09); §6.5 re-aligned to it.
 
 ---
 
@@ -78,8 +78,8 @@ A skill installed alone out of a unit installs within that unit's ceiling: the `
 
 The picked skill installs within the unit's agent ceiling, the `agents` list in the unit's `agntc.json` (§8.2). The output names the agents left out, and a pick whose named agents all fall outside that ceiling is refused, as it would be for the unit itself.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 

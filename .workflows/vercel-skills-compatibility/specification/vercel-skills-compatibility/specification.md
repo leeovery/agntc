@@ -319,6 +319,10 @@ In a menu that mixes skills and plugin members (§5.3), "all" installs each skil
 
 A pick by name (`@skill` or `--skill x`) aimed at a skill inside a unit installs that skill alone. A warning names what the install leaves out: the unit's agents, hooks and other skills. This applies to plugins and to plugin members (§5.3).
 
+A path in the source can also land inside a unit, either at one of its skills (`owner/repo/skills/x`, or a tree URL to that folder) or at a folder of its skills (`owner/repo/skills`). Such a path is handled as a pick by name is, with or without `--plugin`. What it installs carries the same warning, and the line is refused when the unit declares `"type": "plugin"`.
+
+The picked skill installs within the unit's agent ceiling, the `agents` list in the unit's `agntc.json` (§8.2). The output names the agents left out, and a pick whose named agents all fall outside that ceiling is refused, as it would be for the unit itself.
+
 **Exception: the pick is refused (§1.5) when the unit's `agntc.json` declares `"type": "plugin"`.** The message names the whole-unit install instead. The declaration means two things:
 - On a plugin, `"type": "plugin"` means "keep this whole".
 - On a skills-only repo it keeps its existing meaning (bundle by default), and the same refusal applies.
@@ -513,6 +517,8 @@ Vercel stops with "Interactive prompt required but stdin is not a TTY. Nothing w
 #### 10.5 Agent callers behave as `-y`
 
 When agntc runs inside an AI agent, `add` and `remove` behave as if `-y` were given. The agent caller is detected as Vercel detects it: with `@vercel/detect-agent`, plus Vercel's refinement for Cursor. Cursor counts as an agent caller only when `CURSOR_AGENT` is set or `CURSOR_EXTENSION_HOST_ROLE` is `agent-exec`. The reason is that `CURSOR_TRACE_ID` is also present in Cursor's integrated terminal for ordinary users (Vercel's `src/detect-agent.ts`).
+
+When it detects an agent caller, `add` says so in place of its banner, as Vercel does: "Agent detected — installing non-interactively".
 
 - **`add`:** agntc's `-y` (§10.2). Anything in the way still stops the unit unless `--overwrite` is given (§10.3).
 - **`remove`:** no confirmation is asked.
