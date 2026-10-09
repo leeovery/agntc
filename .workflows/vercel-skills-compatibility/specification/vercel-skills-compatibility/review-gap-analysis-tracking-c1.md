@@ -90,14 +90,14 @@ Keep today's key matching:
 - an entry with exactly that key is taken alone;
 - a key with no exact entry acts on every entry under it.
 
-What leaned: the spec changes what an argument may name (it adds skill names and several arguments) but nowhere withdraws the prefix rule it describes. With per-skill entries now the default for a skills-only repo, the repository key is the one handle on all of them.
+What determined it: the record keeps keys working as they do today and only adds skill names and several arguments, an extension rather than a change, so the prefix rule carries over. The proposed text also names the exact-match case for a whole-repo skill (§4.3). The spec already describes it as today's behaviour, but it reads as a carve-out to anyone reaching for the repo key. With per-skill entries now the default for a skills-only repo, the repository key is the one handle on all of them.
 
 Alternative: exact keys only, with the user naming the repo's skills one by one. That costs every multi-skill repo a long remove line.
 
 **Proposed Text**:
 In §12.1, after "Each argument is a skill name or an agntc key, matched as §7 sets out.":
 
-"A key matches as it does today. An entry with exactly that key is taken alone, and a key with no exact entry acts on every entry under it. So `remove owner/repo` removes every entry installed from that repository."
+"Keys keep today's matching. An entry with exactly that key is taken alone, and a key with no exact entry acts on every entry under it. So `remove owner/repo` removes every entry installed from that repository, unless the repository is itself a single skill keyed `owner/repo` (§4.3)."
 
 **Resolution**: Pending
 **Notes**:
