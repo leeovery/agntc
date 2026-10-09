@@ -555,7 +555,7 @@ Hooks a unit installs appear in the summary by name (§10.6).
 
 ### 12. `update` and `remove`
 
-Today each command takes one optional manifest key: `owner/repo` or `owner/repo/<member>` (`.argument("[key]", …)` in `src/commands/remove.ts` and `src/commands/update.ts`). A repo key acts on every entry under it (`resolveTargetKeys` in `src/resolve-target-keys.ts`). So a Vercel-style `npx agntc remove vercel-composition-patterns` fails today.
+Today each command takes one optional manifest key: `owner/repo` or `owner/repo/<member>` (`.argument("[key]", …)` in `src/commands/remove.ts` and `src/commands/update.ts`). A key with no exact entry acts on every entry under it, while an exact entry is taken alone (`resolveTargetKeys` in `src/resolve-target-keys.ts`), so `remove owner/repo` on a whole-repo skill (§4.3) leaves the repo's other entries alone. So a Vercel-style `npx agntc remove vercel-composition-patterns` fails today.
 
 #### 12.1 What the arguments name
 

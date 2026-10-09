@@ -128,8 +128,8 @@ Which key a whole-repo skill carries is the owner's call to make in the discussi
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Derived from configless-install's corrected Keying and the one-key rule; landed in the discussion as a dated revision of "Skill Identity" (2026-10-09). §4.3 already matched; §12's key-matching sentence re-aligned to the exact-match-first rule the derivation rests on.
 
 ---
 
