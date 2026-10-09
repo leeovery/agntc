@@ -293,7 +293,7 @@ A unit is one manifest entry. It is installed, updated, removed and version-pinn
 
 A source that reads as a plugin installs as one unit, agents and hooks included, as it does today. **This diverges from Vercel, to keep units (§1.4).** Vercel installs only the skills, each one separately.
 
-#### 6.2 `--plugin` bundles any skills-only source
+#### 6.2 `--plugin` bundles the whole source
 
 `--plugin` bundles a skills-only source as one unit. Vercel-style repos count. The bundle holds:
 - every skill discovery finds (§5.2), including skills nested in category folders;
@@ -304,6 +304,12 @@ The skills install flat, each in its own folder (§4.2). A path in the source na
 The bundle is reinstalled from the source on every update. A skill the author adds joins it, and a skill the author removes leaves it.
 
 Today `--plugin` copies each child of `skills/` as it stands (`copyAssetDir` in `src/copy-plugin-assets.ts`). On a category-nested repo that would land category folders where skills belong. The bundle takes the skills discovery finds, wherever they sit.
+
+A source that holds plugin members (§5.3) also bundles whole, under `--plugin` or `"type": "plugin"`. Each member's skills, agents and hooks join the bundle and are routed to their places. A bundle that holds agents and hooks is simply a plugin.
+
+The bundle installs within every agent ceiling it holds: the source's own `agntc.json` and each member's. So a member restricted to Claude narrows the whole bundle to Claude.
+
+Today such a member's folder is copied as it stands, so its agents land inside a skill folder, where no agent loads them.
 
 #### 6.3 Without `--plugin`, "all" installs skills separately
 
@@ -335,16 +341,16 @@ Accepted risk: a repo whose skills depend on its agents or hooks can still be in
 
 - **`--plugin` together with `--skill` or `@skill` is refused (§1.5).** A bundle is the whole source. A path in the source is not a pick, and it works with `--plugin` (§6.2).
 - **`--plugin` on a plugin is redundant and changes nothing**, as today.
-- **`--plugin` on a single skill (a root `SKILL.md`), or on a source whose members include a plugin member, is refused (§1.5).**
+- **`--plugin` on a single skill (a root `SKILL.md`) is refused (§1.5).**
   - **One shape is excepted:** `--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/` and leaves the root `SKILL.md` out, as it does today. Without the flag that root reads as a single skill (§5.1). The flag is the installer's explicit request for the bundle, so lines written today and the bundles already made from that shape keep working.
   - **What `detectType` does today** (`src/type-detection.ts`):
     - it refuses a single skill (`TypeConflictError`) only when its root `SKILL.md` has no `skills/`, `agents/` or `hooks/` beside it;
     - it bundles a root `SKILL.md` beside `skills/` alone;
     - it installs a root `SKILL.md` beside `agents/` or `hooks/` as a plugin, and the flag changes nothing;
     - it bundles a `skills/`-only source whatever its inner folders hold, plugin members included.
-  - **Two cases change and are now refused:** `--plugin` on a root `SKILL.md` beside `agents/` or `hooks/` that declares no `"type": "plugin"`, and `--plugin` on a `skills/`-only source that holds a plugin member.
+  - **One case changes and is now refused:** `--plugin` on a root `SKILL.md` beside `agents/` or `hooks/` that declares no `"type": "plugin"`.
 
-  A source whose members are all skills is skills-only, and `--plugin` bundles it (§6.2). That holds wherever the skills sit, including folders at the repo's top level. Today any source with member folders is refused ("its structure is a collection of N members — cannot bundle").
+  Any other source bundles whole (§6.2): skills wherever they sit, including folders at the repo's top level, and any plugin members. Today a source with member folders at its top level is refused ("its structure is a collection of N members — cannot bundle").
 
 ### 7. Name Matching
 
@@ -432,7 +438,7 @@ Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` �
 | `--full-depth` | Turn off the root early-out and walk the whole source | §5.1, §5.2 |
 | `--json` | Machine-readable result | §9.2 |
 | `--copy` | Accepted with no effect, because agntc always copies (§1.6) | — |
-| `--plugin` | agntc's own: bundle a skills-only source | §6 |
+| `--plugin` | agntc's own: bundle the whole source as one unit | §6 |
 | `--overwrite` | agntc's own: replace what is in an install's way | §10 |
 
 `add` also takes Vercel's aliases `a`, `i` and `install`.
