@@ -39,12 +39,21 @@ When it detects an agent caller, `add` says so in place of its banner, as Vercel
 The warning and the `"type": "plugin"` refusal apply only to picks by name. Shape is read at whatever path a source names. So `owner/repo/skills/x`, or a GitHub tree URL to that folder (the link a person copies while browsing the repo), reads as a single skill and installs it alone. Nothing warns that the unit's agents, hooks and other skills were left behind. The install goes through even when the author declared `"type": "plugin"` so that their skills would not be split. The installer ends up with a skill that calls agents or sibling skills that are not there, and finds out when it fails. The author's declaration does not hold against a link into their own repo. A path to a folder of a unit's skills (`owner/repo/skills`) splits the unit the same way, through the menu.
 
 **Proposal**:
-Handle a path that lands inside a unit the way a pick by name is handled. The record determines this. The warning exists so the installer knows what the install leaves out. The refusal exists so an author's "keep this whole" holds. Neither depends on how the skill was named, and the record lists subpath and tree URL as ways of selecting a skill alongside `@name` and `--skill`. The other side, a path that installs silently, is dead. It produces the partial install the record refuses for declared units, with less notice than a warning the record already rates only medium-confidence. This covers paths without `--plugin`. A path that narrows a `--plugin` bundle keeps the meaning it already has.
+A path that lands inside a unit is handled the way a pick by name is. This is the session's call: the record decides the warning and the refusal for a pick by name and never addresses paths. What leaned:
+- The warning exists so the installer knows what an install leaves out. The refusal exists so an author's "keep this whole" holds. Neither purpose depends on how the skill was named.
+- The record lists subpath and tree URL among the ways a skill is selected.
+- A path that installs silently produces exactly the partial install the record refuses for declared units.
+
+The staged text exempted `--plugin`. That exemption is dropped: a `--plugin` path into a unit (`owner/repo/skills --plugin` on a plugin repo) bundles part of the unit, which is the same split.
+
+Alternatives that also fit:
+- Warn on a path but never refuse.
+- Leave paths silent, as the earlier reading had them.
 
 **Proposed Text**:
 (§6.5, a new paragraph after the first paragraph)
 
-A path in the source can also land inside a unit, at one of its skills (`owner/repo/skills/x`, or a tree URL to that folder) or at a folder of its skills. Without `--plugin`, such a path is handled as a pick by name is. What it installs carries the same warning, and the line is refused when the unit declares `"type": "plugin"`.
+A path in the source can also land inside a unit, either at one of its skills (`owner/repo/skills/x`, or a tree URL to that folder) or at a folder of its skills (`owner/repo/skills`). Such a path is handled as a pick by name is, with or without `--plugin`. What it installs carries the same warning, and the line is refused when the unit declares `"type": "plugin"`.
 
 **Resolution**: Pending
 **Notes**:
