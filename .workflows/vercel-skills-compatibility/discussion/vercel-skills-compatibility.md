@@ -477,7 +477,7 @@ Without the flag the root reads as a single skill, as Vercel reads it. With the 
 
 Confidence: high.
 
-Sibling check: configless-install — its `--plugin` scope holds "unambiguous bare skill → `--plugin` is a hard error", and a root `SKILL.md` beside `skills/` alone reads there as a bare skill; this excepts that shape. The correction is owed to that spec.
+Sibling check: configless-install — its `--plugin` scope holds "unambiguous bare skill → `--plugin` is a hard error", and a root `SKILL.md` beside `skills/` alone reads there as a bare skill; this excepts that shape. Corrected in that spec (corrigendum 2026-10-09).
 
 ---
 
