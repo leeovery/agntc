@@ -429,6 +429,47 @@ Sibling check: configless-install — its Identity & Naming ("Identity = directo
 
 ---
 
+## The Repository Part of a Key
+
+### Context
+
+Every key starts from the repository it was installed from: `owner/repo`, then `/<folder>` for a skill installed on its own or `/<path>` for a plugin member (Skill Identity). The key is the string `list` shows, `remove` and `update` take, and printed `remove`/`update` advice names. Adopting Vercel's source forms (Fragment and Subpath Forms) brings in repositories whose path is not two segments — GitLab nested groups (`https://gitlab.com/acme/platform/skills`), Azure Repos (`https://dev.azure.com/org/project/_git/repo`), SSH addresses and `.git` URLs on self-hosted servers, cloned with the whole path kept — and GitHub Enterprise hosts whose `owner/repo` can repeat one on github.com. Nothing said what key such a repository gets, or what happens when two different repositories land on the same one. Measured today: the https branch keys the last two path segments and the SSH branch the first two (`src/source-parser.ts`, `parseHttpsUrl` and `parseSshUrl`), and both clone from those two segments only, so a nested-group or Azure source clones the wrong path and no working install carries a key from one. Everything that reads a key takes its first two segments as the repository (`repoFromKey` in `src/source-parser.ts`).
+
+### Options Considered
+
+**Two segments: the repository and the namespace directly above it**
+- Pros: every key has the shape a GitHub key has, short to type and to read in `list`; every key recorded today for a two-segment repository is unchanged; the full source is still recorded for cloning, and printed `add` advice prints the form the install came from (Re-Add Advice Defects)
+- Cons: two repositories can share a key — a GitHub repository and its Enterprise mirror, the same `owner/repo` on GitHub and GitLab, two GitLab subgroups both ending `tools/skills`
+
+**The whole repository path, host-qualified off github.com** (`gitlab.com/acme/platform/skills/x`, `dev.azure.com/org/project/repo`)
+- Pros: keys never collide and read unambiguously
+- Cons: longer to type and print, and a different shape from GitHub keys; worth it only where one project installs the same repository from two hosts side by side
+
+### Journey
+
+Put to the owner with a lean to two segments: a key is a handle the user types, and the full source is already printed wherever the source matters. Same-key collisions across hosts are rare, and the clash path that already exists for another managed install in the way handles them without a new key shape. The owner installs from public repositories by `npx`, does not use SSH, and took the lean.
+
+### Decision
+
+**The repository part of a key is two segments: the repository's own name and the namespace directly above it.**
+- GitHub, a `GH_HOST` Enterprise host and a two-segment gitlab.com repository key `owner/repo`, as today.
+- A GitLab nested group keys the last two segments of its repository path: `https://gitlab.com/acme/platform/skills` → `platform/skills`. A `/-/tree/` URL's repository path is everything before `/-/`.
+- An Azure Repos URL keys the project and the repository — `_git` is a URL marker, not a namespace: `https://dev.azure.com/org/project/_git/repo` → `project/repo`.
+- An SSH address, an `ssh://` URL and a `.git` URL key the last two segments of the repository path, `.git` dropped: `git@gitlab.com:group/subgroup/repo.git` → `subgroup/repo`.
+- A local path keys as today. The rest of the key is unchanged: `/<folder>` for a skill, `/<path>` for a plugin member.
+
+**Two sources name the same repository when host and repository path match**, whatever form names them — `owner/repo`, its https URL and its SSH address are one repository. A re-add from the same repository is a re-add (Skill Identity, Agent Targeting) and records the form it was given.
+
+**An install from another repository onto a key already held is a clash with another managed install.** It is never read as a re-add of the first install and never silently replaces it: at a terminal it meets "Remove <key> and continue"; under `-y` or from an agent caller it stops that unit unless `--overwrite` is given (Yes and Destructive Prompts). Removing the earlier install, either way, hands the key to the new one.
+
+**A key on `remove` or `update` that reaches entries from two repositories is refused, listing their keys**, as a name matching installs from two repositories is (Update and Remove Surface). Each entry stays reachable by its full key.
+
+Confidence: high.
+
+Sibling check: v1/core-system — its manifest key derivation extracts owner and repo from any source format as `owner/repo` ("regardless of source format"), with membership read from the key prefix; this fixes which two segments that is for paths longer than two and for Azure `_git`, and does not contradict it.
+
+---
+
 ## Container Depth and Discovery Roots
 
 ### Context
@@ -974,5 +1015,5 @@ The rule stands as recorded below. Added:
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
-- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, a path into a unit, a whole-repo skill's key, and `ssh://` URLs on GitHub and GitLab.
+- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, a path into a unit, a whole-repo skill's key, `ssh://` URLs on GitHub and GitLab, and the repository part of a key for nested-group, Azure Repos, Enterprise, SSH and `.git` sources.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
