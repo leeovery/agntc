@@ -20,6 +20,22 @@ status: draft
 - [ ] Given a repo with a root SKILL.md declaring `name: foo-skill`, when it is added, it installs into `.claude/skills/foo-skill/` under key `owner/repo`
 - [ ] Given a declared name containing terminal escape sequences, when `add` prints it, escapes and control characters are stripped; given frontmatter using a YAML tag that would construct an object or run code, the skill installs and nothing in it executes
 - [ ] Given existing plugin, root-skill and collection sources, when they are added and updated, they behave as before apart from folder naming
+- [ ] Given a member folder holding SKILL.md beside `skills/` and `agents/`, or SKILL.md beside `agents/` whose own `agntc.json` declares `"type": "plugin"`, when it is picked from the menu or named by a tree URL, it installs whole as a plugin member keyed `owner/repo/<path>`; given a member holding SKILL.md beside `skills/` alone whose own `agntc.json` declares `"type": "plugin"`, it bundles that `skills/` as one member and leaves its SKILL.md out
+- [ ] Given a skill whose `name` is an empty string, it installs under its folder name; given a `name` that is only whitespace, it installs into `unnamed-skill`; given a `name` with line breaks or surrounding whitespace, it is shown and matched with line breaks as spaces and the whitespace trimmed
+
+#### Tasks
+
+| Internal ID | Name | Edge Cases |
+|-------------|------|------------|
+| vercel-skills-compatibility-1-1 | Root skill installs under its declared name | no frontmatter, no string `name`, a `name` that is an empty string, YAML that fails to parse, or a non-YAML fence installs under the folder name with no warning (§3.2), YAML tags that construct objects or run code never execute and the skill still installs (§3.3), a root SKILL.md keys `owner/repo` (§4.3) |
+| vercel-skills-compatibility-1-2 | Install folders are sanitized from the skill's identity | `../x` lands in `x`, `My Skill!!` in `my-skill`, `---` in `unnamed-skill` (§4.2), names over 255 characters are capped (§4.2), a skill named by its folder is sanitized the same way (§4.1, §4.2) |
+| vercel-skills-compatibility-1-3 | Menu-picked skills install and key by declared name | a skill under `skills/` keys `owner/repo/<folder>`, never by its path (§4.3) |
+| vercel-skills-compatibility-1-4 | A tree URL to a skill keys it the way the menu does | the key is the same whether the skill was picked from the menu or selected by tree URL (§4.3) |
+| vercel-skills-compatibility-1-5 | Plugin members key by their path in the repo | a plugin member at the repository root keys as it does today (§4.3), the key is the same from the menu or from a path (§4.3) |
+| vercel-skills-compatibility-1-6 | A skill carrying agents/ or hooks/ installs as a skill | SKILL.md beside `skills/` and `agents/`/`hooks/` stays a plugin and that SKILL.md is not installed (§5.1), SKILL.md beside `agents/`/`hooks/` whose own `agntc.json` declares `"type": "plugin"` stays a plugin (§5.1, §5.3), a member folder of either shape is a plugin member keyed `owner/repo/<path>` whether picked from the menu or named by a tree URL (§5.3, §4.3), the rule holds for member folders as well as the source root (§5.3), `--plugin` on SKILL.md beside `agents/`/`hooks/` with no `"type": "plugin"` is refused (§6.6) |
+| vercel-skills-compatibility-1-7 | A SKILL.md beside skills/ alone reads as one skill | `"type": "plugin"` in the root's `agntc.json` bundles `skills/` and leaves the root SKILL.md out (§5.1), a member folder whose own `agntc.json` declares `"type": "plugin"` bundles its `skills/` as one plugin member, leaves its SKILL.md out, and keys `owner/repo/<path>` whether picked from the menu or named by a tree URL (§5.3, §4.3), `--plugin` bundles the root the same way (§6.6), a member folder of this shape without its own `"type": "plugin"` is a skill (§5.3) |
+| vercel-skills-compatibility-1-8 | A plugin's skills install under their declared-name folders | the skills of a `--plugin` or `"type": "plugin"` bundle take their declared-name folders too (§6.2) |
+| vercel-skills-compatibility-1-9 | Declared names are read as Vercel reads them | terminal escape sequences and control characters in a declared name never reach the output (§3.2, §3.3), line breaks in a name become spaces (§3.2), leading and trailing whitespace is trimmed (§3.2), a whitespace-only `name` trims to an empty declared name and installs into `unnamed-skill` (§3.2, §4.2) |
 
 ### Phase 2: Discovery finds skills where Vercel's does
 status: draft
@@ -39,6 +55,7 @@ status: draft
 - [ ] Given a skill whose frontmatter sets `metadata.internal: true`, it is absent from the menu
 - [ ] Given a source where discovery finds nothing installable, when `add` runs, it exits non-zero, writes nothing, and says nothing installable was found
 - [ ] Given a skill installed from a category-nested repo, when `update` runs after the source changes, it reinstalls from that skill's folder
+- [ ] Given a folder the deeper walks reach that holds SKILL.md but is a plugin member under §5.1's rules (SKILL.md beside `skills/` and `agents/`/`hooks/`, or beside `agents/`/`hooks/` or `skills/` alone with its own `"type": "plugin"`), the menu offers it whole, keyed by its path, and nothing inside it is offered separately
 
 ### Phase 3: `--plugin` bundles everything discovery finds
 status: draft
@@ -55,6 +72,7 @@ status: draft
 - [ ] Given a bundle in which one member's `agntc.json` restricts to Claude, when Claude and Cursor are chosen, the bundle installs for Claude only and the output names Cursor as left out
 - [ ] Given a lone root SKILL.md, or a root SKILL.md beside `agents/` with no `"type": "plugin"`, when added with `--plugin`, the command exits non-zero, writes nothing and names the refusal; given a root SKILL.md beside `skills/` alone, `--plugin` bundles the skills under `skills/` without the root SKILL.md; given a plugin, `--plugin` changes nothing
 - [ ] Given an installed bundle whose source has since gained one skill and lost another, when `update` runs, the new skill is installed, the removed skill's files are gone, and the manifest still holds one entry
+- [ ] Given a plugin or bundle two of whose own skills would take the same install folder, the first in priority order installs and the output names the one left out
 
 ### Phase 4: Existing installs move to their new shape
 status: draft
@@ -71,6 +89,8 @@ status: draft
 - [ ] Given an update whose target folder is occupied by untracked files or by another entry's same-named skill, when `update` runs without `--overwrite`, that entry stops with its install intact, the message names `--overwrite`, other entries proceed, and the command exits non-zero; with `update --overwrite`, the occupant is replaced
 - [ ] Given a skill installed under its old folder and key, when the same skill is re-added from the same repository, it moves to its declared-name folder and key, keeps every recorded agent, and no second copy is created
 - [ ] Given a Claude install, when it is re-added choosing only Cursor at the agent prompt, Claude's copy stays and the entry records both agents; when it is re-added at another version, it reinstalls for every recorded agent
+- [ ] Given an installed skill whose declared name changes upstream, when `update` runs, it moves to its new declared-name folder and key
+- [ ] Given a plugin member entry holding SKILL.md beside `agents/` whose own `agntc.json` declares `"type": "plugin"`, when `update` runs, it is not repaired into a skill and updates as a plugin
 
 ### Phase 5: Vercel's source forms and hosts
 status: draft
@@ -162,6 +182,7 @@ status: draft
 - [ ] Given a plugin, the summary lists its skills, agents and hooks by name; plugin members in a menu are listed with their contents
 - [ ] Given a clash prompt answered "Remove <key> and continue" followed by "no" at "Proceed with installation?", the other install remains intact
 - [ ] Given `add owner/repo --list` with no terminal, it prints the source, version, shape and skills with descriptions, installs nothing, and exits 0
+- [ ] Given a skill whose `description` is not a string, the summary and `--list` show no description; given a description carrying terminal escapes, control characters, line breaks or surrounding whitespace, it prints with escapes and control characters stripped, line breaks as spaces and the whitespace trimmed
 
 ### Phase 11: Unattended `add`
 status: draft
