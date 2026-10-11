@@ -576,6 +576,11 @@ Settled by the owner's rule, with one deliberate difference grounded in the scop
 ### Decision
 
 #### 2026-10-11 — revised
+*Trigger: measured — Vercel's `remove` keeps `-a` beside `--all`. In `vercel-labs/skills` at `v1.7.0`, `src/remove.ts:413–415` reads `--all` as `options.all = true; options.yes = true;` and nothing else, and `:210–211` targets `options.agent` whenever it is given; `add`'s `--all` does overwrite it (`src/add.ts:1208–1210`, `options.agent = ['*'];`). The entry below took both commands to drop the `-a`.*
+
+The refusal stands for `add` only: **`add … --all -a` is refused**, naming `--skill '*' --agent <agents> -y`. **`remove --all -a <agents>` follows Vercel: it removes every install from those agents only**, without confirmation, each entry keeping its other agents. No part of the remove line is dropped, so the owner's rule — Vercel's way by default — decides it.
+
+#### 2026-10-11 — revised
 *Trigger: `--all` sets the agents itself — every agent — so `add … --all -a cursor` and `remove --all -a cursor` carry two conflicting agent instructions; read as the shorthand it expands to, the `-a` is silently dropped, and the remove deletes every agent's copies where only Cursor's were meant.*
 
 **Settled by derivation** — not discussed. Determined by the scope's never-silently-ignore rule, and Update and Remove Surface's refusal of `--all` beside names.
