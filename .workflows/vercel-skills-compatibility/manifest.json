@@ -291,7 +291,10 @@
           "task_map": {},
           "storage_paths": [
             ".tick/"
-          ]
+          ],
+          "approvals": {
+            "structure": "2026-10-11"
+          }
         }
       }
     }
