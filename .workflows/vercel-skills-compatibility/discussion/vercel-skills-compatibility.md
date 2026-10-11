@@ -680,6 +680,13 @@ Here matching Vercel's behaviour would remove an agntc capability rather than ch
 
 ### Decision
 
+#### 2026-10-11 — revised
+*Trigger: a plugin holding only agents and hooks has no skill at any tag, so "holds no skills at all" read literally sends every bare add of it to the default branch with no constraint.*
+
+**Settled by derivation** — not discussed. Determined by the fallback's purpose — a repo whose tags predate its skills, a tag with nothing to install — and the semver default it guards.
+
+The decision stands as recorded below, its second case read by that purpose: **the bare add falls back when the newest tag holds nothing installable** — no skill, and no agent or hook a plugin would install. A tagged agents-only or hooks-only plugin keeps its newest tag and caret constraint.
+
 #### 2026-10-07 — revised
 *Trigger: review finding: a pasted pick for a skill added after the repo's newest semver tag fails as a no-match under the tag default, where the publisher's listing and Vercel's install read the default branch; and a repo whose tags predate its skills resolves to a tree with no skills — a different install becomes a failed one.*
 
@@ -852,6 +859,13 @@ A project may already hold skills installed by Vercel's CLI: a canonical copy in
 No clash: Vercel's files are, to agntc, files it does not manage, and the existing untracked-files path (prompt; `--overwrite` unattended) already handles them. Copy-safety's boundary rules out writing through a link.
 
 ### Decision
+
+#### 2026-10-11 — revised
+*Trigger: Vercel's CLI replaces a folder in its way without asking and, for Claude, installs a link to its shared copy in `.agents/skills/<name>`; a folder an agntc entry recorded can therefore since have become such a link, and deleting the entry's recorded files would delete through it into Vercel's shared copy.*
+
+**Settled by derivation** — not discussed. Determined by the rule below that a link is replaced as a link and the folder it points to left untouched, and Vercel's shared copy being read by Codex and Vercel's other agents.
+
+The coexistence stands as recorded in the entries below. Added: **nothing agntc removes is deleted through a link.** A folder an entry recorded that is now a link is no longer agntc's copy: `remove` drops the entry, leaves the link and the folder it points to as they are, and says so; `update` treats the link as in its way — it stops the entry, or replaces the link as a link under `--overwrite`. Deleting the link itself was the alternative; it silently undoes the later Vercel install for that agent.
 
 #### 2026-10-11 — revised
 *Trigger: measured — for Cursor the two tools' copies never meet. Vercel v1.7.0 installs Cursor's copy into `.agents/skills/` (`src/agents.ts`, cursor `skillsDir: '.agents/skills'`), agntc into `.cursor/skills/` (`src/drivers/cursor-driver.ts:8`), and agntc's untracked-files check covers only its own incoming files (`checkUnmanagedConflicts` over `incomingFiles`, `src/commands/add.ts`). Cursor reads both folders (cursor-agent-driver discussion), so a skill both tools installed appears to Cursor twice, with no clash shown.*
