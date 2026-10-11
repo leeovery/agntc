@@ -33,8 +33,8 @@ The menu reading is dead: it leaves a declaration the unit rules honour everywhe
 **Proposed Text**:
 4. **Anything else.** Discovery runs (§5.2), and its members form the menu. `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles them instead (§6.2, §6.6).
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -66,8 +66,8 @@ New paragraph in §6, after "A unit is one manifest entry. It is installed, upda
 
 "Agent targeting (§8) and what is in the way (§10.3) are handled per installed entry, and there a skill installed on its own counts as a unit as well. Its ceiling is the `agents` list in its own `agntc.json`, as a single skill's is today. A clash, or a ceiling that excludes every named agent, stops that skill alone, and the run's other entries proceed."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -101,8 +101,8 @@ New bullet in §13, after the bullet "A target that is a symlink is replaced as 
 
 "- **Nothing agntc removes is deleted through a link.** A folder an entry recorded may since have been replaced with a link, for example by Vercel's CLI installing the same skill. Such a folder is no longer agntc's copy. `remove` drops the entry, leaves the link and the folder it points to as they are, and says so. `update` treats the link as in its way (§12.6): it stops the entry, or replaces the link as a link under `--overwrite`."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Vercel Install Coexistence" (2026-10-11); §13 re-aligned.
 
 ---
 
@@ -132,8 +132,8 @@ What determined it: the fallback exists for a repo whose tags predate its skills
 **Proposed Text**:
 - The newest tag holds nothing installable: no skill, and no agent or hook a plugin would install.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Bare Add Version" (2026-10-11) to keep the fallback wording aligned; §2.5 re-aligned.
 
 ---
 

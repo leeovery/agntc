@@ -151,7 +151,7 @@ A branch is always one explicit fragment away (`#main`).
 
 **Fallback to the default branch.** In two cases the bare add installs from the default branch instead, says so in its output, and records no constraint:
 - The newest tag lacks something the line names: a skill selected by `@` or `--skill`, or the path in the source.
-- The newest tag holds no skills at all.
+- The newest tag holds nothing installable: no skill, and no agent or hook a plugin would install.
 
 The fallback keeps two cases working: a pasted pick for a skill added after the repo's last release, and a repo whose tags predate its skills.
 
@@ -239,7 +239,7 @@ Shape is read at the root of what the source points at: the repo root, or the pa
 
    A folder that holds `SKILL.md` *and* `skills/` beside `agents/`/`hooks/` is a plugin, and its root `SKILL.md` is ignored. The same holds for a folder holding `SKILL.md` beside `agents/` and/or `hooks/` whose `agntc.json` declares `"type": "plugin"`: the author's declaration keeps it whole. A folder holding `SKILL.md` beside `skills/` alone whose `agntc.json` declares `"type": "plugin"` bundles the skills under `skills/` as one unit and leaves the root `SKILL.md` out, as `--plugin` does on that shape (§6.6). **This diverges from Vercel, to keep units (§1.4).** Vercel's root early-out would install such a repo as a single skill. Its agents and hooks would never be routed, and its inner skills would be nested where agents don't load them.
 3. **`skills/` only.** By default this is a menu of the skills discovery finds (§5.2). `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles it instead (§6).
-4. **Anything else.** Discovery runs (§5.2), and its members form the menu.
+4. **Anything else.** Discovery runs (§5.2), and its members form the menu. `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles them instead (§6.2, §6.6).
 
 A source where discovery finds nothing installable is refused (§1.5). Vercel likewise exits 1 when it finds no skills. Today a category-nested repo such as `mattpocock/skills` finds no members, because membership is read one level into `skills/` only (`scanSkillsOnlyMembers` in `src/type-detection.ts`). It then ends "Cancelled — no plugins selected" with exit 0.
 
@@ -296,6 +296,8 @@ A **unit** is any of three things:
 - a `--plugin` bundle.
 
 A unit is one manifest entry. It is installed, updated, removed and version-pinned together. §12 covers updating and removing a skill that sits inside one. Vercel's selection syntax has no notion of a unit. This section is where the two meet.
+
+Agent targeting (§8) and what is in the way (§10.3) are handled per installed entry, and there a skill installed on its own counts as a unit as well. Its ceiling is the `agents` list in its own `agntc.json`, as a single skill's is today. A clash, or a ceiling that excludes every named agent, stops that skill alone, and the run's other entries proceed.
 
 #### 6.1 A plain add installs a unit whole
 
@@ -638,6 +640,7 @@ agntc installs Codex skills into `.agents/skills/` as well. Because identity is 
 - **For Cursor the two tools' copies never meet, and agntc warns.** Vercel installs Cursor's copy into `.agents/skills/` (v1.7.0 `src/agents.ts`, cursor `skillsDir: '.agents/skills'`), while agntc installs it into `.cursor/skills/` (§1.6). Cursor reads both folders, so a skill both tools installed appears to it twice. agntc's untracked-files check covers only its own target files (`checkUnmanagedConflicts` in `src/commands/add.ts`), so nothing would say so. When agntc installs a skill for Cursor and `.agents/skills/` already holds a same-named skill agntc does not manage, it installs anyway and warns that Cursor will see two copies. It does not treat that copy as in the way: removing it would delete Vercel's shared copy, which Codex and Vercel's other agents also read.
 - **The project's `skills-lock.json` is neither read nor written.** agntc's own manifest is its record. The only `skills-lock.json` agntc ever reads is a source repo's, during discovery (§5.2).
 - **A target that is a symlink is replaced as a link, never written through.** Writing into a `.claude/skills/<name>` that links to `.agents/skills/<name>` would otherwise write into Vercel's canonical copy. When the link is replaced, agntc removes the link itself and writes a real copy in its place. The folder the link pointed to is left untouched.
+- **Nothing agntc removes is deleted through a link.** A folder an entry recorded may since have been replaced with a link, for example by Vercel's CLI installing the same skill. Such a folder is no longer agntc's copy. `remove` drops the entry, leaves the link and the folder it points to as they are, and says so. `update` treats the link as in its way (§12.6): it stops the entry, or replaces the link as a link under `--overwrite`.
 
 ### 14. Printed Commands
 
