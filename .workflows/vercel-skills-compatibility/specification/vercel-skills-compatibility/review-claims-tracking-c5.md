@@ -13,7 +13,7 @@
 The specification says each source form is parsed the way Vercel parses it, and that Vercel clones every SSH address and `ssh://` URL as given. That is not what Vercel does. Vercel v1.7.0 turns an `ssh://` URL on github.com or gitlab.com into an https clone URL: `ssh://git@github.com/org/private.git` is cloned from `https://github.com/org/private.git`. An implementer who checks Vercel's code, as the parity-by-default rule tells them to, would build the same rewrite. A user who reaches a private repo only through an SSH key would then get an authentication failure on a line naming their SSH URL. Vercel gets past this with its gh-CLI SSH fallback (`src/git.ts:247–248`), which agntc does not adopt. An implementer who follows the specification's text clones over SSH, but that is a divergence from Vercel the specification never marks.
 
 **Proposal**:
-Correct the description of Vercel, and mark cloning an `ssh://` GitHub or GitLab URL as given as a divergence that protects the user's own git credentials (§1.2). This keeps the behaviour the specification already describes. The other option, following Vercel's https rewrite, has no case for it. The specification promises that private repositories work wherever the user's own credentials work, and it rejects Vercel's credential chain, which is the only thing that keeps the rewrite working in Vercel. Printed commands already reproduce "the SSH address" an install came from (§14.1).
+Correct the description of Vercel, and mark cloning an `ssh://` GitHub or GitLab URL as given as a divergence that protects the user's own git credentials (§1.2). This keeps the behaviour the specification already describes. The record determines it: the source discussion's scope decision holds that "Private repos work wherever the user's own git credentials work — agntc does not need Vercel's credential chain" (Like-for-Like Scope). Following Vercel's https rewrite would fail an SSH-key-only user on the very line naming their SSH URL, and the credential chain that rescues the rewrite in Vercel is the one the scope leaves out, so that side is dead. Printed commands already reproduce "the SSH address" an install came from (§14.1). Vercel's `GH_HOST` handling applies to shorthand only, so an `ssh://` URL on an Enterprise host reaches the fallback and is cloned as given in Vercel too (v1.7.0 `src/source-parser.ts:522–526`).
 
 **Evidence**:
 Claim (§2.1): "SSH addresses (`git@host:path` and `ssh://` URLs) and `https://….git` URLs. Vercel clones either as given, with its whole path kept (v1.7.0 `src/source-parser.ts:562–567`, the fallback `{ type: 'git', url: input }`)."
@@ -42,8 +42,8 @@ The discussion makes no claim about how Vercel clones `ssh://` URLs (`grep -n "s
 
 (The rest of the bullet, from "agntc today keeps only two path segments of each" onward, is unchanged.)
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Disposed as the record's own answer (Like-for-Like Scope: private repos work with the user's own git credentials, no Vercel credential chain). Landed under auto.
 
 ---
 
