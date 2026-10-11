@@ -231,7 +231,7 @@ Shape is read at the root of what the source points at: the repo root, or the pa
    - `skills/` beside `agents/` and/or `hooks/`;
    - `agents/` and/or `hooks/` with no `SKILL.md`.
 
-   A folder that holds `SKILL.md` *and* `skills/` beside `agents/`/`hooks/` is a plugin, and its root `SKILL.md` is ignored. The same holds for a folder holding `SKILL.md` beside `agents/` and/or `hooks/` whose `agntc.json` declares `"type": "plugin"`: the author's declaration keeps it whole. **This diverges from Vercel, to keep units (§1.4).** Vercel's root early-out would install such a repo as a single skill. Its agents and hooks would never be routed, and its inner skills would be nested where agents don't load them.
+   A folder that holds `SKILL.md` *and* `skills/` beside `agents/`/`hooks/` is a plugin, and its root `SKILL.md` is ignored. The same holds for a folder holding `SKILL.md` beside `agents/` and/or `hooks/` whose `agntc.json` declares `"type": "plugin"`: the author's declaration keeps it whole. A folder holding `SKILL.md` beside `skills/` alone whose `agntc.json` declares `"type": "plugin"` bundles the skills under `skills/` as one unit and leaves the root `SKILL.md` out, as `--plugin` does on that shape (§6.6). **This diverges from Vercel, to keep units (§1.4).** Vercel's root early-out would install such a repo as a single skill. Its agents and hooks would never be routed, and its inner skills would be nested where agents don't load them.
 3. **`skills/` only.** By default this is a menu of the skills discovery finds (§5.2). `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles it instead (§6).
 4. **Anything else.** Discovery runs (§5.2), and its members form the menu.
 
@@ -344,7 +344,7 @@ Accepted risk: a repo whose skills depend on its agents or hooks can still be in
 - **`--plugin` together with a named skill (`--skill <name>` or `@skill`) is refused (§1.5).** A bundle is the whole source. `--skill '*'` and `--all` name no skill, so with `--plugin` they install the whole bundle (§6.4). A path in the source is not a pick, and it works with `--plugin` (§6.2).
 - **`--plugin` on a plugin is redundant and changes nothing**, as today.
 - **`--plugin` on a single skill (a root `SKILL.md`) is refused (§1.5).**
-  - **One shape is excepted:** `--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/` and leaves the root `SKILL.md` out, as it does today. Without the flag that root reads as a single skill (§5.1). The flag is the installer's explicit request for the bundle, so lines written today and the bundles already made from that shape keep working.
+  - **One shape is excepted:** `--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/` and leaves the root `SKILL.md` out, as it does today. Without the flag, or an `agntc.json` declaring `"type": "plugin"` (§5.1), that root reads as a single skill. The flag is the installer's explicit request for the bundle, so lines written today and the bundles already made from that shape keep working.
   - **What `detectType` does today** (`src/type-detection.ts`):
     - it refuses a single skill (`TypeConflictError`) only when its root `SKILL.md` has no `skills/`, `agents/` or `hooks/` beside it;
     - it bundles a root `SKILL.md` beside `skills/` alone;
@@ -365,6 +365,7 @@ Names are matched case-insensitively and exactly, as Vercel matches them (`filte
   - `@skill` and `--skill` names combine into one list, as in Vercel.
   - `'*'` anywhere in that list means all (§6.3, §6.4).
   - An internal skill matches when named (§5.4).
+  - A plugin member (§5.3) is not a skill, and no name matches it. It is selected by its path in the source (`owner/repo/<path>`), the form agntc prints for it (§14.1). `--list` (§11.2) and the miss message (§7.2) show each plugin member with that path.
 - **On `remove` and `update`**, through positional names and `remove -s`:
   - A name matches an installed skill's declared name or its install folder name (§4.2).
   - A name can also be an agntc key (§12).
@@ -606,7 +607,13 @@ Removing an entry from every agent it is installed for removes the entry. `remov
 
 #### 12.6 An occupied target folder
 
-An update can write into a folder it did not own before. This happens when an entry moves to its declared-name folder (§4.4) or is repaired from plugin to skill (§5.5). The folder may already be occupied: by a copy Vercel installed, by the user's own copy, or by another entry's same-named skill. `update` handles this the way `add` does (§10.3):
+An update can write into a folder or file it did not own before. This happens when:
+- an entry moves to its declared-name folder (§4.4);
+- an entry is repaired from plugin to skill (§5.5);
+- the source gains a skill, agent or hook the entry takes in (§6.2);
+- a skill's declared name changes upstream.
+
+The target may already be occupied: by a copy Vercel installed, by the user's own copy, or by another entry's same-named skill. `update` handles this the way `add` does (§10.3):
 - **Without `--overwrite`:** `update` stops that entry and leaves the existing install intact. It says why and exits non-zero. This is the partial success across entries that `update` reports today.
 - **With `--overwrite`:** `update` replaces what is in the way.
 
@@ -632,6 +639,7 @@ agntc installs Codex skills into `.agents/skills/` as well. Because identity is 
 **Every command agntc prints is one agntc accepts, and following it reproduces the install it advises on.**
 
 - **Printed `add` commands:**
+  - name the source in a form that reaches the same repository. The `owner/repo` shorthand is used only for GitHub. Any other install prints the form it came from: the `gitlab:` prefix or the GitLab or Azure Repos URL, the GitHub Enterprise URL, the `.git` URL, the SSH address or the local path. Where that form takes no `@skill`, the skill is named with `--skill`;
   - carry `--plugin` whenever the entry is a plugin;
   - name a single skill the way a user selects it, by `@skill` (`owner/repo@skill`), never by manifest key (§4.3);
   - name a plugin member by its path in the repo (`owner/repo/<path>`);

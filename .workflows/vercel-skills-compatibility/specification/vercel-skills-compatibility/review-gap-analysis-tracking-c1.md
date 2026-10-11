@@ -220,8 +220,8 @@ What determined it: the rule's own headline, that following a printed command re
   - name a plugin member by its path in the repo (`owner/repo/<path>`);
   - put versions after `#`, in the `#ref@skill` form where a skill is named (§2.4).
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -264,8 +264,8 @@ A folder that holds `SKILL.md` *and* `skills/` beside `agents/`/`hooks/` is a pl
 §6.6:
 Without the flag, or an `agntc.json` declaring `"type": "plugin"` (§5.1), that root reads as a single skill.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "`--plugin` on a Root Skill Beside `skills/`" (2026-10-11); §5.1 and §6.6 re-aligned.
 
 ---
 
@@ -302,8 +302,8 @@ An update can write into a folder or file it did not own before. This happens wh
 - the source gains a skill, agent or hook the entry takes in (§6.2);
 - a skill's declared name changes upstream.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -336,8 +336,8 @@ New bullet in §7.1 under "On `add`":
 
 "  - A plugin member (§5.3) is not a skill, and no name matches it. It is selected by its path in the source (`owner/repo/<path>`), the form agntc prints for it (§14.1). `--list` (§11.2) and the miss message (§7.2) show each plugin member with that path."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
