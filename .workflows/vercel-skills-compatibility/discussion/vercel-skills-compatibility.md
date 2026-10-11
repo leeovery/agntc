@@ -387,6 +387,13 @@ Put to the owner as a question because it reverses a configless-install decision
 ### Decision
 
 #### 2026-10-11 — revised
+*Trigger: an existing install moves "on its next update", while `update` reinstalls only an entry that has a newer version to move to — an entry at the newest tag, at its branch head, pinned to an exact tag, or whose newer versions all sit outside its constraint is reported up to date and left as it is. An exact pin never moves, so it would never reach its declared-name folder.*
+
+**Settled by derivation** — not discussed. Determined by the move's aim (one name everywhere, and a skill installed by both tools landing on one folder rather than appearing twice), the re-add rule below already moving an old install at whatever version the re-add names, and an exact pin never otherwise reaching a newer version. Moving only when a newer version is installed was the alternative; it leaves current installs in their old folders until a release lands, and exact pins there for good.
+
+The identity stands as recorded in the entries below. Added: **the next update moves an existing install whether or not a newer version is available.** An entry already at its target is reinstalled at the version it has, and its pin, constraint or branch stays as it was.
+
+#### 2026-10-11 — revised
 *Trigger: the one-key rule below covers skills, while a plugin member — a folder discovery reaches holding its own `skills/`, `agents/` or `hooks/`, skill packs included (Units Among Discovered Skills) — keeps the two-key split this section's Context names: the menu keys it by folder name, a path or tree URL by its full path. A path is the only way to select a member without the menu and the form Re-Add Advice Defects prints for it, so a member installed from the menu meets agntc's own printed re-add as a clash with another install.*
 
 **Settled by derivation** — not discussed. Determined by the one-key rule's aim (every route lands on the same entry), a plugin member declaring no name — its location is the identity left — and Re-Add Advice Defects printing a member by its path.
@@ -460,6 +467,13 @@ Sibling check: configless-install — its Collection Membership holds "exactly o
 Settled by the owner's rule — Vercel's reading, and nothing agntc keeps is lost: a real plugin (skills plus `agents/`/`hooks/` at the root, no root `SKILL.md`) is untouched. The repair condition was first taken as unambiguous — a recorded plugin with a `SKILL.md` at its unit root was assumed to come only from the old rule. That holds for skill folders carrying their own `agents/`, but not for a plugin whose author added a root `SKILL.md` beside `skills/` and `agents/`/`hooks/`; the revised decision separates the two by the `skills/` directory.
 
 ### Decision
+
+#### 2026-10-11 — revised
+*Trigger: the repair runs "on their next update", while `update` reinstalls only an entry that has a newer version to move to. A broken install already at its target — up to date, pinned to an exact tag, or with its newer versions all outside its constraint — is reported up to date and stays broken, and an exact pin stays broken for good.*
+
+**Settled by derivation** — not discussed. Determined by the repair's own reason — without it the broken shape persists while a fresh `add` of the same source installs differently — and Skill Identity's move, which the next update makes on the same terms. Repairing only when a newer version is installed was the alternative; it leaves the skill lost and its helper prompts loaded as subagents until a release lands.
+
+The decision stands as recorded in the entries below. Added: **the next update repairs a broken install whether or not a newer version is available**, reinstalling it as a skill at the version it has; its pin, constraint or branch stays as it was.
 
 #### 2026-10-07 — revised
 *Trigger: review finding: a real plugin whose author added a root `SKILL.md` beside `skills/` and `agents/`/`hooks/` would become a single skill under "a directory containing `SKILL.md` is a skill" (the root early-out) — its agents and hooks never routed, its inner skills nested where agents won't load them — and the repair's condition matched its existing installs too. Units are a kept capability, so this was put to the owner.*
