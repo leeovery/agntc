@@ -37,8 +37,8 @@ A bare add, meaning one with no `#` fragment, keeps agntc's default:
 **Proposed Text**:
 A ref carried in the URL itself (a GitHub tree URL's `<ref>`, a GitLab `/-/tree/<ref>/`, an Azure Repos `?version=`) is read the way the same `#` fragment would be (§2.4). A bare add, meaning one that names no ref or version in either place, keeps agntc's default:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -72,8 +72,8 @@ Such a path is handled as a pick by name is, with or without `--plugin`.
 **Proposed Text**:
 Such a path is handled as a pick by name is, with or without `--plugin`, except that a path at one skill together with `--plugin` is refused, as `--plugin` on any single skill is (§6.6).
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Determined by the record: a path is handled as a pick (Selection From a Unit, 2026-10-09), and a pick beside --plugin is refused.
 
 ---
 
@@ -107,8 +107,8 @@ New bullet in §14.1 under "Printed `add` commands", after "carry `--plugin` whe
 
 "  - name the entry's recorded agents with `-a`, so following the command installs for exactly those agents and adds none, at a terminal or from an agent caller (§8.4, §10.5). One command covers only entries recorded for the same agents;"
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Re-Add Advice Defects" (2026-10-11); §14.1 re-aligned.
 
 ---
 
@@ -146,8 +146,8 @@ New bullet in §14.1 under "Printed `add` commands", after "name a plugin member
 
 "  - where one printed line speaks for several entries, as a bulk update's per-group lines do, name every entry it covers and no other. The group's skills share one command, named with `--skill` (`owner/repo#v2.0.0 --skill a b c`). Each plugin member takes a command of its own, by its path;"
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Re-Add Advice Defects" (2026-10-11); §14.1 re-aligned.
 
 ---
 

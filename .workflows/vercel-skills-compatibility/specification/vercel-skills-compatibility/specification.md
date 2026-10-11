@@ -141,7 +141,7 @@ A fragment that does not start with `^` or `~` is a ref (a tag or a branch), rea
 
 #### 2.5 Version a bare add installs
 
-**This diverges from Vercel, to protect semver constraints (§1.4).** Vercel has no version concept and always installs the default branch HEAD. A bare add, meaning one with no `#` fragment, keeps agntc's default:
+**This diverges from Vercel, to protect semver constraints (§1.4).** Vercel has no version concept and always installs the default branch HEAD. A ref carried in the URL itself (a GitHub tree URL's `<ref>`, a GitLab `/-/tree/<ref>/`, an Azure Repos `?version=`) is read the way the same `#` fragment would be (§2.4). A bare add, meaning one that names no ref or version in either place, keeps agntc's default:
 
 - It installs the newest semver tag and records a caret constraint (`^X.Y.Z`), so updates stay within that major version.
 - It installs the default branch when the repo has no semver tags.
@@ -332,7 +332,7 @@ In a menu that mixes skills and plugin members (§5.3), "all" installs each skil
 
 A pick by name (`@skill` or `--skill x`) aimed at a skill inside a unit installs that skill alone. A warning names what the install leaves out: the unit's agents, hooks and other skills. This applies to plugins and to plugin members (§5.3).
 
-A path in the source can also land inside a unit, either at one of its skills (`owner/repo/skills/x`, or a tree URL to that folder) or at a folder of its skills (`owner/repo/skills`). Such a path is handled as a pick by name is, with or without `--plugin`. What it installs carries the same warning, and the line is refused when the unit declares `"type": "plugin"`.
+A path in the source can also land inside a unit, either at one of its skills (`owner/repo/skills/x`, or a tree URL to that folder) or at a folder of its skills (`owner/repo/skills`). Such a path is handled as a pick by name is, with or without `--plugin`, except that a path at one skill together with `--plugin` is refused, as `--plugin` on any single skill is (§6.6). What it installs carries the same warning, and the line is refused when the unit declares `"type": "plugin"`.
 
 The picked skill installs within the unit's agent ceiling, the `agents` list in the unit's `agntc.json` (§8.2). The output names the agents left out, and a pick whose named agents all fall outside that ceiling is refused, as it would be for the unit itself.
 
@@ -646,8 +646,10 @@ agntc installs Codex skills into `.agents/skills/` as well. Because identity is 
 - **Printed `add` commands:**
   - name the source in a form that reaches the same repository. The `owner/repo` shorthand is used only for GitHub. Any other install prints the form it came from: the `gitlab:` prefix or the GitLab or Azure Repos URL, the GitHub Enterprise URL, the `.git` URL, the SSH address or the local path. Where that form takes no `@skill`, the skill is named with `--skill`;
   - carry `--plugin` whenever the entry is a plugin;
+  - name the entry's recorded agents with `-a`, so following the command installs for exactly those agents and adds none, at a terminal or from an agent caller (§8.4, §10.5). One command covers only entries recorded for the same agents;
   - name a single skill the way a user selects it, by `@skill` (`owner/repo@skill`), never by manifest key (§4.3);
   - name a plugin member by its path in the repo (`owner/repo/<path>`);
+  - where one printed line speaks for several entries, as a bulk update's per-group lines do, name every entry it covers and no other. The group's skills share one command, named with `--skill` (`owner/repo#v2.0.0 --skill a b c`). Each plugin member takes a command of its own, by its path;
   - put versions after `#`, in the `#ref@skill` form where a skill is named (§2.4).
 - **Printed `remove` and `update` commands** name the entry the way those commands accept it, by key or skill name (§12.1). They carry no `--plugin`, which `remove` and `update` do not accept.
 
