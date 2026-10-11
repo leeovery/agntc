@@ -224,7 +224,11 @@ An existing install moves to its declared-name folder and key on its next update
 
 A re-add reaches an existing install the same way. An install of the same skill from the same repository, made under its old key or folder, is the installed entry for that re-add (§8.4). It moves to its declared-name folder and key, as an update would move it, and keeps every recorded agent. A re-add never installs a second copy beside it.
 
+Before it moves, an existing install is still known by its skill's declared name. `remove` and `update` match it by that name as well as by its folder name and key (§7.1), and a printed `add` names it by that name (§14.1). So `remove vercel-composition-patterns` reaches an install still in `composition-patterns`.
+
 A plugin member recorded under its folder name moves to its path key on its next update. A re-add reaches it under that old key the same way, and it keeps every recorded agent.
+
+The next update makes these moves, and the repair of §5.5, whether or not a newer version is available. An entry already at its target is reinstalled at the version it has: one that is up to date, pinned to an exact tag, or whose newer versions are all outside its constraint. Its pin, constraint or branch stays as it was.
 
 ### 5. Discovery and Unit Shape
 

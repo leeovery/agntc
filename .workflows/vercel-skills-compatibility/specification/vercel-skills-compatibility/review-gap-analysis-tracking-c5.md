@@ -37,8 +37,8 @@ New paragraph at the end of §4.4:
 
 "The next update makes these moves, and the repair of §5.5, whether or not a newer version is available. An entry already at its target is reinstalled at the version it has: one that is up to date, pinned to an exact tag, or whose newer versions are all outside its constraint. Its pin, constraint or branch stays as it was."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: This session's call. Landed in the discussion as dated revisions to Skill Identity (the move) and Skill-Local Agents Folders (the repair), then applied to §4.4 as staged. Landed under auto.
 
 ---
 
@@ -62,20 +62,18 @@ An existing install is known by its skill's declared name before it moves, just 
 - `remove` and `update` match it by that name, as well as by its folder name and key;
 - a printed `add` names it by that name.
 
-What leaned:
-- The name rule matches the installed skill's declared name, not whatever agntc happened to record at install.
-- The spec's own `remove` example is exactly this install.
-- A re-add already treats an install that hasn't moved as the same skill.
-
-Alternative: match an install that hasn't moved by folder name and key only, with the refusal's install list showing the folder name to retry with. That costs the Vercel-style line its parity on every install made before the change.
+What determined it — the source discussion's own decisions:
+- Update and Remove Surface: `remove` and `update` accept "the skill's declared name or its folder name — as well as agntc keys", with no carve-out for installs made before identity moved. An install that hasn't moved still holds its skill, and that skill's declared name.
+- Re-Add Advice Defects: a printed `add` names a single skill the way a user selects it, by `@skill`. On `add`, that is the declared name.
+- The motivating line for the name rule is this install: `vercel-composition-patterns` declared in the folder `composition-patterns`.
 
 **Proposed Text**:
 New paragraph in §4.4, after the paragraph ending "A re-add never installs a second copy beside it.":
 
 "Before it moves, an existing install is still known by its skill's declared name. `remove` and `update` match it by that name as well as by its folder name and key (§7.1), and a printed `add` names it by that name (§14.1). So `remove vercel-composition-patterns` reaches an install still in `composition-patterns`."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Disposed as the record's own answer (Update and Remove Surface's name rule; Re-Add Advice Defects' `@skill` printing). Landed under auto.
 
 ---
 
