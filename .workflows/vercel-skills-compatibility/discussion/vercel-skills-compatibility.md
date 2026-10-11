@@ -868,6 +868,17 @@ The fix follows from decisions made in this discussion: versions now live after 
 
 ### Decision
 
+#### 2026-10-11 — revised
+*Trigger: printed `add` commands name no agents and speak for one entry, while a re-add under `-y` adds the detected agents (Agent Targeting) — which an agent caller always runs as (Agent Caller Detection) — and the remove-then-add remedy's `add` is a fresh install; and a bulk update prints one upgrade line per group of entries from one repository, today naming the bare repository, which reopens the menu, installs every skill under `-y`, or with `--plugin` converts the group's members into one bundle.*
+
+**Settled by derivation** — not discussed. Determined by this decision's own rule that following a printed command reproduces the install, which rules out a command that widens the agents or names more than the entries it advises on.
+
+The rule stands as recorded below. Added:
+- **Printed `add` commands name the entry's recorded agents with `-a`**, so following one installs for exactly those agents and adds none, at a terminal or from an agent caller. One command covers only entries recorded for the same agents. A version-only re-add adding no agent even under `-y` was the alternative; it fixes the upgrade lines but not the remedy, whose `add` follows a remove.
+- **A printed line that speaks for several entries — a bulk update's per-group lines — names every entry it covers and no other:** the group's skills share one command, named with `--skill` (`owner/repo#v2.0.0 --skill a b c`); each plugin member takes a command of its own, by its path. One command per entry was the alternative; it reproduces the install too, at a line per member.
+
+#### Initial
+
 **Settled by derivation** — not discussed. Determined by the two confirmed defects, the `@`/`#` and skill-identity decisions, and the configless rule that a redundant `--plugin` is a no-op.
 
 **Every command agntc prints is one it accepts and that reproduces the install:** printed `add` commands carry `--plugin` whenever the entry is a plugin, name a single skill the way a user selects it rather than by manifest key, and put versions after `#`; printed `remove` commands name the entry the way `remove` accepts it (its key or skill name) and carry no `--plugin`. *(Amended 2026-10-07 — this read "re-add and remove advice carries `--plugin`"; `remove` accepts no `--plugin`, so the printed remove would fail.)*
