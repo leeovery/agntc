@@ -275,6 +275,25 @@
           }
         }
       }
+    },
+    "planning": {
+      "items": {
+        "vercel-skills-compatibility": {
+          "status": "in-progress",
+          "format": "tick",
+          "spec_commit": "67d101a9dc2ecc834c2fb11cb8b83f7f7d137154",
+          "task_list_gate_mode": "gated",
+          "author_gate_mode": "gated",
+          "finding_gate_mode": "gated",
+          "review_cycle": 0,
+          "phase": 1,
+          "task": null,
+          "task_map": {},
+          "storage_paths": [
+            ".tick/"
+          ]
+        }
+      }
     }
   },
   "seeds": [
