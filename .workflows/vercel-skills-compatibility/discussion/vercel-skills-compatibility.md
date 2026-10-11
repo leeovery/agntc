@@ -349,6 +349,13 @@ Put to the owner as a question because it reverses a configless-install decision
 
 ### Decision
 
+#### 2026-10-11 — revised
+*Trigger: re-adding a skill installed before identity moved to the declared name had no stated outcome — its entry sits under the old key or folder, so the re-add would install a second copy beside it (where the declared name differs from the folder) or meet the old entry as a clash with another install (where only the key differs), and overriding that clash drops the old entry's recorded agents.*
+
+**Settled by derivation** — not discussed. Determined by existing installs carrying over to the new identity rather than being installed again beside it, Agent Targeting's rule that a re-add never drops a recorded agent, and the install folder's aim that the agent never sees two copies side by side.
+
+The identity stands as recorded in the entries below. Added: **a re-add reaches an existing install the way an update does** — an install of the same skill from the same repository, made under its old key or folder, is the installed entry for that re-add; it moves to its declared-name folder and key and keeps every recorded agent. A re-add never installs a second copy beside it.
+
 #### 2026-10-09 — revised
 *Trigger: the key of a skill that is the whole repo (a root `SKILL.md`) was never set apart from "built from the declared name"; configless-install's corrected Keying records it as `owner/repo`.*
 
@@ -552,6 +559,15 @@ Settled by the owner's rule, with one deliberate difference grounded in the scop
 
 ### Decision
 
+#### 2026-10-11 — revised
+*Trigger: `--all` sets the agents itself — every agent — so `add … --all -a cursor` and `remove --all -a cursor` carry two conflicting agent instructions; read as the shorthand it expands to, the `-a` is silently dropped, and the remove deletes every agent's copies where only Cursor's were meant.*
+
+**Settled by derivation** — not discussed. Determined by the scope's never-silently-ignore rule, and Update and Remove Surface's refusal of `--all` beside names.
+
+The flag set stands as recorded below. Added: **`--all` together with `-a`/`--agent` is refused, on `add` and on `remove`**, the message naming the explicit form — `--skill '*' --agent <agents> -y` on `add`, `-s '*' -a <agents> -y` on `remove`.
+
+#### 2026-10-06
+
 - **Vercel's `add` flags with Vercel's meanings:** `-a/--agent`, `-s/--skill`, `-y/--yes`, `--all`, `--full-depth`, `--json` (with `-y` or `--all`, as Vercel requires), and `-l/--list` (names and descriptions, installs nothing, exit 0).
 - **`--copy` is accepted as a no-op** — agntc always copies.
 - **Aliases `a`, `i`, `install`.**
@@ -683,6 +699,15 @@ An unattended `add` has to answer four prompts (research): the collection member
 The only part of `-y` that clashes with something agntc keeps is the silent replacement — the owner's own lean decides it. The agent answer follows the agent-targeting decision (the author's ceiling applies).
 
 ### Decision
+
+#### 2026-10-11 — revised
+*Trigger: at a terminal the clash prompts come before "Proceed with installation?", and "Remove <key> and continue" deletes the other install's files at once today (`src/collision-resolve.ts`) — answering no at the confirmation would leave that install gone, nothing installed, and an exit 0 that reads as a clean cancel.*
+
+**Settled by derivation** — not discussed. Determined by a deliberate cancel being a clean exit 0 (No-TTY Behaviour), and a stopped unit leaving what was in the way intact.
+
+The decision stands as recorded below. Added: **what the clash prompts agree to delete is removed only once "Proceed with installation?" is answered yes.** Answering no there, or cancelling at any prompt, leaves every existing install and file as it was.
+
+#### 2026-10-06
 
 **Settled by derivation** — not discussed. Determined by the owner's recorded stop-and-come-back lean and the agent-targeting decision.
 
