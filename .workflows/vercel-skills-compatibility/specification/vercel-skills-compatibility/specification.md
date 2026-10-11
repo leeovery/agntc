@@ -30,7 +30,8 @@ The reference is Vercel's `skills` CLI v1.7.0 (npm `skills@1.7.0`, commit `7407f
   - Notion sources;
   - direct links to a single `SKILL.md` or an archive;
   - Vercel's canonical `.agents/skills` store with symlink fan-out (§1.6);
-  - the skills.sh blob fast path for allowlisted owners. agntc always clones, and the content is the publisher's repo either way.
+  - the skills.sh blob fast path for allowlisted owners. agntc always clones, and the content is the publisher's repo either way;
+  - Vercel's security-audit display: the advisory "Security Risk Assessments" table and the audit data behind `--json`'s `security` field, both fed by skills.sh's audit service. agntc calls no skills.sh service, and an advisory table changes nothing about the install (§1.6).
 
 A line that needs any of these is refused (§1.5), with a message naming the capability agntc doesn't support. It is never silently treated as something agntc does support.
 
@@ -469,7 +470,7 @@ Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` �
 - The array holds one entry per skill, with Vercel's fields (`AddJsonResult` in Vercel's `src/add.ts`):
   - `name`;
   - `status`, one of `installed`, `skipped` or `failed`;
-  - for installed skills, where the install came from and went to: `source`, `ref`, `hash` (the skill folder's content hash, as Vercel computes it), `path`, `scope` (always `project`), `agents`, `mode` (always `copy`) and `security` (always `null`, as Vercel emits it where it holds no security-audit data);
+  - for installed skills, where the install came from and went to: `source`, `ref`, `hash` (the skill folder's content hash, as Vercel computes it), `path`, `scope` (always `project`), `agents`, `mode` (always `copy`) and `security` (always `null`, as Vercel emits it where it holds no security-audit data; the audit display is out of scope, §1.3);
   - for skipped skills, `reason`;
   - for failed skills, `error`.
 
@@ -551,7 +552,7 @@ After cloning, `add` today goes straight to its prompts with little context. The
 
 #### 11.1 What `add` shows
 
-The display follows Vercel's order and is sized for agntc's three agents rather than Vercel's 79-agent list:
+The display follows Vercel's order and is sized for agntc's three agents rather than Vercel's 79-agent list. It carries no security-risk table (§1.3):
 
 1. **The source and the version** being installed. For a bare add this is the resolved tag, or the default branch, which includes the fallback of §2.5.
 2. **The detected shape:**

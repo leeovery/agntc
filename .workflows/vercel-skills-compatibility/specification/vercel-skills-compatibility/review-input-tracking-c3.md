@@ -26,8 +26,8 @@ Whether agntc shows Vercel's security assessments is the owner's scope call. The
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Derived (skills.sh-backed capabilities are out; behaves-the-same bar) and landed in the discussion as a dated revision of "Like-for-Like Scope" (2026-10-11); §1.3, §9.2 and §11.1 re-aligned.
 
 ---
 
