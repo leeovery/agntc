@@ -350,6 +350,13 @@ Put to the owner as a question because it reverses a configless-install decision
 ### Decision
 
 #### 2026-10-11 — revised
+*Trigger: the one-key rule below covers skills, while a plugin member — a folder discovery reaches holding its own `skills/`, `agents/` or `hooks/`, skill packs included (Units Among Discovered Skills) — keeps the two-key split this section's Context names: the menu keys it by folder name, a path or tree URL by its full path. A path is the only way to select a member without the menu and the form Re-Add Advice Defects prints for it, so a member installed from the menu meets agntc's own printed re-add as a clash with another install.*
+
+**Settled by derivation** — not discussed. Determined by the one-key rule's aim (every route lands on the same entry), a plugin member declaring no name — its location is the identity left — and Re-Add Advice Defects printing a member by its path.
+
+The identity stands as recorded in the entries below. Added: **a plugin member installed on its own keys as `owner/repo/<path>`, its folder's path in the repository, however it was selected** — the string `list` shows, `remove` takes and `add` accepts. A path is unique within a repository, where folder names repeat across category folders. A member at the repository root keys as it does today; one recorded under its folder name moves to its path key on its next update, and a re-add reaches it under that old key and keeps every recorded agent. Keying by folder name was the alternative; it keeps today's menu keys but needs a tie-break where two members share a folder name.
+
+#### 2026-10-11 — revised
 *Trigger: re-adding a skill installed before identity moved to the declared name had no stated outcome — its entry sits under the old key or folder, so the re-add would install a second copy beside it (where the declared name differs from the folder) or meet the old entry as a clash with another install (where only the key differs), and overriding that clash drops the old entry's recorded agents.*
 
 **Settled by derivation** — not discussed. Determined by existing installs carrying over to the new identity rather than being installed again beside it, Agent Targeting's rule that a re-add never drops a recorded agent, and the install folder's aim that the agent never sees two copies side by side.
