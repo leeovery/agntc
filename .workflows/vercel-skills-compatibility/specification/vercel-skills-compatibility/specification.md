@@ -258,7 +258,7 @@ Every walk follows these rules:
 
 - It never enters a plugin member (§5.3).
 - The walks over the search roots never go below a skill they have found. The fallback walk, as Vercel's does (`findSkillDirs`, Vercel's `src/skills.ts:135–153`), keeps descending into a skill's folder, and lists any skill nested inside it as a skill of its own.
-- It never enters `node_modules`, `.git`, `dist`, `build` or `__pycache__`.
+- It never descends through `node_modules`, `.git`, `dist`, `build` or `__pycache__`. The walks over the search roots still check a folder of one of those names for a `SKILL.md` of its own, so `skills/build/SKILL.md` is a skill. The fallback walk skips those folders outright. This is how Vercel's walks apply the same list. Measured in `vercel-labs/skills` at `v1.7.0`: `grep -n "SKIP_DIRS" src/skills.ts` → `10` (the list), `149` (the fallback walk's filter, before it enters a folder), `296` (the container walks' test, after `tryAddSkillAt(childDir)` at `292` has checked the folder's own `SKILL.md`).
 - It never follows a symlinked directory.
 - When two skills declare the same name, the first in priority order is kept.
 - Skills in the source's own agent directories are skipped when the source's own `skills-lock.json` records them as installed. These are skills the author pulled in, not wrote, and Vercel skips them the same way. This is the only time agntc reads a `skills-lock.json` (§13).

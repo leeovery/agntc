@@ -77,8 +77,8 @@ The source carries the same assertion. The discussion's discovery-walk passage, 
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measurement re-run; every conclusion survives. The corrected skip-list behaviour landed in the discussion's Container Depth and Discovery Roots context (repaired in place, reindexed); §5.2's walk rule re-aligned to it.
 
 ---
 
