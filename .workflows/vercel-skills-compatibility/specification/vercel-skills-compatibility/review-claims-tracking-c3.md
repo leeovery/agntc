@@ -36,8 +36,8 @@ Here `--all` overwrites any `-a`, so the add half of the premise holds.
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measured correction landed in the discussion as a dated revision of "Install Flag Set" (2026-10-11): add keeps the refusal, remove --all -a follows Vercel. §12.3 re-aligned.
 
 ---
 

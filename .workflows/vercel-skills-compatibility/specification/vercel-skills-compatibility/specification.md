@@ -589,7 +589,7 @@ Both commands take one or more positional arguments. Each argument is a skill na
 |---|---|
 | `-s`, `--skill <skills…>` | Same as positional names. `-s '*'` selects every install but still asks for confirmation. |
 | `-y`, `--yes` | Skip the confirmation. |
-| `--all` | Remove every install. Implies `-y`, and cannot be combined with names or with `-a`. The refusal names `-s '*' -a <agents> -y` for removing from some agents only. |
+| `--all` | Remove every install. Implies `-y`, and cannot be combined with names. With `-a`, it removes every install from those agents only, as Vercel's does (v1.7.0 `src/remove.ts:413–415` and `:210–211`). |
 | `-a`, `--agent <agents…>` | Remove from those agents only. The entry keeps its other agents. It takes the agent names `add` takes (§8.1) and refuses an agent agntc doesn't drive. |
 
 Removing an entry from every agent it is installed for removes the entry. `remove` also takes the aliases `rm` and `r`. `-g` is refused (§1.3).
