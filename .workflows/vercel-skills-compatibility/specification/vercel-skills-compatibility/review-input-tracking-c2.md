@@ -42,8 +42,8 @@ A plugin member (§5.3) installed on its own has exactly one key, `owner/repo/<p
 
 A plugin member recorded under its folder name moves to its path key on its next update. A re-add reaches it under that old key the same way, and it keeps every recorded agent.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Skill Identity" (2026-10-11); §4.3 and §4.4 re-aligned.
 
 ---
 

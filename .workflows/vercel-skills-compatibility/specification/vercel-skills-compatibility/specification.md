@@ -211,6 +211,8 @@ When a skill is installed by both agntc and Vercel's CLI, both land on the same 
 
 A skill installed on its own has exactly one manifest key, `owner/repo/<folder>`, where `<folder>` is its install folder name (§4.2). The key is the same however the skill was selected: from the menu, by `@name`, by `--skill`, by a subpath, or by a tree URL. A skill that is the whole repo (a root `SKILL.md`) keys as `owner/repo`, as it does today.
 
+A plugin member (§5.3) installed on its own has exactly one key, `owner/repo/<path>`, where `<path>` is its folder's path in the repository. The key is the same whether the member was picked from the menu or selected by its path in the source (§7.1). A plugin member at the repository root keys as it does today.
+
 Today one skill can end up with two keys depending on how it was selected. The collection menu keys a member by its folder basename (`owner/repo/composition-patterns`). A tree URL keys it by its full subpath (`owner/repo/skills/composition-patterns`), because `parseDirectPath` in `src/source-parser.ts` builds the key from everything after the ref.
 
 A key is never an install source. A path in a source string is always a path into the repo (§2.1), and agntc never prints a key as a source (§14). `remove` and `update` accept keys (§12).
@@ -220,6 +222,8 @@ A key is never an install source. A path in a source string is always a path int
 An existing install moves to its declared-name folder and key on its next update. If the target folder is already occupied, update handles it as §12 sets out.
 
 A re-add reaches an existing install the same way. An install of the same skill from the same repository, made under its old key or folder, is the installed entry for that re-add (§8.4). It moves to its declared-name folder and key, as an update would move it, and keeps every recorded agent. A re-add never installs a second copy beside it.
+
+A plugin member recorded under its folder name moves to its path key on its next update. A re-add reaches it under that old key the same way, and it keeps every recorded agent.
 
 ### 5. Discovery and Unit Shape
 
