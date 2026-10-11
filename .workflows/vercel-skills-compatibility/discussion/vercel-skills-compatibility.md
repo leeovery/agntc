@@ -336,7 +336,7 @@ Vercel names a skill by its declared frontmatter `name` everywhere: selection, t
 ### Options Considered
 
 **Declared name for folder and key (Vercel's)**
-- Pros: one name everywhere — typed, used by the agent, shown in `list`/`remove`, and the folder Vercel creates; a skill installed by both tools lands on one folder (a visible clash through the untracked-files path) instead of appearing twice to the agent
+- Pros: one name everywhere — typed, used by the agent, shown in `list`/`remove`, and the folder Vercel creates; a skill installed by both tools lands on one folder for Claude and Codex (a visible clash through the untracked-files path) instead of appearing twice to the agent — not for Cursor, whose copies the two tools keep in different folders (Vercel Install Coexistence)
 - Cons: existing installs move folders on their next update
 
 **Folder name, as today**
@@ -845,6 +845,11 @@ A project may already hold skills installed by Vercel's CLI: a canonical copy in
 No clash: Vercel's files are, to agntc, files it does not manage, and the existing untracked-files path (prompt; `--overwrite` unattended) already handles them. Copy-safety's boundary rules out writing through a link.
 
 ### Decision
+
+#### 2026-10-11 — revised
+*Trigger: measured — for Cursor the two tools' copies never meet. Vercel v1.7.0 installs Cursor's copy into `.agents/skills/` (`src/agents.ts`, cursor `skillsDir: '.agents/skills'`), agntc into `.cursor/skills/` (`src/drivers/cursor-driver.ts:8`), and agntc's untracked-files check covers only its own incoming files (`checkUnmanagedConflicts` over `incomingFiles`, `src/commands/add.ts`). Cursor reads both folders (cursor-agent-driver discussion), so a skill both tools installed appears to Cursor twice, with no clash shown.*
+
+Put to the owner with a call; the owner agreed. The coexistence stands as recorded in the entries below. Added: **installing a skill for Cursor where `.agents/skills/` already holds a same-named skill agntc does not manage installs it and warns that Cursor will see two copies.** Treating that copy as in the way was the alternative; its `--overwrite` remedy would delete Vercel's shared copy, which Codex and Vercel's other agents also read. Claude and Codex keep the visible clash, both tools sharing their folder.
 
 #### 2026-10-08 — revised
 *Trigger: discovery reads a source repo's own `skills-lock.json` to skip the skills it records as installed (Units Among Discovered Skills); the lock line below concerns the project's lock.*
