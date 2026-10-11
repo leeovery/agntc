@@ -24,16 +24,17 @@ status: draft
 ### Phase 2: Discovery finds skills where Vercel's does
 status: draft
 
-**Goal**: `add`'s menu offers every skill Vercel's discovery would find: category-nested skills, `.curated`/`.experimental`/`.system`, agent directories, plugin manifests, the five-level fallback and `--full-depth`. Plugin members are offered whole and internal skills are hidden. A source with nothing installable is refused.
+**Goal**: `add`'s menu offers every skill Vercel's discovery would find: category-nested skills, `.curated`/`.experimental`/`.system`, agent directories, plugin manifests, the five-level fallback and `--full-depth`. Plugin members are offered whole and internal skills are hidden. Installables that would share a name, install folder or key are offered once, first in priority order. A source with nothing installable is refused.
 
-**Why this order**: Extends Phase 1's skill model to every place Vercel looks. Dedup by declared name and the internal flag both come from Phase 1's frontmatter reading. Bundles, selection and the pre-install summary all build on the member set discovery produces.
+**Why this order**: Extends Phase 1's skill model to every place Vercel looks. Deduplication by declared name and install folder, and the internal flag, come from Phase 1's frontmatter reading and sanitizing. Bundles, selection and the pre-install summary all build on the member set discovery produces.
 
 **Acceptance**:
 - [ ] Given a category-nested repo (`skills/<category>/<skill>/SKILL.md`, the shape of `mattpocock/skills`), when `add` runs, the menu offers every skill by declared name and a picked skill installs flat in its own folder (today: "Cancelled — no plugins selected", exit 0)
 - [ ] Given skills only under `skills/.curated/`, under one of Vercel's agent directories such as `.claude/skills/`, or in a directory declared in `.claude-plugin/marketplace.json`, when `add` runs, the menu offers them
 - [ ] Given a source whose own `skills-lock.json` records a skill in its own `.claude/skills/`, when `add` runs, that skill is not offered
 - [ ] Given a source whose search roots find nothing and whose only SKILL.md sits four folders deep, when `add` runs, the fallback walk offers it; given `--full-depth` on a repo with a root SKILL.md and nested skills, the menu offers the nested skills (including one nested inside another skill's folder) instead of installing the root as a single skill
-- [ ] Given two skills declaring the same name, the menu offers only the one first in priority order; given `skills/build/SKILL.md`, it is offered; skills reachable only through `node_modules/` or a symlinked directory are not
+- [ ] Given two skills declaring the same name, or declared names that collide only once sanitized (`Foo Bar` and `foo-bar`), the menu offers only the one first in priority order; given `skills/build/SKILL.md`, it is offered; skills reachable only through `node_modules/` or a symlinked directory are not
+- [ ] Given a top-level plugin member `foo/` and `skills/bar/SKILL.md` declaring `name: foo` (both would key `owner/repo/foo`), when `add` runs, the menu offers the member and not the skill
 - [ ] Given a non-hidden folder with `skills/`, `agents/` or `hooks/` and no SKILL.md, the menu offers it as one entry and picking it installs it whole with agents and hooks routed; nothing under `.git/` is ever offered; given a tree URL naming such a folder (including a skills-only pack), it installs that member whole without a menu
 - [ ] Given a skill whose frontmatter sets `metadata.internal: true`, it is absent from the menu
 - [ ] Given a source where discovery finds nothing installable, when `add` runs, it exits non-zero, writes nothing, and says nothing installable was found
@@ -42,14 +43,15 @@ status: draft
 ### Phase 3: `--plugin` bundles everything discovery finds
 status: draft
 
-**Goal**: `--plugin` and `"type": "plugin"` bundle a whole source as one entry. Every discovered skill installs flat in its own folder, internal skills included, and plugin members' skills, agents and hooks are routed to their places. The bundle installs within every ceiling it holds, refuses only the shapes §6.6 refuses, and re-derives its contents on every update.
+**Goal**: `--plugin` and `"type": "plugin"` bundle a whole source as one entry. Every discovered skill installs flat in its own folder, internal skills included. Plugin members' skills, agents and hooks are routed to their places, and no two of the bundle's installables write the same path. The bundle installs within every ceiling it holds, refuses only the shapes §6.6 refuses, and works out its contents again on every update.
 
-**Why this order**: A bundle is defined as every skill discovery finds, so this follows Phase 2 directly. It fixes what a bundle holds before Phase 4 migrates installs onto it and before Phase 7 decides how picks meet bundles.
+**Why this order**: A bundle is defined as every skill discovery finds, so this follows Phase 2 directly, and it leaves out colliding member content by Phase 2's priority order. It fixes what a bundle holds before Phase 4 migrates installs onto it and before Phase 8 decides how picks meet bundles.
 
 **Acceptance**:
 - [ ] Given a category-nested skills-only repo, when added with `--plugin`, the manifest gains one entry, every discovered skill (internal ones included) lands flat in its own declared-name folder, and no category folder appears in any agent's skills directory
 - [ ] Given a tree URL to one category folder with `--plugin`, the bundle holds only that folder's skills
 - [ ] Given a source with plugin member folders at its top level (today refused "collection of N members — cannot bundle"), when added with `--plugin` or with `agntc.json` declaring `"type": "plugin"`, it installs as one entry with each member's skills in the skills directory, agents in `.claude/agents/` and hooks in `.claude/hooks/`
+- [ ] Given a source where a top-level member and a member under `skills/` each ship `agents/reviewer.md`, when added with `--plugin`, the top-level member's `reviewer.md` is installed and the output names `reviewer.md` and the member under `skills/` as left out; given a loose skill installing into `x` ahead of a member whose `skills/x/` also lands in `x`, the loose skill's copy is installed and the output names the member's `x` and that member
 - [ ] Given a bundle in which one member's `agntc.json` restricts to Claude, when Claude and Cursor are chosen, the bundle installs for Claude only and the output names Cursor as left out
 - [ ] Given a lone root SKILL.md, or a root SKILL.md beside `agents/` with no `"type": "plugin"`, when added with `--plugin`, the command exits non-zero, writes nothing and names the refusal; given a root SKILL.md beside `skills/` alone, `--plugin` bundles the skills under `skills/` without the root SKILL.md; given a plugin, `--plugin` changes nothing
 - [ ] Given an installed bundle whose source has since gained one skill and lost another, when `update` runs, the new skill is installed, the removed skill's files are gone, and the manifest still holds one entry
@@ -73,20 +75,34 @@ status: draft
 ### Phase 5: Vercel's source forms and hosts
 status: draft
 
-**Goal**: `add` accepts and correctly clones every Vercel source form: path shorthand, `github:`/`gitlab:` prefixes, GitHub tree URLs with an optional path, GitLab nested groups and `/-/tree/`, Azure Repos `_git`, `GH_HOST`, and SSH/`ssh://`/`.git` URLs with their whole path. It reads https URLs in Vercel's order and refuses out-of-scope forms by name. `update` and `remove` keep working on what these forms install.
+**Goal**: `add` accepts and correctly clones every Vercel source form: path shorthand, `github:`/`gitlab:` prefixes, GitHub tree URLs with an optional path, GitLab nested groups and `/-/tree/`, Azure Repos `_git`, `GH_HOST`, and SSH/`ssh://`/`.git` URLs with their whole path. Each install keys its repository by the repository's own name and the namespace directly above it. https URLs are read in Vercel's order and out-of-scope forms are refused by name. `update` and `remove` keep working on what these forms install.
 
-**Why this order**: Additive parsing work that doesn't depend on selection. It comes before the `@`/`#` change so the `owner/repo/<path>` form already exists when Phase 6's miss messages print it and Phase 7's paths into units rely on it.
+**Why this order**: Additive parsing work that doesn't depend on selection. Each key's repository part comes from parsing the source, so the host forms and their keys land together, before Phase 6 decides which installs are one repository. It comes before the `@`/`#` change so the `owner/repo/<path>` form already exists when Phase 7's miss messages print it and Phase 8's paths into units rely on it.
 
 **Acceptance**:
 - [ ] Given `owner/repo/skills/foo` (today refused as "too many slashes"), when added, it installs the skill at that path; given a path that escapes the repo with `..`, the command exits non-zero and writes nothing
 - [ ] Given `github:owner/repo` and `gitlab:owner/repo`, each clones from its host; given `https://github.com/owner/repo/tree/main` with no path, it installs from `main`
-- [ ] Given `https://gitlab.com/group/subgroup/repo`, it clones `group/subgroup/repo`; given a GitLab `/-/tree/<ref>/<path>` URL or an Azure Repos `_git` URL with `?path=` and `?version=`, it installs that path at that ref with no constraint recorded
-- [ ] Given `GH_HOST=ghe.example.com`, `https://ghe.example.com/owner/repo` clones as a GitHub source
-- [ ] Given `git@gitlab.com:group/subgroup/repo.git`, it clones that full path (today `group/subgroup.git`); given `ssh://git@github.com/owner/repo.git`, it clones over SSH as given; given `https://git.example.com/team/repo.git`, it clones that URL
+- [ ] Given `https://gitlab.com/acme/platform/skills`, it clones `acme/platform/skills` and keys the install `platform/skills`; given a GitLab `/-/tree/<ref>/<path>` URL, it installs that path at that ref with no constraint recorded, keyed by the repository path before `/-/`
+- [ ] Given `https://dev.azure.com/org/project/_git/repo` with `?path=` and `?version=`, it installs that path at that ref with no constraint recorded, keyed `project/repo`
+- [ ] Given `GH_HOST=ghe.example.com`, `https://ghe.example.com/owner/repo` clones as a GitHub source keyed `owner/repo`
+- [ ] Given `git@gitlab.com:group/subgroup/repo.git`, it clones that full path (today `group/subgroup.git`) and keys `subgroup/repo`; given `ssh://git@github.com/owner/repo.git`, it clones over SSH as given; given `https://git.example.com/team/repo.git`, it clones that URL
 - [ ] Given a raw.githubusercontent.com, codeload.github.com or objects.githubusercontent.com link, a github.com `/archive/`, `/raw/` or `/releases/download/` link, or a gitlab.com `/-/archive/` or `/-/raw/` link, the command exits non-zero naming direct-download links as unsupported and clones nothing; given `https://example.com/owner/repo` (no `.git`), a skills.sh pack link or a Notion source, it exits non-zero naming that source kind as unsupported
-- [ ] Given entries installed from a GitLab nested-group URL, an Azure Repos URL and an SSH address, when `update` and `remove` run on them, they act on that same repository
+- [ ] Given entries installed from a GitLab nested-group URL, an Azure Repos URL and an SSH address, when `update` and `remove` run on them, they act on that same repository; given entries installed today from `owner/repo` or a two-segment gitlab.com URL, their keys are unchanged after `update`
 
-### Phase 6: `@` selects skills; versions move to `#`
+### Phase 6: Repository identity across forms and hosts
+status: draft
+
+**Goal**: agntc knows when two sources name the same repository: host and repository path match, whatever form names them. Adding again from the same repository updates the existing install, and the entry records the form it was given. An install from a different repository onto a key another install holds is a clash with another managed install, never a re-add and never a silent replacement. `update` and `remove` act on each entry's own repository, and a key that reaches entries from two repositories is refused with their keys listed.
+
+**Why this order**: Needs every host form and its two-segment key (Phase 5), and a re-add that keeps its recorded agents (Phase 4). Today any key match is read as a reinstall, so once Phase 5's prefixes and hosts let two repositories land on one key, the second silently replaces the first. Settling identity now means the later phases all use it: Phase 11's `-y` stops on this clash, Phase 13's name refusals list repositories, and Phase 15 prints the form each entry records.
+
+**Acceptance**:
+- [ ] Given a skill installed for Claude from `owner/repo`, when it is re-added from `https://github.com/owner/repo` or `git@github.com:owner/repo.git` choosing Cursor at the agent prompt, it is a re-add of that entry with no clash prompt, the entry keeps Claude and adds Cursor, and its recorded source becomes the form given, which the next `update` clones from
+- [ ] Given a root skill keyed `owner/repo` installed from GitHub, when `gitlab:owner/repo` is added at a terminal, it meets "Remove owner/repo and continue"; declining or cancelling leaves the GitHub install and its files as they were; accepting removes it and the GitLab install takes the key `owner/repo`
+- [ ] Given an install from `https://gitlab.com/a/tools/skills` when `https://gitlab.com/b/tools/skills` is added, or an install from GitHub `owner/repo` when its `GH_HOST` Enterprise mirror is added, the same clash prompt is met and nothing is replaced unless it is accepted
+- [ ] Given `owner/repo/a` installed from GitHub and `owner/repo/b` installed from GitLab, `update` with no argument updates each from its own repository; `remove owner/repo` and `update owner/repo` each exit non-zero, change nothing, and list both keys; `remove owner/repo/a` removes only the GitHub entry
+
+### Phase 7: `@` selects skills; versions move to `#`
 status: draft
 
 **Goal**: `@` and `-s/--skill` select skills by declared name: case-insensitive and exact, `'*'` for all, internal skills when named. `#` carries constraints, tags and branches, including `#ref@skill`. A bare add falls back to the default branch when the newest tag lacks the pick. Any unmatched name refuses the whole line and lists what's available.
@@ -102,27 +118,28 @@ status: draft
 - [ ] Given a bare `add owner/repo@new-skill` where the newest tag lacks `new-skill` but the default branch has it, it installs from the default branch, says so, and records no constraint; the same holds when the newest tag holds nothing installable
 - [ ] Given an exact-pinned entry with newer tags, when `update` prints its upgrade advice (single key or all-mode), the version appears after `#`, never after `@`
 
-### Phase 7: Picks and "all" meet units
+### Phase 8: Picks and "all" meet units
 status: draft
 
-**Goal**: Vercel's selection meets agntc's units. "All" never splits a unit. A named pick or a path that lands inside a unit installs that skill alone, with a warning naming what's left out, within the unit's ceiling. `"type": "plugin"` and `--plugin` refuse a named pick.
+**Goal**: Vercel's selection meets agntc's units. "All" never splits a unit, and across an "all" run's entries, a member's skill, agent or hook that lands on a path an earlier installable takes is left out and named. A named pick or a path that lands inside a unit installs that skill alone, with a warning naming what's left out, within the unit's ceiling. `"type": "plugin"` and `--plugin` refuse a named pick.
 
-**Why this order**: Picks need name selection (Phase 6) and path forms (Phase 5). This phase defines how those picks meet the units and bundles settled in Phases 1–3.
+**Why this order**: Picks need name selection (Phase 7) and path forms (Phase 5). This phase defines how those picks meet the units and bundles settled in Phases 1–3, and applies Phase 3's same-path rule across separate entries.
 
 **Acceptance**:
 - [ ] Given a plugin source, or one declaring `"type": "plugin"`, when added with `--skill '*'`, the whole unit installs as one entry with its agents and hooks
 - [ ] Given a menu mixing loose skills and plugin members, when added with `--skill '*'`, each skill installs as its own entry and each plugin member installs whole
+- [ ] Given a menu where a top-level member and a member under `skills/` each ship `agents/reviewer.md`, when added with `--skill '*'`, each member installs as its own entry, the top-level member with `reviewer.md` and the other without it, and the output names `reviewer.md` and that member as left out
 - [ ] Given `owner/repo@x` where `x` sits inside a plugin or plugin member that declares no `"type": "plugin"`, `x` alone installs as a skill, a warning names the agents, hooks and other skills left out, and the agent prompt offers only the unit's ceiling
 - [ ] Given the same pick when the unit's `agntc.json` declares `"type": "plugin"`, the command exits non-zero, installs nothing, and names the whole-unit install instead
 - [ ] Given a path landing inside a unit (`owner/repo/skills/x`, a tree URL to that folder, or `owner/repo/skills`), it installs as a pick with the same warning and is refused when the unit declares `"type": "plugin"`; with `--plugin`, a path at one skill is refused while a path at a folder of skills bundles that folder
 - [ ] Given `--plugin` with `--skill x` or `@x`, the command exits non-zero naming the conflict; given `--plugin` with `--skill '*'`, the whole bundle installs
 
-### Phase 8: Naming target agents with `-a`
+### Phase 9: Naming target agents with `-a`
 status: draft
 
 **Goal**: `-a/--agent` names target agents in Vercel's or agntc's spellings (variadic, repeatable, `'*'`) and refuses agents agntc doesn't drive. Each unit installs within its author's ceiling. A single-unit run is refused when the ceiling excludes every named agent; a multi-unit run skips that unit and exits non-zero.
 
-**Why this order**: The ceiling rules can only be exercised fully once agents are named explicitly. Multi-unit runs rely on Phase 6's multiple names, and Phase 7's picks inherit a unit's ceiling. Unattended runs in Phase 10 target detected agents through the same ceilings.
+**Why this order**: The ceiling rules can only be fully exercised once agents are named explicitly. Multi-unit runs rely on Phase 7's multiple names, and Phase 8's picks inherit a unit's ceiling. Unattended runs in Phase 11 target detected agents through the same ceilings.
 
 **Acceptance**:
 - [ ] Given `-a claude-code cursor`, `-a claude`, `-a codex -a cursor` or `-a '*'`, the install targets exactly those agents (all three for `'*'`) with no agent prompt
@@ -132,12 +149,12 @@ status: draft
 - [ ] Given a run installing several entries where one is restricted to Claude, when added with `-a cursor`, the others install, that entry is skipped with a message, and the command exits non-zero (today 0)
 - [ ] Given a Claude install, when re-added with `-a cursor`, Cursor is added and Claude's copy stays
 
-### Phase 9: Pre-install summary and `--list`
+### Phase 10: Pre-install summary and `--list`
 status: draft
 
 **Goal**: After cloning, an attended `add` shows the source and version, the detected shape, each skill's name and description, any hooks, and the target agents. It then asks "Proceed with installation?" before anything is deleted or written. `-l/--list` prints the same listing, installs nothing and needs no terminal.
 
-**Why this order**: The display draws on shape and names (Phases 1–3), versions and the default-branch fallback (Phase 6) and target agents (Phase 8). It introduces the final confirmation that Phase 10's `-y` answers.
+**Why this order**: The display draws on shape and names (Phases 1–3), versions and the default-branch fallback (Phase 7) and target agents (Phase 9). It introduces the final confirmation that Phase 11's `-y` answers.
 
 **Acceptance**:
 - [ ] Given a bare `add owner/repo` at a terminal, after cloning it shows the source and resolved tag (or the default branch, naming the fallback when it applied), the detected shape, each skill's name and one-line description, and the target agents, then asks "Proceed with installation?"; answering no writes nothing and leaves existing installs as they were
@@ -146,43 +163,43 @@ status: draft
 - [ ] Given a clash prompt answered "Remove <key> and continue" followed by "no" at "Proceed with installation?", the other install remains intact
 - [ ] Given `add owner/repo --list` with no terminal, it prints the source, version, shape and skills with descriptions, installs nothing, and exits 0
 
-### Phase 10: Unattended `add`
+### Phase 11: Unattended `add`
 status: draft
 
-**Goal**: `add` runs without prompts under `-y` or when a detected AI agent is the caller. Anything in a unit's way stops that unit unless `--overwrite` is given. A prompt that cannot be shown refuses the command before anything opens, naming what answers it.
+**Goal**: `add` runs without prompts under `-y` or when a detected AI agent is the caller. Anything in a unit's way, including an install from another repository holding its key, stops that unit unless `--overwrite` is given. A prompt that cannot be shown refuses the command before anything opens, naming what answers it.
 
-**Why this order**: `-y` answers the prompts that are complete as of Phase 9, and targets detected agents within Phase 8's ceilings. The no-terminal refusal can only name what answers each prompt once the full prompt set exists.
+**Why this order**: `-y` answers the prompts that are complete as of Phase 10, and targets detected agents within Phase 9's ceilings. Its clash handling covers every clash already in place, including Phase 6's install from another repository onto a held key. The no-terminal refusal can only name what answers each prompt once the full prompt set exists.
 
 **Acceptance**:
 - [ ] Given `add owner/repo -y` on a skills-only repo with Claude detected, every non-internal skill installs as its own entry for Claude with no prompts and exits 0; with no agent detected, they install for every agent within each entry's ceiling
-- [ ] Given `-y` where an entry's target holds untracked files or another managed install, that entry stops, what was in the way stays, the message names `--overwrite`, other entries install, and the command exits non-zero
-- [ ] Given `-y --overwrite` with the same clashes, the untracked files are overwritten and the clashing managed install is removed, with no prompt
+- [ ] Given `-y` where an entry's target holds untracked files or another managed install, or its key is held by an install from another repository (e.g. `add gitlab:owner/repo -y` over a GitHub `owner/repo` install), that entry stops, what was in the way stays, the message names `--overwrite`, other entries install, and the command exits non-zero
+- [ ] Given `-y --overwrite` with the same clashes, the untracked files are overwritten and the clashing managed install is removed with no prompt, the new install taking its key
 - [ ] Given no terminal and no `-y`, `add owner/repo` exits non-zero without waiting on input, writes nothing, and names `-s/--skill`, `-a/--agent` and `-y`
 - [ ] Given `add` run from within an AI agent (detected as Vercel detects it), "Agent detected — installing non-interactively" replaces the banner and it behaves as `-y`; given only `CURSOR_TRACE_ID` set, it behaves as an attended run
 - [ ] Given a plugin carrying hooks under `-y`, it installs with its hooks and the summary lists them by name
 - [ ] Given a terminal without `-y` or `--overwrite`, the clash prompts behave as today, and a deliberate cancel exits 0
 
-### Phase 11: Vercel's full `add` flag set and `--json`
+### Phase 12: Vercel's full `add` flag set and `--json`
 status: draft
 
 **Goal**: `add` accepts Vercel's full flag set and aliases (`--all`, `--copy`, `a`/`i`/`install`). It refuses `-g`, `--subagent`, `--metadata`, `--all` together with `-a`, and unrecognised flags, naming each. `--json` follows Vercel's one-array contract.
 
-**Why this order**: `--all` composes `--skill '*'` (Phase 6), `--agent '*'` (Phase 8) and `-y` (Phase 10), and `--json` requires `-y` or `--all`. Closing the flag set here means the unknown-flag refusal reflects the final set.
+**Why this order**: `--all` composes `--skill '*'` (Phase 7), `--agent '*'` (Phase 9) and `-y` (Phase 11), and `--json` requires `-y` or `--all`. Closing the flag set here means the unknown-flag refusal reflects the final set.
 
 **Acceptance**:
 - [ ] Given `npx agntc install owner/repo --all` (or the aliases `a` and `i`), it behaves as `--skill '*' --agent '*' -y`
 - [ ] Given `--copy`, the install proceeds unchanged
 - [ ] Given `-g`, `--subagent`, `--metadata` or an unrecognised flag, the command exits non-zero, writes nothing, and names the flag; given `--all -a claude`, it is refused and names `--skill '*' --agent <agents> -y`
-- [ ] Given `add owner/repo --json -y`, stdout carries exactly one JSON array with one entry per skill (including skills installed as part of a unit) carrying Vercel's fields — `name`, `status`, `source`, `ref`, `hash`, `path`, `scope: "project"`, `agents`, `mode: "copy"`, `security: null` — and all progress goes to stderr
+- [ ] Given `add owner/repo --json -y`, stdout carries exactly one JSON array with one entry per skill (including skills installed as part of a unit) carrying Vercel's fields (`name`, `status`, `source`, `ref`, `hash`, `path`, `scope: "project"`, `agents`, `mode: "copy"`, `security: null`), and all progress goes to stderr
 - [ ] Given `--json` without `-y` or `--all`, or together with `--list`, stdout still carries one array holding a `failed` entry with the error, and the command exits non-zero
 - [ ] Given `--json -y` where one entry is skipped because its ceiling excludes every named agent, the array marks it `skipped` with a reason and the command exits non-zero
 
-### Phase 12: `update` and `remove` take Vercel's arguments and flags
+### Phase 13: `update` and `remove` take Vercel's arguments and flags
 status: draft
 
-**Goal**: `remove` and `update` take one or more skill names or keys, matched by declared name, install folder or key, including installs not yet moved. They refuse misses, partial matches and cross-repo ambiguity with the installs listed, and handle a skill inside a unit as that unit. They accept Vercel's flags and aliases and refuse `-g` and `check`.
+**Goal**: `remove` and `update` take one or more skill names or keys, matched by declared name, install folder or key, including installs not yet moved. They refuse misses, partial matches and ambiguity across repositories with the installs listed, and handle a skill inside a unit as that unit. They accept Vercel's flags and aliases and refuse `-g` and `check`.
 
-**Why this order**: Reuses name matching (Phase 6), agent names (Phase 8), agent-caller detection and the no-terminal rule (Phase 10). It must reach installs both moved and not yet moved (Phase 4), so it follows all of them.
+**Why this order**: Reuses name matching (Phase 7), agent names (Phase 9), agent-caller detection and the no-terminal rule (Phase 11), and Phase 6's repository identity for refusals across repositories. It must reach installs both moved and not yet moved (Phase 4), so it follows all of them.
 
 **Acceptance**:
 - [ ] Given an install of `vercel-composition-patterns`, whether moved or still in its old `composition-patterns` folder, `remove vercel-composition-patterns` and `remove composition-patterns` each remove it; `remove a b` removes both; `remove owner/repo` removes every entry from that repository
@@ -193,12 +210,12 @@ status: draft
 - [ ] Given `rm`, `r` or `upgrade`, they act as `remove` or `update`; `update -y` and `update -p` are accepted; `-g` on either command is refused; `agntc check` exits non-zero naming `check` as not an agntc command
 - [ ] Given Cursor newly detected in the project, `update` still installs only for the agents recorded at install
 
-### Phase 13: Coexistence with Vercel-installed skills
+### Phase 14: Coexistence with Vercel-installed skills
 status: draft
 
-**Goal**: agntc works alongside skills that Vercel's CLI installed in the same project. Vercel's copies take the untracked-files path. Symlinks are replaced as links and never written or deleted through. Cursor double-copies are warned about, and the project's `skills-lock.json` is never read or written.
+**Goal**: agntc works alongside skills that Vercel's CLI installed in the same project. Vercel's copies take the untracked-files path. Symlinks are replaced as links and never written or deleted through. agntc warns when Cursor will see two copies of a skill, and the project's `skills-lock.json` is never read or written.
 
-**Why this order**: Needs `--overwrite` on `add` (Phase 10) and on `update` (Phase 4), declared-name folders that land where Vercel's do (Phase 1), and `remove`'s argument handling (Phase 12).
+**Why this order**: Needs `--overwrite` on `add` (Phase 11) and on `update` (Phase 4), declared-name folders that land where Vercel's do (Phase 1), and `remove`'s argument handling (Phase 13).
 
 **Acceptance**:
 - [ ] Given a Vercel install of `foo` (a real `.agents/skills/foo` and a `.claude/skills/foo` symlink to it), when `add owner/repo@foo -a claude -y` runs, that entry stops naming `--overwrite`; with `--overwrite`, `.claude/skills/foo` becomes a real copy and `.agents/skills/foo` is unchanged
@@ -207,17 +224,23 @@ status: draft
 - [ ] Given an agntc entry whose recorded folder has since become a symlink, `remove` drops the entry, leaves the link and its target in place, and says so; `update` stops that entry and exits non-zero; `update --overwrite` replaces the link with a real copy without touching its target
 - [ ] Given a project `skills-lock.json`, it is byte-for-byte unchanged after `add`, `update` and `remove`
 
-### Phase 14: Printed commands reproduce the install
+### Phase 15: Printed commands reproduce the install
 status: draft
 
-**Goal**: Every `add`, `remove` and `update` command agntc prints is one it accepts, and following it reproduces the install it advises on. That means the source in the form it came from, skills by `@skill`/`--skill` and members by path, versions after `#`, `--plugin` for plugins, `-a` naming exactly the recorded agents, and bulk lines that cover exactly their entries.
+**Goal**: Every `add`, `remove` and `update` command agntc prints is one it accepts, and following it reproduces the install it advises on. Such a command:
+- names the source in the form the entry records;
+- names skills by `@skill`/`--skill` and members by path;
+- puts versions after `#`;
+- carries `--plugin` for plugins;
+- names exactly the recorded agents with `-a`;
+- in a bulk line, covers exactly the entries it speaks for.
 
-**Why this order**: The rule can hold only once every form it prints is accepted: source forms (Phase 5), `#`/`@`/`--skill` (Phase 6), `-a` (Phase 8), `--plugin` bundles (Phase 3) and `remove`/`update` arguments (Phase 12).
+**Why this order**: The rule can hold only once every form it prints is accepted: source forms (Phase 5) and the form each entry records (Phase 6), `#`/`@`/`--skill` (Phase 7), `-a` (Phase 9), `--plugin` bundles (Phase 3) and `remove`/`update` arguments (Phase 13).
 
 **Acceptance**:
 - [ ] Given an exact-pinned `--plugin` bundle installed for Claude with a newer tag, the update advice prints `npx agntc add owner/repo#<newest> --plugin -a claude`, and running it reinstalls the bundle with no menu and no collision prompt
 - [ ] Given an exact-pinned skill whose folder differs from its declared name, the advice names it `owner/repo#<newest>@<declared-name>` with its recorded agents, never by manifest key; a plugin member is named `owner/repo/<path>`
 - [ ] Given an all-mode update group holding three pinned skills and one plugin member, the advice is one `--skill a b c` command for the skills and a separate command for the member, naming every covered entry and no other; entries recorded for different agents get separate commands; the caret out-of-constraint footer's command likewise reproduces the install
-- [ ] Given entries installed from GitLab, Azure Repos, GitHub Enterprise, `.git`, SSH and local-path sources, each printed `add` uses the form it came from, naming the skill with `--skill` where that form takes no `@skill`
+- [ ] Given entries installed from GitLab, Azure Repos, GitHub Enterprise and local-path sources, and from `.git` URLs and SSH addresses on a non-GitHub host, each printed `add` uses the form recorded with the entry, naming the skill with `--skill` where that form takes no `@skill`; given a GitLab install added as `gitlab:owner/repo` and later re-added from `https://gitlab.com/owner/repo`, its printed `add` uses the URL
 - [ ] Given a derive-before-delete abort or a failed reinstall, the printed `remove`, `update` and `add` commands are accepted by agntc, `remove`/`update` carry no `--plugin`, and following them reproduces the install
 - [ ] Given a recorded plugin that the update repair turned into a skill, its advice prints it as a skill with no `--plugin`
