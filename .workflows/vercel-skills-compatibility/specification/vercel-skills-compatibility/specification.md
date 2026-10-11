@@ -277,7 +277,11 @@ Every walk follows these rules:
 - The walks over the search roots never go below a skill they have found. The fallback walk, as Vercel's does (`findSkillDirs`, Vercel's `src/skills.ts:135–153`), keeps descending into a skill's folder, and lists any skill nested inside it as a skill of its own.
 - It never descends through `node_modules`, `.git`, `dist`, `build` or `__pycache__`. The walks over the search roots still check a folder of one of those names for a `SKILL.md` of its own, so `skills/build/SKILL.md` is a skill. The fallback walk skips those folders outright. This is how Vercel's walks apply the same list. Measured in `vercel-labs/skills` at `v1.7.0`: `grep -n "SKIP_DIRS" src/skills.ts` → `10` (the list), `149` (the fallback walk's filter, before it enters a folder), `296` (the container walks' test, after `tryAddSkillAt(childDir)` at `292` has checked the folder's own `SKILL.md`).
 - It never follows a symlinked directory.
-- When two skills declare the same name, the first in priority order is kept.
+- When two skills declare the same name, the first in priority order is kept. Two installables from one source that would take the same install folder or the same key count as the same name, and the first in priority order is kept. This covers:
+  - names that collide only once sanitized: `Foo Bar` and `foo-bar` both install into `foo-bar` (§4.2);
+  - a skill and a plugin member that would share a key: a skill declaring `foo` and a member at path `foo` are both `owner/repo/foo` (§4.3).
+
+  A plugin member's place in that order is where the walk reaches it.
 - Skills in the source's own agent directories are skipped when the source's own `skills-lock.json` records them as installed. These are skills the author pulled in, not wrote, and Vercel skips them the same way. This is the only time agntc reads a `skills-lock.json` (§13).
 
 #### 5.3 Members
@@ -315,6 +319,8 @@ A **unit** is any of three things:
 A unit is one manifest entry. It is installed, updated, removed and version-pinned together. §12 covers updating and removing a skill that sits inside one. Vercel's selection syntax has no notion of a unit. This section is where the two meet.
 
 Agent targeting (§8) and what is in the way (§10.3) are handled per installed entry, and there a skill installed on its own counts as a unit as well. Its ceiling is the `agents` list in its own `agntc.json`, as a single skill's is today. A clash, or a ceiling that excludes every named agent, stops that skill alone, and the run's other entries proceed.
+
+Within one run, two of the source's installables never write the same path. This applies inside a `--plugin` bundle (§6.2) and across the entries of an "all" run (§6.4). A plugin member's skill, agent or hook can land on a path that a skill or member earlier in priority order (§5.2) already takes. Examples are two members that each ship `agents/reviewer.md`, or a member's `skills/x/` beside a loose skill installing into `x`. In that case the earlier one is kept. The output names what was left out and the member it came from, as a pick from a unit names what it leaves out (§6.5). This is the one case where a plugin member installs less than whole.
 
 #### 6.1 A plain add installs a unit whole
 
@@ -705,3 +711,5 @@ The four `add` advice sites break the rule in two ways today:
 ## Corrigenda
 
 > **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): the specification left open what key an install from a repository whose path is not two segments gets (GitLab nested groups, Azure Repos `_git`, SSH and `.git` URLs), and what happens when two different repositories land on one key — corrected: the `owner/repo` part of a key is the repository and the namespace directly above it (§4.3); sources naming the same host and repository path are one repository; an install from another repository onto a held key is a clash with another managed install (§4.3, §10.3); a `remove`/`update` key reaching entries from two repositories is refused (§12.1) — settled by: the decision in discussion `vercel-skills-compatibility`, "The Repository Part of a Key" (2026-10-11).
+
+> **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): the specification left open what happens when two installables from one source would take the same install folder or key (declared names that collide only once sanitized; a skill and a plugin member sharing `owner/repo/<x>`), or when a member's skill, agent or hook would write a path another installable in the same run takes — corrected: such installables count as the same name and the first in priority order is kept (§5.2); within one run, a member's colliding content is left out with the output naming it and its member (§6) — settled by: derivation from §5.2's first-in-priority-order rule for same-named skills, §4.2/§4.3 making the install folder and key the identity that lands, and §6.5's convention that whatever a unit install leaves out is named.
