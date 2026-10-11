@@ -205,7 +205,7 @@ A skill installs into a folder named after its identity, sanitized the way Verce
 
 Sanitizing keeps a declared name such as `..` or `../x` from installing outside the agent's skills directory.
 
-When a skill is installed by both agntc and Vercel's CLI, both land on the same folder. This shows up as a visible clash through the untracked-files path (§13), not as two copies the agent sees side by side.
+When a skill is installed for Claude or Codex by both agntc and Vercel's CLI, both land on the same folder. This shows up as a visible clash through the untracked-files path (§13), not as two copies the agent sees side by side. Cursor is the exception: the two tools keep its copies in different folders (§13).
 
 #### 4.3 One key per skill
 
@@ -634,6 +634,7 @@ A project may already hold skills installed by Vercel's CLI. Such an install has
 agntc installs Codex skills into `.agents/skills/` as well. Because identity is now the declared name (§4.2), agntc lands on the same folder names Vercel uses.
 
 - **Skills installed by Vercel are files agntc does not manage.** They take the untracked-files path: the prompt at a terminal, or `--overwrite` when unattended (§10.3).
+- **For Cursor the two tools' copies never meet, and agntc warns.** Vercel installs Cursor's copy into `.agents/skills/` (v1.7.0 `src/agents.ts`, cursor `skillsDir: '.agents/skills'`), while agntc installs it into `.cursor/skills/` (§1.6). Cursor reads both folders, so a skill both tools installed appears to it twice. agntc's untracked-files check covers only its own target files (`checkUnmanagedConflicts` in `src/commands/add.ts`), so nothing would say so. When agntc installs a skill for Cursor and `.agents/skills/` already holds a same-named skill agntc does not manage, it installs anyway and warns that Cursor will see two copies. It does not treat that copy as in the way: removing it would delete Vercel's shared copy, which Codex and Vercel's other agents also read.
 - **The project's `skills-lock.json` is neither read nor written.** agntc's own manifest is its record. The only `skills-lock.json` agntc ever reads is a source repo's, during discovery (§5.2).
 - **A target that is a symlink is replaced as a link, never written through.** Writing into a `.claude/skills/<name>` that links to `.agents/skills/<name>` would otherwise write into Vercel's canonical copy. When the link is replaced, agntc removes the link itself and writes a real copy in its place. The folder the link pointed to is left untouched.
 

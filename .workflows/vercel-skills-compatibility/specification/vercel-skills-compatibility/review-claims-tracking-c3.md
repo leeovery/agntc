@@ -64,8 +64,8 @@ Measurement:
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Put to the owner; the owner chose a warning. Landed in the discussion as a dated revision of "Vercel Install Coexistence" (2026-10-11), with the Skill Identity option prose repaired in place; §4.2 and §13 re-aligned.
 
 ---
 
