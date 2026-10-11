@@ -33,8 +33,8 @@ The source carries the same claim. In `.workflows/vercel-skills-compatibility/di
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measured correction repaired in place in the discussion (amendment notes); every citing decision survives. Specification re-aligned.
 
 ---
 
@@ -68,8 +68,8 @@ The source carries the same claim. In `.workflows/vercel-skills-compatibility/di
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measured correction repaired in place in the discussion (amendment notes); every citing decision survives. Specification re-aligned.
 
 ---
 
@@ -108,8 +108,8 @@ The source carries the same claim. In `.workflows/vercel-skills-compatibility/di
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measured correction repaired in place in the discussion (amendment notes); every citing decision survives. Specification re-aligned.
 
 ---
 

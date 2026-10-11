@@ -142,7 +142,7 @@ A fragment that does not start with `^` or `~` is a ref (a tag or a branch), rea
 
 #### 2.5 Version a bare add installs
 
-**This diverges from Vercel, to protect semver constraints (§1.4).** Vercel has no version concept and always installs the default branch HEAD. A ref carried in the URL itself (a GitHub tree URL's `<ref>`, a GitLab `/-/tree/<ref>/`, an Azure Repos `?version=`) is read the way the same `#` fragment would be (§2.4). A bare add, meaning one that names no ref or version in either place, keeps agntc's default:
+**This diverges from Vercel, to protect semver constraints (§1.4).** Vercel has no semver concept: its bare add installs the default branch HEAD, and a `#ref` or tree-URL ref installs that ref (v1.7.0 `src/git.ts:254`, `:301`, `--branch <ref>`). A ref carried in the URL itself (a GitHub tree URL's `<ref>`, a GitLab `/-/tree/<ref>/`, an Azure Repos `?version=`) is read the way the same `#` fragment would be (§2.4). A bare add, meaning one that names no ref or version in either place, keeps agntc's default:
 
 - It installs the newest semver tag and records a caret constraint (`^X.Y.Z`), so updates stay within that major version.
 - It installs the default branch when the repo has no semver tags.
@@ -456,7 +456,7 @@ Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` �
 
 **Refused (§1.5):**
 - `-g`/`--global`, because global installs are out of scope (§1.3);
-- `--subagent` and `--metadata`, which are Vercel-internal;
+- `--subagent` and `--metadata`. Vercel documents them for installing to Eve subagents and for attaching JSON to its install telemetry (v1.7.0 `src/cli.ts`). agntc has neither, so accepting them would ignore them silently;
 - `--all` together with `-a`/`--agent`, because `--all` already sets every agent. The message names the explicit form, `--skill '*' --agent <agents> -y`;
 - any flag agntc does not recognise.
 
@@ -607,7 +607,7 @@ Removing an entry from every agent it is installed for removes the entry. `remov
 | `--overwrite` | Replace what is in a target folder's way (§12.6). Applies to the single-key update and to all-mode. |
 | `-g` | Refused (§1.3). |
 
-**`check` is not registered.** In Vercel, `check` is an undocumented alias that runs a full update rather than a read-only check. A pasted `check` fails as an unknown command and changes nothing.
+**`check` is not registered.** In Vercel, `check` is an undocumented alias that runs a full update rather than a read-only check. A pasted `check` is refused (§1.5): it changes nothing, and its message names `check` as not an agntc command. Today the root command takes the word as an extra argument. `node dist/cli.js check` → `error: too many arguments. Expected 0 arguments but got 1.` plus the help, exit 1, never naming `check`.
 
 #### 12.5 `update` keeps the agents chosen at install
 
