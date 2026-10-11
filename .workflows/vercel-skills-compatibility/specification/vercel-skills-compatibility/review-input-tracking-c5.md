@@ -18,8 +18,8 @@ Both sides cost someone, so this is not a derivation with one live answer. It de
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: The owner chose to clone an `ssh://` URL as given on every host. Landed in the discussion as the new section "`ssh://` URLs on GitHub and GitLab", with the Summary's divergence list updated. §2.1 already matched the decision, so the specification needed no change.
 
 ---
 
