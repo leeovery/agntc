@@ -35,21 +35,17 @@ Match the user's input to its `ACTIONS` entry — a number or a command option's
 
 #### If `action` is `continue_work_unit`
 
-Invoke the entry's stored `route` (e.g. `/workflow-continue-feature {work_unit}`).
+Invoke the entry's stored `route` (e.g. `/workflow-continue-linear {work_unit}`).
 
 This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
 
 #### If `action` is `open_baseline`
 
-Invoke `/workflow-baseline` — it reads the baseline status and routes itself.
-
-This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
+→ Load **[handing-off.md](../../workflow-shared/references/handing-off.md)** with route = `/workflow-baseline`.
 
 #### If `action` is `open_roadmap`
 
-Invoke `/workflow-roadmap open` — it reads the roadmap state and routes itself.
-
-This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
+→ Load **[handing-off.md](../../workflow-shared/references/handing-off.md)** with route = `/workflow-roadmap open`.
 
 #### If `action` is `open_help`
 

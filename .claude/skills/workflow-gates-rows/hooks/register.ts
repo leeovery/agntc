@@ -1,45 +1,53 @@
 // A plugin of its own: Claude Code skips the mod's render hooks on rows it sent.
 import type { EngineInterface, RenderPropsOf, Register } from 'claude-code'
 
+import { compacted } from './compacted.ts'
+import { folderOf } from './folder.ts'
+
 const SENDER = 'workflow-gates'
 
 const SENT = 'sent.json'
 const SPENT = 'null'
 
-const CONVERSATIONS = 'conversations'
 const ROWS = 'rows.json'
 
 const FRAMED = /sent a message:\n([\s\S]+?)\n\nThis is how Claude Code surfaces a prompt/
 
-type Sent = { answer: string; question: string; label: string }
+// A gate's answer, or a handoff's continuation with the line it draws as.
+type Sent =
+  | { answer: string; question: string; label: string }
+  | { answer: string; line: string }
 
 type Rows = Record<string, unknown>
 
-const isSent = (value: unknown): value is Sent => {
-  const { answer, question, label } = (value ?? {}) as Record<string, unknown>
+const isText = (field: unknown) => typeof field === 'string'
 
-  return [answer, question, label].every(field => typeof field === 'string')
+const isSent = (value: unknown): value is Sent => {
+  const sent = (value ?? {}) as Record<string, unknown>
+
+  return (
+    isText(sent.answer) &&
+    (isText(sent.line) || (isText(sent.question) && isText(sent.label)))
+  )
 }
 
 const isRows = (value: unknown): value is Rows =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
-// The engine names the folder so (domain/conversation.cjs), and the band with
-// it: in the system config directory, `WORKFLOWS_CONFIG_DIR` or else
-// `.config/workflows` in the home directory; none where neither is named.
-async function folderOf($: EngineInterface): Promise<string | null> {
-  const home = await $.env.get('HOME')
-  const config =
-    (await $.env.get('WORKFLOWS_CONFIG_DIR')) ||
-    (home ? `${home}/.config/workflows` : null)
-  const id = await $.session.id()
-
-  return config === null
-    ? null
-    : `${config}/${CONVERSATIONS}/${id.replace(/[^A-Za-z0-9_-]/g, '')}`
+async function conversationFolder($: EngineInterface): Promise<string | null> {
+  return folderOf(
+    await $.env.get('WORKFLOWS_CONFIG_DIR'),
+    await $.env.get('HOME'),
+    await $.session.id(),
+  )
 }
 
-function lineOf({ answer, question, label }: Sent): string {
+function lineOf(sent: Sent): string {
+  if ('line' in sent) {
+    return sent.line
+  }
+
+  const { answer, question, label } = sent
   const answered = `${question} → ${answer}`
 
   return label === '' || label === answer ? answered : `${answered} · ${label}`
@@ -82,7 +90,7 @@ async function firstLineOf(
   requestId: string,
   answer: string,
 ): Promise<string | null> {
-  const folder = await folderOf($)
+  const folder = await conversationFolder($)
 
   if (folder === null || !(await $.fs.exists(folder))) {
     return null
@@ -135,4 +143,6 @@ export const register: Register = on => {
     // The drawing alone changes: the model reads Claude Code's framing, by design.
     return next({ ...e, props: { ...e.props, text: line } })
   }).catch(($, e, next) => next(e))
+
+  compacted(on)
 }

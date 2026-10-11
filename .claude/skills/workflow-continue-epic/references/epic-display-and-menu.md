@@ -4,11 +4,11 @@
 
 ---
 
-Display the full phase-by-phase breakdown for the selected epic, then present an interactive menu of actionable items. The caller is responsible for providing:
+Display the full phase-by-phase breakdown for the epic, then present an interactive menu of actionable items. The caller is responsible for providing:
 - `work_unit` — the epic's work unit name
 - `new_arrivals` (optional) — tracker from `topic-discovery.md` listing the topic names added during this boot-up (`gap_analysis`). Drives the "new topics added" callout above the Discovery Map. Empty / absent means no callout.
 
-This reference collects the user's selection and returns control to the caller. The caller decides what to do with the selection (invoke a skill directly, enter plan mode, etc.).
+This reference collects the user's selection and returns it to the caller, which routes it.
 
 ---
 
@@ -28,7 +28,7 @@ node .claude/skills/workflow-continue-epic/scripts/gateway.cjs view {work_unit} 
 
 The output is one snapshot in four demarcated sections:
 
-- **DATA** — reasoning surface: state flags, `phase_counts` (in-progress / proposed / total per phase), and the `ACTIONS` table — one line per menu key, `key  word  action  topic  → route`, with `(recommended)` / `(in session: …)` / `(code session: …)` markers. Reason from it; never display or restate it.
+- **DATA** — reasoning surface: state flags and the `ACTIONS` table — one line per menu key, `key  word  action  topic  → route`, with `(recommended)` / `(in session: …)` / `(code session: …)` markers. Reason from it; never display or restate it.
 - **TITLE** — the view's chrome heading. Emit verbatim per its marker, directly above the display.
 - **DISPLAY** — the dashboard and key. Emit verbatim per its marker. Never redraw, reflow, or trim it.
 - **MENU** — the selection menu. Emit verbatim per its marker.
@@ -87,9 +87,31 @@ Match the user's input to its `ACTIONS` entry — a number or a command option's
 
 → Proceed to **I. Pull Forward Topic**.
 
+#### If `action` is `new_discussion`
+
+→ Load **[new-topic.md](new-topic.md)** with phase = `discussion`.
+
+→ On return, proceed to **C. Route Selection**.
+
+#### If `action` is `new_research`
+
+→ Load **[new-topic.md](new-topic.md)** with phase = `research`.
+
+→ On return, proceed to **C. Route Selection**.
+
+#### If `action` is `analyze_discussions`
+
+→ Load **[specification-display-and-menu.md](specification-display-and-menu.md)** and follow its instructions as written.
+
+→ On return, proceed to **C. Route Selection**.
+
+#### If `action` is `back`
+
+→ Load **[start-menu.md](../../workflow-start/references/start-menu.md)**.
+
 #### Otherwise
 
-A `(code session: …)` marker needs no gate here — implementation and review are gated at their entry skill, which reads the whole checkout's code slot; the marked row routes like any other.
+A `(code session: …)` marker needs no gate here — implementation and review gate the whole checkout's code slot where each starts; the marked row routes like any other.
 
 **If the selected entry carries an `(in session: …)` marker:**
 
@@ -107,15 +129,7 @@ node .claude/skills/workflow-continue-epic/scripts/gateway.cjs in-session-gate {
 
 **If user chose `yes`:**
 
-Continue with the **Hard gate check** below.
-
-**Hard gate check** — specification reads the settled record; this refusal comes before the soft gate. Read `phase_counts` from DATA. (Blocked items carry no menu row — a blocked spec, a discussion held for its outstanding research, a plan held for its unsettled specification, a dep-blocked plan — so none reaches here, except a spec, discussion, or plan another session holds open: its struck row arrives through the in-session gate above, and its entry skill's own gate meets it next. The display tree shows the `blocked` cue or the research awaited, and the ⚑ list carries the dep-blocked plan's detail.)
-
-**If `action` is `analyze_discussions` and `phase_counts` shows discussion items in-progress and no specification items exist:**
-
-Tell the user in one line: {N} discussion(s) are still in-progress — the grouping analysis reads the settled record; conclude them and return. (With specification items already on the board, the route passes — the specification menu shows what is workable and withholds the analysis itself.)
-
-→ Return to **A. State Display and Menu**.
+Continue with the **Soft gate check** below.
 
 **Soft gate check** — before routing, the engine checks whether the selection conflicts with a phase-completion recommendation or the build order. Advisory, not blocking. Fetch the gate for the selected entry — `--topic` carries the entry's topic and is omitted for the topic-less command options:
 
@@ -147,7 +161,35 @@ Emit the section verbatim per its marker.
 
 ## C. Route Selection
 
-Store the selected entry's `action`, `topic`, and `route`. The route is the exact skill invocation for this selection (e.g. `/workflow-discussion-entry epic {work_unit} {topic}`). Entries with route `(internal)` never reach this section — their flows resolve in **B. Handle Selection**.
+Store the exact skill invocation the selection hands off along as `route`, and the topic it carries as `{topic}` — for a new topic, `/workflow-{phase}-process epic {work_unit} {topic}`, with the phase it was started for and the name it was given; for the specification the specification menu returned, `/workflow-specification-process epic {work_unit} {topic}`; otherwise the selected entry's own `route` (e.g. `/workflow-discussion-process epic {work_unit} {topic}`) and its `topic`. The `new_discussion`, `new_research` and `analyze_discussions` entries carry route `(internal)` and arrive here with the topic their flow named; every other `(internal)` entry is resolved from **B. Handle Selection** and never reaches this section.
+
+#### If `route` enters the specification
+
+Fetch the confirm for `{topic}`, adding `--unify` when this selection is the specification menu's unify — empty unless the start incorporates a started specification or unifies the groupings, what the pick did not show:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render spec-confirm-gate {work_unit}.specification.{topic} [--unify]
+```
+
+**If the output is empty:**
+
+→ Return to caller.
+
+**If a `MENU: spec confirm gate` section is returned:**
+
+Emit the call's DISPLAY and MENU sections verbatim per their markers.
+
+**STOP.** Wait for user response.
+
+**If user chose `no`:**
+
+→ Return to **A. State Display and Menu**.
+
+**If user chose `yes`:**
+
+→ Return to caller.
+
+#### Otherwise
 
 → Return to caller.
 
@@ -305,19 +347,11 @@ Emit the TITLE section, then the DISPLAY section, then the MENU section, each ve
 
 #### If user chose a numbered dependency
 
-Store the selected entry's `topic` (the plan) and the `(dep: …)` value on its `ACTIONS` row (the dependency to mark — the key it is recorded under; the `{plan}:{task}` reference the menu row shows names the blocking task, never the key). Record the user's call — the dependency is satisfied outside the workflow:
+Store the selected entry's `topic` (the plan) and the `(dep: …)` value on its `ACTIONS` row (the dependency to mark — the key it is recorded under; the `{plan}:{task}` reference the menu row shows names the blocking task, never the key).
 
-```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} external_dependencies.{dep}.state satisfied_externally
-```
+→ Load **[mark-dependency-satisfied.md](../../workflow-shared/references/mark-dependency-satisfied.md)** with work_unit = `{work_unit}`, topic = `{topic}`, dep = `{dep}`.
 
-The record belongs to the plan, and the menu is not the session working it — `--sweep`, so the commit stamps no identity there:
-
-```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} --topic planning/{topic} --sweep -m "impl({work_unit}): mark {dep} dependency as satisfied externally"
-```
-
-→ Return to **A. State Display and Menu**.
+→ On return, return to **A. State Display and Menu**.
 
 ---
 

@@ -33,7 +33,6 @@ engine.conventions.tag('decided')                 // → "[decided]"
 engine.conventions.derivedFrom('from exploration')// → "↳ From exploration"
 engine.conventions.discoveryGlyph('researching')  // → "◐"
 engine.conventions.titlecase('auth-flow')         // → "Auth Flow"
-engine.conventions.kebabcase('Auth Flow')         // → "auth-flow"
 engine.conventions.TREE_WIDTH                     // 65 — tree content width incl. gutter
 
 // domain: generic reads (reads.cjs — no phase semantics)
@@ -43,15 +42,13 @@ engine.reads.fileExists(p)                        // → boolean
 engine.reads.loadManifest(cwd, wu)                // → parsed manifest, or null (quiet on missing)
 engine.reads.filesChecksum(paths)                 // → md5 hex over the files' bytes, or null
 engine.reads.loadActiveManifests(cwd)             // → in-progress work-unit manifests
-engine.reads.loadAllManifests(cwd)                // → every readable work-unit manifest
 
 // domain: shared derivations (derivations.cjs — phase joins, lifecycle, cache status)
 engine.derivations.phaseData(manifest, phase)     // → phases.{phase} ({} when absent)
 engine.derivations.phaseItems(manifest, phase)    // → [{name, …fields}] from phases.{phase}.items
 engine.derivations.phaseStatus(manifest, phase)   // → aggregated item status, or null
 engine.derivations.computeNextPhase(manifest)     // → { next_phase, phase_label }
-engine.derivations.lastCompletedPhase(manifest, pipeline) // → last phase (pipeline order) with a completed item, or null
-engine.derivations.computeAnalysisCacheStatus(manifest, workflowsDir, kind) // → { status, generated, files[, reason] }
+engine.derivations.computeAnalysisCacheStatus(manifest, workflowsDir, kind) // → { status, stamped, generated, files[, reason] }
 engine.derivations.computeTopicLifecycle(manifest, topic) // → { lifecycle, tier, current_phase, research_state }
 engine.derivations.computeMapSummary(items)       // → tier counts over map rows
 engine.derivations.computeSourceProvenance(source) // → "from …" label, or null
@@ -81,15 +78,15 @@ engine.presence.fmtAge(seconds)                   // → a row's age as `40s` / 
 
 // domain: detail builders + projections
 engine.detail.epicDetail(cwd, manifest)           // → EpicDetail (the one structured object per epic)
-engine.detail.EPIC_DETAIL_PHASES                  // string[] — every phase the epic detail surfaces (discovery first, then the pipeline)
 engine.detail.startDetail(cwd)                    // → StartDetail (all work units by type + inbox + closed counts)
 engine.detail.combinedInbox(scan, { archived })   // → PickupItem[] (one inbox scan combined, date-ordered, numbered)
 engine.detail.workingSetDetail(cwd, paths)        // → WorkingSetDetail (held selection: uniformity, pre-seed type, addable items)
 engine.detail.manageDetail(cwd, wu)               // → ManageDetail (lifecycle-action availability), or null
-engine.detail.workUnitDetail(cwd, type)           // → WorkUnitDetail (single-topic types: feature | bugfix | quick-fix | cross-cutting)
-engine.detail.workUnitIndex(type, detail)         // → labelled dump for the head-of-skill insert (thin DATA index)
+engine.detail.activeWorkUnit(cwd, wu)             // → { type, unit: WorkUnitEntry } — one single-topic unit in progress (feature | bugfix | quick-fix | cross-cutting), its type read from its manifest; null otherwise
+engine.detail.phaseTargets(manifest, nextPhase)   // → { next, revisit } — the {phase, topic} each single-topic route enters: the next phase and the revisit candidates (completed phases before nextPhase, pipeline-filtered); topic names the phase's item where its items carry names of their own (a promoted unit's moved discussions), null otherwise
 engine.detail.WORK_UNIT_TYPES                     // { [type]: config } — single-topic pipeline configs
-engine.detail.specificationDetail(wu, result, { consultHints }) // → SpecificationDetail (entry scenario + grouping rows over one discover() result)
+engine.detail.specificationDiscovery(cwd, wu)     // → DiscoveryResult (the epic specification menu's read: discussions, grouping specifications, cancelled keys, the grouping analysis's cache); throws for a name with no active epic
+engine.detail.specificationDetail(wu, result)     // → SpecificationDetail (the epic specification menu's scenario + grouping rows over one specificationDiscovery() result)
 engine.project.actionsTable(columns, keys, cells) // → the DATA `ACTIONS` table's lines — each key's `key` and `word` (`—` for none), then `cells(key)` under `columns`
 engine.project.epicDashboard(wu, detail, { newArrivals }) // → dashboard display block
 engine.project.epicKey(detail)                    // → Key block ('' when nothing on screen earns a legend)
@@ -117,13 +114,13 @@ engine.project.manageListView(detail)             // → { data, menu, rows } �
 engine.project.manageUnitView(md)                 // → { data, menu } — the action menu
 engine.project.absorbTargetMenu(md)               // → MENU: absorb target — the render absorb-target surface
 engine.project.planTopicsMenu(md)                 // → MENU: plan topics — the render plan-topics surface
-engine.project.completedView(detail, filter)      // → { data, menu, rows } — completed & cancelled pick menu; { data, display, rows } when nothing matches
+engine.project.completedView(detail)              // → { data, menu, rows } — completed & cancelled pick menu; { data, display, rows } when nothing is closed
 engine.project.workUnitStatus(type, unit)         // → status display block (box + pipeline tree)
 engine.project.workUnitMenu(type, unit)           // → { keys, rendered } — proceed/revisit gate; '' rendered when nothing to revisit
 engine.project.workUnitData(type, unit, menu)     // → DATA body (flow flags + ACTIONS key table)
-engine.project.revisitablePhases(type, unit)      // → string[] — completed phases before next_phase, pipeline-filtered
-engine.project.revisitPhasesSection(phases)       // → labelled `MENU: revisit phases` section ('' when none)
-engine.project.specificationDisplay(detail)       // → scenario overview block ('' when the scenario renders nothing)
+engine.project.phaseRoute(type, phase, wu, topic) // → the route a single-topic unit's phase is entered by (`/{skill} {work_type} {wu}`, `{topic}` appended where a target names one) — the bridge gateway's `next_route` and `revisit_routes`
+engine.project.revisitPhasesSection(targets)      // → labelled `MENU: revisit phases` section over phaseTargets' revisit candidates ('' when none)
+engine.project.specificationDisplay(detail)       // → scenario overview block
 engine.project.specificationMenu(detail)          // → { keys, rendered } — grouping/spec menu; both empty for menu-less scenarios
 engine.project.specificationCompletedMenu(detail) // → { keys, title, display, rendered } — concluded-specs Refine sub-view
 
@@ -148,4 +145,4 @@ engine.gateway.runGateway({
 });
 ```
 
-The .md's prescribed call names the verb (`gateway.cjs view {work_unit}`) — the adapter never infers what a call is for. A MENU in a response is a live gate at that call, so a verb returns one only where the prose shows that gate at that call: the head insert runs before any step shows anything and carries none, and a gate a later step shows is that step's own verb (the continue skills' `select`).
+The .md's prescribed call names the verb (`gateway.cjs view {work_unit}`) — the adapter never infers what a call is for. A MENU in a response is a live gate at that call, so a verb returns one only where the prose shows that gate at that call: the head insert runs before any step shows anything and carries none, and a gate a later step shows is that step's own verb (the epic menu's sub-views).

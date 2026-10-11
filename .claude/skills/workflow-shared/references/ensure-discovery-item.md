@@ -1,6 +1,6 @@
 # Ensure Discovery Item
 
-*Shared reference. Loaded by `workflow-research-entry`, `workflow-discussion-entry`, and any flow that needs to auto-create a direct-entry discovery item.*
+*Shared reference. Loaded by the epic menu's `d`/`r` doors (`workflow-continue-epic`), `workflow-research-process`, and `workflow-discussion-process`.*
 
 ---
 
@@ -15,7 +15,7 @@ The caller provides these via context before loading:
 - `work_type` — the work unit's type. The reference no-ops for any value other than `epic`.
 - `work_unit` — the epic's work unit name. Always present.
 - `topic` — the kebab-case topic name. Always present.
-- `routing` — the literal `research` or `discussion`. Set by the caller based on which entry verb the user picked.
+- `routing` — the literal `research` or `discussion`: the phase the caller starts the topic in.
 - `summary` — optional one-line summary. Written only on creation, only when provided and non-empty.
 - `description` — optional paragraph or two of richer context. Written only on creation, only when provided and non-empty.
 
@@ -63,6 +63,6 @@ Assemble the call as follows:
 
 Single-quote any value containing characters zsh would interpret — backticks, `$`, `[]`, `{}`, `~`.
 
-No commit here — the manifest writes are folded into the next commit produced by the calling phase's process.
+No commit here — the manifest writes are folded into the next commit the topic's phase produces.
 
 → Return to caller.

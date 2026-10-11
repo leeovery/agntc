@@ -12,13 +12,16 @@ Act as **rigorous experimentalist** — design the experiment with the user, run
 
 Walk one experiment record from its conceived question to its one-line verdict — design (collaborative), freeze (the user's confirm), run (mostly autonomous), report, verdict, and back to the menu. The record was spawned by a research or discussion conversation that is now waiting on the evidence; this session answers the question, nothing else. A stray thought mid-experiment is out of remit — the spawning conversation owns everything that is not this experiment.
 
+**Stay in your lane**: Measure, don't decide. An experiment answers its pre-registered question; the decision belongs to the conversation that spawned it, which reads the report as evidence and can override the verdict.
+
 ### What This Skill Needs
 
-- **Topic** (required) - The topic whose series holds the record
-- **Work unit** (required) - From the handoff
-- **Work type** (required) - `epic`, `feature`, or `cross-cutting`
-- **Experiment** (required) - The record id (`E{n}`)
-- **Record** (required) - The record's directory from the handoff, held as `{dir}`
+Positional arguments:
+- `$0` — **work_type**: `epic`, `feature`, or `cross-cutting`.
+- `$1` — **work_unit**: the work unit name.
+- `$2` — **topic**: the topic whose series holds the record. A single-topic unit's topic is the work unit, so it may be left off: topic = `$2`, or `$1` where `work_type` is not `epic`.
+
+The record — its id held as `{id}`, its directory as `{dir}` — resolves from the series at Step 0.
 
 ---
 
@@ -35,13 +38,7 @@ Context refresh (compaction) summarizes the conversation, losing procedural deta
 1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
 2. **Read the record's state.** Re-derive `{dir}` when it is lost: `node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.experiment.{topic} experiments` gives the id and slug — the record lives at `.workflows/{work_unit}/experiment/{topic}/{id}-{slug}`. Read the record's documents under `{dir}` — `problem.md`, `design.md`, `report.md` where each exists, sub-experiment directories included. The record files are the source of truth for where the experiment stands — a frozen design is frozen whatever the conversation remembered.
 3. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
-4. **Announce your position** to the user before continuing. Render the register and emit its DISPLAY section verbatim per its marker:
-
-   ```bash
-   node .claude/skills/workflow-engine/scripts/engine.cjs render experiment-register {work_unit}.experiment.{topic}
-   ```
-
-   Then state the record's lifecycle status and what comes next. Wait for confirmation.
+4. **Carry on from where the conversation was**, as if the break never happened — no recap and no announcement. Where the person's message is waiting, take it at the step it arrived at, unless it only asks to carry on. Otherwise, where the conversation was at a gate, put the gate back, fetched fresh; elsewhere continue the step it was on.
 
 Do not guess at progress or continue from memory. The files on disk and git history are authoritative — your recollection is not.
 
@@ -49,19 +46,61 @@ Do not guess at progress or continue from memory. The files on disk and git hist
 
 ## Step 0: Session Setup
 
-Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
-
-```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} experiment {topic}
-```
-
-Read the series and take the handoff's record from it:
+Read the series, storing the `experiments` subtree — empty when the topic holds no series:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.experiment.{topic} experiments
 ```
 
-Store the record's `status` as `{record_status}` — the manifest is authoritative, whatever the handoff implied.
+#### If the output is empty
+
+> *Output the next fenced block as a properties code block (```properties fence):*
+
+```properties
+⚑ No experiment series exists for this topic
+```
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Experiments are spawned from a research or discussion session. Raise the question in the conversation that needs it measured.
+```
+
+**STOP.** Do not proceed — terminal condition.
+
+#### Otherwise
+
+Load **[select-record.md](references/select-record.md)** and follow its instructions as written.
+
+**If the resolve returned no record and `work_type` is `epic`** (`b/back` from the picker):
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Nothing entered — the series stands as it is.
+```
+
+Load **[handing-off.md](../workflow-shared/references/handing-off.md)** with route = `/workflow-continue-epic {work_unit}`.
+
+**If the resolve returned no record and `work_type` is not `epic`:**
+
+> *Output the next fenced block as markdown (not a code block):*
+
+```
+> Nothing entered — the series stands as it is, and `/workflow-start` is the way back.
+```
+
+**STOP.** Do not proceed — terminal condition.
+
+**Otherwise:**
+
+Derive `{dir}` = `.workflows/{work_unit}/experiment/{topic}/{id}-{slug}`.
+
+Record where this session is working — the call also labels the tmux session where the user opted in:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} experiment {topic}
+```
 
 → Proceed to **Step 1**.
 

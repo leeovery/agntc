@@ -44,7 +44,6 @@ Lifecycle `status` transitions go through the engine, not `set` — `engine topi
 | `finding_gate_mode` | Spec creation → `gated`; user opts in → `auto` |
 | `construction_gate_mode` | Spec creation → `gated`; user opts in → `auto` |
 | `sources` | Spec creation — all sources as `pending`; updated as extraction completes. The engine sets a row to `stale` when its source discussion reopens after extraction; reconciliation sets it back to `incorporated` |
-| `consult_references` | Session setup — declared refs registered as `pending`; set `addressed` once the sibling discussion's hand-off slice is read narrowly and reconciled. Optional — absent when the spec owes no corrections |
 
 ---
 
@@ -100,6 +99,6 @@ If a new source is added to a completed specification (via grouping analysis), o
 
 Cross-cutting concerns (caching strategies, rate-limiting policies, work conventions) are a separate work type with their own pipeline: Research (optional) → Experiment (optional) → Discussion → Specification (terminal). They are created via `/workflow-start` or promoted from epic specifications at completion time.
 
-During planning for any work type, the planning entry skill surfaces completed cross-cutting specifications as context, ensuring features and bugfixes incorporate validated architectural decisions.
+During planning for any work type, a fresh plan surfaces completed cross-cutting specifications as context, ensuring features and bugfixes incorporate validated architectural decisions.
 
 → Return to caller.

@@ -42,23 +42,8 @@ function capitalise(s) {
 // hyphens and underscores, capitalise the first letter of each word, join
 // with spaces. `auth-flow` → `Auth Flow`.
 /** @param {string} s */
-// Titlecase a phase label without disturbing its punctuation: every
-// alphabetic run is capitalised in place, so parentheses and hyphens
-// survive. `discussion (in-progress)` → `Discussion (In-Progress)`.
-/** @param {string} s */
-function titlecaseLabel(s) {
-  return String(s).replace(/[a-z]+/gi, (w) => capitalise(w));
-}
-
 function titlecase(s) {
   return String(s).split(/[-_\s]+/).filter(Boolean).map(capitalise).join(' ');
-}
-
-// Slug form (the `(kebabcase)` casing hint): lower-case, non-alphanumeric runs
-// collapse to single hyphens. `Auth Flow` → `auth-flow`.
-/** @param {string} s */
-function kebabcase(s) {
-  return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 // `[term]` — the item status / lifecycle suffix.
@@ -144,13 +129,15 @@ function discoveryGlyph(tier) {
 // beneath a started or reopened item, and drain when its session next sits.
 // `reconcilePending` (computeTopicLifecycle's
 // reconcile_pending) appends an `input moved` cue the same way — a phase item
-// beneath the row carries a live reconcile flag its entry flow will clear.
+// beneath the row carries a live reconcile flag its phase's start will clear.
 // `waits` (the map row's live waits, every kind) appends `awaiting research`
 // and `awaiting E1` directly after the lifecycle — a conversation beneath the
 // row is blocked pending research still to land or experiment evidence,
-// released when the research lands or the experiment ends.
-/** @param {string} lifecycle @param {string|null} [routing] @param {string|null} [researchState] @param {boolean} [triageParked] @param {boolean} [reconcilePending] @param {import('./derivations.cjs').Wait[]} [waits] */
-function discoveryLifecycleLabel(lifecycle, routing, researchState, triageParked, reconcilePending, waits) {
+// released when the research lands or the experiment ends. `promotedTo` (the
+// map row's promoted_to) names the cross-cutting unit a decided topic's
+// discussion moved to with its specification.
+/** @param {string} lifecycle @param {string|null} [routing] @param {string|null} [researchState] @param {boolean} [triageParked] @param {boolean} [reconcilePending] @param {import('./derivations.cjs').Wait[]} [waits] @param {string|null} [promotedTo] */
+function discoveryLifecycleLabel(lifecycle, routing, researchState, triageParked, reconcilePending, waits, promotedTo) {
   let label;
   switch (lifecycle) {
     case 'ready_for_discussion':
@@ -160,7 +147,7 @@ function discoveryLifecycleLabel(lifecycle, routing, researchState, triageParked
       break;
     case 'researching': label = 'researching'; break;
     case 'discussing': label = 'discussing'; break;
-    case 'decided': label = 'decided'; break;
+    case 'decided': label = promotedTo ? `decided · promoted to ${promotedTo}` : 'decided'; break;
     case 'handled': label = 'dead end'; break;
     case 'cancelled': label = 'cancelled'; break;
     case 'postponed': label = 'postponed'; break;
@@ -221,10 +208,6 @@ const SPEC_LEGEND = {
     ready: 'completed and available to be specified',
     reopened: 'back in-progress — the spec waits on it',
   },
-  consult: {
-    pending: 'sibling correction not yet read in and reconciled',
-    addressed: 'correction applied or cited; reconciliation recorded',
-  },
   spec: {
     'in-progress': 'specification work is ongoing',
     completed: 'specification is done',
@@ -232,8 +215,7 @@ const SPEC_LEGEND = {
 };
 
 module.exports = {
-  titlecaseLabel,
-  TREE_WIDTH, treeHeader, capitalise, titlecase, kebabcase, tag, derivedFrom, stateNote, title, materialBlock,
+  TREE_WIDTH, treeHeader, capitalise, titlecase, tag, derivedFrom, stateNote, title, materialBlock,
   discoveryGlyph, DISCOVERY_GLYPH, discoveryLifecycleLabel,
   discussionGlyph, DISCUSSION_GLYPH, researchGlyph, RESEARCH_GLYPH, WORKLIST_GLYPH, SPEC_LEGEND,
 };

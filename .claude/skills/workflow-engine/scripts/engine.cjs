@@ -36,6 +36,8 @@ const { VALID_ROUTINGS, VALID_THREAD_STATUSES, TERMINAL_STATUSES, isParentExperi
 const { sequenceMap, addItem, addItemsBatch, editItem, removeItem, renameItem, rerouteItem, handleItem, unhandleItem } = require('./domain/discovery-map.cjs');
 const { sequenceBuildOrder } = require('./domain/build-order.cjs');
 const { startTopic, triageTopic, queueStatus, absorbConcern, requeueConcern, completeTopic, reopenTopic, staleSources, supersedeTopic, cancelTopic, reactivateTopic, postponeTopic } = require('./domain/transitions.cjs');
+const { incorporations } = require('./domain/specification.cjs');
+const { loadWorkUnitManifest } = require('./kernel/manifest.cjs');
 const { createExperiment, advanceExperiment, approveExperiment, concludeExperiment, abandonExperiment } = require('./domain/experiment.cjs');
 const { initTasks, startTask, fixAttempt, completeTask, analysisCycle } = require('./domain/tasks.cjs');
 const { archiveItems, restoreItems, deleteItems } = require('./domain/inbox.cjs');
@@ -45,6 +47,7 @@ const { boot } = require('./domain/boot.cjs');
 const { beatPresence, clearPresence, beatQuietly, refreshQuietly, clearQuietly, scanPresence, scanProject, cleanupPresence, deferralSection, CODE_PHASES } = require('./domain/presence.cjs');
 const { applySessionLabel, restoreSessionLabel, repairSessionLabels, resumeSessionLabel, recordLabelChoice } = require('./domain/session-label.cjs');
 const { markConversation, endConversation } = require('./domain/conversation.cjs');
+const { assertPlace, recordPosition, recordTask, clearTask, positionReads, positionSections } = require('./domain/position.cjs');
 const { createWorkUnit } = require('./domain/workunit-create.cjs');
 const { importWorkUnitFiles } = require('./domain/workunit-import.cjs');
 const { completeWorkUnit, cancelWorkUnit, reactivateWorkUnit, pivotWorkUnit } = require('./domain/workunit-lifecycle.cjs');
@@ -53,6 +56,7 @@ const { promoteWorkUnit } = require('./domain/workunit-promote.cjs');
 const { openDiscoverySession, closeDiscoverySession } = require('./domain/discovery-session.cjs');
 const { runFieldCommand, isRead } = require('./domain/fields.cjs');
 const { renderSurface, SURFACES } = require('./domain/render.cjs');
+const { resolveHandoff, handoffSections } = require('./domain/handoff.cjs');
 const roadmap = require('./domain/roadmap.cjs');
 const baseline = require('./domain/baseline.cjs');
 const walkthrough = require('./domain/walkthrough.cjs');
@@ -148,7 +152,7 @@ Commands:
   manifest list   [--status <s>] [--work-type <t>]
   manifest key-of <dotpath> <field.path> <value>
   manifest resolve <work-unit>.<phase>[.<topic>]
-  workunit create <work-unit> <work-type> --description <text> --session-log-file <path>|--no-session-log
+  workunit create <work-unit> <work-type> --description <text> --session-log-file <path>
                   [--import <path> …] [--seed <path> …]
   workunit import <work-unit> <path> [<path> …] --from <origin>
   workunit complete <work-unit> -m <message>
@@ -182,6 +186,7 @@ Commands:
   topic start <work-unit> <phase> <topic>
   topic triage <work-unit> <phase> <topic> [--concern <file> --slug <kebab> -m <message>]
   topic queue <work-unit> <phase> <topic>
+  topic incorporations <work-unit> <topic>
   topic absorb <work-unit> <phase> <topic> --file <NNN-slug.md> [--subtopic <name>] -m <message>
   topic requeue <work-unit> <from-phase> <to-phase> <topic> --file <NNN-slug.md> -m <message>
   presence beat <work-unit> <phase> <topic>
@@ -194,6 +199,7 @@ Commands:
   session cleanup [session-id]
   session resume [session-id]
   conversation end
+  conversation position [session-id]
   topic complete <work-unit> <phase> <topic>
   topic reopen <work-unit> <phase> <topic>
   topic supersede <work-unit> <phase> <topic> --by <topic>
@@ -217,6 +223,7 @@ Commands:
   inbox delete <path> [<path> …]
   baseline record <native|skipped>
   walkthrough record <walked|skipped>
+  handoff <skill|/skill> [args …]
   roadmap state
   roadmap add <name> --horizon <h> --summary <text> [--origin <tag>] [--source <path> …]
   roadmap add-batch --file <items.json>
@@ -278,7 +285,7 @@ Commands:
   render research-conclude-gate <wu.research.topic> [--dead-end]
   render deep-dive-offer  <wu.research.topic> --file <payload.json>
   render perspective-offer <wu.discussion.topic> --file <payload.json>
-  render in-flight-agents-gate <wu.research.topic> --count N
+  render in-flight-agents-gate <wu.research|discussion.topic> --count N [--pause]
   render review-findings-gate <wu.discussion.topic>
   render reroute-candidates <wu.phase.topic> --file <payload.json>
   render off-topic-offer  <wu.phase.topic> --file <payload.json> [--variant discussion]
@@ -311,7 +318,7 @@ Commands:
   render first-phase-gate <wu> --file <payload.json>
   render correction-gate  <wu.specification.topic>
   render analysis-proceed-gate <wu>
-  render spec-confirm-gate <wu.specification.topic> --variant create|continue|refine|unify [--file <payload.json>]
+  render spec-confirm-gate <wu.specification.topic> [--single|--unify]  (bare: empty unless the start incorporates a specification)
   render proposed-task    <wu.phase.topic> --file <payload.json> --gate gated|auto [--comment-hint STR]
   render incoherence-gate <wu.phase.topic> --file <payload.json> --variant conflict|gap-route|held-doc
   render resurface-gate   <wu.phase.topic> --file <payload.json> [--view full]
@@ -320,7 +327,7 @@ Commands:
   render author-task-gate <wu.planning.topic> --m N --total N --title STR
   render phase-tree       <wu.planning.topic> --file <payload.json> [--approve] | --menu-only
   render phase-completed   <wu> --phase <phase> [--paths]
-  render phase-paused      <wu> --phase <research|discussion|planning>
+  render phase-paused      <wu> --phase <research|discussion|planning|specification>
   render phase-note        <wu.phase.topic> --verb <Word> [--noun <word>]
   render entry-gate        <wu.phase.topic> [--own]  (discussion|planning|implementation|review|specification)
   render direct-entry-gate <wu.phase.topic>          (research|discussion — empty when the name is not on the map)
@@ -403,9 +410,9 @@ Commands:
 // (set/push/pull/delete) answer with the engine's one-line JSON response.
 //
 // No field write heartbeats. A three-segment `set` looks self-referential and
-// frequently is not: the storage-path backfills, review's `updated` stamp and
-// the epic menu's unblock all write one phase's item from another phase's
-// session, and a beat there manufactures a hold on a topic nobody is in (P8).
+// frequently is not: review's `updated` stamp and the epic menu's unblock
+// both write one phase's item from another phase's session, and a beat there
+// manufactures a hold on a topic nobody is in (P8).
 // The session's cadence commit is its heartbeat; `apply`, the cross-topic
 // batch door, never beat either.
 // ---------------------------------------------------------------------------
@@ -458,14 +465,10 @@ function runWorkunit(call, argv) {
   const [command, ...rest] = argv;
   try {
     if (command === 'create') {
-      const { opts, flags, lists, positional } = parseArgs(rest, ['no-session-log'], ['import', 'seed']);
+      const { opts, lists, positional } = parseArgs(rest, [], ['import', 'seed']);
       const [workUnit, workType] = positional;
-      if (!workUnit || !workType || !opts.description) {
-        throw new Error('Usage: engine workunit create <work-unit> <work-type> --description <text> --session-log-file <path>|--no-session-log [--import <path> …] [--seed <path> …]');
-      }
-      // Log-less creation must be explicit — accidental omission is an error.
-      if (flags.has('no-session-log') ? opts['session-log-file'] !== undefined : opts['session-log-file'] === undefined) {
-        throw new Error('exactly one of --session-log-file <path> or --no-session-log is required');
+      if (!workUnit || !workType || !opts.description || !opts['session-log-file']) {
+        throw new Error('Usage: engine workunit create <work-unit> <work-type> --description <text> --session-log-file <path> [--import <path> …] [--seed <path> …]');
       }
       respond(call, createWorkUnit(call.cwd, workUnit, workType, {
         description: opts.description,
@@ -949,7 +952,10 @@ function runSession(call, argv) {
       if (![1, 3].includes(rest.length) || rest.some((a) => !a)) {
         throw new Error('Usage: engine session label <name> [<phase> <topic>]');
       }
-      respond(call, applySessionLabel(call.cwd, name, phase, topic));
+      assertPlace(call.cwd, name, phase, topic);
+      const labelled = applySessionLabel(call.cwd, name, phase, topic);
+      recordPosition(call.cwd, name, phase, topic);
+      respond(call, labelled);
       return;
     }
     if (command === 'label-config') {
@@ -985,13 +991,22 @@ function runSession(call, argv) {
 function runConversation(call, argv) {
   const [command, ...rest] = argv;
   try {
-    if (command === 'end' && rest.length === 0) {
+    if (command === 'end') {
       // The SessionEnd hook's target.
+      if (rest.length !== 0) throw new Error('Usage: engine conversation end');
       const input = hookInput(call);
       respond(call, endConversation(input.session_id, input.transcript_path));
       return;
     }
-    throw new Error('Usage: engine conversation end');
+    if (command === 'position') {
+      const sessionId = rest[0] || process.env.CLAUDE_CODE_SESSION_ID;
+      if (rest.length > 1 || !sessionId) {
+        throw new Error('Usage: engine conversation position [session-id] — the calling conversation\'s CLAUDE_CODE_SESSION_ID when no id is given');
+      }
+      respondSections(call, positionSections(positionReads(call.cwd, sessionId)));
+      return;
+    }
+    throw new Error('Usage: engine conversation <end|position> …');
   } catch (err) {
     failJson(call, err);
   }
@@ -1040,6 +1055,15 @@ function runTopic(call, argv) {
       // never creates one.
       refreshQuietly(call.cwd, workUnit, phase, topic);
       respond(call, status);
+      return;
+    }
+    if (command === 'incorporations') {
+      const [workUnit, topic] = rest;
+      if (!workUnit || !topic || rest.length !== 2) {
+        throw new Error('Usage: engine topic incorporations <work-unit> <topic>');
+      }
+      const manifest = loadWorkUnitManifest(call.cwd, workUnit);
+      respond(call, { work_unit: workUnit, topic, incorporations: incorporations(manifest, workUnit, topic) });
       return;
     }
     if (command === 'absorb') {
@@ -1110,7 +1134,7 @@ function runTopic(call, argv) {
       return;
     }
     if (!Object.prototype.hasOwnProperty.call(TOPIC_COMMANDS, command)) {
-      throw new Error('Usage: engine topic <start|triage|complete|reopen|supersede|cancel|reactivate|postpone|queue|absorb|requeue> <work-unit> <phase> <topic>');
+      throw new Error('Usage: engine topic <start|triage|complete|reopen|supersede|cancel|reactivate|postpone|queue|incorporations|absorb|requeue> <work-unit> <phase> <topic>');
     }
     const fn = TOPIC_COMMANDS[/** @type {keyof typeof TOPIC_COMMANDS} */ (command)];
     const [workUnit, phase, topic] = rest;
@@ -1216,7 +1240,9 @@ function runTask(call, argv) {
       if (!workUnit || !topic || !internalId) {
         throw new Error('Usage: engine task start <work-unit> <topic> <internal-id>');
       }
-      respond(call, startTask(cwd, workUnit, topic, internalId));
+      const started = startTask(cwd, workUnit, topic, internalId);
+      recordTask(cwd, workUnit, topic, internalId);
+      respond(call, started);
     } else if (command === 'fix-attempt') {
       if (!workUnit || !topic || !internalId || !opts['findings-file']) {
         throw new Error('Usage: engine task fix-attempt <work-unit> <topic> <internal-id> --findings-file <path>');
@@ -1241,6 +1267,7 @@ function runTask(call, argv) {
         phase,
         phaseComplete: flags.has('phase-complete'),
       });
+      clearTask(workUnit, topic, result.internal_id);
       respond(call, result);
     } else {
       throw new Error('Usage: engine task <init|start|fix-attempt|complete|analysis-cycle> …');
@@ -1896,7 +1923,7 @@ function runCommit(call, argv) {
         if (!planItem) throw new Error(`commit --plan: no planning item "${plan}" in "${wu}"`);
         const declared = planItem.storage_paths;
         if (declared === undefined) {
-          throw new Error(`commit --plan: planning item "${plan}" has no storage_paths — a pre-upgrade plan; record the format's declared pathspecs once: engine manifest set ${wu}.planning.${plan} storage_paths '[…]' (the format's authoring.md names them; '[]' when it stores inside the work unit)`);
+          throw new Error(`commit --plan: planning item "${plan}" has no storage_paths — record the format's declared pathspecs once: engine manifest set ${wu}.planning.${plan} storage_paths '[…]' (the format's authoring.md names them; '[]' when it stores inside the work unit)`);
         }
         if (!Array.isArray(declared) || declared.some((p) => typeof p !== 'string')) {
           throw new Error(`commit --plan: planning item "${plan}" has a malformed storage_paths (${JSON.stringify(declared)}) — must be an array of relative pathspec strings`);
@@ -1922,10 +1949,27 @@ function runCommit(call, argv) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// handoff — a move into work (domain/handoff.cjs): the skill and its
+// arguments checked against the table, answered in sections like a render
+// surface's. Nothing is written.
+// ---------------------------------------------------------------------------
+
+/** @param {Call} call @param {string[]} argv */
+function runHandoff(call, argv) {
+  const [skill, ...args] = argv;
+  try {
+    if (skill === undefined) throw new Error('Usage: engine handoff <skill|/skill> [args …]');
+    respondSections(call, handoffSections(resolveHandoff(call.cwd, skill, args)));
+  } catch (err) {
+    failJson(call, err);
+  }
+}
+
 /** @param {Call} call @param {string[]} argv */
 function runRender(call, argv) {
   const [command, ...rest] = argv;
-  const { opts, flags, positional } = parseArgs(rest, ['approve', 'skipped-review', 'own', 'paths', 'warn', 'pipeline', 'donow', 'recommendations', 'dead-end', 'menu-only']);
+  const { opts, flags, positional } = parseArgs(rest, ['approve', 'skipped-review', 'own', 'paths', 'warn', 'pipeline', 'donow', 'recommendations', 'dead-end', 'menu-only', 'pause', 'single', 'unify']);
   const width = opts.width !== undefined ? parseInt(opts.width, 10) : WIDTH;
 
   if (Object.hasOwn(SURFACES, command)) {
@@ -1942,6 +1986,9 @@ function runRender(call, argv) {
       if (flags.has('recommendations')) args.recommendations = '1';
       if (flags.has('dead-end')) args['dead-end'] = '1';
       if (flags.has('menu-only')) args['menu-only'] = '1';
+      if (flags.has('pause')) args.pause = '1';
+      if (flags.has('single')) args.single = '1';
+      if (flags.has('unify')) args.unify = '1';
       respondSections(call, renderSurface(call.cwd, command, args));
     } catch (err) {
       failJson(call, err);
@@ -2053,6 +2100,9 @@ function runCli(call, argv) {
       break;
     case 'render':
       runRender(call, rest);
+      break;
+    case 'handoff':
+      runHandoff(call, rest);
       break;
     default:
       die(call, USAGE);

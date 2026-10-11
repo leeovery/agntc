@@ -17,12 +17,22 @@
  * so where the module never loads, or a cut throws or overruns, the model
  * reads the text menu the engine wrote.
  *
+ * The module carries the workflows' handoffs too: a move into work the engine
+ * names arms off the Bash result that carried it, cut out of what the model
+ * reads, and once the turn ends the module clears the conversation and sends
+ * the continuation into the new one, an Esc on that turn carrying nothing.
+ *
  * The module also sets Claude Code's harness for the workflows: every session
  * gets the SendUserMessage tool, kept behind ToolSearch, and a conversation
  * the engine has marked as running the workflows goes without Claude's
  * thinking summarised as output and without the nudge to say what it is
  * doing, the person's own values of both put back as it ends. A conversation
  * the engine has not marked keeps them untouched.
+ *
+ * It registers the rest of what the mod does in a workflow conversation as
+ * well: the spinner saying the phase (`spinner.ts`), the guard on direct
+ * manifest edits (`guard.ts`), and the compaction — Claude Code's own, the
+ * engine's note appended last (`compaction.ts`).
  *
  * All of it happens in Claude Code's terminal app and the Desktop app's Code
  * tab alone, from 2.1.287. Elsewhere — the VS Code extension, Claude Code on
@@ -38,6 +48,9 @@ import type {
   SessionMessage,
 } from 'claude-code'
 
+import { compaction } from './compaction.ts'
+import { MARKER, folderOf as folderNamed } from './folder.ts'
+import { guard } from './guard.ts'
 import {
   IDLE,
   NO_SENDS,
@@ -47,11 +60,15 @@ import {
   type Option,
   type Sends,
 } from './layout.ts'
+import { spinner } from './spinner.ts'
 
 /** The payload's marker and the menu it sits directly above. */
 const GATE_MARKER = '=== GATE ('
 const MENU_MARKER = '=== MENU'
 const SECTION_MARKER = '=== '
+
+/** The marker of a handoff's payload. */
+const HANDOFF_MARKER = '=== HANDOFF ('
 
 /** The `Client`'s key: what `ui.message` matches the board's posts on. */
 const ELEMENT = 'gate'
@@ -66,13 +83,22 @@ const SENT = 'sent.json'
 const NOTHING_SENT = 'null'
 
 /**
- * Where each conversation that runs the workflows keeps what belongs to it,
- * in the workflows' system config directory.
+ * What a send leaves in the conversation's folder: the answer to a gate, with
+ * the question and the row's label; or a handoff's continuation, with the line
+ * naming where the work went.
  */
-const CONVERSATIONS = 'conversations'
+type Sent =
+  | { answer: string; question: string; label: string }
+  | { answer: string; line: string }
 
-/** The file the engine marks a conversation that runs the workflows with. */
-const MARKER = 'workflow'
+/** A move into work the engine named: the continuation to send, and its line. */
+type Handoff = { text: string; line: string }
+
+/** How long a continuation the mod could not carry stays on screen to send. */
+const UNCARRIED_TOAST_MS = 30_000
+
+/** How long the toast saying where the work went stays up. */
+const HANDED_OFF_TOAST_MS = 8_000
 
 /** The file a conversation's band is kept in for a resume. */
 const KEPT = 'gate.json'
@@ -200,6 +226,31 @@ function gateIn(
 }
 
 /**
+ * The handoff a Bash result's stdout carries, and that stdout with its
+ * payload taken out; null where it carries none.
+ */
+function handoffIn(stdout: string): { handoff: Handoff; text: string } | null {
+  if (!stdout.includes(HANDOFF_MARKER)) {
+    return null
+  }
+
+  const lines = stdout.split('\n')
+  const at = lines.findIndex(line => line.startsWith(HANDOFF_MARKER))
+  const payload = lines[at + 1]
+
+  if (at === -1 || payload === undefined) {
+    return null
+  }
+
+  const { text, line } = JSON.parse(payload) as Handoff
+
+  return {
+    handoff: { text, line },
+    text: [...lines.slice(0, at), ...lines.slice(at + 2)].join('\n'),
+  }
+}
+
+/**
  * Whether `version` is a release the mod runs on; one that does not read as
  * a release, a development build's included, counts as older.
  */
@@ -302,16 +353,11 @@ async function fill($: EngineInterface, text: string): Promise<boolean> {
 }
 
 /**
- * Sends a row as the next message, the send recorded in the conversation's
- * folder where it has one; whether it entered. A send that fails or is
- * dropped leaves no send recorded.
+ * Sends the next message, the send recorded in the conversation's folder
+ * where it has one; whether it entered. A send that fails or is dropped
+ * leaves no send recorded.
  */
-async function submit(
-  $: EngineInterface,
-  gate: Gate,
-  option: Option,
-): Promise<boolean> {
-  const answer = answerOf(option)
+async function deliver($: EngineInterface, sent: Sent): Promise<boolean> {
   const folder = await folderOf($, await $.session.id())
   const record = async (text: string) => {
     if (folder !== null) {
@@ -321,11 +367,9 @@ async function submit(
   let isSent = false
 
   try {
-    await record(
-      JSON.stringify({ answer, question: gate.question, label: option.head }),
-    )
+    await record(JSON.stringify(sent))
     // Framed for the model and labelled on screen as this plugin's, by design.
-    const { drop } = await $.prompt.submit({ text: answer })
+    const { drop } = await $.prompt.submit({ text: sent.answer })
 
     isSent = drop === undefined
   } finally {
@@ -335,6 +379,45 @@ async function submit(
   }
 
   return isSent
+}
+
+/** Sends a row as the next message; whether it entered. */
+const submit = ($: EngineInterface, gate: Gate, option: Option) =>
+  deliver($, {
+    answer: answerOf(option),
+    question: gate.question,
+    label: option.head,
+  })
+
+/** Whether `attempt` took; one that fails did not. */
+const took = (attempt: Promise<boolean>) => attempt.catch(() => false)
+
+/**
+ * Carries a handoff: the conversation cleared, then the continuation sent into
+ * the new one, recorded with its line in that conversation's folder first,
+ * and a toast saying where the work went. A clear that fails sends in place,
+ * so the work still goes on; a send that fails or is dropped waits in the
+ * prompt box for Enter; where the box refuses it too, the toast holds the
+ * continuation for the person to send.
+ */
+async function handOff($: EngineInterface, { text, line }: Handoff) {
+  try {
+    await $.command.run({ command: 'clear' })
+  } catch {
+    // Not cleared: the continuation goes on in this conversation.
+  }
+
+  const isCarried =
+    (await took(deliver($, { answer: text, line }))) ||
+    (await took(fill($, text)))
+
+  if (isCarried) {
+    $.ui.toast(`Handed off ${line}`, { timeoutMs: HANDED_OFF_TOAST_MS })
+  } else {
+    $.ui.toast(`Not handed off ${line} — send this to carry on: ${text}`, {
+      timeoutMs: UNCARRIED_TOAST_MS,
+    })
+  }
 }
 
 /**
@@ -448,24 +531,18 @@ const isKept = (value: unknown): value is Kept =>
   typeof (value as Kept).stamp === 'string'
 
 /**
- * The folder of the conversation `id`, which the engine names by the id's
- * safe characters alone, in the workflows' system config directory:
- * `WORKFLOWS_CONFIG_DIR`, else `.config/workflows` in the home directory.
- * Found by the id, so a `cd` or a resume elsewhere finds it all the same;
+ * The folder of the conversation `id`, as the engine names it (`folder.ts`);
  * null where the process names neither directory.
  */
 async function folderOf(
   $: EngineInterface,
   id: string,
 ): Promise<string | null> {
-  const home = await $.env.get('HOME')
-  const config =
-    (await $.env.get('WORKFLOWS_CONFIG_DIR')) ||
-    (home ? `${home}/.config/workflows` : null)
-
-  return config === null
-    ? null
-    : `${config}/${CONVERSATIONS}/${id.replace(/[^A-Za-z0-9_-]/g, '')}`
+  return folderNamed(
+    await $.env.get('WORKFLOWS_CONFIG_DIR'),
+    await $.env.get('HOME'),
+    id,
+  )
 }
 
 /** A file in a conversation's folder. */
@@ -645,6 +722,16 @@ export const register: Register = on => {
   /** Where the conversation stood when the band was last kept or read back. */
   let seen: Place | null = null
 
+  /** The handoff a call armed, carried once its turn ends. */
+  let handoff: Handoff | null = null
+
+  /**
+   * Whether the clear under way is this module's own, for a handoff: the
+   * conversation it leads into runs the workflows by construction, so the
+   * workflow harness stays on through it.
+   */
+  let isClearingForHandoff = false
+
   /**
    * The person takes the turn: the band comes down, keeping the gate their
    * turn answers. Whether a gate came down.
@@ -728,17 +815,19 @@ export const register: Register = on => {
     }
   }
 
-  // Announced, never always-on: the engine collects a gate only for a session
-  // that asked for one, and every Bash child inherits this. Where the mod
-  // does not apply nothing is announced, which leaves it inert there. A
-  // fresh load comes back to a conversation this module has not followed, so
-  // the band is read back from the conversation's folder.
+  // Announced, never always-on: the engine collects a gate, and composes a
+  // handoff for this module to carry, only for a session that asked, and
+  // every Bash child inherits this. Where the mod does not apply nothing is
+  // announced, which leaves it inert there. A fresh load comes back to a
+  // conversation this module has not followed, so the band is read back from
+  // the conversation's folder.
   on('session.start', async ($, e, next) => {
     if (!(await isApplicable($))) {
       return next(e)
     }
 
     await $.env.set('WORKFLOWS_GATE_SURFACE', '1')
+    await $.env.set('WORKFLOWS_HANDOFF', '1')
 
     // Claude Code builds its tool catalogue just after this hook, so only
     // here does the switch that gives the session SendUserMessage count.
@@ -758,8 +847,13 @@ export const register: Register = on => {
   // which no gate of this one answers and which is no workflow session until
   // the engine marks it or it is read back as one it has marked. What the
   // band showed is kept for this one first, stamped where its transcript
-  // ends now, which can have moved since its last turn's end.
+  // ends now, which can have moved since its last turn's end. The clear a
+  // handoff runs leads into a workflow conversation, so the harness stays on.
   on('session.end', async ($, e, next) => {
+    const isHandingOff = isClearingForHandoff && e.reason === 'clear'
+
+    isClearingForHandoff = false
+
     try {
       const place = await placeOf($)
 
@@ -769,10 +863,14 @@ export const register: Register = on => {
       }
     } finally {
       band = emptyBand()
+      handoff = null
       owed = { ended: seen }
       seen = null
       $.ui.invalidate('ui.render')
-      await harnessOff($)
+
+      if (!isHandingOff) {
+        await harnessOff($)
+      }
     }
 
     return next(e)
@@ -789,14 +887,20 @@ export const register: Register = on => {
   // Every engine call marks the conversation that made it, whatever its exit,
   // so after each of the conversation's own commands the mark says whether it
   // runs the workflows; a command that only mentions the engine marks nothing.
+  // A failure replays the payloads uncut, so the harness never fails the call
+  // and nothing is armed until nothing more can fail.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const result = await next(e)
 
-    if (
-      inConversation(e) &&
-      (await markedFolder($, await $.session.id())) !== null
-    ) {
-      await harnessOn($)
+    try {
+      if (
+        inConversation(e) &&
+        (await markedFolder($, await $.session.id())) !== null
+      ) {
+        await harnessOn($)
+      }
+    } catch {
+      // The harness waits for the conversation's next call.
     }
 
     if (result.deny !== undefined || result.isError === true) {
@@ -804,13 +908,18 @@ export const register: Register = on => {
     }
 
     const record = result.result
-    const stated = gateIn(record.stdout)
+    const carried = handoffIn(record.stdout)
+    const stdout = carried === null ? record.stdout : carried.text
+    const stated = gateIn(stdout)
+    const isArmed = stated !== null && (await isForBand($, e))
 
-    if (stated === null) {
-      return result
+    if (carried !== null && inConversation(e)) {
+      handoff = carried.handoff
     }
 
-    const isArmed = await isForBand($, e)
+    if (stated === null) {
+      return carried === null ? result : { result: { ...record, stdout } }
+    }
 
     if (isArmed) {
       band.armed = stated.gate
@@ -836,52 +945,71 @@ export const register: Register = on => {
   // and kept with where the transcript ends, which a resume must still match.
   // A held answer is not kept: it waits on a turn no resume brings back. It
   // sends once the turn is over, and one not sent is put back as a pick; the
-  // answer of a pick whose gate went leaves the prompt box.
+  // answer of a pick whose gate went leaves the prompt box. A handoff the turn
+  // armed is carried once it is over, whatever else at its end fails; an Esc
+  // means stop, and carries nothing.
   on('turn.complete', async ($, e, next) => {
     if (!inConversation(e)) {
       return next(e)
     }
 
-    const settled = endTurn(e.isAborted)
-    const { drawn } = band
+    const carried = handoff
 
-    owed = null
+    handoff = null
 
-    if (drawn !== null) {
-      $.ui.invalidate('ui.render')
-    }
+    try {
+      const settled = endTurn(e.isAborted)
+      const { drawn } = band
 
-    const place = await placeOf($)
+      owed = null
 
-    await keep($, place, drawn)
-    seen = place
+      if (drawn !== null) {
+        $.ui.invalidate('ui.render')
+      }
 
-    const answered = await next(e)
-    const { held, gone } = settled
+      const place = await placeOf($)
 
-    if (gone !== null) {
-      await unpick($, gone)
-    }
+      await keep($, place, drawn)
+      seen = place
 
-    if (held !== null && drawn !== null) {
-      const answer = answerOf(held.option)
-      let isSent = false
+      const answered = await next(e)
+      const { held, gone } = settled
 
-      isSending = true
+      if (gone !== null) {
+        await unpick($, gone)
+      }
 
-      try {
-        isSent = held.isToSend && (await submit($, drawn, held.option))
-      } finally {
-        isSending = false
+      if (held !== null && drawn !== null) {
+        const answer = answerOf(held.option)
+        let isSent = false
 
-        if (!isSent && (await fill($, answer))) {
-          band.picked = answer
-          $.ui.invalidate('ui.render')
+        isSending = true
+
+        try {
+          isSent = held.isToSend && (await submit($, drawn, held.option))
+        } finally {
+          isSending = false
+
+          if (!isSent && (await fill($, answer))) {
+            band.picked = answer
+            $.ui.invalidate('ui.render')
+          }
         }
       }
-    }
 
-    return answered
+      return answered
+    } finally {
+      if (carried !== null && !e.isAborted) {
+        // A command cannot run inside a hook the turn waits on, so the clear
+        // runs from a timer once this hook is done — proven in the lab.
+        $.clock.after(0, () => {
+          isClearingForHandoff = true
+          void handOff($, carried).finally(() => {
+            isClearingForHandoff = false
+          })
+        })
+      }
+    }
   }).catch(($, e, next) => next(e))
 
   // A drawing while a read-back is owed — a reload's first, the first after
@@ -1014,4 +1142,8 @@ export const register: Register = on => {
 
     return next(e)
   }).catch(($, e, next) => next(e))
+
+  spinner(on)
+  guard(on)
+  compaction(on)
 }

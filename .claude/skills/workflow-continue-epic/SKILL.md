@@ -1,7 +1,7 @@
 ---
 name: workflow-continue-epic
 user-invocable: false
-allowed-tools: Bash(node .claude/skills/workflow-continue-epic/scripts/gateway.cjs), Bash(node .claude/skills/workflow-start/scripts/gateway.cjs), Bash(node .claude/skills/workflow-legacy-research-split/scripts/detect.cjs), Bash(node .claude/skills/workflow-discovery/scripts/gateway.cjs), Bash(node .claude/skills/workflow-engine/scripts/engine.cjs), Bash(mkdir -p .workflows/)
+allowed-tools: Bash(node .claude/skills/workflow-continue-epic/scripts/gateway.cjs), Bash(node .claude/skills/workflow-start/scripts/gateway.cjs), Bash(node .claude/skills/workflow-legacy-research-split/scripts/detect.cjs), Bash(node .claude/skills/workflow-discovery/scripts/gateway.cjs), Bash(node .claude/skills/workflow-engine/scripts/engine.cjs), Bash(mkdir -p .workflows/), Bash(mkdir -p .workflows/*/.state), Bash(rm .workflows/*/.state/discussion-consolidation-analysis.md)
 ---
 
 Continue an in-progress epic. Shows full phase-by-phase state and routes to the appropriate phase skill.
@@ -28,91 +28,40 @@ Load **[framework.md](../workflow-shared/references/framework.md)** and follow i
 
 ## Step 1: Discovery State
 
-!`node .claude/skills/workflow-continue-epic/scripts/gateway.cjs`
+This skill receives positional arguments — one not given is unset, whatever an earlier skill in this conversation held under the same name:
+- `$0` — **work_unit**: the epic to continue. Held downstream as `{work_unit}`.
+- `$1` — **completed_phase** (optional): the phase that just concluded or paused, where the epic arrives from one. Held downstream as `{completed_phase}`.
+- `$2` — **outcome**: given with `$1` — `completed`, `paused`, `cancelled` or `postponed`. Held downstream as `{outcome}`.
 
-If the above shows a script invocation rather than discovery output, the dynamic content preprocessor did not run. Execute the script before continuing:
+Run the scoped discovery for the epic and hold its output as **the most recent discovery output** — Steps 2–6 read `discovery_map`, `analysis_caches`, `needs_sequencing`, `build_order_needs_sequencing`, and `all_done` from it; display and routing come from the `view` snapshot at Step 6:
 
 ```bash
-node .claude/skills/workflow-continue-epic/scripts/gateway.cjs
+node .claude/skills/workflow-continue-epic/scripts/gateway.cjs {work_unit}
 ```
 
-If discovery output is already displayed, it has been run on your behalf.
-
-Parse the discovery output to understand:
-
-**From the `=== EPICS (N) ===` section:**
-- one line per active epic — `{name}: {active_phases}` (phases with items; `(no phases)` when none)
-- `count` — the header count of active epics
-
-**From the `=== COMPLETED (N) ===` / `=== CANCELLED (N) ===` sections:**
-- one line per closed epic — `{name} (last phase: {phase})`
-- `completed_count` / `cancelled_count` — the header counts
-
-The per-epic state surface (`all_done`, `reconcile_pending`, `analysis_caches`, `needs_sequencing`, `build_order_needs_sequencing`, the discovery map) is the scoped dump Step 4 runs after validation; display and routing come from the `view` snapshot at Step 9.
-
 **IMPORTANT**: Use ONLY this script for discovery. Do NOT run additional bash commands (ls, head, cat, etc.) to gather state.
+
+#### If the output reports an `error`
+
+Fetch the terminal display — the `view` snapshot for a name with no active epic behind it carries it:
+
+```bash
+node .claude/skills/workflow-continue-epic/scripts/gateway.cjs view {work_unit}
+```
+
+Emit its `DISPLAY: not found` section verbatim per its marker.
+
+**STOP.** Do not proceed — terminal condition.
+
+#### Otherwise
 
 → Proceed to **Step 2**.
 
 ---
 
-## Step 2: Check Count and Arguments
+## Step 2: Backfill
 
-#### If `count` is 0
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-No epics in progress.
-
-Run /workflow-start to begin a new one.
-```
-
-**STOP.** Do not proceed — terminal condition.
-
-#### If `work_unit` argument `$0` provided
-
-Store the work_unit.
-
-→ Proceed to **Step 4**.
-
-#### If `work_unit` not provided
-
-→ Proceed to **Step 3**.
-
----
-
-## Step 3: Select Epic
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`□ Select Epic`**
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Showing your active epics for selection.
-```
-
-Load **[select-epic.md](references/select-epic.md)** and follow its instructions as written.
-
-→ On return, proceed to **Step 4**.
-
----
-
-## Step 4: Validate Selection
-
-Load **[validate-selection.md](references/validate-selection.md)** and follow its instructions as written.
-
-→ On return, proceed to **Step 5**.
-
----
-
-## Step 5: Backfill
-
-Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
+Record where this session is working — the call also labels the tmux session where the user opted in:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit}
@@ -130,29 +79,29 @@ Then read `discovery_map` from the most recent discovery output and filter for r
 
 #### If `qualifying_sources` is empty and `items_to_recover` is empty
 
-→ Proceed to **Step 6**.
+→ Proceed to **Step 3**.
 
 #### Otherwise
 
-Load **[backfill-checks.md](references/backfill-checks.md)** with work_unit = `{work_unit}`, qualifying_sources = `{qualifying_sources}`, items_to_recover = `{items_to_recover}`.
+Load **[backfill-checks.md](references/backfill-checks.md)** with work_unit = `{work_unit}`, qualifying_sources = `{qualifying_sources}`, items_to_recover = `{items_to_recover}`, completed_phase = `{completed_phase}`, outcome = `{outcome}`.
 
-backfill-checks is terminal when recovery work landed — it commits and stops, advising the user to `/clear` and re-run `/workflow-start`. It returns only when nothing was written (the batch declined); the skipped items re-offer on the next entry.
+backfill-checks is terminal when recovery work landed — it commits and hands the epic menu off to start afresh, carrying the arguments it arrived with. It returns only when nothing was written (the batch declined); the skipped items re-offer on the next entry.
 
-→ On return, proceed to **Step 6**.
+→ On return, proceed to **Step 3**.
 
 ---
 
-## Step 6: Topic Discovery
+## Step 3: Topic Discovery
 
 Read `analysis_caches` from the most recent discovery output. Load **[topic-discovery-dispatch.md](../workflow-shared/references/topic-discovery-dispatch.md)** with work_unit = `{work_unit}`, analysis_caches = `{analysis_caches}`.
 
-On return, `new_arrivals` is populated for Step 9 to render the callout.
+On return, `new_arrivals` is populated for Step 6 to render the callout.
 
-→ On return, proceed to **Step 7**.
+→ On return, proceed to **Step 4**.
 
 ---
 
-## Step 7: Sequence Map
+## Step 4: Sequence Map
 
 Read `needs_sequencing` from the most recent discovery output.
 
@@ -180,15 +129,15 @@ node .claude/skills/workflow-continue-epic/scripts/gateway.cjs {work_unit}
 
 Hold the refreshed output as the most recent discovery output.
 
-→ On return, proceed to **Step 8**.
+→ On return, proceed to **Step 5**.
 
 #### Otherwise
 
-→ Proceed to **Step 8**.
+→ Proceed to **Step 5**.
 
 ---
 
-## Step 8: Sequence Build Order
+## Step 5: Sequence Build Order
 
 Read `build_order_needs_sequencing` from the most recent discovery output.
 
@@ -208,15 +157,17 @@ Read `build_order_needs_sequencing` from the most recent discovery output.
 
 Load **[sequence-build-order.md](../workflow-shared/references/sequence-build-order.md)** with work_unit = `{work_unit}`.
 
-→ On return, proceed to **Step 9**.
+→ On return, proceed to **Step 6**.
 
 #### Otherwise
 
-→ Proceed to **Step 9**.
+→ Proceed to **Step 6**.
 
 ---
 
-## Step 9: Display State and Menu
+## Step 6: Display State and Menu
+
+Load **[banner-and-completion.md](references/banner-and-completion.md)** and follow its instructions as written, then show the epic.
 
 > *Output the next fenced block as markdown (not a code block):*
 
@@ -232,14 +183,12 @@ Load **[sequence-build-order.md](../workflow-shared/references/sequence-build-or
 
 Load **[epic-display-and-menu.md](references/epic-display-and-menu.md)** with new_arrivals = `{new_arrivals}`.
 
-→ On return, proceed to **Step 10**.
+→ On return, proceed to **Step 7**.
 
 ---
 
-## Step 10: Route Selection
+## Step 7: Route Selection
 
-Invoke the `route` stored for the user's selection — the selected `ACTIONS` entry's route from epic-display-and-menu.md (e.g. `/workflow-discussion-entry epic {work_unit} {topic}`). Selections with route `(internal)` resolve inside that reference and never reach this step.
+The user's selection carries the `route` epic-display-and-menu.md stored for it, e.g. `/workflow-discussion-process epic {work_unit} {topic}`. Selections whose flows resolve inside that reference never reach this step.
 
-Skills receive positional arguments: `$0` = work_type (`epic`), `$1` = work_unit, `$2` = topic (when provided). The `continue_discovery` route hands to the discovery skill, which detects the existing work unit and re-shapes the map (existing-epic mode) — workflow-continue-epic navigates; discovery owns the shaping.
-
-This skill ends. The invoked skill will load into context and provide additional instructions. Terminal.
+Load **[handing-off.md](../workflow-shared/references/handing-off.md)** with route = `{route}`.

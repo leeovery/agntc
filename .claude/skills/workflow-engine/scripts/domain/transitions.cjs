@@ -33,8 +33,8 @@ const {
   phaseItems, itemOf, computeTopicLifecycle, computeNextAction, CONVERSATION_ACTIONS, CLOSED_LIFECYCLES,
   OUTSTANDING_RESEARCH_STATUSES, outstandingResearch, outstandingResearchPhrase, lifecyclePhrase,
   awaitedExperiments, waits, settleItemStatus,
-  sourceRows, sourceRow, openSources, specUnsettled, specUnsettledPhrase, UNIT_PHASES, unitItems, discoveryUnitExists, lockingSpecs, lockingSpecsPhrase, deliveryStarted,
-  liveSeries, cancelPlan, postponePlan, proposedGroupings, specReactivateLocks, reactivateLockPhrases,
+  sourceRows, sourceRow, openSources, specUnsettled, specUnsettledPhrase, UNIT_PHASES, unitItems, discoveryUnitExists, unitLocks, lockingSpecsPhrase, promotedRefusal, deliveryStarted,
+  specIncorporations, cancelPlan, postponePlan, proposedGroupings, specReactivateLocks, reactivateLockPhrases,
 } = require('./derivations.cjs');
 const { buildOrderLive } = require('./build-order.cjs');
 const { titlecase } = require('./conventions.cjs');
@@ -125,7 +125,7 @@ function postponedRefusal(phase, topic) {
 /**
  * The phase item for `topic`, or a loud error.
  * @param {object} manifest @param {string} phase @param {string} topic
- * @returns {{status?: string, previous_status?: string, superseded_by?: string, order?: number, previous_order?: number, reconcile_needed?: string|boolean, sources?: Record<string, {status?: string}>|Array<{name?: string, status?: string}>}}
+ * @returns {{status?: string, previous_status?: string, superseded_by?: string, promoted_to?: string, order?: number, previous_order?: number, reconcile_needed?: string|boolean, sources?: Record<string, {status?: string}>|Array<{name?: string, status?: string}>}}
  */
 function phaseItem(manifest, phase, topic) {
   assertLegalWrite(phase, 'cancelled');
@@ -230,7 +230,9 @@ function assertMapAllowsStart(manifest, phase, topic, existing) {
  * (init-phase semantics), or set an existing item back to `in-progress`.
  * A completed item must go through reopen — resuming is not starting — and
  * a cancelled item through reactivate. On an epic the discovery map gates
- * the birth (see assertMapAllowsStart). No git commit.
+ * the birth (see assertMapAllowsStart). A proposed grouping's start records
+ * the started specifications it incorporates (specIncorporations). No git
+ * commit.
  * @param {string} cwd project root
  * @param {string} workUnit
  * @param {string} phase
@@ -257,8 +259,7 @@ function startTopic(cwd, workUnit, phase, topic) {
       const by = 'superseded_by' in existing ? ` (by "${existing.superseded_by}")` : '';
       throw new Error(`${phase} item "${topic}" is superseded${by} — supersession is terminal; work on the absorbing topic instead`);
     } else if (existing && existing.status === 'promoted') {
-      const to = 'promoted_to' in existing ? ` (to "${existing.promoted_to}")` : '';
-      throw new Error(`${phase} item "${topic}" is promoted${to} — promotion is terminal; continue it from the cross-cutting work unit`);
+      throw new Error(promotedRefusal(phase, topic, existing));
     }
     if (!existing || existing.status === 'triaged') {
       assertResearchLanded(manifest, phase, topic, 'start');
@@ -271,6 +272,8 @@ function startTopic(cwd, workUnit, phase, topic) {
       items[topic] = { status: 'in-progress' };
       created = true;
     } else {
+      const incorporates = existing.status === 'proposed' ? specIncorporations(manifest, topic) : [];
+      if (incorporates.length > 0) existing.incorporates = incorporates;
       existing.status = 'in-progress';
     }
 
@@ -344,11 +347,11 @@ function nextConcernNumber(dirAbs) {
  * source's); every other phase flags the same-named item in the work type's
  * next pipeline phase, as does an investigation no spec's sources name (the
  * legacy bugfix shape). The experiment slot is walked past unconditionally —
- * a flag must land where an entry flow can clear it, and the series item
+ * a flag must land where a phase's start can clear it, and the series item
  * has none.
  * A `completed` item takes the flag (value = the upstream phase name,
- * consumed and cleared by the reconcile advisory — at the entry skill, or
- * inside a research/discussion session at its next check; an existing flag
+ * consumed and cleared by the reconcile advisory — where the phase starts,
+ * or inside a research/discussion session at its next check; an existing flag
  * is never clobbered) — and on the hop out of research so does an
  * in-progress discussion: research feeds discussion, and a discussion in
  * flight is the one that could otherwise conclude over research still to
@@ -403,8 +406,8 @@ function flagDownstream(manifest, workType, phase, topic, opts = {}) {
   const pipeline = WORK_TYPE_PIPELINES[/** @type {keyof typeof WORK_TYPE_PIPELINES} */ (workType)] || [];
   const at = pipeline.indexOf(phase);
   // One hop to the next pipeline phase — walking past a derived slot
-  // unconditionally: a reconcile flag must land where an entry flow can
-  // clear it, and a derived item has no entry of its own (its only flag
+  // unconditionally: a reconcile flag must land where a phase's start can
+  // clear it, and a derived item has no start of its own (its only flag
   // edges are the wait release, which flags the holder, and a parent
   // conclusion, which runs this walk from the slot). So a research reopen
   // flags the discussion whatever the series between them holds, and the
@@ -488,8 +491,7 @@ function parkConcernItem(items, phase, topic) {
     throw new Error(`${phase} item "${topic}" is superseded${by} — supersession is terminal; work on the absorbing topic instead`);
   }
   if (before === 'promoted') {
-    const to = 'promoted_to' in existing ? ` (to "${existing.promoted_to}")` : '';
-    throw new Error(`${phase} item "${topic}" is promoted${to} — promotion is terminal; continue it from the cross-cutting work unit`);
+    throw new Error(promotedRefusal(phase, topic, existing));
   }
   if (before === 'completed') {
     existing.status = 'in-progress';
@@ -880,7 +882,7 @@ function requeueConcern(cwd, workUnit, fromPhase, toPhase, topic, { file, messag
 // (`research`, set by the hop out of research), or an evidence wait
 // released (`experiment`, set by the release). The brief flag (`true`) and
 // the roadmap flag stay entry-time advisories, and every other phase's flag
-// is the entry skill's alone.
+// is the phase start's alone.
 /** @type {Record<string, string>} */
 const LANDED_UPSTREAM = {
   research: 'the topic\'s research landed beneath this conversation',
@@ -944,8 +946,7 @@ function completeTopic(cwd, workUnit, phase, topic) {
       throw new Error(`${phase} item "${topic}" is superseded${by} — supersession is terminal; work on the absorbing topic instead`);
     }
     if (item.status === 'promoted') {
-      const to = 'promoted_to' in item ? ` (to "${item.promoted_to}")` : '';
-      throw new Error(`${phase} item "${topic}" is promoted${to} — promotion is terminal; continue it from the cross-cutting work unit`);
+      throw new Error(promotedRefusal(phase, topic, item));
     }
     if (phase === 'specification') {
       const blocking = openSources(item).map((r) => r.name);
@@ -972,7 +973,7 @@ function completeTopic(cwd, workUnit, phase, topic) {
 
     // A completed specification declares real dependencies — exactly the
     // information that sharpens a build order first assigned at grouping.
-    // Flag rather than resequence: the epic-entry sequencing step does the
+    // Flag rather than resequence: the epic menu's sequencing step does the
     // work, so there is one place that sequences. Cleared by
     // `build-order sequence`.
     if (phase === 'specification' && manifest.work_type === 'epic') {
@@ -1023,6 +1024,9 @@ function reopenTopic(cwd, workUnit, phase, topic) {
     }
     if (item.status === 'postponed') {
       throw new Error(postponedRefusal(phase, topic));
+    }
+    if (item.status === 'promoted') {
+      throw new Error(promotedRefusal(phase, topic, item));
     }
     if (item.status !== 'completed') {
       throw new Error(`${phase} item "${topic}" is not completed (status: ${item.status ?? 'none'}) — only a completed item can be reopened`);
@@ -1139,8 +1143,7 @@ function supersedeTopic(cwd, workUnit, phase, topic, { by }) {
       throw new Error(postponedRefusal(phase, topic));
     }
     if (item.status === 'promoted') {
-      const to = 'promoted_to' in item ? ` (to "${item.promoted_to}")` : '';
-      throw new Error(`${phase} item "${topic}" is promoted${to} — promotion is terminal; continue it from the cross-cutting work unit`);
+      throw new Error(promotedRefusal(phase, topic, item));
     }
     // A superseded holder is terminal — its evidence waits would strand with
     // live records and no consumer.
@@ -1356,9 +1359,11 @@ function cancelDiscoveryUnit(manifest, topic) {
   if (lifecycle === 'postponed') {
     throw new Error(`"${topic}" is postponed — the roadmap owns it; remove its item there to cancel it, or pull it forward first`);
   }
-  const locking = lockingSpecs(manifest, topic);
+  const locking = unitLocks(manifest, topic);
   if (locking.length > 0) {
-    const recovery = locking.length === 1 ? 'cancel the specification first' : 'cancel them first';
+    const recovery = locking.some((lock) => lock.promoted_to !== null)
+      ? 'promotion is terminal, so the topic continues in its cross-cutting unit'
+      : `cancel ${locking.length === 1 ? 'the specification' : 'them'} first`;
     throw new Error(`cancelling "${topic}" is refused while ${lockingSpecsPhrase(locking)} — ${recovery}`);
   }
   const plan = cancelPlan(manifest, 'discovery', topic);
@@ -1368,7 +1373,7 @@ function cancelDiscoveryUnit(manifest, topic) {
   }
 
   const released_waits = releaseExperimentWaits(manifest, topic);
-  const series = liveSeries(manifest, topic);
+  const series = itemOf(manifest, 'experiment', topic);
   if (series) {
     abandonRecords(series, plan.records, 'topic cancelled');
     settleItemStatus(series);

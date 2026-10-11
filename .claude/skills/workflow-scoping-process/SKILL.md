@@ -14,9 +14,12 @@ Scope a mechanical change — gather context, write a specification, and produce
 
 ## What This Skill Needs
 
-- **Work unit description** (required) - From the manifest, summarising the mechanical change
-- **Topic name** (required) - Same as work_unit for quick-fix
-- **Output format preference** (optional) - Will ask if not specified
+Positional arguments:
+- `$0` — **work_type**: always `quick-fix`.
+- `$1` — **work_unit**: the work unit name. Its manifest `description` summarises the mechanical change.
+- `$2` — **topic**: the change being scoped. A single-topic unit's topic is the work unit, so it may be left off: topic = `$2`, or `$1` where it is.
+
+The output format is asked for where none is set.
 
 ---
 
@@ -33,7 +36,7 @@ Context refresh (compaction) summarizes the conversation, losing procedural deta
 1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
 2. **Check what artifacts exist on disk** — spec file, plan file, task files. Their presence reveals which steps completed.
 3. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits.
-4. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
+4. **Carry on from where the conversation was**, as if the break never happened — no recap and no announcement. Where the person's message is waiting, take it at the step it arrived at, unless it only asks to carry on. Otherwise, where the conversation was at a gate, put the gate back, fetched fresh; elsewhere continue the step it was on.
 
 Do not guess at progress or continue from memory. The files on disk and git history are authoritative — your recollection is not.
 
@@ -73,7 +76,7 @@ The user calls the topic off — they say to cancel, or the conversation agrees 
 
 ## Step 0: Resume Detection
 
-Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
+Record where this session is working — the call also labels the tmux session where the user opted in:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} scoping {topic}
@@ -91,26 +94,26 @@ ls .workflows/{work_unit}/specification/{topic}/specification.md 2>/dev/null && 
 
 #### If specification exists
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`□ Resume Detection`**
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> An in-progress scoping specification exists — choose whether to pick it up or start fresh.
-```
-
-Read the plan and scoping statuses:
+Read the scoping and plan statuses — the scoping item is registered as scoping concludes, so its status reads empty until then:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} status
 node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.scoping.{topic} status
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic} status
 ```
 
-**If plan status is `completed` and scoping status is `in-progress`** (reopened for revisit):
+Where the scoping status is `completed`, reopen it — a revisit resumes a finished scoping:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} scoping {topic}
+```
+
+Render the phase note — `Reopening` for a scoping just reopened, `Resuming` otherwise — and emit the section verbatim per its marker:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.scoping.{topic} --verb {Reopening|Resuming}
+```
+
+**If plan status is `completed` and the scoping status read `completed` or `in-progress`:**
 
 Render the resume menu and emit its section verbatim per its marker:
 
@@ -120,15 +123,9 @@ node .claude/skills/workflow-engine/scripts/engine.cjs render resume-gate {work_
 
 **STOP.** Wait for user response.
 
-**If plan status is `completed` and scoping status is not `in-progress`:**
+**If plan status is `completed` and the scoping status read empty:**
 
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Scoping already completed for "{topic:(titlecase)}". Spec and plan are in place.
-```
-
-If the scoping status read was empty (item missing), register and complete it:
+The run stopped between registering the plan and registering the scoping — register and complete it:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs topic start {work_unit} scoping {topic}
@@ -163,23 +160,15 @@ The spec exists but the plan is incomplete — an interrupted prior run. Rebuild
 
 #### If `continue`
 
-Load the artifacts as session context: read the spec (`.workflows/{work_unit}/specification/{topic}/specification.md`) and the plan (`.workflows/{work_unit}/planning/{topic}/planning.md`) in full, then read the planning item once — `format`, `external_id`, and `storage_paths` all ride the subtree — and locate and read the task files via the format's **[reading.md](../workflow-planning-process/references/output-formats/{format}/reading.md)**:
+Load the artifacts as session context: read the spec (`.workflows/{work_unit}/specification/{topic}/specification.md`) and the plan (`.workflows/{work_unit}/planning/{topic}/planning.md`) in full, then read the planning item once — `format` and `external_id` ride the subtree — and locate and read the task files via the format's **[reading.md](../workflow-planning-process/references/output-formats/{format}/reading.md)**:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic}
 ```
 
-**If the subtree carries no `storage_paths` field** (absent, not empty — a plan initialised before the field existed): record it now, before anything commits — read the format's authoring.md → Storage Pathspecs and copy the fenced array:
-
-```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} storage_paths '{format storage pathspecs}'
-```
-
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-Revisiting scoping for "{topic:(titlecase)}".
-
 What should change in the spec or plan?
 ```
 
@@ -207,31 +196,27 @@ Apply the requested edits — the spec and `planning.md` directly, task file con
 
 Order matters — the plan's cleanup commits while the planning item still exists, so `--plan` resolves the plan's declared storage, and the manifest entries are deleted last.
 
-1. Read the planning item once — `format`, `external_id`, and `storage_paths` all ride the subtree:
+1. Read the planning item once — `format` and `external_id` ride the subtree:
    ```bash
    node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.planning.{topic}
    ```
-2. **If the subtree carries no `storage_paths` field** (absent, not empty — a plan initialised before the field existed): record it now, before anything commits — read the format's authoring.md → Storage Pathspecs and copy the fenced array:
-   ```bash
-   node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} storage_paths '{format storage pathspecs}'
-   ```
-3. Load the format's **[authoring.md](../workflow-planning-process/references/output-formats/{format}/authoring.md)**
-4. Follow the authoring file's cleanup instructions to remove authored tasks for this topic — the cleanup targets the entity identified by `external_id`
-5. Delete the spec and plan files: `rm -rf .workflows/{work_unit}/specification/{topic}/ .workflows/{work_unit}/planning/{topic}/`
-6. Remove the spec's knowledge-base entry. A failed removal never blocks: tell the user in one line that the next start removes it, and continue:
+2. Load the format's **[authoring.md](../workflow-planning-process/references/output-formats/{format}/authoring.md)**
+3. Follow the authoring file's cleanup instructions to remove authored tasks for this topic — the cleanup targets the entity identified by `external_id`
+4. Delete the spec and plan files: `rm -rf .workflows/{work_unit}/specification/{topic}/ .workflows/{work_unit}/planning/{topic}/`
+5. Remove the spec's knowledge-base entry. A failed removal never blocks: tell the user in one line that the next start removes it, and continue:
    ```bash
    node .claude/skills/workflow-engine/scripts/engine.cjs knowledge remove --work-unit {work_unit} --phase specification --topic {topic}
    ```
-7. Commit the plan's cleanup — `--plan` stages the planning topic, both manifests, and the plan's declared storage, so the deleted plan files and the format's own cleanup land together:
+6. Commit the plan's cleanup — `--plan` stages the planning topic, both manifests, and the plan's declared storage, so the deleted plan files and the format's own cleanup land together:
    ```bash
    node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "scoping({work_unit}): restart scoping — clear the authored plan" --plan {topic}
    ```
-8. Delete the specification and planning manifest entries — the scoping item stays `in-progress`; the fresh run re-completes it at Write Tasks:
+7. Delete the specification and planning manifest entries — the scoping item stays `in-progress`; the fresh run re-completes it at Write Tasks:
    ```bash
    node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.specification items.{topic}
    node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.planning items.{topic}
    ```
-9. Commit what remains — the deleted specification and the two manifest entries. A quick-fix's topic is its work unit, so the work-unit scope is this action's own:
+8. Commit what remains — the deleted specification and the two manifest entries. A quick-fix's topic is its work unit, so the work-unit scope is this action's own:
    ```bash
    node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "scoping({work_unit}): restart scoping"
    ```

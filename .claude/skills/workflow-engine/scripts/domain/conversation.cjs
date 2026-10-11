@@ -14,15 +14,25 @@
 // ever share one:
 //
 //   workflow       the mark that the conversation runs the workflows, which
-//                  the gate mod reads to set the workflow harness — written
-//                  by every engine and gateway call that carries a session
-//                  id, run in a project whose `.workflows/` already exists
+//                  the gate mod reads to set the workflow harness, to say the
+//                  phase in its spinner, to guard the manifests and to answer
+//                  a compaction — written by every engine and gateway call
+//                  that carries a session id, run in a project whose
+//                  `.workflows/` already exists
 //   transcript     the conversation's transcript path, written as it ends by
 //                  the SessionEnd hook
-//   position.json  the tmux label's resume position (session-label.cjs)
+//   position.json  where in the workflows the conversation is working, the
+//                  task in flight with it in implementation (position.cjs) —
+//                  what the tmux label's resume re-applies, the gate mod's
+//                  spinner says, and `conversation position` names files for
 //   gate.json      the gate the mod keeps for a resume (the mod's own)
-//   sent.json      what the mod last sent from a press (the mod's own)
-//   rows.json      each answer row the rows mod redrew, by message id (its own)
+//   sent.json      what the mod last sent from a press, or a handoff's
+//                  continuation with its line (the mod's own)
+//   compacted.json every note the mod appended to a compaction, with the
+//                  place it carries on in (the mod's own; the rows mod reads
+//                  it)
+//   rows.json      each row the rows mod redrew of what the mod sent, by
+//                  message id (its own)
 //
 // A folder goes at any project's boot once its transcript is gone: Claude
 // Code has deleted the conversation, so nothing can resume it, and whatever
@@ -74,6 +84,16 @@ function markConversation(cwd) {
     fs.mkdirSync(path.dirname(marker), { recursive: true });
     fs.writeFileSync(marker, '');
   } catch { /* the command stands without it */ }
+}
+
+/**
+ * Whether the engine has marked the conversation `sessionId` as one that
+ * runs the workflows — what every other writer of the folder waits on, so a
+ * conversation the engine never marked gets no folder from them.
+ * @param {string} sessionId
+ */
+function isMarked(sessionId) {
+  return fs.existsSync(path.join(conversationDir(sessionId), MARKER));
 }
 
 /**
@@ -153,4 +173,4 @@ function tidyConversations() {
   }
 }
 
-module.exports = { conversationDir, markConversation, endConversation, tidyConversations };
+module.exports = { conversationDir, isMarked, markConversation, endConversation, tidyConversations };

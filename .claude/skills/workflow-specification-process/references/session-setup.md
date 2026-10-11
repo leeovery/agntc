@@ -12,35 +12,41 @@ Reset `finding_gate_mode` and `construction_gate_mode` to `gated` in one batched
 node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.specification.{topic} finding_gate_mode=gated construction_gate_mode=gated
 ```
 
-## Register Consult References
+## Hold the Sources
 
-Read the tracked set once:
-
-```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} consult_references
-```
-
-Compare against the handoff's `Consult references` block. If any named reference is untracked, write one `set` op per missing reference to `.workflows/.cache/{work_unit}/specification/{topic}/consult-refs-ops.json` with the Write tool, then register them in one call (skip the call when nothing is missing):
-
-```json
-[{"op": "set", "path": "{work_unit}.specification.{topic}", "fields": {"consult_references.{ref}.status": "pending"}}]
-```
+Read the sources map:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs manifest apply {work_unit} --file .workflows/.cache/{work_unit}/specification/{topic}/consult-refs-ops.json
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} sources
 ```
 
-**Never overwrite an existing status** — only untracked references enter the payload, so an already-`addressed` reference stays `addressed`. This runs every session: references newly declared on a continue are picked up while prior progress is preserved.
+Each row names a source document — `.workflows/{work_unit}/investigation/{source-name}.md` where the work type is `bugfix`, otherwise `.workflows/{work_unit}/discussion/{source-name}.md`. Where the work type is `cross-cutting`, its research is reference material once completed:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.research.{topic} status
+```
+
+`completed` → `.workflows/{work_unit}/research/{topic}.md`.
+
+Hold these paths in session: construction extracts from the sources and reads the research beside them.
 
 ## Hold the Grouping Analysis's Tensions
 
-Read any `**Tension**` lines for this specification's grouping from `.workflows/{work_unit}/.state/discussion-consolidation-analysis.md` (skip silently when the file or the lines are absent — single-source specs and bugfixes have none). Hold them in session: construction raises each per its Resolve Source Incoherence discipline.
+Read any `**Tension**` lines for this specification's grouping from `.workflows/{work_unit}/.state/discussion-consolidation-analysis.md` (skip silently when the file or the lines are absent — only an epic's grouping analysis writes them). Hold them in session: construction raises each per its Resolve Source Incoherence discipline.
+
+## Hold the Incorporated Specifications
+
+Read the started specifications this one incorporates — each sources one of its discussions, and its completion supersedes each:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs topic incorporations {work_unit} {topic}
+```
+
+Hold the response's `incorporations` in session (an empty list holds nothing): each one's `path`, and the discussions among this specification's sources it `covers`. Construction extracts and adapts each one's content alongside those discussions — the result is one specification, not a merge.
 
 ## Reconcile Stale Sources First
 
-Read the sources map (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.specification.{topic} sources`).
-
-#### If any row reads `stale`
+#### If any row of the sources map reads `stale`
 
 > *Output the next fenced block as markdown (not a code block):*
 

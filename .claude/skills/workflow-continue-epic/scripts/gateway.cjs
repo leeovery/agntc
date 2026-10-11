@@ -5,123 +5,48 @@
 // building lives in the engine's domain ring; this script selects which
 // engine answers the skill's flow needs and sections the output.
 //
-//   gateway.cjs               → thin index dump, all active epics (head insert)
-//   gateway.cjs select        → the index dump, then the pick list and its menu (Step 3)
-//   gateway.cjs {work_unit}   → scoped state dump, one epic (Steps 5–8, bridge)
+//   gateway.cjs {work_unit}   → scoped state dump, one epic (Steps 1–6)
 //   gateway.cjs view {work_unit} [new_arrivals_json]
-//                               → DATA + DISPLAY + MENU snapshot (Step 9)
+//                               → DATA + DISPLAY + MENU snapshot (Step 6)
 //   gateway.cjs completed-menu {work_unit}     → Resume Completed sub-view (D)
 //   gateway.cjs cancel-menu {work_unit}        → Cancel Topic sub-view (E)
 //   gateway.cjs reactivate-menu {work_unit}    → Reactivate Topic sub-view (F)
 //   gateway.cjs unblock-menu {work_unit}       → Unblock Plan sub-view (G)
 //   gateway.cjs postpone-menu {work_unit}      → Postpone Topic sub-view (H)
 //   gateway.cjs pull-forward-menu {work_unit}  → Pull Forward Topic sub-view (I)
+//   gateway.cjs spec-scenario {work_unit}      → the specification menu's routing read, DATA only
+//   gateway.cjs spec-view {work_unit}          → its snapshot: DATA + TITLE + DISPLAY (+ MENU)
+//   gateway.cjs spec-completed-menu {work_unit} → its Completed Specifications sub-view
+//   gateway.cjs in-session-gate {work_unit} {key} → the in-session confirm over one held entry
 //
-// Those calls are the whole legal surface: a verb without its work unit, an
-// unknown verb, or excess arguments is a usage error (stderr, exit 1) — never
-// a silent first-epic render.
+// Those calls are the whole legal surface: the bare call, a verb without its
+// work unit, an unknown verb, or excess arguments is a usage error (stderr,
+// exit 1) — never a silent first-epic render.
 // ---------------------------------------------------------------------------
 
 const engine = require('../../workflow-engine/scripts/lib.cjs');
 const { TERMINAL_STATUSES } = require('../../workflow-engine/scripts/kernel/manifest-schema.cjs');
-const { loadActiveManifests, loadAllManifests } = engine.reads;
-const { phaseItems, lastCompletedPhase } = engine.derivations;
+const { loadActiveManifests } = engine.reads;
 
-const EPIC_DETAIL_PHASES = engine.detail.EPIC_DETAIL_PHASES;
+/** @typedef {import('../../workflow-engine/scripts/domain/epic-detail.cjs').EpicDetail} EpicDetail */
 
+/**
+ * The detail of the active epic `workUnit` names, or null where none does.
+ * @param {string} cwd @param {string} workUnit
+ * @returns {EpicDetail|null}
+ */
 function discover(cwd, workUnit) {
-  const allManifests = loadActiveManifests(cwd);
-  const manifests = workUnit
-    ? allManifests.filter(m => m.name === workUnit)
-    : allManifests;
-  const epics = [];
-
-  for (const m of manifests) {
-    if (m.work_type !== 'epic') continue;
-
-    const activePhases = [];
-    for (const phase of EPIC_DETAIL_PHASES) {
-      const items = phaseItems(m, phase);
-      if (items.length > 0) {
-        activePhases.push(phase);
-      }
-    }
-
-    // The detail build checksums every completed research + discussion file.
-    // Only the scoped / view / sub-view flows read `detail`; the index dump
-    // reads just name + active_phases. Defer the build to first access — a
-    // non-enumerable, memoised getter — so the index dump never pays for it,
-    // while scoped callers get the identical object on demand.
-    const epic = { name: m.name, active_phases: activePhases };
-    let detail;
-    let detailBuilt = false;
-    Object.defineProperty(epic, 'detail', {
-      enumerable: false,
-      get() {
-        if (!detailBuilt) { detail = engine.detail.epicDetail(cwd, m); detailBuilt = true; }
-        return detail;
-      },
-    });
-    epics.push(epic);
-  }
-
-  // Load completed/cancelled epics (only in list mode, not detail mode)
-  const completed = [];
-  const cancelled = [];
-  if (!workUnit) {
-    const allManifests = loadAllManifests(cwd);
-    for (const m of allManifests) {
-      if (m.work_type !== 'epic') continue;
-      if (m.status === 'completed') {
-        completed.push({ name: m.name, status: m.status, last_phase: lastCompletedPhase(m, EPIC_DETAIL_PHASES) });
-      } else if (m.status === 'cancelled') {
-        cancelled.push({ name: m.name, status: m.status, last_phase: lastCompletedPhase(m, EPIC_DETAIL_PHASES) });
-      }
-    }
-  }
-
-  return {
-    epics,
-    count: epics.length,
-    completed,
-    cancelled,
-    completed_count: completed.length,
-    cancelled_count: cancelled.length,
-    summary: epics.length === 0
-      ? 'no active epics'
-      : `${epics.length} active epic(s)`,
-  };
+  const manifest = loadActiveManifests(cwd).find((m) => m.work_type === 'epic' && m.name === workUnit);
+  return manifest ? engine.detail.epicDetail(cwd, manifest) : null;
 }
 
-// The thin head-insert dump: active epic names with their active phases, plus
-// the closed sets the select and view-completed flows read. Per-epic state is
-// the scoped dump's concern; display and routing are the `view` verb's.
-function format(result) {
-  const lines = [];
-  lines.push(`=== EPICS (${result.count}) ===`);
-  for (const e of result.epics) {
-    lines.push(`  ${e.name}: ${e.active_phases.join(', ') || '(no phases)'}`);
-  }
-  lines.push(`=== COMPLETED (${result.completed_count}) ===`);
-  for (const u of result.completed) {
-    lines.push(`  ${u.name} (last phase: ${u.last_phase || 'none'})`);
-  }
-  lines.push(`=== CANCELLED (${result.cancelled_count}) ===`);
-  for (const u of result.cancelled) {
-    lines.push(`  ${u.name} (last phase: ${u.last_phase || 'none'})`);
-  }
-  return lines.join('\n') + '\n';
-}
-
-// The select step's snapshot: the index dump its validation reads, then the
-// pick list and the menu that takes the pick.
-function select(result) {
-  return format(result)
-    + engine.project.selectionSections('epic', result.epics, { completed: result.completed_count, cancelled: result.cancelled_count });
+/** A parked stub is undrained work — never done. @param {any} d @returns {boolean} */
+function parkedConcerns(d) {
+  return ['research', 'discussion'].some((phase) => ((d.phases && d.phases[phase]) || []).some((i) => i.status === 'triaged'));
 }
 
 /**
- * The bridge's all-done derivation over one epic detail: review items exist
+ * The all-done derivation over one epic detail: review items exist
  * and every non-terminal one is completed, nothing is in progress or awaiting
  * its next phase, no completed discussion is unaccounted, no item carries a
  * live reconcile flag (the epic mirror of the linear types' routing override
@@ -130,11 +55,6 @@ function select(result) {
  * @param {any} d  EpicDetail
  * @returns {boolean}
  */
-/** A parked stub is undrained work — never done. @param {any} d @returns {boolean} */
-function parkedConcerns(d) {
-  return ['research', 'discussion'].some((phase) => ((d.phases && d.phases[phase]) || []).some((i) => i.status === 'triaged'));
-}
-
 function computeAllDone(d) {
   const review = (d.phases && d.phases.review) || [];
   const live = review.filter((i) => !TERMINAL_STATUSES.includes(i.status));
@@ -167,19 +87,18 @@ function reconcilePending(d) {
   return out;
 }
 
-// The scoped state dump for one epic — the reasoning surface Steps 5–8 and
-// the bridge's epic continuation read: the all-done flag, analysis-cache
-// statuses, the sequencing flag, and the discovery-map rows (tier, lifecycle,
-// routing, field presence, current summary text).
-function formatScoped(workUnit, result) {
-  const e = result.epics[0];
+// The scoped state dump for one epic — the reasoning surface Steps 1–6
+// read: the all-done flag, analysis-cache statuses, the sequencing flag, and
+// the discovery-map rows (tier, lifecycle, routing, field presence, current
+// summary text).
+/** @param {string} workUnit @param {EpicDetail|null} d */
+function formatScoped(workUnit, d) {
   const lines = [];
   lines.push(`=== EPIC: ${workUnit} ===`);
-  if (!e) {
+  if (!d) {
     lines.push('error: no active epic with this name');
     return lines.join('\n') + '\n';
   }
-  const d = e.detail;
   lines.push(`all_done: ${computeAllDone(d)}`);
   lines.push(`reconcile_pending: ${reconcilePending(d).join(', ') || '(none)'}`);
   lines.push(`analysis_caches: gap_analysis=${d.analysis_caches.gap_analysis.status}`);
@@ -204,16 +123,14 @@ function formatScoped(workUnit, result) {
   return lines.join('\n') + '\n';
 }
 
-// One snapshot for Step 9: reasoning DATA (flags + the ACTIONS table), the
+// One snapshot for Step 6: reasoning DATA (flags + the ACTIONS table), the
 // rendered dashboard + key (DISPLAY), and the menu (MENU).
 function view(workUnit, newArrivalsJson) {
-  const result = discover(process.cwd(), workUnit);
-  const e = result.epics[0];
-  if (!e) {
-    return engine.gateway.dataBlock({ work_unit: workUnit || '(missing)', error: 'no active epic with this name' })
-      + engine.project.selectionNotFound('epic', workUnit || '(missing)');
+  const d = discover(process.cwd(), workUnit);
+  if (!d) {
+    return engine.gateway.dataBlock({ work_unit: workUnit, error: 'no active epic with this name' })
+      + engine.project.selectionNotFound('epic', workUnit);
   }
-  const d = e.detail;
 
   let newArrivals = {};
   if (newArrivalsJson) {
@@ -226,36 +143,22 @@ function view(workUnit, newArrivalsJson) {
   // whole point — a session that steps back to the menu holds a row of its
   // own, and striking it through would have the display arguing with the
   // user about a topic they are sitting in.
-  const presence = engine.presence.scanPresence(process.cwd(), e.name).sessions
+  const presence = engine.presence.scanPresence(process.cwd(), workUnit).sessions
     .filter((r) => !engine.presence.ownsRow(r));
   const held = presence.filter((r) => r.held);
   // Code takes one slot per checkout, so the code entries read the whole
   // project's held rows, not just this epic's.
   const codeHeld = engine.presence.heldCodeSessions(process.cwd());
 
-  const menu = engine.project.epicMenu(e.name, d, { presence, codeHeld });
+  const menu = engine.project.epicMenu(workUnit, d, { presence, codeHeld });
 
   const dataLines = [];
-  dataLines.push(`work_unit: ${e.name}`);
+  dataLines.push(`work_unit: ${workUnit}`);
   dataLines.push(`sessions_in_progress: ${held.map((r) => `${r.phase}/${r.topic} (last active ${engine.presence.fmtAge(r.age_seconds)} ago)`).join(', ') || '(none)'}`);
   dataLines.push(`convergence: ${d.convergence_state || 'none'}`);
   dataLines.push(`needs_sequencing: ${d.needs_sequencing}`);
   dataLines.push(`build_order_needs_sequencing: ${d.build_order_needs_sequencing}`);
   dataLines.push(`analysis_caches: gap_analysis=${d.analysis_caches.gap_analysis.status}`);
-  const phaseNames = Object.keys(d.phases);
-  if (phaseNames.length > 0) {
-    dataLines.push('phase_counts:');
-    for (const phase of phaseNames) {
-      const items = d.phases[phase];
-      const inProgress = items.filter(i => i.status === 'in-progress').length;
-      const proposed = items.filter(i => i.status === 'proposed').length;
-      const segments = [`${inProgress} in-progress`];
-      if (proposed > 0) segments.push(`${proposed} proposed`);
-      dataLines.push(`  ${phase}: ${segments.join(', ')} / ${items.length} total`);
-    }
-  } else {
-    dataLines.push('phase_counts: (none)');
-  }
   dataLines.push(`unaccounted_discussions: ${d.unaccounted_discussions.join(', ') || '(none)'}`);
   dataLines.push(`reopened_discussions: ${d.reopened_discussions.join(', ') || '(none)'}`);
   dataLines.push(`spec_blocked: ${d.spec_blocked.map((b) => `${b.name} (${b.by.join(', ')})`).join(', ') || '(none)'}`);
@@ -266,14 +169,14 @@ function view(workUnit, newArrivalsJson) {
       const holder = k.session_holder ? `${k.session_holder.work_unit}/${k.session_holder.topic}, ` : '';
       // A code entry reads as the checkout's slot, not this topic's session:
       // its own marker keeps the menu's in-session gate from firing, because
-      // the entry skill's code gate owns that stop.
+      // the phase's own code gate owns that stop.
       const label = k.code_session ? 'code session' : 'in session';
       cells.push(`(${label}: ${holder}last active ${engine.presence.fmtAge(k.session_age || 0)} ago)`);
     }
     return cells;
   }));
 
-  const display = engine.project.epicDashboard(e.name, d, { newArrivals, presence });
+  const display = engine.project.epicDashboard(workUnit, d, { newArrivals, presence });
   const key = engine.project.epicKey(d);
 
   return [
@@ -288,25 +191,24 @@ function view(workUnit, newArrivalsJson) {
 // at the gate that displays it, recomputed from the same detail and presence
 // the snapshot read.
 function inSessionGate(workUnit, key) {
-  const result = discover(process.cwd(), workUnit);
-  const e = result.epics[0];
-  if (!e) {
-    return engine.gateway.dataBlock({ work_unit: workUnit || '(missing)', error: 'no active epic with this name' });
+  const d = discover(process.cwd(), workUnit);
+  if (!d) {
+    return engine.gateway.dataBlock({ work_unit: workUnit, error: 'no active epic with this name' });
   }
-  const presence = engine.presence.scanPresence(process.cwd(), e.name).sessions
+  const presence = engine.presence.scanPresence(process.cwd(), workUnit).sessions
     .filter((r) => !engine.presence.ownsRow(r));
   const codeHeld = engine.presence.heldCodeSessions(process.cwd());
-  const entry = engine.project.epicMenuKeys(e.name, e.detail, { presence, codeHeld }).find((k) => k.key === key);
+  const entry = engine.project.epicMenuKeys(workUnit, d, { presence, codeHeld }).find((k) => k.key === key);
   if (!entry) {
-    return engine.gateway.dataBlock({ work_unit: e.name, error: `no menu entry with key "${key}"` });
+    return engine.gateway.dataBlock({ work_unit: workUnit, error: `no menu entry with key "${key}"` });
   }
   if (!entry.in_session) {
-    return engine.gateway.dataBlock({ work_unit: e.name, error: `entry "${key}" is not held by another session — no gate to render` });
+    return engine.gateway.dataBlock({ work_unit: workUnit, error: `entry "${key}" is not held by another session — no gate to render` });
   }
   if (entry.code_session) {
-    return engine.gateway.dataBlock({ work_unit: e.name, error: `entry "${key}" is a code phase — the code slot is gated at the entry skill (render code-gate), never here` });
+    return engine.gateway.dataBlock({ work_unit: workUnit, error: `entry "${key}" is a code phase — the code slot is gated where the phase starts (render code-gate), never here` });
   }
-  return engine.project.epicInSessionGate(e.name, entry);
+  return engine.project.epicInSessionGate(workUnit, entry);
 }
 
 /** @typedef {(name: string, detail: object, opts: {presence: object[]}) => {keys: object[], title: string, display: string, rendered: string}} SubViewProjection */
@@ -317,18 +219,17 @@ function inSessionGate(workUnit, key) {
 // its in-session age, a cue and never a lock.
 /** @param {string} workUnit @param {SubViewProjection} projection */
 function subView(workUnit, projection) {
-  const result = discover(process.cwd(), workUnit);
-  const e = result.epics[0];
-  if (!e) {
-    return engine.gateway.dataBlock({ work_unit: workUnit || '(missing)', error: 'no active epic with this name' })
-      + engine.project.selectionNotFound('epic', workUnit || '(missing)');
+  const d = discover(process.cwd(), workUnit);
+  if (!d) {
+    return engine.gateway.dataBlock({ work_unit: workUnit, error: 'no active epic with this name' })
+      + engine.project.selectionNotFound('epic', workUnit);
   }
-  const presence = engine.presence.scanPresence(process.cwd(), e.name).sessions
+  const presence = engine.presence.scanPresence(process.cwd(), workUnit).sessions
     .filter((r) => !engine.presence.ownsRow(r));
-  const view = projection(e.name, e.detail, { presence });
+  const view = projection(workUnit, d, { presence });
 
   const dataLines = [
-    `work_unit: ${e.name}`,
+    `work_unit: ${workUnit}`,
     ...engine.project.actionsTable(['action', 'topic', 'phase', '→ route'], view.keys, (k) => [
       k.action, k.topic || '—', k.phase || '—', `→ ${k.route || '(internal)'}`, ...(k.dep ? [`(dep: ${k.dep})`] : []), ...(k.item ? [`(item: ${k.item})`] : []),
     ]),
@@ -342,13 +243,134 @@ function subView(workUnit, projection) {
   ].join('\n');
 }
 
-const USAGE = 'Usage: gateway.cjs | gateway.cjs select | gateway.cjs {work_unit} | gateway.cjs view {work_unit} [new_arrivals_json] | gateway.cjs (completed-menu|cancel-menu|reactivate-menu|postpone-menu|pull-forward-menu|unblock-menu) {work_unit}';
+// ---------------------------------------------------------------------------
+// The specification menu (the `s` row): the scenario the epic's completed
+// discussions are in, its snapshot, and the concluded-specs sub-view.
+// Discovery, scenario derivation and rendering live in the engine's domain
+// ring; these verbs section the output.
+// ---------------------------------------------------------------------------
 
-/** Reject the call: usage to stderr, exit 1. @param {string} message @returns {string} */
-function usageError(message) {
-  process.stderr.write(`gateway: ${message}\n${USAGE}\n`);
+/** @typedef {import('../../workflow-engine/scripts/domain/specification.cjs').DiscoveryResult} SpecDiscovery */
+/** @typedef {import('../../workflow-engine/scripts/domain/specification.cjs').SpecificationDetail} SpecDetail */
+
+/** @param {string} cwd @param {string} workUnit @returns {{result: SpecDiscovery, detail: SpecDetail}} */
+function specDetail(cwd, workUnit) {
+  const result = engine.detail.specificationDiscovery(cwd, workUnit);
+  return { result, detail: engine.detail.specificationDetail(workUnit, result) };
+}
+
+// The ACTIONS key table over a spec menu's keys.
+/** @param {{key: string, word?: string, action: string, topic: string|null}[]} keys */
+function specActions(keys) {
+  return engine.project.actionsTable(['action', 'topic'], keys, (k) => [k.action, k.topic || '—']);
+}
+
+// The DATA body: the scenario and its flags, the single-discussion
+// auto-proceed context, the discussion/spec detail the flow reasons from,
+// and the ACTIONS key table when a menu exists.
+/** @param {SpecDiscovery} result @param {SpecDetail} detail @param {{key: string, word?: string, action: string, topic: string|null}[]} keys */
+function specData(result, detail, keys) {
+  const cs = result.current_state;
+  const lines = [
+    `scenario: ${detail.scenario}`,
+    `work_unit: ${detail.work_unit}`,
+    `counts: discussions=${cs.discussion_count} completed=${cs.completed_count} in_progress=${cs.in_progress_count} specs=${cs.spec_count} proposed=${cs.proposed_count} concluded=${cs.concluded_count}`,
+    `cache_status: ${detail.cache_status}`,
+    `discussions_checksum: ${cs.discussions_checksum || '(none)'}`,
+  ];
+  if (detail.single) {
+    lines.push(`single_variant: ${detail.single.variant}`);
+    lines.push(`single_discussion: ${detail.single.discussion}`);
+    lines.push(`proceed_name: ${detail.single.proceed_name}`);
+  }
+  lines.push('discussions:');
+  if (result.discussions.length === 0) lines.push('  (none)');
+  for (const d of result.discussions) {
+    lines.push(`  ${d.name}: ${d.status}${d.has_individual_spec ? `, individual spec: ${d.spec_status}` : ''}`);
+  }
+  lines.push('specifications:');
+  if (result.specifications.length === 0) lines.push('  (none)');
+  const rowsByName = new Map([...detail.actionable, ...detail.concluded].map((row) => [row.name, row]));
+  for (const s of result.specifications) {
+    const row = rowsByName.get(s.name);
+    const blockedBy = row && row.blocked ? `, blocked_by=${row.open_sources.join(',')}` : '';
+    lines.push(`  ${s.name}: ${s.status}, has_pending_sources=${s.has_pending_sources}${blockedBy}`);
+    for (const src of s.sources || []) {
+      lines.push(`    source: ${src.name} (${src.status}, discussion: ${src.discussion_status})`);
+    }
+  }
+  lines.push('cancelled_specifications:');
+  if (result.cancelled_specifications.length === 0) lines.push('  (none)');
+  for (const s of result.cancelled_specifications) {
+    lines.push(`  ${s.name}: sources ${s.sources.join(', ') || '(none)'}`);
+  }
+  lines.push(`unassigned_discussions: ${detail.unassigned.join(', ') || '(none)'}`);
+  lines.push(`in_progress_discussions: ${detail.in_progress_discussions.join(', ') || '(none)'}`);
+  if (keys.length > 0) lines.push(...specActions(keys));
+  return lines.join('\n');
+}
+
+// The routing read: the scenario and the detail the flow reasons from, with
+// no menu — a display the scenario routes to fetches its own snapshot where
+// it shows it.
+/** @param {string} cwd @param {string} workUnit */
+function specScenario(cwd, workUnit) {
+  const { result, detail } = specDetail(cwd, workUnit);
+  return engine.gateway.dataBlock(specData(result, detail, []));
+}
+
+// One snapshot: reasoning DATA, the TITLE, and the scenario's DISPLAY; MENU
+// when the scenario renders one.
+/** @param {string} cwd @param {string} workUnit */
+function specView(cwd, workUnit) {
+  const { result, detail } = specDetail(cwd, workUnit);
+  const menu = engine.project.specificationMenu(detail);
+  return [
+    engine.gateway.dataBlock(specData(result, detail, menu.keys)),
+    engine.gateway.titleBlock(engine.project.SPEC_TITLE),
+    engine.gateway.displayBlock(engine.project.specificationDisplay(detail)),
+    ...(menu.rendered ? [engine.gateway.menuBlock(menu.rendered)] : []),
+  ].join('\n');
+}
+
+// The concluded-specs sub-view: keys table as DATA, the view's heading as
+// TITLE, the spec list as DISPLAY, the Refine pick menu as MENU.
+/** @param {string} cwd @param {string} workUnit */
+function specCompletedMenu(cwd, workUnit) {
+  const { detail } = specDetail(cwd, workUnit);
+  const sub = engine.project.specificationCompletedMenu(detail);
+  return [
+    engine.gateway.dataBlock([`work_unit: ${detail.work_unit}`, ...specActions(sub.keys)].join('\n')),
+    engine.gateway.titleBlock(sub.title),
+    engine.gateway.displayBlock(sub.display),
+    engine.gateway.menuBlock(sub.rendered),
+  ].join('\n');
+}
+
+const USAGE = 'Usage: gateway.cjs {work_unit} | gateway.cjs view {work_unit} [new_arrivals_json] | gateway.cjs (completed-menu|cancel-menu|reactivate-menu|postpone-menu|pull-forward-menu|unblock-menu|spec-scenario|spec-view|spec-completed-menu) {work_unit} | gateway.cjs in-session-gate {work_unit} {key}';
+
+/** Reject the call: the reason to stderr, exit 1. @param {string} message @returns {string} */
+function reject(message) {
+  process.stderr.write(`gateway: ${message}\n`);
   process.exit(1);
   return ''; // unreachable; keeps the handler's return type uniform
+}
+
+/** Reject the call with the usage: stderr, exit 1. @param {string} message @returns {string} */
+function usageError(message) {
+  return reject(`${message}\n${USAGE}`);
+}
+
+/** @param {string} verb @param {(cwd: string, workUnit: string) => string} build */
+function specHandler(verb, build) {
+  return (/** @type {string} */ workUnit, /** @type {string[]} */ ...rest) => {
+    if (!workUnit || rest.length > 0) return usageError(`${verb} takes exactly one work unit`);
+    try {
+      return build(process.cwd(), workUnit);
+    } catch (err) {
+      return reject(err instanceof Error ? err.message : String(err));
+    }
+  };
 }
 
 /** @param {string} verb @param {SubViewProjection} projection */
@@ -360,12 +382,7 @@ function subViewHandler(verb, projection) {
 
 if (require.main === module) {
   engine.gateway.runGateway({
-    index: (...rest) => (rest.length > 0
-      ? usageError('index takes no arguments')
-      : format(discover(process.cwd()))),
-    select: (...rest) => (rest.length > 0
-      ? usageError('select takes no arguments')
-      : select(discover(process.cwd()))),
+    index: () => usageError('a work unit is required'),
     view: (workUnit, newArrivalsJson, ...rest) => (!workUnit || rest.length > 0
       ? usageError('view takes a work unit and an optional new-arrivals JSON')
       : view(workUnit, newArrivalsJson)),
@@ -375,6 +392,9 @@ if (require.main === module) {
     'postpone-menu': subViewHandler('postpone-menu', (name, d, opts) => engine.project.epicPostponeMenu(d, opts)),
     'pull-forward-menu': subViewHandler('pull-forward-menu', (name, d) => engine.project.epicPullForwardMenu(d)),
     'unblock-menu': subViewHandler('unblock-menu', (name, d) => engine.project.epicUnblockMenu(d)),
+    'spec-scenario': specHandler('spec-scenario', specScenario),
+    'spec-view': specHandler('spec-view', specView),
+    'spec-completed-menu': specHandler('spec-completed-menu', specCompletedMenu),
     'in-session-gate': (workUnit, key, ...rest) => (!workUnit || !key || rest.length > 0
       ? usageError('in-session-gate takes a work unit and a menu key')
       : inSessionGate(workUnit, key)),
@@ -384,4 +404,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { discover, format, select, formatScoped };
+module.exports = { discover, formatScoped, specScenario };

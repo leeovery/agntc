@@ -32,7 +32,7 @@ const WORK_TYPE_PIPELINES = {
 };
 
 // Derived-bookkeeping phases: the item is computed over its own records — no
-// hand lifecycle, no entry-flow reconcile, no resume or reactivate; the
+// hand lifecycle, no start-time reconcile, no resume or reactivate; the
 // phase's own verbs maintain the item.
 const DERIVED_PHASES = ['experiment'];
 
@@ -51,8 +51,10 @@ const VALID_PHASE_STATUSES = {
   // Derived bookkeeping over the topic's experiment records: the spawn opens
   // the item, the last record's terminal transition closes it — the user
   // never starts or completes it by hand.
-  experiment:     ['in-progress', 'completed', 'cancelled'],
-  discussion:     ['triaged', 'in-progress', 'completed', 'cancelled', 'postponed'],
+  experiment:     ['in-progress', 'completed'],
+  // `promoted`: the discussion left the epic with the specification it
+  // sources, into that specification's cross-cutting unit (`promoted_to`).
+  discussion:     ['triaged', 'in-progress', 'completed', 'cancelled', 'postponed', 'promoted'],
   investigation:  ['triaged', 'in-progress', 'completed', 'cancelled'],
   scoping:        ['in-progress', 'completed', 'cancelled'],
   specification:  ['proposed', 'in-progress', 'completed', 'superseded', 'promoted', 'cancelled'],
@@ -135,9 +137,9 @@ function isPlainName(name) {
 /**
  * Why a manifest key or label is illegal, or null when it is fine: dots break
  * the field surface's dot-path addressing, slashes break paths. One sentence,
- * two readers — the roadmap's validators throw it, the postpone's plan carries
- * it as a lock, so a refusal at the gate and a refusal at the write say the
- * same thing.
+ * two readers — `assertLegalName` throws it, the postpone's plan carries it as
+ * a lock, so a refusal at the gate and a refusal at the write say the same
+ * thing.
  * @param {string} kind @param {*} name
  * @returns {string|null}
  */
@@ -145,6 +147,12 @@ function illegalNameReason(kind, name) {
   return typeof name !== 'string' || name === '' || /[./]/.test(name)
     ? `"${name}" is not a legal ${kind} name — dots and slashes break manifest addressing`
     : null;
+}
+
+/** Refuses a name `illegalNameReason` refuses, with its reason. @param {string} kind @param {*} name */
+function assertLegalName(kind, name) {
+  const illegal = illegalNameReason(kind, name);
+  if (illegal !== null) throw new Error(illegal);
 }
 
 /** @param {string} origin */
@@ -179,12 +187,18 @@ function isImportOrigin(origin) {
 // research and discussion identically).
 const EXPERIMENT_SPAWN_PHASES = ['research', 'discussion'];
 
-// Every phase whose item can hold a wait on an upstream that has not landed:
-// the two conversations, plus planning, which stands on its specification.
-// The wait surfaces address these and no others.
+// Every phase whose conclusion the wait gate holds on an upstream that has
+// not landed: the two conversations, plus planning, which stands on its
+// specification. The wait gate addresses these and no others.
 const WAITING_PHASES = [...EXPERIMENT_SPAWN_PHASES, 'planning'];
 
-// Gate modes. `auto` runs to the end of the session — the entry reset
+// Every phase that leaves on a pause rather than a conclusion: the wait
+// gate's phases, plus specification, which pauses on a gap it routed into
+// its sources. The paused banner and the handoff into the epic menu address
+// these and no others.
+const PAUSING_PHASES = [...WAITING_PHASES, 'specification'];
+
+// Gate modes. `auto` runs to the end of the session — a phase's start
 // returns every gate to `gated`; `bounded` is auto with an end the gate
 // declares in GATE_FIELDS, and the domain ring owning that bound returns the
 // gate to `gated` at the bound's close.
@@ -219,9 +233,14 @@ const TERMINAL_STATUSES = ['cancelled', 'superseded', 'promoted', 'postponed'];
 // project-level sessions under .workflows/.roadmap/).
 const PROJECT_IDENTITIES = ['baseline', 'roadmap'];
 
+// The literal a skill takes in an argument's place where it has nothing to
+// name there — no work type, no work unit, no inbox seeds.
+const NO_ARGUMENT = 'none';
+
 // Names a work unit can never take: `project` routes dot-path commands to the
-// project manifest, and the project identities are places of their own.
-const RESERVED_WORK_UNIT_NAMES = ['project', ...PROJECT_IDENTITIES];
+// project manifest, the project identities are places of their own, and the
+// placeholder must never name a unit.
+const RESERVED_WORK_UNIT_NAMES = ['project', ...PROJECT_IDENTITIES, NO_ARGUMENT];
 
 module.exports = {
   VALID_WORK_TYPES,
@@ -238,16 +257,19 @@ module.exports = {
   KEBAB_SLUG_PATTERN,
   isPlainName,
   illegalNameReason,
+  assertLegalName,
   VALID_THREAD_STATUSES,
   isThreadOrigin,
   IMPORT_PHASES,
   isImportOrigin,
   EXPERIMENT_SPAWN_PHASES,
   WAITING_PHASES,
+  PAUSING_PHASES,
   VALID_GATE_MODES,
   GATE_FIELDS,
   VALID_WORK_UNIT_STATUSES,
   TERMINAL_STATUSES,
   PROJECT_IDENTITIES,
+  NO_ARGUMENT,
   RESERVED_WORK_UNIT_NAMES,
 };

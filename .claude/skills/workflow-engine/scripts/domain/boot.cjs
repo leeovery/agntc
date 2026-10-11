@@ -26,7 +26,9 @@
 // vector fill that fell short are warnings, never blocks.
 //
 // Boot is also where the conversation folders are tidied, whichever project
-// the conversations ran in: one goes once its transcript is gone.
+// the conversations ran in: one goes once its transcript is gone. The start
+// menu is no position, so the calling conversation's own goes first, before
+// the migrations — a boot that fails leaves none.
 // ---------------------------------------------------------------------------
 
 const path = require('path');
@@ -40,6 +42,7 @@ const { detectSystemConfig: detectKnowledgeSettings } = require('./knowledge/set
 const { labelConfigStatus, repairSessionLabels, resolveEnabled, syncSessionHooks } = require('./session-label.cjs');
 const { gateSurface } = require('./gate-surface.cjs');
 const { tidyConversations } = require('./conversation.cjs');
+const { dropPosition } = require('./position.cjs');
 const { SETTINGS_SPEC } = require('./settings.cjs');
 const { syncWorktreeInclude, WORKTREE_INCLUDE } = require('./worktree-include.cjs');
 const { baselineState, baselineSignal } = require('./baseline.cjs');
@@ -60,6 +63,11 @@ const STOP_GATE_MARKER = '---STOP_GATE: FILES_UPDATED---';
 // this run, handed to the calling flow's judgment pass and stripped from
 // the report text.
 const VERIFY_MARKER = '---VERIFY_ADDENDA---';
+
+// Marker preceding migrate.cjs's one-line JSON array of notices — sentences
+// migrations executed this run hand back for the person, shown in the calling
+// flow's migration summary and stripped from the report text.
+const NOTICES_MARKER = '---MIGRATION_NOTICES---';
 
 // Marker preceding migrate.cjs's one-line JSON report of the run —
 // `{ran, tracking}`: the migrations executed, and the tracking ledger they
@@ -87,8 +95,15 @@ const MIGRATIONS_RUN_MARKER = '---MIGRATIONS_RUN---';
  */
 
 /**
+ * @typedef {object} MigrationNotice
+ * @property {string} id
+ * @property {string} description
+ * @property {string} notice  what the person is told
+ */
+
+/**
  * @typedef {object} BootResult
- * @property {{changed: boolean, ran: number, output: string, verify: VerifyAddendum[]}} migrations `changed` counts files, `ran` counts migrations executed — a migration can run and change nothing
+ * @property {{changed: boolean, ran: number, output: string, verify: VerifyAddendum[], notices: MigrationNotice[]}} migrations `changed` counts files, `ran` counts migrations executed — a migration can run and change nothing
  * @property {'ready'|'not-ready'} knowledge
  * @property {boolean} indexed the store's keyword side came in line with the files — no artifact left failing
  * @property {boolean} compacted
@@ -203,6 +218,7 @@ function trimReport(stdout) {
  * @returns {BootResult}
  */
 function boot(cwd) {
+  dropPosition(process.env.CLAUDE_CODE_SESSION_ID);
   const mig = spawnSync('node', [MIGRATE_CJS], { cwd, encoding: 'utf8' });
   if (mig.error || mig.status !== 0) {
     const detail = mig.error
@@ -216,6 +232,8 @@ function boot(cwd) {
   const outLines = (mig.stdout || '').split('\n');
   const addenda = liftMarker(outLines, VERIFY_MARKER, 'verification addenda', warnings);
   if (addenda !== undefined && !Array.isArray(addenda)) warnings.push('verification addenda unreadable: not an array');
+  const notices = liftMarker(outLines, NOTICES_MARKER, 'migration notices', warnings);
+  if (notices !== undefined && !Array.isArray(notices)) warnings.push('migration notices unreadable: not an array');
   const { ran, tracking } = readRunReport(liftMarker(outLines, MIGRATIONS_RUN_MARKER, 'migration run report', warnings), warnings);
   const stdout = outLines.join('\n');
 
@@ -224,6 +242,7 @@ function boot(cwd) {
     ran,
     output: trimReport(stdout),
     verify: /** @type {VerifyAddendum[]} */ (Array.isArray(addenda) ? addenda : []),
+    notices: /** @type {MigrationNotice[]} */ (Array.isArray(notices) ? notices : []),
   };
 
   // A migration that ran while changing no document still wrote the ledger,

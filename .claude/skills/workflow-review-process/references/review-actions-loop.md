@@ -15,7 +15,7 @@ C. Approval overview (spec defects settled first)
 D. Process task (per-task approval loop)
 E. Route on results
 F. Create tasks in plan → invoke-task-author.md, invoke-review-task-writer.md
-G. Re-open implementation + plan mode handoff
+G. Re-open implementation + hand off
 ```
 
 ---
@@ -238,12 +238,6 @@ Filter to the tasks the manifest's `staging.c{N}.tasks` marks `approved`, taking
 
 > **CHECKPOINT**: Do not proceed until the task writer has returned.
 
-**If the planning item carries no `storage_paths` field** (absent, not empty — a plan initialised before the field existed): record it now — read the format's authoring.md → Storage Pathspecs and copy the fenced array:
-
-```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} storage_paths '{format storage pathspecs}'
-```
-
 Commit the staging file with this topic's implementation artifacts, then the plan tasks and `task_map` updates — `--plan` stages the planning topic, the manifests, and the plan's declared storage:
 
 ```bash
@@ -257,8 +251,6 @@ node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "re
 
 ## G. Re-open Implementation
 
-For each plan that received new tasks:
-
 1. Update the manifest via CLI:
    - `node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} implementation {topic}`
    - `node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.implementation.{topic} updated {today's date}`
@@ -268,39 +260,10 @@ For each plan that received new tasks:
 node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "review({work_unit}): re-open implementation tracking" --topic review/{topic}
 ```
 
-Then enter plan mode and write the following plan. Resolve `{work_type}` from the manifest when not already in context:
+Resolve `{work_type}` from the manifest when not already in context:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit} work_type
 ```
 
-```
-# Review Actions Complete: {work_unit}
-
-Review findings have been synthesized into {N} implementation tasks.
-
-## Summary
-
-{Summary, e.g., "auth-flow: 3 tasks in Phase 9"}
-
-## Next Step
-
-Invoke `/workflow-implementation-entry {work_type} {work_unit} {topic}`
-
-Arguments: work_type = {work_type}, work_unit = {work_unit}, topic = {topic}
-The skill will detect the new tasks and start executing them.
-
-## Context
-
-- Plan updated: {work_unit}
-- Tasks created: {total count}
-- Implementation tracking: re-opened
-
-## How to proceed
-
-Clear context and continue. The fresh session will start
-implementation and pick up the new review remediation tasks
-automatically.
-```
-
-Exit plan mode. The user will approve and clear context, and the fresh session will pick up with the implementation entry skill routing to the new tasks.
+→ Load **[handing-off.md](../../workflow-shared/references/handing-off.md)** with route = `/workflow-implementation-process {work_type} {work_unit} {topic}`.

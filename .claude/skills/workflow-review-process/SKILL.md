@@ -12,11 +12,16 @@ Act as a **senior software architect** with deep experience in code review. You 
 
 Follows implementation. Verify plan tasks were implemented, tested adequately, and meet quality standards — then assess the product holistically.
 
+**Stay in your lane**: Verify that every plan task was implemented, tested adequately, and meets quality standards. Don't fix code - identify problems. You're reviewing, not building.
+
 ### What This Skill Needs
 
-- **Review scope** (required) - single, multi, or all
-- **Plan content** (required) - Tasks and acceptance criteria to verify against (one or more plans)
-- **Specification content** (required) - The specification from the prior phase, for design decision context
+Positional arguments:
+- `$0` — **work_type**: `epic`, `feature`, `bugfix`, or `quick-fix`.
+- `$1` — **work_unit**: the work unit name.
+- `$2` — **topic**: the implementation to review. A single-topic unit's topic is the work unit, so it may be left off: topic = `$2`, or `$1` where `work_type` is not `epic`.
+
+The plan's tasks and acceptance criteria are what the review verifies against, and the specification at `.workflows/{work_unit}/specification/{topic}/specification.md` gives its design decisions their context — both read at Step 2.
 
 ---
 
@@ -33,7 +38,7 @@ Context refresh (compaction) summarizes the conversation, losing procedural deta
 1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
 2. **Read review and synthesis files** for the current topic. Review documents are at `.workflows/{work_unit}/review/{topic}/report.md` with per-task report files (`report-{phase_id}-{task_id}.md`) and change-set verification files (`change-set-c{N}-{section-slug}.md`, one per section per review cycle) alongside. Synthesis staging files are at `.workflows/{work_unit}/implementation/{topic}/review-tasks-c{N}.md`. These hold the staged proposals — bodies exist only once the task author has run after the walk; the per-task decisions and `gate_mode` live in the manifest's `staging.c{N}` subtree.
 3. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
-4. **Announce your position** to the user before continuing: what step you believe you're at, what's been completed, and what comes next. Wait for confirmation.
+4. **Carry on from where the conversation was**, as if the break never happened — no recap and no announcement. Where the person's message is waiting, take it at the step it arrived at, unless it only asks to carry on. Otherwise, where the conversation was at a gate, put the gate back, fetched fresh; elsewhere continue the step it was on.
 
 Do not guess at progress or continue from memory. The files on disk and git history are authoritative — your recollection is not.
 
@@ -75,13 +80,69 @@ The user calls the topic off — they say to cancel, or the conversation agrees 
 
 ---
 
-## Step 0: Resume Detection
+## Step 0: Session Setup
 
-Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
+### Step 0.1: Code Slot
+
+Load **[code-session-gate.md](../workflow-shared/references/code-session-gate.md)** with phase = `review`.
+
+→ On return, proceed to **Step 0.2**.
+
+### Step 0.2: Entry Gate
+
+Check the plan and implementation prerequisite — the engine derives the verdict from manifest state:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render entry-gate {work_unit}.review.{topic}
+```
+
+#### If the response is empty
+
+The plan and implementation are completed.
+
+→ Proceed to **Step 0.3**.
+
+#### If the response carried `DISPLAY: entry blocker`
+
+Emit both sections verbatim per their markers — the red blocker line, then its guidance.
+
+**STOP.** Do not proceed — terminal condition.
+
+### Step 0.3: Resume Detection
+
+Record where this session is working — the call also labels the tmux session where the user opted in:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} review {topic}
 ```
+
+Read the phase status, storing it as `phase_status`:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.review.{topic} status
+```
+
+#### If `phase_status` is empty
+
+A first start.
+
+→ Proceed to **Step 1**.
+
+#### If `phase_status` is `in-progress` or `completed`
+
+Where `phase_status` is `completed`, reopen it — resuming is not starting:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} review {topic}
+```
+
+Render the phase note — `Reopening` for a review just reopened, `Resuming` otherwise — and emit the section verbatim per its marker:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.review.{topic} --verb {Reopening|Resuming}
+```
+
+Load **[reconcile-advisory.md](../workflow-shared/references/reconcile-advisory.md)** with work_type = `{work_type}`, work_unit = `{work_unit}`, topic = `{topic}`, downstream_phase = `review`.
 
 Check for prior review state — a review file at `.workflows/{work_unit}/review/{topic}/report.md`, and recorded coverage (empty stdout means none):
 
@@ -89,23 +150,13 @@ Check for prior review state — a review file at `.workflows/{work_unit}/review
 node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.review.{topic} reviewed_tasks
 ```
 
-#### If neither exists
+**If neither exists:**
+
+The review stopped before verifying anything — there is nothing to resume.
 
 → Proceed to **Step 1**.
 
-#### Otherwise
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`□ Resume Detection`**
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> An in-progress review exists for this topic — choose whether to pick it up or start fresh.
-```
+**Otherwise:**
 
 Gather coverage state. Read `completed_tasks` from the implementation manifest:
 
@@ -158,14 +209,13 @@ Order matters — the review file is deleted last, so a crash mid-restart re-off
    node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.review.{topic} out_of_scope
    ```
 2. Delete any synthesis staging files (`review-tasks-c*.md`) in `.workflows/{work_unit}/implementation/{topic}/` — stale proposals from the abandoned run. The synthesis reports (`review-report-c*.md`) stay — the cycle counter reads them
-3. If the planning item carries no `storage_paths` field (absent, not empty — a plan initialised before the field existed): record it now — read the format's authoring.md (format from `manifest get {work_unit}.planning.{topic} format`) → Storage Pathspecs and copy the fenced array (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} storage_paths '{format storage pathspecs}'`)
-4. **If the abandoned run's `Review Remediation (Cycle {N})` phase already landed in the plan**: mark each of that phase's tasks whose id is **not** in `{work_unit}.implementation.{topic}` `completed_tasks` skipped per the format's **updating.md** (format from `manifest get {work_unit}.planning.{topic} format`) — abandoned remediation must never execute, and a partially-executed phase keeps only what already ran. Then close that phase (`{M}` below is its number) — abandoned work takes no boundary sweep:
+3. **If the abandoned run's `Review Remediation (Cycle {N})` phase already landed in the plan**: mark each of that phase's tasks whose id is **not** in `{work_unit}.implementation.{topic}` `completed_tasks` skipped per the format's **updating.md** (format from `manifest get {work_unit}.planning.{topic} format`) — abandoned remediation must never execute, and a partially-executed phase keeps only what already ran. Then close that phase (`{M}` below is its number) — abandoned work takes no boundary sweep:
    - empty the bank when the manifest holds one (`manifest exists {work_unit}.implementation.{topic} bank`, then `node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.implementation.{topic} bank`)
    - drop an in-flight boundary walk when `staging.p{M}` exists (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest delete {work_unit}.implementation.{topic} staging.p{M}`), and delete `consolidation-findings-p{M}.md` and `consolidation-tasks-p{M}.md` from `.workflows/{work_unit}/implementation/{topic}/`
    - mark the boundary, skipping the push when `consolidated_phases` already contains `{M}` (`node .claude/skills/workflow-engine/scripts/engine.cjs manifest push {work_unit}.implementation.{topic} consolidated_phases {M}`)
    - complete the phase in the plan per the format's **updating.md**, then record it via the engine for the phase's last completed task — or, when none ran, any of its skipped tasks with `--skipped` (`node .claude/skills/workflow-engine/scripts/engine.cjs task complete {work_unit} {topic} {internal_id} --phase {M} [--skipped] --phase-complete`)
-5. Delete the review file, all report files (`report-*.md`) and all change-set files (`change-set-*.md`) in the review directory (`.workflows/{work_unit}/review/{topic}/`), and the topic's review cache directory (`.workflows/.cache/{work_unit}/review/{topic}/`) — the abandoned run's collected criteria and staged payloads
-6. Commit the deletions under the topics that held them, then the plan — `--plan` stages the planning topic, the manifests, and the plan's declared storage (the skip-markings live there):
+4. Delete the review file, all report files (`report-*.md`) and all change-set files (`change-set-*.md`) in the review directory (`.workflows/{work_unit}/review/{topic}/`), and the topic's review cache directory (`.workflows/.cache/{work_unit}/review/{topic}/`) — the abandoned run's collected criteria and staged payloads
+5. Commit the deletions under the topics that held them, then the plan — `--plan` stages the planning topic, the manifests, and the plan's declared storage (the skip-markings live there):
    ```bash
    node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "review({work_unit}): restart review — clear reports and staging" --topic review/{topic}
    node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "review({work_unit}): restart review — clear staged proposals" --topic implementation/{topic} --sweep
@@ -178,13 +228,7 @@ Order matters — the review file is deleted last, so a crash mid-restart re-off
 
 ## Step 1: Initialize Review
 
-Check if review phase is registered in manifest:
-
-```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs manifest exists {work_unit}.review.{topic}
-```
-
-#### If `false`
+#### If `phase_status` is empty
 
 Start the review item — the engine creates it with `status: in-progress`:
 
@@ -200,9 +244,9 @@ node .claude/skills/workflow-engine/scripts/engine.cjs topic start {work_unit} r
 
 ---
 
-## Step 2: Read Plan(s) and Specification(s)
+## Step 2: Read the Plan and Specification
 
-Load **[read-plans.md](references/read-plans.md)** and follow its instructions as written.
+Load **[read-plan.md](references/read-plan.md)** and follow its instructions as written.
 
 → On return, proceed to **Step 3**.
 

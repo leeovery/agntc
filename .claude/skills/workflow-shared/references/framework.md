@@ -1,10 +1,18 @@
 # Framework
 
-*Shared reference for all workflow skills. Loaded at the head of every skill, and re-loaded on context refresh.*
+*Shared reference for all workflow skills. Loaded at the head of the skill a conversation opens on, and re-loaded on context refresh.*
 
 ---
 
-Read each file below every time this reference is loaded. Never skip one on the belief it is already in context — these are short, re-reading costs almost nothing, and a summary that kept their conclusions and dropped their text reads exactly like having them. Attempt each read; where the tool answers that a file is unchanged since your last read, that earlier read is current and still in context — follow it from there. The refusal is confirmation, not a skipped read.
+The framework is loaded once per conversation, by the skill the conversation opens on, and each load reads every file below; after a context refresh, the skill's recovery protocol re-loads it.
+
+**If this conversation has already loaded the framework, with no context refresh since:**
+
+The skill opened later carries on from that load.
+
+→ Return to caller.
+
+**Otherwise:**
 
 → Load **[instructions.md](instructions.md)** and follow its instructions as written.
 
@@ -15,7 +23,5 @@ Read each file below every time this reference is loaded. Never skip one on the 
 → Load **[altitude.md](altitude.md)** and follow its instructions as written.
 
 → Load **[ask-or-decide.md](ask-or-decide.md)** and follow its instructions as written.
-
-→ Load **[answering-how-it-works.md](answering-how-it-works.md)** and follow its instructions as written.
 
 → Return to caller.

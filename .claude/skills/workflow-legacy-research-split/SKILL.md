@@ -8,13 +8,7 @@ Act as **curator + interviewer**. Walk the user through decomposing broad resear
 
 **Parameters**:
 
-- **Work unit** (required) — the epic to normalise. Passed by `workflow-continue-epic` Step 5.
-
----
-
-## Instructions
-
-Load **[framework.md](../workflow-shared/references/framework.md)** and follow its instructions as written.
+- **Work unit** (required) — the epic to normalise. Passed by `workflow-continue-epic` Step 2.
 
 ---
 

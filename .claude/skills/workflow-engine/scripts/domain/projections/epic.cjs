@@ -19,6 +19,7 @@ const { section, menu, menuFrame, cmdOption, labelParts, callout, MENU_INSTRUCTI
 const { escapeMarkdown } = require('./worklist.cjs');
 const { fmtAge, CODE_PHASES, SOURCE_PHASES } = require('../presence.cjs');
 const { buildOrderLive } = require('../build-order.cjs');
+const { phaseSkill } = require('../handoff.cjs');
 
 /** @typedef {import('../epic-detail.cjs').EpicDetail} EpicDetail */
 /** @typedef {import('../epic-detail.cjs').MapRow} MapRow */
@@ -47,10 +48,10 @@ const { buildOrderLive } = require('../build-order.cjs');
  * @property {boolean} [recommended]
  * @property {boolean} [input_moved]   the entry's item (or its source item) carries a live reconcile flag
  * @property {boolean} [in_session]    a held session elsewhere occupies this topic's phase
- * @property {string[]} [blocked_by]   what holds the entry's item shut at its entry skill — carried only by a held row, the one blocked row the menu offers; the in-session gate names it
+ * @property {string[]} [blocked_by]   what holds the entry's item shut where its phase starts — carried only by a held row, the one blocked row the menu offers; the in-session gate names it
  * @property {number} [session_age]    that session's last-active age in seconds
  * @property {{work_unit: string, phase: string, topic: string}} [session_holder] the held code row taking the slot, when it is not this entry's own topic
- * @property {boolean} [code_session]  the hold is the checkout's code slot — gated at the entry skill, never by this menu
+ * @property {boolean} [code_session]  the hold is the checkout's code slot — gated where the phase starts, never by this menu
  */
 
 /** @typedef {import('../presence.cjs').PresenceRow} PresenceRow */
@@ -79,16 +80,6 @@ const STAGES = EPIC_PIPELINE.reduce((/** @type {{name: string, phases: string[]}
 
 const STATUS_ORDER = ['proposed', 'triaged', 'in-progress', 'completed', 'cancelled', 'promoted'];
 
-const PHASE_ENTRY_SKILL = {
-  research: 'workflow-research-entry',
-  experiment: 'workflow-experiment-entry',
-  discussion: 'workflow-discussion-entry',
-  specification: 'workflow-specification-entry',
-  planning: 'workflow-planning-entry',
-  implementation: 'workflow-implementation-entry',
-  review: 'workflow-review-entry',
-};
-
 // The conversation phases' actions come from the map's own vocabulary; the
 // build phases' are the menu's.
 const ACTION_PHASE = {
@@ -110,7 +101,7 @@ const ACTION_PHASE = {
 // stop a gate firing.
 const SOFT_GATE_ACTIONS = [
   ...Object.keys(ACTION_PHASE),
-  'analyze_discussions', 'new_discussion', 'new_research', 'continue_discovery',
+  'continue_discovery',
 ];
 
 const START_GATE = {
@@ -126,7 +117,7 @@ const START_GATE = {
 
 /** @param {MapRow} row */
 function lifecycleLabel(row) {
-  return discoveryLifecycleLabel(row.lifecycle, row.routing, row.research_state ?? null, row.triage_parked ?? false, row.reconcile_pending ?? false, row.waits);
+  return discoveryLifecycleLabel(row.lifecycle, row.routing, row.research_state ?? null, row.triage_parked ?? false, row.reconcile_pending ?? false, row.waits, row.promoted_to ?? null);
 }
 
 /** Count summary for a phase sub-header — statuses present, zero counts omitted. @param {PhaseEntry[]} items */
@@ -547,7 +538,7 @@ function epicKey(detail) {
 
 /** @param {string} action @param {string} workUnit @param {string} topic */
 function topicRoute(action, workUnit, topic) {
-  return `/${PHASE_ENTRY_SKILL[/** @type {keyof typeof ACTION_PHASE} */ (ACTION_PHASE[action])]} epic ${workUnit} ${topic}`;
+  return `/${phaseSkill(ACTION_PHASE[/** @type {keyof typeof ACTION_PHASE} */ (action)])} epic ${workUnit} ${topic}`;
 }
 
 // The triage cue rides every row shape: the bare start rows carry it as
@@ -735,8 +726,7 @@ function commandOptions(workUnit, detail, hasMap) {
       ? `${detail.unaccounted_discussions.length} discussion(s) not yet grouped`
       : 'review or regroup specifications';
     opts.push({
-      key: 's', word: 'spec', action: 'analyze_discussions', topic: null,
-      route: `/workflow-specification-entry epic ${workUnit}`,
+      key: 's', word: 'spec', action: 'analyze_discussions', topic: null, route: null,
       label: { head: 'Analyze / regroup discussions', tail: desc },
     });
   }
@@ -760,13 +750,11 @@ function commandOptions(workUnit, detail, hasMap) {
   }
   if (!hasMap) opts.push(discoveryOpt);
   opts.push({
-    key: 'd', word: 'discuss', action: 'new_discussion', topic: null,
-    route: `/workflow-discussion-entry epic ${workUnit}`,
+    key: 'd', word: 'discuss', action: 'new_discussion', topic: null, route: null,
     label: hasMap ? 'Start a discussion on a new topic' : 'Start new discussion',
   });
   opts.push({
-    key: 'r', word: 'research', action: 'new_research', topic: null,
-    route: `/workflow-research-entry epic ${workUnit}`,
+    key: 'r', word: 'research', action: 'new_research', topic: null, route: null,
     label: hasMap ? 'Start research on a new topic' : 'Start new research',
   });
   if (hasMap && !detail.active_session) opts.push(discoveryOpt);
@@ -801,6 +789,7 @@ function commandOptions(workUnit, detail, hasMap) {
   if (anyLiveSpec) {
     opts.push({ key: 'o', word: 'order', action: 'resequence_build_order', topic: null, route: null, label: 'Re-sequence the build order' });
   }
+  opts.push({ key: 'b', word: 'back', action: 'back', topic: null, route: null, label: 'Return to the start menu' });
   return opts;
 }
 
@@ -849,7 +838,7 @@ function pickRecommendation(detail, numbered, options, hasMap) {
     // Then the first build-phase next_phase_ready entry in pipeline order.
     // An input-moved entry is never the recommendation: recommending a start
     // that propagates known-stale input contradicts its own cue — the
-    // reconcile (via the flagged item's entry flow) comes first. Nor is an
+    // reconcile (where the flagged item's phase starts) comes first. Nor is an
     // entry a held session occupies — recommending the row the menu has
     // struck through would be the display arguing with itself.
     const build = numbered.find((e) => e.action.startsWith('start_') && !e.input_moved && !e.in_session
@@ -917,9 +906,10 @@ function markHeldEntries(numbered, held, codeHeld = []) {
     if (!row) continue;
     e.in_session = true;
     e.session_age = row.age_seconds;
-    // A code entry's hold is the checkout's one slot, and its gate lives at
-    // the entry skill — the marker says so, so the menu's own in-session gate
-    // never fires for it and the user meets one gate per attempt.
+    // A code entry's hold is the checkout's one slot, and its gate lives
+    // where the phase starts — the marker says so, so the menu's own
+    // in-session gate never fires for it and the user meets one gate per
+    // attempt.
     if (CODE_PHASES.includes(phase)) e.code_session = true;
     if (foreign) {
       e.session_holder = { work_unit: foreign.work_unit, phase: foreign.phase, topic: foreign.topic };
@@ -1040,7 +1030,7 @@ function epicMenu(workUnit, detail, opts = {}) {
 
 // A struck row is the one blocked row the menu offers, so its gate also
 // names what holds the entry shut — a yes here would otherwise meet the
-// entry skill's refusal blind.
+// phase's own refusal blind.
 /** @param {string} phase @param {string} topic @param {string[]|undefined} by */
 function entryHoldClause(phase, topic, by) {
   if (by === undefined) return '';
@@ -1194,13 +1184,12 @@ function selectionSubView(title, empty, question, action, rows, { allLocked } = 
 
 /** Group ItemRefs by phase in pipeline order. @param {ItemRef[]} items @returns {ItemRef[]} */
 function pipelineOrdered(items) {
-  const order = Object.keys(PHASE_ENTRY_SKILL);
-  return [...items].sort((a, b) => order.indexOf(a.phase) - order.indexOf(b.phase));
+  return [...items].sort((a, b) => EPIC_PIPELINE.indexOf(a.phase) - EPIC_PIPELINE.indexOf(b.phase));
 }
 
 /**
  * Section D — the Completed Topics list and pick menu. Numbered entries route
- * to the topic's phase entry skill.
+ * to the topic's phase skill.
  * @param {string} workUnit
  * @param {EpicDetail} detail
  * @returns {{keys: SubViewKey[], title: string, display: string, rendered: string}}

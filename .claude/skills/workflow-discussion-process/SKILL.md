@@ -12,12 +12,14 @@ Act as **expert software architect** participating in discussions AND **document
 
 The decision phase, entered from discovery — or from research when it ran. Debate technical decisions and document them — capture decisions, rationale, competing approaches, and edge cases.
 
+**Stay in your lane**: Capture the WHAT and WHY - decisions, rationale, competing approaches, edge cases. Don't jump to specifications, plans, or code. This is the time for debate and documentation.
+
 ### What This Skill Needs
 
-- **Topic** (required) - What technical area to discuss/document
-- **Work type** (required) - `epic`, `feature`, or `cross-cutting`. Determines session behaviour — off-topic concerns reroute between an epic's topics but log or pivot on single-topic work
-- **Context** (optional) - Interview answers or live conversation context; prior research, the discovery brief, and the carrier are read at initialisation
-- **Seed concerns** (optional) - Initial subtopics or architectural questions to explore
+Positional arguments:
+- `$0` — **work_type**: `epic`, `feature`, or `cross-cutting`. Determines session behaviour — off-topic concerns reroute between an epic's topics but log or pivot on single-topic work.
+- `$1` — **work_unit**: the work unit name.
+- `$2` — **topic**: the technical area to discuss. A single-topic unit's topic is the work unit, so it may be left off: topic = `$2`, or `$1` where `work_type` is not `epic`.
 
 ---
 
@@ -32,10 +34,10 @@ Load **[framework.md](../workflow-shared/references/framework.md)** and follow i
 Context refresh (compaction) summarizes the conversation, losing procedural detail. When you detect a context refresh has occurred — the conversation feels abruptly shorter, you lack memory of recent steps, or a summary precedes this message — follow this recovery protocol:
 
 1. **Re-read this skill file completely, then re-load [framework.md](../workflow-shared/references/framework.md).** Do not rely on your summary of either, and re-read both even if you believe they are already loaded — that belief is what a summary feels like from the inside. The full process, steps, and rules must be reloaded.
-2. **Read the discussion file** at `.workflows/{work_unit}/discussion/{topic}.md`. This is the only working document this skill creates. The Discussion Map is your primary progress indicator — which subtopics are decided, exploring, converging, pending, or deferred. It lives in the manifest; read it with `node .claude/skills/workflow-discussion-process/scripts/gateway.cjs map {work_unit} {topic}`.
-3. **Check agent state.** Run `node .claude/skills/workflow-engine/scripts/engine.cjs agent scan {work_unit} discussion {topic}` — `in_flight` agents still running, `pending` results unread, `acknowledged` results partially surfaced. Read `.workflows/.cache/{work_unit}/discussion/{topic}/calls-queue.json` if present — queued settled calls and pulled raises survive there, not in conversation memory. A close underway does not survive either: treat it as ended — the next signal or settling set re-enters it, a settled map on its own never does.
+2. **Read the discussion file** at `.workflows/{work_unit}/discussion/{topic}.md`. This is the only working document this skill creates. The Discussion Map is your primary progress indicator — which subtopics are decided, exploring, converging, pending, or deferred. It lives in the manifest; read it with `node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.discussion.{topic} subtopics`.
+3. **Check agent state.** Run `node .claude/skills/workflow-engine/scripts/engine.cjs agent scan {work_unit} discussion {topic}` — `in_flight` agents still running, `pending` results unread, `acknowledged` results partially surfaced. Read `.workflows/.cache/{work_unit}/discussion/{topic}/calls-queue.json` if present — queued settled calls and pulled raises survive there, not in conversation memory.
 4. **Check git state.** Run `git status` and `git log --oneline -10` to see recent commits. Commit messages follow a conventional pattern that reveals what was completed.
-5. **Announce your position** to the user before continuing: render the current Discussion Map (the adapter call above — emit its DISPLAY section verbatim per its marker), state what step you believe you're at, and what comes next. Wait for confirmation.
+5. **Carry on from where the conversation was**, as if the break never happened — no recap and no announcement. Where the person's message is waiting, take it at the step it arrived at, unless it only asks to carry on. Otherwise, where the conversation was at a gate, put the gate back, fetched fresh; elsewhere continue the step it was on.
 
 Do not guess at progress or continue from memory. The files on disk and git history are authoritative — your recollection is not.
 
@@ -65,49 +67,77 @@ The user calls the topic off — they say to cancel, or the conversation agrees 
 
 ---
 
-## Step 0: Resume Detection
+## Step 0: Session Setup
 
-Refresh the tmux session label — a no-op unless the user opted in and this session runs inside tmux:
+### Step 0.1: Entry Gate
+
+Check the research prerequisite — the engine derives the verdict from the topic's research item, whether or not a discussion item exists:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render entry-gate {work_unit}.discussion.{topic}
+```
+
+#### If the response is empty
+
+No research is outstanding on the topic — clear to discuss.
+
+→ Proceed to **Step 0.2**.
+
+#### If the response carried `DISPLAY: entry blocker`
+
+Emit both sections verbatim per their markers — the red blocker line, then its guidance.
+
+**STOP.** Do not proceed — terminal condition.
+
+### Step 0.2: Resume Detection
+
+Load **[ensure-discovery-item.md](../workflow-shared/references/ensure-discovery-item.md)** with work_type = `{work_type}`, work_unit = `{work_unit}`, topic = `{topic}`, routing = `discussion`.
+
+Record where this session is working — the call also labels the tmux session where the user opted in:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs session label {work_unit} discussion {topic}
 ```
 
-Read the phase status:
+Read the phase status, storing it as `phase_status`:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs manifest get {work_unit}.discussion.{topic} status
 ```
 
-Then check if the discussion file exists at `.workflows/{work_unit}/discussion/{topic}.md`.
+#### If `phase_status` is empty or `triaged`
 
-#### If status is `triaged`
-
-A first start, not a resume — no session has ever run and no subtopics exist, so there is no map to render. Parked concerns wait in the topic's triage queue, untouched by initialization — the session loop's triage check surfaces them.
+A first start, not a resume — no session has ever run and no subtopics exist, so there is no map to render. A `triaged` stub's parked concerns wait in the topic's triage queue, untouched by initialization — the session loop's triage check surfaces them.
 
 Set `resumed` = `false`.
 
 → Proceed to **Step 1**.
 
-#### If no file exists
+#### If `phase_status` is `in-progress` or `completed`
+
+Where `phase_status` is `completed`, reopen it — resuming is not starting:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs topic reopen {work_unit} discussion {topic}
+```
+
+Render the phase note — `Reopening` for a topic just reopened, `Resuming` otherwise — and emit the section verbatim per its marker:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render phase-note {work_unit}.discussion.{topic} --verb {Reopening|Resuming}
+```
+
+Load **[reconcile-advisory.md](../workflow-shared/references/reconcile-advisory.md)** with work_type = `{work_type}`, work_unit = `{work_unit}`, topic = `{topic}`, downstream_phase = `discussion`.
+
+**If no file exists at `.workflows/{work_unit}/discussion/{topic}.md`:**
+
+A restart that never reached initialization — the earlier session's file is already gone.
 
 Set `resumed` = `false`.
 
 → Proceed to **Step 1**.
 
-#### Otherwise
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`□ Resume Detection`**
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> An in-progress discussion file exists for this topic — choose whether to pick it up or start fresh.
-```
+**Otherwise:**
 
 Show the current map state so the continue-or-restart choice is informed:
 
@@ -122,6 +152,16 @@ Load **[resume-detection.md](../workflow-shared/references/resume-detection.md)*
 Set `resumed` from where the reference returns: `true` for **Step 2**, the earlier session's map still standing; `false` for **Step 1**, its file and map deleted and rebuilt.
 
 → On return, proceed as the reference directed — `continue` lands on **Step 2**, `restart` on **Step 1**.
+
+#### If `phase_status` is `postponed`, `cancelled`, or `promoted`
+
+Render the terminal blocker — the engine derives which from the item's status — and emit both sections verbatim per their markers:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render entry-gate {work_unit}.discussion.{topic} --own
+```
+
+**STOP.** Do not proceed — terminal condition.
 
 ---
 
