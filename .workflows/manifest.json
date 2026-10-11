@@ -64,7 +64,8 @@
         "origin": "park:vercel-skills-compatibility",
         "sources": [
           "vercel-skills-compatibility/discussion/vercel-skills-compatibility.md"
-        ]
+        ],
+        "kind": "idea"
       },
       "website-skill-sources": {
         "horizon": "later",
@@ -72,7 +73,8 @@
         "origin": "park:vercel-skills-compatibility",
         "sources": [
           "vercel-skills-compatibility/discussion/vercel-skills-compatibility.md"
-        ]
+        ],
+        "kind": "idea"
       }
     }
   }
