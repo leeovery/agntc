@@ -52,7 +52,7 @@ Exploratory sighting, n=10, one run each, Claude only:
 
 - **A skill's own `agents/` folder breaks it.** `src/type-detection.ts:144–155` treats `SKILL.md` alongside an asset dir as a plugin and ignores the `SKILL.md`. Real skills carry `agents/` for OpenAI's `agents/openai.yaml` metadata convention (71 such files across the ten repos) and for skill-local helper prompts the skill reads (`skill-creator`'s `analyzer.md`/`grader.md`; `motion-graphics`'s `builder.md`/`director.md`). agntc drops the `SKILL.md` and copies those files into `.claude/agents/`. 61 of 258 skill dirs across the ten repos carry `agents/` (mattpocock 38/38, remotion 12/12, caveman 7/28, …). `remotion-dev/skills`: all 12 entries broken. Each run ended "Installed …", exit 0.
 - **Category folders hide whole collections.** `mattpocock/skills` (2nd-largest leaderboard source) nests skills under `skills/<category>/<skill>`; agntc's one-level read finds no units, ends "Cancelled — no plugins selected", exit 0. Vercel walks 3 levels and installs 38.
-- **A bare add installs a different version.** agntc resolves the latest semver tag (5 of 10 repos had one); Vercel always installs default-branch HEAD.
+- **A bare add installs a different version.** agntc resolves the latest semver tag (5 of 10 repos had one); Vercel's bare add always installs default-branch HEAD. *(Amended 2026-10-11 — this read "Vercel always installs default-branch HEAD"; Vercel clones a `#ref` or tree-URL ref with `--branch` (`vercel-labs/skills` v1.7.0 `src/git.ts:254`, `:301`), so only its bare add takes HEAD.)*
 - **Repos that are plugins to agntc are bags of skills to Vercel.** `microsoft/azure-skills` (skills + hooks) and `juliusbrussee/caveman` (skills + agents) install as one unit under agntc; a pasted `--skill x` aimed at either is the pick-from-a-unit collision in the wild.
 - **Name divergence is common.** `vercel-labs/agent-skills`: 4 of 9 install under folder names where Vercel uses declared names. `leonxlnx/taste-skill`: 10 of 13 differ (folder `taste-skill` vs declared `design-taste-frontend`, which is what the leaderboard lists).
 - Lesser: Vercel's scan of root-level and agent-dir skills (`template/`, `.agents/skills`, `.claude/skills`) finds skills agntc doesn't.
@@ -271,7 +271,7 @@ Presented as a single defensible shape — every piece follows from the scope pr
 
 - **Removing a skill inside a unit is refused** — the remove-side mirror of the unit decision: units go in whole and come out whole. Vercel never meets this, since it has no units.
 - **Update replays the agents recorded at install** rather than re-detecting. Re-detection means adding Cursor to a project later quietly widens every subsequent update; in agntc an update means "the same thing, newer", and changing targets stays an explicit `add` or `remove -a`.
-- **`check` is not adopted.** In Vercel it is undocumented and runs a full update — a footgun; README lines will not carry it. A pasted `check` fails as an unknown command rather than changing anything.
+- **`check` is not adopted.** In Vercel it is undocumented and runs a full update — a footgun; README lines will not carry it. A pasted `check` is refused rather than changing anything — non-zero, its message naming `check` as not an agntc command. *(Amended 2026-10-11 — this read "fails as an unknown command"; today agntc's root command takes the word as an extra argument: `node dist/cli.js check` → `error: too many arguments. Expected 0 arguments but got 1.` plus the help, exit 1, never naming `check`.)*
 
 ### Decision
 
@@ -600,7 +600,7 @@ The flag set stands as recorded below. Added: **`--all` together with `-a`/`--ag
 - **`--copy` is accepted as a no-op** — agntc always copies.
 - **Aliases `a`, `i`, `install`.**
 - **agntc's own flags stay:** `--plugin`, `--overwrite`.
-- **Refused:** `-g` (roadmapped), `--subagent` and `--metadata` (Vercel-internal), and any flag agntc does not recognise.
+- **Refused:** `-g` (roadmapped), `--subagent` and `--metadata` (they serve Eve subagent installs and Vercel's install telemetry, neither of which agntc has; accepting them would ignore them silently), and any flag agntc does not recognise. *(Amended 2026-10-11 — this read "Vercel-internal"; Vercel v1.7.0 documents both under its `add` options (`src/cli.ts`: `--metadata <json>  Attach valid JSON to the install telemetry event`, `--subagent <names>  Install to Eve subagents`).)*
 
 Confidence: high.
 
@@ -672,7 +672,7 @@ Sibling check: configless-install — its canonical selector grammar makes the t
 
 ### Context
 
-A pasted bare line installs different content in the two tools. agntc resolves the newest semver tag and records a `^X.Y.Z` constraint (version-constraints spec: bare-add default); Vercel has no version concept and always installs the default branch HEAD. In the ten-repo run 5 of 10 repos had semver tags (`vercel-labs/skills` installed at `v1.7.0`, `heygen-com/hyperframes` at `v0.8.137`, …), so for those a pasted bare line gives a different install wherever the default branch has moved past the last tag.
+A pasted bare line installs different content in the two tools. agntc resolves the newest semver tag and records a `^X.Y.Z` constraint (version-constraints spec: bare-add default); Vercel has no semver concept: its bare add installs the default branch HEAD, and a `#ref` or tree-URL ref installs that ref (`src/git.ts:254`, `:301`, `--branch <ref>`). In the ten-repo run 5 of 10 repos had semver tags (`vercel-labs/skills` installed at `v1.7.0`, `heygen-com/hyperframes` at `v0.8.137`, …), so for those a pasted bare line gives a different install wherever the default branch has moved past the last tag.
 
 ### Journey
 
