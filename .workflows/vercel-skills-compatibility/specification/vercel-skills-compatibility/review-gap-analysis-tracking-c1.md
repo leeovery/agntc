@@ -33,8 +33,8 @@ New paragraph at the end of §4.4:
 
 "A re-add reaches an existing install the same way. An install of the same skill from the same repository, made under its old key or folder, is the installed entry for that re-add (§8.4). It moves to its declared-name folder and key, as an update would move it, and keeps every recorded agent. A re-add never installs a second copy beside it."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Skill Identity" (2026-10-11); §4.4 re-aligned.
 
 ---
 
@@ -63,8 +63,8 @@ In §10.1, after "Only the two clash prompts delete anything when answered yes."
 
 "What they agree to delete is removed only once "Proceed with installation?" is answered yes. Answering no there, or cancelling at any prompt, leaves every existing install and file as it was."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Yes and Destructive Prompts" (2026-10-11); §10.1 re-aligned.
 
 ---
 
@@ -99,8 +99,8 @@ In §12.1, after "Each argument is a skill name or an agntc key, matched as §7 
 
 "Keys keep today's matching. An entry with exactly that key is taken alone, and a key with no exact entry acts on every entry under it. So `remove owner/repo` removes every entry installed from that repository, unless the repository is itself a single skill keyed `owner/repo` (§4.3)."
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: The §12 intro sentence that described the same matching as today's behaviour was trimmed to its pointer, so the rule has one home in §12.1.
 
 ---
 
@@ -132,8 +132,8 @@ Alternative: refuse every `--skill` beside `--plugin`, `'*'` included. That cost
 **Proposed Text**:
 - **`--plugin` together with a named skill (`--skill <name>` or `@skill`) is refused (§1.5).** A bundle is the whole source. `--skill '*'` and `--all` name no skill, so with `--plugin` they install the whole bundle (§6.4). A path in the source is not a pick, and it works with `--plugin` (§6.2).
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: 
 
 ---
 
@@ -180,8 +180,8 @@ Alternative that also fits: let an explicit `-a` narrow `--all`. That gives the 
 §12.3:
 | `--all` | Remove every install. Implies `-y`, and cannot be combined with names or with `-a`. The refusal names `-s '*' -a <agents> -y` for removing from some agents only. |
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Landed in the discussion as a dated revision of "Install Flag Set" (2026-10-11), covering add and remove; §9.1 and §12.3 re-aligned.
 
 ---
 

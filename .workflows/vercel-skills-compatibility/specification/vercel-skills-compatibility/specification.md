@@ -218,6 +218,8 @@ A key is never an install source. A path in a source string is always a path int
 
 An existing install moves to its declared-name folder and key on its next update. If the target folder is already occupied, update handles it as §12 sets out.
 
+A re-add reaches an existing install the same way. An install of the same skill from the same repository, made under its old key or folder, is the installed entry for that re-add (§8.4). It moves to its declared-name folder and key, as an update would move it, and keeps every recorded agent. A re-add never installs a second copy beside it.
+
 ### 5. Discovery and Unit Shape
 
 #### 5.1 Reading a source's shape
@@ -339,7 +341,7 @@ Accepted risk: a repo whose skills depend on its agents or hooks can still be in
 
 #### 6.6 What `--plugin` refuses
 
-- **`--plugin` together with `--skill` or `@skill` is refused (§1.5).** A bundle is the whole source. A path in the source is not a pick, and it works with `--plugin` (§6.2).
+- **`--plugin` together with a named skill (`--skill <name>` or `@skill`) is refused (§1.5).** A bundle is the whole source. `--skill '*'` and `--all` name no skill, so with `--plugin` they install the whole bundle (§6.4). A path in the source is not a pick, and it works with `--plugin` (§6.2).
 - **`--plugin` on a plugin is redundant and changes nothing**, as today.
 - **`--plugin` on a single skill (a root `SKILL.md`) is refused (§1.5).**
   - **One shape is excepted:** `--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/` and leaves the root `SKILL.md` out, as it does today. Without the flag that root reads as a single skill (§5.1). The flag is the installer's explicit request for the bundle, so lines written today and the bundles already made from that shape keep working.
@@ -446,6 +448,7 @@ Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` �
 **Refused (§1.5):**
 - `-g`/`--global`, because global installs are out of scope (§1.3);
 - `--subagent` and `--metadata`, which are Vercel-internal;
+- `--all` together with `-a`/`--agent`, because `--all` already sets every agent. The message names the explicit form, `--skill '*' --agent <agents> -y`;
 - any flag agntc does not recognise.
 
 **This diverges from Vercel, under never-silently-ignore (§1.5).** Vercel silently ignores flags it does not know.
@@ -482,7 +485,7 @@ An agent caller can make choices but cannot see a prompt. The human's last look 
 - Untracked files in the way: "Overwrite all", confirmed twice (`src/unmanaged-resolve.ts`).
 - "Proceed with installation?" (§11). This prompt is new.
 
-Only the two clash prompts delete anything when answered yes.
+Only the two clash prompts delete anything when answered yes. What they agree to delete is removed only once "Proceed with installation?" is answered yes. Answering no there, or cancelling at any prompt, leaves every existing install and file as it was.
 
 #### 10.2 `-y` answers every prompt that deletes nothing
 
@@ -561,11 +564,11 @@ Hooks a unit installs appear in the summary by name (§10.6).
 
 ### 12. `update` and `remove`
 
-Today each command takes one optional manifest key: `owner/repo` or `owner/repo/<member>` (`.argument("[key]", …)` in `src/commands/remove.ts` and `src/commands/update.ts`). A key with no exact entry acts on every entry under it, while an exact entry is taken alone (`resolveTargetKeys` in `src/resolve-target-keys.ts`), so `remove owner/repo` on a whole-repo skill (§4.3) leaves the repo's other entries alone. So a Vercel-style `npx agntc remove vercel-composition-patterns` fails today.
+Today each command takes one optional manifest key: `owner/repo` or `owner/repo/<member>` (`.argument("[key]", …)` in `src/commands/remove.ts` and `src/commands/update.ts`). Keys are matched by `resolveTargetKeys` in `src/resolve-target-keys.ts`. So a Vercel-style `npx agntc remove vercel-composition-patterns` fails today.
 
 #### 12.1 What the arguments name
 
-Both commands take one or more positional arguments. Each argument is a skill name or an agntc key, matched as §7 sets out. With no argument, the behaviour is as today:
+Both commands take one or more positional arguments. Each argument is a skill name or an agntc key, matched as §7 sets out. Keys keep today's matching. An entry with exactly that key is taken alone, and a key with no exact entry acts on every entry under it. So `remove owner/repo` removes every entry installed from that repository, unless the repository is itself a single skill keyed `owner/repo` (§4.3). With no argument, the behaviour is as today:
 - `update` updates everything;
 - `remove` shows its picker. Without a terminal, the picker is refused (§10.4).
 
@@ -580,7 +583,7 @@ Both commands take one or more positional arguments. Each argument is a skill na
 |---|---|
 | `-s`, `--skill <skills…>` | Same as positional names. `-s '*'` selects every install but still asks for confirmation. |
 | `-y`, `--yes` | Skip the confirmation. |
-| `--all` | Remove every install. Implies `-y`, and cannot be combined with names. |
+| `--all` | Remove every install. Implies `-y`, and cannot be combined with names or with `-a`. The refusal names `-s '*' -a <agents> -y` for removing from some agents only. |
 | `-a`, `--agent <agents…>` | Remove from those agents only. The entry keeps its other agents. It takes the agent names `add` takes (§8.1) and refuses an agent agntc doesn't drive. |
 
 Removing an entry from every agent it is installed for removes the entry. `remove` also takes the aliases `rm` and `r`. `-g` is refused (§1.3).
