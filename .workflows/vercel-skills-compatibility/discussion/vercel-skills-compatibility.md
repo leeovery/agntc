@@ -111,6 +111,13 @@ Three items from Vercel's beyond-project list sat in none of the first cut's buc
 
 ### Decision
 
+#### 2026-10-11 — revised
+*Trigger: Vercel's security-audit display — the advisory "Security Risk Assessments" table before "Proceed with installation?" and the `security` field of `add --json`, both fed by skills.sh's audit service for public GitHub repos — sat in none of the scope's buckets.*
+
+**Settled by derivation** — not discussed. Determined by this decision putting every skills.sh-backed capability out (search, packs, the blob fast path — agntc installs from git), and the equivalence bar that the skill behaves the same: an advisory table changes nothing about the install.
+
+The scope stands as recorded in the entries below. Added: **out — the security-audit display.** agntc calls no skills.sh audit service; the pre-install summary carries no risk table, and `add --json` emits `security: null`, the value Vercel itself emits when it holds no audit data. Showing the table, or roadmapping it beside global installs and website sources, were the alternatives.
+
 #### 2026-10-06 — revised
 *Trigger: review finding: three items from Vercel's beyond-project list — other git hosts and private repos, the canonical-store-plus-symlinks layout, the skills.sh blob fast path — sat in none of the scope's buckets.*
 
