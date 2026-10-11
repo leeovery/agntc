@@ -498,6 +498,15 @@ Without the flag the root reads as a single skill, as Vercel reads it. With the 
 
 ### Decision
 
+#### 2026-10-11 — revised
+*Trigger: a repo whose `agntc.json` declares `"type": "plugin"`, with a root `SKILL.md` beside `skills/` alone, read two ways — a unit, since any source declaring `"type": "plugin"` is one (Selection From a Unit), or a single skill, since the root early-out reads the root `SKILL.md` first and the declaration keeps a `SKILL.md` folder whole only beside `agents/`/`hooks/` (Skill-Local Agents Folders).*
+
+**Settled by derivation** — not discussed. Determined by Selection From a Unit counting any declaring source as a unit, and the author's declaration being the same request as the installer's `--plugin` from the side that knows the skills.
+
+The decision stands as recorded below. Added: **`"type": "plugin"` on that shape bundles it as `--plugin` does** — the skills under `skills/` install as one unit and the root `SKILL.md` is left out. Without the flag or the declaration, the root reads as a single skill.
+
+#### 2026-10-09
+
 **Settled by derivation** — not discussed. Determined by `--plugin`'s role as the installer's explicit bundle request, Vercel having no `--plugin`, and Re-Add Advice Defects' rule that every printed command is one agntc accepts.
 
 - **`--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/`, leaving the root `SKILL.md` out, as today.** Without the flag that root reads as a single skill.
