@@ -41,7 +41,7 @@ The batch is atomic — a failing entry means nothing was persisted; fix the pay
 Notes:
 
 - Each entry's `name` becomes the manifest dict key (the `{topic}` path segment).
-- Batch entries always land with `source: discovery`, marking topics the user surfaced during discovery — distinct from items added later with other provenance (e.g. `gap-analysis`, `reroute:{origin}`).
+- Batch entries always land with `source: discovery`, marking topics the user surfaced during discovery — distinct from items added later with other provenance (e.g. `gap-analysis`, `message:{origin}`).
 - The response's `map_total` is `{T}` for the Conclusion line in **C**, and `added` lists every persisted topic — no re-read needed.
 - `brief_path` records where the topic's brief lives; the brief file itself was written at harvest by [brief-synthesis.md](brief-synthesis.md).
 
@@ -65,7 +65,7 @@ node .claude/skills/workflow-engine/scripts/engine.cjs roadmap pull-forward {nam
 
 A refusal naming a previously dismissed topic is the user's earlier removal speaking — the gate's confirmation was the deliberate re-add, so re-run with `--force-dismissed`.
 
-**Binds** — the harvest's closing move for items pulled into this epic before it had a map. Read the roadmap state (`engine roadmap state`); for every item whose row names this work unit with **no `topic`**, bind it to the confirmed topic its ground crystallised as — usually the same-named one; when its ground split across several topics, the one carrying its identity:
+**Binds** — the harvest's closing move for ideas pulled into this epic before it had a map. Read the roadmap state (`engine roadmap state`); for every item of kind `idea` whose row names this work unit with **no `topic`**, bind it to the confirmed topic its ground crystallised as — usually the same-named one; when its ground split across several topics, the one carrying its identity:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs roadmap bind {item} --topic {topic}

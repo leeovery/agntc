@@ -89,7 +89,7 @@ function format(result) {
       if (t.routing) line += ` routing=${t.routing}`;
       if (t.source && t.source !== 'discovery') line += ` source=${t.source}`;
       if (t.current_phase) line += ` phase=${t.current_phase}`;
-      if (t.triage_parked) line += ` triage=waiting`;
+      if (t.mail_waiting) line += ` mail=waiting`;
       if (t.summary) line += ` — ${t.summary}`;
       lines.push(line);
     }
@@ -207,10 +207,12 @@ function mapView(workUnit, ...rest) {
     const proposed = readProposedFile(cwd, proposedFile);
     // Per-name flags the flow routes on: an active collision must be resolved
     // before the gate; a dismissed match needs --force-dismissed at persist;
-    // a waiting-roadmap-item match is the anti-twin check — never created as
-    // a fresh topic (the real move is pull-forward, or leave it waiting).
+    // a waiting-roadmap-idea match is the anti-twin check — never created as
+    // a fresh topic (the real move is pull-forward, or leave it waiting). A
+    // bug or a quick-fix of the name is no twin: it never becomes a topic.
     const waitingOnRoadmap = new Set(
-      engine.roadmap.roadmapState(cwd).items.filter((i) => i.state === 'waiting').map((i) => i.name),
+      engine.roadmap.roadmapState(cwd).items
+        .filter((i) => i.state === 'waiting' && engine.roadmap.becomesTopic(i)).map((i) => i.name),
     );
     dataLines.push(`proposed (${proposed.length}):`);
     for (const t of proposed) {

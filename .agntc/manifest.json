@@ -1,7 +1,7 @@
 {
   "leeovery/agentic-workflows": {
-    "ref": "v0.8.14",
-    "commit": "f705658a05ebed3e0120bf39015cd8e680533fca",
+    "ref": "v0.8.15",
+    "commit": "6e7bc2c0afe2276eeb3834cc02a4224d12397c6f",
     "agents": [
       "claude"
     ],
@@ -450,6 +450,8 @@
       ".claude/skills/workflow-migrate/scripts/migrations/068-remove-consult-references.cjs",
       ".claude/skills/workflow-migrate/scripts/migrations/069-settle-cancelled-experiment-series.cjs",
       ".claude/skills/workflow-migrate/scripts/migrations/070-record-promoted-discussions.cjs",
+      ".claude/skills/workflow-migrate/scripts/migrations/071-triage-queue-to-mailbox.cjs",
+      ".claude/skills/workflow-migrate/scripts/migrations/072-roadmap-kinds-and-notes.cjs",
       ".claude/skills/workflow-planning-process/",
       ".claude/skills/workflow-planning-process/SKILL.md",
       ".claude/skills/workflow-planning-process/references/",
@@ -600,11 +602,12 @@
       ".claude/skills/workflow-shared/references/raising-a-decision.md",
       ".claude/skills/workflow-shared/references/read-brief-context.md",
       ".claude/skills/workflow-shared/references/read-prior-record.md",
+      ".claude/skills/workflow-shared/references/reading-the-mailbox.md",
       ".claude/skills/workflow-shared/references/reconcile-advisory.md",
-      ".claude/skills/workflow-shared/references/rerouted-concerns.md",
       ".claude/skills/workflow-shared/references/resume-detection.md",
       ".claude/skills/workflow-shared/references/routing-decision.md",
       ".claude/skills/workflow-shared/references/seed-context.md",
+      ".claude/skills/workflow-shared/references/sending-a-message.md",
       ".claude/skills/workflow-shared/references/sequence-build-order.md",
       ".claude/skills/workflow-shared/references/sequence-discovery-map.md",
       ".claude/skills/workflow-shared/references/specification-body.md",
@@ -613,7 +616,6 @@
       ".claude/skills/workflow-shared/references/topic-discovery.md",
       ".claude/skills/workflow-shared/references/topic-granularity.md",
       ".claude/skills/workflow-shared/references/topic-name-validation.md",
-      ".claude/skills/workflow-shared/references/triage-landing.md",
       ".claude/skills/workflow-shared/references/voice.md",
       ".claude/skills/workflow-specification-process/",
       ".claude/skills/workflow-specification-process/SKILL.md",
@@ -691,7 +693,7 @@
     ],
     "type": "plugin",
     "cloneUrl": "https://github.com/leeovery/agentic-workflows.git",
-    "installedAt": "2026-10-11T16:57:38.563Z",
+    "installedAt": "2026-10-11T17:00:38.886Z",
     "constraint": "^0.8.9"
   },
   "Jeffallan/claude-skills/skills/typescript-pro": {
