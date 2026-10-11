@@ -181,6 +181,10 @@ The skill goes by its folder name when its `SKILL.md` has any of the following:
 
 In each case the skill has no description and installs normally, with no warning, as it does today. A `description` that is not a string counts as no description.
 
+A `name` that is an empty string counts as no `name`. Vercel treats it as missing (v1.7.0 `src/skills.ts:100`, `!data.name`).
+
+Names and descriptions are read as Vercel reads them (v1.7.0 `sanitizeMetadata`, `src/sanitize.ts:61–65`): terminal escapes are stripped, line breaks become spaces, and leading and trailing whitespace is trimmed. A `name` that is only whitespace therefore trims to an empty declared name and installs into `unnamed-skill` (§4.2), as Vercel's does.
+
 #### 3.3 Reading safely
 
 - Frontmatter is parsed as plain data. YAML features that execute code or construct objects during parsing are not used.
@@ -288,7 +292,12 @@ Every walk follows these rules:
 
 Each folder the walk reaches is classified like this:
 
-- **A folder with `SKILL.md` is a skill.** Everything in it, `agents/` included, is copied with it, and nothing in it is routed as a plugin asset. The one exception is §5.1's plugin rule: a folder that also has `skills/` beside `agents/`/`hooks/` is a plugin.
+- **A folder with `SKILL.md` is a skill.** Everything in it, `agents/` included, is copied with it, and nothing in it is routed as a plugin asset. The exceptions are §5.1's plugin rules, which read a folder the same way wherever it sits, its own `agntc.json` included:
+  - a folder that also has `skills/` beside `agents/`/`hooks/` is a plugin;
+  - a folder holding `SKILL.md` beside `agents/`/`hooks/` whose own `agntc.json` declares `"type": "plugin"` is a plugin;
+  - a folder holding `SKILL.md` beside `skills/` alone whose own `agntc.json` declares `"type": "plugin"` bundles its `skills/` as one unit and leaves its `SKILL.md` out.
+
+  Each is a plugin member, keyed by its path (§4.3), whether it is picked from the menu or named by a path in the source.
 - **A non-hidden folder with `skills/`, `agents/` or `hooks/` (and no `SKILL.md`) is a plugin member, installed whole.** This includes a skill pack that holds only `skills/`. Hidden folders are never plugin members, because a clone's `.git` holds `hooks/`. **This diverges from Vercel, to keep units (§1.4).** Vercel sees such folders only as loose skills, or misses them. A pick aimed at a skill inside a plugin member is a pick from a unit (§6).
 - **Any other folder** is walked into, within the depth limits of §5.2.
 
@@ -721,3 +730,7 @@ The four `add` advice sites break the rule in two ways today:
 > **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): the specification left open what a later update does with a plugin member installed less than whole — corrected: it leaves out the same paths while another entry from the same repository holds them, names them again, never treats them as in the way, and installs them once no entry holds them (§6, §12.6) — settled by: derivation from §12.5 (an update means the same thing, newer) and the same-path rule's priority ground, under which re-running the install would leave the same paths out.
 
 > **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): "The `owner/repo` shorthand is used only for GitHub" — corrected: shorthand is printed only for an install that came from GitHub over https; a GitHub install by SSH address or `ssh://` URL prints the form it came from (§14.1) — settled by: §14.1's own rule that following a printed command reproduces the install, §4.3 recording the full source for printed commands, and the decision in discussion `vercel-skills-compatibility`, "`ssh://` URLs on GitHub and GitLab" (private repositories work wherever the user's own git credentials work).
+
+> **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): "The one exception is §5.1's plugin rule: a folder that also has `skills/` beside `agents/`/`hooks/` is a plugin" — corrected: every §5.1 plugin rule applies to a member folder, its own `"type": "plugin"` included, and each such folder is a plugin member keyed by its path however selected (§5.3) — settled by: §5.1 stating its rules for "a folder", §5.1 rule 3 installing a folder named by a path as the menu pick does, and §4.3's one key however selected.
+
+> **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): the specification left open an empty or whitespace-only `name`, and whether names are trimmed — corrected: an empty `name` counts as no `name`; names and descriptions are stripped of escapes, have line breaks turned into spaces and are trimmed, so a whitespace-only name installs into `unnamed-skill` (§3.2) — settled by: measurement of Vercel v1.7.0 (`src/skills.ts:100` treats `!data.name` as missing; `src/sanitize.ts:61–65` `sanitizeMetadata` strips, joins lines and trims) under §1.4's rule that Vercel's behaviour is the default on edge cases.
