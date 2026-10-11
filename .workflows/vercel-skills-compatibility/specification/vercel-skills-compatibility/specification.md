@@ -214,6 +214,19 @@ A skill installed on its own has exactly one manifest key, `owner/repo/<folder>`
 
 A plugin member (§5.3) installed on its own has exactly one key, `owner/repo/<path>`, where `<path>` is its folder's path in the repository. The key is the same whether the member was picked from the menu or selected by its path in the source (§7.1). A plugin member at the repository root keys as it does today.
 
+The `owner/repo` part of every key is two segments: the repository's own name and the namespace directly above it, whatever the host.
+- GitHub, a `GH_HOST` Enterprise host and a two-segment gitlab.com repository key `owner/repo`, as today.
+- A GitLab nested group keys the last two segments of its repository path: `https://gitlab.com/acme/platform/skills` → `platform/skills`. A `/-/tree/` URL's repository path is everything before `/-/`.
+- An Azure Repos URL keys the project and the repository; `_git` is a URL marker, not a namespace: `https://dev.azure.com/org/project/_git/repo` → `project/repo`.
+- An SSH address, an `ssh://` URL and a `.git` URL key the last two segments of the repository path, with `.git` dropped: `git@gitlab.com:group/subgroup/repo.git` → `subgroup/repo`.
+- A local path keys as it does today.
+
+Every key recorded today for a two-segment repository is unchanged. A nested-group or Azure source clones the wrong path today (§2.1), so no working install carries a key from one. The full source is recorded with the entry for cloning and for printed `add` commands (§14.1).
+
+Two sources name the same repository when host and repository path match, whatever form names them: `owner/repo`, its https URL and its SSH address are one repository. A re-add from the same repository is a re-add (§4.4, §8.4), and the entry records the form the re-add was given.
+
+Two different repositories can share a key: a GitHub repository and its Enterprise mirror, the same `owner/repo` on GitHub and GitLab, or two GitLab subgroups both ending `tools/skills`. An install from another repository onto a key an existing install holds is a clash with another managed install (§10.3). It is never read as a re-add of the existing install and never silently replaces it. At a terminal it meets "Remove <key> and continue"; under `-y` or from an agent caller it stops that unit unless `--overwrite` is given. Removing the existing install, either way, hands the key to the new one.
+
 Today one skill can end up with two keys depending on how it was selected. The collection menu keys a member by its folder basename (`owner/repo/composition-patterns`). A tree URL keys it by its full subpath (`owner/repo/skills/composition-patterns`), because `parseDirectPath` in `src/source-parser.ts` builds the key from everything after the ref.
 
 A key is never an install source. A path in a source string is always a path into the repo (§2.1), and agntc never prints a key as a source (§14). `remove` and `update` accept keys (§12).
@@ -581,7 +594,7 @@ Today each command takes one optional manifest key: `owner/repo` or `owner/repo/
 
 #### 12.1 What the arguments name
 
-Both commands take one or more positional arguments. Each argument is a skill name or an agntc key, matched as §7 sets out. Keys keep today's matching. An entry with exactly that key is taken alone, and a key with no exact entry acts on every entry under it. So `remove owner/repo` removes every entry installed from that repository, unless the repository is itself a single skill keyed `owner/repo` (§4.3). With no argument, the behaviour is as today:
+Both commands take one or more positional arguments. Each argument is a skill name or an agntc key, matched as §7 sets out. Keys keep today's matching. An entry with exactly that key is taken alone, and a key with no exact entry acts on every entry under it. So `remove owner/repo` removes every entry installed from that repository, unless the repository is itself a single skill keyed `owner/repo` (§4.3). A key that reaches entries from two different repositories (§4.3) is refused (§1.5), and the message lists their keys, as for a name that matches installs from two repositories (§7.1). Each entry stays reachable by its full key. With no argument, the behaviour is as today:
 - `update` updates everything;
 - `remove` shows its picker. Without a terminal, the picker is refused (§10.4).
 
@@ -688,3 +701,7 @@ The four `add` advice sites break the rule in two ways today:
 ---
 
 ## Working Notes
+
+## Corrigenda
+
+> **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): the specification left open what key an install from a repository whose path is not two segments gets (GitLab nested groups, Azure Repos `_git`, SSH and `.git` URLs), and what happens when two different repositories land on one key — corrected: the `owner/repo` part of a key is the repository and the namespace directly above it (§4.3); sources naming the same host and repository path are one repository; an install from another repository onto a held key is a clash with another managed install (§4.3, §10.3); a `remove`/`update` key reaching entries from two repositories is refused (§12.1) — settled by: the decision in discussion `vercel-skills-compatibility`, "The Repository Part of a Key" (2026-10-11).
