@@ -254,7 +254,7 @@
           },
           "review_cycle": 4,
           "finding_gate_mode": "auto",
-          "construction_gate_mode": "auto",
+          "construction_gate_mode": "gated",
           "date": "2026-10-07",
           "review_baseline_words": 7020,
           "tracking": {

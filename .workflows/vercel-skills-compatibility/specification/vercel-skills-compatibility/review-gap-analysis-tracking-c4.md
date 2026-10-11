@@ -27,14 +27,11 @@ Packs that hold `agents/` or `hooks/` are unaffected, because at a path those re
 **Proposal**:
 A path into the repository that names a non-hidden folder holding only `skills/` names that plugin member. It installs the member whole under its member key, as picking it from the menu does, and `--plugin` on it is redundant, as on any plugin. The `skills/`-only menu still holds at the root of a repository or a local path, and at a hidden folder, which is never a plugin member.
 
-What determined it:
-- the selection rule: a plugin member is selected by its path in the source, the form agntc prints for it;
-- the key rule: a member's key is the same whether it was picked from the menu or selected by its path;
-- the member rule already treats a folder holding only `skills/` as a pack installed whole, and marks that as a divergence from Vercel made to keep units. A path naming that folder names the same pack. Splitting the pack because it was reached by path drops the unit, and unit-keeping is the one ground the governing rule gives for diverging.
+What determined it — the source discussion's own decisions:
+- Units Among Discovered Skills chose "keep it one unit, as today" for a skill pack over "follow Vercel — loose skills, bundled only by `--plugin` on its path", and scoped the menu reading to "a skills-only repo root". Reading a pack named by its path as a menu is the option the owner rejected.
+- Skill Identity (2026-10-11 revision): a plugin member keys as `owner/repo/<path>` "however it was selected — the string `list` shows, `remove` takes and `add` accepts", and a path is the only way to select a member without the menu.
 
 The pack's skills stay reachable one by one. A path at the pack's own `skills/` folder lands inside a unit and is handled as a pick, with the warning.
-
-Alternative: read the path at its own root, so a pack named by path is a menu and installs whole only with `--plugin`. That matches Vercel's reading of the same line. But the same folder then installs as one entry or several depending on how it was reached, and the selection and key rules no longer hold for packs.
 
 **Current**:
 3. **`skills/` only.** By default this is a menu of the skills discovery finds (§5.2). `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles it instead (§6).
@@ -42,8 +39,8 @@ Alternative: read the path at its own root, so a pack named by path is a menu an
 **Proposed Text**:
 3. **`skills/` only.** By default this is a menu of the skills discovery finds (§5.2). `--plugin`, or `"type": "plugin"` in `agntc.json`, bundles it instead (§6). A path into the repository that names a non-hidden folder of this shape names a skill pack, a plugin member (§5.3), and not a menu. It installs that member whole under its member key (§4.3), as picking it from the menu does, and `--plugin` on it is redundant (§6.6). **This diverges from Vercel, to keep units (§1.4)**, as the member rule does.
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Approved
+**Notes**: Disposed as the record's own answer (Units Among Discovered Skills rejected the menu reading of a pack named by path; Skill Identity keys and selects a member by its path). Landed under auto.
 
 ---
 
