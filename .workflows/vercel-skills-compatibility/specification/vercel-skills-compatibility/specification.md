@@ -521,7 +521,7 @@ This rule applies to `add`, to `remove`, and to any prompt `update` reaches. Whe
 
 Whether a prompt can be shown is decided from the terminal itself, so a run never waits on silent input. A deliberate cancel at a terminal still exits 0.
 
-Today, with no terminal, `add` reads end-of-input at the first prompt as a cancel. It exits 0 with nothing installed and no message, which reads as success to an agent caller. With stdin held open but silent, it hangs until killed. `remove` likewise prints "Cancelled" and exits 0 with nothing removed (`src/commands/remove.ts`, at the confirmation and at the no-argument picker).
+Today, with no terminal, `add` exits 0 with nothing installed and no message, which reads as success to an agent caller. At end-of-input its first prompt never resolves, because agntc's prompt library (`@clack/prompts`) registers no end-of-input listener. The cancel branch never runs, and the process exits once nothing is left running. With stdin held open but silent, it hangs until killed. `remove` likewise exits 0 with nothing removed and no message: its confirmation and no-argument picker never resolve, so their "Cancelled" branch never runs (`src/commands/remove.ts`). A refusal hung on a prompt's cancel branch would therefore never fire. Whether a prompt can be shown must be decided before the prompt is opened.
 
 Vercel stops with "Interactive prompt required but stdin is not a TTY. Nothing was installed." and "Use --agent <name> (or --agent '*') and -y to run non-interactively.", and exits 1.
 

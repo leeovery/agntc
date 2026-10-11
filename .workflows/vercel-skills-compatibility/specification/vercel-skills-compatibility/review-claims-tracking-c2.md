@@ -103,8 +103,8 @@ The defect is in the source: `discussion/vercel-skills-compatibility.md` line 74
 
 **Proposed Text**:
 
-**Resolution**: Pending
-**Notes**:
+**Resolution**: Routed
+**Notes**: Measured correction landed in the discussion in place (Context "Unattended today", No-TTY Behaviour context and trigger, amendment notes); §10.4 re-aligned.
 
 ---
 
