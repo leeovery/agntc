@@ -200,6 +200,36 @@ Sibling check: v1/core-system — its spec's source table (`.workflows/v1/specif
 
 ---
 
+## `ssh://` URLs on GitHub and GitLab
+
+### Context
+
+Vercel's source forms are adopted, and one of them clones differently from how it is written. An `ssh://` URL on github.com or gitlab.com matches Vercel's GitHub or gitlab.com repo pattern before its fallback, and Vercel clones it over https: `ssh://git@github.com/owner/repo.git` is cloned from `https://github.com/owner/repo.git`. Every other SSH form — a `git@host:path` address, an `ssh://` URL on any other host, the `GH_HOST` host included — reaches the fallback and is cloned as given. Measured in `vercel-labs/skills` at `v1.7.0`: `grep -n "const githubRepoMatch\|const gitlabRepoMatch\|Fallback: treat as direct git URL" src/source-parser.ts` → `455`, `500`, `562`. Vercel keeps the rewrite working for a user whose only credential is an SSH key through its gh-CLI fallback, which switches the clone back to SSH when `gh auth status` reports SSH as the git protocol (`src/git.ts:247–248`) — part of the credential chain Like-for-Like Scope leaves out.
+
+### Options Considered
+
+**Clone the `ssh://` URL as given**
+- Pros: a private repository reached only with an SSH key installs from the line naming it; agntc does what the user's own `git clone` of that URL does
+- Cons: diverges from Vercel; a user with no SSH key who pastes such a line fails with a git authentication error, public repositories included, where Vercel installs them
+
+**Follow Vercel — clone it over https**
+- Pros: parity; a keyless user installs a public repository from the line
+- Cons: without Vercel's credential chain, the line fails for a user whose only credential for a private repository is an SSH key; they are left to rewrite it as `git@github.com:owner/repo.git`
+
+### Journey
+
+Each reading breaks a different user on the binary swap, so this went to the owner with a lean to clone as given. Writing `ssh://` is choosing SSH; Like-for-Like Scope holds that private repositories work wherever the user's own git credentials work, and rewriting the URL breaks exactly the user who chose it. The keyless failure is mostly hypothetical: a README hands its readers `owner/repo`, not an `ssh://` line. The owner agreed.
+
+### Decision
+
+**An `ssh://` URL is cloned as given on every host, github.com and gitlab.com included.**
+- **Diverges from Vercel**, guarded by the owner's position that private repositories work wherever the user's own git credentials work, with no credential chain.
+- Every other SSH form follows Vercel unchanged: cloned as given.
+
+Confidence: high.
+
+---
+
 ## Selection From a Unit
 
 ### Context
@@ -921,7 +951,7 @@ The rule stands as recorded below. Added:
 ### Key Insights
 1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
 2. Vercel's way is the default answer. A point goes to the owner only where Vercel's way clashes with what agntc must keep and no call is obvious — edge cases follow Vercel.
-3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit, by name or by a path into it, warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin, and a folder discovery reaches that is a plugin or a skill pack stays one member; `--plugin` on a root `SKILL.md` beside `skills/` alone still bundles `skills/`; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; per-agent copies, not Vercel's shared store; the project's `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
+3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit, by name or by a path into it, warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin, and a folder discovery reaches that is a plugin or a skill pack stays one member; `--plugin` on a root `SKILL.md` beside `skills/` alone still bundles `skills/`; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; an `ssh://` URL on GitHub or GitLab is cloned as given, not over https (the user's own git credentials); per-agent copies, not Vercel's shared store; the project's `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
 4. Several of agntc's earlier decisions are reversed by parity — `@` as a version, folder-name identity with no frontmatter reading, `SKILL.md` beside `agents/` read as a plugin, one-level collection membership, no install flags for selection, https from any host — and the owning specs (configless-install, version-constraints, v1/core-system, update-output-overhaul) carry corrigenda.
 
 ### Open Threads
@@ -930,5 +960,5 @@ The rule stands as recorded below. Added:
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
-- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, a path into a unit, and a whole-repo skill's key.
+- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, a path into a unit, a whole-repo skill's key, and `ssh://` URLs on GitHub and GitLab.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
