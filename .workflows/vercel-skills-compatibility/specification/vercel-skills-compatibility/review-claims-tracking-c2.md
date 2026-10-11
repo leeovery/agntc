@@ -58,7 +58,7 @@ That clones the address verbatim. No source document makes the "as today" claim.
 - SSH addresses (`git@host:path` and `ssh://` URLs) and `https://….git` URLs. Vercel clones either as given, its whole path kept (v1.7.0 `src/source-parser.ts:562–567`, the fallback `{ type: 'git', url: input }`). agntc today keeps two path segments of each: the first two of an SSH address (`parseSshUrl` in `src/source-parser.ts`: `const owner = segments[0]!; const repo = segments[1]!;`) and the last two of an https URL (`parseHttpsUrl`). So `git@gitlab.com:group/subgroup/repo.git` clones `git@gitlab.com:group/subgroup.git`. agntc today refuses an `ssh://` URL as "too many slashes" (`grep -n "too many slashes" src/source-parser.ts` → line 365, reached through `parseGitHubShorthand`).
 - Local paths, as today.
 
-**Resolution**: Pending
+**Resolution**: Approved
 **Notes**:
 
 ---

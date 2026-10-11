@@ -87,7 +87,8 @@ agntc accepts Vercel's source forms as well as the forms it already reads. Each 
 - GitLab URLs, including nested groups (`https://gitlab.com/group/subgroup/repo`) and `/-/tree/<ref>/<path>` URLs.
 - Azure Repos `_git` URLs, with `?path=` and `?version=`.
 - A GitHub Enterprise host named by the `GH_HOST` environment variable, read as GitHub.
-- SSH addresses, `https://….git` URLs and local paths, as today.
+- SSH addresses (`git@host:path` and `ssh://` URLs) and `https://….git` URLs. Vercel clones either as given, with its whole path kept (v1.7.0 `src/source-parser.ts:562–567`, the fallback `{ type: 'git', url: input }`). agntc today keeps only two path segments of each: the first two of an SSH address (`parseSshUrl` in `src/source-parser.ts`: `const owner = segments[0]!; const repo = segments[1]!;`) and the last two of an https URL (`parseHttpsUrl`). So `git@gitlab.com:group/subgroup/repo.git` clones `git@gitlab.com:group/subgroup.git`. agntc today also refuses an `ssh://` URL as "too many slashes" (`grep -n "too many slashes" src/source-parser.ts` → line 365, reached through `parseGitHubShorthand`).
+- Local paths, as today.
 
 agntc today keeps only the last two path segments of an https URL as owner/repo (`parseHttpsUrl` in `src/source-parser.ts`). So a GitLab subgroup URL or an Azure `_git` URL clones the wrong path.
 
