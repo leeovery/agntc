@@ -23,7 +23,8 @@
           "status": "completed"
         },
         "naming-and-identity": {
-          "status": "completed"
+          "status": "promoted",
+          "promoted_to": "naming-and-identity"
         },
         "plugin-init-scaffolding": {
           "status": "completed"
