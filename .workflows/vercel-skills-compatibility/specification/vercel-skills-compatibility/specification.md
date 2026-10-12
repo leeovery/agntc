@@ -273,7 +273,12 @@ agntc discovers members where Vercel's discovery finds skills (v1.7.0 `discoverS
 3. Vercel's 30 agent directories, each walked three levels: `.agents/skills`, `.claude/skills`, `.cline/skills`, `.codebuddy/skills`, `.codex/skills`, `.commandcode/skills`, `.continue/skills`, `.factory/skills`, `.github/skills`, `.goose/skills`, `.grok/skills`, `.iflow/skills`, `.junie/skills`, `.kilo/skills`, `.kilocode/skills`, `.kimchi/skills`, `.kiro/skills`, `.minimax/skills`, `.mux/skills`, `.neovate/skills`, `.opencode/skills`, `.openhands/skills`, `.pi/skills`, `.posit/assistant/skills`, `.qoder/skills`, `.roo/skills`, `.trae/skills`, `.windsurf/skills`, `.zcode/skills`, `.zencoder/skills`. Measured in `vercel-labs/skills` at `v1.7.0`: `grep -c "^  '\." src/skills.ts` → 30.
 4. Skill directories declared in `.claude-plugin/marketplace.json` and `.claude-plugin/plugin.json`, walked one level. These manifests are read only to find skills, never as a type signal.
 
-When those roots find nothing, or when `--full-depth` is given, the whole source is walked recursively, five levels deep. That is Vercel's fallback.
+When those roots find nothing, or when `--full-depth` is given, the whole source is walked recursively, five levels deep. That is Vercel's fallback. Under `--full-depth`, a root `SKILL.md` is offered as a skill of its own (keyed `owner/repo`, §4.3) beside the skills found below it, as Vercel offers it (v1.7.0 `src/skills.ts:236–250`).
+
+Priority order is the order the walks reach things:
+- the search roots in the order listed, then the fallback walk;
+- within one walk, depth-first: a folder is checked for its own `SKILL.md` before the walk goes into it, as Vercel's walks do;
+- a folder's children are taken in name order, as agntc's member scan takes them today (`names.sort()` in `src/type-detection.ts`), so "first" never depends on the order the filesystem lists folders in.
 
 Every walk follows these rules:
 
@@ -311,6 +316,9 @@ agntc copies those files into `.claude/agents/` as subagents and loses the skill
 
 - **This diverges from Vercel, to keep lenient validity (§1.4).** A skill without a `name` or `description` still installs. It is named by its folder (§3.2) and no warning is shown. Vercel skips such skills with `⚠ Skipped`.
 - **Internal skills follow Vercel.** A skill whose frontmatter sets `metadata.internal: true` is left out of "all" (`'*'`, `--all`, `-y`) and out of the menu. It still installs when named. A `--plugin` bundle includes it.
+  - When no skill is named, discovery does not find an internal skill at all, as Vercel's does not (v1.7.0 `src/skills.ts:117–122`). It does not count as found when deciding whether the fallback walk runs (§5.2).
+  - A source whose only skills are internal therefore finds nothing installable and is refused (§5.1), as Vercel exits 1 finding no skills.
+  - A root `SKILL.md` marked internal is not installed by an add that names no skill. Discovery carries on past it into the search roots, as Vercel's does (`src/skills.ts:236–250`).
 
 #### 5.5 Repairing installs made under the old rule
 
@@ -749,3 +757,7 @@ The four `add` advice sites break the rule in two ways today:
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open what happens to a plugin member nested inside a plugin's `skills/` — corrected: it joins the plugin as a bundle's members do, its skills, agents and hooks routed to their places (§6.1) — settled by: §6.1's "as a bundle's are (§6.2)" and §6.2's "Each member's skills, agents and hooks join the bundle and are routed to their places".
 
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open whether a `--plugin` bundle names what it leaves out — corrected: a loose file or a folder holding no skill in the bundled folder is not installed and the output names it, as for a plugin (§6.2) — settled by: §6.1 finding a plugin's skills "as a bundle's are", and §14.1's manifest recording a plugin and a bundle alike, so `add` and `update` could otherwise disagree for one entry.
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open how internal skills affect discovery when no skill is named — corrected: discovery does not find them, they do not count toward running the fallback walk, a source whose only skills are internal is refused, and an internal root `SKILL.md` is not installed by an add naming no skill (§5.4) — settled by: measurement of Vercel v1.7.0 (`src/skills.ts:117–122` returns no skill for an internal one unless names are given; `:236–250` carries on past a root skill it does not return).
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open the priority order within one search root, the fallback walk's rank, and whether `--full-depth` offers the root `SKILL.md` — corrected: roots in listed order then the fallback, depth-first within a walk, children in name order; under `--full-depth` the root `SKILL.md` is offered beside the nested skills (§5.2) — settled by: measurement of Vercel v1.7.0 (`walkSkillDirs` and `findSkillDirs` in `src/skills.ts` walk depth-first, a folder before its children; the fallback adds only names the roots did not see; `:236–250` keeps the root skill under `fullDepth`), and agntc's existing name-sorted member scan for an order Vercel leaves to the filesystem.
