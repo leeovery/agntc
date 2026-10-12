@@ -287,7 +287,7 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 4,
-          "task": "vercel-skills-compatibility-4-4",
+          "task": "vercel-skills-compatibility-4-5",
           "task_map": {
             "vercel-skills-compatibility-1-1": "tick-75d212",
             "vercel-skills-compatibility-1": "tick-2b7686",
@@ -328,7 +328,8 @@
             "vercel-skills-compatibility-4-1": "tick-f22b41",
             "vercel-skills-compatibility-4": "tick-3dba18",
             "vercel-skills-compatibility-4-2": "tick-f4a7a7",
-            "vercel-skills-compatibility-4-3": "tick-fa94b9"
+            "vercel-skills-compatibility-4-3": "tick-fa94b9",
+            "vercel-skills-compatibility-4-4": "tick-a2fc97"
           },
           "storage_paths": [
             ".tick/"
