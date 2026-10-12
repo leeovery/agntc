@@ -287,10 +287,11 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 1,
-          "task": "vercel-skills-compatibility-1-2",
+          "task": "vercel-skills-compatibility-1-3",
           "task_map": {
             "vercel-skills-compatibility-1-1": "tick-75d212",
-            "vercel-skills-compatibility-1": "tick-2b7686"
+            "vercel-skills-compatibility-1": "tick-2b7686",
+            "vercel-skills-compatibility-1-2": "tick-dd36cc"
           },
           "storage_paths": [
             ".tick/"
