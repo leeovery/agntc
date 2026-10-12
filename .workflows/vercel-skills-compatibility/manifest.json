@@ -286,8 +286,8 @@
           "author_gate_mode": "auto",
           "finding_gate_mode": "gated",
           "review_cycle": 0,
-          "phase": 6,
-          "task": "vercel-skills-compatibility-6-7",
+          "phase": 7,
+          "task": null,
           "task_map": {
             "vercel-skills-compatibility-1-1": "tick-75d212",
             "vercel-skills-compatibility-1": "tick-2b7686",
@@ -376,19 +376,7 @@
               "p6": "2026-10-12"
             }
           },
-          "staging": {
-            "author-p6": {
-              "tasks": {
-                "vercel-skills-compatibility-6-1": "approved",
-                "vercel-skills-compatibility-6-2": "approved",
-                "vercel-skills-compatibility-6-3": "approved",
-                "vercel-skills-compatibility-6-4": "approved",
-                "vercel-skills-compatibility-6-5": "approved",
-                "vercel-skills-compatibility-6-6": "approved",
-                "vercel-skills-compatibility-6-7": "approved"
-              }
-            }
-          },
+          "staging": {},
           "external_id": "tick-da1939"
         }
       }
