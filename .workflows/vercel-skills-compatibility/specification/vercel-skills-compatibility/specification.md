@@ -464,6 +464,7 @@ agntc drives three agents: Claude, Codex and Cursor. Vercel drives 79. Each agen
 #### 8.2 The author's ceiling applies per unit
 
 - A unit installs for the named agents that fall within its author's ceiling (the `agntc.json` `agents` list). The output names the agents it left out. Vercel has no ceiling.
+- **A unit's ceiling is every ceiling it holds** (§6.1, §6.2): the agents all of them allow. The agent prompt offers only those agents, as it offers only the declared agents today (`selectAgents` in `src/agent-select.ts`), so a bundle holding a Claude-only member offers Claude alone.
 - **A single-unit run where the ceiling excludes every named agent is refused (§1.5).**
 - **A run installing several units handles that case per unit.** A unit whose ceiling excludes every named agent is skipped with a message. The other units install, and the command exits non-zero so a calling agent sees the partial result. This is the same partial-success reporting `update` uses. Today the multi-unit path skips such a member ("skipped — author restricts to …, none selected", `src/commands/add.ts`) and exits 0. Only a failed member exits non-zero.
 
@@ -541,7 +542,7 @@ An agent caller can make choices but cannot see a prompt. The human's last look 
 #### 10.1 The prompts an `add` can meet
 
 - Which members to install (`src/collection-select.ts`).
-- Which agents (`src/agent-select.ts`). This prompt is skipped when the author declares exactly one agent and that agent is detected.
+- Which agents (`src/agent-select.ts`). This prompt offers the agents within the unit's ceiling (§8.2), and is skipped when that ceiling is exactly one agent and that agent is detected.
 - A clash with another managed install: "Remove <key> and continue" (`src/collision-resolve.ts`).
 - Untracked files in the way: "Overwrite all", confirmed twice (`src/unmanaged-resolve.ts`).
 - "Proceed with installation?" (§11). This prompt is new.
@@ -778,3 +779,5 @@ The four `add` advice sites break the rule in two ways today:
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open whether a plugin's own agent or hook or a nested member's comes first when both write one path — corrected: a unit's own agents and hooks come first, and the nested member's copy is left out and named (§6) — settled by: §5.2's priority order (a folder before its children) and §6's "the one case where a plugin member installs less than whole", which never leaves the enclosing unit incomplete.
 
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open what `update` does when a bundle's source now holds nothing the bundle takes — corrected: the entry stops with its install intact, the update says why and exits non-zero; support is judged by what discovery finds, not by asset folders at the root (§6.2) — settled by: `update`'s derive-before-delete posture (`src/nuke-reinstall-pipeline.ts`: an irreconcilable source aborts that entry with the install intact) and §5.1 refusing an add that finds nothing installable.
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): "This prompt is skipped when the author declares exactly one agent and that agent is detected" left open what the agent prompt offers once a unit's ceiling comes from several `agntc.json` files — corrected: a unit's ceiling is the agents every ceiling it holds allows; the prompt offers only those, and is skipped when that is exactly one detected agent (§8.2, §10.1) — settled by: today's `selectAgents` (`src/agent-select.ts`) offering only the declared agents and auto-selecting a single detected one, and §6.1/§6.2 making every ceiling a unit holds bind it.
