@@ -293,6 +293,8 @@ Every walk follows these rules:
   - a skill and a plugin member that would share a key: a skill declaring `foo` and a member at path `foo` are both `owner/repo/foo` (§4.3).
 
   A plugin member's place in that order is where the walk reaches it.
+
+  Inside one unit (a plugin, a plugin member or a bundle) only the install-folder half of this applies. The unit has one key of its own, so a skill declaring `foo` and a member at path `foo` inside one bundle share no key and write no common path: both install. What two of a unit's installables cannot share is a path, which §6's same-path rule governs.
 - Skills in the source's own agent directories are skipped when the source's own `skills-lock.json` records them as installed. These are skills the author pulled in, not wrote, and Vercel skips them the same way. This is the only time agntc reads a `skills-lock.json` (§13).
 
 #### 5.3 Members
@@ -351,7 +353,7 @@ A plugin's skills are the skills discovery finds under its `skills/`, as a bundl
 - category folders are walked as discovery walks `skills/` (§5.2), and each skill installs flat in its declared-name folder (§4.2);
 - a plugin member (§5.3) found under its `skills/` joins it as a bundle's members do (§6.2): the member's skills, agents and hooks are routed to their places;
 - the plugin installs within the ceilings of the skills and members it takes from its `skills/`, as a bundle does (§6.2);
-- nothing else in `skills/` installs, neither a loose file nor a folder holding no skill, and the output names what was left out.
+- nothing else in `skills/` installs, neither a loose file nor a folder holding no skill, and the output names what was left out, at whatever level the walk meets it: a loose file or a skill-less folder inside a category folder is named too, a folder once rather than its contents. A folder at the walk's depth limit that holds no `SKILL.md` counts as holding no skill.
 
 This holds for a source that reads as a plugin, a plugin member (§5.3) and a source declaring `"type": "plugin"`, on `add` and on every update. Today every child of `skills/` is copied as it stands (`copyAssetDir` in `src/copy-plugin-assets.ts`). A category folder then lands one level deeper than agents load skills, and a loose file lands in the agent's skills directory.
 
@@ -789,3 +791,7 @@ The four `add` advice sites break the rule in two ways today:
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open the key of a `--plugin` bundle narrowed by a path to a folder that is not a plugin member — corrected: it keys `owner/repo/<path>`, the folder's path in the repository (§4.3) — settled by: §4.3 keying a unit selected by its path in the source (a plugin member) by that path, and today's `parseDirectPath` (`src/source-parser.ts`) keying a tree-URL install by its full subpath, so such bundles already installed keep their keys.
 
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open how `--plugin` and `--full-depth` combine — corrected: `--plugin` together with `--full-depth` is refused, as is `--full-depth` on a source declaring `"type": "plugin"`; a bundle holds what normal discovery finds (§6.6, §9.1) — settled by: the decision in discussion `vercel-skills-compatibility`, "`--plugin` Together With `--full-depth`" (2026-10-12).
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open whether the same-key half of the duplicate rule applies inside one unit — corrected: inside a plugin, plugin member or bundle only the install-folder half applies; a skill and a member that would share a key both install there, and paths are governed by §6's same-path rule (§5.2) — settled by: the rule's own ground (the install folder and key are the identity that lands), a unit landing one key of its own, and §6 governing what two of a unit's installables may write.
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open how deep a plugin's or bundle's naming of what it leaves out reaches — corrected: every loose file and skill-less folder the walk meets, at any level, is named, a folder once rather than its contents; a folder at the walk's depth limit with no `SKILL.md` counts as holding no skill (§6.1) — settled by: the naming's purpose of reporting what used to be copied as it stood, which was each child of `skills/` with everything beneath it.
