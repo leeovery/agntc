@@ -659,6 +659,36 @@ Sibling check: configless-install — its `--plugin` scope holds "unambiguous ba
 
 ---
 
+## `--plugin` Together With `--full-depth`
+
+### Context
+
+A `--plugin` bundle holds every skill discovery finds and is rebuilt from the source on every update, so a skill the author adds joins it and one the author removes leaves (Selection From a Unit). `--full-depth` is Vercel's flag for reaching skills that normal discovery hides: it turns off the root early-out, so a root `SKILL.md` becomes one skill among those found below it, and it runs the five-level walk even when the search roots found skills (Container Depth and Discovery Roots). The manifest records a bundle as a plugin and nothing of the flags it was made with, so an update rebuilding a bundle cannot know `--full-depth` was given. Vercel has no bundle, so it offers no behaviour for the pair, and ignoring the flag under `--plugin` would break never-silently-ignore.
+
+### Options Considered
+
+**Refuse the pair**
+- Pros: a bundle is always what normal discovery finds, so every update rebuilds exactly what was installed, with nothing new recorded; accepting the pair later breaks no install
+- Cons: skills only the full walk reaches cannot be bundled
+
+**Honour it, recorded on the entry**
+- Pros: a bundle can take every skill in the source
+- Cons: a new recorded field that every update and every printed command must carry; a root `SKILL.md` has to be left out, since bundling the repo root as one skill would copy the whole repo into a skill folder
+
+### Journey
+
+Put to the owner with a lean to refusing: `--full-depth` exists to reach individual skills, a bundle is agntc's own whole-source unit with no Vercel counterpart, and refusing keeps every bundle reproducible from what the manifest records. The owner took the lean.
+
+### Decision
+
+**`--plugin` together with `--full-depth` is refused**, and so is `--full-depth` on a source whose `agntc.json` declares `"type": "plugin"`. The command exits non-zero, writes nothing, and names the two as not combining. A bundle holds what normal discovery finds.
+
+Confidence: high.
+
+Sibling check: configless-install — its flag list carries `--full-depth` beside `--plugin` without saying how they combine; this settles it and contradicts nothing.
+
+---
+
 ## Agent Targeting
 
 ### Context
@@ -1048,7 +1078,7 @@ The rule stands as recorded below. Added:
 ### Key Insights
 1. Syntax follows Vercel; capabilities stay agntc's. Every grammar or flag change is judged by whether units, the agent ceiling, semver constraints, lenient validity and copy-safety remain reachable.
 2. Vercel's way is the default answer. A point goes to the owner only where Vercel's way clashes with what agntc must keep and no call is obvious — edge cases follow Vercel.
-3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit, by name or by a path into it, warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin, and a folder discovery reaches that is a plugin or a skill pack stays one member; `--plugin` on a root `SKILL.md` beside `skills/` alone still bundles `skills/`; unrecognised flags and partly matching names are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; an `ssh://` URL on GitHub or GitLab is cloned as given, not over https (the user's own git credentials); per-agent copies, not Vercel's shared store; the project's `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
+3. Where agntc diverges from Vercel, each divergence guards a kept capability, an owner position, or the never-silently-ignore rule: bare add installs the newest release tag (semver), falling back to the default branch when the tag lacks what the line names; skills without name/description still install (lenient validity); `-y` never replaces files in the way without `--overwrite`, on `add` and `update` (stop and come back); units install, update and remove whole — a pick from a unit, by name or by a path into it, warns and is refused when the author declared `"type": "plugin"`, `--all` on a unit installs the unit, a root `SKILL.md` beside `skills/` + `agents/`/`hooks/` stays a plugin, and a folder discovery reaches that is a plugin or a skill pack stays one member; `--plugin` on a root `SKILL.md` beside `skills/` alone still bundles `skills/`; unrecognised flags, partly matching names and `--plugin` with `--full-depth` are refused (never silently ignore); update keeps recorded agents and re-add only adds agents; `check` is not adopted; an `ssh://` URL on GitHub or GitLab is cloned as given, not over https (the user's own git credentials); per-agent copies, not Vercel's shared store; the project's `skills-lock.json` untouched; Cursor stays at `.cursor/skills/`.
 4. Several of agntc's earlier decisions are reversed by parity — `@` as a version, folder-name identity with no frontmatter reading, `SKILL.md` beside `agents/` read as a plugin, one-level collection membership, no install flags for selection, https from any host — and the owning specs (configless-install, version-constraints, v1/core-system, update-output-overhaul) carry corrigenda.
 
 ### Open Threads
@@ -1057,5 +1087,5 @@ The rule stands as recorded below. Added:
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
-- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, a path into a unit, what a plugin installs from its own `skills/`, a whole-repo skill's key, `ssh://` URLs on GitHub and GitLab, and the repository part of a key for nested-group, Azure Repos, Enterprise, SSH and `.git` sources.
+- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, `--plugin` together with `--full-depth`, a path into a unit, what a plugin installs from its own `skills/`, a whole-repo skill's key, `ssh://` URLs on GitHub and GitLab, and the repository part of a key for nested-group, Azure Repos, Enterprise, SSH and `.git` sources.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
