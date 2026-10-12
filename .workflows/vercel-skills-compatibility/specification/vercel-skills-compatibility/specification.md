@@ -404,6 +404,7 @@ Accepted risk: a repo whose skills depend on its agents or hooks can still be in
 #### 6.6 What `--plugin` refuses
 
 - **`--plugin` together with a named skill (`--skill <name>` or `@skill`) is refused (§1.5).** A bundle is the whole source. `--skill '*'` and `--all` name no skill, so with `--plugin` they install the whole bundle (§6.4). A path in the source is not a pick, and it works with `--plugin` (§6.2).
+- **`--plugin` together with `--full-depth` is refused (§1.5)**, and so is `--full-depth` on a source whose `agntc.json` declares `"type": "plugin"`. A bundle holds what normal discovery finds (§5.2), so every update rebuilds exactly what was installed; the manifest records nothing that would let an update repeat the full walk. The message names the two as not combining.
 - **`--plugin` on a plugin is redundant and changes nothing**, as today.
 - **`--plugin` on a single skill (a root `SKILL.md`) is refused (§1.5).**
   - **One shape is excepted:** `--plugin` on a root `SKILL.md` beside `skills/` alone bundles the skills under `skills/` and leaves the root `SKILL.md` out, as it does today. Without the flag, or an `agntc.json` declaring `"type": "plugin"` (§5.1), that root reads as a single skill. The flag is the installer's explicit request for the bundle, so lines written today and the bundles already made from that shape keep working.
@@ -513,6 +514,7 @@ Today `add` takes one flag (`grep -rn "\.option(" src/ | grep -v "\.test\.ts"` �
 - `-g`/`--global`, because global installs are out of scope (§1.3);
 - `--subagent` and `--metadata`. Vercel documents them for installing to Eve subagents and for attaching JSON to its install telemetry (v1.7.0 `src/cli.ts`). agntc has neither, so accepting them would ignore them silently;
 - `--all` together with `-a`/`--agent`, because `--all` already sets every agent. The message names the explicit form, `--skill '*' --agent <agents> -y`;
+- `--full-depth` together with `--plugin`, or on a source declaring `"type": "plugin"` (§6.6);
 - any flag agntc does not recognise.
 
 **This diverges from Vercel, under never-silently-ignore (§1.5).** Vercel silently ignores flags it does not know.
@@ -785,3 +787,5 @@ The four `add` advice sites break the rule in two ways today:
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): "This prompt is skipped when the author declares exactly one agent and that agent is detected" left open what the agent prompt offers once a unit's ceiling comes from several `agntc.json` files — corrected: a unit's ceiling is the agents every ceiling it holds allows; the prompt offers only those, and is skipped when that is exactly one detected agent (§8.2, §10.1) — settled by: today's `selectAgents` (`src/agent-select.ts`) offering only the declared agents and auto-selecting a single detected one, and §6.1/§6.2 making every ceiling a unit holds bind it.
 
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open the key of a `--plugin` bundle narrowed by a path to a folder that is not a plugin member — corrected: it keys `owner/repo/<path>`, the folder's path in the repository (§4.3) — settled by: §4.3 keying a unit selected by its path in the source (a plugin member) by that path, and today's `parseDirectPath` (`src/source-parser.ts`) keying a tree-URL install by its full subpath, so such bundles already installed keep their keys.
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open how `--plugin` and `--full-depth` combine — corrected: `--plugin` together with `--full-depth` is refused, as is `--full-depth` on a source declaring `"type": "plugin"`; a bundle holds what normal discovery finds (§6.6, §9.1) — settled by: the decision in discussion `vercel-skills-compatibility`, "`--plugin` Together With `--full-depth`" (2026-10-12).
