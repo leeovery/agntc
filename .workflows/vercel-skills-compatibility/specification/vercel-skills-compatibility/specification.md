@@ -218,6 +218,8 @@ A skill installed on its own has exactly one manifest key, `owner/repo/<folder>`
 
 A plugin member (§5.3) installed on its own has exactly one key, `owner/repo/<path>`, where `<path>` is its folder's path in the repository. The key is the same whether the member was picked from the menu or selected by its path in the source (§7.1). A plugin member at the repository root keys as it does today.
 
+A bundle narrowed by a path (§6.2) keys the same way, `owner/repo/<path>`, where `<path>` is the folder the path names: `--plugin` with a tree URL to `skills/frontend/` keys `owner/repo/skills/frontend`, as a tree-URL install keys today. A whole-source bundle keys `owner/repo`.
+
 The `owner/repo` part of every key is two segments: the repository's own name and the namespace directly above it, whatever the host.
 - GitHub, a `GH_HOST` Enterprise host and a two-segment gitlab.com repository key `owner/repo`, as today.
 - A GitLab nested group keys the last two segments of its repository path: `https://gitlab.com/acme/platform/skills` → `platform/skills`. A `/-/tree/` URL's repository path is everything before `/-/`.
@@ -781,3 +783,5 @@ The four `add` advice sites break the rule in two ways today:
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open what `update` does when a bundle's source now holds nothing the bundle takes — corrected: the entry stops with its install intact, the update says why and exits non-zero; support is judged by what discovery finds, not by asset folders at the root (§6.2) — settled by: `update`'s derive-before-delete posture (`src/nuke-reinstall-pipeline.ts`: an irreconcilable source aborts that entry with the install intact) and §5.1 refusing an add that finds nothing installable.
 
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): "This prompt is skipped when the author declares exactly one agent and that agent is detected" left open what the agent prompt offers once a unit's ceiling comes from several `agntc.json` files — corrected: a unit's ceiling is the agents every ceiling it holds allows; the prompt offers only those, and is skipped when that is exactly one detected agent (§8.2, §10.1) — settled by: today's `selectAgents` (`src/agent-select.ts`) offering only the declared agents and auto-selecting a single detected one, and §6.1/§6.2 making every ceiling a unit holds bind it.
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open the key of a `--plugin` bundle narrowed by a path to a folder that is not a plugin member — corrected: it keys `owner/repo/<path>`, the folder's path in the repository (§4.3) — settled by: §4.3 keying a unit selected by its path in the source (a plugin member) by that path, and today's `parseDirectPath` (`src/source-parser.ts`) keying a tree-URL install by its full subpath, so such bundles already installed keep their keys.
