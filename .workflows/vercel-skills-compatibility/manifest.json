@@ -1,7 +1,7 @@
 {
   "name": "vercel-skills-compatibility",
   "work_type": "feature",
-  "status": "in-progress",
+  "status": "cancelled",
   "created": "2026-10-05",
   "description": "Make agntc a like-for-like replacement for Vercel's skills CLI — anything built for their skills library installs through agntc (same source formats and flags, unattended installs, a pre-install summary) — without breaking agntc's plugin bundling, and fixing partially-done paths along the way (e.g. update's re-add advice dropping --plugin).",
   "phases": {
