@@ -571,6 +571,48 @@ Sibling check: configless-install — its Collection Membership, as corrected 20
 
 ---
 
+## A Plugin's Own `skills/`
+
+### Context
+
+A source that reads as a plugin installs whole, agents and hooks included, and a `--plugin` bundle holds every skill discovery finds, category folders included, each installed flat (Selection From a Unit). What a plugin installs from its own `skills/` was never stated. Today every child of `skills/` is copied as it stands (`copyAssetDir` in `src/copy-plugin-assets.ts`). A skill folder lands under its folder name. A category folder lands whole: `skills/frontend/react/SKILL.md` arrives at `.claude/skills/frontend/react/`, one level deeper than agents load skills. A loose file or a folder holding no skill lands in the agent's skills directory as it is.
+
+Vercel walks `skills/` three levels deep in any repo, and its source names `skills/<category>/<category>/<skill>/SKILL.md` as a layout it supports without `--full-depth`. It walks the skill folders a Claude plugin manifest declares one level only, "to honor the manifest spec" (v1.7.0 `src/skills.ts:262–267`). So in the plugin format a skill sits directly under `skills/`. Vercel does not read a plugin from `skills/` beside `agents/`, though, so it walks that `skills/` three levels and installs what it finds flat.
+
+### Options Considered
+
+**As a bundle's: the skills discovery finds, flat, and nothing else**
+- Pros: plugins and bundles hold their skills the same way; a category-nested plugin's skills install where agents load them, as Vercel installs the same repo's skills; the agent's skills directory holds only skills
+- Cons: a plugin that keeps shared non-skill files inside `skills/` loses them, as it does under Vercel's CLI
+
+**Skills flat, and every other child of `skills/` copied as it stands**
+- Pros: nothing a plugin ships is dropped
+- Cons: READMEs and helper folders collect in the skills directory, where they can collide with other installs' files
+
+**As it stands today**
+- Cons: category-nested skills install where agents don't load them, and only direct children take declared-name folders
+
+**Enforce the plugin format: only skills directly under `skills/`, anything deeper named as skipped**
+- Pros: a malformed plugin fails loudly
+- Cons: refuses what Vercel accepts for the same repo
+
+### Journey
+
+Put to the owner with a lean to the bundle's rule. The owner asked whether category folders are a valid structure at all. They are valid in Vercel's discovery, though not in the plugin format. For a well-formed plugin, with every skill directly under `skills/`, the first three options install the skills identically, which leaves only category-nested plugins and non-skill content to decide. The owner took the lean.
+
+### Decision
+
+**A plugin's skills are the skills discovery finds under its `skills/`, as a bundle's are.**
+- Category folders are walked as discovery walks `skills/`, and each skill installs flat in its declared-name folder.
+- Nothing else in `skills/` installs: no loose file, and no folder holding no skill. The output names what was left out.
+- This holds for a source that reads as a plugin, a plugin member, and a source declaring `"type": "plugin"`, on `add` and on every `update`.
+
+Confidence: high.
+
+Sibling check: v1/core-system — it routes a plugin's `skills/` to the agent's skills directory ("plugin (scan and route)") without saying how the folder's children land; this fixes that, and does not contradict it.
+
+---
+
 ## `--plugin` on a Root Skill Beside `skills/`
 
 ### Context
@@ -1015,5 +1057,5 @@ The rule stands as recorded below. Added:
 
 ### Current State
 - Resolved: scope (Vercel syntax parity for `add`/`update`/`remove`, project scope, git/local sources, out-of-scope lines refused non-zero); source grammar (`@` selects, `#` versions, Vercel's forms, https read Vercel's way, bare add keeps semver); identity (declared name for selection, folder and key; one key per skill); frontmatter read for selection and display only; discovery (Vercel's roots and depth, skill-local `agents/` stays inside the skill, broken installs repaired on update); units under Vercel selection syntax; agent targeting; the `add`/`update`/`remove` flag surface; unattended behaviour (`-y`, `--overwrite`, no-terminal refusal, agent callers as `-y`, no hook gate); pre-install summary; coexistence with Vercel-installed skills; printed advice.
-- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, a path into a unit, a whole-repo skill's key, `ssh://` URLs on GitHub and GitLab, and the repository part of a key for nested-group, Azure Repos, Enterprise, SSH and `.git` sources.
+- Also resolved: unmatched and partly matching names, `remove`'s no-terminal and agent-caller behaviour and flag edges, updating a skill inside a unit, `--all` on a unit, plugins with a root `SKILL.md`, re-adds adding agents, agents wholly outside a ceiling, bare-add fallback to the default branch, `update --overwrite`, an attended proceed confirmation, plugins and skill packs among discovered skills, a source's own `skills-lock.json` skipping the skills it installed, `--plugin` on a root skill beside `skills/`, `--plugin` on a source holding a plugin member, a path into a unit, what a plugin installs from its own `skills/`, a whole-repo skill's key, `ssh://` URLs on GitHub and GitLab, and the repository part of a key for nested-group, Azure Repos, Enterprise, SSH and `.git` sources.
 - Uncertain: whether a warning is enough when a pick splits a plugin-shaped repo whose author never declares `"type": "plugin"` (medium confidence).
