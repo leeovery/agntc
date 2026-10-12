@@ -198,6 +198,7 @@ status: draft
 - [ ] Given a path landing inside a unit (`owner/repo/skills/x`, a tree URL to that folder, or `owner/repo/skills`), it installs as a pick with the same warning and is refused when the unit declares `"type": "plugin"`; with `--plugin`, a path at one skill is refused while a path at a folder of skills bundles that folder
 - [ ] Given `--plugin` with `--skill x` or `@x`, the command exits non-zero naming the conflict; given `--plugin` with `--skill '*'`, the whole bundle installs
 - [ ] Given two plugin members that both ship `agents/reviewer.md`, both picked from the menu, the member earlier in priority order installs `reviewer.md`, the other installs without it, and the output names what was left out and the member it came from
+- [ ] Given a member installed less than whole because another entry from the same repository holds `agents/reviewer.md`, when `update` runs, it leaves out the same path while that entry holds it, names it again and never treats it as in the way; once no entry holds it, the next update installs it
 
 ### Phase 9: Naming target agents with `-a`
 status: draft
