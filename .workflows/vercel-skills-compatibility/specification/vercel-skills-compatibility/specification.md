@@ -339,6 +339,7 @@ A source that reads as a plugin installs as one unit, agents and hooks included,
 
 A plugin's skills are the skills discovery finds under its `skills/`, as a bundle's are (§6.2):
 - category folders are walked as discovery walks `skills/` (§5.2), and each skill installs flat in its declared-name folder (§4.2);
+- a plugin member (§5.3) found under its `skills/` joins it as a bundle's members do (§6.2): the member's skills, agents and hooks are routed to their places;
 - nothing else in `skills/` installs, neither a loose file nor a folder holding no skill, and the output names what was left out.
 
 This holds for a source that reads as a plugin, a plugin member (§5.3) and a source declaring `"type": "plugin"`, on `add` and on every update. Today every child of `skills/` is copied as it stands (`copyAssetDir` in `src/copy-plugin-assets.ts`). A category folder then lands one level deeper than agents load skills, and a loose file lands in the agent's skills directory.
@@ -352,6 +353,8 @@ This holds for a source that reads as a plugin, a plugin member (§5.3) and a so
 The skills install flat, each in its own folder (§4.2). A path in the source narrows the bundle to that folder.
 
 The bundle is reinstalled from the source on every update. A skill the author adds joins it, and a skill the author removes leaves it.
+
+Anything in the bundled folder that the bundle does not take, a loose file or a folder holding no skill, is not installed, and the output names it, as for a plugin (§6.1). The manifest records a plugin and a bundle alike (§14.1), so `add` and `update` name the same things.
 
 Today `--plugin` copies each child of `skills/` as it stands (`copyAssetDir` in `src/copy-plugin-assets.ts`). On a category-nested repo that would land category folders where skills belong. The bundle takes the skills discovery finds, wherever they sit.
 
@@ -742,3 +745,7 @@ The four `add` advice sites break the rule in two ways today:
 > **Corrigendum 2026-10-11** (from `planning/vercel-skills-compatibility`): the specification left open an empty or whitespace-only `name`, and whether names are trimmed — corrected: an empty `name` counts as no `name`; names and descriptions are stripped of escapes, have line breaks turned into spaces and are trimmed, so a whitespace-only name installs into `unnamed-skill` (§3.2) — settled by: measurement of Vercel v1.7.0 (`src/skills.ts:100` treats `!data.name` as missing; `src/sanitize.ts:61–65` `sanitizeMetadata` strips, joins lines and trims) under §1.4's rule that Vercel's behaviour is the default on edge cases.
 
 > **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open what a plugin installs from its own `skills/` (§6.1 said only "as it does today") — corrected: a plugin's skills are the skills discovery finds under its `skills/`, as a bundle's are, each flat in its declared-name folder; nothing else in `skills/` installs, and the output names what was left out (§6.1) — settled by: the decision in discussion `vercel-skills-compatibility`, "A Plugin's Own `skills/`" (2026-10-12).
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open what happens to a plugin member nested inside a plugin's `skills/` — corrected: it joins the plugin as a bundle's members do, its skills, agents and hooks routed to their places (§6.1) — settled by: §6.1's "as a bundle's are (§6.2)" and §6.2's "Each member's skills, agents and hooks join the bundle and are routed to their places".
+
+> **Corrigendum 2026-10-12** (from `planning/vercel-skills-compatibility`): the specification left open whether a `--plugin` bundle names what it leaves out — corrected: a loose file or a folder holding no skill in the bundled folder is not installed and the output names it, as for a plugin (§6.2) — settled by: §6.1 finding a plugin's skills "as a bundle's are", and §14.1's manifest recording a plugin and a bundle alike, so `add` and `update` could otherwise disagree for one entry.
