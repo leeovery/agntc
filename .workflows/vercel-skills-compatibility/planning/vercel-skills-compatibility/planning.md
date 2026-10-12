@@ -393,4 +393,5 @@ status: draft
 - [ ] Given a derive-before-delete abort or a failed reinstall, the printed `remove`, `update` and `add` commands are accepted by agntc, `remove`/`update` carry no `--plugin`, and following them reproduces the install
 - [ ] Given a recorded plugin that the update repair turned into a skill, its advice prints it as a skill with no `--plugin`
 - [ ] Given an update that stops because a bundle's source now holds nothing the bundle takes, any command it prints is accepted by agntc and following it acts on that entry as advised
+- [ ] Given an exact-pinned install from a GitHub tree URL, a GitLab `/-/tree/<ref>/` URL or an Azure Repos `?version=` URL with a newer tag, the printed `add` carries the newer tag in the URL's own ref place and no `#` fragment, and running it reinstalls at that tag
 
