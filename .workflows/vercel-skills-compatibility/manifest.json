@@ -287,7 +287,7 @@
           "finding_gate_mode": "gated",
           "review_cycle": 0,
           "phase": 3,
-          "task": null,
+          "task": "vercel-skills-compatibility-3-1",
           "task_map": {
             "vercel-skills-compatibility-1-1": "tick-75d212",
             "vercel-skills-compatibility-1": "tick-2b7686",
@@ -322,7 +322,8 @@
             "structure": "2026-10-11",
             "tasks": {
               "p1": "2026-10-11",
-              "p2": "2026-10-12"
+              "p2": "2026-10-12",
+              "p3": "2026-10-12"
             }
           },
           "staging": {},
