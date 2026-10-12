@@ -372,7 +372,8 @@
             "vercel-skills-compatibility-7-8": "tick-f3a624",
             "vercel-skills-compatibility-7-9": "tick-deb3ae",
             "vercel-skills-compatibility-7-10": "tick-9e9310",
-            "vercel-skills-compatibility-7-11": "tick-4ddec4"
+            "vercel-skills-compatibility-7-11": "tick-4ddec4",
+            "vercel-skills-compatibility-7-12": "tick-301538"
           },
           "storage_paths": [
             ".tick/"
