@@ -1,20 +1,16 @@
-import type { AssetCounts } from "./copy-plugin-assets.js";
-import type { DetectedType } from "./type-detection.js";
+import type { AssetCounts } from "./asset-targets.js";
 import { formatVersionMove } from "./version-resolve.js";
 
-/**
- * A rendered install summary: a one-line `headline` (the terminal `└` outro
- * node) plus zero or more `detail` lines emitted as gutterred `│` log nodes
- * ABOVE it, so the asset/per-member breakdown stays connected to the prompt
- * tree instead of floating below the outro as raw text.
- */
-export interface RenderedSummary {
-	headline: string;
-	detail: string[];
+export function pluralize(count: number, singular: string): string {
+	return count === 1 ? `${count} ${singular}` : `${count} ${singular}s`;
 }
 
-function pluralize(count: number, singular: string): string {
-	return count === 1 ? `${count} ${singular}` : `${count} ${singular}s`;
+/** `a`, `a and b`, `a, b and c`. */
+export function joinWithAnd(items: string[]): string {
+	if (items.length <= 1) {
+		return items.join("");
+	}
+	return `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
 }
 
 export function formatRefLabel(
@@ -34,87 +30,68 @@ export function formatAssetCounts(counts: AssetCounts): string {
 		.join(", ");
 }
 
+/** What became of one item `add` set out to install. */
+export type ItemOutcome =
+	| {
+			label: string;
+			status: "installed";
+			kind: "skill" | "pack";
+			assetCounts: AssetCounts;
+	  }
+	| { label: string; status: "skipped" | "failed"; reason: string };
+
 interface AddSummaryInput {
-	manifestKey: string;
+	sourceKey: string;
 	ref: string | null;
 	commit: string | null;
-	assetCounts: AssetCounts;
-}
-
-export function renderAddSummary(input: AddSummaryInput): RenderedSummary {
-	const refLabel = formatRefLabel(input.ref, input.commit);
-	const counts = formatAssetCounts(input.assetCounts);
-	return {
-		headline: `Installed ${input.manifestKey}@${refLabel}`,
-		detail: counts.length > 0 ? [counts] : [],
-	};
+	outcomes: ItemOutcome[];
 }
 
 /**
- * Per-member outcome of a collection install, discriminated on `status`.
- *
- * The `installed` variant carries a REQUIRED `detectedType` narrowed to the two
- * standalone variants — every installed member resolved to a bare-skill or
- * plugin (collection/not-agntc members are filtered to `skipped` before any
- * installed result is produced), so the type system guarantees the manifest
- * loop never needs a runtime "missing type" guard. The `skipped`/`failed`
- * variant omits `detectedType`; `failed` additionally carries the
- * `errorMessage`.
+ * An add summary: one line per item, grouped by how it ended, plus the
+ * `headline` for the closing outro.
  */
-export type PluginInstallResult =
-	| {
-			pluginName: string;
-			/**
-			 * The member's dir-relative source SEGMENT within the collection root
-			 * ("alpha" for a root-child member, "skills/alpha" for a skills-only inner
-			 * skill). Identity is the basename (`pluginName`); this records WHERE the
-			 * source dir is so the step-6 manifest write can persist a divergent
-			 * `sourceSubpath` (cycle-9) when segment !== basename, keeping the member
-			 * updatable. Equal to `pluginName` for root-child members.
-			 */
-			pluginSegment: string;
-			status: "installed";
-			copiedFiles: string[];
-			detectedType: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-	  }
-	| {
-			pluginName: string;
-			status: "skipped" | "failed";
-			copiedFiles: string[];
-			errorMessage?: string;
-	  };
-
-interface CollectionAddSummaryInput {
-	manifestKey: string;
-	ref: string | null;
-	commit: string | null;
-	results: PluginInstallResult[];
+export interface AddSummary {
+	headline: string;
+	installed: string[];
+	skipped: string[];
+	failed: string[];
 }
 
-export function renderCollectionAddSummary(
-	input: CollectionAddSummaryInput,
-): RenderedSummary {
-	const refLabel = formatRefLabel(input.ref, input.commit);
-	const installed = input.results.filter(
-		(r): r is Extract<PluginInstallResult, { status: "installed" }> =>
-			r.status === "installed",
-	);
-	const skipped = input.results.filter((r) => r.status === "skipped");
-	const failed = input.results.filter(
-		(r): r is Extract<PluginInstallResult, { status: "skipped" | "failed" }> =>
-			r.status === "failed",
-	);
-
-	const detail: string[] = installed.map((r) => r.pluginName);
-
-	if (skipped.length > 0) {
-		detail.push(`${skipped.length} skipped`);
+export function renderAddSummary(input: AddSummaryInput): AddSummary {
+	const summary: AddSummary = {
+		headline: "",
+		installed: [],
+		skipped: [],
+		failed: [],
+	};
+	for (const outcome of input.outcomes) {
+		if (outcome.status === "installed") {
+			summary.installed.push(installedLine(outcome));
+		} else {
+			summary[outcome.status].push(
+				`${outcome.label}: ${outcome.status} — ${outcome.reason}`,
+			);
+		}
 	}
-	for (const f of failed) {
-		detail.push(`${f.pluginName}: failed — ${f.errorMessage}`);
-	}
+	summary.headline =
+		summary.installed.length > 0
+			? `Installed ${input.sourceKey}@${formatRefLabel(input.ref, input.commit)}`
+			: `Nothing installed from ${input.sourceKey}`;
+	return summary;
+}
 
-	return { headline: `Installed ${input.manifestKey}@${refLabel}`, detail };
+function installedLine(
+	outcome: Extract<ItemOutcome, { status: "installed" }>,
+): string {
+	if (outcome.kind === "skill") {
+		return outcome.label;
+	}
+	const { skills = 0, ...assets } = outcome.assetCounts;
+	const counts = [pluralize(skills, "skill"), formatAssetCounts(assets)]
+		.filter((part) => part !== "")
+		.join(", ");
+	return `${outcome.label} (pack · ${counts})`;
 }
 
 interface GitUpdateSummaryInput {

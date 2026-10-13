@@ -186,6 +186,29 @@ describe("mapReinstallResultToOutcome success", () => {
 			newEntry,
 		});
 	});
+
+	it("carries the reinstall's note on a git or a local outcome", () => {
+		const note = "owner/repo/a is a single skill — reinstalled as a skill";
+		const newEntry = makeEntry({ commit: SHA_TGT });
+		const result = { ...successResult(newEntry), note };
+
+		expect(
+			mapReinstallResultToOutcome(
+				"owner/repo/a",
+				makeEntry({ commit: SHA_CUR }),
+				result,
+				null,
+			),
+		).toMatchObject({ status: "updated", note });
+		expect(
+			mapReinstallResultToOutcome(
+				"/local/a",
+				makeEntry({ commit: null }),
+				result,
+				null,
+			),
+		).toMatchObject({ status: "refreshed", note });
+	});
 });
 
 describe("groupEntriesForUpdate", () => {

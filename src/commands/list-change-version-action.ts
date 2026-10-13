@@ -14,6 +14,7 @@ export interface ChangeVersionResult {
 	changed: boolean;
 	newEntry?: ManifestEntry;
 	message: string;
+	note?: string;
 }
 
 // Cap the visible version list so a repo with hundreds of tags scrolls within a
@@ -106,5 +107,6 @@ export async function executeChangeVersionAction(
 		changed: true,
 		newEntry: finalEntry,
 		message: `Changed ${key} to ${selectedTag}`,
+		...(result.note !== undefined ? { note: result.note } : {}),
 	};
 }

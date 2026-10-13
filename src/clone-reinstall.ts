@@ -2,11 +2,12 @@ import * as p from "@clack/prompts";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
-import type { Manifest, ManifestEntry } from "./manifest.js";
+import type { EntryType, Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry, writeManifest } from "./manifest.js";
 import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
 import {
 	buildParsedSourceFromKey,
+	localSourceRoot,
 	resolveGuardedSourceDir,
 } from "./source-parser.js";
 
@@ -16,7 +17,7 @@ export interface CloneAndReinstallOptions {
 	projectDir: string;
 	newRef?: string;
 	newCommit?: string;
-	/** Provide to skip cloning (local path). */
+	/** The local folder to reinstall from instead of cloning. */
 	sourceDir?: string;
 	/** When provided, copy-failed will automatically remove the entry and write the manifest. */
 	manifest?: Manifest;
@@ -41,9 +42,9 @@ export type PrepareReinstallResult =
 /**
  * Shared preparation for the four update entry points (update single, update
  * all, list update action, list change-version action). Detects local vs remote
- * from `entry.commit === null`, validates the local source path when local, and
- * assembles the {@link CloneAndReinstallOptions} object (including the
- * `sourceDir: key` spread for local installs). On a failed local-path check it
+ * from `entry.commit === null`, validates the local source folder when local,
+ * and assembles the {@link CloneAndReinstallOptions} object (including that
+ * folder as `sourceDir` for local installs). On a failed local-path check it
  * returns `{ ok: false }` carrying the validation reason; callers map that to
  * their own presentation channel.
  */
@@ -53,10 +54,13 @@ export async function prepareReinstall(
 	projectDir: string,
 	opts: PrepareReinstallOpts = {},
 ): Promise<PrepareReinstallResult> {
-	const isLocal = entry.commit === null;
+	const localRoot =
+		entry.commit === null
+			? localSourceRoot(key, entry.sourceSubpath)
+			: undefined;
 
-	if (isLocal) {
-		const pathResult = await validateLocalSourcePath(key);
+	if (localRoot !== undefined) {
+		const pathResult = await validateLocalSourcePath(localRoot);
 		if (!pathResult.valid) {
 			return { ok: false, reason: pathResult.reason };
 		}
@@ -67,7 +71,7 @@ export async function prepareReinstall(
 		entry,
 		projectDir,
 		...(opts.manifest !== undefined ? { manifest: opts.manifest } : {}),
-		...(isLocal ? { sourceDir: key } : {}),
+		...(localRoot !== undefined ? { sourceDir: localRoot } : {}),
 		...(opts.newRef !== undefined ? { newRef: opts.newRef } : {}),
 		...(opts.newCommit !== undefined ? { newCommit: opts.newCommit } : {}),
 	};
@@ -79,6 +83,8 @@ interface CloneReinstallSuccess {
 	status: "success";
 	manifestEntry: ManifestEntry;
 	copiedFiles: string[];
+	/** Something the user should hear about how the entry was reinstalled. */
+	note?: string;
 }
 
 export interface CloneReinstallFailed {
@@ -101,7 +107,7 @@ export type CloneReinstallFailure =
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
 	onCopyFailed: (msg: string) => T;
-	onAborted: (recordedType: "skill" | "plugin", reason: string) => T;
+	onAborted: (recordedType: EntryType, reason: string) => T;
 	onBlocked: (reason: string) => T;
 	onUnknown: (msg: string) => T;
 }
@@ -188,7 +194,7 @@ export function failureMessage(
  */
 export interface CloneReinstallAborted {
 	status: "aborted";
-	recordedType: "skill" | "plugin";
+	recordedType: EntryType;
 	reason: string;
 }
 
@@ -225,7 +231,7 @@ export type CloneReinstallResult =
  */
 export function buildAbortMessage(
 	key: string,
-	recordedType: "skill" | "plugin",
+	recordedType: EntryType,
 	reason: string,
 ): string {
 	return (
@@ -281,16 +287,25 @@ export async function cloneAndReinstall(
 ): Promise<CloneReinstallResult> {
 	const { key, entry, projectDir } = options;
 
-	// Local path mode: no cloning needed
 	if (options.sourceDir !== undefined) {
+		const localRoot = options.sourceDir;
+		const guarded =
+			entry.sourceSubpath === undefined
+				? { ok: true as const, sourceDir: localRoot }
+				: resolveGuardedSourceDir(localRoot, key, entry.sourceSubpath);
+		if (!guarded.ok) {
+			return {
+				status: "failed",
+				failureReason: "clone-failed",
+				message: guarded.message,
+			};
+		}
 		const result = await runPipeline({
 			key,
 			entry,
 			projectDir,
-			sourceDir: options.sourceDir,
-			// Local-path mode: the provided source root is the containment
-			// boundary for the symlink-escape scan (cloneRoot === sourceDir).
-			cloneRoot: options.sourceDir,
+			sourceDir: guarded.sourceDir,
+			cloneRoot: localRoot,
 			newRef: options.newRef ?? null,
 			newCommit: options.newCommit ?? null,
 		});
@@ -451,5 +466,6 @@ export async function runPipeline(
 		status: "success",
 		manifestEntry: pipelineResult.entry,
 		copiedFiles: pipelineResult.copiedFiles,
+		...(pipelineResult.note !== undefined ? { note: pipelineResult.note } : {}),
 	};
 }

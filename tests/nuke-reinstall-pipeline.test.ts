@@ -9,8 +9,13 @@ vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../src/copy-plugin-assets.js", () => ({
-	copyPluginAssets: vi.fn(),
+vi.mock("../src/copy-pack.js", () => ({
+	copyPack: vi.fn(),
+}));
+
+vi.mock("../src/discover.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/discover.js")>()),
+	discover: vi.fn(),
 }));
 
 vi.mock("../src/copy-bare-skill.js", () => ({
@@ -28,12 +33,19 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 });
 
 import { copyBareSkill } from "../src/copy-bare-skill.js";
-import { copyPluginAssets } from "../src/copy-plugin-assets.js";
+import { copyPack } from "../src/copy-pack.js";
 import {
 	assertSubpathWithinClone,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
+import {
+	type Discovery,
+	discover,
+	type FoundPack,
+	PackConflictError,
+	StartPathError,
+} from "../src/discover.js";
 import { pathExists } from "../src/fs-utils.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import {
@@ -43,7 +55,8 @@ import {
 
 const mockPathExists = vi.mocked(pathExists);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
-const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
+const mockCopyPack = vi.mocked(copyPack);
+const mockDiscover = vi.mocked(discover);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
@@ -61,11 +74,27 @@ function makeOptions(
 	};
 }
 
+function foundPack(overrides: Partial<FoundPack> = {}): FoundPack {
+	return {
+		name: "laravel",
+		path: "laravel",
+		skills: [{ name: "api", path: "laravel/skills/api" }],
+		assetDirs: [],
+		...overrides,
+	};
+}
+
+function onlyPack(pack: FoundPack): Discovery {
+	return { packs: [pack], skills: [], strays: [] };
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockPathExists.mockResolvedValue(true);
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
+	mockDiscover.mockResolvedValue(onlyPack(foundPack()));
+	mockCopyPack.mockResolvedValue({ copiedFiles: [], assetCounts: {} });
 });
 
 describe("executeNukeAndReinstall", () => {
@@ -91,7 +120,7 @@ describe("executeNukeAndReinstall", () => {
 					projectDir: "/fake/project",
 				}),
 			);
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
 			expect(result.entry.files).toEqual([".claude/skills/my-skill/"]);
 			expect(result.copiedFiles).toEqual([".claude/skills/my-skill/"]);
 		});
@@ -136,7 +165,7 @@ describe("executeNukeAndReinstall", () => {
 			);
 		});
 
-		it("ignores benign added asset dir: replays as skill via copyBareSkill not copyPluginAssets", async () => {
+		it("replays a skill as a skill, never re-walking it as a pack", async () => {
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -146,7 +175,8 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.status).toBe("success");
 			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockDiscover).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 
 		it("preserves recorded type on the rewritten entry", async () => {
@@ -163,182 +193,210 @@ describe("executeNukeAndReinstall", () => {
 		});
 	});
 
-	describe("recorded-plugin replay", () => {
-		it("replays recorded plugin: scans present asset dirs, nukes, copies via copyPluginAssets", async () => {
-			// SKILL.md absent; skills/ present, agents/ absent, hooks/ absent.
-			mockPathExists.mockImplementation(async (p: string) => {
-				if (p === "/tmp/source/skills") return true;
-				return false;
-			});
-			mockCopyPluginAssets.mockResolvedValue({
-				copiedFiles: [".claude/skills/foo/"],
-				assetCounts: {},
-			});
+	describe("recorded-pack replay", () => {
+		const PACK_ENTRY = makeEntry({
+			type: "pack",
+			files: [".claude/skills/old/", ".claude/agents/old.md"],
+		});
 
-			const result = await executeNukeAndReinstall(
-				makeOptions({
-					existingEntry: makeEntry({
-						type: "plugin",
-						files: [".claude/skills/foo/"],
-					}),
+		function packOptions(overrides: Partial<NukeReinstallOptions> = {}) {
+			return makeOptions({
+				key: "owner/repo/laravel",
+				sourceDir: "/tmp/clone/laravel",
+				cloneRoot: "/tmp/clone",
+				existingEntry: PACK_ENTRY,
+				...overrides,
+			});
+		}
+
+		it("re-walks the pack from the clone root at its path, forcing a pack", async () => {
+			await executeNukeAndReinstall(packOptions());
+
+			expect(mockDiscover).toHaveBeenCalledWith("/tmp/clone", {
+				startPath: "laravel",
+				forcePack: true,
+				rootName: "laravel",
+			});
+		});
+
+		it("walks a root pack from the root, named after the repo", async () => {
+			await executeNukeAndReinstall(
+				packOptions({
+					key: "owner/repo",
+					sourceDir: "/tmp/clone",
 				}),
 			);
 
-			expect(result.status).toBe("success");
-			if (result.status !== "success") return;
-			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
-				".claude/skills/foo/",
-			]);
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: "/tmp/source",
-					projectDir: "/fake/project",
-					assetDirs: ["skills"],
-				}),
+			expect(mockDiscover).toHaveBeenCalledWith("/tmp/clone", {
+				startPath: "",
+				forcePack: true,
+				rootName: "repo",
+			});
+		});
+
+		it("nukes the recorded files and copies everything the pack holds now", async () => {
+			const current = foundPack({
+				skills: [
+					{ name: "kept", path: "laravel/skills/kept" },
+					{ name: "added", path: "laravel/skills/added" },
+				],
+			});
+			mockDiscover.mockResolvedValue(onlyPack(current));
+			mockCopyPack.mockResolvedValue({
+				copiedFiles: [".claude/skills/kept/", ".claude/skills/added/"],
+				assetCounts: { skills: 2 },
+			});
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				PACK_ENTRY.files,
+			);
+			expect(mockCopyPack).toHaveBeenCalledWith(
+				current,
+				"/tmp/clone",
+				"/fake/project",
 			);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
-			expect(result.entry.type).toBe("plugin");
+			expect(result).toMatchObject({
+				status: "success",
+				copiedFiles: [".claude/skills/kept/", ".claude/skills/added/"],
+				entry: {
+					type: "pack",
+					files: [".claude/skills/kept/", ".claude/skills/added/"],
+				},
+			});
+			expect(result).not.toHaveProperty("note");
 		});
 
-		it("picks up benign added asset dir: assetDirs includes newly-present agents/", async () => {
-			mockPathExists.mockImplementation(async (p: string) => {
-				if (p === "/tmp/source/skills") return true;
-				if (p === "/tmp/source/agents") return true;
-				return false;
-			});
-			mockCopyPluginAssets.mockResolvedValue({
-				copiedFiles: [".claude/skills/foo/"],
-				assetCounts: {},
-			});
-
-			const result = await executeNukeAndReinstall(
-				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
-			);
-
-			expect(result.status).toBe("success");
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({ assetDirs: ["skills", "agents"] }),
-			);
-		});
-
-		it("ignores added root SKILL.md while >=1 asset dir present: still plugin", async () => {
-			mockPathExists.mockImplementation(async (p: string) => {
-				if (p === "/tmp/source/skills") return true;
-				if (p === "/tmp/source/SKILL.md") return true;
-				return false;
-			});
-			mockCopyPluginAssets.mockResolvedValue({
-				copiedFiles: [".claude/skills/foo/"],
-				assetCounts: {},
-			});
-
-			const result = await executeNukeAndReinstall(
-				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
-			);
-
-			expect(result.status).toBe("success");
-			expect(mockCopyPluginAssets).toHaveBeenCalledOnce();
-			expect(mockCopyBareSkill).not.toHaveBeenCalled();
-		});
-
-		it("scans asset dirs BEFORE nukeManifestFiles (success ordering)", async () => {
+		it("re-walks before removing anything", async () => {
 			const callOrder: string[] = [];
-			mockPathExists.mockImplementation(async (p: string) => {
-				callOrder.push(`scan:${p}`);
-				return p === "/tmp/source/skills";
+			mockDiscover.mockImplementation(async () => {
+				callOrder.push("walk");
+				return onlyPack(foundPack());
 			});
 			mockNukeManifestFiles.mockImplementation(async () => {
 				callOrder.push("nuke");
 				return { removed: [], skipped: [] };
 			});
-			mockCopyPluginAssets.mockImplementation(async () => {
+			mockCopyPack.mockImplementation(async () => {
 				callOrder.push("copy");
 				return { copiedFiles: [], assetCounts: {} };
 			});
 
-			await executeNukeAndReinstall(
-				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
-			);
+			await executeNukeAndReinstall(packOptions());
 
-			const nukeIdx = callOrder.indexOf("nuke");
-			const lastScanIdx = callOrder.lastIndexOf(
-				callOrder.filter((c) => c.startsWith("scan:")).at(-1) as string,
-			);
-			expect(nukeIdx).toBeGreaterThan(lastScanIdx);
-			expect(callOrder.indexOf("copy")).toBeGreaterThan(nukeIdx);
-		});
-	});
-
-	describe("recorded-plugin abort (no asset dir remains)", () => {
-		it("aborts when zero asset dirs present: no nuke, no copy", async () => {
-			mockPathExists.mockResolvedValue(false);
-
-			const result = await executeNukeAndReinstall(
-				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
-			);
-
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") return;
-			expect(result.recordedType).toBe("plugin");
-			expect(result.reason.length).toBeGreaterThan(0);
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
-			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(callOrder).toEqual(["walk", "nuke", "copy"]);
 		});
 
-		it("aborts when source became a bare skill (SKILL.md only, no asset dir)", async () => {
-			mockPathExists.mockImplementation(async (p: string) => {
-				return p === "/tmp/source/SKILL.md";
+		it("reinstalls a path that is now a single skill as a skill, with a note", async () => {
+			mockDiscover.mockRejectedValue(
+				new PackConflictError('"laravel" is a single skill', "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/laravel/"],
+			});
+			const v1BugEntry = makeEntry({
+				type: "pack",
+				files: [".claude/agents/openai.yaml"],
+				sourceSubpath: undefined,
 			});
 
 			const result = await executeNukeAndReinstall(
-				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+				packOptions({ existingEntry: v1BugEntry }),
 			);
 
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") return;
-			expect(result.recordedType).toBe("plugin");
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/agents/openai.yaml",
+			]);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith({
+				sourceDir: "/tmp/clone/laravel",
+				projectDir: "/fake/project",
+				skillName: "laravel",
+			});
+			expect(mockCopyPack).not.toHaveBeenCalled();
+			expect(result).toMatchObject({
+				status: "success",
+				note: "owner/repo/laravel is a single skill — reinstalled as a skill",
+				entry: { type: "skill", files: [".claude/skills/laravel/"] },
+			});
 		});
 
-		it("asset-dir scan runs BEFORE nukeManifestFiles on abort (nuke count 0)", async () => {
-			const callOrder: string[] = [];
-			mockPathExists.mockImplementation(async () => {
-				callOrder.push("scan");
-				return false;
-			});
-			mockNukeManifestFiles.mockImplementation(async () => {
-				callOrder.push("nuke");
-				return { removed: [], skipped: [] };
+		it("keeps the entry's sourceSubpath when it becomes a skill", async () => {
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/laravel/"],
 			});
 
 			const result = await executeNukeAndReinstall(
-				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
-			);
-
-			expect(result.status).toBe("aborted");
-			expect(callOrder).not.toContain("nuke");
-		});
-
-		it("member plugin whose subdir vanished aborts (zero asset dirs in its sourceDir)", async () => {
-			mockPathExists.mockResolvedValue(false);
-
-			const result = await executeNukeAndReinstall(
-				makeOptions({
-					key: "owner/repo/go",
-					sourceDir: "/tmp/source/go",
+				packOptions({
 					existingEntry: makeEntry({
-						type: "plugin",
-						files: [".claude/skills/go/", ".claude/agents/go.md"],
+						type: "pack",
+						sourceSubpath: "plugins/laravel",
 					}),
+					sourceDir: "/tmp/clone/plugins/laravel",
 				}),
 			);
 
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") return;
-			expect(result.recordedType).toBe("plugin");
-			expect(mockPathExists).toHaveBeenCalledWith("/tmp/source/go/skills");
+			expect(result).toMatchObject({
+				entry: { type: "skill", sourceSubpath: "plugins/laravel" },
+			});
+		});
+
+		it("aborts, leaving the install intact, when its folder now contains packs", async () => {
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("contains packs", "contains-packs"),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				recordedType: "pack",
+				reason: "its folder now contains packs",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("aborts, leaving the install intact, when the re-walk finds nothing", async () => {
+			mockDiscover.mockResolvedValue(onlyPack(foundPack({ skills: [] })));
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				recordedType: "pack",
+				reason: "it no longer holds any skills, agents or hooks",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("aborts, naming the path, when its path is missing", async () => {
+			mockDiscover.mockRejectedValue(
+				new StartPathError('path "laravel" not found in source'),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				recordedType: "pack",
+				reason: 'path "laravel" not found in source',
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("lets any other walk error through", async () => {
+			mockDiscover.mockRejectedValue(new Error("EACCES"));
+
+			await expect(executeNukeAndReinstall(packOptions())).rejects.toThrow(
+				"EACCES",
+			);
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 	});
@@ -354,7 +412,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(result.recordedType).toBe("skill");
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 
 		it("validation runs BEFORE nukeManifestFiles (abort -> nuke count 0)", async () => {
@@ -393,6 +451,15 @@ describe("executeNukeAndReinstall", () => {
 			await executeNukeAndReinstall(makeOptions());
 
 			expect(callOrder).toEqual(["validate", "nuke", "copy"]);
+		});
+
+		it("aborts before the symlink scan, which can't read a vanished folder", async () => {
+			mockPathExists.mockResolvedValue(false);
+
+			const result = await executeNukeAndReinstall(makeOptions());
+
+			expect(result.status).toBe("aborted");
+			expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
 		});
 
 		it("abort result names recorded-vs-current cause in reason", async () => {
@@ -463,19 +530,16 @@ describe("executeNukeAndReinstall", () => {
 			expect(result.entry.files).toEqual([".claude/skills/repo/"]);
 		});
 
-		it("migrates a Codex-only plugin entry into .claude", async () => {
+		it("migrates a Codex-only v1 plugin entry into .claude as a pack", async () => {
 			const codexFiles = [".agents/skills/a/", ".agents/skills/b/"];
-			mockPathExists.mockImplementation(
-				async (p: string) => p === "/tmp/source/skills",
-			);
-			mockCopyPluginAssets.mockResolvedValue({
+			mockCopyPack.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/", ".claude/skills/b/"],
 				assetCounts: { skills: 2 },
 			});
 
 			const result = await executeNukeAndReinstall(
 				makeOptions({
-					existingEntry: makeEntry({ type: "plugin", files: codexFiles }),
+					existingEntry: makeEntry({ type: "pack", files: codexFiles }),
 				}),
 			);
 
@@ -485,11 +549,6 @@ describe("executeNukeAndReinstall", () => {
 				"/fake/project",
 				codexFiles,
 			);
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith({
-				sourceDir: "/tmp/source",
-				assetDirs: ["skills"],
-				projectDir: "/fake/project",
-			});
 			expect(result.entry.files).toEqual([
 				".claude/skills/a/",
 				".claude/skills/b/",
@@ -575,7 +634,7 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.errorMessage).toBe("ENOSPC: no space left on device");
 			expect(result.recoveryHint).toBe(
-				"Update failed for owner/repo after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+				"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
 			);
 		});
 
@@ -685,7 +744,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(result.status).toBe("blocked");
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 
 		it("surfaces the offending symlink in the blocked reason (a copy-safety violation, NOT a recorded-type abort)", async () => {
@@ -695,7 +754,7 @@ describe("executeNukeAndReinstall", () => {
 			);
 
 			const result = await executeNukeAndReinstall(
-				makeOptions({ existingEntry: makeEntry({ type: "plugin" }) }),
+				makeOptions({ existingEntry: makeEntry({ type: "pack" }) }),
 			);
 
 			expect(result.status).toBe("blocked");

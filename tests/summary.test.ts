@@ -2,25 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
 	formatAssetCounts,
 	formatRefLabel,
-	type PluginInstallResult,
+	type ItemOutcome,
+	joinWithAnd,
 	renderAddSummary,
-	renderCollectionAddSummary,
 	renderGitUpdateSummary,
 	renderLocalUpdateSummary,
 	renderRemoveSummary,
 	renderUpdateOutcomeSummary,
 } from "../src/summary.js";
 import { formatVersionMove } from "../src/version-resolve.js";
-
-function installed(pluginName: string): PluginInstallResult {
-	return {
-		pluginName,
-		pluginSegment: pluginName,
-		status: "installed",
-		copiedFiles: [`.claude/skills/${pluginName}/`],
-		detectedType: { type: "bare-skill" },
-	};
-}
 
 describe("formatRefLabel", () => {
 	it("returns ref when ref is not null", () => {
@@ -60,129 +50,130 @@ describe("formatAssetCounts", () => {
 	});
 });
 
+describe("joinWithAnd", () => {
+	it("joins with commas and a final and", () => {
+		expect(joinWithAnd(["a", "b", "c"])).toBe("a, b and c");
+	});
+
+	it("joins two with and", () => {
+		expect(joinWithAnd(["a", "b"])).toBe("a and b");
+	});
+
+	it("returns one item as is, and nothing as empty", () => {
+		expect(joinWithAnd(["a"])).toBe("a");
+		expect(joinWithAnd([])).toBe("");
+	});
+});
+
 describe("renderAddSummary", () => {
-	it("formats a plugin add as headline + one asset-count line", () => {
-		const result = renderAddSummary({
-			manifestKey: "leeovery/claude-technical-workflows",
-			ref: "v2.1.6",
-			commit: "abc1234",
-			assetCounts: { skills: 12, agents: 3, hooks: 2 },
-		});
-		expect(result).toEqual({
-			headline: "Installed leeovery/claude-technical-workflows@v2.1.6",
-			detail: ["12 skills, 3 agents, 2 hooks"],
-		});
-	});
-
-	it("formats a bare skill add as headline + one skill line", () => {
-		const result = renderAddSummary({
-			manifestKey: "owner/my-skill",
-			ref: "main",
-			commit: "abc123def456",
+	function skill(label: string): ItemOutcome {
+		return {
+			label,
+			status: "installed",
+			kind: "skill",
 			assetCounts: { skills: 1 },
+		};
+	}
+
+	it("gives one line per installed item under a source headline", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "v1.0.0",
+			commit: "abc123",
+			outcomes: [skill("skills/react/hooks"), skill("tools/lint")],
 		});
+
 		expect(result).toEqual({
-			headline: "Installed owner/my-skill@main",
-			detail: ["1 skill"],
+			headline: "Installed owner/repo@v1.0.0",
+			installed: ["skills/react/hooks", "tools/lint"],
+			skipped: [],
+			failed: [],
 		});
 	});
 
-	it("emits no detail line when nothing was counted", () => {
+	it("gives a pack's skill count with its agents and hooks counts", () => {
 		const result = renderAddSummary({
-			manifestKey: "owner/my-skill",
+			sourceKey: "owner/repo",
 			ref: "main",
-			commit: "abc123def456",
-			assetCounts: {},
+			commit: "abc123",
+			outcomes: [
+				{
+					label: "laravel",
+					status: "installed",
+					kind: "pack",
+					assetCounts: { skills: 12, agents: 3, hooks: 1 },
+				},
+			],
 		});
-		expect(result.detail).toEqual([]);
+
+		expect(result.installed).toEqual([
+			"laravel (pack · 12 skills, 3 agents, 1 hook)",
+		]);
+	});
+
+	it("gives a pack's skill count even when it has none", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "main",
+			commit: "abc123",
+			outcomes: [
+				{
+					label: "repo",
+					status: "installed",
+					kind: "pack",
+					assetCounts: { skills: 0, agents: 2 },
+				},
+			],
+		});
+
+		expect(result.installed).toEqual(["repo (pack · 0 skills, 2 agents)"]);
+	});
+
+	it("lists skipped and failed items with their reasons", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "main",
+			commit: "abc123",
+			outcomes: [
+				skill("a"),
+				{ label: "b", status: "skipped", reason: "conflict not resolved" },
+				{ label: "c", status: "failed", reason: "disk full" },
+			],
+		});
+
+		expect(result.skipped).toEqual(["b: skipped — conflict not resolved"]);
+		expect(result.failed).toEqual(["c: failed — disk full"]);
+	});
+
+	it("says nothing was installed when no item installed", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "main",
+			commit: "abc123",
+			outcomes: [{ label: "a", status: "skipped", reason: "conflict" }],
+		});
+
+		expect(result.headline).toBe("Nothing installed from owner/repo");
 	});
 
 	it("uses HEAD label when ref is null with commit", () => {
 		const result = renderAddSummary({
-			manifestKey: "owner/my-skill",
+			sourceKey: "owner/my-skill",
 			ref: null,
 			commit: "abc123",
-			assetCounts: { skills: 1 },
+			outcomes: [skill("my-skill")],
 		});
-		expect(result.headline).toContain("owner/my-skill@HEAD");
+		expect(result.headline).toBe("Installed owner/my-skill@HEAD");
 	});
 
 	it("uses local label when ref and commit are null", () => {
 		const result = renderAddSummary({
-			manifestKey: "owner/my-skill",
+			sourceKey: "/path/to/skills",
 			ref: null,
 			commit: null,
-			assetCounts: { skills: 1 },
+			outcomes: [skill("a")],
 		});
-		expect(result.headline).toContain("owner/my-skill@local");
-	});
-});
-
-describe("renderCollectionAddSummary", () => {
-	it("shows one row per installed member, naming only the member", () => {
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results: [installed("pluginA"), installed("pluginB")],
-		});
-		expect(result.headline).toBe("Installed owner/my-collection@main");
-		expect(result.detail).toEqual(["pluginA", "pluginB"]);
-	});
-
-	it("notes skipped plugins", () => {
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results: [
-				installed("pluginA"),
-				{ pluginName: "pluginB", status: "skipped", copiedFiles: [] },
-			],
-		});
-		expect(result.detail.join("\n")).toMatch(/1 skipped/);
-	});
-
-	it("notes failed plugins with error messages", () => {
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results: [
-				{
-					pluginName: "pluginA",
-					status: "failed",
-					copiedFiles: [],
-					errorMessage: "permission denied",
-				},
-			],
-		});
-		expect(result.detail.join("\n")).toMatch(
-			/pluginA: failed — permission denied/,
-		);
-	});
-
-	it("handles mixed outcomes: installed, skipped, and failed", () => {
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "v1.0",
-			commit: "abc123",
-			results: [
-				installed("pluginA"),
-				{ pluginName: "pluginB", status: "skipped", copiedFiles: [] },
-				{
-					pluginName: "pluginC",
-					status: "failed",
-					copiedFiles: [],
-					errorMessage: "disk full",
-				},
-			],
-		});
-		expect(result.detail).toEqual([
-			"pluginA",
-			"1 skipped",
-			"pluginC: failed — disk full",
-		]);
+		expect(result.headline).toBe("Installed /path/to/skills@local");
 	});
 });
 

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest } from "../src/manifest.js";
-import type { DetectedType } from "../src/type-detection.js";
 
 vi.mock("@clack/prompts", () => ({
 	spinner: vi.fn(() => ({
@@ -28,10 +27,6 @@ vi.mock("../src/git-clone.js", () => ({
 	cleanupTempDir: vi.fn(),
 }));
 
-vi.mock("../src/type-detection.js", () => ({
-	detectType: vi.fn(),
-}));
-
 vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
@@ -40,8 +35,13 @@ vi.mock("../src/fs-utils.js", () => ({
 	pathExists: vi.fn(),
 }));
 
-vi.mock("../src/copy-plugin-assets.js", () => ({
-	copyPluginAssets: vi.fn(),
+vi.mock("../src/copy-pack.js", () => ({
+	copyPack: vi.fn(),
+}));
+
+vi.mock("../src/discover.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/discover.js")>()),
+	discover: vi.fn(),
 }));
 
 vi.mock("../src/copy-bare-skill.js", () => ({
@@ -73,28 +73,28 @@ import {
 	mapCloneFailure,
 } from "../src/clone-reinstall.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
-import { copyPluginAssets } from "../src/copy-plugin-assets.js";
+import { copyPack } from "../src/copy-pack.js";
 import {
 	assertSubpathWithinClone,
 	PathTraversalError,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
+import { discover, PackConflictError } from "../src/discover.js";
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { removeEntry, writeManifest } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { resolveGuardedSourceDir } from "../src/source-parser.js";
-import { detectType } from "../src/type-detection.js";
 
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockRemoveEntry = vi.mocked(removeEntry);
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
-const mockDetectType = vi.mocked(detectType);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
-const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
+const mockCopyPack = vi.mocked(copyPack);
+const mockDiscover = vi.mocked(discover);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockPathExists = vi.mocked(pathExists);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
@@ -102,7 +102,6 @@ const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
 import { makeEntry } from "./helpers/factories.js";
 
-const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
 
 beforeEach(() => {
@@ -132,9 +131,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -159,9 +155,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 
 			const callOrder: string[] = [];
 			mockCloneSource.mockImplementation(async () => {
@@ -193,9 +186,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -238,9 +228,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -488,9 +475,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const result = await cloneAndReinstall({
@@ -514,9 +498,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			await cloneAndReinstall({
@@ -540,9 +521,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			await cloneAndReinstall({
@@ -598,9 +576,6 @@ describe("cloneAndReinstall", () => {
 				files: [".claude/skills/my-plugin/"],
 			});
 
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -620,6 +595,108 @@ describe("cloneAndReinstall", () => {
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).not.toHaveBeenCalled();
 		});
+
+		it("reinstalls an item with a sourceSubpath from that path below the local folder", async () => {
+			const entry = makeEntry({
+				commit: null,
+				ref: null,
+				type: "skill",
+				sourceSubpath: "skills/react/hooks",
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/hooks/"],
+			});
+
+			const result = await cloneAndReinstall({
+				key: "/Users/lee/Code/skills/hooks",
+				entry,
+				projectDir: "/fake/project",
+				sourceDir: "/Users/lee/Code/skills",
+			});
+
+			expect(result.status).toBe("success");
+			expect(mockCopyBareSkill).toHaveBeenCalledWith({
+				sourceDir: "/Users/lee/Code/skills/skills/react/hooks",
+				projectDir: "/fake/project",
+				skillName: "hooks",
+			});
+			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+				"/Users/lee/Code/skills/skills/react/hooks",
+				"/Users/lee/Code/skills",
+			);
+		});
+
+		it("refuses a local sourceSubpath escaping the folder, leaving the install intact", async () => {
+			const entry = makeEntry({
+				commit: null,
+				ref: null,
+				sourceSubpath: "../evil",
+			});
+			mockAssertSubpathWithinClone.mockImplementation(() => {
+				throw new PathTraversalError("../evil");
+			});
+
+			const result = await cloneAndReinstall({
+				key: "/Users/lee/Code/skills/evil",
+				entry,
+				projectDir: "/fake/project",
+				sourceDir: "/Users/lee/Code/skills",
+			});
+
+			expect(result).toMatchObject({
+				status: "failed",
+				failureReason: "clone-failed",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("reinstall note", () => {
+		it("passes on the note of a pack entry reinstalled as a skill", async () => {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single skill", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/swift/"],
+			});
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo/swift",
+				entry: makeEntry({
+					type: "pack",
+					files: [".claude/agents/openai.yaml"],
+				}),
+				projectDir: "/fake/project",
+			});
+
+			expect(result).toMatchObject({
+				status: "success",
+				note: "owner/repo/swift is a single skill — reinstalled as a skill",
+				manifestEntry: { type: "skill" },
+			});
+		});
+
+		it("carries no note on a plain reinstall", async () => {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/repo/"],
+			});
+
+			const result = await cloneAndReinstall({
+				key: "owner/repo",
+				entry: makeEntry({ type: "skill" }),
+				projectDir: "/fake/project",
+			});
+
+			expect(result).not.toHaveProperty("note");
+		});
 	});
 
 	describe("newRef and newCommit overrides", () => {
@@ -630,9 +707,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -661,9 +735,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
@@ -783,7 +854,7 @@ describe("cloneAndReinstall", () => {
 				}
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 				expect(mockCopyBareSkill).not.toHaveBeenCalled();
-				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+				expect(mockCopyPack).not.toHaveBeenCalled();
 			});
 
 			it("does NOT remove the manifest entry on symlink violation (distinct from copy-failed)", async () => {
@@ -814,8 +885,20 @@ describe("cloneAndReinstall", () => {
 			});
 
 			it("surfaces the violation as a named pre-flight failure via mapCloneFailure (onBlocked)", async () => {
+				mockDiscover.mockResolvedValue({
+					packs: [
+						{
+							name: "repo",
+							path: "",
+							skills: [{ name: "my-skill", path: "skills/my-skill" }],
+							assetDirs: [],
+						},
+					],
+					skills: [],
+					strays: [],
+				});
 				const entry = makeEntry({
-					type: "plugin",
+					type: "pack",
 					files: [".claude/skills/my-skill/"],
 				});
 
@@ -910,7 +993,7 @@ describe("cloneAndReinstall", () => {
 				expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 				expect(mockCopyBareSkill).not.toHaveBeenCalled();
-				expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+				expect(mockCopyPack).not.toHaveBeenCalled();
 			});
 
 			it("does NOT remove the manifest entry on a sourceSubpath traversal (install intact)", async () => {
@@ -1023,7 +1106,7 @@ describe("cloneAndReinstall", () => {
 
 				expect(mockNukeManifestFiles).toHaveBeenCalledTimes(0);
 				expect(mockCopyBareSkill).toHaveBeenCalledTimes(0);
-				expect(mockCopyPluginAssets).toHaveBeenCalledTimes(0);
+				expect(mockCopyPack).toHaveBeenCalledTimes(0);
 			});
 		});
 	});

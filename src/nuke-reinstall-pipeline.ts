@@ -1,22 +1,25 @@
-import { basename, join } from "node:path";
-import { copyBareSkill } from "./copy-bare-skill.js";
-import { copyPluginAssets } from "./copy-plugin-assets.js";
+import { join, posix, relative, sep } from "node:path";
+import { copyItem } from "./copy-item.js";
 import { checkEscapingSymlinks } from "./copy-safety.js";
+import { discover, PackConflictError, StartPathError } from "./discover.js";
 import { errorMessage } from "./errors.js";
 import { pathExists } from "./fs-utils.js";
-import { buildManifestEntry, type ManifestEntry } from "./manifest.js";
+import { type InstallItem, isEmptyPack } from "./install-item.js";
+import {
+	buildManifestEntry,
+	type EntryType,
+	type ManifestEntry,
+} from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
-import { findPresentAssetDirs } from "./type-detection.js";
+import { memberName } from "./source-parser.js";
 
 export interface NukeReinstallOptions {
 	key: string;
 	sourceDir: string;
 	/**
-	 * Containment boundary for the symlink-escape pre-flight scan: the cloned
-	 * repository root. For a member unit, `sourceDir` is a subdir of this root,
-	 * so within-clone cross-member symlinks are allowed; only links escaping the
-	 * whole clone are rejected. For local-path mode the provided source root is
-	 * the boundary (`cloneRoot === sourceDir`).
+	 * The cloned repository root: what `sourceDir` is relative to, and the
+	 * containment boundary for the symlink-escape scan. For local-path mode the
+	 * provided source root is the boundary (`cloneRoot === sourceDir`).
 	 */
 	cloneRoot: string;
 	existingEntry: ManifestEntry;
@@ -29,6 +32,8 @@ interface NukeReinstallSuccess {
 	status: "success";
 	entry: ManifestEntry;
 	copiedFiles: string[];
+	/** Something the user should hear about how the entry was reinstalled. */
+	note?: string;
 }
 
 interface NukeReinstallCopyFailed {
@@ -38,27 +43,19 @@ interface NukeReinstallCopyFailed {
 }
 
 /**
- * The re-cloned tree no longer supports the entry's *recorded* type, detected by
- * the derive-before-delete validation gate *before* any file removal. The
- * existing install is left intact. {@link recordedType} and {@link reason} carry
- * the structured cause; the user-facing message + remedy are assembled by the
- * reporting layer.
+ * The re-cloned tree no longer supports the entry's recorded type. Found
+ * before any file is removed, so the existing install is left intact.
  */
 interface NukeReinstallAborted {
 	status: "aborted";
-	recordedType: "skill" | "plugin";
+	recordedType: EntryType;
 	reason: string;
 }
 
 /**
- * The symlink-escape pre-flight scan found a symlink whose target resolves
- * outside the cloned repository root. This is a copy-safety/security violation,
- * NOT a recorded-type change: the scan runs BEFORE any file removal, so the
- * existing install is left fully intact (no nuke, no copy, manifest unchanged).
- * Distinct from {@link NukeReinstallAborted} — there is no recorded-type
- * mismatch here, and the remedy is NOT remove+add (that re-trips the same
- * guard). {@link reason} carries the structured cause (the offending symlink);
- * the user-facing copy-safety message is assembled by the reporting layer.
+ * The source holds a symlink escaping the clone. Found before any file is
+ * removed, so the existing install is left intact. Unlike an abort, the
+ * remove+add remedy doesn't apply: it would trip the same guard.
  */
 interface NukeReinstallBlocked {
 	status: "blocked";
@@ -71,174 +68,131 @@ export type NukeReinstallResult =
 	| NukeReinstallAborted
 	| NukeReinstallBlocked;
 
+/** What the re-cloned source now offers for an entry, decided before any delete. */
+type Replay =
+	| { ok: true; item: InstallItem; note?: string }
+	| { ok: false; reason: string };
+
+/**
+ * Reinstalls an entry from a re-cloned source, replaying its recorded type.
+ * Every check — that the source still supports the type, and the
+ * symlink-escape scan — runs before the entry's files are removed.
+ */
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
 ): Promise<NukeReinstallResult> {
-	const { sourceDir, cloneRoot, existingEntry } = options;
+	const { key, sourceDir, cloneRoot, existingEntry, projectDir } = options;
+	const recordedType = existingEntry.type ?? "skill";
 
-	// Symlink-escape pre-flight: scan the unit tree for any symlink pointing
-	// outside the cloned repository root, BEFORE any file removal. A violation
-	// returns the dedicated copy-safety `blocked` outcome with the install left
-	// intact (no nuke, no copy) — sharing the derive-before-delete abort's
-	// install-intact posture, but NOT its meaning: this is a copy-safety/security
-	// violation, not a recorded-type change, so the reporting layer must NOT offer
-	// the remove+add remedy (it re-trips the same guard). It is also NOT routed
-	// through copy-failed (which removes the entry). No path-traversal guard HERE:
-	// the lexical containment pre-check lives upstream in cloneAndReinstall's
-	// remote branch, which calls assertSubpathWithinClone(tempDir, sourceSubpath)
-	// before the join (analysis 10-2). It originally lived nowhere because update
-	// replayed only a key-derived subdir (getSourceDirFromKey, not a fresh
-	// source-supplied selector); cycle-9 added `sourceSubpath` as a second
-	// source-derived path component fed into that join, so it now gets add's
-	// step-2c lexical guard too, restoring copy-safety symmetry. By the time the
-	// pipeline runs, `sourceDir` is already confirmed lexically contained; the
-	// symlink scan below remains the content-validation half of the pre-flight.
+	const replay =
+		recordedType === "pack"
+			? await derivePackReplay(options)
+			: await deriveSkillReplay(options);
+	if (!replay.ok) {
+		return { status: "aborted", recordedType, reason: replay.reason };
+	}
+
 	const symlinkCheck = await checkEscapingSymlinks(sourceDir, cloneRoot);
 	if (!symlinkCheck.ok) {
-		return {
-			status: "blocked",
-			reason: symlinkCheck.message,
-		};
-	}
-
-	const ref = options.newRef !== undefined ? options.newRef : existingEntry.ref;
-	const commit =
-		options.newCommit !== undefined ? options.newCommit : existingEntry.commit;
-
-	// The recorded type selects the replay predicate. 4-3 backfills `type` on
-	// manifest read, so every entry reaching the pipeline in production carries a
-	// concrete type; the `?? "skill"` is a defensive, non-throwing fallback for a
-	// typeless entry (the lenient single-skill default, matching the backfill's own
-	// derivation rule). The type is recorded, never re-derived from the clone.
-	const recordedType: "skill" | "plugin" = existingEntry.type ?? "skill";
-
-	const ctx: ReplayContext = { options, ref, commit };
-
-	return recordedType === "skill"
-		? replayRecordedSkill(ctx)
-		: replayRecordedPlugin(ctx);
-}
-
-interface ReplayContext {
-	options: NukeReinstallOptions;
-	ref: string | null;
-	commit: string | null;
-}
-
-/**
- * Derive-before-delete replay for a recorded `skill`: the unit's root `SKILL.md`
- * must still exist in the re-cloned tree. Validation runs BEFORE nuking; on
- * failure the install is left intact (aborted). When present, re-copy the unit
- * dir via copyBareSkill — the recorded type is authoritative, so any
- * newly-added asset dirs are ignored (not re-derived into a plugin).
- */
-async function replayRecordedSkill(
-	ctx: ReplayContext,
-): Promise<NukeReinstallResult> {
-	const { options } = ctx;
-	const { sourceDir, projectDir, existingEntry } = options;
-
-	const skillMdExists = await pathExists(join(sourceDir, "SKILL.md"));
-	if (!skillMdExists) {
-		return {
-			status: "aborted",
-			recordedType: "skill",
-			reason:
-				"recorded as a bare skill, but SKILL.md is no longer present in the source",
-		};
+		return { status: "blocked", reason: symlinkCheck.message };
 	}
 
 	await nukeManifestFiles(projectDir, existingEntry.files);
 
 	let copiedFiles: string[];
 	try {
-		// Install name = manifest-key basename (identity = repo/unit basename per
-		// spec), NOT basename(sourceDir): for a whole-repo bare skill sourceDir is
-		// the random mkdtemp clone dir, so the re-copy would land under the temp-dir
-		// name (and the manifest would then record it). Mirrors the add path.
-		const bareResult = await copyBareSkill({
-			sourceDir,
-			projectDir,
-			skillName: basename(options.key),
-		});
-		copiedFiles = bareResult.copiedFiles;
+		({ copiedFiles } = await copyItem(replay.item, cloneRoot, projectDir));
 	} catch (err: unknown) {
-		return copyFailed(options.key, err);
+		return copyFailed(key, err);
 	}
 
-	return buildSuccess(ctx, copiedFiles, "skill");
+	return {
+		status: "success",
+		entry: buildReplayedEntry(options, copiedFiles, replay.item.kind),
+		copiedFiles,
+		...(replay.note !== undefined ? { note: replay.note } : {}),
+	};
+}
+
+async function deriveSkillReplay(
+	options: NukeReinstallOptions,
+): Promise<Replay> {
+	const { key, sourceDir } = options;
+	if (!(await pathExists(join(sourceDir, "SKILL.md")))) {
+		return {
+			ok: false,
+			reason: "SKILL.md is no longer present in the source",
+		};
+	}
+	return { ok: true, item: skillAt(startPathOf(options), memberName(key)) };
 }
 
 /**
- * Derive-before-delete replay for a recorded `plugin`: {@link findPresentAssetDirs}
- * must report at least one asset-kind dir (`skills`/`agents`/`hooks`) still present
- * in the re-cloned tree. The scan runs BEFORE nuking; zero present dirs (the unit is
- * now a bare skill or a members collection) aborts with the install left intact. The
- * recorded type is authoritative — the helper only chooses *which* present dirs to
- * copy, never re-derives the type, so a benign newly-added asset dir is picked up and
- * an added root SKILL.md is ignored while any asset dir remains.
+ * Re-walks a pack so skills added upstream arrive and removed ones go. A path
+ * that is now a single skill reinstalls as that skill.
  */
-async function replayRecordedPlugin(
-	ctx: ReplayContext,
-): Promise<NukeReinstallResult> {
-	const { options } = ctx;
-	const { sourceDir, projectDir, existingEntry } = options;
+async function derivePackReplay(
+	options: NukeReinstallOptions,
+): Promise<Replay> {
+	const { key, cloneRoot } = options;
+	const startPath = startPathOf(options);
+	const rootName = memberName(key);
 
-	const presentAssetDirs = await findPresentAssetDirs(sourceDir);
-
-	if (presentAssetDirs.length === 0) {
-		return {
-			status: "aborted",
-			recordedType: "plugin",
-			reason:
-				"recorded as plugin but no asset dir (skills/agents/hooks) remains in the source",
-		};
-	}
-
-	await nukeManifestFiles(projectDir, existingEntry.files);
-
-	let copiedFiles: string[];
 	try {
-		const pluginResult = await copyPluginAssets({
-			sourceDir,
-			assetDirs: presentAssetDirs,
-			projectDir,
+		const { packs } = await discover(cloneRoot, {
+			startPath,
+			forcePack: true,
+			rootName,
 		});
-		copiedFiles = pluginResult.copiedFiles;
-	} catch (err: unknown) {
-		return copyFailed(options.key, err);
+		const [pack] = packs;
+		if (pack === undefined || isEmptyPack(pack)) {
+			return {
+				ok: false,
+				reason: "it no longer holds any skills, agents or hooks",
+			};
+		}
+		return { ok: true, item: { kind: "pack", pack } };
+	} catch (err) {
+		if (err instanceof PackConflictError && err.conflict === "single-skill") {
+			return {
+				ok: true,
+				item: skillAt(startPath, rootName),
+				note: `${key} is a single skill — reinstalled as a skill`,
+			};
+		}
+		if (err instanceof PackConflictError) {
+			return { ok: false, reason: "its folder now contains packs" };
+		}
+		if (err instanceof StartPathError) {
+			return { ok: false, reason: err.message };
+		}
+		throw err;
 	}
-
-	return buildSuccess(ctx, copiedFiles, "plugin");
 }
 
-function buildSuccess(
-	ctx: ReplayContext,
+function startPathOf({ cloneRoot, sourceDir }: NukeReinstallOptions): string {
+	return relative(cloneRoot, sourceDir).split(sep).join(posix.sep);
+}
+
+function skillAt(path: string, name: string): InstallItem {
+	return { kind: "skill", skill: { name, path } };
+}
+
+function buildReplayedEntry(
+	options: NukeReinstallOptions,
 	copiedFiles: string[],
-	type: "skill" | "plugin",
-): NukeReinstallSuccess {
-	const { options, ref, commit } = ctx;
-	const { existingEntry } = options;
-
-	const entry = buildManifestEntry({
-		ref: ref ?? null,
-		commit: commit ?? null,
+	type: EntryType,
+): ManifestEntry {
+	const { existingEntry, newRef, newCommit } = options;
+	return buildManifestEntry({
+		ref: newRef !== undefined ? newRef : existingEntry.ref,
+		commit: newCommit !== undefined ? newCommit : existingEntry.commit,
 		files: copiedFiles,
 		type,
 		cloneUrl: existingEntry.cloneUrl ?? null,
 		constraint: existingEntry.constraint,
-		// Preserve the divergent source subpath (cycle-9): identity is unchanged
-		// by an update, so a skills-only member keyed by basename keeps pointing at
-		// its `skills/<name>` source. Dropping it here would silently re-break the
-		// NEXT update (the resolver would fall back to the wrong key-derived dir).
 		sourceSubpath: existingEntry.sourceSubpath,
 	});
-
-	return {
-		status: "success",
-		entry,
-		copiedFiles,
-	};
 }
 
 function copyFailed(key: string, err: unknown): NukeReinstallCopyFailed {
@@ -247,7 +201,7 @@ function copyFailed(key: string, err: unknown): NukeReinstallCopyFailed {
 		errorMessage: errorMessage(err),
 		recoveryHint:
 			`Update failed for ${key} after removing old files. ` +
-			`The plugin is currently uninstalled. ` +
+			`It is currently uninstalled. ` +
 			`Run \`npx agntc update ${key}\` to retry installation.`,
 	};
 }

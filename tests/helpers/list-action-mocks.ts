@@ -1,12 +1,11 @@
 import { access } from "node:fs/promises";
 import { beforeEach, type Mock, vi } from "vitest";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
-import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
+import { copyPack } from "../../src/copy-pack.js";
 import { scanForEscapingSymlinks } from "../../src/copy-safety.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { addEntry, removeEntry, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
-import { detectType } from "../../src/type-detection.js";
 
 /**
  * Shared non-hoisted test wiring for the two list-action test files
@@ -41,9 +40,8 @@ export interface ListActionMocks {
 	removeEntry: Mock;
 	cloneSource: Mock;
 	cleanupTempDir: Mock;
-	detectType: Mock;
 	nukeManifestFiles: Mock;
-	copyPluginAssets: Mock;
+	copyPack: Mock;
 	copyBareSkill: Mock;
 	access: Mock;
 	scanForEscapingSymlinks: Mock;
@@ -68,9 +66,8 @@ export function setupListActionMocks(): ListActionMocks {
 		removeEntry: vi.mocked(removeEntry),
 		cloneSource: vi.mocked(cloneSource),
 		cleanupTempDir: vi.mocked(cleanupTempDir),
-		detectType: vi.mocked(detectType),
 		nukeManifestFiles: vi.mocked(nukeManifestFiles),
-		copyPluginAssets: vi.mocked(copyPluginAssets),
+		copyPack: vi.mocked(copyPack),
 		copyBareSkill: vi.mocked(copyBareSkill),
 		access: vi.mocked(access),
 		scanForEscapingSymlinks: vi.mocked(scanForEscapingSymlinks),

@@ -267,6 +267,10 @@ async function runSinglePluginUpdate(
 		});
 	}
 
+	if (result.note !== undefined) {
+		p.log.info(result.note);
+	}
+
 	if (isLocal) {
 		p.outro(
 			renderLocalUpdateSummary({
@@ -620,10 +624,19 @@ async function streamActionedWork(
 			item.kind === "group"
 				? await streamGroupWork(item, projectDir, workingManifest, groups)
 				: await streamLocalWork(item, projectDir, workingManifest);
+		reportNotes(unit.outcomes);
 		outcomes.push(...unit.outcomes);
 		workingManifest = unit.manifest;
 	}
 	return outcomes;
+}
+
+function reportNotes(outcomes: PluginOutcome[]): void {
+	for (const outcome of outcomes) {
+		if (isSuccessOutcome(outcome) && outcome.note !== undefined) {
+			p.log.info(outcome.note);
+		}
+	}
 }
 
 /** One streamed unit's per-member outcomes plus the manifest after its write. */

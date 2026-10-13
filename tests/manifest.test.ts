@@ -3,7 +3,6 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
-	rename,
 	rm,
 	writeFile,
 } from "node:fs/promises";
@@ -16,7 +15,6 @@ import {
 	buildManifestEntry,
 	type Manifest,
 	type ManifestEntry,
-	manifestTypeFromDetected,
 	readManifest,
 	readManifestOrExit,
 	removeEntry,
@@ -680,14 +678,14 @@ describe("type field", () => {
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
-				type: "plugin",
+				type: "pack",
 			},
 		};
 
 		await writeManifest(testDir, manifest);
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo/skill"]?.type).toBe("plugin");
+		expect(result["owner/repo/skill"]?.type).toBe("pack");
 	});
 
 	it("legacy entry without type field still parses", async () => {
@@ -726,24 +724,6 @@ describe("type field", () => {
 	});
 });
 
-describe("manifestTypeFromDetected", () => {
-	it("maps bare-skill variant to skill", () => {
-		expect(manifestTypeFromDetected({ type: "bare-skill" })).toBe("skill");
-	});
-
-	it("maps plugin variant to plugin", () => {
-		expect(
-			manifestTypeFromDetected({ type: "plugin", assetDirs: ["skills"] }),
-		).toBe("plugin");
-	});
-
-	it("never returns the literal bare-skill", () => {
-		expect(manifestTypeFromDetected({ type: "bare-skill" })).not.toBe(
-			"bare-skill",
-		);
-	});
-});
-
 describe("type backfill on read", () => {
 	async function writeLegacy(
 		manifest: Record<string, Record<string, unknown>>,
@@ -755,7 +735,65 @@ describe("type backfill on read", () => {
 		);
 	}
 
-	it("backfills plugin when files include agents target", async () => {
+	it("reads a v1 plugin entry as a pack", async () => {
+		await writeLegacy({
+			"owner/repo/laravel": {
+				ref: "v1.0.0",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/a/", ".claude/agents/a.md"],
+				cloneUrl: null,
+				type: "plugin",
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/laravel"]?.type).toBe("pack");
+	});
+
+	it("writes a read v1 plugin entry back as a pack", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/a/"],
+				cloneUrl: null,
+				type: "plugin",
+			},
+		});
+
+		await writeManifest(testDir, await readManifest(testDir));
+
+		const raw = JSON.parse(
+			await readFile(join(testDir, ".agntc", "manifest.json"), "utf-8"),
+		) as Manifest;
+		expect(raw["owner/repo"]?.type).toBe("pack");
+	});
+
+	it("keeps a v1 skill entry a skill", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/a/"],
+				cloneUrl: null,
+				type: "skill",
+				sourceSubpath: "skills/a",
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]).toMatchObject({
+			type: "skill",
+			sourceSubpath: "skills/a",
+		});
+	});
+
+	it("backfills pack when files include agents target", async () => {
 		await writeLegacy({
 			"owner/repo": {
 				ref: "main",
@@ -769,10 +807,10 @@ describe("type backfill on read", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
-	it("backfills plugin when files include hooks target", async () => {
+	it("backfills pack when files include hooks target", async () => {
 		await writeLegacy({
 			"owner/repo": {
 				ref: "main",
@@ -786,10 +824,10 @@ describe("type backfill on read", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
-	it("backfills plugin for multiple distinct skill dirs under one key", async () => {
+	it("backfills pack for multiple distinct skill dirs under one key", async () => {
 		await writeLegacy({
 			"owner/repo": {
 				ref: "main",
@@ -803,7 +841,7 @@ describe("type backfill on read", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
 	it("backfills skill for single skills dir, no agents/hooks (single-skill ambiguity accepted)", async () => {
@@ -897,7 +935,7 @@ describe("type backfill on read", () => {
 		expect(result["owner/repo/skill"]?.type).toBe("skill");
 	});
 
-	it("counts distinct skill dirs under a legacy root toward plugin", async () => {
+	it("counts distinct skill dirs under a legacy root toward pack", async () => {
 		await writeLegacy({
 			"owner/repo": {
 				ref: "main",
@@ -911,7 +949,7 @@ describe("type backfill on read", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
 	it("backfills empty files array to skill without error", async () => {
@@ -997,7 +1035,7 @@ describe("type backfill on read", () => {
 		const result = await readManifest(testDir);
 
 		expect(result["owner/repo/member-skill"]?.type).toBe("skill");
-		expect(result["owner/repo/member-plugin"]?.type).toBe("plugin");
+		expect(result["owner/repo/member-plugin"]?.type).toBe("pack");
 	});
 
 	it("backfilled type persists on next writeManifest", async () => {
@@ -1020,7 +1058,7 @@ describe("type backfill on read", () => {
 			"utf-8",
 		);
 		const reparsed = JSON.parse(content) as Manifest;
-		expect(reparsed["owner/repo"]?.type).toBe("plugin");
+		expect(reparsed["owner/repo"]?.type).toBe("pack");
 	});
 
 	it("backfills cloneUrl and type together", async () => {
@@ -1037,7 +1075,7 @@ describe("type backfill on read", () => {
 		const result = await readManifest(testDir);
 
 		expect(result["owner/repo"]?.cloneUrl).toBeNull();
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 });
 

@@ -1,48 +1,37 @@
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { validRange } from "semver";
 import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 
-interface GitHubShorthandSource {
+interface RemoteSource {
+	owner: string;
+	repo: string;
+	ref: string | null;
+	constraint: string | null;
+	manifestKey: string;
+	cloneUrl: string;
+	/** Repo-relative folder the discovery walk starts at; absent for the root. */
+	startPath?: string;
+}
+
+interface GitHubShorthandSource extends RemoteSource {
 	type: "github-shorthand";
-	owner: string;
-	repo: string;
-	ref: string | null;
-	constraint: string | null;
-	manifestKey: string;
-	cloneUrl: string;
 }
 
-interface HttpsUrlSource {
+interface HttpsUrlSource extends RemoteSource {
 	type: "https-url";
-	owner: string;
-	repo: string;
-	ref: string | null;
-	constraint: string | null;
-	manifestKey: string;
-	cloneUrl: string;
 }
 
-interface SshUrlSource {
+interface SshUrlSource extends RemoteSource {
 	type: "ssh-url";
-	owner: string;
-	repo: string;
-	ref: string | null;
-	constraint: string | null;
-	manifestKey: string;
-	cloneUrl: string;
 }
 
-interface DirectPathSource {
-	type: "direct-path";
-	owner: string;
-	repo: string;
+interface TreeUrlSource extends RemoteSource {
+	type: "tree-url";
 	ref: string;
 	constraint: null;
-	targetPlugin: string;
-	manifestKey: string;
-	cloneUrl: string;
+	startPath: string;
 }
 
 interface LocalPathSource {
@@ -57,7 +46,7 @@ export type ParsedSource =
 	| GitHubShorthandSource
 	| HttpsUrlSource
 	| SshUrlSource
-	| DirectPathSource
+	| TreeUrlSource
 	| LocalPathSource;
 
 function isLocalPath(input: string): boolean {
@@ -85,7 +74,7 @@ export async function parseSource(raw: string): Promise<ParsedSource> {
 	} else if (trimmed.startsWith("https://")) {
 		const withoutProtocol = trimmed.slice("https://".length);
 		if (hasTreePath(withoutProtocol)) {
-			result = parseDirectPath(trimmed);
+			result = parseTreeUrl(trimmed);
 		} else {
 			result = parseHttpsUrl(trimmed);
 		}
@@ -143,7 +132,7 @@ function hasTreePath(withoutProtocol: string): boolean {
 	return pathPart.includes("/tree/") || pathPart.endsWith("/tree/");
 }
 
-function parseDirectPath(input: string): DirectPathSource {
+function parseTreeUrl(input: string): TreeUrlSource {
 	const withoutProtocol = input.slice("https://".length);
 	const slashIndex = withoutProtocol.indexOf("/");
 	const host = withoutProtocol.slice(0, slashIndex);
@@ -155,14 +144,12 @@ function parseDirectPath(input: string): DirectPathSource {
 		throw new Error("tree URLs cannot have @ref suffix");
 	}
 
-	// Split on /tree/ to get owner/repo prefix and ref/plugin suffix
 	const treeIndex = rawPath.indexOf("/tree/");
 	const ownerRepoPath = rawPath.slice(0, treeIndex);
 	const afterTree = rawPath
 		.slice(treeIndex + "/tree/".length)
 		.replace(/\/+$/, "");
 
-	// Parse owner/repo
 	const ownerRepoSegments = ownerRepoPath.split("/").filter((s) => s !== "");
 	if (ownerRepoSegments.length < 2) {
 		throw new Error(
@@ -172,32 +159,25 @@ function parseDirectPath(input: string): DirectPathSource {
 	const owner = ownerRepoSegments[0]!;
 	const repo = ownerRepoSegments[1]!;
 
-	// Parse ref (first segment) and plugin (rest)
 	const afterTreeSegments = afterTree.split("/").filter((s) => s !== "");
 
 	if (afterTreeSegments.length === 0) {
-		throw new Error("invalid tree URL: missing ref and plugin path");
+		throw new Error("invalid tree URL: missing ref and path");
 	}
 
 	if (afterTreeSegments.length === 1) {
-		throw new Error("invalid tree URL: missing plugin path after ref");
+		throw new Error("invalid tree URL: missing path after ref");
 	}
 
-	const ref = afterTreeSegments[0]!;
-	const targetPlugin = afterTreeSegments.slice(1).join("/");
-
-	const cloneUrl = `https://${host}/${owner}/${repo}.git`;
-	const manifestKey = `${owner}/${repo}/${targetPlugin}`;
-
 	return {
-		type: "direct-path",
+		type: "tree-url",
 		owner,
 		repo,
-		ref,
+		ref: afterTreeSegments[0]!,
 		constraint: null,
-		targetPlugin,
-		manifestKey,
-		cloneUrl,
+		manifestKey: `${owner}/${repo}`,
+		cloneUrl: `https://${host}/${owner}/${repo}.git`,
+		startPath: afterTreeSegments.slice(1).join("/"),
 	};
 }
 
@@ -354,19 +334,13 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 		throw new Error("ref cannot be empty when @ is present");
 	}
 
-	const segments = pathPart!.split("/");
+	const [owner = "", repo, ...pathSegments] = pathPart!.split("/");
 
-	if (segments.length === 1) {
-		throw new Error(`source must be in owner/repo format, got "${pathPart}"`);
-	}
-
-	if (segments.length > 2) {
+	if (repo === undefined) {
 		throw new Error(
-			`too many slashes in source "${pathPart}" — expected owner/repo`,
+			`source must be in owner/repo[/path] format, got "${pathPart}"`,
 		);
 	}
-
-	const [owner, repo] = segments as [string, string];
 
 	if (owner === "") {
 		throw new Error("owner cannot be empty");
@@ -377,6 +351,7 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 	}
 
 	const { ref, constraint } = classifyRefOrConstraint(rawRef);
+	const startPath = pathSegments.join("/").replace(/\/+$/, "");
 
 	return {
 		type: "github-shorthand",
@@ -386,6 +361,7 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 		constraint,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl: `https://github.com/${owner}/${repo}.git`,
+		...(startPath !== "" ? { startPath } : {}),
 	};
 }
 
@@ -459,6 +435,17 @@ export function deriveCloneUrlFromKey(
 	const owner = parts[0]!;
 	const repo = parts[1]!;
 	return `https://github.com/${owner}/${repo}.git`;
+}
+
+/**
+ * The folder a local entry was added from. A local key is that folder's path,
+ * plus the item's name for an item recorded with a `sourceSubpath`.
+ */
+export function localSourceRoot(
+	key: string,
+	sourceSubpath: string | undefined,
+): string {
+	return sourceSubpath ? dirname(key) : key;
 }
 
 export function getSourceDirFromKey(tempDir: string, key: string): string {

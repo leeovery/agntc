@@ -1,54 +1,38 @@
-import { basename, join } from "node:path";
-import { type AssetType, targetDir } from "./asset-targets.js";
+import { join } from "node:path";
+import { skillTarget } from "./asset-targets.js";
+import { agentTarget, hookTarget, listAgentFiles } from "./copy-pack.js";
+import type { FoundPack } from "./discover.js";
 import { readDirEntries } from "./fs-utils.js";
-
-interface BareSkillInput {
-	type: "bare-skill";
-	sourceDir: string;
-	/**
-	 * Installed skill dir name (identity = repo/unit basename). Must match the
-	 * name {@link copyBareSkill} writes to, or collision/unmanaged checks compute
-	 * the wrong destination path. Defaults to `basename(sourceDir)` when omitted.
-	 */
-	skillName?: string;
-}
-
-interface PluginInput {
-	type: "plugin";
-	sourceDir: string;
-	assetDirs: AssetType[];
-}
-
-export type ComputeInput = BareSkillInput | PluginInput;
+import type { InstallItem } from "./install-item.js";
 
 /**
- * Predicts the file paths that would be produced by copy operations,
- * without actually copying. Used for collision and unmanaged checks
- * before copy begins.
+ * Predicts the install paths copying an item would claim, without copying, so
+ * collision and unmanaged checks can run before anything is written. `root` is
+ * the source root the item's paths are relative to.
  */
 export async function computeIncomingFiles(
-	input: ComputeInput,
+	item: InstallItem,
+	root: string,
 ): Promise<string[]> {
-	if (input.type === "bare-skill") {
-		const skillName = input.skillName ?? basename(input.sourceDir);
-		return [`${targetDir("skills")}/${skillName}/`];
+	if (item.kind === "skill") {
+		return [skillTarget(item.skill.name)];
 	}
-	return computePluginFiles(input);
+	return computePackFiles(item.pack, root);
 }
 
-async function computePluginFiles(input: PluginInput): Promise<string[]> {
-	const files: string[] = [];
-
-	for (const assetDir of input.assetDirs) {
-		const dir = targetDir(assetDir);
-		const entries = await readDirEntries(join(input.sourceDir, assetDir));
-		for (const entry of entries) {
-			// Skills are directories, agents/hooks are files
-			files.push(
-				entry.isDirectory ? `${dir}/${entry.name}/` : `${dir}/${entry.name}`,
-			);
-		}
+async function computePackFiles(
+	pack: FoundPack,
+	root: string,
+): Promise<string[]> {
+	const packDir = join(root, pack.path);
+	const files = pack.skills.map((skill) => skillTarget(skill.name));
+	if (pack.assetDirs.includes("agents")) {
+		const agents = await listAgentFiles(join(packDir, "agents"));
+		files.push(...agents.map(agentTarget));
 	}
-
+	if (pack.assetDirs.includes("hooks")) {
+		const hooks = await readDirEntries(join(packDir, "hooks"));
+		files.push(...hooks.map(hookTarget));
+	}
 	return files;
 }

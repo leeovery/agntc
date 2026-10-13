@@ -67,6 +67,25 @@ describe("prepareReinstall", () => {
 			expect(result.options.sourceDir).toBe(key);
 		});
 
+		it("reinstalls an item recorded with a sourceSubpath from the folder it was added from", async () => {
+			const entry = makeEntry({
+				commit: null,
+				ref: null,
+				sourceSubpath: "skills/react/hooks",
+			});
+
+			const result = await prepareReinstall(
+				"/Users/lee/Code/skills/hooks",
+				entry,
+				"/fake/project",
+			);
+
+			expect(mockValidate).toHaveBeenCalledWith("/Users/lee/Code/skills");
+			expect(result.ok && result.options.sourceDir).toBe(
+				"/Users/lee/Code/skills",
+			);
+		});
+
 		it("returns not-ok with the validation reason when the path is invalid", async () => {
 			const key = "/Users/lee/Code/missing";
 			const entry = makeEntry({ commit: null, ref: null });

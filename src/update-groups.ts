@@ -96,12 +96,14 @@ export type PluginOutcome =
 			key: string;
 			summary: string;
 			newEntry: ManifestEntry;
+			note?: string;
 	  }
 	| {
 			status: "refreshed";
 			key: string;
 			summary: string;
 			newEntry: ManifestEntry;
+			note?: string;
 	  }
 	| { status: "up-to-date"; key: string }
 	| { status: "newer-tags"; key: string }
@@ -178,12 +180,15 @@ export function mapReinstallResultToOutcome(
 		});
 	}
 
+	const note = result.note !== undefined ? { note: result.note } : {};
+
 	if (entry.commit === null) {
 		return {
 			status: "refreshed",
 			key,
 			summary: renderUpdateOutcomeSummary({ type: "local-update", key }),
 			newEntry: result.manifestEntry,
+			...note,
 		};
 	}
 
@@ -199,6 +204,7 @@ export function mapReinstallResultToOutcome(
 			newCommit: result.manifestEntry.commit!,
 		}),
 		newEntry: result.manifestEntry,
+		...note,
 	};
 }
 

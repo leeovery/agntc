@@ -1,12 +1,8 @@
 import type { Stats } from "node:fs";
+import { basename } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CopyBareSkillResult } from "../../src/copy-bare-skill.js";
-import type { CopyPluginAssetsResult } from "../../src/copy-plugin-assets.js";
 import { ExitSignal } from "../../src/exit-signal.js";
-import type { CloneResult } from "../../src/git-clone.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
-import type { NukeResult } from "../../src/nuke-files.js";
-import type { DetectedType } from "../../src/type-detection.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import type { PluginOutcome } from "../../src/update-groups.js";
 
@@ -44,22 +40,17 @@ vi.mock("../../src/git-clone.js", () => ({
 	cleanupTempDir: vi.fn(),
 }));
 
-vi.mock("../../src/type-detection.js", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("../../src/type-detection.js")>();
-	return {
-		detectType: vi.fn(),
-		ASSET_DIRS: actual.ASSET_DIRS,
-		findPresentAssetDirs: actual.findPresentAssetDirs,
-	};
-});
-
 vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../../src/copy-plugin-assets.js", () => ({
-	copyPluginAssets: vi.fn(),
+vi.mock("../../src/copy-pack.js", () => ({
+	copyPack: vi.fn(),
+}));
+
+vi.mock("../../src/discover.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/discover.js")>()),
+	discover: vi.fn(),
 }));
 
 vi.mock("../../src/copy-bare-skill.js", () => ({
@@ -89,11 +80,17 @@ import {
 	streamGroupMemberLines,
 } from "../../src/commands/update.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
-import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
+import { copyPack } from "../../src/copy-pack.js";
 import {
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../../src/copy-safety.js";
+import {
+	type Discovery,
+	discover,
+	type FoundPack,
+	PackConflictError,
+} from "../../src/discover.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import {
 	addEntry,
@@ -103,7 +100,6 @@ import {
 	writeManifest,
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
-import { detectType } from "../../src/type-detection.js";
 import {
 	checkForUpdate,
 	type GroupTarget,
@@ -119,9 +115,20 @@ const mockCheckForUpdate = vi.mocked(checkForUpdate);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
-const mockDetectType = vi.mocked(detectType);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
-const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
+const mockCopyPack = vi.mocked(copyPack);
+const mockDiscover = vi.mocked(discover);
+
+const LARAVEL_PACK: FoundPack = {
+	name: "repo",
+	path: "",
+	skills: [{ name: "new-skill", path: "skills/new-skill" }],
+	assetDirs: ["agents"],
+};
+
+function onlyPack(pack: FoundPack): Discovery {
+	return { packs: [pack], skills: [], strays: [] };
+}
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockStat = vi.mocked(stat);
 const mockAccess = vi.mocked(access);
@@ -362,9 +369,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -398,9 +402,6 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -526,9 +527,6 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -590,9 +588,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/some-skill/"],
 			});
@@ -638,9 +633,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
@@ -698,9 +690,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -757,7 +746,6 @@ describe("update command", () => {
 			};
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -835,7 +823,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -881,7 +868,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/updated/"],
 			});
@@ -934,7 +920,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// Member `a` (first reinstall) copy-fails; `b` and the standalone succeed.
 			mockCopyBareSkill
 				.mockRejectedValueOnce(new Error("disk full"))
@@ -1002,7 +987,6 @@ describe("update command", () => {
 					tempDir: "/tmp/clone-block",
 					commit: REMOTE_SHA,
 				});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// abort clone: recorded SKILL.md gone → derive gate aborts (others present).
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-abort")) {
@@ -1065,7 +1049,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/updated/"],
 			});
@@ -1120,7 +1103,6 @@ describe("update command", () => {
 					tempDir: "/tmp/clone-bl",
 					commit: REMOTE_SHA,
 				});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// ab clone: SKILL.md gone → aborted (cf's present so it reaches copy).
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-ab")) {
@@ -1200,7 +1182,6 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1239,7 +1220,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1287,7 +1267,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/"],
 			});
@@ -1318,7 +1297,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// The re-copy throws after the old files are nuked → copy-failed.
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
@@ -1328,7 +1306,7 @@ describe("update command", () => {
 			// The single failure IS the spinner stop-frame at code 2 (error), carrying
 			// the copy-failed member line — no separate p.log.error beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo: copy failed — Update failed for owner/repo after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+				"owner/repo: copy failed — Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
 				2,
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
@@ -1359,7 +1337,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// c's recorded SKILL.md is gone from the re-clone → derive gate aborts.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.endsWith("/c/SKILL.md")) {
@@ -1387,7 +1364,7 @@ describe("update command", () => {
 			// One member line each, all under the one header, at the matching level.
 			expect(mockLog.success).toHaveBeenCalledWith("a");
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"b: copy failed — Update failed for owner/repo/b after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo/b` to retry installation.",
+				"b: copy failed — Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc update owner/repo/b` to retry installation.",
 			);
 			expect(mockLog.error).toHaveBeenCalledWith(
 				expect.stringMatching(/^c: owner\/repo\/c was installed as a skill/),
@@ -1409,7 +1386,6 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1455,7 +1431,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1504,7 +1479,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1535,7 +1509,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1585,7 +1558,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1620,7 +1592,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1723,7 +1694,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -2028,9 +1998,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2052,9 +2019,10 @@ describe("update command", () => {
 
 		it("copies from temp dir after nuke", async () => {
 			const entry = makeEntry({
-				type: "plugin",
+				type: "pack",
 				files: [".claude/skills/my-skill/"],
 			});
+			mockDiscover.mockResolvedValue(onlyPack(LARAVEL_PACK));
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
 			mockCheckForUpdate.mockResolvedValue({
 				status: "update-available",
@@ -2064,7 +2032,7 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockCopyPluginAssets.mockResolvedValue({
+			mockCopyPack.mockResolvedValue({
 				copiedFiles: [".claude/skills/new-skill/"],
 				assetCounts: { skills: 1 },
 			});
@@ -2074,11 +2042,10 @@ describe("update command", () => {
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/my-skill/",
 			]);
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: "/tmp/agntc-clone",
-					projectDir: "/fake/project",
-				}),
+			expect(mockCopyPack).toHaveBeenCalledWith(
+				LARAVEL_PACK,
+				"/tmp/agntc-clone",
+				"/fake/project",
 			);
 		});
 
@@ -2097,9 +2064,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2131,9 +2095,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2161,9 +2122,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2346,7 +2304,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's SKILL.md gone -> abort; repo-b's present -> succeeds.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/skill-a/")) {
@@ -2501,7 +2458,6 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's re-clone has an escaping symlink -> blocked; repo-b is clean.
 			mockScanForEscapingSymlinks.mockImplementation(
 				async (sourceDir: unknown) => {
@@ -2585,7 +2541,6 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's recorded SKILL.md is gone -> derive gate aborts; repo-b stays.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/agntc-clone-a/")) {
@@ -2724,7 +2679,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// Both recorded skills are gone in the re-clone -> both abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 
@@ -2762,7 +2716,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 
 			const err = await runUpdate().catch((e) => e);
@@ -2796,7 +2749,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 
 			const err = await runUpdate().catch((e) => e);
@@ -2812,9 +2764,9 @@ describe("update command", () => {
 			);
 		});
 
-		it("plugin single-entry abort is atomic — the entry stays intact and exits non-zero", async () => {
+		it("pack single-entry abort is atomic — the entry stays intact and exits non-zero", async () => {
 			const entry = makeEntry({
-				type: "plugin",
+				type: "pack",
 				commit: INSTALLED_SHA,
 				files: [".claude/skills/my-plugin/"],
 			});
@@ -2827,9 +2779,10 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// Recorded plugin's marker is gone in the re-clone -> derive gate aborts.
-			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			// The pack's folder now holds declared packs -> derive gate aborts.
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("contains packs", "contains-packs"),
+			);
 
 			const err = await runUpdate().catch((e) => e);
 
@@ -2857,9 +2810,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2882,9 +2832,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const err = await runUpdate("owner/repo").catch((e) => e);
@@ -3030,7 +2977,6 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -3186,7 +3132,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone-b",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -3326,7 +3271,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone-b",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/b/"],
 			});
@@ -3403,7 +3347,6 @@ describe("update command", () => {
 			mockCloneSource
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's recorded SKILL.md is gone in its re-clone -> derive-before-delete
 			// abort (install intact, entry untouched); repo-b clean.
 			mockAccess.mockImplementation(async (path: unknown) => {
@@ -3454,7 +3397,6 @@ describe("update command", () => {
 			mockCloneSource
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's re-clone has an escaping symlink -> copy-safety block (install
 			// intact, entry untouched); repo-b clean.
 			mockScanForEscapingSymlinks.mockImplementation(
@@ -3516,7 +3458,6 @@ describe("update command", () => {
 			mockCloneSource
 				.mockRejectedValueOnce(new Error("git clone failed"))
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -3560,7 +3501,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's re-copy throws AFTER its old files are nuked -> copy-failed
 			// (its entry is removed); repo-b succeeds.
 			mockCopyBareSkill
@@ -3668,9 +3608,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -3701,9 +3638,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -3728,9 +3662,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -3757,9 +3688,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -3774,10 +3702,10 @@ describe("update command", () => {
 		});
 	});
 
-	describe("plugin type detection — plugin with asset dirs", () => {
-		it("uses copyPluginAssets for plugin type", async () => {
+	describe("recorded type replay — pack", () => {
+		it("re-walks a pack entry and copies what it holds now", async () => {
 			const entry = makeEntry({
-				type: "plugin",
+				type: "pack",
 				files: [".claude/skills/old-skill/", ".claude/agents/executor.md"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -3789,13 +3717,8 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			// Recorded plugin: skills/ and agents/ remain, hooks/ does not.
-			mockAccess.mockImplementation(async (path) => {
-				if (String(path).endsWith("/hooks")) {
-					throw new Error("ENOENT");
-				}
-			});
-			mockCopyPluginAssets.mockResolvedValue({
+			mockDiscover.mockResolvedValue(onlyPack(LARAVEL_PACK));
+			mockCopyPack.mockResolvedValue({
 				copiedFiles: [
 					".claude/skills/new-skill/",
 					".claude/agents/executor.md",
@@ -3805,19 +3728,106 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo");
 
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: "/tmp/agntc-clone",
-					assetDirs: ["skills", "agents"],
-					projectDir: "/fake/project",
-				}),
+			expect(mockDiscover).toHaveBeenCalledWith("/tmp/agntc-clone", {
+				startPath: "",
+				forcePack: true,
+				rootName: "repo",
+			});
+			expect(mockCopyPack).toHaveBeenCalledWith(
+				LARAVEL_PACK,
+				"/tmp/agntc-clone",
+				"/fake/project",
 			);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo",
+				expect.objectContaining({
+					type: "pack",
+					files: [".claude/skills/new-skill/", ".claude/agents/executor.md"],
+				}),
+			);
+		});
+
+		it("reports a pack entry that is now a single skill before the outro", async () => {
+			const entry = makeEntry({
+				type: "pack",
+				files: [".claude/agents/openai.yaml"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo/swift": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single skill", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/swift/"],
+			});
+
+			await runUpdate("owner/repo/swift");
+
+			const note =
+				"owner/repo/swift is a single skill — reinstalled as a skill";
+			expect(mockLog.info).toHaveBeenCalledWith(note);
+			expect(mockLog.info.mock.invocationCallOrder.at(-1)).toBeLessThan(
+				mockOutro.mock.invocationCallOrder.at(-1)!,
+			);
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/agents/openai.yaml",
+			]);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo/swift",
+				expect.objectContaining({
+					type: "skill",
+					files: [".claude/skills/swift/"],
+				}),
+			);
 		});
 	});
 
-	describe("plugin type detection — bare skill", () => {
-		it("uses copyBareSkill for bare-skill type", async () => {
+	describe("all-mode reinstall notes", () => {
+		it("prints a member's note after its group settles", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/swift": makeEntry({
+					type: "pack",
+					files: [".claude/agents/openai.yaml"],
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single skill", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/swift/"],
+			});
+
+			await runUpdate();
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"owner/repo/swift is a single skill — reinstalled as a skill",
+			);
+			const settled = handle.stop.mock.invocationCallOrder.at(-1)!;
+			expect(mockLog.info.mock.invocationCallOrder[0]).toBeGreaterThan(settled);
+		});
+	});
+
+	describe("recorded type replay — skill", () => {
+		it("uses copyBareSkill for a skill entry", async () => {
 			const entry = makeEntry();
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
 			mockCheckForUpdate.mockResolvedValue({
@@ -3828,9 +3838,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -3843,7 +3850,7 @@ describe("update command", () => {
 					projectDir: "/fake/project",
 				}),
 			);
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 	});
 
@@ -4019,7 +4026,6 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -4141,31 +4147,28 @@ describe("update command", () => {
 			expect(mockCleanupTempDir).not.toHaveBeenCalled();
 		});
 
-		it("uses copyPluginAssets when recorded type is plugin", async () => {
-			const pluginEntry: ManifestEntry = { ...LOCAL_ENTRY, type: "plugin" };
+		it("re-walks a local pack entry from its folder", async () => {
+			const pluginEntry: ManifestEntry = { ...LOCAL_ENTRY, type: "pack" };
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: pluginEntry });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			// Recorded plugin: derive-before-delete scans for present asset dirs.
-			// skills/ and agents/ remain, hooks/ does not.
-			mockAccess.mockImplementation(async (path) => {
-				if (String(path).endsWith("/hooks")) {
-					throw new Error("ENOENT");
-				}
-			});
-			mockCopyPluginAssets.mockResolvedValue({
+			mockDiscover.mockResolvedValue(onlyPack(LARAVEL_PACK));
+			mockCopyPack.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				assetCounts: { skills: 1, agents: 1 },
 			});
 
 			await runUpdate(LOCAL_KEY);
 
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: LOCAL_KEY,
-					assetDirs: ["skills", "agents"],
-					projectDir: "/fake/project",
-				}),
+			expect(mockDiscover).toHaveBeenCalledWith(LOCAL_KEY, {
+				startPath: "",
+				forcePack: true,
+				rootName: basename(LOCAL_KEY),
+			});
+			expect(mockCopyPack).toHaveBeenCalledWith(
+				LARAVEL_PACK,
+				LOCAL_KEY,
+				"/fake/project",
 			);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
@@ -4239,9 +4242,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 
 			// Return distinct copiedFiles per key so we can verify both entries
 			mockCopyBareSkill
@@ -4292,9 +4292,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
@@ -4340,9 +4337,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/standalone/"],
 			});
@@ -4375,9 +4369,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const err = await runUpdate("owner/repo").catch((e) => e);
@@ -4406,9 +4397,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			await runUpdate("owner/repo").catch(() => {});
@@ -4435,9 +4423,6 @@ describe("update command", () => {
 			mockReadManifest.mockResolvedValue(manifest);
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
@@ -4456,9 +4441,6 @@ describe("update command", () => {
 			mockReadManifest.mockResolvedValue(manifest);
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			await runUpdate(LOCAL_KEY).catch(() => {});
@@ -4488,9 +4470,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4521,9 +4500,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4556,9 +4532,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4591,9 +4564,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4629,9 +4599,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4665,9 +4632,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4838,9 +4802,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4949,9 +4910,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
@@ -5035,9 +4993,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/some-skill/"],
 			});
@@ -5100,9 +5055,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
@@ -5142,9 +5094,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5240,9 +5189,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5281,9 +5227,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 
 			// First plugin copy fails, second succeeds
 			mockCopyBareSkill
@@ -5325,9 +5268,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			// Copy failure exits non-zero after the summary is rendered; catch so
@@ -5354,9 +5294,6 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			// Copy failure exits non-zero after the manifest write; catch so the
@@ -5390,9 +5327,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5427,9 +5361,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5505,9 +5436,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5541,9 +5469,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5963,7 +5888,6 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 			tempDir: "/tmp/clone",
 			commit: REMOTE_SHA,
 		});
-		mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 		// b's per-member reinstall throws BEFORE the copy try/catch (a non-escape
 		// error from the symlink scan) → a bare `failed` outcome (not copy-failed);
 		// a succeeds.

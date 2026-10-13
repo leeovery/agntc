@@ -56,11 +56,17 @@ export interface MatchResult {
 	ambiguous: AmbiguousMatch[];
 }
 
+/** Why a folder can't be bundled as one pack. */
+export type PackConflict = "single-skill" | "contains-packs";
+
 /** Raised when `--pack` asks to bundle a folder that can't be one pack. */
 export class PackConflictError extends Error {
-	constructor(message: string) {
+	readonly conflict: PackConflict;
+
+	constructor(message: string, conflict: PackConflict) {
 		super(message);
 		this.name = "PackConflictError";
+		this.conflict = conflict;
 	}
 }
 
@@ -112,6 +118,7 @@ export async function discover(
 			if (options.forcePack) {
 				throw new PackConflictError(
 					`"${displayPath(ctx, start)}" is a single skill — --pack can't bundle it`,
+					"single-skill",
 				);
 			}
 			return {
@@ -217,6 +224,7 @@ async function forcePackAt(ctx: Context, start: string): Promise<Discovery> {
 	if (packs.length > 0) {
 		throw new PackConflictError(
 			`"${displayPath(ctx, start)}" contains packs (${packs.sort(comparePaths).join(", ")}) — --pack can't bundle it`,
+			"contains-packs",
 		);
 	}
 	return onlyPack(await toFoundPack(ctx, start));
@@ -435,7 +443,7 @@ function joinPath(parent: string, name: string): string {
 	return parent === "" ? name : `${parent}/${name}`;
 }
 
-function comparePaths(a: string, b: string): number {
+export function comparePaths(a: string, b: string): number {
 	if (a === b) {
 		return 0;
 	}

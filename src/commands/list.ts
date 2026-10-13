@@ -158,6 +158,7 @@ export async function runListLoop(): Promise<void> {
 					overrides,
 				);
 				if (result.success) {
+					reportNote(result.note);
 					p.log.success(result.message);
 				} else {
 					p.log.error(result.message);
@@ -173,12 +174,19 @@ export async function runListLoop(): Promise<void> {
 					projectDir,
 				);
 				if (result.changed) {
+					reportNote(result.note);
 					p.log.success(result.message);
 				} else if (result.message !== "Cancelled") {
 					p.log.error(result.message);
 				}
 			}
 		}
+	}
+}
+
+function reportNote(note: string | undefined): void {
+	if (note !== undefined) {
+		p.log.info(note);
 	}
 }
 

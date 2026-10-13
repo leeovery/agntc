@@ -1,17 +1,15 @@
 import { access, cp, mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { targetDir } from "./asset-targets.js";
+import { skillTarget } from "./asset-targets.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
 
 export interface CopyBareSkillInput {
 	sourceDir: string;
 	projectDir: string;
 	/**
-	 * The installed skill's directory name (identity = repo/unit basename per
-	 * spec). Required for a whole-repo bare skill, where `sourceDir` is the random
-	 * `mkdtemp` clone dir and `basename(sourceDir)` would name the install after
-	 * the temp dir. Defaults to `basename(sourceDir)` for callers whose source dir
-	 * already IS the unit dir (collection members, tree-path selectors).
+	 * The installed skill's directory name. Required for a skill at the repo
+	 * root, where `sourceDir` is the random `mkdtemp` clone dir and
+	 * `basename(sourceDir)` would name the install after the temp dir.
 	 */
 	skillName?: string;
 }
@@ -25,8 +23,8 @@ export async function copyBareSkill(
 ): Promise<CopyBareSkillResult> {
 	const { sourceDir, projectDir } = input;
 	const skillName = input.skillName ?? basename(sourceDir);
-	const destDir = join(projectDir, targetDir("skills"), skillName);
-	const installedDir = `${targetDir("skills")}/${skillName}/`;
+	const installedDir = skillTarget(skillName);
+	const destDir = join(projectDir, installedDir);
 
 	try {
 		await mkdir(destDir, { recursive: true });

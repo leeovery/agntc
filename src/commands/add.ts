@@ -1,129 +1,81 @@
 import { basename, join } from "node:path";
 import * as p from "@clack/prompts";
-import { Command } from "commander";
-import { selectCollectionPlugins } from "../collection-select.js";
+import { Command, Option } from "commander";
+import {
+	type ChoiceOutcome,
+	chooseItems,
+	type Selection,
+	type SelectionFlags,
+	selectionFromFlags,
+} from "../choose-items.js";
 import { checkFileCollisions } from "../collision-check.js";
 import { resolveCollisions } from "../collision-resolve.js";
 import { computeIncomingFiles } from "../compute-incoming-files.js";
-import type { AgntcConfig } from "../config.js";
-import { readConfig } from "../config.js";
+import { copyItem } from "../copy-item.js";
+import { checkEscapingSymlinks, PathTraversalError } from "../copy-safety.js";
 import {
-	assertSubpathWithinClone,
-	checkEscapingSymlinks,
-	PathTraversalError,
-} from "../copy-safety.js";
-import { type CopyUnitResult, copyUnit, toComputeInput } from "../copy-unit.js";
+	type Discovery,
+	discover,
+	PackConflictError,
+	StartPathError,
+} from "../discover.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
-import { type CloneResult, cleanupTempDir, cloneSource } from "../git-clone.js";
+import { cleanupTempDir, cloneSource } from "../git-clone.js";
 import { fetchRemoteTags } from "../git-utils.js";
-import type { Manifest, ManifestEntry } from "../manifest.js";
+import {
+	type InstallItem,
+	itemLabel,
+	itemPath,
+	type KeyedItem,
+	keyItems,
+} from "../install-item.js";
+import { promptForItems } from "../item-menu.js";
 import {
 	addEntry,
 	buildManifestEntry,
-	manifestTypeFromDetected,
+	type Manifest,
 	readManifest,
+	removeEntry,
 	writeManifest,
 } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
-import { parseSource, resolveCloneUrl } from "../source-parser.js";
-import type { PluginInstallResult } from "../summary.js";
-import { renderAddSummary, renderCollectionAddSummary } from "../summary.js";
-import type { DetectedType } from "../type-detection.js";
 import {
-	detectType,
-	findPresentAssetDirs,
-	TypeConflictError,
-} from "../type-detection.js";
+	type ParsedSource,
+	parseSource,
+	resolveCloneUrl,
+} from "../source-parser.js";
+import { type ItemOutcome, renderAddSummary } from "../summary.js";
 import { checkUnmanagedConflicts } from "../unmanaged-check.js";
-import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
 import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
-function deriveCloneUrlForManifest(
-	parsed: Awaited<ReturnType<typeof parseSource>>,
-): string | null {
-	if (parsed.type === "local-path") return null;
-	return resolveCloneUrl(parsed);
-}
+export type AddOptions = SelectionFlags;
 
-/**
- * Assembles the {@link buildManifestEntry} input shared by the standalone
- * install tail and the collection per-member write loop — owning the single
- * field literal plus the {@link manifestTypeFromDetected} and
- * {@link deriveCloneUrlForManifest} calls so the two sites cannot drift. The
- * ref/commit/cloneUrl derive from `parsed`/`commit`; the per-call inputs are the
- * narrowed detected unit, its copied files, and the constraint.
- */
-function buildAddEntry(opts: {
-	detected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-	files: string[];
-	parsed: Awaited<ReturnType<typeof parseSource>>;
+/** A source ready to install from: its files on disk and how it is recorded. */
+interface FetchedSource {
+	/** The manifest key prefix: `owner/repo`, or the local path. */
+	key: string;
+	root: string;
+	startPath?: string;
+	rootName: string;
+	/** The `@ref` or `@constraint` the user typed, for suggested commands. */
+	version?: string;
+	ref: string | null;
 	commit: string | null;
+	cloneUrl: string | null;
 	constraint: string | undefined;
-	/**
-	 * Divergent source subpath for a skills-only collection member (cycle-9); the
-	 * collection write loop passes {@link memberSourceSubpath}, the standalone
-	 * tail leaves it `undefined` (a root unit's source IS the key-derived dir).
-	 * `undefined` omits the field, preserving the legacy entry shape.
-	 */
-	sourceSubpath?: string;
-}): ManifestEntry {
-	return buildManifestEntry({
-		ref: opts.parsed.ref,
-		commit: opts.commit,
-		files: opts.files,
-		type: manifestTypeFromDetected(opts.detected),
-		cloneUrl: deriveCloneUrlForManifest(opts.parsed),
-		constraint: opts.constraint,
-		sourceSubpath: opts.sourceSubpath,
-	});
-}
-
-/**
- * Derives a collection member's manifest key — the single source for the
- * `direct-path ? manifestKey : ${manifestKey}/${basename(segment)}` rule shared
- * by the 5a conflict/nuke pass and the step-6 write loop, so the two cannot
- * diverge.
- *
- * `memberSegment` is the member's dir-relative path within the collection root
- * (e.g. "alpha" for a root-child member, "skills/a" for a skills-only inner
- * skill). Member identity — and therefore the manifest-key segment — is always
- * the basename, so a skills-only member keys `owner/repo/a`, not
- * `owner/repo/skills/a`. For root-child members the basename is the segment, so
- * this is a no-op for them.
- */
-function memberKey(
-	parsed: Awaited<ReturnType<typeof parseSource>>,
-	memberSegment: string,
-): string {
-	return parsed.type === "direct-path"
-		? parsed.manifestKey
-		: `${parsed.manifestKey}/${basename(memberSegment)}`;
-}
-
-/**
- * The divergent source subpath persisted on a collection member's manifest entry
- * (cycle-9 regression fix), or `undefined` when none is needed. A member is keyed
- * by its segment's basename, but its source dir is the full `memberSegment`. When
- * the two diverge — a skills-only inner skill with segment "skills/<name>" vs key
- * basename "<name>" — the update path cannot reconstruct the source dir from the
- * basename key, so the segment is recorded as {@link ManifestEntry.sourceSubpath}
- * for the resolver to prefer. For root-child members (segment === basename) and
- * direct-path selectors there is no divergence, so this returns `undefined` and
- * the entry omits the field, preserving the byte-identical legacy shape.
- */
-function memberSourceSubpath(memberSegment: string): string | undefined {
-	return memberSegment === basename(memberSegment) ? undefined : memberSegment;
 }
 
 interface TagResolutionResult {
-	parsed: Awaited<ReturnType<typeof parseSource>>;
+	parsed: ParsedSource;
 	constraint: string | undefined;
 }
 
+const ENGINE_ERRORS = [StartPathError, PathTraversalError, PackConflictError];
+
 export async function resolveTagConstraint(
-	parsed: Awaited<ReturnType<typeof parseSource>>,
+	parsed: ParsedSource,
 ): Promise<TagResolutionResult> {
 	if (parsed.type === "local-path") {
 		return { parsed, constraint: undefined };
@@ -157,6 +109,338 @@ export async function resolveTagConstraint(
 	return { parsed: updatedParsed, constraint: constraint ?? undefined };
 }
 
+export async function runAdd(
+	source: string,
+	options: AddOptions = {},
+): Promise<void> {
+	p.intro("agntc add");
+
+	if (options.plugin) {
+		p.log.info("--plugin is now --pack");
+	}
+	const selection = selectionFromFlags(options);
+	if (!selection.ok) {
+		p.cancel(selection.message);
+		throw new ExitSignal(1);
+	}
+
+	let tempDir: string | undefined;
+
+	try {
+		const typed = await parseSource(source);
+		const { parsed, constraint } = await resolveTagConstraint(typed);
+		const fetched = await fetchSource(parsed);
+		tempDir = fetched.tempDir;
+
+		const src = describeSource(typed, parsed, constraint, fetched);
+		const items = await pickItems(src, selection.selection);
+		await installItems(items, src);
+	} catch (err) {
+		if (err instanceof ExitSignal) {
+			throw err;
+		}
+		p.cancel(errorMessage(err));
+		throw new ExitSignal(1);
+	} finally {
+		if (tempDir) {
+			await cleanupTempDir(tempDir).catch(() => {});
+		}
+	}
+}
+
+async function fetchSource(
+	parsed: ParsedSource,
+): Promise<{ root: string; commit: string | null; tempDir?: string }> {
+	if (parsed.type === "local-path") {
+		return { root: parsed.resolvedPath, commit: null };
+	}
+
+	const spin = p.spinner();
+	spin.start("Cloning repository...");
+	try {
+		const { tempDir, commit } = await cloneSource(parsed);
+		spin.stop("Cloned successfully");
+		return { root: tempDir, commit, tempDir };
+	} catch (err) {
+		spin.stop("Clone failed");
+		throw err;
+	}
+}
+
+/**
+ * `typed` is the source as the user wrote it, `parsed` the same source with
+ * its version resolved.
+ */
+function describeSource(
+	typed: ParsedSource,
+	parsed: ParsedSource,
+	constraint: string | undefined,
+	fetched: { root: string; commit: string | null },
+): FetchedSource {
+	const version = typed.constraint ?? typed.ref;
+	const common = {
+		key: parsed.manifestKey,
+		root: fetched.root,
+		ref: parsed.ref,
+		commit: fetched.commit,
+		constraint,
+		...(version !== null ? { version } : {}),
+	};
+	if (parsed.type === "local-path") {
+		return {
+			...common,
+			rootName: basename(parsed.resolvedPath),
+			cloneUrl: null,
+		};
+	}
+	return {
+		...common,
+		rootName: parsed.repo,
+		cloneUrl: parsed.cloneUrl,
+		...(parsed.startPath !== undefined ? { startPath: parsed.startPath } : {}),
+	};
+}
+
+async function pickItems(
+	src: FetchedSource,
+	selection: Selection,
+): Promise<KeyedItem[]> {
+	const discovery = await discoverSource(src, selection);
+	const { strayNotices, outcome } = chooseItems(discovery, selection, {
+		source: src.key,
+		rootName: src.rootName,
+		...(src.version !== undefined ? { version: src.version } : {}),
+	});
+	for (const notice of strayNotices) {
+		p.log.warn(notice);
+	}
+
+	const keyed = keyItems(await settle(outcome, src), src.key, src.rootName);
+	if (!keyed.ok) {
+		return refuse(src, keyed.message);
+	}
+	return keyed.items;
+}
+
+async function discoverSource(
+	src: FetchedSource,
+	selection: Selection,
+): Promise<Discovery> {
+	try {
+		return await discover(src.root, {
+			...(src.startPath !== undefined ? { startPath: src.startPath } : {}),
+			forcePack: selection.kind === "pack",
+			rootName: src.rootName,
+			onWarn: (message) => p.log.warn(message),
+		});
+	} catch (err) {
+		if (ENGINE_ERRORS.some((engineError) => err instanceof engineError)) {
+			return refuse(src, errorMessage(err));
+		}
+		throw err;
+	}
+}
+
+async function settle(
+	outcome: ChoiceOutcome,
+	src: FetchedSource,
+): Promise<InstallItem[]> {
+	switch (outcome.kind) {
+		case "refuse":
+			return refuse(src, outcome.message);
+		case "install":
+			for (const note of outcome.notes) {
+				p.log.info(note);
+			}
+			return outcome.items;
+		case "menu": {
+			const picked = await promptForItems(outcome.options);
+			if (picked.length === 0) {
+				p.cancel("Cancelled — nothing selected");
+				throw new ExitSignal(0);
+			}
+			return picked;
+		}
+	}
+}
+
+function refuse(src: FetchedSource, message: string): never {
+	p.cancel(`${src.key}: ${message}`);
+	throw new ExitSignal(1);
+}
+
+/**
+ * Installs each item as its own manifest entry. Every item is checked before
+ * any install is touched; an item that fails or is skipped doesn't stop the
+ * others, and the command exits non-zero after the summary if any failed.
+ */
+async function installItems(
+	items: KeyedItem[],
+	src: FetchedSource,
+): Promise<void> {
+	const projectDir = process.cwd();
+	let manifest = await readManifest(projectDir);
+	const outcomes: ItemOutcome[] = [];
+	const cleared: KeyedItem[] = [];
+
+	for (const keyed of items) {
+		const checked = await checkItem(keyed, src, manifest, projectDir);
+		manifest = checked.manifest;
+		if (checked.outcome === null) {
+			cleared.push(keyed);
+		} else {
+			outcomes.push(checked.outcome);
+		}
+	}
+
+	if (cleared.length > 0) {
+		const spin = p.spinner();
+		spin.start("Copying skill files...");
+		for (const keyed of cleared) {
+			const installed = await installKeyedItem(
+				keyed,
+				src,
+				manifest,
+				projectDir,
+			);
+			manifest = installed.manifest;
+			outcomes.push(installed.outcome);
+		}
+		spin.stop("Copied successfully");
+	}
+
+	await writeManifest(projectDir, manifest);
+	reportSummary(src, outcomes);
+
+	if (outcomes.some((outcome) => outcome.status === "failed")) {
+		throw new ExitSignal(1);
+	}
+}
+
+interface CheckedItem {
+	manifest: Manifest;
+	/** Why the item won't be copied, or null when it's clear to copy. */
+	outcome: ItemOutcome | null;
+}
+
+/**
+ * Clears an item for copying: the symlink-escape scan, then the collision and
+ * unmanaged-file checks with their prompts. Files recorded under the item's own
+ * key count as its own, so a reinstall doesn't trip either check.
+ */
+async function checkItem(
+	{ item, key }: KeyedItem,
+	src: FetchedSource,
+	manifest: Manifest,
+	projectDir: string,
+): Promise<CheckedItem> {
+	const label = itemLabel(item, src.rootName);
+	const symlinkCheck = await checkEscapingSymlinks(
+		join(src.root, itemPath(item)),
+		src.root,
+	);
+	if (!symlinkCheck.ok) {
+		return {
+			manifest,
+			outcome: { label, status: "failed", reason: symlinkCheck.message },
+		};
+	}
+
+	const conflicts = await runConflictChecks({
+		incomingFiles: await computeIncomingFiles(item, src.root),
+		manifest,
+		pluginKey: key,
+		projectDir,
+	});
+	return {
+		manifest: conflicts.updatedManifest,
+		outcome: conflicts.proceed
+			? null
+			: { label, status: "skipped", reason: "conflict not resolved" },
+	};
+}
+
+/**
+ * Removes the files of an earlier install under the item's key, then copies
+ * the item. A failed copy drops the key's entry, since its files are gone. A
+ * failed removal keeps the entry, so whatever is left stays tracked.
+ */
+async function installKeyedItem(
+	{ item, key, sourceSubpath }: KeyedItem,
+	src: FetchedSource,
+	manifest: Manifest,
+	projectDir: string,
+): Promise<{ manifest: Manifest; outcome: ItemOutcome }> {
+	const label = itemLabel(item, src.rootName);
+	const failed = (reason: string): ItemOutcome => ({
+		label,
+		status: "failed",
+		reason,
+	});
+
+	const existing = manifest[key];
+	if (existing) {
+		try {
+			await nukeManifestFiles(projectDir, existing.files);
+		} catch (err) {
+			return {
+				manifest,
+				outcome: failed(
+					`couldn't remove its earlier install: ${errorMessage(err)}`,
+				),
+			};
+		}
+	}
+
+	try {
+		const { copiedFiles, assetCounts } = await copyItem(
+			item,
+			src.root,
+			projectDir,
+		);
+		const entry = buildManifestEntry({
+			ref: src.ref,
+			commit: src.commit,
+			files: copiedFiles,
+			type: item.kind,
+			cloneUrl: src.cloneUrl,
+			constraint: src.constraint,
+			sourceSubpath,
+		});
+		return {
+			manifest: addEntry(manifest, key, entry),
+			outcome: { label, status: "installed", kind: item.kind, assetCounts },
+		};
+	} catch (err) {
+		const reason = errorMessage(err);
+		return {
+			manifest: removeEntry(manifest, key),
+			outcome: failed(
+				existing ? `${reason}; its earlier install was removed` : reason,
+			),
+		};
+	}
+}
+
+function reportSummary(src: FetchedSource, outcomes: ItemOutcome[]): void {
+	const summary = renderAddSummary({
+		sourceKey: src.key,
+		ref: src.ref,
+		commit: src.commit,
+		outcomes,
+	});
+	if (summary.installed.length > 0) {
+		p.log.success(summary.installed.join("\n"));
+	}
+	if (summary.skipped.length > 0) {
+		p.log.warn(summary.skipped.join("\n"));
+	}
+	if (summary.failed.length > 0) {
+		p.log.error(summary.failed.join("\n"));
+	}
+	p.outro(summary.headline);
+}
+
 interface ConflictCheckResult {
 	updatedManifest: Manifest;
 	proceed: boolean;
@@ -171,7 +455,6 @@ async function runConflictChecks(opts: {
 	const { incomingFiles, pluginKey, projectDir } = opts;
 	let currentManifest = opts.manifest;
 
-	// Collision check
 	const collisions = checkFileCollisions(
 		incomingFiles,
 		currentManifest,
@@ -189,17 +472,15 @@ async function runConflictChecks(opts: {
 		}
 	}
 
-	// Unmanaged check
 	const unmanagedConflicts = await checkUnmanagedConflicts(
 		incomingFiles,
 		currentManifest,
 		projectDir,
 	);
 	if (unmanagedConflicts.length > 0) {
-		const conflicts: UnmanagedPluginConflicts[] = [
+		const unmanagedResolution = await resolveUnmanagedConflicts([
 			{ pluginKey, files: unmanagedConflicts },
-		];
-		const unmanagedResolution = await resolveUnmanagedConflicts(conflicts);
+		]);
 		if (unmanagedResolution.cancelled.length > 0) {
 			return { updatedManifest: currentManifest, proceed: false };
 		}
@@ -208,560 +489,15 @@ async function runConflictChecks(opts: {
 	return { updatedManifest: currentManifest, proceed: true };
 }
 
-export async function runAdd(
-	source: string,
-	options?: { forcePlugin?: boolean },
-): Promise<void> {
-	p.intro("agntc add");
-
-	let tempDir: string | undefined;
-
-	try {
-		// 1. Parse source and resolve tag constraint
-		const rawParsed = await parseSource(source);
-		const resolution = await resolveTagConstraint(rawParsed);
-		const parsed = resolution.parsed;
-		const resolvedConstraint = resolution.constraint;
-
-		// 2. Resolve source directory and commit
-		const spin = p.spinner();
-		let sourceDir: string;
-		let commit: string | null;
-
-		if (parsed.type === "local-path") {
-			sourceDir = parsed.resolvedPath;
-			commit = null;
-		} else {
-			spin.start("Cloning repository...");
-			let cloneResult: CloneResult;
-			try {
-				cloneResult = await cloneSource(parsed);
-			} catch (err) {
-				spin.stop("Clone failed");
-				throw err;
-			}
-			spin.stop("Cloned successfully");
-			tempDir = cloneResult.tempDir;
-			sourceDir = cloneResult.tempDir;
-			commit = cloneResult.commit;
-		}
-
-		// 2b. Resolve the unit directory. For a direct-path (tree URL) source the
-		// subpath is a standalone unit selector: detection, config, and copy all
-		// target join(sourceDir, parsed.targetPlugin), not the repo root (task
-		// 2-3). Every other source has unitDir === sourceDir (no-op). The lexical
-		// within-clone containment guard for targetPlugin runs immediately below
-		// at step 2c, before unitDir is first read.
-		const unitDir =
-			parsed.type === "direct-path"
-				? join(sourceDir, parsed.targetPlugin)
-				: sourceDir;
-
-		// 2c. Lexical path-traversal guard on the selector subpath (analysis 1-2).
-		// This is the cheap, pure containment check, gated BEFORE the FIRST use of
-		// the joined unitDir: readConfig (step 3) and detectType (step 4) both
-		// read the filesystem at that joined path, so the guard must precede them
-		// so an attacker-controlled `..`-escaped selector is rejected pre-flight
-		// before any read at the joined path. No-op for a whole-repo install
-		// (subpath undefined). The symlink scan (content validation that must
-		// precede copy) stays at step 6. A violation surfaces as the same
-		// identity-prefixed cancel + non-zero exit as the step 6 handling.
-		try {
-			assertSubpathWithinClone(
-				sourceDir,
-				parsed.type === "direct-path" ? parsed.targetPlugin : undefined,
-			);
-		} catch (err) {
-			if (err instanceof PathTraversalError) {
-				p.cancel(`${parsed.manifestKey}: ${err.message}`);
-				throw new ExitSignal(1);
-			}
-			throw err;
-		}
-
-		// 3. Read config (lenient — never throws; null when absent/empty)
-		const onWarn = (message: string) => p.log.warn(message);
-		const config = await readConfig(unitDir, { onWarn });
-
-		// 4. Detect type ONCE — structure is sole authority; optional root config
-		// type and the --plugin installer override are forwarded so detection owns
-		// recognition and conflict resolution (Phase 1, task 1-4).
-		let detected: DetectedType;
-		try {
-			detected = await detectType(unitDir, {
-				onWarn,
-				configType: config?.type,
-				forcePlugin: options?.forcePlugin,
-			});
-		} catch (err) {
-			if (err instanceof TypeConflictError) {
-				// Detector supplies the structural half (err.message); prepend the
-				// source identity so the message names the offending source (spec: hard
-				// errors name the source). Pre-flight, non-zero, before any copy/manifest
-				// write. detectType raises this for EITHER override origin — the
-				// --plugin flag or a config `type: plugin` — so attribute it to the one
-				// that actually triggered it. The flag is the explicit user action and
-				// the higher-precedence override, so when set it owns the conflict; only
-				// otherwise did the config declaration trigger it.
-				const conflictMessage =
-					options?.forcePlugin === true
-						? `${parsed.manifestKey}: the --plugin flag cannot bundle this source — ${err.message}`
-						: `${parsed.manifestKey} declares type plugin but ${err.message}`;
-				p.cancel(conflictMessage);
-				throw new ExitSignal(1);
-			}
-			throw err;
-		}
-
-		// 5. Branch on detected type
-		if (detected.type === "collection") {
-			await runCollectionPipeline({
-				sourceDir: unitDir,
-				cloneRoot: sourceDir,
-				parsed,
-				commit,
-				detected,
-				onWarn,
-				spin,
-				constraint: resolvedConstraint,
-			});
-			return;
-		}
-
-		if (detected.type === "not-agntc") {
-			// Loud non-zero pre-flight failure (spec: Error & Abort — Hard errors).
-			p.cancel(
-				`${parsed.manifestKey}: Not an agntc source — no SKILL.md, asset dirs, or collection members found`,
-			);
-			throw new ExitSignal(1);
-		}
-
-		const projectDir = process.cwd();
-
-		// 6. Copy-safety pre-flight (Phase 5). The symlink scan is content
-		// validation that must precede the copy: it rejects any symlink whose
-		// target escapes the clone root (tempDir for a remote clone, the resolved
-		// local path otherwise) — NOT the per-unit unitDir, so a within-clone
-		// symlink in a multi-dir plugin is allowed. It runs BEFORE any nuke/copy/
-		// manifest write, so a violation leaves no on-disk window. The lexical
-		// selector traversal guard already ran pre-read at step 2c (analysis 1-2);
-		// it is not repeated here. A violation maps to an identity-prefixed cancel
-		// + non-zero exit (mirrors the TypeConflictError pre-flight above).
-		const symlinkCheck = await checkEscapingSymlinks(unitDir, sourceDir);
-		if (!symlinkCheck.ok) {
-			p.cancel(`${parsed.manifestKey}: ${symlinkCheck.message}`);
-			throw new ExitSignal(1);
-		}
-
-		// 7. Read manifest and nuke existing files if reinstalling
-		const manifest = await readManifest(projectDir);
-		const existingEntry = manifest[parsed.manifestKey];
-		if (existingEntry) {
-			await nukeManifestFiles(projectDir, existingEntry.files);
-		}
-
-		// 7a. Compute incoming files (against the resolved unit directory).
-		// The bare-skill install name is the manifest-key basename (identity = repo
-		// /unit basename per spec), NOT basename(unitDir): for a whole-repo bare
-		// skill unitDir is the random mkdtemp clone dir, which would name the
-		// install after the temp dir. For members/tree-path selectors the two
-		// coincide, so this is a no-op there.
-		const installName = basename(parsed.manifestKey);
-		const incomingFiles = await computeIncomingFiles(
-			toComputeInput(detected, unitDir, installName),
-		);
-
-		// 7b. Collision + unmanaged conflict checks
-		const conflictResult = await runConflictChecks({
-			incomingFiles,
-			manifest,
-			pluginKey: parsed.manifestKey,
-			projectDir,
-		});
-		const currentManifest = conflictResult.updatedManifest;
-		if (!conflictResult.proceed) {
-			p.cancel("Cancelled — conflict not resolved");
-			throw new ExitSignal(0);
-		}
-
-		// 8. Copy assets (with spinner)
-		let copyResult: CopyUnitResult;
-
-		spin.start("Copying skill files...");
-		try {
-			copyResult = await copyUnit(detected, {
-				sourceDir: unitDir,
-				projectDir,
-				skillName: installName,
-			});
-		} catch (err) {
-			spin.stop("Copy failed");
-			throw err;
-		}
-		spin.stop("Copied successfully");
-		const { copiedFiles, assetCounts } = copyResult;
-
-		// 9. Handle empty plugin
-		if (detected.type === "plugin" && copiedFiles.length === 0) {
-			p.log.warn("No files to install");
-			throw new ExitSignal(0);
-		}
-
-		// 10. Write manifest
-		const entry = buildAddEntry({
-			detected,
-			files: copiedFiles,
-			parsed,
-			commit,
-			constraint: resolvedConstraint,
-		});
-		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
-		await writeManifest(projectDir, updated);
-
-		// 11. Summary — asset breakdown as a gutterred log node, headline as the
-		// terminal outro node, so the tree stays connected.
-		const summary = renderAddSummary({
-			manifestKey: parsed.manifestKey,
-			ref: parsed.ref,
-			commit,
-			assetCounts,
-		});
-		// Emit the breakdown as ONE node (multi-line) so the bar continues down each
-		// row with no blank line between — compact, still connected to the tree.
-		if (summary.detail.length > 0) {
-			p.log.success(summary.detail.join("\n"));
-		}
-		p.outro(summary.headline);
-	} catch (err) {
-		if (err instanceof ExitSignal) {
-			throw err;
-		}
-		p.cancel(errorMessage(err));
-		throw new ExitSignal(1);
-	} finally {
-		if (tempDir) {
-			try {
-				await cleanupTempDir(tempDir);
-			} catch {
-				// Swallow cleanup errors
-			}
-		}
-	}
-}
-
-interface CollectionPipelineInput {
-	sourceDir: string;
-	// The TRUE clone/source root (tempDir for a remote clone, resolved local path
-	// otherwise). Distinct from sourceDir, which for a direct-path collection is
-	// the unit dir (join(cloneRoot, targetPlugin)) per task 2-3. The symlink
-	// boundary is always the clone root, never the unit dir.
-	cloneRoot: string;
-	parsed: Awaited<ReturnType<typeof parseSource>>;
-	commit: string | null;
-	detected: Extract<DetectedType, { type: "collection" }>;
-	onWarn: (message: string) => void;
-	spin: ReturnType<typeof p.spinner>;
-	constraint: string | undefined;
-}
-
-async function runCollectionPipeline(
-	input: CollectionPipelineInput,
-): Promise<void> {
-	const {
-		sourceDir,
-		cloneRoot,
-		parsed,
-		commit,
-		detected,
-		onWarn,
-		spin,
-		constraint,
-	} = input;
-	const projectDir = process.cwd();
-
-	// 1. Read manifest
-	const manifest = await readManifest(projectDir);
-
-	// 2. Select plugins (or use targetPlugin for direct-path)
-	let selectedPlugins: string[];
-
-	if (parsed.type === "direct-path") {
-		if (!detected.plugins.includes(parsed.targetPlugin)) {
-			throw new Error(
-				`Plugin "${parsed.targetPlugin}" not found in collection. Available: ${detected.plugins.join(", ")}`,
-			);
-		}
-		selectedPlugins = [parsed.targetPlugin];
-	} else {
-		selectedPlugins = await selectCollectionPlugins({
-			plugins: detected.plugins,
-			manifest,
-			manifestKeyPrefix: parsed.manifestKey,
-		});
-
-		if (selectedPlugins.length === 0) {
-			p.cancel("Cancelled — no plugins selected");
-			throw new ExitSignal(0);
-		}
-	}
-
-	// 3. Read each selected member's config for its declared type. The member set
-	// is selectedPlugins (populated structurally upstream via Phase 1
-	// qualifiesAsMember) — config presence is NOT membership. readConfig is total:
-	// it returns AgntcConfig for a valid config and null for a missing or unusable
-	// one (a legitimate configless member, never a skip reason). It never throws
-	// for config problems; only a genuine non-ENOENT IO error propagates, and that
-	// SHOULD abort the whole pipeline (surfaced via runAdd's outer catch).
-	//
-	// Each entry of selectedPlugins is a member's dir-relative SEGMENT: the basename
-	// for a root-child member ("alpha"), or "skills/<name>" for a skills-only inner
-	// skill. The segment locates the on-disk dir (join below); member identity — the
-	// display name and the manifest-key segment — is its basename (memberName /
-	// memberKey). The two are decoupled because a skills-only member's dir path is
-	// one level deeper than its key. The config map is keyed by the segment so the
-	// later passes re-look-up by the same segment they iterate.
-	const pluginConfigs = new Map<string, AgntcConfig | null>();
-
-	for (const memberSegment of selectedPlugins) {
-		const pluginDir = join(sourceDir, memberSegment);
-		const pluginConfig = await readConfig(pluginDir, { onWarn });
-		pluginConfigs.set(memberSegment, pluginConfig);
-	}
-
-	const results: PluginInstallResult[] = [];
-	let currentManifest: Manifest = manifest;
-
-	// 4. Detection pass. Resolve each selected member to an installable unit
-	// (bare-skill | plugin); not-agntc and nested collection members are skipped.
-	const installable: Array<{
-		memberName: string;
-		memberSegment: string;
-		pluginDir: string;
-		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-	}> = [];
-
-	for (const memberSegment of selectedPlugins) {
-		// The iterated value is the member's dir-relative SEGMENT (locates the dir);
-		// memberName is its basename — the member's identity used for every
-		// user-facing field (warnings, results/summary) and the manifest key. They
-		// differ only for a skills-only inner skill (segment "skills/a", name "a").
-		const memberName = basename(memberSegment);
-
-		// readConfig is total (step 3): a null config is a legitimate configless
-		// member, never a skip reason.
-		const pluginConfig = pluginConfigs.get(memberSegment) ?? null;
-		const pluginDir = join(sourceDir, memberSegment);
-
-		// Membership rule (spec: "a child with ≥1 asset-kind dir is a plugin
-		// member"): a member with any asset dir at its OWN root is a plugin member,
-		// never a nested collection. The skills-only member (only skills/, no
-		// SKILL.md) hits the detector's skills-only ambiguity and would otherwise
-		// default to collection → be silently dropped as a "nested collection"
-		// (analysis 2-1). Forcing plugin ONLY when an asset dir is present resolves
-		// the ambiguity correctly without ever forcing a member-dirs child (which
-		// has ZERO asset dirs at its own root) — that case stays a genuine nested
-		// collection and is still skipped below.
-		const memberHasAssetDirs =
-			(await findPresentAssetDirs(pluginDir)).length > 0;
-		const pluginDetected = await detectType(pluginDir, {
-			onWarn,
-			configType: pluginConfig?.type,
-			forcePlugin: memberHasAssetDirs,
-		});
-
-		if (pluginDetected.type === "not-agntc") {
-			onWarn(`${memberName}: not a valid agntc plugin — skipping`);
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-			});
-			continue;
-		}
-
-		if (pluginDetected.type === "collection") {
-			onWarn(`${memberName}: nested collections not supported — skipping`);
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-			});
-			continue;
-		}
-
-		installable.push({ memberName, memberSegment, pluginDir, pluginDetected });
-	}
-
-	// 5a. Per-member conflict checks + install prep.
-	const pluginsToInstall: Array<{
-		pluginName: string;
-		pluginSegment: string;
-		pluginDir: string;
-		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-		pluginManifestKey: string;
-	}> = [];
-
-	for (const m of installable) {
-		const memberName = m.memberName;
-		const memberSegment = m.memberSegment;
-		const pluginDir = m.pluginDir;
-		const pluginDetected = m.pluginDetected;
-
-		const pluginManifestKey = memberKey(parsed, memberSegment);
-
-		// Copy-safety pre-flight per member (Phase 5). Each member is scanned
-		// independently against the clone root (NOT the unit dir) BEFORE its own
-		// nuke/copy. The direct-path selector subpath was already validated
-		// lexically pre-read at runAdd step 2c (analysis 1-2), so it is not
-		// re-checked here. A violation fails THIS member loudly (recorded failed,
-		// no nuke/copy/entry) but does NOT abort siblings — the non-zero exit is
-		// deferred to the end of the run.
-		const memberSymlinkCheck = await checkEscapingSymlinks(
-			pluginDir,
-			cloneRoot,
-		);
-		if (!memberSymlinkCheck.ok) {
-			results.push({
-				pluginName: memberName,
-				status: "failed",
-				copiedFiles: [],
-				errorMessage: memberSymlinkCheck.message,
-			});
-			continue;
-		}
-
-		// Nuke existing files if reinstalling this plugin
-		const existingPluginEntry = currentManifest[pluginManifestKey];
-		if (existingPluginEntry) {
-			try {
-				await nukeManifestFiles(projectDir, existingPluginEntry.files);
-			} catch {
-				onWarn(`${memberName}: failed to remove old files — skipping`);
-				results.push({
-					pluginName: memberName,
-					status: "skipped",
-					copiedFiles: [],
-				});
-				continue;
-			}
-		}
-
-		// Compute incoming files
-		const incomingFiles = await computeIncomingFiles(
-			toComputeInput(pluginDetected, pluginDir),
-		);
-
-		// Collision + unmanaged conflict checks
-		const conflictResult = await runConflictChecks({
-			incomingFiles,
-			manifest: currentManifest,
-			pluginKey: pluginManifestKey,
-			projectDir,
-		});
-		currentManifest = conflictResult.updatedManifest;
-		if (!conflictResult.proceed) {
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-			});
-			continue;
-		}
-
-		pluginsToInstall.push({
-			pluginName: memberName,
-			pluginSegment: memberSegment,
-			pluginDir,
-			pluginDetected,
-			pluginManifestKey,
-		});
-	}
-
-	// 5b. Copy all approved plugins (independent failure handling)
-	spin.start("Copying skill files...");
-	for (const {
-		pluginName,
-		pluginSegment,
-		pluginDir,
-		pluginDetected,
-	} of pluginsToInstall) {
-		try {
-			const copyResult = await copyUnit(pluginDetected, {
-				sourceDir: pluginDir,
-				projectDir,
-			});
-			results.push({
-				pluginName,
-				pluginSegment,
-				status: "installed",
-				copiedFiles: copyResult.copiedFiles,
-				detectedType: pluginDetected,
-			});
-		} catch (err) {
-			results.push({
-				pluginName,
-				status: "failed",
-				copiedFiles: [],
-				errorMessage: errorMessage(err),
-			});
-		}
-	}
-	spin.stop("Copied successfully");
-
-	// 6. Single manifest write
-	let updatedManifest: Manifest = currentManifest;
-	for (const result of results) {
-		if (result.status !== "installed") continue;
-		// `status === "installed"` narrows `result` to the installed variant, whose
-		// `detectedType` is statically a standalone (bare-skill | plugin) unit —
-		// collection/not-agntc never reach an installed result (filtered earlier in
-		// the per-member loop), so no runtime narrowing guard is needed here.
-		const manifestKey = memberKey(parsed, result.pluginName);
-		const entry = buildAddEntry({
-			detected: result.detectedType,
-			files: result.copiedFiles,
-			parsed,
-			commit,
-			constraint,
-			// Persist the divergent source subpath for a skills-only member so the
-			// basename-keyed entry stays updatable (cycle-9). Omitted for root-child
-			// members (segment === basename).
-			sourceSubpath: memberSourceSubpath(result.pluginSegment),
-		});
-		updatedManifest = addEntry(updatedManifest, manifestKey, entry);
-	}
-	await writeManifest(projectDir, updatedManifest);
-
-	// 7. Per-plugin summary — one compact row per installed member,
-	// emitted as ONE node (multi-line) so the bar continues with no blank between
-	// rows; headline as the terminal outro node.
-	const summary = renderCollectionAddSummary({
-		manifestKey: parsed.manifestKey,
-		ref: parsed.ref,
-		commit,
-		results,
-	});
-	if (summary.detail.length > 0) {
-		p.log.success(summary.detail.join("\n"));
-	}
-	p.outro(summary.headline);
-
-	// 8. Non-zero exit on partial failure (spec: Partial outcomes — the exit-status
-	// contract covers multi-member installs). Deferred to AFTER the write + summary
-	// so siblings commit and the full report is shown first (mirrors 4-7). A skipped
-	// member (nested-collection / not-agntc) is NON-fatal; only a failed member
-	// (a copy-safety violation, or a copy failure) triggers the non-zero exit.
-	if (results.some((r) => r.status === "failed")) {
-		throw new ExitSignal(1);
-	}
-}
-
 export const addCommand = new Command("add")
-	.description("Install a plugin from a git repo or local path")
-	.argument("<source>", "Git repo (owner/repo) or local path")
-	.option("--plugin", "Bundle a skills-only source as a single plugin")
+	.description("Install skills and packs from a git repo or local path")
+	.argument("<source>", "Git repo (owner/repo[/path]) or local path")
+	.option("--skill <names...>", "Install only the named skills")
+	.option("--pack", "Install the source path as one pack")
+	.option("--all", "Install everything found")
+	.addOption(new Option("--plugin", "Renamed to --pack").hideHelp())
 	.action(
-		withExitSignal(async (source: string, options: { plugin?: boolean }) => {
-			await runAdd(source, { forcePlugin: options.plugin === true });
+		withExitSignal(async (source: string, options: AddOptions) => {
+			await runAdd(source, options);
 		}),
 	);

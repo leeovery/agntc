@@ -5,31 +5,24 @@ import * as p from "@clack/prompts";
 import { identifyAssetType, targetDir } from "./asset-targets.js";
 import { errorMessage, isNodeError } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
-import type { DetectedType } from "./type-detection.js";
+
+/** What an entry installed: one skill, or a pack of skills, agents and hooks. */
+export type EntryType = "skill" | "pack";
 
 export interface ManifestEntry {
 	ref: string | null;
 	commit: string | null;
 	installedAt: string;
 	files: string[];
-	type?: "skill" | "plugin";
+	type?: EntryType;
 	cloneUrl: string | null;
 	constraint?: string;
 	/**
-	 * The unit's clone-relative source path, recorded ONLY when it diverges from
-	 * the manifest-key's basename segment — i.e. a skills-only collection member
-	 * keyed `owner/repo/<name>` whose source actually lives at
-	 * `<clone>/skills/<name>` (cycle-9 regression fix). `update` re-clones and
-	 * reconstructs the source dir from the manifest key via
-	 * {@link getSourceDirFromKey}; for a basename-keyed skills-only member that
-	 * derives the WRONG dir (`<clone>/<name>`), so derive-before-delete finds no
-	 * SKILL.md and aborts. The update source-resolver
-	 * (clone-reinstall `cloneAndReinstall`) PREFERS this stored subpath when
-	 * present, falling back to the key-derived dir when absent. Identity stays the
-	 * basename (key + install destination unchanged); this records only WHERE to
-	 * re-copy from. OPTIONAL and backward-compatible: root-child members and all
-	 * standalone entries (segment === basename) omit it and round-trip via the key
-	 * exactly as before; legacy manifests without it remain valid.
+	 * The item's clone-relative source path, recorded only when the key doesn't
+	 * spell it: a skill keyed `owner/repo/<name>` that lives at
+	 * `<clone>/skills/<name>`. `update` prefers it over the path derived from
+	 * the key ({@link getSourceDirFromKey}); entries without it re-copy from the
+	 * key-derived path.
 	 */
 	sourceSubpath?: string;
 }
@@ -64,21 +57,6 @@ export function buildManifestEntry(fields: ManifestEntryInput): ManifestEntry {
 	};
 }
 
-/**
- * Maps the resolved {@link DetectedType} of a standalone-installable unit to the
- * value persisted in {@link ManifestEntry.type}. Only the two standalone
- * variants reach the manifest write point (collection/not-agntc are routed or
- * exit earlier), so the param is the narrowed {@link DetectedType} variant —
- * anchoring the mapping to the union so a future structural variant forces a
- * compile error here. The `bare-skill` -> `skill` mapping is the seam: the
- * manifest never stores the literal `bare-skill`.
- */
-export function manifestTypeFromDetected(
-	t: Extract<DetectedType, { type: "bare-skill" | "plugin" }>,
-): "skill" | "plugin" {
-	return t.type === "bare-skill" ? "skill" : "plugin";
-}
-
 const AGNTC_DIR = ".agntc";
 const MANIFEST_FILE = "manifest.json";
 
@@ -106,9 +84,10 @@ export async function readManifest(projectDir: string): Promise<Manifest> {
 
 /**
  * Brings an entry written by an older agntc up to the current shape, in memory
- * only; the next writeManifest persists it. Backfills `cloneUrl` and `type`
- * (derived solely from local files — anti-drift: never re-clone/re-detect/read
- * config) and drops the per-agent `agents` list.
+ * only; the next writeManifest persists it. Reads a v1 `plugin` as a pack,
+ * backfills `cloneUrl` and a missing `type` (derived solely from local files —
+ * never re-clone, re-detect or read config) and drops the per-agent `agents`
+ * list.
  */
 function normalizeLegacyEntry(entry: Record<string, unknown>): void {
 	if (!("cloneUrl" in entry)) {
@@ -116,26 +95,28 @@ function normalizeLegacyEntry(entry: Record<string, unknown>): void {
 	}
 	if (!("type" in entry)) {
 		entry.type = deriveTypeFromFiles((entry.files as string[]) ?? []);
+	} else if (entry.type === "plugin") {
+		entry.type = "pack";
 	}
 	delete entry.agents;
 }
 
 /**
  * Derives a legacy entry's {@link ManifestEntry.type} from its installed local
- * files alone (anti-drift: no clone/detect/config read). Total and non-throwing.
+ * files alone. Total and non-throwing.
  *
- * - Any agents- or hooks-owned file -> `plugin`.
- * - Otherwise, more than one distinct skill directory -> `plugin`.
+ * - Any agents- or hooks-owned file -> `pack`.
+ * - Otherwise, more than one distinct skill directory -> `pack`.
  * - Otherwise (<=1 skill dir, no agents/hooks, empty, or unrecognised) ->
- *   `skill` (lenient default; single-skill ambiguity resolved to skill).
+ *   `skill`.
  */
-export function deriveTypeFromFiles(files: string[]): "skill" | "plugin" {
+export function deriveTypeFromFiles(files: string[]): EntryType {
 	const skillDirs = new Set<string>();
 
 	for (const file of files) {
 		const assetType = identifyAssetType(file);
 		if (assetType === "agents" || assetType === "hooks") {
-			return "plugin";
+			return "pack";
 		}
 		const skillDir = skillDirName(file);
 		if (skillDir !== null) {
@@ -143,7 +124,7 @@ export function deriveTypeFromFiles(files: string[]): "skill" | "plugin" {
 		}
 	}
 
-	return skillDirs.size > 1 ? "plugin" : "skill";
+	return skillDirs.size > 1 ? "pack" : "skill";
 }
 
 /**

@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest } from "../../src/manifest.js";
-import type { DetectedType } from "../../src/type-detection.js";
 
 // The clone-reinstall dependency surface shared with list-update-action is
 // mocked via factory bodies authored once in ../helpers/list-action-mock-
@@ -28,15 +27,6 @@ vi.mock("../../src/git-clone.js", async () => {
 	return mockGitCloneModule();
 });
 
-vi.mock("../../src/type-detection.js", async (importOriginal) => {
-	const { mockTypeDetectionModule } = await import(
-		"../helpers/list-action-mock-factories.js"
-	);
-	return mockTypeDetectionModule(
-		importOriginal<typeof import("../../src/type-detection.js")>,
-	);
-});
-
 // File-specific: this file mocks `access` only (no local-path `stat`).
 vi.mock("node:fs/promises", () => ({
 	access: vi.fn(),
@@ -59,11 +49,11 @@ vi.mock("../../src/nuke-files.js", async () => {
 	return mockNukeFilesModule();
 });
 
-vi.mock("../../src/copy-plugin-assets.js", async () => {
-	const { mockCopyPluginAssetsModule } = await import(
+vi.mock("../../src/copy-pack.js", async () => {
+	const { mockCopyPackModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockCopyPluginAssetsModule();
+	return mockCopyPackModule();
 });
 
 vi.mock("../../src/copy-bare-skill.js", async () => {
@@ -93,7 +83,6 @@ const mockWriteManifest = mocks.writeManifest;
 const mockAddEntry = mocks.addEntry;
 const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
-const mockDetectType = mocks.detectType;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
 const mockAccess = mocks.access;
@@ -111,7 +100,6 @@ function primeSuccessfulReinstall(): void {
 		tempDir: "/tmp/agntc-clone",
 		commit: REMOTE_SHA,
 	});
-	mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 	mockCopyBareSkill.mockResolvedValue({
 		copiedFiles: [".claude/skills/my-skill/"],
 	});
@@ -366,7 +354,6 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const result = await executeChangeVersionAction(
@@ -414,7 +401,6 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const result = await executeChangeVersionAction(

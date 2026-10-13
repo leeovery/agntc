@@ -683,6 +683,7 @@ describe("discover", () => {
 			await expect(run({ forcePack: true })).rejects.toThrow(
 				new PackConflictError(
 					`"repo" is a single skill — --pack can't bundle it`,
+					"single-skill",
 				),
 			);
 		});
@@ -695,6 +696,7 @@ describe("discover", () => {
 			).rejects.toThrow(
 				new PackConflictError(
 					`"skills/s" is a single skill — --pack can't bundle it`,
+					"single-skill",
 				),
 			);
 		});
@@ -709,8 +711,20 @@ describe("discover", () => {
 			await expect(run({ forcePack: true })).rejects.toThrow(
 				new PackConflictError(
 					`"repo" contains packs (plugins/a, plugins/b) — --pack can't bundle it`,
+					"contains-packs",
 				),
 			);
+		});
+
+		it("tells a single skill apart from a folder of packs", async () => {
+			await tree({ ...skillsAt("one"), "many/p/agntc.json": PACK });
+
+			await expect(
+				run({ startPath: "one", forcePack: true }),
+			).rejects.toMatchObject({ conflict: "single-skill" });
+			await expect(
+				run({ startPath: "many", forcePack: true }),
+			).rejects.toMatchObject({ conflict: "contains-packs" });
 		});
 
 		it("returns the same result as without the flag on a declared pack", async () => {

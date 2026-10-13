@@ -42,20 +42,6 @@ export function mockGitCloneModule() {
 	};
 }
 
-/**
- * Factory body for `vi.mock("../../src/type-detection.js", ...)`. Mocks
- * `detectType` while keeping the real `ASSET_DIRS` constant both files rely on.
- */
-export async function mockTypeDetectionModule(
-	importOriginal: () => Promise<typeof import("../../src/type-detection.js")>,
-) {
-	const actual = await importOriginal();
-	return {
-		detectType: vi.fn(),
-		ASSET_DIRS: actual.ASSET_DIRS,
-	};
-}
-
 /** Factory body for `vi.mock("../../src/nuke-files.js", ...)`. */
 export function mockNukeFilesModule() {
 	return {
@@ -63,10 +49,10 @@ export function mockNukeFilesModule() {
 	};
 }
 
-/** Factory body for `vi.mock("../../src/copy-plugin-assets.js", ...)`. */
-export function mockCopyPluginAssetsModule() {
+/** Factory body for `vi.mock("../../src/copy-pack.js", ...)`. */
+export function mockCopyPackModule() {
 	return {
-		copyPluginAssets: vi.fn(),
+		copyPack: vi.fn(),
 	};
 }
 

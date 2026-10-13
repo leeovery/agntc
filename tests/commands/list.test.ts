@@ -368,6 +368,63 @@ describe("runListLoop", () => {
 		});
 	});
 
+	describe("action notes", () => {
+		function arrangeOneAction(action: "update" | "change-version"): void {
+			const manifest: Manifest = { "owner/repo/laravel": makeEntry() };
+			const status: UpdateCheckResult = {
+				status: "update-available",
+				remoteCommit: "def456",
+			};
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(
+				new Map([["owner/repo/laravel", status]]),
+			);
+			mockSelect.mockResolvedValueOnce("owner/repo/laravel");
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockRenderDetailView.mockResolvedValueOnce(action);
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce({ status: "up-to-date" });
+			mockRenderDetailView.mockResolvedValueOnce("back");
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(
+				setupCheckResults(["owner/repo/laravel"]),
+			);
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+		}
+
+		const NOTE =
+			"owner/repo/laravel is a single skill — reinstalled as a skill";
+
+		it("prints an update's note before its message", async () => {
+			arrangeOneAction("update");
+			mockExecuteUpdateAction.mockResolvedValueOnce({
+				success: true,
+				message: "Updated owner/repo/laravel",
+				note: NOTE,
+			});
+
+			await runListLoop();
+
+			expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+			expect(mockLog.info.mock.invocationCallOrder[0]).toBeLessThan(
+				mockLog.success.mock.invocationCallOrder[0]!,
+			);
+		});
+
+		it("prints a version change's note", async () => {
+			arrangeOneAction("change-version");
+			mockExecuteChangeVersionAction.mockResolvedValueOnce({
+				changed: true,
+				message: "Changed owner/repo/laravel to v2.0.0",
+				note: NOTE,
+			});
+
+			await runListLoop();
+
+			expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+		});
+	});
+
 	describe("successive actions", () => {
 		it("handles select-back-select-remove-empty flow", async () => {
 			const manifest = makeManifest(["owner/skill"]);
@@ -716,7 +773,9 @@ describe("runListLoop", () => {
 			entry: Partial<ManifestEntry>,
 			result: UpdateCheckResult,
 		): Promise<{ value: string; label: string; hint: string }> {
-			mockReadManifestOrExit.mockResolvedValue({ "owner/skill": makeEntry(entry) });
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/skill": makeEntry(entry),
+			});
 			mockCheckAll.mockResolvedValue(new Map([["owner/skill", result]]));
 			mockSelect.mockResolvedValue(Symbol("cancel"));
 			await runListLoop();
@@ -745,19 +804,21 @@ describe("runListLoop", () => {
 
 		it("labels HEAD when ref is null but a commit exists", async () => {
 			expect(
-				(await optionFor({ ref: null, commit: "a".repeat(40) }, upToDate)).label,
+				(await optionFor({ ref: null, commit: "a".repeat(40) }, upToDate))
+					.label,
 			).toBe("owner/skill  HEAD");
 		});
 
 		it("labels local when ref and commit are null", async () => {
-			expect((await optionFor({ ref: null, commit: null }, upToDate)).label).toBe(
-				"owner/skill  local",
-			);
+			expect(
+				(await optionFor({ ref: null, commit: null }, upToDate)).label,
+			).toBe("owner/skill  local");
 		});
 
 		it("does not put the constraint in the list label", async () => {
 			expect(
-				(await optionFor({ ref: "v1.2.3", constraint: "^1.0" }, upToDate)).label,
+				(await optionFor({ ref: "v1.2.3", constraint: "^1.0" }, upToDate))
+					.label,
 			).toBe("owner/skill  v1.2.3");
 		});
 
@@ -778,10 +839,12 @@ describe("runListLoop", () => {
 				).hint,
 			).toBe("\u2691 newer tags");
 			expect(
-				(await optionFor({}, { status: "check-failed", reason: "timeout" })).hint,
+				(await optionFor({}, { status: "check-failed", reason: "timeout" }))
+					.hint,
 			).toBe("\u2717 check failed");
 			expect(
-				(await optionFor({ ref: null, commit: null }, { status: "local" })).hint,
+				(await optionFor({ ref: null, commit: null }, { status: "local" }))
+					.hint,
 			).toBe("\u25CF local");
 		});
 

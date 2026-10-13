@@ -13,6 +13,7 @@ export interface UpdateActionResult {
 	success: boolean;
 	newEntry?: ManifestEntry;
 	message: string;
+	note?: string;
 }
 
 export async function executeUpdateAction(
@@ -59,6 +60,7 @@ async function runUpdate(
 			success: true,
 			newEntry: result.manifestEntry,
 			message: isLocal ? `Refreshed ${key}` : `Updated ${key}`,
+			...(result.note !== undefined ? { note: result.note } : {}),
 		};
 	} catch (err) {
 		return { success: false, message: errorMessage(err) };
