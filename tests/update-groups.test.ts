@@ -114,12 +114,16 @@ describe("isSuccessOutcome", () => {
 			key: "owner/repo/a",
 			summary: "s",
 			newEntry,
+			notes: [],
+			absorbed: [],
 		};
 		const refreshed: PluginOutcome = {
 			status: "refreshed",
 			key: "local",
 			summary: "s",
 			newEntry,
+			notes: [],
+			absorbed: [],
 		};
 
 		expect(isSuccessOutcome(updated)).toBe(true);
@@ -142,7 +146,9 @@ describe("isSuccessOutcome", () => {
 			"gone-kept",
 			"gone-removed",
 		] as const) {
-			expect(isSuccessOutcome({ status, key: "k", summary: "s" })).toBe(false);
+			expect(
+				isSuccessOutcome({ status, key: "k", summary: "s", absorbed: [] }),
+			).toBe(false);
 		}
 	});
 });
@@ -1325,9 +1331,11 @@ describe("processGroupUpdate", () => {
 		]);
 		expect(outcomes.every((o) => o.status === "failed")).toBe(true);
 		for (const o of outcomes) {
-			expect(o.summary).toBe(
-				`${o.key}: Failed — git clone failed after 3 attempts: network error`,
-			);
+			expect(o).toEqual({
+				status: "failed",
+				key: o.key,
+				summary: `${o.key}: Failed — git clone failed after 3 attempts: network error`,
+			});
 		}
 		// The clone never produced a tempDir, so there is nothing to clean up, and no
 		// member reinstall was attempted.

@@ -57,6 +57,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 				scope: projectScope("/fake/project"),
 			},
 			interactiveUi,
+			{ "owner/repo/evil": entry },
 		);
 
 		expect(result).toEqual({
@@ -92,27 +93,31 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			[member],
 			target,
 			projectScope("/fake/project"),
+			{ [member.key]: member.entry },
 		);
 
-		expect(outcomes).toHaveLength(1);
-		const outcome = outcomes[0]!;
-		expect(outcome.status).toBe("failed");
-		expect(outcome.summary).toBe(
-			`owner/repo/evil: Failed — ${CONTAINMENT_MESSAGE}`,
-		);
+		expect(outcomes).toEqual([
+			{
+				status: "failed",
+				key: "owner/repo/evil",
+				summary: `owner/repo/evil: Failed — ${CONTAINMENT_MESSAGE}`,
+			},
+		]);
 	});
 
 	it("both entry points surface the identical containment error for the same escaping subpath", async () => {
+		const singletonEntry = makeEntry({
+			files: [".claude/skills/evil/"],
+			sourceSubpath: ESCAPING_SUBPATH,
+		});
 		const singleton = await cloneAndReinstall(
 			{
 				key: "owner/repo/evil",
-				entry: makeEntry({
-					files: [".claude/skills/evil/"],
-					sourceSubpath: ESCAPING_SUBPATH,
-				}),
+				entry: singletonEntry,
 				scope: projectScope("/fake/project"),
 			},
 			interactiveUi,
+			{ "owner/repo/evil": singletonEntry },
 		);
 
 		const member = {
@@ -134,12 +139,15 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			[member],
 			{ kind: "branch", resolvedSha: "d".repeat(40) },
 			projectScope("/fake/project"),
+			{ [member.key]: member.entry },
 		);
 
 		const singletonMessage =
 			singleton.status === "failed" ? singleton.message : "";
+		const [grouped] = outcomes;
+		const groupedSummary = grouped?.status === "failed" ? grouped.summary : "";
 		expect(singletonMessage).toBe(CONTAINMENT_MESSAGE);
-		expect(outcomes[0]!.summary).toContain(singletonMessage);
+		expect(groupedSummary).toContain(singletonMessage);
 	});
 
 	it("both entry points reject a hand-edited key whose own suffix escapes the clone", async () => {
@@ -150,6 +158,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 		const singleton = await cloneAndReinstall(
 			{ key, entry, scope: projectScope("/fake/project") },
 			interactiveUi,
+			{ [key]: entry },
 		);
 		const member = { key, entry };
 		const { outcomes } = await processGroupUpdate(
@@ -162,6 +171,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			[member],
 			{ kind: "branch", resolvedSha: "d".repeat(40) },
 			projectScope("/fake/project"),
+			{ [key]: entry },
 		);
 
 		expect(singleton).toEqual({

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Manifest } from "../src/manifest.js";
 import { checkUnmanagedConflicts } from "../src/unmanaged-check.js";
+import { makeEntry } from "./helpers/factories.js";
 
 let projectDir: string;
 
@@ -33,12 +34,12 @@ describe("checkUnmanagedConflicts", () => {
 		});
 
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/my-skill/"],
-			},
+			}),
 		};
 
 		const result = await checkUnmanagedConflicts(
@@ -147,12 +148,12 @@ describe("checkUnmanagedConflicts", () => {
 		});
 
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 
 		const result = await checkUnmanagedConflicts(
@@ -168,13 +169,13 @@ describe("checkUnmanagedConflicts", () => {
 		await mkdir(join(projectDir, ".claude/hooks/x"), { recursive: true });
 		await writeFile(join(projectDir, ".claude/hooks/x/a.sh"), "#!/bin/bash");
 		const manifest: Manifest = {
-			"owner/repo/p": {
+			"owner/repo/p": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/hooks/x/", ".claude/hooks/x/a.sh"],
 				type: "pack",
-			},
+			}),
 		};
 
 		const result = await checkUnmanagedConflicts(
@@ -190,13 +191,13 @@ describe("checkUnmanagedConflicts", () => {
 		await mkdir(join(projectDir, ".claude/hooks"), { recursive: true });
 		await writeFile(join(projectDir, ".claude/hooks/x"), "#!/bin/bash");
 		const manifest: Manifest = {
-			"owner/repo/p": {
+			"owner/repo/p": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/hooks/x"],
 				type: "pack",
-			},
+			}),
 		};
 
 		const result = await checkUnmanagedConflicts(
@@ -216,18 +217,18 @@ describe("checkUnmanagedConflicts", () => {
 		await writeFile(join(projectDir, ".claude/agents/executor.md"), "# Agent");
 
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/agents/executor.md"],
-			},
+			}),
 		};
 
 		const result = await checkUnmanagedConflicts(
@@ -256,12 +257,12 @@ describe("checkUnmanagedConflicts", () => {
 		await writeFile(join(projectDir, ".claude/agents/executor.md"), "# Agent");
 
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/agents/executor.md"],
-			},
+			}),
 		};
 
 		const result = await checkUnmanagedConflicts(
@@ -329,12 +330,12 @@ describe("checkUnmanagedConflicts", () => {
 		it("leaves a link the manifest records to the collision check", async () => {
 			await symlink(realDir, join(projectDir, ".claude/skills/foo"));
 			const manifest: Manifest = {
-				"owner/repo-a": {
+				"owner/repo-a": makeEntry({
 					ref: "main",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/foo/"],
-				},
+				}),
 			};
 
 			const result = await checkUnmanagedConflicts(

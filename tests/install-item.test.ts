@@ -172,7 +172,9 @@ describe("keyItems", () => {
 				"q/agents/team/lead.md",
 				"q/hooks/lint",
 			]);
-			const assets = { assetDirs: ["agents", "hooks"] } as const;
+			const assets: Pick<FoundPack, "assetDirs"> = {
+				assetDirs: ["agents", "hooks"],
+			};
 			const first = pack("p", {
 				...assets,
 				skills: [{ name: "api", path: "p/skills/api" }],

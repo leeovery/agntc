@@ -1568,7 +1568,12 @@ describe("mapCloneFailure", () => {
 
 	it("dispatches copy-failed to onCopyFailed handler", () => {
 		const result = mapCloneFailure(
-			{ status: "failed", failureReason: "copy-failed", message: "disk full" },
+			{
+				status: "failed",
+				failureReason: "copy-failed",
+				message: "disk full",
+				absorbed: [],
+			},
 			makeHandlers(),
 		);
 		expect(result).toBe("copy-failed: disk full");
@@ -1715,6 +1720,7 @@ describe("failureMessage", () => {
 				status: "failed",
 				failureReason: "copy-failed",
 				message: "disk full hint",
+				absorbed: [],
 			},
 			"owner/repo",
 			makeEntry(),

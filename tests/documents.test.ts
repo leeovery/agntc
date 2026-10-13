@@ -25,11 +25,14 @@ describe("updateBody", () => {
 			"aborted",
 			"blocked",
 		] as const) {
-			const outcome: PluginOutcome = {
-				status,
+			const failure = {
 				key: "owner/repo",
 				summary: `owner/repo: ${status}`,
 			};
+			const outcome: PluginOutcome =
+				status === "copy-failed"
+					? { status, ...failure, absorbed: [] }
+					: { status, ...failure };
 
 			expect(updateBody(before, [outcome], new Map()).items).toEqual([
 				{
@@ -116,6 +119,8 @@ describe("updateBody", () => {
 			key: "/local/path",
 			summary: "/local/path: Refreshed from local path",
 			newEntry: makeEntry({ ref: null, commit: null, type: "skill" }),
+			notes: [],
+			absorbed: [],
 		};
 		const local: Manifest = {
 			"/local/path": makeEntry({ ref: null, commit: null, type: "skill" }),
@@ -139,6 +144,8 @@ describe("updateBody", () => {
 			key: "owner/repo",
 			summary: "",
 			newEntry: makeEntry({ ref: "v1.1.0", commit: NEW, type: "skill" }),
+			notes: [],
+			absorbed: [],
 		};
 
 		expect(updateBody(before, [outcome], new Map()).items[0]).toMatchObject({

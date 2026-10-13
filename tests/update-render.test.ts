@@ -306,14 +306,16 @@ describe("formatMemberLine", () => {
 	it("aborted renders at error level carrying the recorded type and the remove+add remedy inline", () => {
 		const message = buildAbortMessage(
 			"owner/repo/design",
-			"skill",
-			"SKILL.md missing",
+			makeEntry({ type: "pack" }),
+			{ reason: "SKILL.md missing" },
+			"project",
 		);
 
 		const line = formatMemberLine({ kind: "aborted", name: "design", message });
 
 		expect(line).toEqual({ level: "error", text: `design: ${message}` });
-		expect(line.text).toContain("skill");
+		expect(line.text).toContain("installed as a pack");
+		expect(line.text).toContain("SKILL.md missing");
 		expect(line.text).toContain("npx agntc remove owner/repo/design");
 		expect(line.text).toContain("npx agntc add owner/repo/design");
 	});

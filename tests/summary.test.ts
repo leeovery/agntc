@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	formatAssetCounts,
 	formatRefLabel,
+	type ItemIdentity,
 	type ItemOutcome,
 	joinWithAnd,
 	renderAddSummary,
@@ -66,12 +67,16 @@ describe("joinWithAnd", () => {
 });
 
 describe("renderAddSummary", () => {
+	function item(label: string, kind: "skill" | "pack" = "skill"): ItemIdentity {
+		return { label, key: `owner/repo/${label}`, kind, path: label };
+	}
+
 	function skill(label: string): ItemOutcome {
 		return {
-			label,
+			...item(label),
 			status: "installed",
-			kind: "skill",
 			assetCounts: { skills: 1 },
+			files: [],
 		};
 	}
 
@@ -98,10 +103,10 @@ describe("renderAddSummary", () => {
 			commit: "abc123",
 			outcomes: [
 				{
-					label: "laravel",
+					...item("laravel", "pack"),
 					status: "installed",
-					kind: "pack",
 					assetCounts: { skills: 12, agents: 3, hooks: 1 },
+					files: [],
 				},
 			],
 		});
@@ -118,10 +123,10 @@ describe("renderAddSummary", () => {
 			commit: "abc123",
 			outcomes: [
 				{
-					label: "repo",
+					...item("repo", "pack"),
 					status: "installed",
-					kind: "pack",
 					assetCounts: { skills: 0, agents: 2 },
+					files: [],
 				},
 			],
 		});
@@ -136,8 +141,8 @@ describe("renderAddSummary", () => {
 			commit: "abc123",
 			outcomes: [
 				skill("a"),
-				{ label: "b", status: "skipped", reason: "conflict not resolved" },
-				{ label: "c", status: "failed", reason: "disk full" },
+				{ ...item("b"), status: "skipped", reason: "conflict not resolved" },
+				{ ...item("c"), status: "failed", reason: "disk full" },
 			],
 		});
 
@@ -150,7 +155,7 @@ describe("renderAddSummary", () => {
 			sourceKey: "owner/repo",
 			ref: "main",
 			commit: "abc123",
-			outcomes: [{ label: "a", status: "skipped", reason: "conflict" }],
+			outcomes: [{ ...item("a"), status: "skipped", reason: "conflict" }],
 		});
 
 		expect(result.headline).toBe("Nothing installed from owner/repo");
