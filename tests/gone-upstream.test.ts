@@ -157,7 +157,29 @@ describe("settleGoneInList", () => {
 			terminal(false),
 		);
 
-		expect(settled.removed).toBe(false);
+		expect(settled).toEqual({
+			ok: true,
+			message: "Kept owner/repo/go — it's gone upstream; update will ask again",
+		});
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+	});
+
+	it("keeps it recorded and says why when removing its files fails", async () => {
+		mockNuke.mockRejectedValue(new Error("EACCES: permission denied"));
+
+		const settled = await settleGoneInList(
+			KEY,
+			entry,
+			manifest,
+			PROJECT,
+			terminal(true),
+		);
+
+		expect(settled).toEqual({
+			ok: false,
+			message:
+				"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
+		});
 		expect(mockWriteManifest).not.toHaveBeenCalled();
 	});
 });

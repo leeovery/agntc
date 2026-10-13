@@ -552,9 +552,7 @@ async function checkItem(
 	return {
 		manifest: conflicts.manifest,
 		outcome:
-			conflicts.stop === null
-				? null
-				: { ...identity, status: "skipped", ...conflicts.stop },
+			conflicts.stop === null ? null : { ...identity, ...conflicts.stop },
 		absorbs,
 	};
 }

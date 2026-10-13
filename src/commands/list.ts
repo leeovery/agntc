@@ -153,6 +153,8 @@ export async function runListLoop(
 				);
 				if (result.removed) {
 					ui.log.success(result.message);
+				} else if (result.message !== "Cancelled") {
+					ui.log.error(result.message);
 				}
 				break;
 			}

@@ -1,8 +1,11 @@
 import { checkFileCollisions } from "./collision-check.js";
 import {
+	PartialRemovalError,
 	removeCollidingEntries,
 	resolveCollisions,
 } from "./collision-resolve.js";
+import { errorMessage } from "./errors.js";
+import { ExitSignal } from "./exit-signal.js";
 import type { Manifest } from "./manifest.js";
 import { removePathsInTheWay } from "./nuke-files.js";
 import { joinWithAnd } from "./summary.js";
@@ -32,44 +35,68 @@ export interface ConflictCheck {
 	projectDir: string;
 }
 
-/** Why an item won't be copied. */
+/**
+ * Why an item won't be copied: skipped, as the policy has it, or failed,
+ * when clearing its way threw.
+ */
 export interface Stop {
+	status: "skipped" | "failed";
 	reason: string;
 	/** The flags that would have let it through. */
 	flags?: string[];
 }
 
 export interface ClearedConflicts {
+	/** Without the entries removed, even when a later removal failed. */
 	manifest: Manifest;
 	stop: Stop | null;
 }
 
-const NOT_RESOLVED: Stop = { reason: "conflict not resolved" };
+const NOT_RESOLVED: Stop = {
+	status: "skipped",
+	reason: "conflict not resolved",
+};
 const OVERWRITE_FLAGS = ["--overwrite"];
 
 /**
  * Clears the files in an item's way under `policy`: first those other entries
  * installed, then those agntc didn't install. Overwriting another entry's
- * files removes that entry, as choosing to at the prompt does.
+ * files removes that entry, as choosing to at the prompt does. A removal that
+ * fails stops the item as failed rather than throwing.
  */
 export async function clearConflicts(
 	check: ConflictCheck,
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<ClearedConflicts> {
-	const afterCollisions = await clearCollisions(check, policy, ui);
-	if (afterCollisions.stop !== null) {
-		return afterCollisions;
+	let manifest = check.manifest;
+	try {
+		const afterCollisions = await clearCollisions(check, policy, ui);
+		manifest = afterCollisions.manifest;
+		if (afterCollisions.stop !== null) {
+			return afterCollisions;
+		}
+		const unmanaged = await checkUnmanagedConflicts(
+			check.incomingFiles,
+			manifest,
+			check.projectDir,
+		);
+		return {
+			manifest,
+			stop: await clearUnmanaged(unmanaged, check, policy, ui),
+		};
+	} catch (err) {
+		if (err instanceof ExitSignal) {
+			throw err;
+		}
+		return {
+			manifest: err instanceof PartialRemovalError ? err.manifest : manifest,
+			stop: {
+				status: "failed",
+				reason: `couldn't clear the files in its way: ${errorMessage(err)}`,
+			},
+		};
 	}
-	const unmanaged = await checkUnmanagedConflicts(
-		check.incomingFiles,
-		afterCollisions.manifest,
-		check.projectDir,
-	);
-	return {
-		manifest: afterCollisions.manifest,
-		stop: await clearUnmanaged(unmanaged, check, policy, ui),
-	};
 }
 
 async function clearCollisions(
@@ -107,6 +134,7 @@ async function clearCollisions(
 			return {
 				manifest,
 				stop: {
+					status: "skipped",
 					reason: `files in the way belong to ${joinWithAnd([...collisions.keys()])}: ${[...collisions.values()].flat().join(", ")}`,
 					flags: OVERWRITE_FLAGS,
 				},
@@ -129,6 +157,7 @@ async function clearUnmanaged(
 	}
 	if (policy === "stop") {
 		return {
+			status: "skipped",
 			reason: `files in the way weren't installed by agntc: ${files.join(", ")}`,
 			flags: OVERWRITE_FLAGS,
 		};

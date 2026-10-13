@@ -1,3 +1,4 @@
+import { errorMessage } from "./errors.js";
 import {
 	type Manifest,
 	type ManifestEntry,
@@ -57,9 +58,16 @@ export async function settleGone(
 	return { removed: true, message: `Removed ${key} — it's gone upstream` };
 }
 
+/** What a `list` action reports; `ok` is false when a chosen removal failed. */
+export interface ListGoneSettlement {
+	ok: boolean;
+	message: string;
+}
+
 /**
  * Settles an entry a `list` action found gone upstream. `list` only runs at a
- * terminal, so it asks; a removal is recorded at once.
+ * terminal, so it asks; a removal is recorded at once, and one that fails
+ * leaves the entry recorded.
  */
 export async function settleGoneInList(
 	key: string,
@@ -67,10 +75,17 @@ export async function settleGoneInList(
 	manifest: Manifest,
 	scope: Scope,
 	ui: Ui,
-): Promise<GoneSettlement> {
-	const settled = await settleGone(key, entry, scope, { yes: false, ui });
-	if (settled.removed) {
-		await writeManifest(scope.root, removeEntry(manifest, key));
+): Promise<ListGoneSettlement> {
+	try {
+		const settled = await settleGone(key, entry, scope, { yes: false, ui });
+		if (settled.removed) {
+			await writeManifest(scope.root, removeEntry(manifest, key));
+		}
+		return { ok: true, message: settled.message };
+	} catch (err) {
+		return {
+			ok: false,
+			message: `Couldn't remove ${key}: ${errorMessage(err)}; it stays recorded`,
+		};
 	}
-	return settled;
 }

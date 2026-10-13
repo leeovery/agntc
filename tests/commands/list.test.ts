@@ -238,6 +238,64 @@ describe("runListLoop", () => {
 			expect(mockReadManifest).toHaveBeenCalledTimes(1);
 			expect(mockSelect).toHaveBeenCalledTimes(2);
 		});
+
+		it("reports a failed removal and returns to the list, the entry still there", async () => {
+			const fullManifest = makeManifest(["owner/skill-a", "owner/skill-b"]);
+			const failure =
+				"Couldn't remove owner/skill-a: EACCES; it stays recorded";
+
+			mockReadManifestOrExit.mockResolvedValue(fullManifest);
+			mockCheckAll.mockResolvedValue(
+				setupCheckResults(["owner/skill-a", "owner/skill-b"]),
+			);
+			mockSelect
+				.mockResolvedValueOnce("owner/skill-a")
+				.mockResolvedValueOnce(Symbol("cancel"));
+			mockReadManifest.mockResolvedValueOnce(fullManifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "up-to-date" as const,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("remove");
+			mockExecuteRemoveAction.mockResolvedValueOnce({
+				removed: false,
+				message: failure,
+			});
+
+			await runListLoop();
+
+			expect(mockLog.error).toHaveBeenCalledWith(failure);
+			expect(mockLog.success).not.toHaveBeenCalled();
+			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(mockSelect.mock.calls[1]?.[0]).toMatchObject({
+				options: expect.arrayContaining([
+					expect.objectContaining({ value: "owner/skill-a" }),
+				]),
+			});
+		});
+
+		it("says nothing when the removal is cancelled", async () => {
+			const fullManifest = makeManifest(["owner/skill-a"]);
+
+			mockReadManifestOrExit.mockResolvedValue(fullManifest);
+			mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill-a"]));
+			mockSelect
+				.mockResolvedValueOnce("owner/skill-a")
+				.mockResolvedValueOnce(Symbol("cancel"));
+			mockReadManifest.mockResolvedValueOnce(fullManifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "up-to-date" as const,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("remove");
+			mockExecuteRemoveAction.mockResolvedValueOnce({
+				removed: false,
+				message: "Cancelled",
+			});
+
+			await runListLoop();
+
+			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(mockLog.success).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("remove last plugin", () => {

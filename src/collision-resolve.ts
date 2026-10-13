@@ -1,3 +1,4 @@
+import { errorMessage } from "./errors.js";
 import { formatFileList } from "./format-file-list.js";
 import { type Manifest, removeEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
@@ -55,7 +56,23 @@ export async function resolveCollisions(
 	return { resolved: true, updatedManifest };
 }
 
-/** Deletes each entry's files and drops it from the manifest. */
+/**
+ * A removal that failed part way. `manifest` drops the entries removed before
+ * it and keeps the one that failed, so whatever is left of it stays tracked.
+ */
+export class PartialRemovalError extends Error {
+	constructor(
+		readonly manifest: Manifest,
+		cause: unknown,
+	) {
+		super(errorMessage(cause), { cause });
+	}
+}
+
+/**
+ * Deletes each entry's files and drops it from the manifest. A failed removal
+ * throws a `PartialRemovalError`.
+ */
 export async function removeCollidingEntries(
 	keys: Iterable<string>,
 	manifest: Manifest,
@@ -65,7 +82,11 @@ export async function removeCollidingEntries(
 	for (const key of keys) {
 		const entry = updatedManifest[key];
 		if (entry) {
-			await nukeManifestFiles(installRoot, entry.files);
+			try {
+				await nukeManifestFiles(installRoot, entry.files);
+			} catch (err) {
+				throw new PartialRemovalError(updatedManifest, err);
+			}
 			updatedManifest = removeEntry(updatedManifest, key);
 		}
 	}

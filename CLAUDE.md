@@ -39,7 +39,7 @@ src/
   copy-safety.ts            # Pre-flight path-traversal + symlink-escape guards (clone-root boundary)
   compute-incoming-files.ts # Files an item would install; claims + target clashes
   install-paths.ts          # lstat-only inspection of install paths; assertNoLinkInTheWay; contained-path checks
-  nuke-files.ts             # Delete recorded paths without following links; refuses paths outside the root
+  nuke-files.ts             # nukeManifestFiles: strict removal of recorded paths (recursion from the trailing slash); removePathsInTheWay: on-disk removal for approved replacements. Neither follows links; both refuse paths outside the root
   clear-conflicts.ts        # Files in the way under a ConflictPolicy (overwrite | ask | stop)
   collision-check.ts        # Incoming files owned by other entries
   collision-resolve.ts      # Prompt/remove for colliding entries
@@ -139,6 +139,7 @@ All-mode is a group-first pipeline (`update-groups.ts`); the three singleton ent
 
 - **One JSON document per command** on stdout: `{ ok, command, scope?, error?, ...body, warnings, notes }`; `ok` is true exactly when the exit code is 0. Errors are documents too, exit 1. `scope` (`"project" | "global"`) appears on the four commands that take `-g`, not on `init`.
 - **A question is a flag or a stop.** A prompt reached in machine mode fails the command. Callers check `ui.mode` first and fail with `{ flags }` naming the answer: menu → `--skill`/`--pack`/`--all` (document still carries the listing); files in the way → that item stops with `flags: ["--overwrite"]`, the rest install, exit 1; `remove` confirmation → `-y`; `remove` without a key → `<key>`; gone upstream → kept, reported, exit 0; `init` → type + `-y`.
+- **`remove` reports per key.** The document carries `removed` (entries with their files) and `failed` (entries with a `reason`). `remove` tries every key; a key whose files can't be removed stays recorded, so whatever is left stays tracked, and the command exits 1.
 - `warn`/`note` reach both modes; `intro`/`outro`/`log`/`spinner`/`box` are terminal-only; `report(body)` sets the document body.
 
 ## Testing

@@ -46,7 +46,7 @@ export async function executeUpdateAction(
 
 		if (result.status === "gone") {
 			const settled = await settleGoneInList(key, entry, manifest, scope, ui);
-			return { success: true, message: settled.message, notes: [] };
+			return { success: settled.ok, message: settled.message, notes: [] };
 		}
 		if (isCloneReinstallFailure(result)) {
 			return {

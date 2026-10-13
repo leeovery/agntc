@@ -1,5 +1,6 @@
+import { errorMessage } from "../errors.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { writeManifest } from "../manifest.js";
+import { removeEntry, writeManifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import type { Scope } from "../scope.js";
 import type { Ui } from "../ui.js";
@@ -28,15 +29,15 @@ export async function executeRemoveAction(
 		return { removed: false, message: "Cancelled" };
 	}
 
-	await nukeManifestFiles(scope.root, entry.files);
-
-	const updated: Manifest = {};
-	for (const [k, v] of Object.entries(manifest)) {
-		if (k !== key) {
-			updated[k] = v;
-		}
+	try {
+		await nukeManifestFiles(scope.root, entry.files);
+	} catch (err) {
+		return {
+			removed: false,
+			message: `Couldn't remove ${key}: ${errorMessage(err)}; it stays recorded`,
+		};
 	}
-	await writeManifest(scope.root, updated);
+	await writeManifest(scope.root, removeEntry(manifest, key));
 
 	return { removed: true, message: `Removed ${key}` };
 }

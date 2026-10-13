@@ -19,6 +19,7 @@ vi.mock("../src/nuke-files.js", () => ({
 
 import * as p from "@clack/prompts";
 import {
+	PartialRemovalError,
 	removeCollidingEntries,
 	resolveCollisions,
 } from "../src/collision-resolve.js";
@@ -399,6 +400,70 @@ describe("removeCollidingEntries", () => {
 		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/b/"]);
 		expect(mockedSelect).not.toHaveBeenCalled();
 		expect(mockedNote).not.toHaveBeenCalled();
+	});
+
+	describe("when a removal fails", () => {
+		const manifest: Manifest = {
+			"owner/repo-a": entry([".claude/skills/a/"]),
+			"owner/repo-b": entry([".claude/skills/b/"]),
+			"owner/repo-c": entry([".claude/skills/c/"]),
+		};
+
+		async function partialRemoval(
+			run: Promise<unknown>,
+		): Promise<PartialRemovalError> {
+			const err = await run.then(
+				() => null,
+				(error: unknown) => error,
+			);
+			expect(err).toBeInstanceOf(PartialRemovalError);
+			return err as PartialRemovalError;
+		}
+
+		beforeEach(() => {
+			mockedNuke
+				.mockResolvedValueOnce({ removed: [], skipped: [] })
+				.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+		});
+
+		it("throws with the manifest that drops the entries removed before it and keeps the one that failed", async () => {
+			const err = await partialRemoval(
+				removeCollidingEntries(
+					["owner/repo-a", "owner/repo-b"],
+					manifest,
+					"/project",
+				),
+			);
+
+			expect(err.message).toBe("EACCES: permission denied");
+			expect(err.manifest).toEqual({
+				"owner/repo-b": manifest["owner/repo-b"],
+				"owner/repo-c": manifest["owner/repo-c"],
+			});
+		});
+
+		it("carries the same manifest out of the prompt", async () => {
+			mockedSelect
+				.mockResolvedValueOnce("remove")
+				.mockResolvedValueOnce("remove");
+
+			const err = await partialRemoval(
+				resolveCollisions(
+					new Map([
+						["owner/repo-a", [".claude/skills/a/"]],
+						["owner/repo-b", [".claude/skills/b/"]],
+					]),
+					manifest,
+					"/project",
+					interactiveUi,
+				),
+			);
+
+			expect(err.manifest).toEqual({
+				"owner/repo-b": manifest["owner/repo-b"],
+				"owner/repo-c": manifest["owner/repo-c"],
+			});
+		});
 	});
 
 	it("passes over a key the manifest no longer holds", async () => {

@@ -14,7 +14,9 @@ vi.mock("@clack/prompts", () => ({
 	},
 }));
 
-vi.mock("../../src/manifest.js", () => ({
+vi.mock("../../src/manifest.js", async (importOriginal) => ({
+	removeEntry: (await importOriginal<typeof import("../../src/manifest.js")>())
+		.removeEntry,
 	writeManifest: vi.fn(),
 }));
 
@@ -156,6 +158,30 @@ describe("executeRemoveAction", () => {
 
 			expect(result.removed).toBe(true);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
+		});
+
+		it("keeps the entry recorded and says why when removing its files fails", async () => {
+			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
+			const manifest: Manifest = { "owner/repo": entry };
+			mockConfirm.mockResolvedValue(true);
+			mockNukeManifestFiles.mockRejectedValue(
+				new Error("EACCES: permission denied"),
+			);
+
+			const result = await executeRemoveAction(
+				"owner/repo",
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				removed: false,
+				message:
+					"Couldn't remove owner/repo: EACCES: permission denied; it stays recorded",
+			});
+			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 	});
 

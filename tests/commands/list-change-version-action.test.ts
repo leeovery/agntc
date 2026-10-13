@@ -704,7 +704,8 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: false,
-				message: "EACCES: permission denied",
+				message:
+					"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
 				notes: [],
 			});
 			expect(mockWriteManifest).not.toHaveBeenCalled();

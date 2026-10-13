@@ -20,18 +20,38 @@ vi.mock("../src/unmanaged-resolve.js", () => ({
 	resolveUnmanagedConflicts: vi.fn(),
 }));
 
+vi.mock("../src/nuke-files.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/nuke-files.js")>();
+	return {
+		...actual,
+		nukeManifestFiles: vi.fn(actual.nukeManifestFiles),
+		removePathsInTheWay: vi.fn(actual.removePathsInTheWay),
+	};
+});
+
 import {
 	type ConflictPolicy,
 	clearConflicts,
 	conflictPolicy,
 } from "../src/clear-conflicts.js";
-import { resolveCollisions } from "../src/collision-resolve.js";
+import {
+	PartialRemovalError,
+	resolveCollisions,
+} from "../src/collision-resolve.js";
+import { ExitSignal } from "../src/exit-signal.js";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
+import { nukeManifestFiles, removePathsInTheWay } from "../src/nuke-files.js";
 import { interactiveUi } from "../src/ui.js";
 import { resolveUnmanagedConflicts } from "../src/unmanaged-resolve.js";
 
+const actualNuke = await vi.importActual<typeof import("../src/nuke-files.js")>(
+	"../src/nuke-files.js",
+);
+
 const mockResolveCollisions = vi.mocked(resolveCollisions);
 const mockResolveUnmanaged = vi.mocked(resolveUnmanagedConflicts);
+const mockNuke = vi.mocked(nukeManifestFiles);
+const mockRemovePaths = vi.mocked(removePathsInTheWay);
 
 const INCOMING = [".claude/skills/a/"];
 
@@ -108,7 +128,10 @@ describe("clearConflicts", () => {
 
 			const cleared = await clear(manifest, "ask");
 
-			expect(cleared.stop).toEqual({ reason: "conflict not resolved" });
+			expect(cleared.stop).toEqual({
+				status: "skipped",
+				reason: "conflict not resolved",
+			});
 			expect(mockResolveCollisions).toHaveBeenCalledOnce();
 		});
 
@@ -118,6 +141,7 @@ describe("clearConflicts", () => {
 			expect(cleared).toEqual({
 				manifest,
 				stop: {
+					status: "skipped",
 					reason: "files in the way belong to other/repo: .claude/skills/a/",
 					flags: ["--overwrite"],
 				},
@@ -153,6 +177,7 @@ describe("clearConflicts", () => {
 
 		it("stops the item, naming the files and --overwrite", async () => {
 			expect((await clear({}, "stop")).stop).toEqual({
+				status: "skipped",
 				reason:
 					"files in the way weren't installed by agntc: .claude/skills/a/",
 				flags: ["--overwrite"],
@@ -290,6 +315,86 @@ describe("clearConflicts", () => {
 
 			expect(await gone()).toBe(true);
 			expect(await readFile(join(mine, "SKILL.md"), "utf-8")).toBe("mine");
+		});
+	});
+
+	describe("a removal that fails", () => {
+		const EACCES = new Error("EACCES: permission denied");
+		const FAILED = {
+			status: "failed",
+			reason: "couldn't clear the files in its way: EACCES: permission denied",
+		};
+		const one = entry([".claude/skills/a/"]);
+		const two = entry([".claude/skills/b/"]);
+
+		async function present(path: string): Promise<boolean> {
+			return lstat(join(projectDir, path)).then(
+				() => true,
+				() => false,
+			);
+		}
+
+		it("fails the item, still dropping the entry a collision removed before it", async () => {
+			await onDisk(".claude/skills/a/");
+			await mkdir(join(projectDir, ".claude/agents"), { recursive: true });
+			await writeFile(join(projectDir, ".claude/agents/x.md"), "mine");
+			mockRemovePaths.mockRejectedValueOnce(EACCES);
+
+			const cleared = await clear({ "other/one": one }, "overwrite", [
+				".claude/skills/a/",
+				".claude/agents/x.md",
+			]);
+
+			expect(cleared).toEqual({ manifest: {}, stop: FAILED });
+			expect(await present(".claude/skills/a")).toBe(false);
+			expect(await present(".claude/agents/x.md")).toBe(true);
+		});
+
+		it("keeps an entry whose removal failed, dropping those removed before it", async () => {
+			await onDisk(".claude/skills/a/");
+			await onDisk(".claude/skills/b/");
+			mockNuke
+				.mockImplementationOnce(actualNuke.nukeManifestFiles)
+				.mockRejectedValueOnce(EACCES);
+
+			const cleared = await clear(
+				{ "other/one": one, "other/two": two },
+				"overwrite",
+				[".claude/skills/a/", ".claude/skills/b/"],
+			);
+
+			expect(cleared).toEqual({
+				manifest: { "other/two": two },
+				stop: FAILED,
+			});
+			expect(await present(".claude/skills/a")).toBe(false);
+			expect(await present(".claude/skills/b")).toBe(true);
+		});
+
+		it("keeps what the prompt's removals left recorded", async () => {
+			await onDisk(".claude/skills/a/");
+			mockResolveCollisions.mockRejectedValueOnce(
+				new PartialRemovalError({ "other/two": two }, EACCES),
+			);
+
+			const cleared = await clear(
+				{ "other/one": one, "other/two": two },
+				"ask",
+				[".claude/skills/a/", ".claude/skills/b/"],
+			);
+
+			expect(cleared).toEqual({
+				manifest: { "other/two": two },
+				stop: FAILED,
+			});
+		});
+
+		it("lets a command's exit through rather than failing the item", async () => {
+			await onDisk(".claude/skills/a/");
+			const exit = new ExitSignal(1);
+			mockResolveCollisions.mockRejectedValueOnce(exit);
+
+			await expect(clear({ "other/one": one }, "ask")).rejects.toBe(exit);
 		});
 	});
 

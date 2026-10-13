@@ -43,6 +43,7 @@ vi.mock("../../src/unmanaged-resolve.js", () => ({
 vi.mock("../../src/nuke-files.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/nuke-files.js")>()),
 	nukeManifestFiles: vi.fn(),
+	removePathsInTheWay: vi.fn(),
 }));
 
 vi.mock("../../src/copy-item.js", async (importOriginal) => ({
@@ -65,7 +66,10 @@ import { ExitSignal } from "../../src/exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
 import type { EntryType, Manifest, ManifestEntry } from "../../src/manifest.js";
-import { nukeManifestFiles } from "../../src/nuke-files.js";
+import {
+	nukeManifestFiles,
+	removePathsInTheWay,
+} from "../../src/nuke-files.js";
 import { interactiveUi } from "../../src/ui.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
 import { clackCalls, runMachine } from "../helpers/machine.js";
@@ -83,6 +87,7 @@ const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockResolveCollisions = vi.mocked(resolveCollisions);
 const mockResolveUnmanaged = vi.mocked(resolveUnmanagedConflicts);
 const mockNuke = vi.mocked(nukeManifestFiles);
+const mockRemovePaths = vi.mocked(removePathsInTheWay);
 const mockCopyItem = vi.mocked(copyItem);
 const mockListAgentFiles = vi.mocked(listAgentFiles);
 const mockMultiselect = vi.mocked(p.multiselect);
@@ -115,6 +120,7 @@ beforeEach(async () => {
 	});
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNuke.mockImplementation(actualNuke.nukeManifestFiles);
+	mockRemovePaths.mockImplementation(actualNuke.removePathsInTheWay);
 	mockCopyItem.mockImplementation(actualCopyItem.copyItem);
 	mockResolveCollisions.mockImplementation(async (_, manifest) => ({
 		resolved: true,
@@ -1342,6 +1348,70 @@ describe("add command", () => {
 					),
 				).toBe("mine");
 			});
+		});
+	});
+
+	describe("an item whose way can't be cleared", () => {
+		const theirs = installedEntry([".claude/skills/a/"]);
+
+		beforeEach(async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/a/SKILL.md": "new",
+				"p/agents/x.md": "agent",
+				"tools/b/SKILL.md": "new",
+			});
+			await write(projectDir, {
+				".claude/skills/a/SKILL.md": "theirs",
+				".claude/agents/x.md": "mine",
+			});
+			await seedManifest({ "other/repo": theirs });
+		});
+
+		it("fails that item, installs the rest, exits 1, and records the entry a collision removed as gone", async () => {
+			mockRemovePaths.mockRejectedValueOnce(
+				new Error("EACCES: permission denied"),
+			);
+
+			const run = await runMachine(addCommand, [
+				"owner/repo",
+				"--all",
+				"--overwrite",
+			]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document.items).toEqual([
+				{
+					key: "owner/repo/p",
+					type: "pack",
+					path: "p",
+					status: "failed",
+					reason:
+						"couldn't clear the files in its way: EACCES: permission denied",
+				},
+				expect.objectContaining({ key: "owner/repo/b", status: "installed" }),
+			]);
+			expect(Object.keys(await manifest())).toEqual(["owner/repo/b"]);
+			expect(await installed(".claude/skills/a")).toBe(false);
+			expect(
+				await readFile(join(projectDir, ".claude/agents/x.md"), "utf-8"),
+			).toBe("mine");
+		});
+
+		it("keeps an entry whose files couldn't be removed recorded", async () => {
+			mockNuke.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+
+			const run = await runMachine(addCommand, [
+				"owner/repo",
+				"--all",
+				"--overwrite",
+			]);
+
+			expect(run.exitCode).toBe(1);
+			expect(Object.keys(await manifest()).sort()).toEqual([
+				"other/repo",
+				"owner/repo/b",
+			]);
 		});
 	});
 

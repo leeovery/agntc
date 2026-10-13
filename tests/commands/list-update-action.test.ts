@@ -551,6 +551,30 @@ describe("executeUpdateAction", () => {
 				mockWriteManifest.mock.invocationCallOrder[0]!,
 			);
 		});
+
+		it("keeps it and reports the failure when removing it fails", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(true);
+			mockNukeManifestFiles.mockRejectedValue(
+				new Error("EACCES: permission denied"),
+			);
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				success: false,
+				message:
+					"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
+				notes: [],
+			});
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("blocked (symlink-escape copy-safety)", () => {
