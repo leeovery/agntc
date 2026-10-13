@@ -216,6 +216,22 @@ describe("copyBareSkill", () => {
 		).toBe("content of a/b/c/deep.md");
 	});
 
+	it.each([
+		"..",
+		".",
+		"",
+		"a/b",
+		"../escape",
+	])("refuses %j as a skill's folder name, writing nothing", async (skillName) => {
+		await createSourceFile("SKILL.md");
+
+		await expect(
+			copyBareSkill({ sourceDir, projectDir, skillName }),
+		).rejects.toThrow(`"${skillName}" can't be a skill's folder name`);
+
+		expect(await readdir(projectDir)).toEqual([]);
+	});
+
 	describe("a symlink in the way", () => {
 		let realDir: string;
 

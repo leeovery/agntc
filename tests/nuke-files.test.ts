@@ -167,6 +167,49 @@ describe("nukeManifestFiles", () => {
 		).toBe(false);
 	});
 
+	describe("a recorded path that isn't plainly below the project", () => {
+		it("is left alone while the rest go, then the call fails naming it", async () => {
+			await writeFile(join(testDir, "outside.md"), "keep");
+			await mkdir(join(projectDir, ".claude/skills/kept/"), {
+				recursive: true,
+			});
+			await mkdir(join(projectDir, ".claude/skills/gone/"), {
+				recursive: true,
+			});
+
+			await expect(
+				nukeManifestFiles(projectDir, [
+					"../outside.md",
+					".claude/skills/kept/..",
+					join(testDir, "outside.md"),
+					".claude/skills/gone/",
+				]),
+			).rejects.toThrow(
+				`won't delete ../outside.md, .claude/skills/kept/.., ${join(testDir, "outside.md")} — not a plain path below ${projectDir}`,
+			);
+
+			expect(await readFile(join(testDir, "outside.md"), "utf-8")).toBe("keep");
+			expect(await fileExists(join(projectDir, ".claude/skills/kept"))).toBe(
+				true,
+			);
+			expect(await fileExists(join(projectDir, ".claude/skills/gone"))).toBe(
+				false,
+			);
+		});
+
+		it.each([
+			"",
+			".",
+			"./",
+			".claude/./skills/x/",
+		])("refuses %j", async (path) => {
+			await expect(nukeManifestFiles(projectDir, [path])).rejects.toThrow(
+				"not a plain path below",
+			);
+			expect(await fileExists(projectDir)).toBe(true);
+		});
+	});
+
 	describe("symlinks", () => {
 		let realDir: string;
 

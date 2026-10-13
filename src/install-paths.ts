@@ -23,6 +23,19 @@ export function withoutTrailingSlash(path: string): string {
 	return path.replace(/\/+$/, "");
 }
 
+/** A single folder or file name: not empty, `.` or `..`, and holding no `/`. */
+export function isSafeSegment(name: string): boolean {
+	return name !== "" && name !== "." && name !== ".." && !name.includes("/");
+}
+
+/**
+ * A relative path made only of safe segments, a trailing slash aside, so it
+ * can only name something strictly below the root it's joined to.
+ */
+export function isContainedPath(relPath: string): boolean {
+	return withoutTrailingSlash(relPath).split("/").every(isSafeSegment);
+}
+
 /**
  * Walks an install path with `lstat` from the first folder an item owns down
  * to the path itself, stopping at the first symlink or missing component, so
