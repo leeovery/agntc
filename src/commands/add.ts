@@ -34,7 +34,12 @@ import {
 	StartPathError,
 } from "../discover.js";
 import { addBody, listingBody, type SourceJson } from "../documents.js";
-import { installedFrom, type SourceId } from "../entry-source.js";
+import {
+	installedFrom,
+	isSameSource,
+	type SourceId,
+	sourceIdOf,
+} from "../entry-source.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
@@ -53,6 +58,7 @@ import {
 	addEntry,
 	buildManifestEntry,
 	type Manifest,
+	type ManifestEntry,
 	readManifest,
 	removeEntry,
 	writeManifest,
@@ -560,8 +566,9 @@ async function checkItem(
 
 /**
  * Why the item can't install under its key: the entry already there isn't an
- * earlier install of it, being another type or from another path. Replacing
- * that entry is the user's call: remove it, then add.
+ * earlier install of it, being from another repo (keys don't name the host),
+ * another type or another path. Replacing that entry is the user's call:
+ * remove it, then add.
  */
 function keyTaken(
 	{ key, item }: KeyedItem,
@@ -575,11 +582,30 @@ function keyTaken(
 	}
 	const type = holder.type ?? "skill";
 	const from = installedFrom(key, holder);
-	if (type === item.kind && from === sourcePathOf(item, src)) {
+	const otherRepo = otherRemoteSource(key, holder, src);
+	if (
+		otherRepo === null &&
+		type === item.kind &&
+		from === sourcePathOf(item, src)
+	) {
 		return null;
 	}
+	const where = otherRepo ?? pathLabel(from, src.rootName);
 	const remove = agntcCommand(scope, "remove", [key]);
-	return `${key} is already installed from ${pathLabel(from, src.rootName)}, as a ${type}; to replace it: ${remove}, then add again`;
+	return `${key} is already installed from ${where}, as a ${type}; to replace it: ${remove}, then add again`;
+}
+
+/** The clone URL a remote entry was installed from, when it isn't `src`'s repo. */
+function otherRemoteSource(
+	key: string,
+	holder: ManifestEntry,
+	src: FetchedSource,
+): string | null {
+	const held = sourceIdOf(key, holder);
+	if (held.kind !== "remote" || src.cloneUrl === null) {
+		return null;
+	}
+	return isSameSource(held, sourceIdOfFetched(src)) ? null : held.cloneUrl;
 }
 
 /** Where an item comes from, as `installedFrom` gives it for an entry. */

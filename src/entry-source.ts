@@ -32,16 +32,19 @@ export function sourceIdOf(key: string, entry: ManifestEntry): SourceId {
 }
 
 /**
- * Remote sources match on clone URL. Two exact local roots match only when
- * they are the same folder: a checkout nested inside another is a source of
- * its own. A derived root is the folder it was added from only when the entry
- * records a `sourceSubpath`; otherwise it is the item's own folder, inside
- * that source, so against a derived root either root holding the other
- * matches.
+ * Remote sources match on the repo their clone URLs name. Two exact local
+ * roots match only when they are the same folder: a checkout nested inside
+ * another is a source of its own. A derived root is the folder it was added
+ * from only when the entry records a `sourceSubpath`; otherwise it is the
+ * item's own folder, inside that source, so against a derived root either root
+ * holding the other matches.
  */
 export function isSameSource(a: SourceId, b: SourceId): boolean {
 	if (a.kind === "remote") {
-		return b.kind === "remote" && a.cloneUrl === b.cloneUrl;
+		return (
+			b.kind === "remote" &&
+			remoteRepoOf(a.cloneUrl) === remoteRepoOf(b.cloneUrl)
+		);
 	}
 	if (b.kind !== "local") {
 		return false;
@@ -50,6 +53,32 @@ export function isSameSource(a: SourceId, b: SourceId): boolean {
 		return a.root === b.root;
 	}
 	return isContained(a.root, b.root) || isContained(b.root, a.root);
+}
+
+const URL_SCHEME = /^[a-z][a-z\d+.-]*:\/\//i;
+
+/**
+ * The repo a clone URL names, as `host/owner/repo`. Its protocol, login, port
+ * and `.git` suffix don't change the repo, so `https://github.com/o/r.git` and
+ * `git@github.com:o/r` name one. A URL without a host names itself.
+ */
+function remoteRepoOf(cloneUrl: string): string {
+	const scheme = URL_SCHEME.exec(cloneUrl)?.[0];
+	const rest = cloneUrl.slice(scheme?.length ?? 0);
+	const hostEnd = rest.indexOf(scheme === undefined ? ":" : "/");
+	if (hostEnd === -1) {
+		return cloneUrl;
+	}
+	const host = rest
+		.slice(0, hostEnd)
+		.replace(/^.*@/, "")
+		.replace(/:\d*$/, "")
+		.toLowerCase();
+	const repo = rest
+		.slice(hostEnd + 1)
+		.replace(/^\/+|\/+$/g, "")
+		.replace(/\.git$/, "");
+	return `${host}/${repo}`;
 }
 
 /** The folder a local entry was added from: recorded, or derived from its key. */

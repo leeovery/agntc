@@ -865,6 +865,50 @@ describe("add command", () => {
 			]);
 		});
 
+		describe("held by the same owner/repo from another source", () => {
+			async function skillContent(): Promise<string> {
+				return readFile(
+					join(projectDir, ".claude/skills/foo/SKILL.md"),
+					"utf-8",
+				);
+			}
+
+			beforeEach(async () => {
+				await runAdd("owner/repo", { skill: ["foo"] });
+				await upstream({ "skills/foo/SKILL.md": "elsewhere" });
+				vi.clearAllMocks();
+			});
+
+			it("refuses a repo of that name on another host, removing nothing", async () => {
+				const before = await manifest();
+
+				const code = await exitCode(
+					runAdd("https://gitlab.com/owner/repo", { skill: ["foo"] }),
+				);
+
+				expect(code).toBe(1);
+				expect(logged("error")).toEqual([
+					"skills/foo: failed — owner/repo/foo is already installed from https://github.com/owner/repo.git, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again",
+				]);
+				expect(mockNuke).not.toHaveBeenCalled();
+				expect(await skillContent()).toBe("skill");
+				expect(await manifest()).toEqual(before);
+			});
+
+			it("reinstalls the same GitHub repo reached over SSH", async () => {
+				const code = await exitCode(
+					runAdd("git@github.com:owner/repo", { skill: ["foo"] }),
+				);
+
+				expect(code).toBeNull();
+				expect(await skillContent()).toBe("elsewhere");
+				expect((await manifest())["owner/repo/foo"]).toMatchObject({
+					cloneUrl: "git@github.com:owner/repo.git",
+					sourceSubpath: "skills/foo",
+				});
+			});
+		});
+
 		describe("held by a legacy entry", () => {
 			const legacy = (fields: object) => ({
 				ref: null,
