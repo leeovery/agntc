@@ -31,6 +31,7 @@ vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 
 vi.mock("../../src/git-utils.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-utils.js")>()),
+	execGit: vi.fn(),
 	fetchRemoteTags: vi.fn(),
 }));
 
@@ -42,13 +43,15 @@ vi.mock("../../src/update-check.js", async (importOriginal) => ({
 import * as p from "@clack/prompts";
 import { runAdd } from "../../src/commands/add.js";
 import { runUpdate } from "../../src/commands/update.js";
+import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
-import { fetchRemoteTags } from "../../src/git-utils.js";
-import type { Manifest } from "../../src/manifest.js";
+import { execGit, fetchRemoteTags } from "../../src/git-utils.js";
+import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
+const mockExecGit = vi.mocked(execGit);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
 const mockMultiselect = vi.mocked(p.multiselect);
@@ -88,6 +91,9 @@ beforeEach(async () => {
 		kind: "head",
 		resolvedSha: NEW_SHA,
 	});
+	mockExecGit.mockImplementation(
+		lsRemote((ref) => (ref === "HEAD" ? NEW_SHA : undefined)),
+	);
 });
 
 afterEach(async () => {
@@ -135,6 +141,23 @@ async function savedManifest(): Promise<Manifest> {
 		"utf-8",
 	);
 	return JSON.parse(raw) as Manifest;
+}
+
+/** `git ls-remote <url> <refs...>`: a line for each ref `shaOf` knows. */
+function lsRemote(shaOf: (ref: string) => string | undefined) {
+	return async ([, , ...refs]: string[]) => ({
+		stdout: refs
+			.flatMap((ref) => {
+				const sha = shaOf(ref);
+				return sha === undefined ? [] : [`${sha}\t${ref}`];
+			})
+			.join("\n"),
+		stderr: "",
+	});
+}
+
+async function updateError(key?: string): Promise<unknown> {
+	return runUpdate(key).catch((error: unknown) => error);
 }
 
 function warnings(): string[] {
@@ -561,6 +584,156 @@ describe("integration: add and update", () => {
 				expect.stringContaining("installed on its own"),
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("an entry added at a branch", () => {
+		/** Each remote ref's tree and commit, named as ls-remote names it. */
+		let remote: Map<string, { dir: string; sha: string }>;
+
+		function refName(ref: string | null): string {
+			return ref === null ? "HEAD" : `refs/heads/${ref}`;
+		}
+
+		async function push(
+			ref: string | null,
+			sha: string,
+			files: Record<string, string>,
+		): Promise<void> {
+			const dir = await repo(`owner/repo@${refName(ref)}`, files);
+			remote.set(refName(ref), { dir, sha });
+		}
+
+		function pushedTo(ref: string | null): { dir: string; sha: string } {
+			const pushed = remote.get(refName(ref));
+			if (pushed === undefined) {
+				throw new Error(`nothing pushed to ${refName(ref)}`);
+			}
+			return pushed;
+		}
+
+		async function skillText(): Promise<string> {
+			return readFile(
+				join(projectDir, ".claude/skills/repo/SKILL.md"),
+				"utf-8",
+			);
+		}
+
+		beforeEach(() => {
+			remote = new Map();
+			mockCloneSource.mockImplementation(async (parsed: ParsedSource) => {
+				const { dir, sha } = pushedTo(parsed.ref);
+				const tempDir = await mkdtemp(join(testDir, "clone-"));
+				await cp(dir, tempDir, { recursive: true });
+				return { tempDir, commit: sha };
+			});
+			mockResolveGroupTarget.mockImplementation(async ({ versionIntent }) => {
+				const resolvedSha = pushedTo(versionIntent).sha;
+				return versionIntent === null
+					? { kind: "head", resolvedSha }
+					: { kind: "branch", resolvedSha };
+			});
+			mockExecGit.mockImplementation(lsRemote((ref) => remote.get(ref)?.sha));
+		});
+
+		it("stays on its branch across two updates while the branch moves", async () => {
+			await push(null, "0".repeat(40), { "SKILL.md": "main" });
+			await push("dev", "1".repeat(40), { "SKILL.md": "dev 1" });
+			await runAdd("owner/repo@dev");
+
+			await push("dev", "2".repeat(40), { "SKILL.md": "dev 2" });
+			await runUpdate();
+
+			expect(await skillText()).toBe("dev 2");
+			expect((await savedManifest())["owner/repo"]).toMatchObject({
+				ref: "dev",
+				commit: "2".repeat(40),
+			});
+
+			await push("dev", "3".repeat(40), { "SKILL.md": "dev 3" });
+			await runUpdate("owner/repo");
+
+			expect(await skillText()).toBe("dev 3");
+			expect((await savedManifest())["owner/repo"]).toMatchObject({
+				ref: "dev",
+				commit: "3".repeat(40),
+			});
+			expect(mockCloneSource.mock.calls.map(([parsed]) => parsed.ref)).toEqual([
+				"dev",
+				"dev",
+				"dev",
+			]);
+		});
+	});
+
+	describe("an update whose removal fails part way", () => {
+		const REPO_URL = "https://github.com/owner/repo.git";
+		/** A hand-edited entry recording a path outside the project, which no removal deletes. */
+		const SKILL_B: ManifestEntry = {
+			ref: null,
+			commit: OLD_SHA,
+			installedAt: "2026-01-15T10:00:00.000Z",
+			files: [".claude/skills/skillB/", "../outside.md"],
+			type: "skill",
+			cloneUrl: REPO_URL,
+		};
+
+		async function arrange(): Promise<void> {
+			await repo("owner/repo", {
+				"packA/agntc.json": PACK,
+				"packA/skills/a/SKILL.md": "v2",
+				"skillB/SKILL.md": "v2",
+			});
+			await write(projectDir, {
+				".claude/skills/a/SKILL.md": "v1",
+				".claude/skills/skillB/SKILL.md": "v1",
+				".agntc/manifest.json": {
+					"owner/repo/packA": {
+						...SKILL_B,
+						type: "pack",
+						files: [".claude/skills/a/"],
+					},
+					"owner/repo/skillB": SKILL_B,
+				},
+			});
+		}
+
+		/** The pack updated before skillB's removal failed stays recorded, and skillB stays tracked. */
+		async function packKeptSkillTracked(err: unknown): Promise<void> {
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect((err as ExitSignal).code).toBe(1);
+			expect(
+				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
+			).toBe("v2");
+			const manifest = await savedManifest();
+			expect(manifest["owner/repo/packA"]).toMatchObject({
+				commit: NEW_SHA,
+				files: [".claude/skills/a/"],
+			});
+			expect(manifest["owner/repo/skillB"]).toEqual(SKILL_B);
+			expect(await installed(".claude/skills/skillB")).toBe(false);
+		}
+
+		function refusal(): string {
+			return `couldn't remove its old files: won't delete ../outside.md — not a plain path below ${projectDir}`;
+		}
+
+		it("by key, records the pack done before it and reports the member as failed", async () => {
+			await arrange();
+
+			await packKeptSkillTracked(await updateError("owner/repo"));
+			expect(mockLog.error).toHaveBeenCalledExactlyOnceWith(
+				`owner/repo/skillB: ${refusal()}`,
+			);
+		});
+
+		it("in all-mode, records the pack done before it and reports the member as failed", async () => {
+			await arrange();
+
+			await packKeptSkillTracked(await updateError());
+			expect(mockLog.error).toHaveBeenCalledExactlyOnceWith(
+				`owner/repo/skillB: Failed — ${refusal()}`,
+			);
 		});
 	});
 });

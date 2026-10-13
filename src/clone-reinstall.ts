@@ -4,7 +4,10 @@ import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry, writeManifest } from "./manifest.js";
-import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
+import {
+	executeNukeAndReinstall,
+	type NukeReinstallOptions,
+} from "./nuke-reinstall-pipeline.js";
 import { agntcCommand, type Scope, type ScopeName } from "./scope.js";
 import {
 	buildParsedSourceFromKey,
@@ -98,12 +101,13 @@ interface CloneReinstallGone {
 
 /**
  * A copy failure has already removed the entry's files, and those of the loose
- * skills a pack took over: `absorbed` names those, whose entries go too.
+ * skills a pack took over: `absorbed` names those, whose entries go too. A
+ * removal failure keeps every entry, so whatever is left stays tracked.
  */
 export type CloneReinstallFailed =
 	| {
 			status: "failed";
-			failureReason: "clone-failed" | "unknown";
+			failureReason: "clone-failed" | "remove-failed";
 			message: string;
 	  }
 	| {
@@ -129,7 +133,7 @@ export interface CloneFailureHandlers<T> {
 	onCopyFailed: (msg: string, absorbed: string[]) => T;
 	onAborted: (abort: AbortCause) => T;
 	onBlocked: (reason: string) => T;
-	onUnknown: (msg: string) => T;
+	onRemoveFailed: (msg: string) => T;
 }
 
 /**
@@ -155,7 +159,7 @@ export function isCloneReinstallFailure(
  * `aborted` (derive-before-delete — re-cloned tree no longer supports the
  * recorded type) and `blocked` (symlink-escape copy-safety — source contains a
  * link escaping the clone). The remaining `failed` family is refined on
- * `failureReason` into clone-failed / copy-failed / unknown.
+ * `failureReason` into clone-failed / copy-failed / remove-failed.
  */
 export function mapCloneFailure<T>(
 	result: CloneReinstallFailure,
@@ -172,8 +176,8 @@ export function mapCloneFailure<T>(
 			return handlers.onCloneFailed(result.message);
 		case "copy-failed":
 			return handlers.onCopyFailed(result.message, result.absorbed);
-		case "unknown":
-			return handlers.onUnknown(result.message);
+		case "remove-failed":
+			return handlers.onRemoveFailed(result.message);
 	}
 }
 
@@ -181,7 +185,7 @@ export function mapCloneFailure<T>(
  * Collapses any {@link CloneReinstallFailure} to a single user-facing message,
  * shared by the two `list` actions (update + change-version) whose failure tails
  * were otherwise byte-identical. Implemented in terms of {@link mapCloneFailure}
- * so the dispatch logic isn't re-authored: clone-failed/copy-failed/unknown
+ * so the dispatch logic isn't re-authored: clone-failed/copy-failed/remove-failed
  * pass through the failure's own message, `aborted` routes through
  * {@link buildAbortMessage} and `blocked` through
  * {@link buildCopySafetyMessage}. A new failure variant is a single edit here;
@@ -196,7 +200,7 @@ export function failureMessage(
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
 		onCopyFailed: (msg) => msg,
-		onUnknown: (msg) => msg,
+		onRemoveFailed: (msg) => msg,
 		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope),
 		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
 	});
@@ -350,8 +354,8 @@ export async function cloneAndReinstall(
 			scope,
 			sourceDir: guarded.sourceDir,
 			cloneRoot: localRoot,
-			newRef: options.newRef ?? null,
-			newCommit: options.newCommit ?? null,
+			newRef: options.newRef,
+			newCommit: options.newCommit,
 		});
 		return handleCopyFailedRemoval(result, options);
 	}
@@ -414,7 +418,7 @@ export async function cloneAndReinstall(
 			// tempDir, so within-clone cross-member symlinks are allowed; only
 			// links escaping the whole clone are rejected.
 			cloneRoot: tempDir,
-			newRef: options.newRef ?? null,
+			newRef: options.newRef,
 			newCommit,
 		});
 		return handleCopyFailedRemoval(result, options);
@@ -448,15 +452,10 @@ async function handleCopyFailedRemoval(
 	return result;
 }
 
-export interface PipelineInput {
-	key: string;
+/** {@link NukeReinstallOptions}, with the entry under its caller-side name. */
+export interface PipelineInput
+	extends Omit<NukeReinstallOptions, "existingEntry"> {
 	entry: ManifestEntry;
-	installed: Manifest;
-	scope: Scope;
-	sourceDir: string;
-	cloneRoot: string;
-	newRef: string | null;
-	newCommit: string | null;
 }
 
 /**
@@ -484,6 +483,12 @@ export async function runPipeline(
 				failureReason: "copy-failed",
 				message: pipelineResult.recoveryHint,
 				absorbed: pipelineResult.absorbed,
+			};
+		case "remove-failed":
+			return {
+				status: "failed",
+				failureReason: "remove-failed",
+				message: pipelineResult.reason,
 			};
 		case "success":
 			return {

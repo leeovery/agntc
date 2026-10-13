@@ -106,6 +106,27 @@ describe("keyItems", () => {
 		]);
 	});
 
+	it("carries the install paths each item claims, with the source behind each", async () => {
+		await tree(["p/agents/reviewer.md"]);
+		const packed = pack("p", {
+			assetDirs: ["agents"],
+			skills: [{ name: "api", path: "p/skills/api" }],
+		});
+
+		const result = await key([packed, skill("tools/lint")]);
+
+		expect(result.ok && result.items.map(({ claims }) => claims)).toEqual([
+			[
+				{ target: ".claude/skills/api/", source: "p/skills/api" },
+				{
+					target: ".claude/agents/reviewer.md",
+					source: "p/agents/reviewer.md",
+				},
+			],
+			[{ target: ".claude/skills/lint/", source: "tools/lint" }],
+		]);
+	});
+
 	it("refuses a pack and a skill that share a key, naming both paths", async () => {
 		expect(await refusal([pack("foo"), skill("x/foo")])).toEqual([
 			"foo and x/foo would share the key owner/repo/foo — choose one",

@@ -269,6 +269,29 @@ describe("mapReinstallResultToOutcome success", () => {
 		});
 	});
 
+	it("maps a removal failure to failed, so the entry and what it would take over stay recorded", () => {
+		const outcome = mapReinstallResultToOutcome(
+			"owner/repo/laravel",
+			makeEntry({ type: "pack" }),
+			{
+				status: "failed",
+				failureReason: "remove-failed",
+				message: "couldn't remove its old files: EACCES",
+			},
+			null,
+			"project",
+		);
+
+		expect(outcome).toEqual({
+			status: "failed",
+			key: "owner/repo/laravel",
+			summary:
+				"owner/repo/laravel: Failed — couldn't remove its old files: EACCES",
+		});
+		const manifest = makeManifest(["owner/repo/laravel", "owner/repo/queues"]);
+		expect(applyOutcome(manifest, outcome)).toBe(manifest);
+	});
+
 	it("builds an abort's summary from the entry, re-add command included", () => {
 		const entry = makeEntry({ type: "pack" });
 
@@ -1030,6 +1053,42 @@ describe("processGroupUpdate", () => {
 		if (first.status === "updated") {
 			expect(first.newEntry.commit).toBe(SHA_RESOLVED);
 		}
+	});
+
+	it.each([
+		["a branch group stays on its branch", "main", BRANCH_TARGET],
+		[
+			"a HEAD group stays on HEAD",
+			null,
+			{ kind: "head", resolvedSha: SHA_RESOLVED } as const,
+		],
+	])("keeps each member's recorded ref: %s", async (_, ref, target) => {
+		const members = [
+			branchMember("owner/repo/a", { ref }),
+			branchMember("owner/repo/b", { ref }),
+		];
+
+		const { outcomes } = await processGroupUpdate(
+			{ ...branchGroup(members), versionIntent: ref },
+			members,
+			target,
+			projectScope("/fake/project"),
+			installedOf(members),
+		);
+
+		expect(mockCloneSource).toHaveBeenCalledWith(
+			expect.objectContaining({ ref }),
+		);
+		expect(outcomes).toEqual([
+			expect.objectContaining({
+				status: "updated",
+				newEntry: expect.objectContaining({ ref, commit: SHA_RESOLVED }),
+			}),
+			expect.objectContaining({
+				status: "updated",
+				newEntry: expect.objectContaining({ ref, commit: SHA_RESOLVED }),
+			}),
+		]);
 	});
 
 	it("clones a constrained group once at the resolved target tag and records target.commit per member", async () => {

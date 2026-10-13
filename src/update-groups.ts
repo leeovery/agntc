@@ -137,7 +137,7 @@ interface Reinstalled {
  * The SINGLE constructor of the `failed` {@link PluginOutcome} literal and its
  * `<key>: Failed — <message>` summary wording. Every failure origin — the
  * `prepareReinstall`-not-ok branch, the `processLocalUpdate` outer catch, the
- * `onCloneFailed`/`onUnknown` arms of {@link mapReinstallResultToOutcome}, the
+ * `onCloneFailed`/`onRemoveFailed` arms of {@link mapReinstallResultToOutcome}, the
  * {@link reinstallMember} catch, and the clone-fatal fan-out in
  * {@link processGroupUpdate} — routes through here, so the discriminant, the
  * `key`, and the exact prefix/body wording can never drift apart (a new failure
@@ -229,7 +229,7 @@ export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
  * cross-boundary discriminator. Factored out of `processLocalUpdate` so the
  * grouped orchestrator and the local path emit byte-identical
  * outcomes — the failure arms (copy-failed / aborted / blocked /
- * clone-failed→failed / unknown→failed) and the success split
+ * clone-failed→failed / remove-failed→failed) and the success split
  * (local `refreshed` vs git `updated`) live in exactly one place.
  *
  * `newRef` is the group's resolved target ref threaded through for the git-update
@@ -273,7 +273,7 @@ export function mapReinstallResultToOutcome(
 				summary: buildCopySafetyMessage(key, reason),
 			}),
 			onCloneFailed: (msg) => failedOutcome(key, msg),
-			onUnknown: (msg) => failedOutcome(key, msg),
+			onRemoveFailed: (msg) => failedOutcome(key, msg),
 		});
 	}
 
@@ -332,8 +332,9 @@ export interface GroupTargetFacets {
 	 * sha (so all members land on one commit) AND the display "new" commit for the
 	 * header and per-member moves. */
 	commit: string;
-	/** The clone `--branch` override: the resolved tag for a constrained group,
-	 * `undefined` for a branch/HEAD group (clone at the stored branch/HEAD ref).
+	/** The clone `--branch` override and the ref members move to: the resolved tag
+	 * for a constrained group, `undefined` for a branch/HEAD group (clone at, and
+	 * keep, the stored branch/HEAD ref).
 	 * Deliberately DISTINCT from {@link displayRef} — a branch/HEAD group clones the
 	 * stored ref (`undefined` override) yet displays its version intent. */
 	cloneRef: string | undefined;
@@ -430,7 +431,7 @@ async function reinstallMember(
 			scope,
 			sourceDir: guarded.sourceDir,
 			cloneRoot: tempDir,
-			newRef: cloneRef ?? null,
+			newRef: cloneRef,
 			newCommit: commit,
 		});
 

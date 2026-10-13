@@ -111,9 +111,20 @@ export function reAddCommand(
 	return agntcCommand(scope, "add", [source, ...pack]);
 }
 
+/** Where an entry's item comes from: a local entry's folder, else its path in the repo. */
+export function installedFrom(key: string, entry: ManifestEntry): string {
+	return entry.commit === null
+		? localItemDir(key, entry)
+		: remoteItemPath(key, entry);
+}
+
 function localItemDir(key: string, entry: ManifestEntry): string {
 	const root = localRootOf(key, entry);
 	return join(root, localItemPath(key, entry, root));
+}
+
+function remoteItemPath(key: string, entry: ManifestEntry): string {
+	return entry.sourceSubpath || keySubpath(key);
 }
 
 /**
@@ -166,7 +177,7 @@ function remoteSource(
 ): string {
 	return locateSource(
 		addSourceFor(key, entry.cloneUrl),
-		entry.sourceSubpath || keySubpath(key),
+		remoteItemPath(key, entry),
 		version,
 	);
 }

@@ -123,8 +123,9 @@ export async function runUpdate(
 
 /**
  * Updates the entries a key names one at a time, packs first, stopping at the
- * first that fails. Whatever changed before then is recorded. An entry a pack
- * absorbed on the way is skipped.
+ * first that fails. Each is recorded as it finishes, so what changed before a
+ * failure, or a throw, stays recorded. An entry a pack absorbed on the way is
+ * skipped.
  */
 async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
 	const { scope, ui } = run;
@@ -149,14 +150,13 @@ async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
 		}
 		const update = await updateKey(target, current, run);
 		updates.push(update);
-		current = applyOutcome(current, update.outcome);
+		current = await persistUnitOutcomes(scope.root, current, [update.outcome]);
 		if (KEY_FAILURES.has(update.outcome.status)) {
 			break;
 		}
 	}
 
 	const outcomes = withAbsorptions(updates.map((update) => update.outcome));
-	await persistUnitOutcomes(scope.root, manifest, outcomes);
 
 	const failed = outcomes.some((outcome) => KEY_FAILURES.has(outcome.status));
 	if (!failed) {
@@ -321,8 +321,9 @@ async function reinstallKey(
 
 /**
  * An abort or a block leaves the install intact and says why; a copy failure
- * has already removed it. A local entry's clone failure is its source path
- * failing the containment guard, and says nothing more.
+ * has already removed it, and a removal failure leaves what's left of it
+ * recorded. A local entry's clone failure is its source path failing the
+ * containment guard, and says nothing more.
  */
 function reportKeyFailure(
 	key: string,
@@ -337,11 +338,11 @@ function reportKeyFailure(
 	};
 	mapCloneFailure<void>(failure, {
 		onCopyFailed: (message) => ui.log.error(message),
+		onRemoveFailed: (message) => ui.log.error(`${key}: ${message}`),
 		onAborted: (abort) =>
 			ui.log.error(buildAbortMessage(key, entry, abort, scope.name)),
 		onBlocked: (reason) => ui.log.error(buildCopySafetyMessage(key, reason)),
 		onCloneFailed: cancelUnlessLocal,
-		onUnknown: cancelUnlessLocal,
 	});
 }
 
@@ -1062,8 +1063,8 @@ function emitMemberLine(
 }
 
 /**
- * Folds ONE unit's (group or local) outcomes into the working manifest via
- * {@link applyOutcome} and writes it — the per-group / per-local persistence
+ * Folds ONE unit's (group, local or single key) outcomes into the working
+ * manifest via {@link applyOutcome} and writes it — the per-unit persistence
  * boundary. The write is SKIPPED for a no-op unit. Returns the
  * (possibly-updated) manifest so the caller threads it into the next unit,
  * keeping each write cumulative.
