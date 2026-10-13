@@ -91,6 +91,7 @@ vi.mock("../../src/git-utils.js", () => ({
 import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
+import { PackConflictError } from "../../src/discover.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
 import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
@@ -535,6 +536,38 @@ describe("executeChangeVersionAction", () => {
 		});
 	});
 
+	describe("a key another entry holds at the chosen version", () => {
+		it("tells the user to free it and change the version again, as an update wouldn't install that version", async () => {
+			const key = "owner/repo/packs/foo";
+			const entry = makeEntry({ type: "pack", ref: "v1.0.0" });
+			const other = makeEntry({ type: "pack", files: [".claude/skills/x/"] });
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			primeSuccessfulReinstall();
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single", "single-skill"),
+			);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry, "owner/repo/foo": other },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				key,
+				message:
+					"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then change it to v2.0.0 again",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("copy-failed", () => {
 		it("removes entry from manifest and returns changed: false with recovery hint", async () => {
 			const key = "owner/repo";
@@ -623,7 +656,7 @@ describe("executeChangeVersionAction", () => {
 	});
 
 	describe("aborted (derive-before-delete)", () => {
-		it("renders the canonical buildAbortMessage with recordedType + remove+add remedy, leaves install intact", async () => {
+		it("renders the canonical buildAbortMessage with recordedType + a remove+add remedy at the chosen version, leaves install intact", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({
 				type: "skill",
@@ -651,7 +684,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe(
-				"owner/repo was installed as a skill and can't be updated (its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo). The existing install is unchanged. To migrate: npx agntc remove owner/repo then npx agntc add owner/repo",
+				"owner/repo was installed as a skill and can't be updated (its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo). The existing install is unchanged. To migrate: npx agntc remove owner/repo then npx agntc add owner/repo@v1.1.0",
 			);
 			expect(result.newEntry).toBeUndefined();
 			// Install intact: no nuke, no manifest write.

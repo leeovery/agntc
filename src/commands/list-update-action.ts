@@ -8,7 +8,7 @@ import {
 import { errorMessage } from "../errors.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { removeEntry, writeManifest } from "../manifest.js";
+import { writeManifest } from "../manifest.js";
 import type { Scope } from "../scope.js";
 import type { Ui } from "../ui.js";
 import type { VersionOverrides } from "../version-resolve.js";
@@ -61,10 +61,15 @@ export async function executeUpdateAction(
 			};
 		}
 
-		const rest = result.absorbed.reduce(removeEntry, manifest);
 		await writeManifest(
 			scope.root,
-			recordReinstall(rest, key, result.key, result.manifestEntry),
+			recordReinstall(
+				manifest,
+				key,
+				result.key,
+				result.manifestEntry,
+				result.absorbed,
+			),
 		);
 
 		return {

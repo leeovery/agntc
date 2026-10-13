@@ -79,6 +79,7 @@ export type SourceWalk = (rootName: string) => Promise<SourceSkills>;
 /**
  * Walks `root` at most once per root name, however many entries ask. It lives
  * as long as the caller holds it: one per clone, so no walk outlives its tree.
+ * A walk that fails is forgotten, so the next ask walks again.
  */
 export function sourceWalk(root: string): SourceWalk {
 	const walks = new Map<string, Promise<SourceSkills>>();
@@ -87,6 +88,7 @@ export function sourceWalk(root: string): SourceWalk {
 		if (walk === undefined) {
 			walk = skillsIn(root, rootName);
 			walks.set(rootName, walk);
+			walk.catch(() => walks.delete(rootName));
 		}
 		return walk;
 	};
@@ -247,14 +249,13 @@ async function clearReplay(
 	}
 
 	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
-	const replayed = replayedAs(options, { replay, keyed });
 	const way = await inTheWayOf(replay.item, options);
 	if (isKeyTaken(keyed.key, options, way)) {
 		return {
 			status: "aborted",
 			reason: `it would move to ${keyed.key}, which is already installed`,
 			takenKey: keyed.key,
-			replayed,
+			replayed: replayedAs(options, { replay, keyed }),
 		};
 	}
 	if (way.clashes.size > 0 || way.unmanaged.length > 0) {
@@ -262,7 +263,7 @@ async function clearReplay(
 			status: "aborted",
 			reason: inTheWayReason(way),
 			inTheWay: true,
-			replayed,
+			replayed: replayedAs(options, { replay, keyed }),
 		};
 	}
 

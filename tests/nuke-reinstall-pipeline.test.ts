@@ -1778,6 +1778,19 @@ describe("sourceWalk", () => {
 		expect(folder.map((skill) => skill.name)).toEqual(["folder"]);
 	});
 
+	it("walks again after a walk that failed, rather than failing every later ask", async () => {
+		mockDiscover
+			.mockRejectedValueOnce(new Error("EMFILE: too many open files"))
+			.mockResolvedValueOnce(looseSkills({ name: "go", path: "go" }));
+		const walk = sourceWalk("/tmp/clone");
+
+		await expect(walk("repo")).rejects.toThrow("EMFILE");
+		const skills = await walk("repo");
+
+		expect(mockDiscover).toHaveBeenCalledTimes(2);
+		expect(skills).toEqual([{ name: "go", path: "go" }]);
+	});
+
 	it("shares nothing between two walks of one source", async () => {
 		mockDiscover.mockResolvedValue(looseSkills());
 

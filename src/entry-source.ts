@@ -121,27 +121,12 @@ export function reAddCommand(
 	scope: ScopeName,
 	version?: string,
 ): string {
-	return agntcCommand(scope, "add", reAddArgs(key, entry, version));
-}
-
-/**
- * A local folder added on its own is keyed by that folder, so a loose skill
- * keyed by name below its root, with its path recorded, is named from the root
- * instead: that is the one add keys under the entry's key.
- */
-function reAddArgs(
-	key: string,
-	entry: ManifestEntry,
-	version: string | undefined,
-): string[] {
+	const source =
+		entry.commit === null
+			? localItemDir(key, entry)
+			: remoteSource(key, entry, version);
 	const pack = entry.type === "pack" ? ["--pack"] : [];
-	if (entry.commit !== null) {
-		return [remoteSource(key, entry, version), ...pack];
-	}
-	if (entry.type !== "pack" && entry.sourceSubpath) {
-		return [localRootOf(key, entry), "--skill", memberName(key)];
-	}
-	return [localItemDir(key, entry), ...pack];
+	return agntcCommand(scope, "add", [source, ...pack]);
 }
 
 /** Where an entry's item comes from: a local entry's folder, else its path in the repo. */

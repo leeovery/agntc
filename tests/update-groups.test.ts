@@ -543,7 +543,7 @@ describe("withAbsorptions", () => {
 		]);
 	});
 
-	it("keeps a pack that moved onto the key of the entry it took over, beside that entry's absorbed outcome", () => {
+	it("keeps a pack that moved onto the key of the entry it took over, beside that entry's absorbed outcome naming the key it left", () => {
 		const pack: PluginOutcome = {
 			status: "updated",
 			key: "owner/repo/packs/tools",
@@ -566,7 +566,7 @@ describe("withAbsorptions", () => {
 				key: "owner/repo/packs/tools",
 				into: "owner/repo/packs/tools",
 				summary:
-					"owner/repo/packs/tools is now part of the pack owner/repo/packs/tools",
+					"owner/repo/packs/tools is now part of the pack owner/repo/tools, which moved to its key",
 			},
 		]);
 	});

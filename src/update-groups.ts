@@ -196,9 +196,19 @@ export function absorbedOutcome(
 		key,
 		into,
 		summary: isSuccessOutcome(pack)
-			? `${key} is now part of the pack ${into}`
+			? `${key} is now part of the pack ${packTakingOver(key, pack)}`
 			: `${key} was removed — the pack ${into} took it over, then failed to install`,
 	};
+}
+
+/**
+ * The pack that took over the entry keyed `key`, by its key; a pack that moved
+ * onto that very key is named by the key it moved from.
+ */
+function packTakingOver(key: string, pack: PluginOutcome): string {
+	return pack.key === key
+		? `${keyBefore(pack)}, which moved to its key`
+		: pack.key;
 }
 
 /**
@@ -214,10 +224,11 @@ export function applyOutcome(
 ): Manifest {
 	if (isSuccessOutcome(outcome)) {
 		return recordReinstall(
-			outcome.absorbed.reduce(removeEntry, manifest),
+			manifest,
 			keyBefore(outcome),
 			outcome.key,
 			outcome.newEntry,
+			outcome.absorbed,
 		);
 	}
 	if (outcome.status === "copy-failed") {

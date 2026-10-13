@@ -8,7 +8,7 @@ import {
 import { fetchRemoteTags } from "../git-utils.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { removeEntry, writeManifest } from "../manifest.js";
+import { writeManifest } from "../manifest.js";
 import type { Scope } from "../scope.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
 import type { Ui } from "../ui.js";
@@ -105,14 +105,16 @@ export async function executeChangeVersionAction(
 		return { changed: settled.ok, key, message: settled.message, notes: [] };
 	}
 	if (isCloneReinstallFailure(result)) {
-		return unchanged(key, failureMessage(result, key, entry, scope.name));
+		return unchanged(
+			key,
+			failureMessage(result, key, entry, scope.name, selectedTag),
+		);
 	}
 
 	const finalEntry = stripConstraint(result.manifestEntry);
-	const rest = result.absorbed.reduce(removeEntry, manifest);
 	await writeManifest(
 		scope.root,
-		recordReinstall(rest, key, result.key, finalEntry),
+		recordReinstall(manifest, key, result.key, finalEntry, result.absorbed),
 	);
 
 	return {

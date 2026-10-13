@@ -422,6 +422,143 @@ describe("the out-of-constraint footer of a run that moves an entry", () => {
 	});
 });
 
+describe("the out-of-constraint footer of a run that leaves an entry uninstalled", () => {
+	/**
+	 * Adds each of `added` from `before` at v1.0.0, then moves upstream to
+	 * `after`, with v1.1.0 and v2.0.0 out since.
+	 */
+	async function arrange(
+		before: Record<string, string | object>,
+		after: Record<string, string | object>,
+		...added: string[]
+	): Promise<void> {
+		mockFetchRemoteTags.mockResolvedValue(["v1.0.0"]);
+		await repo("owner/repo", before);
+		for (const source of added) {
+			await add(source);
+		}
+		await push("owner/repo", after);
+		mockFetchRemoteTagRefs.mockResolvedValue(
+			["v1.0.0", "v1.1.0", "v2.0.0"].map((tag) => ({ tag, sha: NEW_SHA })),
+		);
+		mockResolveGroupTarget.mockResolvedValue({
+			kind: "constrained",
+			tag: "v1.1.0",
+			commit: NEW_SHA,
+			latestOverall: "v2.0.0",
+		});
+	}
+
+	/** The footer lines the run printed. */
+	function footer(): string[] {
+		return vi
+			.mocked(p.log)
+			.info.mock.calls.map(([line]) => String(line))
+			.filter((line) => line.includes(" available."));
+	}
+
+	it("leaves out a member a pack took over", async () => {
+		await arrange(
+			{
+				"packs/agntc.json": PACK,
+				"packs/skills/a/SKILL.md": "",
+				"foo/SKILL.md": "",
+			},
+			{
+				"packs/agntc.json": PACK,
+				"packs/skills/a/SKILL.md": "",
+				"packs/skills/foo/SKILL.md": "",
+			},
+			"owner/repo/packs",
+			"owner/repo/foo",
+		);
+
+		await runUpdate();
+
+		expect(footer()).toEqual([
+			"  owner/repo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo/packs --pack",
+		]);
+	});
+
+	it("leaves out a member removed as gone upstream", async () => {
+		vi.mocked(p.confirm).mockResolvedValueOnce(true);
+		await arrange(
+			{ "foo/SKILL.md": "", "bar/SKILL.md": "" },
+			{ "foo/SKILL.md": "" },
+			"owner/repo/foo",
+			"owner/repo/bar",
+		);
+
+		await runUpdate();
+
+		expect(await savedManifest()).not.toHaveProperty(["owner/repo/bar"]);
+		expect(footer()).toEqual([
+			"  owner/repo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo/foo",
+		]);
+	});
+
+	it("prints no line for a group the run left with nothing installed", async () => {
+		vi.mocked(p.confirm)
+			.mockResolvedValueOnce(true)
+			.mockResolvedValueOnce(true);
+		await arrange(
+			{ "bar/SKILL.md": "", "foo/SKILL.md": "" },
+			{ "other/SKILL.md": "" },
+			"owner/repo/bar",
+			"owner/repo/foo",
+		);
+
+		await runUpdate();
+
+		expect(await savedManifest()).toEqual({});
+		expect(footer()).toEqual([]);
+	});
+
+	it("by key, prints none for an entry removed as gone upstream", async () => {
+		vi.mocked(p.confirm).mockResolvedValueOnce(true);
+		await arrange(
+			{ "bar/SKILL.md": "" },
+			{ "other/SKILL.md": "" },
+			"owner/repo/bar",
+		);
+
+		await runUpdate("owner/repo/bar");
+
+		expect(await savedManifest()).toEqual({});
+		expect(footer()).toEqual([]);
+	});
+});
+
+describe("the streamed line of a member the run moved", () => {
+	it("names it by the key the run left it under", async () => {
+		await repo("owner/repo", {
+			"plugins/foo/SKILL.md": "foo v2",
+			"bar/SKILL.md": "bar v2",
+		});
+		head = NEW_SHA;
+		await recorded(
+			{
+				"owner/repo/my-plugin": {
+					type: "skill",
+					sourceSubpath: "plugins/foo",
+					files: [".claude/skills/my-plugin/"],
+				},
+				"owner/repo/bar": { type: "skill", files: [".claude/skills/bar/"] },
+			},
+			{
+				".claude/skills/my-plugin/SKILL.md": "v1",
+				".claude/skills/bar/SKILL.md": "v1",
+			},
+		);
+
+		await runUpdate();
+
+		const lines = vi.mocked(p.log).success.mock.calls.map(([line]) => line);
+		expect(lines).toContain("foo");
+		expect(lines).not.toContain("my-plugin");
+	});
+});
+
 describe("a key another entry already holds", () => {
 	async function arrange(): Promise<void> {
 		await repo("owner/repo", {
@@ -602,12 +739,30 @@ describe("a local source's printed re-add commands", () => {
 		source = join(testDir, "kit");
 	});
 
-	async function expectReAddLands(key: string): Promise<void> {
+	/**
+	 * A local entry's re-add is printed only once the entry is gone: an abort's
+	 * remedy removes it first, and a copy failure already has. So it runs after
+	 * the remove, and installs the item from its own folder.
+	 */
+	async function expectReAddInstalls(
+		key: string,
+		command: string,
+		file: string,
+	): Promise<void> {
 		const { entry } = await saved(key);
-		await expectLandsOnEntries(reAddCommand(key, entry, "project"), [key]);
+		expect(reAddCommand(key, entry, "project")).toBe(command);
+		expect((await runMachine(removeCommand, [key, "-y"])).exitCode).toBe(0);
+
+		const run = await runPrinted(command);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document.items).toEqual([
+			expect.objectContaining({ status: "installed" }),
+		]);
+		expect(await installed(file)).toBe(true);
 	}
 
-	it("land on a pack re-typed as a skill and moved to its new key", async () => {
+	it("install a pack re-typed as a skill and moved to its new key", async () => {
 		await write(source, {
 			"packs/foo/agntc.json": PACK,
 			"packs/foo/skills/a/SKILL.md": "a v1",
@@ -630,27 +785,32 @@ describe("a local source's printed re-add commands", () => {
 			sourceSubpath: "packs/foo",
 			localRoot: source,
 		});
-		expect(
-			reAddCommand(
-				join(source, "foo"),
-				(await saved(join(source, "foo"))).entry,
-				"project",
-			),
-		).toBe(`npx agntc add ${source} --skill foo`);
-		await expectReAddLands(join(source, "foo"));
+		await expectReAddInstalls(
+			join(source, "foo"),
+			`npx agntc add ${join(source, "packs/foo")}`,
+			".claude/skills/foo/SKILL.md",
+		);
 	});
 
-	it("land on a loose skill added from its root with its path recorded", async () => {
+	it("install a loose skill whose name another skill under the root now shares", async () => {
 		await write(source, {
 			"skills/foo/SKILL.md": "foo",
 			"skills/bar/SKILL.md": "bar",
 		});
 		await add(source, "--skill", "foo");
+		await write(source, {
+			"tools/agntc.json": PACK,
+			"tools/skills/foo/SKILL.md": "another foo",
+		});
 
-		await expectReAddLands(join(source, "foo"));
+		await expectReAddInstalls(
+			join(source, "foo"),
+			`npx agntc add ${join(source, "skills/foo")}`,
+			".claude/skills/foo/SKILL.md",
+		);
 	});
 
-	it("land on a pack added from its root", async () => {
+	it("install a pack added from its root", async () => {
 		await write(source, {
 			"packs/tools/agntc.json": PACK,
 			"packs/tools/skills/a/SKILL.md": "a",
@@ -658,7 +818,11 @@ describe("a local source's printed re-add commands", () => {
 		});
 		await add(source, "--all");
 
-		await expectReAddLands(join(source, "packs/tools"));
+		await expectReAddInstalls(
+			join(source, "packs/tools"),
+			`npx agntc add ${join(source, "packs/tools")} --pack`,
+			".claude/skills/a/SKILL.md",
+		);
 	});
 });
 
@@ -708,6 +872,8 @@ describe("a pack moving onto the key of a loose skill it takes over", () => {
 				key: "owner/repo/packs/tools",
 				type: "skill",
 				status: "absorbed",
+				message:
+					"owner/repo/packs/tools is now part of the pack owner/repo/tools, which moved to its key",
 			}),
 		]);
 		expect(await savedManifest()).toEqual({

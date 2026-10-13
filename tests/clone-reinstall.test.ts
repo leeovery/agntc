@@ -2004,6 +2004,49 @@ describe("buildAbortMessage for a key another entry holds", () => {
 	});
 });
 
+describe("buildAbortMessage for a version change", () => {
+	const replayed = {
+		key: "owner/repo/foo",
+		entry: makeEntry({
+			type: "skill",
+			ref: "v2.0.0",
+			sourceSubpath: "packs/foo",
+		}),
+	};
+
+	it("frees a taken key, then changes the version again, which an update wouldn't do", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/packs/foo",
+				makeEntry({ type: "pack", ref: "v1.0.0" }),
+				{
+					reason: "it would move to owner/repo/foo, which is already installed",
+					takenKey: "owner/repo/foo",
+					replayed,
+				},
+				"project",
+				"v2.0.0",
+			),
+		).toBe(
+			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then change it to v2.0.0 again",
+		);
+	});
+
+	it("changes the version again once files in the way are cleared, or re-adds at that version", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/packs/foo",
+				makeEntry({ type: "pack", ref: "v1.0.0" }),
+				{ reason: "files are in the way", inTheWay: true, replayed },
+				"project",
+				"v2.0.0",
+			),
+		).toBe(
+			"owner/repo/packs/foo can't be updated: files are in the way. The existing install is unchanged. Clear them and change it to v2.0.0 again, or replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo@v2.0.0 --overwrite",
+		);
+	});
+});
+
 describe("recordReinstall", () => {
 	const manifest: Manifest = {
 		"owner/repo/a": makeEntry(),
@@ -2018,6 +2061,7 @@ describe("recordReinstall", () => {
 			"owner/repo/old",
 			"owner/repo/old",
 			entry,
+			[],
 		);
 
 		expect(Object.keys(next)).toEqual(Object.keys(manifest));
@@ -2030,6 +2074,7 @@ describe("recordReinstall", () => {
 			"owner/repo/old",
 			"owner/repo/new",
 			entry,
+			[],
 		);
 
 		expect(Object.keys(next)).toEqual([
@@ -2038,6 +2083,18 @@ describe("recordReinstall", () => {
 			"owner/repo/new",
 		]);
 		expect(next["owner/repo/new"]).toBe(entry);
+	});
+
+	it("drops the loose skills it took over, then records it, so a key one held has the entry alone", () => {
+		const next = recordReinstall(
+			manifest,
+			"owner/repo/old",
+			"owner/repo/z",
+			entry,
+			["owner/repo/a", "owner/repo/z"],
+		);
+
+		expect(next).toEqual({ "owner/repo/z": entry });
 	});
 });
 

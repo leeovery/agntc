@@ -170,10 +170,14 @@ async function runKeyUpdate(
 }
 
 function extractOutOfConstraint(
-	{ key, entry }: GroupMember,
+	member: GroupMember | null,
 	checkResult: UpdateCheckResult,
 	scope: ScopeName,
 ): OutOfConstraintInfo | null {
+	if (member === null) {
+		return null;
+	}
+	const { key, entry } = member;
 	if (
 		hasOutOfConstraintVersion(checkResult) &&
 		entry.constraint !== undefined
@@ -215,20 +219,32 @@ async function updateKey(
 	};
 }
 
+/** What leaves an entry no longer installed once the run ends. */
+const UNINSTALLED: ReadonlySet<PluginOutcome["status"]> = new Set([
+	"absorbed",
+	"gone-removed",
+	"copy-failed",
+]);
+
 /**
  * A member as the run left it: reinstalled, under the key it moved to, so a
- * command printed for it installs onto that entry.
+ * command printed for it installs onto that entry; null when the run left it
+ * uninstalled, which no such command is for.
  */
 function memberAfter(
 	member: GroupMember,
 	outcomes: PluginOutcome[],
-): GroupMember {
-	const reinstalled = outcomes.find(
-		(outcome) => keyBefore(outcome) === member.key,
+): GroupMember | null {
+	const outcome = outcomes.find(
+		(candidate) => keyBefore(candidate) === member.key,
 	);
-	return reinstalled !== undefined && isSuccessOutcome(reinstalled)
-		? { key: reinstalled.key, entry: reinstalled.newEntry }
-		: member;
+	if (outcome === undefined) {
+		return member;
+	}
+	if (isSuccessOutcome(outcome)) {
+		return { key: outcome.key, entry: outcome.newEntry };
+	}
+	return UNINSTALLED.has(outcome.status) ? null : member;
 }
 
 async function settleKey(
@@ -631,7 +647,8 @@ function categorizeGroups(resolved: ResolvedGroup[]): CategorizedGroups {
  * {@link groupLabel} — so an N-member group yields one footer line, not N,
  * while two distinct-intent groups of one repo keep their own @intent lines.
  * The line carries the group's re-add commands ({@link groupReAddCommands}),
- * for its members as the run's `outcomes` left them.
+ * for its members as the run's `outcomes` left them; a group the run left with
+ * no member installed has no line.
  */
 function groupOutOfConstraintInfo(
 	{ group, target }: ResolvedGroup,
@@ -642,7 +659,12 @@ function groupOutOfConstraintInfo(
 	if (target.kind !== "constrained" || target.latestOverall === null) {
 		return null;
 	}
-	const members = group.members.map((member) => memberAfter(member, outcomes));
+	const members = group.members.flatMap(
+		(member) => memberAfter(member, outcomes) ?? [],
+	);
+	if (members.length === 0) {
+		return null;
+	}
 	return {
 		label: groupLabel(group, groups),
 		// POST-BUMP current for every member: the group's resolved
@@ -1024,8 +1046,9 @@ function streamCollapsedOutcome(outcome: PluginOutcome, ui: Ui): void {
 
 /**
  * Emits one {@link formatMemberLine} line per attempted member (member order),
- * name = basename, each dispatched at its own severity level. The version move
- * rides each member line only when the group is divergent-old — the header then
+ * named by the basename of the key its outcome left it under, each dispatched
+ * at its own severity level. The version move rides each member line only
+ * when the group is divergent-old — the header then
  * carried the target only; the shared-old common case leaves the move
  * on the header. The divergent-old decision is NOT derived here: the caller
  * ({@link streamGroupWork}) computes it ONCE and supplies it as `divergent`, the
@@ -1050,7 +1073,8 @@ export function streamGroupMemberLines(
 					newCommit,
 				}
 			: null;
-		emitMemberLine(outcomes[i]!, memberName(member.key), move, ui);
+		const outcome = outcomes[i]!;
+		emitMemberLine(outcome, memberName(outcome.key), move, ui);
 	}
 }
 

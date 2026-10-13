@@ -191,18 +191,20 @@ export function mapCloneFailure<T>(
  * {@link buildAbortMessage} and `blocked` through
  * {@link buildCopySafetyMessage}. A new failure variant is a single edit here;
  * the list actions can't drift. update.ts keeps its richer per-status handler.
+ * `version` is the tag a version change asked for ({@link buildAbortMessage}).
  */
 export function failureMessage(
 	result: CloneReinstallFailure,
 	key: string,
 	entry: ManifestEntry,
 	scope: ScopeName,
+	version?: string,
 ): string {
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
 		onCopyFailed: (msg) => msg,
 		onRemoveFailed: (msg) => msg,
-		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope),
+		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope, version),
 		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
 	});
 }
@@ -262,31 +264,40 @@ export type CloneReinstallResult =
  * taken key too. Distinct from the copy-failed report, which tells the user
  * the unit is currently uninstalled and to re-run update — here nothing was
  * touched.
+ *
+ * `version` is the tag a version change asked for. An update follows the
+ * entry's own constraint or pin, so it would never install that tag: the
+ * remedy changes the version again instead, and its re-add pins that tag.
  */
 export function buildAbortMessage(
 	key: string,
 	entry: ManifestEntry,
 	{ reason, inTheWay, takenKey, replayed }: AbortCause,
 	scope: ScopeName,
+	version?: string,
 ): string {
+	const again =
+		version === undefined ? "update again" : `change it to ${version} again`;
 	if (takenKey !== undefined) {
+		const redo =
+			version === undefined ? agntcCommand(scope, "update", [key]) : again;
 		return (
 			`${key} can't be updated: ${reason}. The existing install is ` +
 			`unchanged. To replace that entry with it: ` +
-			`${agntcCommand(scope, "remove", [takenKey])} then ` +
-			`${agntcCommand(scope, "update", [key])}`
+			`${agntcCommand(scope, "remove", [takenKey])} then ${redo}`
 		);
 	}
 	const reAdd = reAddCommand(
 		replayed?.key ?? key,
 		replayed?.entry ?? entry,
 		scope,
+		version,
 	);
 	const remove = agntcCommand(scope, "remove", [key]);
 	if (inTheWay) {
 		return (
 			`${key} can't be updated: ${reason}. The existing install is ` +
-			`unchanged. Clear them and update again, or replace them: ` +
+			`unchanged. Clear them and ${again}, or replace them: ` +
 			`${remove} then ${reAdd} --overwrite`
 		);
 	}
@@ -450,17 +461,20 @@ export async function cloneAndReinstall(
 
 /**
  * `manifest` with a reinstalled entry under `key`, the key `add` gives it, in
- * place of the entry at `from`: an entry whose key moved leaves its old key in
- * the same write.
+ * place of the entry at `from`, and without the loose skills it took over,
+ * `absorbed`. One of those may have held `key`, so they go before the entry is
+ * recorded; an entry whose key moved leaves its old key in the same write.
  */
 export function recordReinstall(
 	manifest: Manifest,
 	from: string,
 	key: string,
 	entry: ManifestEntry,
+	absorbed: string[],
 ): Manifest {
+	const dropped = from === key ? absorbed : [...absorbed, from];
 	return addEntry(
-		from === key ? manifest : removeEntry(manifest, from),
+		dropped.reduce((rest, gone) => removeEntry(rest, gone), manifest),
 		key,
 		entry,
 	);

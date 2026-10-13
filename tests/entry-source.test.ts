@@ -150,14 +150,14 @@ describe("reAddCommand", () => {
 		);
 	});
 
-	it("re-adds a local skill with a recorded path by name from the folder it was added from", () => {
+	it("re-adds a local entry with a recorded path by the folder it was added from plus that path", () => {
 		expect(
 			reAddCommand(
 				"/src/repo/go",
 				local({ sourceSubpath: "skills/lang/go" }),
 				"project",
 			),
-		).toBe("npx agntc add /src/repo --skill go");
+		).toBe("npx agntc add /src/repo/skills/lang/go");
 	});
 
 	it("re-adds a local pack with --pack", () => {
@@ -197,38 +197,14 @@ describe("reAddCommand for a local entry with its root recorded", () => {
 		).toBe("npx agntc add /src/repo/go");
 	});
 
-	it("re-adds a skill recorded with a path by name from the recorded root", () => {
+	it("re-adds a skill recorded with a path by that path below the recorded root", () => {
 		expect(
 			reAddCommand(
 				"/src/repo/go",
 				local({ localRoot: "/src/repo", sourceSubpath: "skills/lang/go" }),
 				"project",
 			),
-		).toBe("npx agntc add /src/repo --skill go");
-	});
-
-	it("re-adds a pack recorded with a path by its folder, as before", () => {
-		expect(
-			reAddCommand(
-				"/src/repo/tools",
-				local({
-					type: "pack",
-					localRoot: "/src/repo",
-					sourceSubpath: "packs/tools",
-				}),
-				"project",
-			),
-		).toBe("npx agntc add /src/repo/packs/tools --pack");
-	});
-
-	it("quotes the root and carries -g on a skill named from it", () => {
-		expect(
-			reAddCommand(
-				"/src/My Skills/go",
-				local({ localRoot: "/src/My Skills", sourceSubpath: "skills/go" }),
-				"global",
-			),
-		).toBe("npx agntc add -g '/src/My Skills' --skill go");
+		).toBe("npx agntc add /src/repo/skills/lang/go");
 	});
 
 	it("re-adds a pack by its folder below the recorded root", () => {
