@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentId } from "../src/drivers/types.js";
 import type { Manifest } from "../src/manifest.js";
 import type { DetectedType } from "../src/type-detection.js";
 
@@ -29,10 +28,6 @@ vi.mock("../src/git-clone.js", () => ({
 	cleanupTempDir: vi.fn(),
 }));
 
-vi.mock("../src/config.js", () => ({
-	readConfig: vi.fn(),
-}));
-
 vi.mock("../src/type-detection.js", () => ({
 	detectType: vi.fn(),
 }));
@@ -51,10 +46,6 @@ vi.mock("../src/copy-plugin-assets.js", () => ({
 
 vi.mock("../src/copy-bare-skill.js", () => ({
 	copyBareSkill: vi.fn(),
-}));
-
-vi.mock("../src/drivers/registry.js", () => ({
-	getDriver: vi.fn(),
 }));
 
 vi.mock("../src/copy-safety.js", async (importOriginal) => {
@@ -78,12 +69,9 @@ import {
 	cloneAndReinstall,
 	cloneRepoOnce,
 	failureMessage,
-	formatAgentsDroppedWarning,
 	isCloneReinstallFailure,
 	mapCloneFailure,
-	noAgentsMessage,
 } from "../src/clone-reinstall.js";
-import { readConfig } from "../src/config.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
 import {
@@ -92,7 +80,6 @@ import {
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
-import { getDriver } from "../src/drivers/registry.js";
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { removeEntry, writeManifest } from "../src/manifest.js";
@@ -105,29 +92,23 @@ const mockRemoveEntry = vi.mocked(removeEntry);
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
-const mockReadConfig = vi.mocked(readConfig);
 const mockDetectType = vi.mocked(detectType);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
-const mockGetDriver = vi.mocked(getDriver);
 const mockPathExists = vi.mocked(pathExists);
-const mockLog = vi.mocked(p.log);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
-import { makeEntry, makeFakeDriver } from "./helpers/factories.js";
+import { makeEntry } from "./helpers/factories.js";
 
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
-
-const fakeDriver = makeFakeDriver();
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-	mockGetDriver.mockReturnValue(fakeDriver);
 	mockPathExists.mockResolvedValue(true);
 	mockWriteManifest.mockResolvedValue(undefined);
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
@@ -140,39 +121,10 @@ beforeEach(() => {
 	});
 });
 
-describe("formatAgentsDroppedWarning", () => {
-	it("formats the warning with key, dropped agents, installed agents, and new agents", () => {
-		const result = formatAgentsDroppedWarning(
-			"owner/repo",
-			["codex"] as AgentId[],
-			["claude", "codex"] as AgentId[],
-			["claude"] as AgentId[],
-		);
-
-		expect(result).toBe(
-			"Plugin owner/repo no longer declares support for codex. " +
-				"Currently installed for: claude, codex. " +
-				"New version supports: claude.",
-		);
-	});
-
-	it("formats with multiple dropped agents", () => {
-		const result = formatAgentsDroppedWarning(
-			"owner/repo",
-			["claude", "codex"] as AgentId[],
-			["claude", "codex"] as AgentId[],
-			[] as AgentId[],
-		);
-
-		expect(result).toContain("claude, codex");
-	});
-});
-
 describe("cloneAndReinstall", () => {
 	describe("git (remote) path — success", () => {
-		it("returns success with manifest entry, copied files, and dropped agents", async () => {
+		it("returns success with manifest entry and copied files", async () => {
 			const entry = makeEntry({
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 
@@ -180,7 +132,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -197,9 +148,7 @@ describe("cloneAndReinstall", () => {
 			expect(result.status).toBe("success");
 			if (result.status === "success") {
 				expect(result.manifestEntry.commit).toBe(REMOTE_SHA);
-				expect(result.manifestEntry.agents).toEqual(["claude"]);
 				expect(result.copiedFiles).toEqual([".claude/skills/my-skill/"]);
-				expect(result.droppedAgents).toEqual([]);
 			}
 		});
 
@@ -210,7 +159,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -245,7 +193,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -269,7 +216,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			await cloneAndReinstall({
@@ -292,7 +238,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -311,75 +256,6 @@ describe("cloneAndReinstall", () => {
 		});
 	});
 
-	describe("null config (no agntc.json)", () => {
-		it("proceeds for a recorded skill whose SKILL.md is still present (null config = no restriction)", async () => {
-			const entry = makeEntry({ type: "skill" });
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue(null);
-			mockPathExists.mockResolvedValue(true);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
-
-			expect(result.status).toBe("success");
-			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-		});
-	});
-
-	describe("no-agents status", () => {
-		it("returns the dedicated no-agents status (not a failure) with the message", async () => {
-			const entry = makeEntry({ agents: ["codex"] });
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// New version only supports claude, entry has codex
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
-
-			expect(result.status).toBe("no-agents");
-			if (result.status === "no-agents") {
-				expect(result.message).toContain(
-					"no longer supports any of your installed agents",
-				);
-			}
-		});
-
-		it("does not nuke files when all agents dropped", async () => {
-			const entry = makeEntry({ agents: ["codex"] });
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
-
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-		});
-	});
-
 	describe("aborted status (derive-before-delete)", () => {
 		it("plumbs aborted up with recordedType and reason when recorded skill SKILL.md is gone", async () => {
 			const entry = makeEntry({
@@ -391,7 +267,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await cloneAndReinstall({
@@ -417,7 +292,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await cloneAndReinstall({
@@ -443,7 +317,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			await cloneAndReinstall({
@@ -466,7 +339,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			await cloneAndReinstall({
@@ -490,7 +362,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			await cloneAndReinstall({
@@ -512,7 +383,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await cloneAndReinstall({
@@ -536,7 +406,6 @@ describe("cloneAndReinstall", () => {
 			// the fix the SKILL.md check hits /tmp/agntc-clone/go and aborts.
 			const entry = makeEntry({
 				type: "skill",
-				agents: ["claude"],
 				files: [".claude/skills/go/"],
 				sourceSubpath: "skills/go",
 			});
@@ -545,7 +414,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue(null);
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
@@ -581,7 +449,6 @@ describe("cloneAndReinstall", () => {
 			// must not divert it.
 			const entry = makeEntry({
 				type: "skill",
-				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
 
@@ -589,7 +456,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue(null);
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
@@ -612,33 +478,6 @@ describe("cloneAndReinstall", () => {
 				expect(result.manifestEntry.sourceSubpath).toBeUndefined();
 			}
 		});
-
-		it("configless recorded-skill update proceeds (null config, copyBareSkill)", async () => {
-			const entry = makeEntry({
-				type: "skill",
-				agents: ["claude"],
-				files: [".claude/skills/my-skill/"],
-			});
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue(null);
-			mockPathExists.mockResolvedValue(true);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
-
-			expect(result.status).toBe("success");
-			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-		});
 	});
 
 	describe("copy-failed status", () => {
@@ -649,7 +488,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -676,7 +514,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -703,7 +540,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -753,52 +589,15 @@ describe("cloneAndReinstall", () => {
 		});
 	});
 
-	describe("agents dropped warning", () => {
-		it("emits warning when agents are partially dropped", async () => {
-			const entry = makeEntry({
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
-
-			expect(result.status).toBe("success");
-			if (result.status === "success") {
-				expect(result.droppedAgents).toEqual(["codex"]);
-			}
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
-		});
-	});
-
 	describe("local path (no clone)", () => {
 		it("returns success without cloning for local entry", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({
 				commit: null,
 				ref: null,
-				agents: ["claude"],
 				files: [".claude/skills/my-plugin/"],
 			});
 
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -831,7 +630,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -856,7 +654,6 @@ describe("cloneAndReinstall", () => {
 	describe("collection key", () => {
 		it("resolves sourceDir from key when key has 3+ segments", async () => {
 			const entry = makeEntry({
-				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
 
@@ -864,7 +661,6 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -879,10 +675,9 @@ describe("cloneAndReinstall", () => {
 			});
 
 			expect(result.status).toBe("success");
-			// readConfig should be called with the subdir
-			expect(mockReadConfig).toHaveBeenCalledWith(
-				"/tmp/agntc-clone/go",
-				expect.anything(),
+			// The recorded-skill validation gate reads the subdir
+			expect(mockPathExists).toHaveBeenCalledWith(
+				"/tmp/agntc-clone/go/SKILL.md",
 			);
 		});
 
@@ -894,7 +689,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/my-skill/"],
@@ -922,7 +716,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/go/"],
@@ -945,11 +738,9 @@ describe("cloneAndReinstall", () => {
 				const entry = makeEntry({
 					commit: null,
 					ref: null,
-					agents: ["claude"],
 					files: [".claude/skills/my-plugin/"],
 				});
 
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/my-plugin/"],
@@ -975,7 +766,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockScanForEscapingSymlinks.mockRejectedValue(
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
@@ -1007,7 +797,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockScanForEscapingSymlinks.mockRejectedValue(
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
@@ -1034,7 +823,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockScanForEscapingSymlinks.mockRejectedValue(
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
@@ -1051,7 +839,6 @@ describe("cloneAndReinstall", () => {
 
 				const mapped = mapCloneFailure(result, {
 					onCloneFailed: () => "clone-failed",
-					onNoAgents: () => "no-agents",
 					onCopyFailed: () => "copy-failed",
 					onAborted: () => "aborted",
 					onBlocked: (reason) => `blocked:${reason}`,
@@ -1068,7 +855,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/my-skill/"],
@@ -1098,7 +884,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockAssertSubpathWithinClone.mockImplementation(() => {
 					throw new PathTraversalError("../evil");
@@ -1121,7 +906,7 @@ describe("cloneAndReinstall", () => {
 					expect(result.message).toContain("outside the clone root");
 				}
 				// Pre-flight: the guard precedes the source read, nuke, and copy.
-				expect(mockReadConfig).not.toHaveBeenCalled();
+				expect(mockPathExists).not.toHaveBeenCalled();
 				expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 				expect(mockCopyBareSkill).not.toHaveBeenCalled();
@@ -1140,7 +925,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockAssertSubpathWithinClone.mockImplementation(() => {
 					throw new PathTraversalError("../evil");
@@ -1162,7 +946,6 @@ describe("cloneAndReinstall", () => {
 				// returns void); the cycle-9 relocation still resolves and copies.
 				const entry = makeEntry({
 					type: "skill",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 					sourceSubpath: "skills/go",
 				});
@@ -1171,7 +954,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue(null);
 				mockPathExists.mockResolvedValue(true);
 				mockCopyBareSkill.mockResolvedValue({
 					copiedFiles: [".claude/skills/go/"],
@@ -1204,7 +986,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 				mockCopyBareSkill.mockResolvedValue({
@@ -1229,7 +1010,6 @@ describe("cloneAndReinstall", () => {
 					tempDir: "/tmp/agntc-clone",
 					commit: REMOTE_SHA,
 				});
-				mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 				mockPathExists.mockResolvedValue(true);
 				mockScanForEscapingSymlinks.mockRejectedValue(
 					new SymlinkEscapeError("evil", "../escape"),
@@ -1331,7 +1111,6 @@ describe("mapCloneFailure", () => {
 	function makeHandlers(): CloneFailureHandlers<string> {
 		return {
 			onCloneFailed: (msg) => `clone-failed: ${msg}`,
-			onNoAgents: (msg) => `no-agents: ${msg}`,
 			onCopyFailed: (msg) => `copy-failed: ${msg}`,
 			onAborted: (recordedType, reason) =>
 				`aborted: ${recordedType} — ${reason}`,
@@ -1350,14 +1129,6 @@ describe("mapCloneFailure", () => {
 			makeHandlers(),
 		);
 		expect(result).toBe("clone-failed: network error");
-	});
-
-	it("dispatches no-agents (via its own status) to onNoAgents handler", () => {
-		const result = mapCloneFailure(
-			{ status: "no-agents", message: "no agents" },
-			makeHandlers(),
-		);
-		expect(result).toBe("no-agents: no agents");
 	});
 
 	it("dispatches copy-failed to onCopyFailed handler", () => {
@@ -1407,17 +1178,16 @@ describe("mapCloneFailure", () => {
 	it("returns the typed result from handler", () => {
 		const handlers: CloneFailureHandlers<number> = {
 			onCloneFailed: () => 1,
-			onNoAgents: () => 3,
 			onCopyFailed: () => 5,
 			onAborted: () => 7,
 			onBlocked: () => 8,
 			onUnknown: () => 6,
 		};
 		const result = mapCloneFailure(
-			{ status: "no-agents", message: "test" },
+			{ status: "blocked", reason: "test" },
 			handlers,
 		);
-		expect(result).toBe(3);
+		expect(result).toBe(8);
 	});
 });
 
@@ -1427,14 +1197,6 @@ describe("isCloneReinstallFailure", () => {
 			status: "failed",
 			failureReason: "clone-failed",
 			message: "network error",
-		};
-		expect(isCloneReinstallFailure(result)).toBe(true);
-	});
-
-	it("returns true for a no-agents result", () => {
-		const result: CloneReinstallResult = {
-			status: "no-agents",
-			message: "no agents",
 		};
 		expect(isCloneReinstallFailure(result)).toBe(true);
 	});
@@ -1462,42 +1224,27 @@ describe("isCloneReinstallFailure", () => {
 			status: "success",
 			manifestEntry: makeEntry(),
 			copiedFiles: [".claude/skills/my-skill/"],
-			droppedAgents: [],
 		};
 		expect(isCloneReinstallFailure(result)).toBe(false);
 	});
 
 	it("narrows result to the failure union accepted by mapCloneFailure", () => {
 		const result: CloneReinstallResult = {
-			status: "no-agents",
-			message: "no agents",
+			status: "aborted",
+			recordedType: "skill",
+			reason: "SKILL.md is no longer present in the source",
 		};
 		// Type-level: after the guard, result must satisfy mapCloneFailure's param.
 		if (isCloneReinstallFailure(result)) {
 			const mapped = mapCloneFailure(result, {
 				onCloneFailed: () => "clone",
-				onNoAgents: () => "no-agents",
 				onCopyFailed: () => "copy",
 				onAborted: () => "aborted",
 				onBlocked: () => "blocked",
 				onUnknown: () => "unknown",
 			});
-			expect(mapped).toBe("no-agents");
+			expect(mapped).toBe("aborted");
 		}
-	});
-});
-
-describe("noAgentsMessage", () => {
-	it("returns the standard no-agents sentence for a key", () => {
-		expect(noAgentsMessage("owner/repo")).toBe(
-			"Plugin owner/repo no longer supports any of your installed agents",
-		);
-	});
-
-	it("interpolates the key into the sentence", () => {
-		expect(noAgentsMessage("acme/widgets")).toBe(
-			"Plugin acme/widgets no longer supports any of your installed agents",
-		);
 	});
 });
 
@@ -1532,14 +1279,6 @@ describe("failureMessage", () => {
 			"owner/repo",
 		);
 		expect(msg).toBe("something");
-	});
-
-	it("returns the failure's own message for no-agents", () => {
-		const msg = failureMessage(
-			{ status: "no-agents", message: "no agents here" },
-			"owner/repo",
-		);
-		expect(msg).toBe("no agents here");
 	});
 
 	it("returns buildAbortMessage output for aborted", () => {

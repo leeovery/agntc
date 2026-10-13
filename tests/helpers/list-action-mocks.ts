@@ -1,21 +1,18 @@
 import { access } from "node:fs/promises";
 import { beforeEach, type Mock, vi } from "vitest";
-import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
 import { scanForEscapingSymlinks } from "../../src/copy-safety.js";
-import { getDriver } from "../../src/drivers/registry.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { addEntry, removeEntry, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { detectType } from "../../src/type-detection.js";
-import { makeFakeDriver } from "./factories.js";
 
 /**
  * Shared non-hoisted test wiring for the two list-action test files
  * (`list-update-action.test.ts` and `list-change-version-action.test.ts`): the
  * `vi.mocked` handles both drive and assert against, the `INSTALLED_SHA` /
- * `REMOTE_SHA` constants, the `fakeDriver`, and the common `beforeEach`
+ * `REMOTE_SHA` constants, and the common `beforeEach`
  * defaults. Authored once so a change to the clone-reinstall surface is a
  * single edit.
  *
@@ -44,20 +41,17 @@ export interface ListActionMocks {
 	removeEntry: Mock;
 	cloneSource: Mock;
 	cleanupTempDir: Mock;
-	readConfig: Mock;
 	detectType: Mock;
 	nukeManifestFiles: Mock;
 	copyPluginAssets: Mock;
 	copyBareSkill: Mock;
-	getDriver: Mock;
 	access: Mock;
 	scanForEscapingSymlinks: Mock;
-	fakeDriver: ReturnType<typeof makeFakeDriver>;
 }
 
 /**
  * Resolves the shared `vi.mocked` handles from the modules the calling test
- * file mocked, builds the shared `fakeDriver`, and registers the common
+ * file mocked, and registers the common
  * `beforeEach` defaults (`vi.clearAllMocks` plus the resolved/implementation
  * defaults both files installed identically). Returns the handles so test
  * bodies keep driving them via `.mock*` and asserting `toHaveBeenCalled*`.
@@ -74,15 +68,12 @@ export function setupListActionMocks(): ListActionMocks {
 		removeEntry: vi.mocked(removeEntry),
 		cloneSource: vi.mocked(cloneSource),
 		cleanupTempDir: vi.mocked(cleanupTempDir),
-		readConfig: vi.mocked(readConfig),
 		detectType: vi.mocked(detectType),
 		nukeManifestFiles: vi.mocked(nukeManifestFiles),
 		copyPluginAssets: vi.mocked(copyPluginAssets),
 		copyBareSkill: vi.mocked(copyBareSkill),
-		getDriver: vi.mocked(getDriver),
 		access: vi.mocked(access),
 		scanForEscapingSymlinks: vi.mocked(scanForEscapingSymlinks),
-		fakeDriver: makeFakeDriver(),
 	};
 
 	beforeEach(() => {
@@ -90,7 +81,6 @@ export function setupListActionMocks(): ListActionMocks {
 		handles.writeManifest.mockResolvedValue(undefined);
 		handles.cleanupTempDir.mockResolvedValue(undefined);
 		handles.nukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-		handles.getDriver.mockReturnValue(handles.fakeDriver);
 		// Default: the recorded structural unit still exists in the re-clone, so the
 		// derive-before-delete gate passes (pathExists -> access resolves).
 		handles.access.mockResolvedValue(undefined);

@@ -1,7 +1,6 @@
 import * as fs from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
-import type { AgentDriver } from "../src/drivers/types.js";
 
 vi.mock("node:fs/promises");
 vi.mock("../src/copy-rollback.js");
@@ -11,13 +10,6 @@ const mockedFs = vi.mocked(fs);
 import { rollbackCopiedFiles } from "../src/copy-rollback.js";
 
 const mockedRollback = vi.mocked(rollbackCopiedFiles);
-
-function makeDriver(targets: Record<string, string | null>): AgentDriver {
-	return {
-		detect: async () => true,
-		getTargetDir: (assetType: string) => targets[assetType] ?? null,
-	};
-}
 
 function makeDirent(name: string, isDir: boolean) {
 	return {
@@ -61,15 +53,6 @@ describe("copyPluginAssets rollback", () => {
 			copyPluginAssets({
 				sourceDir: "/source/my-plugin",
 				assetDirs: ["skills", "hooks"],
-				agents: [
-					{
-						id: "claude",
-						driver: makeDriver({
-							skills: ".claude/skills",
-							hooks: ".claude/hooks",
-						}),
-					},
-				],
 				projectDir: "/project",
 			}),
 		).rejects.toThrow("disk full");
@@ -91,12 +74,6 @@ describe("copyPluginAssets rollback", () => {
 		const thrownError = await copyPluginAssets({
 			sourceDir: "/source/my-plugin",
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir: "/project",
 		}).catch((e) => e);
 
@@ -111,12 +88,6 @@ describe("copyPluginAssets rollback", () => {
 		await copyPluginAssets({
 			sourceDir: "/source/my-plugin",
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir: "/project",
 		});
 
@@ -132,12 +103,6 @@ describe("copyPluginAssets rollback", () => {
 		await copyPluginAssets({
 			sourceDir: "/source/my-plugin",
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir: "/my-project",
 		}).catch(() => {});
 

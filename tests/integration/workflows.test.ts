@@ -18,9 +18,6 @@ import {
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../../src/copy-safety.js";
-import { ClaudeDriver } from "../../src/drivers/claude-driver.js";
-import { CodexDriver } from "../../src/drivers/codex-driver.js";
-import type { AgentWithDriver } from "../../src/drivers/types.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import {
 	addEntry,
@@ -34,18 +31,6 @@ import { executeNukeAndReinstall } from "../../src/nuke-reinstall-pipeline.js";
 import { resolveUpdateSourceDir } from "../../src/source-parser.js";
 import { detectType } from "../../src/type-detection.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
-
-// Real drivers -- the integration point
-const claudeDriver = new ClaudeDriver();
-const codexDriver = new CodexDriver();
-
-function claudeAgent(): AgentWithDriver {
-	return { id: "claude", driver: claudeDriver };
-}
-
-function codexAgent(): AgentWithDriver {
-	return { id: "codex", driver: codexDriver };
-}
 
 async function fileExists(path: string): Promise<boolean> {
 	try {
@@ -110,13 +95,10 @@ describe("integration: core workflows", () => {
 			await createFile(skillDir, "SKILL.md");
 			await createFile(skillDir, "references", "guide.md");
 
-			const agents = [claudeAgent()];
-
 			// 1. Compute incoming files (predict what will be copied)
 			const incomingFiles = await computeIncomingFiles({
 				type: "bare-skill",
 				sourceDir: skillDir,
-				agents,
 			});
 
 			expect(incomingFiles).toEqual([".claude/skills/go-development/"]);
@@ -138,7 +120,6 @@ describe("integration: core workflows", () => {
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
 				projectDir,
-				agents,
 			});
 
 			// 5. Verify files on disk
@@ -167,7 +148,6 @@ describe("integration: core workflows", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				cloneUrl: null,
 			};
@@ -180,7 +160,6 @@ describe("integration: core workflows", () => {
 			expect(savedManifest["owner/go-development"]!.files).toEqual([
 				".claude/skills/go-development/",
 			]);
-			expect(savedManifest["owner/go-development"]!.agents).toEqual(["claude"]);
 		});
 	});
 
@@ -197,20 +176,16 @@ describe("integration: core workflows", () => {
 			await createFile(pluginBDir, "skills", "planning", "SKILL.md");
 			await createFile(pluginBDir, "skills", "review", "SKILL.md");
 
-			const agents = [claudeAgent()];
-
 			// Install plugin A first
 			const pluginAIncoming = await computeIncomingFiles({
 				type: "plugin",
 				sourceDir: pluginADir,
 				assetDirs: ["skills"],
-				agents,
 			});
 
 			const copyResultA = await copyPluginAssets({
 				sourceDir: pluginADir,
 				assetDirs: ["skills"],
-				agents,
 				projectDir,
 			});
 
@@ -219,7 +194,6 @@ describe("integration: core workflows", () => {
 				ref: null,
 				commit: "aaa111",
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResultA.copiedFiles,
 				cloneUrl: null,
 			};
@@ -236,7 +210,6 @@ describe("integration: core workflows", () => {
 				type: "plugin",
 				sourceDir: pluginBDir,
 				assetDirs: ["skills"],
-				agents,
 			});
 
 			// Check collisions -- planning/ should collide with plugin A
@@ -250,114 +223,135 @@ describe("integration: core workflows", () => {
 		});
 	});
 
-	describe("update with agent drop", () => {
-		it("removes dropped agent files and updates manifest on update", async () => {
-			// Source v1: supports both claude and codex
-			const pluginDir = join(sourceDir, "multi-agent-skill");
-			await createJson(pluginDir, "agntc.json", {
-				agents: ["claude", "codex"],
+	describe("update migrates a legacy multi-agent entry to .claude", () => {
+		async function writeLegacyManifest(
+			entries: Record<string, Record<string, unknown>>,
+		): Promise<void> {
+			await createJson(join(projectDir, ".agntc"), "manifest.json", entries);
+		}
+
+		it("nukes the .agents and .cursor copies and reinstalls the skill into .claude only", async () => {
+			const skillDir = join(sourceDir, "multi-agent-skill");
+			await createJson(skillDir, "agntc.json", {});
+			await createFile(skillDir, "SKILL.md");
+			await createFile(skillDir, "references", "cheatsheet.md");
+
+			const legacyFiles = [
+				".claude/skills/multi-agent-skill/",
+				".agents/skills/multi-agent-skill/",
+				".cursor/skills/multi-agent-skill/",
+			];
+			for (const dir of legacyFiles) {
+				await createFile(projectDir, dir, "SKILL.md");
+			}
+			await writeLegacyManifest({
+				"owner/multi-agent-skill": {
+					ref: null,
+					commit: "v1hash",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: legacyFiles,
+					cloneUrl: null,
+				},
 			});
-			await createFile(pluginDir, "SKILL.md");
-			await createFile(pluginDir, "references", "cheatsheet.md");
 
-			const agents = [claudeAgent(), codexAgent()];
+			let manifest = await readManifest(projectDir);
+			const entry = manifest["owner/multi-agent-skill"]!;
+			expect(entry.type).toBe("skill");
 
-			// Install v1 for both agents
-			const copyResult = await copyBareSkill({
-				sourceDir: pluginDir,
+			const result = await executeNukeAndReinstall({
+				key: "owner/multi-agent-skill",
+				sourceDir: skillDir,
+				cloneRoot: skillDir,
+				existingEntry: entry,
 				projectDir,
-				agents,
+				newCommit: "v2hash",
 			});
 
-			// Verify both agent target dirs exist
-			expect(
-				await fileExists(
-					join(projectDir, ".claude/skills/multi-agent-skill/SKILL.md"),
-				),
-			).toBe(true);
-			expect(
-				await fileExists(
-					join(projectDir, ".agents/skills/multi-agent-skill/SKILL.md"),
-				),
-			).toBe(true);
+			expect(result.status).toBe("success");
+			if (result.status !== "success") throw new Error("unexpected");
 
-			// Write manifest entry
-			const entry: ManifestEntry = {
-				ref: null,
-				commit: "v1hash",
-				installedAt: new Date().toISOString(),
-				agents: ["claude", "codex"],
-				files: copyResult.copiedFiles,
-				cloneUrl: null,
-			};
-			let manifest: Manifest = addEntry({}, "owner/multi-agent-skill", entry);
+			expect(
+				await fileExists(join(projectDir, ".agents/skills/multi-agent-skill")),
+			).toBe(false);
+			expect(
+				await fileExists(join(projectDir, ".cursor/skills/multi-agent-skill")),
+			).toBe(false);
+			expect(
+				await fileExists(
+					join(
+						projectDir,
+						".claude/skills/multi-agent-skill/references/cheatsheet.md",
+					),
+				),
+			).toBe(true);
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/multi-agent-skill/agntc.json"),
+				),
+			).toBe(false);
+
+			manifest = addEntry(manifest, "owner/multi-agent-skill", result.entry);
 			await writeManifest(projectDir, manifest);
 
-			// Now modify source to drop codex support (simulate v2)
-			await writeFile(
-				join(pluginDir, "agntc.json"),
-				JSON.stringify({ agents: ["claude"] }, null, 2),
-			);
+			const saved = (await readRawManifest(projectDir))[
+				"owner/multi-agent-skill"
+			]!;
+			expect(saved).not.toHaveProperty("agents");
+			expect(saved.files).toEqual([".claude/skills/multi-agent-skill/"]);
+			expect(saved.commit).toBe("v2hash");
+		});
 
-			// Run nuke-and-reinstall pipeline (the update mechanism)
-			let droppedWarning = "";
-			const pipelineResult = await executeNukeAndReinstall({
-				key: "owner/multi-agent-skill",
+		it("moves a Codex-only plugin entry into .claude", async () => {
+			const pluginDir = join(sourceDir, "codex-plugin");
+			await createJson(pluginDir, "agntc.json", { agents: ["codex"] });
+			await createFile(pluginDir, "skills", "alpha", "SKILL.md");
+			await createFile(pluginDir, "skills", "beta", "SKILL.md");
+
+			const codexFiles = [".agents/skills/alpha/", ".agents/skills/beta/"];
+			for (const dir of codexFiles) {
+				await createFile(projectDir, dir, "SKILL.md");
+			}
+			await writeLegacyManifest({
+				"owner/codex-plugin": {
+					ref: null,
+					commit: "v1hash",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: codexFiles,
+					cloneUrl: null,
+				},
+			});
+
+			const entry = (await readManifest(projectDir))["owner/codex-plugin"]!;
+			expect(entry.type).toBe("plugin");
+
+			const result = await executeNukeAndReinstall({
+				key: "owner/codex-plugin",
 				sourceDir: pluginDir,
 				cloneRoot: pluginDir,
 				existingEntry: entry,
 				projectDir,
 				newCommit: "v2hash",
-				onAgentsDropped: (dropped) => {
-					droppedWarning = `Dropped: ${dropped.join(", ")}`;
-				},
-				onWarn: () => {},
 			});
 
-			// Verify pipeline succeeded
-			expect(pipelineResult.status).toBe("success");
-			if (pipelineResult.status !== "success") throw new Error("unexpected");
+			expect(result.status).toBe("success");
+			if (result.status !== "success") throw new Error("unexpected");
 
-			// Verify warning was fired
-			expect(droppedWarning).toBe("Dropped: codex");
-
-			// Verify codex files removed from disk
-			expect(
-				await fileExists(
-					join(projectDir, ".agents/skills/multi-agent-skill/SKILL.md"),
-				),
-			).toBe(false);
-
-			// Verify claude files still present
-			expect(
-				await fileExists(
-					join(projectDir, ".claude/skills/multi-agent-skill/SKILL.md"),
-				),
-			).toBe(true);
-
-			// Verify updated manifest entry reflects agent change
-			expect(pipelineResult.entry.agents).toEqual(["claude"]);
-			expect(pipelineResult.droppedAgents).toEqual(["codex"]);
-
-			// Write updated manifest and verify round-trip
-			manifest = addEntry(
-				manifest,
-				"owner/multi-agent-skill",
-				pipelineResult.entry,
-			);
-			await writeManifest(projectDir, manifest);
-
-			const savedManifest = await readManifest(projectDir);
-			const savedEntry = savedManifest["owner/multi-agent-skill"]!;
-			expect(savedEntry.agents).toEqual(["claude"]);
-			expect(savedEntry.commit).toBe("v2hash");
-			// Files should only include claude paths
-			expect(savedEntry.files.every((f) => f.startsWith(".claude/"))).toBe(
-				true,
-			);
-			expect(savedEntry.files.some((f) => f.startsWith(".agents/"))).toBe(
+			expect(await fileExists(join(projectDir, ".agents/skills/alpha"))).toBe(
 				false,
 			);
+			expect(await fileExists(join(projectDir, ".agents/skills/beta"))).toBe(
+				false,
+			);
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/alpha/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/beta/SKILL.md")),
+			).toBe(true);
+			expect(result.entry.files.every((f) => f.startsWith(".claude/"))).toBe(
+				true,
+			);
+			expect(result.entry).not.toHaveProperty("agents");
 		});
 	});
 
@@ -377,13 +371,10 @@ describe("integration: core workflows", () => {
 			await createFile(pluginDir, "agents", "executor.md");
 			await createFile(pluginDir, "hooks", "pre-commit.sh");
 
-			const agents = [claudeAgent()];
-
 			// Install the plugin
 			const copyResult = await copyPluginAssets({
 				sourceDir: pluginDir,
 				assetDirs: ["skills", "agents", "hooks"],
-				agents,
 				projectDir,
 			});
 
@@ -408,7 +399,6 @@ describe("integration: core workflows", () => {
 				ref: "v1.0",
 				commit: "xyz789",
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				cloneUrl: null,
 			};
@@ -454,8 +444,6 @@ describe("integration: core workflows", () => {
 			await createFile(skillDir, "SKILL.md");
 			await createFile(skillDir, "references", "guide.md");
 
-			const agents = [claudeAgent()];
-
 			// Real type detection drives the manifest `type` write (no agntc.json).
 			const detected = await detectType(skillDir, {});
 			expect(detected.type).toBe("bare-skill");
@@ -465,7 +453,6 @@ describe("integration: core workflows", () => {
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
 				projectDir,
-				agents,
 			});
 
 			expect(
@@ -479,7 +466,6 @@ describe("integration: core workflows", () => {
 				ref: null,
 				commit: null,
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				type: manifestTypeFromDetected(detected),
 				cloneUrl: null,
@@ -501,8 +487,6 @@ describe("integration: core workflows", () => {
 			await createFile(pluginDir, "skills", "planning", "SKILL.md");
 			await createFile(pluginDir, "agents", "executor.md");
 
-			const agents = [claudeAgent()];
-
 			// Real type detection classifies multi-asset structure as plugin.
 			const detected = await detectType(pluginDir, {});
 			expect(detected.type).toBe("plugin");
@@ -513,7 +497,6 @@ describe("integration: core workflows", () => {
 			const copyResult = await copyPluginAssets({
 				sourceDir: pluginDir,
 				assetDirs: detected.assetDirs,
-				agents,
 				projectDir,
 			});
 
@@ -529,7 +512,6 @@ describe("integration: core workflows", () => {
 				ref: null,
 				commit: null,
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				type: manifestTypeFromDetected(detected),
 				cloneUrl: null,
@@ -549,8 +531,6 @@ describe("integration: core workflows", () => {
 			await createFile(repoDir, "skills", "alpha", "SKILL.md");
 			await createFile(repoDir, "skills", "alpha", "references", "g.md");
 			await createFile(repoDir, "skills", "beta", "SKILL.md");
-
-			const agents = [claudeAgent(), codexAgent()];
 
 			// Real detection enumerates the inner skills as collection members,
 			// carrying the dir-relative segment skills/<name> (NOT empty plugins).
@@ -575,14 +555,12 @@ describe("integration: core workflows", () => {
 				const copyResult = await copyBareSkill({
 					sourceDir: memberDir,
 					projectDir,
-					agents,
 				});
 
 				const entry: ManifestEntry = {
 					ref: null,
 					commit: null,
 					installedAt: new Date().toISOString(),
-					agents: ["claude", "codex"],
 					files: copyResult.copiedFiles,
 					type: manifestTypeFromDetected(memberDetected),
 					cloneUrl: null,
@@ -595,7 +573,7 @@ describe("integration: core workflows", () => {
 			}
 			await writeManifest(projectDir, manifest);
 
-			// Each selected skill landed at the bare-skill location for both agents.
+			// Each selected skill landed at the bare-skill location.
 			expect(
 				await fileExists(join(projectDir, ".claude/skills/alpha/SKILL.md")),
 			).toBe(true);
@@ -605,13 +583,7 @@ describe("integration: core workflows", () => {
 				),
 			).toBe(true);
 			expect(
-				await fileExists(join(projectDir, ".agents/skills/alpha/SKILL.md")),
-			).toBe(true);
-			expect(
 				await fileExists(join(projectDir, ".claude/skills/beta/SKILL.md")),
-			).toBe(true);
-			expect(
-				await fileExists(join(projectDir, ".agents/skills/beta/SKILL.md")),
 			).toBe(true);
 
 			// Manifest keys are the basenames; each persists type 'skill' with the
@@ -622,8 +594,7 @@ describe("integration: core workflows", () => {
 				"owner/skills-only-repo/beta",
 			]);
 			expect(saved["owner/skills-only-repo/alpha"]!.type).toBe("skill");
-			expect(saved["owner/skills-only-repo/alpha"]!.files.sort()).toEqual([
-				".agents/skills/alpha/",
+			expect(saved["owner/skills-only-repo/alpha"]!.files).toEqual([
 				".claude/skills/alpha/",
 			]);
 			expect(saved["owner/skills-only-repo/beta"]!.type).toBe("skill");
@@ -637,8 +608,6 @@ describe("integration: core workflows", () => {
 			await createFile(repoDir, "skills", "alpha", "SKILL.md");
 			await createFile(repoDir, "skills", "beta", "SKILL.md");
 
-			const agents = [claudeAgent()];
-
 			// Both overrides resolve identically to a single plugin over skills/.
 			const viaFlag = await detectType(repoDir, { forcePlugin: true });
 			const viaConfig = await detectType(repoDir, { configType: "plugin" });
@@ -651,7 +620,6 @@ describe("integration: core workflows", () => {
 			const copyResult = await copyPluginAssets({
 				sourceDir: repoDir,
 				assetDirs: viaFlag.assetDirs,
-				agents,
 				projectDir,
 			});
 
@@ -659,7 +627,6 @@ describe("integration: core workflows", () => {
 				ref: null,
 				commit: null,
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				type: manifestTypeFromDetected(viaFlag),
 				cloneUrl: null,
@@ -695,8 +662,6 @@ describe("integration: core workflows", () => {
 			await createFile(repoDir, "skills", "alpha", "references", "g.md");
 			await createFile(repoDir, "skills", "beta", "SKILL.md");
 
-			const agents = [claudeAgent(), codexAgent()];
-
 			const detected = await detectType(repoDir, {});
 			expect(detected).toEqual({
 				type: "collection",
@@ -715,7 +680,6 @@ describe("integration: core workflows", () => {
 				const copyResult = await copyBareSkill({
 					sourceDir: memberDir,
 					projectDir,
-					agents,
 				});
 
 				// The member's dir-relative segment (skills/<name>) diverges from the
@@ -724,7 +688,6 @@ describe("integration: core workflows", () => {
 					ref: null,
 					commit: "v1hash",
 					installedAt: new Date().toISOString(),
-					agents: ["claude", "codex"],
 					files: copyResult.copiedFiles,
 					type: manifestTypeFromDetected(memberDetected),
 					cloneUrl: null,
@@ -774,7 +737,6 @@ describe("integration: core workflows", () => {
 				existingEntry: entry,
 				projectDir,
 				newCommit: "v2hash",
-				onWarn: () => {},
 			});
 
 			// Update SUCCEEDS (derive-before-delete located SKILL.md at the relocated
@@ -782,16 +744,11 @@ describe("integration: core workflows", () => {
 			expect(result.status).toBe("success");
 			if (result.status !== "success") throw new Error("unexpected");
 
-			// Files refreshed at the bare-skill destination per agent, including the
+			// Files refreshed at the bare-skill destination, including the
 			// newly-added reference (proves the right subdir was re-copied).
 			expect(
 				await fileExists(
 					join(projectDir, ".claude/skills/alpha/references/new.md"),
-				),
-			).toBe(true);
-			expect(
-				await fileExists(
-					join(projectDir, ".agents/skills/alpha/references/new.md"),
 				),
 			).toBe(true);
 			expect(
@@ -820,8 +777,6 @@ describe("integration: core workflows", () => {
 			await createFile(repoDir, "alpha", "references", "g.md");
 			await createFile(repoDir, "beta", "SKILL.md");
 
-			const agents = [claudeAgent()];
-
 			const memberDir = join(repoDir, "alpha");
 			const memberDetected = await detectType(memberDir, {});
 			expect(memberDetected.type).toBe("bare-skill");
@@ -829,7 +784,6 @@ describe("integration: core workflows", () => {
 			const copyResult = await copyBareSkill({
 				sourceDir: memberDir,
 				projectDir,
-				agents,
 			});
 
 			// Root-child member: segment === basename, so NO sourceSubpath recorded.
@@ -837,7 +791,6 @@ describe("integration: core workflows", () => {
 				ref: null,
 				commit: "v1hash",
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				type: "skill",
 				cloneUrl: null,
@@ -871,7 +824,6 @@ describe("integration: core workflows", () => {
 				existingEntry: entry,
 				projectDir,
 				newCommit: "v2hash",
-				onWarn: () => {},
 			});
 
 			expect(result.status).toBe("success");
@@ -900,7 +852,6 @@ describe("integration: core workflows", () => {
 					ref: "v1.0",
 					commit: "legacyhash",
 					installedAt: new Date().toISOString(),
-					agents: ["claude"],
 					files: [".claude/skills/planning/", ".claude/agents/executor.md"],
 					cloneUrl: null,
 				},
@@ -933,7 +884,6 @@ describe("integration: core workflows", () => {
 					ref: null,
 					commit: null,
 					installedAt: new Date().toISOString(),
-					agents: ["claude"],
 					files: [".claude/skills/go-development/"],
 					cloneUrl: null,
 				},
@@ -965,11 +915,9 @@ describe("integration: core workflows", () => {
 			await createFile(pluginDir, "skills", "planning", "SKILL.md");
 			await createFile(pluginDir, "agents", "executor.md");
 
-			const agents = [claudeAgent()];
 			const copyResult = await copyPluginAssets({
 				sourceDir: pluginDir,
 				assetDirs: ["skills", "agents"],
-				agents,
 				projectDir,
 			});
 
@@ -977,7 +925,6 @@ describe("integration: core workflows", () => {
 				ref: "v1.0",
 				commit: "v1hash",
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				type: "plugin",
 				cloneUrl: null,
@@ -997,7 +944,6 @@ describe("integration: core workflows", () => {
 				existingEntry: entry,
 				projectDir,
 				newCommit: "v2hash",
-				onWarn: () => {},
 			});
 
 			// Aborted, not removed.
@@ -1026,18 +972,15 @@ describe("integration: core workflows", () => {
 			const skillDir = join(sourceDir, "reshaped-skill");
 			await createFile(skillDir, "SKILL.md");
 
-			const agents = [claudeAgent()];
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
 				projectDir,
-				agents,
 			});
 
 			const entry: ManifestEntry = {
 				ref: "v1.0",
 				commit: "v1hash",
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				type: "skill",
 				cloneUrl: null,
@@ -1056,7 +999,6 @@ describe("integration: core workflows", () => {
 				existingEntry: entry,
 				projectDir,
 				newCommit: "v2hash",
-				onWarn: () => {},
 			});
 
 			expect(result.status).toBe("aborted");
@@ -1092,15 +1034,13 @@ describe("integration: core workflows", () => {
 				join(skillDir, "leak.txt"),
 			);
 
-			const agents = [claudeAgent()];
-
 			// Pre-flight scan is the gate: cloneRoot is the source root.
 			let aborted = false;
 			let copied = false;
 			try {
 				await scanForEscapingSymlinks(skillDir, sourceDir);
 				// Only reached if the gate passed — would proceed to copy.
-				await copyBareSkill({ sourceDir: skillDir, projectDir, agents });
+				await copyBareSkill({ sourceDir: skillDir, projectDir });
 				copied = true;
 			} catch (err) {
 				if (err instanceof SymlinkEscapeError) {
@@ -1145,18 +1085,15 @@ describe("integration: core workflows", () => {
 			await createFile(skillDir, "SKILL.md");
 			await createFile(skillDir, "references", "guide.md");
 
-			const agents = [claudeAgent()];
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
 				projectDir,
-				agents,
 			});
 
 			const entry: ManifestEntry = {
 				ref: "v1.0",
 				commit: "v1hash",
 				installedAt: new Date().toISOString(),
-				agents: ["claude"],
 				files: copyResult.copiedFiles,
 				type: "skill",
 				cloneUrl: null,
@@ -1203,7 +1140,6 @@ describe("integration: core workflows", () => {
 				existingEntry: entry,
 				projectDir,
 				newCommit: "v2hash",
-				onWarn: () => {},
 			});
 
 			// Blocked by the symlink-escape pre-flight (not aborted, not removed).

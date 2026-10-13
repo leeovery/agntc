@@ -1,26 +1,21 @@
 import { basename, join } from "node:path";
 import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { selectAgents } from "../agent-select.js";
 import { selectCollectionPlugins } from "../collection-select.js";
 import { checkFileCollisions } from "../collision-check.js";
 import { resolveCollisions } from "../collision-resolve.js";
 import { computeIncomingFiles } from "../compute-incoming-files.js";
 import type { AgntcConfig } from "../config.js";
-import { KNOWN_AGENTS, readConfig } from "../config.js";
-import type { AssetCounts } from "../copy-plugin-assets.js";
+import { readConfig } from "../config.js";
 import {
 	assertSubpathWithinClone,
 	checkEscapingSymlinks,
 	PathTraversalError,
 } from "../copy-safety.js";
-import { copyUnit, toComputeInput } from "../copy-unit.js";
-import { detectAgents } from "../detect-agents.js";
-import { getDriver } from "../drivers/registry.js";
-import type { AgentId, AgentWithDriver } from "../drivers/types.js";
+import { type CopyUnitResult, copyUnit, toComputeInput } from "../copy-unit.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
-import { cleanupTempDir, cloneSource } from "../git-clone.js";
+import { type CloneResult, cleanupTempDir, cloneSource } from "../git-clone.js";
 import { fetchRemoteTags } from "../git-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import {
@@ -58,11 +53,10 @@ function deriveCloneUrlForManifest(
  * field literal plus the {@link manifestTypeFromDetected} and
  * {@link deriveCloneUrlForManifest} calls so the two sites cannot drift. The
  * ref/commit/cloneUrl derive from `parsed`/`commit`; the per-call inputs are the
- * narrowed detected unit, its resolved agents/files, and the constraint.
+ * narrowed detected unit, its copied files, and the constraint.
  */
 function buildAddEntry(opts: {
 	detected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-	agents: AgentId[];
 	files: string[];
 	parsed: Awaited<ReturnType<typeof parseSource>>;
 	commit: string | null;
@@ -78,7 +72,6 @@ function buildAddEntry(opts: {
 	return buildManifestEntry({
 		ref: opts.parsed.ref,
 		commit: opts.commit,
-		agents: opts.agents,
 		files: opts.files,
 		type: manifestTypeFromDetected(opts.detected),
 		cloneUrl: deriveCloneUrlForManifest(opts.parsed),
@@ -122,24 +115,6 @@ function memberKey(
  */
 function memberSourceSubpath(memberSegment: string): string | undefined {
 	return memberSegment === basename(memberSegment) ? undefined : memberSegment;
-}
-
-/**
- * A user-facing label for the group of units being installed from a collection,
- * named by their resolved type (never the internal "member" jargon): "this
- * skill", "these 3 skills", "these 2 skills and 1 plugin". Drives the
- * collection-wide agent prompt's `unitLabel`.
- */
-function describeUnits(types: Array<"bare-skill" | "plugin">): string {
-	const skills = types.filter((t) => t === "bare-skill").length;
-	const plugins = types.length - skills;
-	if (types.length === 1) {
-		return `this ${skills === 1 ? "skill" : "plugin"}`;
-	}
-	const parts: string[] = [];
-	if (skills > 0) parts.push(`${skills} skill${skills === 1 ? "" : "s"}`);
-	if (plugins > 0) parts.push(`${plugins} plugin${plugins === 1 ? "" : "s"}`);
-	return `these ${parts.join(" and ")}`;
 }
 
 interface TagResolutionResult {
@@ -258,7 +233,7 @@ export async function runAdd(
 			commit = null;
 		} else {
 			spin.start("Cloning repository...");
-			let cloneResult;
+			let cloneResult: CloneResult;
 			try {
 				cloneResult = await cloneSource(parsed);
 			} catch (err) {
@@ -289,8 +264,8 @@ export async function runAdd(
 		// so an attacker-controlled `..`-escaped selector is rejected pre-flight
 		// before any read at the joined path. No-op for a whole-repo install
 		// (subpath undefined). The symlink scan (content validation that must
-		// precede copy) stays at step 9b. A violation surfaces as the same
-		// identity-prefixed cancel + non-zero exit as the 9b handling.
+		// precede copy) stays at step 6. A violation surfaces as the same
+		// identity-prefixed cancel + non-zero exit as the step 6 handling.
 		try {
 			assertSubpathWithinClone(
 				sourceDir,
@@ -361,39 +336,9 @@ export async function runAdd(
 			throw new ExitSignal(1);
 		}
 
-		// 7. Detect agents
 		const projectDir = process.cwd();
-		const detectedAgents = await detectAgents(projectDir);
 
-		// 8. Select agents. Cancellation (Esc) and a deliberate empty selection are
-		// distinct outcomes, but for a standalone unit both mean "nothing to
-		// install" — a clean non-error abort. Emit exactly one coherent cancel
-		// message for either case (no emit-then-overwrite).
-		const agentSelection = await selectAgents({
-			declaredAgents: config?.agents ?? [],
-			detectedAgents,
-			unitLabel: `the ${basename(parsed.manifestKey)} ${
-				detected.type === "plugin" ? "plugin" : "skill"
-			}`,
-		});
-
-		if (
-			agentSelection.kind === "cancelled" ||
-			agentSelection.agents.length === 0
-		) {
-			p.cancel("Cancelled — no agents selected");
-			throw new ExitSignal(0);
-		}
-
-		const selectedAgents = agentSelection.agents;
-
-		// 9. Build agent+driver pairs for copy
-		const agents = selectedAgents.map((id) => ({
-			id,
-			driver: getDriver(id),
-		}));
-
-		// 9b. Copy-safety pre-flight (Phase 5). The symlink scan is content
+		// 6. Copy-safety pre-flight (Phase 5). The symlink scan is content
 		// validation that must precede the copy: it rejects any symlink whose
 		// target escapes the clone root (tempDir for a remote clone, the resolved
 		// local path otherwise) — NOT the per-unit unitDir, so a within-clone
@@ -408,14 +353,14 @@ export async function runAdd(
 			throw new ExitSignal(1);
 		}
 
-		// 10. Read manifest and nuke existing files if reinstalling
+		// 7. Read manifest and nuke existing files if reinstalling
 		const manifest = await readManifest(projectDir);
 		const existingEntry = manifest[parsed.manifestKey];
 		if (existingEntry) {
 			await nukeManifestFiles(projectDir, existingEntry.files);
 		}
 
-		// 10a. Compute incoming files (against the resolved unit directory).
+		// 7a. Compute incoming files (against the resolved unit directory).
 		// The bare-skill install name is the manifest-key basename (identity = repo
 		// /unit basename per spec), NOT basename(unitDir): for a whole-repo bare
 		// skill unitDir is the random mkdtemp clone dir, which would name the
@@ -423,10 +368,10 @@ export async function runAdd(
 		// coincide, so this is a no-op there.
 		const installName = basename(parsed.manifestKey);
 		const incomingFiles = await computeIncomingFiles(
-			toComputeInput(detected, unitDir, agents, installName),
+			toComputeInput(detected, unitDir, installName),
 		);
 
-		// 10b. Collision + unmanaged conflict checks
+		// 7b. Collision + unmanaged conflict checks
 		const conflictResult = await runConflictChecks({
 			incomingFiles,
 			manifest,
@@ -439,36 +384,32 @@ export async function runAdd(
 			throw new ExitSignal(0);
 		}
 
-		// 11. Copy assets (with spinner)
-		let copiedFiles: string[];
-		let assetCountsByAgent: Partial<Record<AgentId, AssetCounts>> | undefined;
+		// 8. Copy assets (with spinner)
+		let copyResult: CopyUnitResult;
 
 		spin.start("Copying skill files...");
 		try {
-			const copyResult = await copyUnit(detected, {
+			copyResult = await copyUnit(detected, {
 				sourceDir: unitDir,
-				agents,
 				projectDir,
 				skillName: installName,
 			});
-			copiedFiles = copyResult.copiedFiles;
-			assetCountsByAgent = copyResult.assetCountsByAgent;
 		} catch (err) {
 			spin.stop("Copy failed");
 			throw err;
 		}
 		spin.stop("Copied successfully");
+		const { copiedFiles, assetCounts } = copyResult;
 
-		// 12. Handle empty plugin
+		// 9. Handle empty plugin
 		if (detected.type === "plugin" && copiedFiles.length === 0) {
 			p.log.warn("No files to install");
 			throw new ExitSignal(0);
 		}
 
-		// 13. Write manifest
+		// 10. Write manifest
 		const entry = buildAddEntry({
 			detected,
-			agents: selectedAgents,
 			files: copiedFiles,
 			parsed,
 			commit,
@@ -477,16 +418,13 @@ export async function runAdd(
 		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
 		await writeManifest(projectDir, updated);
 
-		// 14. Summary — per-agent breakdown as gutterred log nodes, headline as the
+		// 11. Summary — asset breakdown as a gutterred log node, headline as the
 		// terminal outro node, so the tree stays connected.
 		const summary = renderAddSummary({
 			manifestKey: parsed.manifestKey,
 			ref: parsed.ref,
 			commit,
-			detectedType: detected.type,
-			selectedAgents,
-			assetCountsByAgent,
-			copiedFiles,
+			assetCounts,
 		});
 		// Emit the breakdown as ONE node (multi-line) so the bar continues down each
 		// row with no blank line between — compact, still connected to the tree.
@@ -567,17 +505,13 @@ async function runCollectionPipeline(
 		}
 	}
 
-	// 3. Read each selected member's config for its declared agents (its author
-	// ceiling). The member set is selectedPlugins (populated structurally upstream
-	// via Phase 1 qualifiesAsMember) — config presence is NOT membership. readConfig
-	// is total: it returns AgntcConfig for a valid config and null for a missing or
-	// unusable one (a legitimate configless member, never a skip reason). It never
-	// throws for config problems; only a genuine non-ENOENT IO error propagates, and
-	// that SHOULD abort the whole pipeline (surfaced via runAdd's outer catch).
-	//
-	// Agents are chosen ONCE for the whole collection (step 6) over the union of
-	// members' ceilings; each member then installs for (selection ∩ its ceiling) in
-	// step 7. There is one prompt, not one per member.
+	// 3. Read each selected member's config for its declared type. The member set
+	// is selectedPlugins (populated structurally upstream via Phase 1
+	// qualifiesAsMember) — config presence is NOT membership. readConfig is total:
+	// it returns AgntcConfig for a valid config and null for a missing or unusable
+	// one (a legitimate configless member, never a skip reason). It never throws
+	// for config problems; only a genuine non-ENOENT IO error propagates, and that
+	// SHOULD abort the whole pipeline (surfaced via runAdd's outer catch).
 	//
 	// Each entry of selectedPlugins is a member's dir-relative SEGMENT: the basename
 	// for a root-child member ("alpha"), or "skills/<name>" for a skills-only inner
@@ -594,24 +528,16 @@ async function runCollectionPipeline(
 		pluginConfigs.set(memberSegment, pluginConfig);
 	}
 
-	// 4. Detect agents once for the whole collection (used to pre-tick the single
-	// collection-wide prompt below).
-	const detectedAgents = await detectAgents(projectDir);
-
 	const results: PluginInstallResult[] = [];
 	let currentManifest: Manifest = manifest;
 
-	// 5. Detection + ceiling pass. Resolve each selected member to an installable
-	// unit (bare-skill | plugin) and record the agents its author ALLOWS — its
-	// declared ceiling, or all KNOWN_AGENTS when configless. not-agntc and nested
-	// collection members are skipped here. This runs BEFORE agent selection so the
-	// single prompt can offer the UNION of what the installable members support.
+	// 4. Detection pass. Resolve each selected member to an installable unit
+	// (bare-skill | plugin); not-agntc and nested collection members are skipped.
 	const installable: Array<{
 		memberName: string;
 		memberSegment: string;
 		pluginDir: string;
 		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-		allowedAgents: AgentId[];
 	}> = [];
 
 	for (const memberSegment of selectedPlugins) {
@@ -649,7 +575,6 @@ async function runCollectionPipeline(
 				pluginName: memberName,
 				status: "skipped",
 				copiedFiles: [],
-				agents: [],
 			});
 			continue;
 		}
@@ -660,60 +585,20 @@ async function runCollectionPipeline(
 				pluginName: memberName,
 				status: "skipped",
 				copiedFiles: [],
-				agents: [],
 			});
 			continue;
 		}
 
-		// Author ceiling: a valid, non-empty declared `agents` list restricts the
-		// member; an absent/empty/unusable config means configless (any agent).
-		const allowedAgents =
-			pluginConfig?.agents && pluginConfig.agents.length > 0
-				? pluginConfig.agents
-				: [...KNOWN_AGENTS];
-
-		installable.push({
-			memberName,
-			memberSegment,
-			pluginDir,
-			pluginDetected,
-			allowedAgents,
-		});
+		installable.push({ memberName, memberSegment, pluginDir, pluginDetected });
 	}
 
-	// 6. ONE collection-wide agent prompt over the UNION of installable members'
-	// ceilings (canonical KNOWN_AGENTS order). Configless members contribute all
-	// three; a Claude-only member contributes Claude. The installer picks once;
-	// each member then installs for (pick ∩ its own ceiling) in step 7. A single
-	// detected candidate auto-selects (no prompt), matching the standalone rule.
-	let selectedAgents: AgentId[] = [];
-	if (installable.length > 0) {
-		const candidateUnion = KNOWN_AGENTS.filter((id) =>
-			installable.some((m) => m.allowedAgents.includes(id)),
-		);
-		const selection = await selectAgents({
-			declaredAgents: candidateUnion,
-			detectedAgents,
-			unitLabel: describeUnits(installable.map((m) => m.pluginDetected.type)),
-		});
-		// Cancellation or an empty selection aborts the whole collection cleanly —
-		// there is nothing to install for.
-		if (selection.kind === "cancelled" || selection.agents.length === 0) {
-			p.cancel("Cancelled — no agents selected");
-			throw new ExitSignal(0);
-		}
-		selectedAgents = selection.agents;
-	}
-
-	// 7. Per-member conflict checks + install prep, applying each member's ceiling.
+	// 5a. Per-member conflict checks + install prep.
 	const pluginsToInstall: Array<{
 		pluginName: string;
 		pluginSegment: string;
 		pluginDir: string;
 		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
 		pluginManifestKey: string;
-		pluginAgents: AgentId[];
-		pluginAgentDrivers: AgentWithDriver[];
 	}> = [];
 
 	for (const m of installable) {
@@ -721,31 +606,6 @@ async function runCollectionPipeline(
 		const memberSegment = m.memberSegment;
 		const pluginDir = m.pluginDir;
 		const pluginDetected = m.pluginDetected;
-
-		// Honour the author ceiling: install for the picked agents this member
-		// allows (canonical order preserved from the selection).
-		const pluginAgents = selectedAgents.filter((id) =>
-			m.allowedAgents.includes(id),
-		);
-		if (pluginAgents.length === 0) {
-			// The collection-wide selection excludes every agent this member's author
-			// permits — it cannot be installed for anything you chose. Skipped (loud,
-			// non-fatal), reason shown inline + tallied in the summary.
-			onWarn(
-				`${memberName}: skipped — author restricts to ${m.allowedAgents.join(", ")}, none selected`,
-			);
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-				agents: [],
-			});
-			continue;
-		}
-		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
-			id,
-			driver: getDriver(id),
-		}));
 
 		const pluginManifestKey = memberKey(parsed, memberSegment);
 
@@ -765,7 +625,6 @@ async function runCollectionPipeline(
 				pluginName: memberName,
 				status: "failed",
 				copiedFiles: [],
-				agents: [],
 				errorMessage: memberSymlinkCheck.message,
 			});
 			continue;
@@ -782,7 +641,6 @@ async function runCollectionPipeline(
 					pluginName: memberName,
 					status: "skipped",
 					copiedFiles: [],
-					agents: [],
 				});
 				continue;
 			}
@@ -790,7 +648,7 @@ async function runCollectionPipeline(
 
 		// Compute incoming files
 		const incomingFiles = await computeIncomingFiles(
-			toComputeInput(pluginDetected, pluginDir, pluginAgentDrivers),
+			toComputeInput(pluginDetected, pluginDir),
 		);
 
 		// Collision + unmanaged conflict checks
@@ -806,7 +664,6 @@ async function runCollectionPipeline(
 				pluginName: memberName,
 				status: "skipped",
 				copiedFiles: [],
-				agents: [],
 			});
 			continue;
 		}
@@ -817,8 +674,6 @@ async function runCollectionPipeline(
 			pluginDir,
 			pluginDetected,
 			pluginManifestKey,
-			pluginAgents,
-			pluginAgentDrivers,
 		});
 	}
 
@@ -829,13 +684,10 @@ async function runCollectionPipeline(
 		pluginSegment,
 		pluginDir,
 		pluginDetected,
-		pluginAgents,
-		pluginAgentDrivers,
 	} of pluginsToInstall) {
 		try {
 			const copyResult = await copyUnit(pluginDetected, {
 				sourceDir: pluginDir,
-				agents: pluginAgentDrivers,
 				projectDir,
 			});
 			results.push({
@@ -843,8 +695,6 @@ async function runCollectionPipeline(
 				pluginSegment,
 				status: "installed",
 				copiedFiles: copyResult.copiedFiles,
-				agents: pluginAgents,
-				assetCountsByAgent: copyResult.assetCountsByAgent,
 				detectedType: pluginDetected,
 			});
 		} catch (err) {
@@ -852,7 +702,6 @@ async function runCollectionPipeline(
 				pluginName,
 				status: "failed",
 				copiedFiles: [],
-				agents: [],
 				errorMessage: errorMessage(err),
 			});
 		}
@@ -870,7 +719,6 @@ async function runCollectionPipeline(
 		const manifestKey = memberKey(parsed, result.pluginName);
 		const entry = buildAddEntry({
 			detected: result.detectedType,
-			agents: result.agents,
 			files: result.copiedFiles,
 			parsed,
 			commit,
@@ -884,7 +732,7 @@ async function runCollectionPipeline(
 	}
 	await writeManifest(projectDir, updatedManifest);
 
-	// 7. Per-plugin summary — one compact "<member> → <agents>" row per member,
+	// 7. Per-plugin summary — one compact row per installed member,
 	// emitted as ONE node (multi-line) so the bar continues with no blank between
 	// rows; headline as the terminal outro node.
 	const summary = renderCollectionAddSummary({

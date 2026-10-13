@@ -15,7 +15,7 @@ const BANNER_LINES = [
 	"╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝   ╚═╝    ╚═════╝",
 ];
 
-const TAGLINE = "agent skills installer for claude · codex · cursor";
+const TAGLINE = "agent skills installer for claude";
 
 const INDENT = "  ";
 

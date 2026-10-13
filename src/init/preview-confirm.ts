@@ -2,18 +2,10 @@ import { confirm, isCancel, note } from "@clack/prompts";
 import type { InitType } from "./type-select.js";
 
 const filesByType: Record<InitType, string[]> = {
-	skill: ["agntc.json", "SKILL.md"],
-	plugin: [
-		"agntc.json",
-		"skills/",
-		"  my-skill/",
-		"    SKILL.md",
-		"agents/",
-		"hooks/",
-	],
+	skill: ["SKILL.md"],
+	plugin: ["skills/", "  my-skill/", "    SKILL.md", "agents/", "hooks/"],
 	collection: [
 		"my-plugin/",
-		"  agntc.json",
 		"  skills/",
 		"    my-skill/",
 		"      SKILL.md",

@@ -19,12 +19,9 @@ describe("renderBanner", () => {
 		expect(out).toContain("agent skills installer");
 	});
 
-	it("includes the tagline naming all three agents", () => {
+	it("includes the tagline naming claude", () => {
 		const out = stripAnsi(renderBanner("0.0.1"));
-		expect(out).toContain("agent skills installer");
-		expect(out).toContain("claude");
-		expect(out).toContain("codex");
-		expect(out).toContain("cursor");
+		expect(out).toContain("agent skills installer for claude");
 	});
 
 	it("renders the solid block art (six glyph rows)", () => {

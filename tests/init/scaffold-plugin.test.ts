@@ -43,10 +43,10 @@ describe("scaffoldPlugin", () => {
 		await rm(testDir, { recursive: true, force: true });
 	});
 
-	it("creates all four items in empty directory", async () => {
-		await scaffoldPlugin({ agents: ["claude"], targetDir: testDir });
+	it("creates skills/, agents/ and hooks/ in an empty directory, with no agntc.json", async () => {
+		await scaffoldPlugin({ targetDir: testDir });
 
-		expect(await exists(join(testDir, "agntc.json"))).toBe(true);
+		expect(await exists(join(testDir, "agntc.json"))).toBe(false);
 		expect(await exists(join(testDir, "skills", "my-skill", "SKILL.md"))).toBe(
 			true,
 		);
@@ -54,15 +54,8 @@ describe("scaffoldPlugin", () => {
 		expect(await exists(join(testDir, "hooks"))).toBe(true);
 	});
 
-	it("writes agntc.json with selected agents", async () => {
-		await scaffoldPlugin({ agents: ["claude"], targetDir: testDir });
-
-		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
-		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
-	});
-
 	it("writes SKILL.md with spec template", async () => {
-		await scaffoldPlugin({ agents: ["claude"], targetDir: testDir });
+		await scaffoldPlugin({ targetDir: testDir });
 
 		const content = await readFile(
 			join(testDir, "skills", "my-skill", "SKILL.md"),
@@ -71,30 +64,12 @@ describe("scaffoldPlugin", () => {
 		expect(content).toBe(SKILL_MD_TEMPLATE);
 	});
 
-	it("skips agntc.json when it already exists", async () => {
-		const original = '{"agents": ["codex"]}\n';
-		await writeFile(join(testDir, "agntc.json"), original);
-
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-		});
-
-		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
-		expect(content).toBe(original);
-		expect(result.skipped).toContain("agntc.json");
-		expect(result.created).not.toContain("agntc.json");
-	});
-
 	it("skips SKILL.md when it already exists inside skills/my-skill/", async () => {
 		const original = "# Existing skill\n";
 		await mkdir(join(testDir, "skills", "my-skill"), { recursive: true });
 		await writeFile(join(testDir, "skills", "my-skill", "SKILL.md"), original);
 
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-		});
+		const result = await scaffoldPlugin({ targetDir: testDir });
 
 		const content = await readFile(
 			join(testDir, "skills", "my-skill", "SKILL.md"),
@@ -108,10 +83,7 @@ describe("scaffoldPlugin", () => {
 	it("creates SKILL.md when skills/ exists but SKILL.md does not", async () => {
 		await mkdir(join(testDir, "skills"), { recursive: true });
 
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-		});
+		const result = await scaffoldPlugin({ targetDir: testDir });
 
 		expect(await exists(join(testDir, "skills", "my-skill", "SKILL.md"))).toBe(
 			true,
@@ -122,10 +94,7 @@ describe("scaffoldPlugin", () => {
 	it("skips agents/ when it already exists", async () => {
 		await mkdir(join(testDir, "agents"), { recursive: true });
 
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-		});
+		const result = await scaffoldPlugin({ targetDir: testDir });
 
 		expect(result.skipped).toContain("agents/");
 		expect(result.created).not.toContain("agents/");
@@ -134,83 +103,19 @@ describe("scaffoldPlugin", () => {
 	it("skips hooks/ when it already exists", async () => {
 		await mkdir(join(testDir, "hooks"), { recursive: true });
 
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-		});
+		const result = await scaffoldPlugin({ targetDir: testDir });
 
 		expect(result.skipped).toContain("hooks/");
 		expect(result.created).not.toContain("hooks/");
 	});
 
-	it("created and skipped arrays account for all four items", async () => {
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-		});
+	it("created and skipped arrays account for all three items", async () => {
+		const result = await scaffoldPlugin({ targetDir: testDir });
 
 		const allItems = [...result.created, ...result.skipped];
-		expect(allItems).toHaveLength(4);
-		expect(allItems).toContain("agntc.json");
+		expect(allItems).toHaveLength(3);
 		expect(allItems).toContain("skills/my-skill/SKILL.md");
 		expect(allItems).toContain("agents/");
 		expect(allItems).toContain("hooks/");
-	});
-
-	it("fresh mode returns empty overwritten array", async () => {
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-		});
-
-		expect(result.overwritten).toEqual([]);
-	});
-
-	it("scaffoldPlugin overwrites agntc.json when reconfigure is true", async () => {
-		const original = '{"agents": ["codex"]}\n';
-		await writeFile(join(testDir, "agntc.json"), original);
-
-		await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-			reconfigure: true,
-		});
-
-		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
-		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
-	});
-
-	it("scaffoldPlugin skips SKILL.md even in reconfigure mode", async () => {
-		const original = "# Existing skill\n";
-		await writeFile(join(testDir, "agntc.json"), "{}");
-		await mkdir(join(testDir, "skills", "my-skill"), { recursive: true });
-		await writeFile(join(testDir, "skills", "my-skill", "SKILL.md"), original);
-
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-			reconfigure: true,
-		});
-
-		const content = await readFile(
-			join(testDir, "skills", "my-skill", "SKILL.md"),
-			"utf-8",
-		);
-		expect(content).toBe(original);
-		expect(result.skipped).toContain("skills/my-skill/SKILL.md");
-	});
-
-	it("scaffoldPlugin reports agntc.json as overwritten", async () => {
-		await writeFile(join(testDir, "agntc.json"), "{}");
-
-		const result = await scaffoldPlugin({
-			agents: ["claude"],
-			targetDir: testDir,
-			reconfigure: true,
-		});
-
-		expect(result.overwritten).toContain("agntc.json");
-		expect(result.created).not.toContain("agntc.json");
-		expect(result.skipped).not.toContain("agntc.json");
 	});
 });

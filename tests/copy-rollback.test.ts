@@ -17,7 +17,7 @@ describe("rollbackCopiedFiles", () => {
 		mockedRm.mockResolvedValue(undefined);
 
 		await rollbackCopiedFiles(
-			[".claude/skills/my-skill/", ".codex/skills/my-skill/"],
+			[".claude/skills/my-skill/", ".claude/agents/reviewer.md"],
 			"/project",
 		);
 
@@ -26,10 +26,13 @@ describe("rollbackCopiedFiles", () => {
 			recursive: true,
 			force: true,
 		});
-		expect(mockedRm).toHaveBeenCalledWith("/project/.codex/skills/my-skill/", {
-			recursive: true,
-			force: true,
-		});
+		expect(mockedRm).toHaveBeenCalledWith(
+			"/project/.claude/agents/reviewer.md",
+			{
+				recursive: true,
+				force: true,
+			},
+		);
 	});
 
 	it("handles empty file list without error", async () => {

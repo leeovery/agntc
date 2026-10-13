@@ -6,7 +6,6 @@ import {
 	cloneAndReinstall,
 	isCloneReinstallFailure,
 	mapCloneFailure,
-	noAgentsMessage,
 	prepareReinstall,
 } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
@@ -236,13 +235,6 @@ async function runSinglePluginUpdate(
 
 	if (isCloneReinstallFailure(result)) {
 		return mapCloneFailure(result, {
-			onNoAgents: () => {
-				p.log.warn(
-					`${noAgentsMessage(key)}. ` +
-						`No update performed. Run npx agntc remove ${key} to clean up.`,
-				);
-				return null;
-			},
 			onCopyFailed: (msg) => {
 				p.log.error(msg);
 				throw new ExitSignal(1);
@@ -280,8 +272,6 @@ async function runSinglePluginUpdate(
 			renderLocalUpdateSummary({
 				key,
 				copiedFiles: result.copiedFiles,
-				effectiveAgents: result.manifestEntry.agents,
-				droppedAgents: result.droppedAgents,
 			}),
 		);
 	} else {
@@ -297,8 +287,6 @@ async function runSinglePluginUpdate(
 				oldCommit: entry.commit,
 				newCommit: result.manifestEntry.commit!,
 				copiedFiles: result.copiedFiles,
-				effectiveAgents: result.manifestEntry.agents,
-				droppedAgents: result.droppedAgents,
 			}),
 		);
 	}
@@ -728,16 +716,16 @@ async function streamGroupWork(
 /**
  * The ONE outcome→{@link MemberLine} mapping shared by the collapsed group-of-one
  * path ({@link collapsedMemberLine}) and the streamed multi-member path
- * ({@link emitMemberLine}) for the loud/skip statuses that render IDENTICALLY on
- * both — copy-failed / aborted / blocked / skipped-no-agents. Each rides its
- * already-assembled summary/hint through {@link formatMemberLine}, so a new such
- * status is a single-site change here and the two paths cannot drift apart.
+ * ({@link emitMemberLine}) for the loud statuses that render IDENTICALLY on
+ * both — copy-failed / aborted / blocked. Each rides its already-assembled
+ * summary/hint through {@link formatMemberLine}, so a new such status is a
+ * single-site change here and the two paths cannot drift apart.
  *
  * `name` is a PARAMETER so each caller keeps its own name source: the collapsed
  * path passes the FULL member key (`outcome.key`); the streamed path passes the
  * member basename.
  *
- * Returns `null` for a bare `failed` (and any other non-loud/skip status): that
+ * Returns `null` for a bare `failed` (and any other non-loud status): that
  * fallback is deliberately NOT shared, because the two paths reach red by
  * different mechanics and no single {@link MemberLine} can reproduce both — the
  * collapsed path settles a red error spinner stop-frame (`level: "error"` →
@@ -745,7 +733,7 @@ async function streamGroupWork(
  * {@link renderFailedOutcome}. Both render `failed` at ERROR (red ✗) — uniform
  * severity across layouts — so each caller keeps its own bare-`failed` rendering.
  */
-export function failureOrSkipMemberLine(
+export function failureMemberLine(
 	outcome: PluginOutcome,
 	name: string,
 ): MemberLine | null {
@@ -768,8 +756,6 @@ export function failureOrSkipMemberLine(
 				name,
 				message: outcome.summary,
 			});
-		case "skipped-no-agents":
-			return formatMemberLine({ kind: "no-agents", name });
 		default:
 			return null;
 	}
@@ -778,12 +764,11 @@ export function failureOrSkipMemberLine(
 /**
  * The single collapsed line a group-of-one renders as its spinner stop-frame —
  * its clack {@link MemberLine} `level` and glyph-free `text`. The level maps to
- * the `spin.stop` code at the call site (`error` → 2, else → 0; clack `stop` has
- * no warn code, so a `no-agents` warn accepts the ◇ glyph — its text already
- * carries "skipped — …"). A success reuses the interim
- * {@link renderUpdateOutcomeSummary} text (full key, any `/member` suffix,
- * matching {@link streamCollapsedOutcome}); the loud failure/skip variants defer
- * to the shared {@link failureOrSkipMemberLine} at the full member key; a bare
+ * the `spin.stop` code at the call site (`error` → 2, else → 0). A success
+ * reuses the interim {@link renderUpdateOutcomeSummary} text (full key, any
+ * `/member` suffix, matching {@link streamCollapsedOutcome}); the loud failure
+ * variants defer to the shared {@link failureMemberLine} at the full member
+ * key; a bare
  * `failed` (clone fan-out / defensive throw) is not a shared-format status (the
  * helper returns null) and rides its inline summary at error level.
  */
@@ -792,7 +777,7 @@ function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
 		return { level: "success", text: outcome.summary };
 	}
 	return (
-		failureOrSkipMemberLine(outcome, outcome.key) ?? {
+		failureMemberLine(outcome, outcome.key) ?? {
 			level: "error",
 			// A bare `failed` (clone fan-out / defensive throw) is the sole
 			// non-shared-format status that reaches this fallback; the non-actioned
@@ -806,7 +791,7 @@ function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
  * Streams one local group-of-one: reinstalls without cloning (task 1-5) and with
  * NO spinner, persists its manifest (task 1-6), then emits its single collapsed
  * line — `<key>: Refreshed from local path` on success, else its
- * {@link formatMemberLine} failure/skip line (name = the full key).
+ * {@link formatMemberLine} failure line (name = the full key).
  */
 async function streamLocalWork(
 	item: Extract<WorkItem, { kind: "local" }>,
@@ -825,7 +810,7 @@ async function streamLocalWork(
  * Collapses a group-of-one (a standalone or a single-updated collection member)
  * or a local entry to a single streamed line: a success reuses the interim
  * {@link renderUpdateOutcomeSummary} text (`<key>: Updated …` / `<key>: Refreshed
- * from local path`, full key preserving any `/member` suffix); a failure/skip
+ * from local path`, full key preserving any `/member` suffix); a failure
  * renders its {@link formatMemberLine} line with the full member key. No group
  * header and no `(N members)`.
  */
@@ -870,13 +855,10 @@ export function streamGroupMemberLines(
 
 /**
  * Maps one member outcome to its {@link formatMemberLine} line and dispatches it
- * via `p.log[level]`. A success composes from the outcome's STRUCTURED fields —
- * the reinstalled entry's effective agents and the pipeline's own
- * `droppedAgents` set (carried on the outcome, no `oldEntry`-vs-`newEntry`
- * recompute) — plus the optional divergent-old `move`; the loud/skip variants
- * (copy-failed/aborted/blocked/no-agents) defer to the shared
- * {@link failureOrSkipMemberLine} at the member basename — the same rendering the
- * collapsed path uses. A `failed` outcome — now only a per-member defensive throw
+ * via `p.log[level]`. A success renders the member name plus the optional
+ * divergent-old `move`; the loud variants (copy-failed/aborted/blocked) defer to
+ * the shared {@link failureMemberLine} at the member basename — the same
+ * rendering the collapsed path uses. A `failed` outcome — now only a per-member defensive throw
  * or a per-member subpath-traversal reject, the GROUP-FATAL clone fan-out being
  * intercepted upstream by {@link streamGroupWork} as one enumerated line (task
  * 2-6) — is not a shared-format status (the helper returns null), so it falls
@@ -894,18 +876,12 @@ function emitMemberLine(
 	} | null,
 ): void {
 	if (isSuccessOutcome(outcome)) {
-		const line = formatMemberLine({
-			kind: "success",
-			name,
-			agents: outcome.newEntry.agents,
-			droppedAgents: outcome.droppedAgents,
-			move,
-		});
+		const line = formatMemberLine({ kind: "success", name, move });
 		p.log[line.level](line.text);
 		return;
 	}
 
-	const line = failureOrSkipMemberLine(outcome, name);
+	const line = failureMemberLine(outcome, name);
 	if (line === null) {
 		renderFailedOutcome(outcome);
 		return;
@@ -918,7 +894,7 @@ function emitMemberLine(
  * writes it — the per-group / per-local persistence boundary (task 1-6).
  * Applies today's VERBATIM remove-vs-intact rules: updated/refreshed add their
  * new entry; copy-failed removes its entry (its old files are already gone);
- * everything else — aborted / blocked / no-agents / non-actioned check
+ * everything else — aborted / blocked / non-actioned check
  * categories — leaves the manifest untouched. The write is SKIPPED for a no-op
  * unit (no add/remove mutation). Returns the (possibly-updated) manifest so the
  * caller threads it into the next unit, keeping each write cumulative.
@@ -1004,7 +980,7 @@ function emitCollapsedGroupSummary(
 /**
  * Renders the {@link emitMemberLine} bare-`failed` fallback at ERROR (red ✗) —
  * the sole outcome that reaches this path (success is handled upstream, and every
- * loud/skip variant renders via {@link failureOrSkipMemberLine}). Any other status
+ * loud variant renders via {@link failureMemberLine}). Any other status
  * is unreachable here and intentionally a no-op.
  */
 function renderFailedOutcome(outcome: PluginOutcome): void {

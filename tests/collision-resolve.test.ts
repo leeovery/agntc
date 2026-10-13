@@ -36,7 +36,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -55,14 +54,12 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/", ".claude/agents/executor.md"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			},
 		};
@@ -94,7 +91,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -118,21 +114,18 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/my-agent.md"],
 			},
 			"owner/repo-c": {
 				ref: "v1",
 				commit: "ghi789",
 				installedAt: "2026-01-17T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-c/"],
 			},
 		};
@@ -163,21 +156,18 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/my-agent.md"],
 			},
 			"owner/repo-c": {
 				ref: "v1",
 				commit: "ghi789",
 				installedAt: "2026-01-17T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-c/"],
 			},
 		};
@@ -215,7 +205,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -238,12 +227,14 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/", ".claude/agents/executor.md"],
 			},
 		};
 		const collisions = new Map<string, string[]>([
-			["owner/repo-a", [".claude/skills/skill-a/", ".claude/agents/executor.md"]],
+			[
+				"owner/repo-a",
+				[".claude/skills/skill-a/", ".claude/agents/executor.md"],
+			],
 		]);
 
 		mockedSelect.mockResolvedValueOnce("remove");
@@ -266,7 +257,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -290,14 +280,12 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/my-agent.md"],
 			},
 		};
@@ -330,7 +318,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};

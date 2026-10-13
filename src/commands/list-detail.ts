@@ -1,5 +1,5 @@
 import * as p from "@clack/prompts";
-import { identifyFileOwnership } from "../drivers/identify.js";
+import { identifyAssetType } from "../asset-targets.js";
 import type { ManifestEntry } from "../manifest.js";
 import { formatRefLabel } from "../summary.js";
 import {
@@ -32,19 +32,12 @@ interface AssetCounts {
 	other: number;
 }
 
-function computePerAgentCounts(files: string[]): Map<string, AssetCounts> {
-	const map = new Map<string, AssetCounts>();
+function computeAssetCounts(files: string[]): AssetCounts {
+	const counts: AssetCounts = { skills: 0, agents: 0, hooks: 0, other: 0 };
 	for (const file of files) {
-		const ownership = identifyFileOwnership(file);
-		const agent = ownership?.agentId ?? "other";
-		const assetType: keyof AssetCounts = ownership?.assetType ?? "other";
-		if (!map.has(agent)) {
-			map.set(agent, { skills: 0, agents: 0, hooks: 0, other: 0 });
-		}
-		const counts = map.get(agent)!;
-		counts[assetType]++;
+		counts[identifyAssetType(file) ?? "other"]++;
 	}
-	return map;
+	return counts;
 }
 
 function formatAssetCounts(counts: AssetCounts): string {
@@ -110,16 +103,11 @@ export async function renderDetailView(
 	p.log.info(`Commit: ${formatCommit(entry)}`);
 	p.log.info(`Installed: ${formatDate(entry.installedAt)}`);
 
-	// One compact agents line with per-agent counts — no repeated agents list,
-	// no per-agent sub-bullets, no raw file-path dump.
-	const perAgent = computePerAgentCounts(entry.files);
-	const agentSummary = entry.agents
-		.map((agent) => {
-			const counts = perAgent.get(agent);
-			return counts ? `${agent} (${formatAssetCounts(counts)})` : agent;
-		})
-		.join(", ");
-	p.log.info(`Agents: ${agentSummary}`);
+	// One compact counts line — no raw file-path dump.
+	const assetSummary = formatAssetCounts(computeAssetCounts(entry.files));
+	if (assetSummary.length > 0) {
+		p.log.info(`Assets: ${assetSummary}`);
+	}
 
 	if (updateStatus.status === "constrained-no-match") {
 		p.log.error(

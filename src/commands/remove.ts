@@ -1,6 +1,6 @@
 import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { identifyFileOwnership } from "../drivers/identify.js";
+import { type AssetType, identifyAssetType } from "../asset-targets.js";
 import { ExitSignal, withExitSignal } from "../exit-signal.js";
 import {
 	type Manifest,
@@ -38,16 +38,15 @@ interface FileGroup {
 	files: string[];
 }
 
-const ASSET_TYPE_LABELS: Record<string, string> = {
+const ASSET_TYPE_LABELS: Record<AssetType, string> = {
 	skills: "Skills",
 	agents: "Agents",
 	hooks: "Hooks",
 };
 
 function classifyFile(file: string): string {
-	const ownership = identifyFileOwnership(file);
-	if (ownership === null) return "Other";
-	return ASSET_TYPE_LABELS[ownership.assetType] ?? "Other";
+	const assetType = identifyAssetType(file);
+	return assetType === null ? "Other" : ASSET_TYPE_LABELS[assetType];
 }
 
 function groupFilesByType(files: string[]): FileGroup[] {

@@ -252,15 +252,11 @@ describe("formatGroupHeader", () => {
 });
 
 describe("formatMemberLine", () => {
-	it("success renders <name> → <agents> at success level with no parenthetical when no move or drop", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "design",
-				agents: ["claude"],
-				droppedAgents: [],
-			}),
-		).toEqual({ level: "success", text: "design → claude" });
+	it("success renders the bare member name at success level with no parenthetical when no move", () => {
+		expect(formatMemberLine({ kind: "success", name: "design" })).toEqual({
+			level: "success",
+			text: "design",
+		});
 	});
 
 	it("divergent-old success carries its own (old -> new) move parenthetical", () => {
@@ -268,13 +264,11 @@ describe("formatMemberLine", () => {
 			formatMemberLine({
 				kind: "success",
 				name: "macos",
-				agents: ["claude"],
-				droppedAgents: [],
 				move: { oldRef: null, newRef: null, oldCommit: OLD_A, newCommit: NEW },
 			}),
 		).toEqual({
 			level: "success",
-			text: "macos → claude  (1a2b3c4 -> 9f8e7d6)",
+			text: "macos  (1a2b3c4 -> 9f8e7d6)",
 		});
 	});
 
@@ -283,8 +277,6 @@ describe("formatMemberLine", () => {
 			formatMemberLine({
 				kind: "success",
 				name: "macos",
-				agents: ["claude"],
-				droppedAgents: [],
 				move: {
 					oldRef: "v1.2.0",
 					newRef: "v1.3.0",
@@ -294,36 +286,7 @@ describe("formatMemberLine", () => {
 			}),
 		).toEqual({
 			level: "success",
-			text: "macos → claude  (v1.2.0 -> v1.3.0)",
-		});
-	});
-
-	it("success with dropped agents appends the support removed by plugin author notice in the parenthetical", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "macos",
-				agents: ["claude"],
-				droppedAgents: ["codex"],
-			}),
-		).toEqual({
-			level: "success",
-			text: "macos → claude  (codex support removed by plugin author)",
-		});
-	});
-
-	it("success with both a move and a drop shares one parenthetical joined by ;", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "macos",
-				agents: ["claude"],
-				droppedAgents: ["codex"],
-				move: { oldRef: null, newRef: null, oldCommit: OLD_A, newCommit: NEW },
-			}),
-		).toEqual({
-			level: "success",
-			text: "macos → claude  (1a2b3c4 -> 9f8e7d6; codex support removed by plugin author)",
+			text: "macos  (v1.2.0 -> v1.3.0)",
 		});
 	});
 
@@ -366,13 +329,6 @@ describe("formatMemberLine", () => {
 		expect(line).toEqual({ level: "error", text: `design: ${message}` });
 		expect(line.text).not.toContain("npx agntc remove");
 		expect(line.text).not.toContain("npx agntc add");
-	});
-
-	it("no-agents renders at warn level as a skip", () => {
-		expect(formatMemberLine({ kind: "no-agents", name: "design" })).toEqual({
-			level: "warn",
-			text: "design: skipped — no longer supports installed agents",
-		});
 	});
 });
 

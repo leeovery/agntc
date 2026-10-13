@@ -13,11 +13,6 @@ vi.mock("../src/git-clone.js", async (importOriginal) => ({
 	cleanupTempDir: vi.fn(),
 }));
 
-vi.mock("../src/config.js", async (importOriginal) => ({
-	...(await importOriginal<typeof import("../src/config.js")>()),
-	readConfig: vi.fn(),
-}));
-
 vi.mock("../src/nuke-files.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/nuke-files.js")>()),
 	nukeManifestFiles: vi.fn(),
@@ -33,11 +28,6 @@ vi.mock("../src/copy-bare-skill.js", async (importOriginal) => ({
 	copyBareSkill: vi.fn(),
 }));
 
-vi.mock("../src/drivers/registry.js", async (importOriginal) => ({
-	...(await importOriginal<typeof import("../src/drivers/registry.js")>()),
-	getDriver: vi.fn(),
-}));
-
 vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
 	const { mockCopySafety } = await import("./helpers/copy-safety-mock.js");
@@ -48,14 +38,13 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	};
 });
 
-import { readConfig } from "../src/config.js";
+import type { CloneReinstallResult } from "../src/clone-reinstall.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import {
 	assertSubpathWithinClone,
 	PathTraversalError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
-import { getDriver } from "../src/drivers/registry.js";
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { execGit, fetchRemoteTagRefs } from "../src/git-utils.js";
@@ -66,8 +55,6 @@ import {
 	type GroupTarget,
 	resolveGroupTarget,
 } from "../src/update-check.js";
-import type { CloneReinstallResult } from "../src/clone-reinstall.js";
-import type { AgentId } from "../src/drivers/types.js";
 import {
 	type EntryGroup,
 	failedOutcome,
@@ -78,19 +65,13 @@ import {
 	type PluginOutcome,
 	processGroupUpdate,
 } from "../src/update-groups.js";
-import {
-	makeEntry,
-	makeFakeDriver,
-	makeManifest,
-} from "./helpers/factories.js";
+import { makeEntry, makeManifest } from "./helpers/factories.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
-const mockReadConfig = vi.mocked(readConfig);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockPathExists = vi.mocked(pathExists);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
-const mockGetDriver = vi.mocked(getDriver);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
@@ -152,7 +133,6 @@ describe("isSuccessOutcome", () => {
 			"copy-failed",
 			"aborted",
 			"blocked",
-			"skipped-no-agents",
 			"constrained-no-match",
 		] as const) {
 			expect(isSuccessOutcome({ status, key: "k", summary: "s" })).toBe(false);
@@ -160,89 +140,51 @@ describe("isSuccessOutcome", () => {
 	});
 });
 
-describe("mapReinstallResultToOutcome structured dropped-agents", () => {
-	function successResult(
-		manifestEntry: ManifestEntry,
-		droppedAgents: AgentId[],
-	): CloneReinstallResult {
+describe("mapReinstallResultToOutcome success", () => {
+	function successResult(manifestEntry: ManifestEntry): CloneReinstallResult {
 		return {
 			status: "success",
 			manifestEntry,
 			copiedFiles: manifestEntry.files,
-			droppedAgents,
 		};
 	}
 
-	it("carries the pipeline's structured droppedAgents on the updated (git) outcome", () => {
-		const entry = makeEntry({
-			ref: "v1.0.0",
-			commit: SHA_CUR,
-			agents: ["claude", "codex"],
-		});
-		const newEntry = makeEntry({
-			ref: "v1.1.0",
-			commit: SHA_TGT,
-			agents: ["claude"],
-		});
+	it("maps a git reinstall to updated, carrying the new entry and the version move", () => {
+		const entry = makeEntry({ ref: "v1.0.0", commit: SHA_CUR });
+		const newEntry = makeEntry({ ref: "v1.1.0", commit: SHA_TGT });
 
 		const outcome = mapReinstallResultToOutcome(
 			"owner/repo/a",
 			entry,
-			successResult(newEntry, ["codex"]),
+			successResult(newEntry),
 			"v1.1.0",
 		);
 
-		expect(outcome.status).toBe("updated");
-		if (isSuccessOutcome(outcome)) {
-			// Sourced straight from result.droppedAgents — order preserved so the
-			// member-line parenthetical is byte-identical to the old recompute.
-			expect(outcome.droppedAgents).toEqual(["codex"]);
-		}
+		expect(outcome).toEqual({
+			status: "updated",
+			key: "owner/repo/a",
+			summary: "owner/repo/a: Updated v1.0.0 -> v1.1.0",
+			newEntry,
+		});
 	});
 
-	it("carries the pipeline's structured droppedAgents on the refreshed (local) outcome", () => {
-		const entry = makeEntry({
-			ref: null,
-			commit: null,
-			agents: ["claude", "codex"],
-		});
-		const newEntry = makeEntry({ ref: null, commit: null, agents: ["claude"] });
+	it("maps a local reinstall to refreshed, carrying the new entry", () => {
+		const entry = makeEntry({ ref: null, commit: null });
+		const newEntry = makeEntry({ ref: null, commit: null });
 
 		const outcome = mapReinstallResultToOutcome(
 			"/local/path",
 			entry,
-			successResult(newEntry, ["codex"]),
+			successResult(newEntry),
 			null,
 		);
 
-		expect(outcome.status).toBe("refreshed");
-		if (isSuccessOutcome(outcome)) {
-			expect(outcome.droppedAgents).toEqual(["codex"]);
-		}
-	});
-
-	it("carries an empty droppedAgents array when the reinstall drops nothing", () => {
-		const entry = makeEntry({
-			ref: "v1.0.0",
-			commit: SHA_CUR,
-			agents: ["claude"],
+		expect(outcome).toEqual({
+			status: "refreshed",
+			key: "/local/path",
+			summary: "/local/path: Refreshed from local path",
+			newEntry,
 		});
-		const newEntry = makeEntry({
-			ref: "v1.1.0",
-			commit: SHA_TGT,
-			agents: ["claude"],
-		});
-
-		const outcome = mapReinstallResultToOutcome(
-			"owner/repo/a",
-			entry,
-			successResult(newEntry, []),
-			"v1.1.0",
-		);
-
-		if (isSuccessOutcome(outcome)) {
-			expect(outcome.droppedAgents).toEqual([]);
-		}
 	});
 });
 
@@ -680,7 +622,6 @@ describe("processGroupUpdate", () => {
 	// Deliberately distinct from SHA_RESOLVED so a branch group's recorded commit
 	// can be asserted to come from the resolved target, NOT the clone's own HEAD.
 	const CLONE_COMMIT = "e".repeat(40);
-	const fakeDriver = makeFakeDriver();
 
 	const BRANCH_TARGET: GroupTarget = {
 		kind: "branch",
@@ -697,7 +638,6 @@ describe("processGroupUpdate", () => {
 				type: "skill",
 				ref: "main",
 				commit: SHA_CUR,
-				agents: ["claude"],
 				files: [`.claude/skills/${key.split("/").pop()}/`],
 				...overrides,
 			}),
@@ -723,9 +663,7 @@ describe("processGroupUpdate", () => {
 		});
 		mockCleanupTempDir.mockResolvedValue(undefined);
 		mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-		mockGetDriver.mockReturnValue(fakeDriver);
 		mockPathExists.mockResolvedValue(true);
-		mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 		mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 		mockAssertSubpathWithinClone.mockImplementation(() => {});
 		mockCopyBareSkill.mockResolvedValue({ copiedFiles: [".claude/skills/x/"] });
@@ -780,7 +718,6 @@ describe("processGroupUpdate", () => {
 					ref: "v1.2.3",
 					commit: SHA_CUR,
 					constraint: "^1.2.3",
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 			},
@@ -791,7 +728,6 @@ describe("processGroupUpdate", () => {
 					ref: "v1.2.3",
 					commit: SHA_CUR,
 					constraint: "^1.2.3",
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 			},
@@ -895,11 +831,11 @@ describe("processGroupUpdate", () => {
 			branchMember("owner/repo/b"),
 			branchMember("owner/repo/c"),
 		];
-		mockReadConfig.mockImplementation(async (dir: string) => {
-			if (dir === `${CLONE_DIR}/b`) {
+		mockPathExists.mockImplementation(async (path: string) => {
+			if (path === `${CLONE_DIR}/b/SKILL.md`) {
 				throw new Error("kaboom");
 			}
-			return { agents: ["claude"] };
+			return true;
 		});
 
 		const { outcomes } = await processGroupUpdate(
@@ -925,11 +861,11 @@ describe("processGroupUpdate", () => {
 			branchMember("owner/repo/b"),
 			branchMember("owner/repo/c"),
 		];
-		mockReadConfig.mockImplementation(async (dir: string) => {
-			if (dir === `${CLONE_DIR}/b`) {
+		mockPathExists.mockImplementation(async (path: string) => {
+			if (path === `${CLONE_DIR}/b/SKILL.md`) {
 				throw new Error("kaboom");
 			}
-			return { agents: ["claude"] };
+			return true;
 		});
 
 		await processGroupUpdate(

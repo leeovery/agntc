@@ -12,15 +12,10 @@ export function formatInitReport(
 	result: ScaffoldResult,
 	type: InitType,
 ): string {
-	const overwritten = result.overwritten;
 	const lines: string[] = [];
 
 	for (const file of result.created) {
 		lines.push(file);
-	}
-
-	for (const file of overwritten) {
-		lines.push(`${file} (overwritten)`);
 	}
 
 	for (const file of result.skipped) {
@@ -33,7 +28,7 @@ export function formatInitReport(
 		parts.push(lines.join(", "));
 	}
 
-	if (result.created.length > 0 || overwritten.length > 0) {
+	if (result.created.length > 0) {
 		parts.push(successMessageByType[type]);
 	}
 

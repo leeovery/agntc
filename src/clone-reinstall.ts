@@ -1,5 +1,4 @@
 import * as p from "@clack/prompts";
-import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
@@ -80,25 +79,11 @@ interface CloneReinstallSuccess {
 	status: "success";
 	manifestEntry: ManifestEntry;
 	copiedFiles: string[];
-	droppedAgents: AgentId[];
 }
 
 export interface CloneReinstallFailed {
 	status: "failed";
 	failureReason: "clone-failed" | "copy-failed" | "unknown";
-	message: string;
-}
-
-/**
- * The lenient no-agents skip: the re-cloned tree's config narrows the entry's
- * agents to zero. Per the spec's lenient agent posture this is a *skip, not a
- * failure* — the existing install is left intact, nothing is nuked, and the
- * command must NOT exit non-zero on its account. It carries its own
- * non-`failed` status so the type mirrors that intent; {@link mapCloneFailure}
- * still routes it through `onNoAgents`, preserving the exact downstream outcome.
- */
-export interface CloneReinstallNoAgents {
-	status: "no-agents";
 	message: string;
 }
 
@@ -110,13 +95,11 @@ export interface CloneReinstallNoAgents {
  */
 export type CloneReinstallFailure =
 	| CloneReinstallFailed
-	| CloneReinstallNoAgents
 	| CloneReinstallAborted
 	| CloneReinstallBlocked;
 
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
-	onNoAgents: (msg: string) => T;
 	onCopyFailed: (msg: string) => T;
 	onAborted: (recordedType: "skill" | "plugin", reason: string) => T;
 	onBlocked: (reason: string) => T;
@@ -135,20 +118,18 @@ export function isCloneReinstallFailure(
 	return (
 		result.status === "failed" ||
 		result.status === "aborted" ||
-		result.status === "blocked" ||
-		result.status === "no-agents"
+		result.status === "blocked"
 	);
 }
 
 /**
  * Routes a non-success clone-reinstall result to the matching handler, using
- * `status` as the single cross-boundary discriminator for the three
+ * `status` as the single cross-boundary discriminator for the two
  * structurally-distinct cases that leave the existing install intact:
  * `aborted` (derive-before-delete — re-cloned tree no longer supports the
- * recorded type), `blocked` (symlink-escape copy-safety — source contains a
- * link escaping the clone), and `no-agents` (lenient skip — the new config
- * narrows agents to zero; not a hard error). The remaining `failed` family is
- * refined on `failureReason` into clone-failed / copy-failed / unknown.
+ * recorded type) and `blocked` (symlink-escape copy-safety — source contains a
+ * link escaping the clone). The remaining `failed` family is refined on
+ * `failureReason` into clone-failed / copy-failed / unknown.
  */
 export function mapCloneFailure<T>(
 	result: CloneReinstallFailure,
@@ -159,9 +140,6 @@ export function mapCloneFailure<T>(
 	}
 	if (result.status === "blocked") {
 		return handlers.onBlocked(result.reason);
-	}
-	if (result.status === "no-agents") {
-		return handlers.onNoAgents(result.message);
 	}
 	switch (result.failureReason) {
 		case "clone-failed":
@@ -177,9 +155,9 @@ export function mapCloneFailure<T>(
  * Collapses any {@link CloneReinstallFailure} to a single user-facing message,
  * shared by the two `list` actions (update + change-version) whose failure tails
  * were otherwise byte-identical. Implemented in terms of {@link mapCloneFailure}
- * so the dispatch logic isn't re-authored: clone-failed/copy-failed/unknown and
- * the lenient no-agents skip pass through the failure's own message, `aborted`
- * routes through {@link buildAbortMessage} and `blocked` through
+ * so the dispatch logic isn't re-authored: clone-failed/copy-failed/unknown
+ * pass through the failure's own message, `aborted` routes through
+ * {@link buildAbortMessage} and `blocked` through
  * {@link buildCopySafetyMessage}. A new failure variant is a single edit here;
  * the list actions can't drift. update.ts keeps its richer per-status handler.
  */
@@ -189,25 +167,12 @@ export function failureMessage(
 ): string {
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
-		onNoAgents: (msg) => msg,
 		onCopyFailed: (msg) => msg,
 		onUnknown: (msg) => msg,
 		onAborted: (recordedType, reason) =>
 			buildAbortMessage(key, recordedType, reason),
 		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
 	});
-}
-
-/**
- * The single source of the lenient no-agents sentence. Every site that surfaces
- * "this plugin no longer supports any installed agent" — the
- * {@link CloneReinstallNoAgents} message built in {@link runPipeline} (which
- * {@link failureMessage}'s `onNoAgents` arm then passes through) and update.ts's
- * richer warning (which appends its own remedy) — derives from here so the
- * wording can't drift across copies.
- */
-export function noAgentsMessage(key: string): string {
-	return `Plugin ${key} no longer supports any of your installed agents`;
 }
 
 /**
@@ -248,7 +213,6 @@ export interface CloneReinstallBlocked {
 export type CloneReinstallResult =
 	| CloneReinstallSuccess
 	| CloneReinstallFailed
-	| CloneReinstallNoAgents
 	| CloneReinstallAborted
 	| CloneReinstallBlocked;
 
@@ -285,19 +249,6 @@ export function buildCopySafetyMessage(key: string, reason: string): string {
 	return (
 		`${key}: ${reason}. The source contains a symlink escaping the clone, ` +
 		`so the update is blocked. The existing install is unchanged.`
-	);
-}
-
-export function formatAgentsDroppedWarning(
-	key: string,
-	dropped: AgentId[],
-	installedAgents: AgentId[],
-	newConfigAgents: AgentId[],
-): string {
-	return (
-		`Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-		`Currently installed for: ${installedAgents.join(", ")}. ` +
-		`New version supports: ${newConfigAgents.join(", ")}.`
 	);
 }
 
@@ -460,8 +411,6 @@ export async function runPipeline(
 	const { key, entry, projectDir, sourceDir, cloneRoot, newRef, newCommit } =
 		input;
 
-	const onWarn = (message: string) => p.log.warn(message);
-
 	const pipelineResult = await executeNukeAndReinstall({
 		key,
 		sourceDir,
@@ -470,20 +419,7 @@ export async function runPipeline(
 		projectDir,
 		newRef,
 		newCommit,
-		onAgentsDropped: (dropped, newConfigAgents) => {
-			p.log.warn(
-				formatAgentsDroppedWarning(key, dropped, entry.agents, newConfigAgents),
-			);
-		},
-		onWarn,
 	});
-
-	if (pipelineResult.status === "no-agents") {
-		return {
-			status: "no-agents",
-			message: noAgentsMessage(key),
-		};
-	}
 
 	if (pipelineResult.status === "copy-failed") {
 		return {
@@ -515,6 +451,5 @@ export async function runPipeline(
 		status: "success",
 		manifestEntry: pipelineResult.entry,
 		copiedFiles: pipelineResult.copiedFiles,
-		droppedAgents: pipelineResult.droppedAgents,
 	};
 }

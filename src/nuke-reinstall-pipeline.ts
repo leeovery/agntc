@@ -1,11 +1,7 @@
 import { basename, join } from "node:path";
-import { computeAgentChanges } from "./agent-compat.js";
-import { readConfig } from "./config.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
 import { copyPluginAssets } from "./copy-plugin-assets.js";
 import { checkEscapingSymlinks } from "./copy-safety.js";
-import { getDriver } from "./drivers/registry.js";
-import type { AgentId, AgentWithDriver } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { pathExists } from "./fs-utils.js";
 import { buildManifestEntry, type ManifestEntry } from "./manifest.js";
@@ -27,19 +23,12 @@ export interface NukeReinstallOptions {
 	projectDir: string;
 	newRef?: string | null;
 	newCommit?: string | null;
-	onAgentsDropped?: (dropped: AgentId[], newConfigAgents: AgentId[]) => void;
-	onWarn?: (message: string) => void;
 }
 
 interface NukeReinstallSuccess {
 	status: "success";
 	entry: ManifestEntry;
 	copiedFiles: string[];
-	droppedAgents: AgentId[];
-}
-
-interface NukeReinstallNoAgents {
-	status: "no-agents";
 }
 
 interface NukeReinstallCopyFailed {
@@ -78,7 +67,6 @@ interface NukeReinstallBlocked {
 
 export type NukeReinstallResult =
 	| NukeReinstallSuccess
-	| NukeReinstallNoAgents
 	| NukeReinstallCopyFailed
 	| NukeReinstallAborted
 	| NukeReinstallBlocked;
@@ -86,8 +74,7 @@ export type NukeReinstallResult =
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
 ): Promise<NukeReinstallResult> {
-	const { sourceDir, cloneRoot, existingEntry, onAgentsDropped, onWarn } =
-		options;
+	const { sourceDir, cloneRoot, existingEntry } = options;
 
 	// Symlink-escape pre-flight: scan the unit tree for any symlink pointing
 	// outside the cloned repository root, BEFORE any file removal. A violation
@@ -118,13 +105,6 @@ export async function executeNukeAndReinstall(
 	const commit =
 		options.newCommit !== undefined ? options.newCommit : existingEntry.commit;
 
-	// Read config from source. Under configless replay a missing config is normal
-	// (recorded units carry no agntc.json): null means "no agent restriction"
-	// (effective agents unchanged), not abort. Both recorded skills and recorded
-	// plugins replay by their persisted type, so neither bails on null config — the
-	// type is authoritative and is never re-derived from a present/absent config.
-	const config = await readConfig(sourceDir, { onWarn });
-
 	// The recorded type selects the replay predicate. 4-3 backfills `type` on
 	// manifest read, so every entry reaching the pipeline in production carries a
 	// concrete type; the `?? "skill"` is a defensive, non-throwing fallback for a
@@ -132,29 +112,7 @@ export async function executeNukeAndReinstall(
 	// derivation rule). The type is recorded, never re-derived from the clone.
 	const recordedType: "skill" | "plugin" = existingEntry.type ?? "skill";
 
-	const agentResolution = resolveAgents(existingEntry.agents, config?.agents);
-	if (agentResolution.status === "no-agents") {
-		return { status: "no-agents" };
-	}
-	const { effectiveAgents, droppedAgents } = agentResolution;
-
-	if (config !== null && droppedAgents.length > 0) {
-		onAgentsDropped?.(droppedAgents, config.agents);
-	}
-
-	const agents = effectiveAgents.map((id) => ({
-		id,
-		driver: getDriver(id),
-	}));
-
-	const ctx: ReplayContext = {
-		options,
-		agents,
-		effectiveAgents,
-		droppedAgents,
-		ref,
-		commit,
-	};
+	const ctx: ReplayContext = { options, ref, commit };
 
 	return recordedType === "skill"
 		? replayRecordedSkill(ctx)
@@ -163,9 +121,6 @@ export async function executeNukeAndReinstall(
 
 interface ReplayContext {
 	options: NukeReinstallOptions;
-	agents: AgentWithDriver[];
-	effectiveAgents: AgentId[];
-	droppedAgents: AgentId[];
 	ref: string | null;
 	commit: string | null;
 }
@@ -180,7 +135,7 @@ interface ReplayContext {
 async function replayRecordedSkill(
 	ctx: ReplayContext,
 ): Promise<NukeReinstallResult> {
-	const { options, agents } = ctx;
+	const { options } = ctx;
 	const { sourceDir, projectDir, existingEntry } = options;
 
 	const skillMdExists = await pathExists(join(sourceDir, "SKILL.md"));
@@ -204,7 +159,6 @@ async function replayRecordedSkill(
 		const bareResult = await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents,
 			skillName: basename(options.key),
 		});
 		copiedFiles = bareResult.copiedFiles;
@@ -227,7 +181,7 @@ async function replayRecordedSkill(
 async function replayRecordedPlugin(
 	ctx: ReplayContext,
 ): Promise<NukeReinstallResult> {
-	const { options, agents } = ctx;
+	const { options } = ctx;
 	const { sourceDir, projectDir, existingEntry } = options;
 
 	const presentAssetDirs = await findPresentAssetDirs(sourceDir);
@@ -248,7 +202,6 @@ async function replayRecordedPlugin(
 		const pluginResult = await copyPluginAssets({
 			sourceDir,
 			assetDirs: presentAssetDirs,
-			agents,
 			projectDir,
 		});
 		copiedFiles = pluginResult.copiedFiles;
@@ -259,46 +212,17 @@ async function replayRecordedPlugin(
 	return buildSuccess(ctx, copiedFiles, "plugin");
 }
 
-type AgentResolution =
-	| { status: "ok"; effectiveAgents: AgentId[]; droppedAgents: AgentId[] }
-	| { status: "no-agents" };
-
-/**
- * Resolves the effective agent set. Both an absent config (no agntc.json →
- * `undefined`) AND a defined-but-empty `agents` array impose no restriction — the
- * entry's recorded agents are kept unchanged. An empty array carries no usable
- * author intent (the spec's lenient "no valid constraint" case), so it is treated
- * identically to no config at all, matching the `add` path. Only a non-empty
- * config narrows to the intersection; dropping every recorded agent there is a
- * genuine no-agents failure.
- */
-export function resolveAgents(
-	entryAgents: AgentId[],
-	configAgents: AgentId[] | undefined,
-): AgentResolution {
-	if (configAgents === undefined || configAgents.length === 0) {
-		return { status: "ok", effectiveAgents: entryAgents, droppedAgents: [] };
-	}
-
-	const { effective, dropped } = computeAgentChanges(entryAgents, configAgents);
-	if (effective.length === 0) {
-		return { status: "no-agents" };
-	}
-	return { status: "ok", effectiveAgents: effective, droppedAgents: dropped };
-}
-
 function buildSuccess(
 	ctx: ReplayContext,
 	copiedFiles: string[],
 	type: "skill" | "plugin",
 ): NukeReinstallSuccess {
-	const { options, effectiveAgents, droppedAgents, ref, commit } = ctx;
+	const { options, ref, commit } = ctx;
 	const { existingEntry } = options;
 
 	const entry = buildManifestEntry({
 		ref: ref ?? null,
 		commit: commit ?? null,
-		agents: effectiveAgents,
 		files: copiedFiles,
 		type,
 		cloneUrl: existingEntry.cloneUrl ?? null,
@@ -314,7 +238,6 @@ function buildSuccess(
 		status: "success",
 		entry,
 		copiedFiles,
-		droppedAgents,
 	};
 }
 

@@ -1,14 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AgentId } from "./drivers/types.js";
 import { errorMessage, isNodeError } from "./errors.js";
 
 export interface AgntcConfig {
-	agents: AgentId[];
 	type?: string;
 }
-
-export const KNOWN_AGENTS = ["claude", "codex", "cursor"] as const;
 
 export interface ReadConfigOptions {
 	onWarn?: (message: string) => void;
@@ -42,43 +38,6 @@ export async function readConfig(
 		return null;
 	}
 
-	const { agents, type } = parsed as { agents?: unknown; type?: unknown };
-
-	const filtered = filterKnownAgents(agents, options);
-	const rawType = typeof type === "string" ? type : undefined;
-
-	if (filtered.length > 0) {
-		return {
-			agents: filtered,
-			...(rawType !== undefined ? { type: rawType } : {}),
-		};
-	}
-
-	if (rawType !== undefined) {
-		return { agents: [], type: rawType };
-	}
-
-	return null;
-}
-
-function filterKnownAgents(
-	agents: unknown,
-	options?: ReadConfigOptions,
-): AgentId[] {
-	if (!Array.isArray(agents)) {
-		return [];
-	}
-
-	const knownSet = new Set<string>(KNOWN_AGENTS);
-	const filtered: AgentId[] = [];
-
-	for (const agent of agents) {
-		if (typeof agent === "string" && knownSet.has(agent)) {
-			filtered.push(agent as AgentId);
-		} else if (typeof agent === "string") {
-			options?.onWarn?.(`Unknown agent "${agent}" — skipping`);
-		}
-	}
-
-	return filtered;
+	const { type } = parsed as { type?: unknown };
+	return typeof type === "string" ? { type } : null;
 }

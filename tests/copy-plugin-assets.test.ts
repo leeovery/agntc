@@ -10,18 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
-import type { AgentDriver, AgentId } from "../src/drivers/types.js";
 
 let testDir: string;
 let sourceDir: string;
 let projectDir: string;
-
-function makeDriver(targets: Record<string, string | null>): AgentDriver {
-	return {
-		detect: async () => true,
-		getTargetDir: (assetType: string) => targets[assetType] ?? null,
-	};
-}
 
 async function createSourceFile(...segments: string[]): Promise<void> {
 	const filePath = join(sourceDir, ...segments);
@@ -60,16 +52,6 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills", "agents", "hooks"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({
-						skills: ".claude/skills",
-						agents: ".claude/agents",
-						hooks: ".claude/hooks",
-					}),
-				},
-			],
 			projectDir,
 		});
 
@@ -91,12 +73,6 @@ describe("copyPluginAssets", () => {
 		await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir,
 		});
 
@@ -111,31 +87,6 @@ describe("copyPluginAssets", () => {
 		).toBe(false);
 	});
 
-	it("skips asset types where getTargetDir returns null", async () => {
-		await createSourceFile("skills", "planning", "SKILL.md");
-		await createSourceFile("hooks", "pre-commit.sh");
-
-		const result = await copyPluginAssets({
-			sourceDir,
-			assetDirs: ["skills", "hooks"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills", hooks: null }),
-				},
-			],
-			projectDir,
-		});
-
-		expect(
-			await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
-		).toBe(true);
-		expect(
-			await fileExists(join(projectDir, ".claude/hooks/pre-commit.sh")),
-		).toBe(false);
-		expect(result.copiedFiles.every((f) => !f.includes("hooks"))).toBe(true);
-	});
-
 	it("only processes asset dirs in assetDirs input", async () => {
 		await createSourceFile("skills", "planning", "SKILL.md");
 		await createSourceFile("agents", "reviewer", "agent.md");
@@ -144,16 +95,6 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({
-						skills: ".claude/skills",
-						agents: ".claude/agents",
-						hooks: ".claude/hooks",
-					}),
-				},
-			],
 			projectDir,
 		});
 
@@ -168,28 +109,6 @@ describe("copyPluginAssets", () => {
 		).toBe(false);
 	});
 
-	it("creates missing target dirs recursively", async () => {
-		await createSourceFile("skills", "planning", "SKILL.md");
-
-		await copyPluginAssets({
-			sourceDir,
-			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: "deep/nested/.claude/skills" }),
-				},
-			],
-			projectDir,
-		});
-
-		expect(
-			await fileExists(
-				join(projectDir, "deep/nested/.claude/skills/planning/SKILL.md"),
-			),
-		).toBe(true);
-	});
-
 	it("returns correct relative paths with trailing slash for dirs", async () => {
 		await createSourceFile("skills", "planning", "SKILL.md");
 		await createSourceFile("skills", "coding", "SKILL.md");
@@ -197,12 +116,6 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir,
 		});
 
@@ -212,7 +125,7 @@ describe("copyPluginAssets", () => {
 		expect(result.copiedFiles).toContain(".claude/skills/coding/SKILL.md");
 	});
 
-	it("returns correct per-agent counts", async () => {
+	it("returns correct asset counts", async () => {
 		await createSourceFile("skills", "planning", "SKILL.md");
 		await createSourceFile("skills", "coding", "SKILL.md");
 		await createSourceFile("agents", "reviewer", "agent.md");
@@ -220,19 +133,10 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills", "agents"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({
-						skills: ".claude/skills",
-						agents: ".claude/agents",
-					}),
-				},
-			],
 			projectDir,
 		});
 
-		expect(result.assetCountsByAgent.claude).toEqual({
+		expect(result.assetCounts).toEqual({
 			skills: 2,
 			agents: 1,
 		});
@@ -244,16 +148,10 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir,
 		});
 
-		expect(result.assetCountsByAgent.claude).toEqual({ skills: 0 });
+		expect(result.assetCounts).toEqual({ skills: 0 });
 		expect(result.copiedFiles).toEqual([]);
 	});
 
@@ -269,12 +167,6 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir,
 		});
 
@@ -295,12 +187,6 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir,
 		});
 
@@ -315,37 +201,6 @@ describe("copyPluginAssets", () => {
 		expect(result.copiedFiles).toContain(".claude/skills/planning/SKILL.md");
 	});
 
-	it("handles multiple agents with different targets", async () => {
-		await createSourceFile("skills", "planning", "SKILL.md");
-
-		const result = await copyPluginAssets({
-			sourceDir,
-			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-				{
-					id: "codex",
-					driver: makeDriver({ skills: ".codex/skills" }),
-				},
-			],
-			projectDir,
-		});
-
-		expect(
-			await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
-		).toBe(true);
-		expect(
-			await fileExists(join(projectDir, ".codex/skills/planning/SKILL.md")),
-		).toBe(true);
-		expect(result.copiedFiles).toContain(".claude/skills/planning/");
-		expect(result.copiedFiles).toContain(".codex/skills/planning/");
-		expect(result.assetCountsByAgent.claude).toEqual({ skills: 1 });
-		expect(result.assetCountsByAgent.codex).toEqual({ skills: 1 });
-	});
-
 	it("handles subset of asset types", async () => {
 		await createSourceFile("skills", "planning", "SKILL.md");
 		await createSourceFile("hooks", "pre-commit.sh");
@@ -353,19 +208,10 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills", "hooks"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({
-						skills: ".claude/skills",
-						hooks: ".claude/hooks",
-					}),
-				},
-			],
 			projectDir,
 		});
 
-		expect(result.assetCountsByAgent.claude).toEqual({
+		expect(result.assetCounts).toEqual({
 			skills: 1,
 			hooks: 1,
 		});
@@ -377,16 +223,10 @@ describe("copyPluginAssets", () => {
 		const result = await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir,
 		});
 
-		expect(result.assetCountsByAgent.claude).toEqual({ skills: 1 });
+		expect(result.assetCounts).toEqual({ skills: 1 });
 		expect(result.copiedFiles).toContain(".claude/skills/planning/");
 		expect(result.copiedFiles).toContain(".claude/skills/planning/SKILL.md");
 	});
@@ -399,12 +239,6 @@ describe("copyPluginAssets", () => {
 		await copyPluginAssets({
 			sourceDir,
 			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".claude/skills" }),
-				},
-			],
 			projectDir,
 		});
 
@@ -417,30 +251,5 @@ describe("copyPluginAssets", () => {
 		expect(
 			await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
 		).toBe(true);
-	});
-
-	it("deduplicates copiedFiles across agents", async () => {
-		await createSourceFile("skills", "planning", "SKILL.md");
-
-		const result = await copyPluginAssets({
-			sourceDir,
-			assetDirs: ["skills"],
-			agents: [
-				{
-					id: "claude",
-					driver: makeDriver({ skills: ".shared/skills" }),
-				},
-				{
-					id: "codex",
-					driver: makeDriver({ skills: ".shared/skills" }),
-				},
-			],
-			projectDir,
-		});
-
-		const planningDirEntries = result.copiedFiles.filter(
-			(f) => f === ".shared/skills/planning/",
-		);
-		expect(planningDirEntries).toHaveLength(1);
 	});
 });

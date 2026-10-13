@@ -37,7 +37,6 @@ describe("selectCollectionPlugins", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: "2026-01-01T00:00:00Z",
-				agents: ["claude"],
 				files: [],
 			},
 		};
@@ -66,7 +65,6 @@ describe("selectCollectionPlugins", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: "2026-01-01T00:00:00Z",
-				agents: ["claude"],
 				files: [],
 			},
 		};
@@ -107,7 +105,6 @@ describe("selectCollectionPlugins", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: "2026-01-01T00:00:00Z",
-				agents: ["claude"],
 				files: [],
 			},
 		};
@@ -191,14 +188,12 @@ describe("selectCollectionPlugins", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: "2026-01-01T00:00:00Z",
-				agents: ["claude"],
 				files: [],
 			},
 			"owner/repo/beta": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-01T00:00:00Z",
-				agents: ["claude"],
 				files: [],
 			},
 		};
@@ -255,7 +250,6 @@ describe("selectCollectionPlugins", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: "2026-01-01T00:00:00Z",
-				agents: ["claude"],
 				files: [],
 			},
 		};

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
 import { copyUnit, toComputeInput } from "../src/copy-unit.js";
-import type { AgentWithDriver } from "../src/drivers/types.js";
 import type { DetectedType } from "../src/type-detection.js";
 
 vi.mock("../src/copy-plugin-assets.js", () => ({
@@ -14,13 +13,6 @@ vi.mock("../src/copy-bare-skill.js", () => ({
 
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
-
-const agents: AgentWithDriver[] = [
-	{
-		id: "claude",
-		driver: { detect: async () => true, getTargetDir: () => null },
-	},
-];
 
 type StandaloneDetected = Extract<
 	DetectedType,
@@ -39,71 +31,74 @@ beforeEach(() => {
 
 describe("toComputeInput", () => {
 	it("maps a plugin to a plugin ComputeInput", () => {
-		const input = toComputeInput(pluginDetected, "/src/unit", agents);
+		const input = toComputeInput(pluginDetected, "/src/unit");
 		expect(input).toEqual({
 			type: "plugin",
 			sourceDir: "/src/unit",
 			assetDirs: ["skills", "agents"],
-			agents,
 		});
 	});
 
 	it("maps a bare-skill to a bare-skill ComputeInput", () => {
-		const input = toComputeInput(bareDetected, "/src/unit", agents);
+		const input = toComputeInput(bareDetected, "/src/unit");
 		expect(input).toEqual({
 			type: "bare-skill",
 			sourceDir: "/src/unit",
-			agents,
+		});
+	});
+
+	it("carries the install name onto a bare-skill ComputeInput", () => {
+		const input = toComputeInput(bareDetected, "/src/unit", "my-skill");
+		expect(input).toEqual({
+			type: "bare-skill",
+			sourceDir: "/src/unit",
+			skillName: "my-skill",
 		});
 	});
 });
 
 describe("copyUnit", () => {
-	it("dispatches a plugin to copyPluginAssets and returns copiedFiles + assetCountsByAgent", async () => {
+	it("dispatches a plugin to copyPluginAssets and returns its copiedFiles + assetCounts", async () => {
 		mockCopyPluginAssets.mockResolvedValue({
 			copiedFiles: [".claude/skills/a/"],
-			assetCountsByAgent: { claude: { skills: 1 } },
+			assetCounts: { skills: 1 },
 		});
 
 		const result = await copyUnit(pluginDetected, {
 			sourceDir: "/src/unit",
-			agents,
 			projectDir: "/proj",
 		});
 
 		expect(mockCopyPluginAssets).toHaveBeenCalledWith({
 			sourceDir: "/src/unit",
 			assetDirs: ["skills", "agents"],
-			agents,
 			projectDir: "/proj",
 		});
 		expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		expect(result).toEqual({
 			copiedFiles: [".claude/skills/a/"],
-			assetCountsByAgent: { claude: { skills: 1 } },
+			assetCounts: { skills: 1 },
 		});
 	});
 
-	it("dispatches a bare-skill to copyBareSkill and returns copiedFiles with no assetCountsByAgent", async () => {
+	it("dispatches a bare-skill to copyBareSkill and counts it as one skill", async () => {
 		mockCopyBareSkill.mockResolvedValue({
 			copiedFiles: [".claude/skills/my-skill/"],
 		});
 
 		const result = await copyUnit(bareDetected, {
 			sourceDir: "/src/unit",
-			agents,
 			projectDir: "/proj",
 		});
 
 		expect(mockCopyBareSkill).toHaveBeenCalledWith({
 			sourceDir: "/src/unit",
 			projectDir: "/proj",
-			agents,
 		});
 		expect(mockCopyPluginAssets).not.toHaveBeenCalled();
 		expect(result).toEqual({
 			copiedFiles: [".claude/skills/my-skill/"],
-			assetCountsByAgent: undefined,
+			assetCounts: { skills: 1 },
 		});
 	});
 });

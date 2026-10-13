@@ -17,14 +17,14 @@ beforeEach(() => {
 });
 
 describe("previewAndConfirm", () => {
-	it("displays agntc.json and SKILL.md for skill type", async () => {
+	it("displays SKILL.md for skill type", async () => {
 		mockConfirm.mockResolvedValue(true);
 
 		await previewAndConfirm({ type: "skill" });
 
 		expect(mockNote).toHaveBeenCalledOnce();
 		const message = mockNote.mock.calls[0]![0]!;
-		expect(message).toBe("  agntc.json\n  SKILL.md");
+		expect(message).toBe("  SKILL.md");
 	});
 
 	it("preview message includes 'This will create:'", async () => {
@@ -69,7 +69,6 @@ describe("previewAndConfirm", () => {
 		const message = mockNote.mock.calls[0]![0]!;
 		expect(message).toBe(
 			[
-				"  agntc.json",
 				"  skills/",
 				"    my-skill/",
 				"      SKILL.md",
@@ -112,7 +111,7 @@ describe("previewAndConfirm", () => {
 		const message = mockNote.mock.calls[0]![0]!;
 		const lines = (message as string).split("\n");
 		expect(lines[0]).toBe("  my-plugin/");
-		expect(lines[1]).toBe("    agntc.json");
+		expect(lines[1]).toBe("    skills/");
 	});
 
 	it("preview shows correct 2-space indentation", async () => {
@@ -124,7 +123,6 @@ describe("previewAndConfirm", () => {
 		expect(message).toBe(
 			[
 				"  my-plugin/",
-				"    agntc.json",
 				"    skills/",
 				"      my-skill/",
 				"        SKILL.md",

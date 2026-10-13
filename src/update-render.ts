@@ -1,5 +1,4 @@
 import { repoFromKey } from "./source-parser.js";
-import { formatDroppedAgentsSuffix } from "./summary.js";
 import type { EntryGroup } from "./update-groups.js";
 import { formatVersionMove, isVersionTag } from "./version-resolve.js";
 
@@ -169,7 +168,7 @@ export function formatGroupHeader(input: {
 }
 
 /** The clack log level a member line renders at, chosen by outcome severity. */
-export type MemberLineLevel = "success" | "error" | "warn";
+export type MemberLineLevel = "success" | "error";
 
 /** A rendered member line: its clack log `level` and glyph-free `text`. */
 export interface MemberLine {
@@ -179,20 +178,17 @@ export interface MemberLine {
 
 /**
  * Every per-member outcome the streamed group block renders, discriminated on
- * `kind`. A `success` carries the effective `agents`, any `droppedAgents`, and —
- * only in the divergent-old case (task 2-2), where the header could not carry a
- * shared old — its own `move`. The three loud non-success variants carry their
- * already-assembled `message` / `recoveryHint` (built upstream by
- * {@link buildAbortMessage} / {@link buildCopySafetyMessage} / the copy-failed
- * recovery hint), so the wording lives at one source and merely rides the line
- * here. `no-agents` carries only its `name` — a skip with a fixed sentence.
+ * `kind`. A `success` carries — only in the divergent-old case (task 2-2), where
+ * the header could not carry a shared old — its own `move`. The three loud
+ * non-success variants carry their already-assembled `message` /
+ * `recoveryHint` (built upstream by {@link buildAbortMessage} /
+ * {@link buildCopySafetyMessage} / the copy-failed recovery hint), so the
+ * wording lives at one source and merely rides the line here.
  */
 export type MemberLineInput =
 	| {
 			kind: "success";
 			name: string;
-			agents: string[];
-			droppedAgents: string[];
 			move?: {
 				oldRef: string | null;
 				newRef: string | null;
@@ -202,40 +198,23 @@ export type MemberLineInput =
 	  }
 	| { kind: "copy-failed"; name: string; recoveryHint: string }
 	| { kind: "aborted"; name: string; message: string }
-	| { kind: "blocked"; name: string; message: string }
-	| { kind: "no-agents"; name: string };
+	| { kind: "blocked"; name: string; message: string };
 
 /**
  * Maps a member outcome to its exact streamed line and clack log level — the
- * glyph (✓/✗/⚠) is supplied by the level (`p.log.success/error/warn`), NOT
- * embedded in `text`, matching today's summary convention (update.ts:588-609).
- * Task 2-4 dispatches via `p.log[level](text)`.
+ * glyph (✓/✗) is supplied by the level (`p.log.success/error`), NOT embedded in
+ * `text`, matching today's summary convention. Task 2-4 dispatches via
+ * `p.log[level](text)`.
  *
- * A success renders `<name> → <agents>` (the `→` separator matching
- * {@link renderCollectionAddSummary}), with an optional trailing parenthetical
- * built from an ordered parts list: the {@link formatVersionMove} (divergent-old
- * case only) then the dropped-agents body ({@link formatDroppedAgentsSuffix}
- * `parenthetical` style — single source of the "support removed by plugin
- * author" phrasing), joined by `; ` inside one shared `(...)`. The loud
- * non-success variants ride their inline message; `no-agents` is a warn skip.
+ * A success renders the bare `<name>`, with the {@link formatVersionMove} as a
+ * trailing parenthetical in the divergent-old case only. The loud non-success
+ * variants ride their inline message.
  */
 export function formatMemberLine(input: MemberLineInput): MemberLine {
 	switch (input.kind) {
 		case "success": {
-			const parts: string[] = [];
-			if (input.move) {
-				parts.push(formatVersionMove(input.move));
-			}
-			if (input.droppedAgents.length > 0) {
-				parts.push(
-					formatDroppedAgentsSuffix(input.droppedAgents, "parenthetical"),
-				);
-			}
-			const suffix = parts.length > 0 ? `  (${parts.join("; ")})` : "";
-			return {
-				level: "success",
-				text: `${input.name} → ${input.agents.join(", ")}${suffix}`,
-			};
+			const suffix = input.move ? `  (${formatVersionMove(input.move)})` : "";
+			return { level: "success", text: `${input.name}${suffix}` };
 		}
 		case "copy-failed":
 			return {
@@ -248,10 +227,5 @@ export function formatMemberLine(input: MemberLineInput): MemberLine {
 		case "aborted":
 		case "blocked":
 			return { level: "error", text: `${input.name}: ${input.message}` };
-		case "no-agents":
-			return {
-				level: "warn",
-				text: `${input.name}: skipped — no longer supports installed agents`,
-			};
 	}
 }

@@ -111,21 +111,16 @@ describe("renderDetailView", () => {
 			expect(mockLog.info).toHaveBeenCalledWith("Installed: 2026-02-10");
 		});
 
-		it("displays agents with per-agent counts on one line", async () => {
+		it("names no agent anywhere in the detail view", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
-				makeInput({
-					entry: {
-						agents: ["claude", "codex"],
-						files: [".claude/skills/a/SKILL.md", ".agents/skills/b/SKILL.md"],
-					},
-				}),
+				makeInput({ entry: { files: [".claude/skills/a/SKILL.md"] } }),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
-				"Agents: claude (1 skill), codex (1 skill)",
-			);
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			expect(infoCalls.some((line) => line.startsWith("Agents:"))).toBe(false);
+			expect(infoCalls.some((line) => /claude/i.test(line))).toBe(false);
 		});
 
 		it("displays constraint line when entry has constraint", async () => {
@@ -150,7 +145,7 @@ describe("renderDetailView", () => {
 	});
 
 	describe("asset counts", () => {
-		it("displays per-agent asset counts for claude files", async () => {
+		it("displays asset counts on one line", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
@@ -161,25 +156,10 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude (2 skills)");
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
 		});
 
-		it("displays per-agent asset counts for codex files", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			await renderDetailView(
-				makeInput({
-					entry: {
-						agents: ["codex"],
-						files: [".agents/skills/a/SKILL.md"],
-					},
-				}),
-			);
-
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: codex (1 skill)");
-		});
-
-		it("displays mixed asset types for a single agent", async () => {
+		it("displays mixed asset types", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
@@ -194,35 +174,10 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
-				"Agents: claude (2 skills, 1 hook)",
-			);
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills, 1 hook");
 		});
 
-		it("displays both agent lines for multi-agent plugin", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			await renderDetailView(
-				makeInput({
-					entry: {
-						agents: ["claude", "codex"],
-						files: [
-							".claude/skills/a/SKILL.md",
-							".claude/skills/b/SKILL.md",
-							".claude/hooks/pre-commit.sh",
-							".agents/skills/c/SKILL.md",
-							".agents/skills/d/SKILL.md",
-						],
-					},
-				}),
-			);
-
-			expect(mockLog.info).toHaveBeenCalledWith(
-				"Agents: claude (2 skills, 1 hook), codex (2 skills)",
-			);
-		});
-
-		it("counts agent files within an agent group", async () => {
+		it("counts agent files", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
@@ -233,16 +188,16 @@ describe("renderDetailView", () => {
 				}),
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude (1 agent)");
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 agent");
 		});
 
-		it("lists an agent without counts when it has no files", async () => {
+		it("omits the assets line when the entry has no files", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(makeInput({ entry: { files: [] } }));
 
-			// No files → the agent is still listed, just without a count suffix.
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude");
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			expect(infoCalls.some((line) => line.startsWith("Assets:"))).toBe(false);
 		});
 	});
 

@@ -69,7 +69,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				},
 			};
@@ -103,21 +102,19 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude", "codex"],
-					files: [".claude/skills/go/", ".agents/skills/go/"],
+					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
-				removed: [".claude/skills/go/", ".agents/skills/go/"],
+				removed: [".claude/skills/go/"],
 				skipped: [],
 			});
 
@@ -125,11 +122,45 @@ describe("remove command", () => {
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
-				".agents/skills/go/",
 			]);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
 				"owner/repo/python": manifest["owner/repo/python"],
 			});
+		});
+	});
+
+	describe("legacy multi-agent entry", () => {
+		it("deletes every recorded file, whatever its root", async () => {
+			const legacyFiles = [
+				".claude/skills/go/",
+				".agents/skills/go/",
+				".cursor/skills/go/",
+			];
+			const manifest: Manifest = {
+				"owner/repo/go": {
+					ref: null,
+					commit: "def456",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: legacyFiles,
+					cloneUrl: null,
+				},
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockConfirm.mockResolvedValue(true);
+
+			await runRemove("owner/repo/go");
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				legacyFiles,
+			);
+			for (const file of legacyFiles) {
+				expect(mockLog.message).toHaveBeenCalledWith(`  ${file}`);
+			}
+			expect(mockOutro).toHaveBeenCalledWith(
+				expect.stringContaining("3 file(s)"),
+			);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
 		});
 	});
 
@@ -140,21 +171,18 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 				"other/plugin": {
 					ref: "v1.0",
 					commit: "xyz789",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/other/"],
 				},
 			};
@@ -185,14 +213,12 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/", ".claude/agents/python-agent.md"],
 				},
 			};
@@ -218,7 +244,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -241,7 +266,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				},
 			};
@@ -269,7 +293,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -290,7 +313,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			});
@@ -311,7 +333,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [
 						".claude/skills/planning/",
 						".claude/skills/review/",
@@ -347,7 +368,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				},
 			};
@@ -371,14 +391,12 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 				"other/plugin": {
 					ref: "v2.0",
 					commit: "def456",
 					installedAt: "2026-01-16T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/other/"],
 				},
 			};
@@ -404,21 +422,18 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 				"unrelated/plugin": {
 					ref: "v1.0",
 					commit: "xyz789",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/unrelated/"],
 				},
 			};
@@ -441,7 +456,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [
 						".claude/skills/planning/",
 						".claude/skills/review/",
@@ -471,7 +485,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -495,7 +508,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -557,14 +569,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: null,
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude", "codex"],
 						files: [".claude/skills/other/"],
 					},
 				};
@@ -586,7 +596,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				};
@@ -608,14 +617,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: null,
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/"],
 					},
 				};
@@ -643,7 +650,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				};
@@ -667,7 +673,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				});
@@ -689,7 +694,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				});
@@ -711,14 +715,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 					},
 					"other/plugin": {
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/"],
 					},
 				};
@@ -747,21 +749,18 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/"],
 					},
 					"keep/this": {
 						ref: null,
 						commit: "xyz789",
 						installedAt: "2026-01-17T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/keep/"],
 					},
 				};
@@ -789,7 +788,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				};
@@ -811,7 +809,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [
 							".claude/skills/planning/",
 							".claude/skills/review/",
@@ -846,14 +843,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/", ".claude/agents/agent.md"],
 					},
 				};
@@ -877,7 +872,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [
 						".claude/skills/planning/",
 						".claude/skills/review/",
@@ -916,7 +910,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -946,14 +939,12 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 			};
@@ -978,7 +969,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};

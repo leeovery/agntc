@@ -2,9 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import * as p from "@clack/prompts";
-import { identifyFileOwnership } from "./drivers/identify.js";
-import { getDriver } from "./drivers/registry.js";
-import type { AgentId } from "./drivers/types.js";
+import { identifyAssetType, targetDir } from "./asset-targets.js";
 import { errorMessage, isNodeError } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
 import type { DetectedType } from "./type-detection.js";
@@ -13,7 +11,6 @@ export interface ManifestEntry {
 	ref: string | null;
 	commit: string | null;
 	installedAt: string;
-	agents: AgentId[];
 	files: string[];
 	type?: "skill" | "plugin";
 	cloneUrl: string | null;
@@ -100,23 +97,27 @@ export async function readManifest(projectDir: string): Promise<Manifest> {
 
 	const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
 
-	// Backfill cloneUrl for manifests written before this field existed.
 	for (const entry of Object.values(parsed)) {
-		if (!("cloneUrl" in entry)) {
-			entry.cloneUrl = null;
-		}
-	}
-
-	// Backfill type for manifests written before this field existed. Derived
-	// solely from local files (anti-drift: never re-clone/re-detect/read config).
-	// Mutated in-memory only; persisted on the next writeManifest.
-	for (const entry of Object.values(parsed)) {
-		if (!("type" in entry)) {
-			entry.type = deriveTypeFromFiles((entry.files as string[]) ?? []);
-		}
+		normalizeLegacyEntry(entry);
 	}
 
 	return parsed as unknown as Manifest;
+}
+
+/**
+ * Brings an entry written by an older agntc up to the current shape, in memory
+ * only; the next writeManifest persists it. Backfills `cloneUrl` and `type`
+ * (derived solely from local files — anti-drift: never re-clone/re-detect/read
+ * config) and drops the per-agent `agents` list.
+ */
+function normalizeLegacyEntry(entry: Record<string, unknown>): void {
+	if (!("cloneUrl" in entry)) {
+		entry.cloneUrl = null;
+	}
+	if (!("type" in entry)) {
+		entry.type = deriveTypeFromFiles((entry.files as string[]) ?? []);
+	}
+	delete entry.agents;
 }
 
 /**
@@ -132,14 +133,11 @@ export function deriveTypeFromFiles(files: string[]): "skill" | "plugin" {
 	const skillDirs = new Set<string>();
 
 	for (const file of files) {
-		const ownership = identifyFileOwnership(file);
-		if (ownership === null) {
-			continue;
-		}
-		if (ownership.assetType === "agents" || ownership.assetType === "hooks") {
+		const assetType = identifyAssetType(file);
+		if (assetType === "agents" || assetType === "hooks") {
 			return "plugin";
 		}
-		const skillDir = skillDirName(file, ownership.agentId);
+		const skillDir = skillDirName(file);
 		if (skillDir !== null) {
 			skillDirs.add(skillDir);
 		}
@@ -149,15 +147,24 @@ export function deriveTypeFromFiles(files: string[]): "skill" | "plugin" {
 }
 
 /**
- * Extracts the `<name>` segment from a skills-owned path of the form
- * `<skills-target>/<name>/...`. Returns null when no segment follows the target.
+ * Skill roots that older, multi-agent manifests may record files under. Read
+ * only by the type backfill; nothing installs there.
  */
-function skillDirName(filePath: string, agentId: AgentId): string | null {
-	const targetDir = getDriver(agentId).getTargetDir("skills");
-	if (targetDir === null) {
+const LEGACY_SKILL_ROOTS = [".agents/skills", ".cursor/skills"];
+
+const SKILL_ROOTS = [targetDir("skills"), ...LEGACY_SKILL_ROOTS];
+
+/**
+ * Extracts the `<name>` segment from a skills-owned path of the form
+ * `<skills-root>/<name>/...`. Returns null when the path is under no skills
+ * root or no segment follows it.
+ */
+function skillDirName(filePath: string): string | null {
+	const root = SKILL_ROOTS.find((r) => filePath.startsWith(r));
+	if (root === undefined) {
 		return null;
 	}
-	const remainder = filePath.slice(targetDir.length).replace(/^\/+/, "");
+	const remainder = filePath.slice(root.length).replace(/^\/+/, "");
 	const [name] = remainder.split("/");
 	return name === undefined || name === "" ? null : name;
 }

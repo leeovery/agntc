@@ -7,7 +7,6 @@ import {
 	mapCloneFailure,
 	runPipeline,
 } from "./clone-reinstall.js";
-import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
@@ -87,13 +86,9 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
  * local path (`processLocalUpdate`) and the grouped orchestrator
  * ({@link processGroupUpdate}) so both emit the identical shape.
  *
- * The two success variants (`updated`/`refreshed`) carry the STRUCTURED fields
- * the multi-member streamed renderer composes from — `newEntry` (effective
- * agents + persistence) and `droppedAgents` (the pipeline's own dropped set, in
- * source order) — alongside the pre-rendered `summary` the collapsed
- * group-of-one / local display path consumes verbatim. The renderer reads the
- * structured `droppedAgents` directly rather than recomputing an
- * `oldEntry`-vs-`newEntry` set-difference that had to be provably equal to this.
+ * The two success variants (`updated`/`refreshed`) carry the reinstalled
+ * `newEntry` (persisted per unit) alongside the pre-rendered `summary` the
+ * collapsed group-of-one / local display path consumes verbatim.
  */
 export type PluginOutcome =
 	| {
@@ -101,14 +96,12 @@ export type PluginOutcome =
 			key: string;
 			summary: string;
 			newEntry: ManifestEntry;
-			droppedAgents: AgentId[];
 	  }
 	| {
 			status: "refreshed";
 			key: string;
 			summary: string;
 			newEntry: ManifestEntry;
-			droppedAgents: AgentId[];
 	  }
 	| { status: "up-to-date"; key: string }
 	| { status: "newer-tags"; key: string }
@@ -117,7 +110,6 @@ export type PluginOutcome =
 	| { status: "copy-failed"; key: string; summary: string }
 	| { status: "aborted"; key: string; summary: string }
 	| { status: "blocked"; key: string; summary: string }
-	| { status: "skipped-no-agents"; key: string; summary: string }
 	| { status: "constrained-no-match"; key: string };
 
 /**
@@ -152,8 +144,8 @@ export function isSuccessOutcome(
  * member's key/entry to a {@link PluginOutcome}, using `status` as the single
  * cross-boundary discriminator. Factored out of `processLocalUpdate` so the
  * grouped orchestrator and the local path emit byte-identical
- * outcomes — the failure arms (skipped-no-agents / copy-failed / aborted /
- * blocked / clone-failed→failed / unknown→failed) and the success split
+ * outcomes — the failure arms (copy-failed / aborted / blocked /
+ * clone-failed→failed / unknown→failed) and the success split
  * (local `refreshed` vs git `updated`) live in exactly one place.
  *
  * `newRef` is the group's resolved target ref threaded through for the git-update
@@ -170,11 +162,6 @@ export function mapReinstallResultToOutcome(
 ): PluginOutcome {
 	if (isCloneReinstallFailure(result)) {
 		return mapCloneFailure<PluginOutcome>(result, {
-			onNoAgents: () => ({
-				status: "skipped-no-agents",
-				key,
-				summary: `${key}: Skipped — no longer supports installed agents`,
-			}),
 			onCopyFailed: (msg) => ({ status: "copy-failed", key, summary: msg }),
 			onAborted: (recordedType, reason) => ({
 				status: "aborted",
@@ -195,13 +182,8 @@ export function mapReinstallResultToOutcome(
 		return {
 			status: "refreshed",
 			key,
-			summary: renderUpdateOutcomeSummary({
-				type: "local-update",
-				key,
-				droppedAgents: result.droppedAgents,
-			}),
+			summary: renderUpdateOutcomeSummary({ type: "local-update", key }),
 			newEntry: result.manifestEntry,
-			droppedAgents: result.droppedAgents,
 		};
 	}
 
@@ -215,10 +197,8 @@ export function mapReinstallResultToOutcome(
 			newRef,
 			oldCommit: entry.commit,
 			newCommit: result.manifestEntry.commit!,
-			droppedAgents: result.droppedAgents,
 		}),
 		newEntry: result.manifestEntry,
-		droppedAgents: result.droppedAgents,
 	};
 }
 

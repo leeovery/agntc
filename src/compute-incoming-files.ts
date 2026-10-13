@@ -1,11 +1,10 @@
 import { basename, join } from "node:path";
-import type { AgentWithDriver, AssetType } from "./drivers/types.js";
-import { type DirEntry, readDirEntries } from "./fs-utils.js";
+import { type AssetType, targetDir } from "./asset-targets.js";
+import { readDirEntries } from "./fs-utils.js";
 
 interface BareSkillInput {
 	type: "bare-skill";
 	sourceDir: string;
-	agents: AgentWithDriver[];
 	/**
 	 * Installed skill dir name (identity = repo/unit basename). Must match the
 	 * name {@link copyBareSkill} writes to, or collision/unmanaged checks compute
@@ -18,7 +17,6 @@ interface PluginInput {
 	type: "plugin";
 	sourceDir: string;
 	assetDirs: AssetType[];
-	agents: AgentWithDriver[];
 }
 
 export type ComputeInput = BareSkillInput | PluginInput;
@@ -32,56 +30,23 @@ export async function computeIncomingFiles(
 	input: ComputeInput,
 ): Promise<string[]> {
 	if (input.type === "bare-skill") {
-		return computeBareSkillFiles(input);
+		const skillName = input.skillName ?? basename(input.sourceDir);
+		return [`${targetDir("skills")}/${skillName}/`];
 	}
 	return computePluginFiles(input);
 }
 
-function computeBareSkillFiles(input: BareSkillInput): string[] {
-	const skillName = input.skillName ?? basename(input.sourceDir);
-	const files: string[] = [];
-
-	for (const agent of input.agents) {
-		const targetDir = agent.driver.getTargetDir("skills");
-		if (targetDir === null) {
-			continue;
-		}
-		files.push(`${targetDir}/${skillName}/`);
-	}
-
-	return files;
-}
-
 async function computePluginFiles(input: PluginInput): Promise<string[]> {
-	const { sourceDir, assetDirs, agents } = input;
-	const seen = new Set<string>();
 	const files: string[] = [];
 
-	// Scan source asset directories to enumerate individual assets
-	const assetEntries = new Map<AssetType, DirEntry[]>();
-	for (const assetDir of assetDirs) {
-		assetEntries.set(assetDir, await readDirEntries(join(sourceDir, assetDir)));
-	}
-
-	for (const agent of agents) {
-		for (const assetDir of assetDirs) {
-			const targetDir = agent.driver.getTargetDir(assetDir);
-			if (targetDir === null) {
-				continue;
-			}
-
-			const entries = assetEntries.get(assetDir) ?? [];
-			for (const entry of entries) {
-				// Skills are directories, agents/hooks are files
-				const path = entry.isDirectory
-					? `${targetDir}/${entry.name}/`
-					: `${targetDir}/${entry.name}`;
-
-				if (!seen.has(path)) {
-					seen.add(path);
-					files.push(path);
-				}
-			}
+	for (const assetDir of input.assetDirs) {
+		const dir = targetDir(assetDir);
+		const entries = await readDirEntries(join(input.sourceDir, assetDir));
+		for (const entry of entries) {
+			// Skills are directories, agents/hooks are files
+			files.push(
+				entry.isDirectory ? `${dir}/${entry.name}/` : `${dir}/${entry.name}`,
+			);
 		}
 	}
 

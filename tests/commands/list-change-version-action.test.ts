@@ -28,13 +28,6 @@ vi.mock("../../src/git-clone.js", async () => {
 	return mockGitCloneModule();
 });
 
-vi.mock("../../src/config.js", async () => {
-	const { mockConfigModule } = await import(
-		"../helpers/list-action-mock-factories.js"
-	);
-	return mockConfigModule();
-});
-
 vi.mock("../../src/type-detection.js", async (importOriginal) => {
 	const { mockTypeDetectionModule } = await import(
 		"../helpers/list-action-mock-factories.js"
@@ -80,13 +73,6 @@ vi.mock("../../src/copy-bare-skill.js", async () => {
 	return mockCopyBareSkillModule();
 });
 
-vi.mock("../../src/drivers/registry.js", async () => {
-	const { mockDriversRegistryModule } = await import(
-		"../helpers/list-action-mock-factories.js"
-	);
-	return mockDriversRegistryModule();
-});
-
 // File-specific: change-version always fetches the full remote tag list.
 vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
@@ -107,13 +93,11 @@ const mockWriteManifest = mocks.writeManifest;
 const mockAddEntry = mocks.addEntry;
 const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
-const mockReadConfig = mocks.readConfig;
 const mockDetectType = mocks.detectType;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
-const mockLog = vi.mocked(p.log);
 // File-specific handles for the change-version flow.
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockSelect = vi.mocked(p.select);
@@ -127,7 +111,6 @@ function primeSuccessfulReinstall(): void {
 		tempDir: "/tmp/agntc-clone",
 		commit: REMOTE_SHA,
 	});
-	mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 	mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 	mockCopyBareSkill.mockResolvedValue({
 		copiedFiles: [".claude/skills/my-skill/"],
@@ -307,7 +290,6 @@ describe("executeChangeVersionAction", () => {
 			expect(result.newEntry).toBeDefined();
 			expect(result.newEntry!.commit).toBe(REMOTE_SHA);
 			expect(result.newEntry!.ref).toBe("v2.0.0");
-			expect(result.newEntry!.agents).toEqual(["claude"]);
 			expect(result.newEntry!.files).toEqual([".claude/skills/my-skill/"]);
 			expect(result.message).toBe("Changed owner/repo to v2.0.0");
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -360,60 +342,6 @@ describe("executeChangeVersionAction", () => {
 		});
 	});
 
-	describe("all agents dropped", () => {
-		it("returns changed: false, does not nuke", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ ref: "v1.0.0", agents: ["codex"] });
-			const manifest: Manifest = { [key]: entry };
-
-			mockSelect.mockResolvedValue("v1.1.0");
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// New version only supports claude, entry has codex
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			const result = await executeChangeVersionAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.changed).toBe(false);
-			expect(result.message).toContain(
-				"no longer supports any of your installed agents",
-			);
-			expect(result.newEntry).toBeUndefined();
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("agent drop warning", () => {
-		it("emits warning for partial drop", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ ref: "v1.0.0", agents: ["claude", "codex"] });
-			const manifest: Manifest = { [key]: entry };
-
-			mockSelect.mockResolvedValue("v1.1.0");
-			primeSuccessfulReinstall();
-
-			const result = await executeChangeVersionAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.changed).toBe(true);
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
-		});
-	});
-
 	describe("temp dir cleanup", () => {
 		it("cleans up on success", async () => {
 			const key = "owner/repo";
@@ -438,7 +366,6 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
@@ -487,7 +414,6 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
@@ -522,7 +448,6 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			// Recorded skill's SKILL.md is gone in the re-clone → abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 
@@ -560,7 +485,6 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockScanForEscapingSymlinks.mockRejectedValue(
 				new SymlinkEscapeError("evil-link", "/etc/passwd"),
 			);

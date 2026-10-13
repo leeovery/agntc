@@ -29,13 +29,6 @@ vi.mock("../../src/git-clone.js", async () => {
 	return mockGitCloneModule();
 });
 
-vi.mock("../../src/config.js", async () => {
-	const { mockConfigModule } = await import(
-		"../helpers/list-action-mock-factories.js"
-	);
-	return mockConfigModule();
-});
-
 vi.mock("../../src/type-detection.js", async (importOriginal) => {
 	const { mockTypeDetectionModule } = await import(
 		"../helpers/list-action-mock-factories.js"
@@ -66,13 +59,6 @@ vi.mock("../../src/copy-bare-skill.js", async () => {
 	return mockCopyBareSkillModule();
 });
 
-vi.mock("../../src/drivers/registry.js", async () => {
-	const { mockDriversRegistryModule } = await import(
-		"../helpers/list-action-mock-factories.js"
-	);
-	return mockDriversRegistryModule();
-});
-
 // File-specific: this file also needs `stat` (local-path validation).
 vi.mock("node:fs/promises", () => ({
 	stat: vi.fn(),
@@ -90,7 +76,6 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 });
 
 import { stat } from "node:fs/promises";
-import * as p from "@clack/prompts";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { makeEntry } from "../helpers/factories.js";
@@ -104,19 +89,17 @@ const mockWriteManifest = mocks.writeManifest;
 const mockAddEntry = mocks.addEntry;
 const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
-const mockReadConfig = mocks.readConfig;
 const mockDetectType = mocks.detectType;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
-const mockLog = vi.mocked(p.log);
 // File-specific handle: local-path validation via fs.stat.
 const mockStat = vi.mocked(stat);
 
 describe("executeUpdateAction", () => {
 	describe("remote update (commit is not null)", () => {
-		it("clones, reads config, nukes, copies, writes manifest, returns success with newEntry", async () => {
+		it("clones, nukes, copies, writes manifest, returns success with newEntry", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
 			const manifest: Manifest = { [key]: entry };
@@ -125,7 +108,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -143,7 +125,6 @@ describe("executeUpdateAction", () => {
 			expect(result.success).toBe(true);
 			expect(result.newEntry).toBeDefined();
 			expect(result.newEntry!.commit).toBe(REMOTE_SHA);
-			expect(result.newEntry!.agents).toEqual(["claude"]);
 			expect(result.newEntry!.files).toEqual([".claude/skills/my-skill/"]);
 			expect(mockCloneSource).toHaveBeenCalled();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -160,13 +141,12 @@ describe("executeUpdateAction", () => {
 	});
 
 	describe("local update (commit is null)", () => {
-		it("validates path, reads config, nukes, copies, writes manifest, returns success", async () => {
+		it("validates path, nukes, copies, writes manifest, returns success", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null });
 			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -185,7 +165,6 @@ describe("executeUpdateAction", () => {
 			expect(result.newEntry).toBeDefined();
 			expect(result.newEntry!.commit).toBeNull();
 			expect(result.newEntry!.ref).toBeNull();
-			expect(result.newEntry!.agents).toEqual(["claude"]);
 			expect(result.newEntry!.files).toEqual([".claude/skills/my-plugin/"]);
 			expect(mockStat).toHaveBeenCalledWith(key);
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -219,126 +198,6 @@ describe("executeUpdateAction", () => {
 		});
 	});
 
-	describe("all agents dropped (remote)", () => {
-		it("returns failure, does not nuke, does not write manifest", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ agents: ["codex"] });
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// New version only supports claude, entry has codex
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.success).toBe(false);
-			expect(result.message).toContain(
-				"no longer supports any of your installed agents",
-			);
-			expect(result.newEntry).toBeUndefined();
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("all agents dropped (local)", () => {
-		it("returns failure, does not nuke", async () => {
-			const key = "/Users/lee/Code/my-plugin";
-			const entry = makeEntry({ commit: null, ref: null, agents: ["codex"] });
-			const manifest: Manifest = { [key]: entry };
-
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.success).toBe(false);
-			expect(result.message).toContain(
-				"no longer supports any of your installed agents",
-			);
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("agent drop warning (remote)", () => {
-		it("emits warning for partial drop", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ agents: ["claude", "codex"] });
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.success).toBe(true);
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
-		});
-	});
-
-	describe("agent drop warning (local)", () => {
-		it("emits warning for partial drop", async () => {
-			const key = "/Users/lee/Code/my-plugin";
-			const entry = makeEntry({
-				commit: null,
-				ref: null,
-				agents: ["claude", "codex"],
-			});
-			const manifest: Manifest = { [key]: entry };
-
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.success).toBe(true);
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
-		});
-	});
-
 	describe("temp dir cleanup", () => {
 		it("cleans up on success", async () => {
 			const key = "owner/repo";
@@ -349,7 +208,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -371,7 +229,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -389,63 +246,11 @@ describe("executeUpdateAction", () => {
 		});
 	});
 
-	describe("config null (no agntc.json = no agent restriction)", () => {
-		it("proceeds for a remote recorded skill whose SKILL.md is still present", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ type: "skill" });
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue(null);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.success).toBe(true);
-			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-			expect(mockNukeManifestFiles).toHaveBeenCalled();
-		});
-
-		it("proceeds for a local recorded skill whose SKILL.md is still present", async () => {
-			const key = "/Users/lee/Code/my-plugin";
-			const entry = makeEntry({ type: "skill", commit: null, ref: null });
-			const manifest: Manifest = { [key]: entry };
-
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue(null);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.success).toBe(true);
-			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-			expect(mockNukeManifestFiles).toHaveBeenCalled();
-		});
-	});
-
 	describe("collection key (3+ parts)", () => {
 		it("resolves sourceDir correctly for collection plugin", async () => {
 			const key = "owner/repo/go";
 			const entry = makeEntry({
 				type: "skill",
-				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
 			const manifest: Manifest = { [key]: entry };
@@ -454,7 +259,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
@@ -474,11 +278,7 @@ describe("executeUpdateAction", () => {
 					repo: "repo",
 				}),
 			);
-			// readConfig and the recorded-skill validation gate use the subdir
-			expect(mockReadConfig).toHaveBeenCalledWith(
-				"/tmp/agntc-clone/go",
-				expect.anything(),
-			);
+			// The recorded-skill validation gate uses the subdir
 			expect(mockAccess).toHaveBeenCalledWith("/tmp/agntc-clone/go/SKILL.md");
 		});
 	});
@@ -493,7 +293,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -522,7 +321,6 @@ describe("executeUpdateAction", () => {
 			const manifest: Manifest = { [key]: entry };
 
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -557,7 +355,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			// Recorded skill's SKILL.md is gone in the re-clone → abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 
@@ -593,7 +390,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockScanForEscapingSymlinks.mockRejectedValue(
 				new SymlinkEscapeError("evil-link", "/etc/passwd"),
 			);
@@ -629,7 +425,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: overrideCommit,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);
@@ -663,7 +458,6 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockDetectType.mockResolvedValue({
 				type: "bare-skill",
 			} as DetectedType);

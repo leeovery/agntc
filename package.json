@@ -7,9 +7,7 @@
 		"skills",
 		"cli",
 		"ai",
-		"claude",
-		"codex",
-		"cursor"
+		"claude"
 	],
 	"homepage": "https://github.com/leeovery/agntc#readme",
 	"bugs": {

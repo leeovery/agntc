@@ -122,7 +122,7 @@ describe("nukeManifestFiles", () => {
 	it("handles mix of existing and missing entries", async () => {
 		const existingDir = ".claude/skills/skill-a/";
 		const existingFile = ".claude/agents/reviewer/agent.md";
-		const missingDir = ".codex/skills/skill-b/";
+		const missingDir = ".claude/skills/skill-b/";
 		const missingFile = ".claude/skills/gone.md";
 
 		await mkdir(join(projectDir, ".claude/skills/skill-a"), {

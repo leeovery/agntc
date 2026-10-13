@@ -37,7 +37,6 @@ describe("checkUnmanagedConflicts", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			},
 		};
@@ -152,7 +151,6 @@ describe("checkUnmanagedConflicts", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -178,14 +176,12 @@ describe("checkUnmanagedConflicts", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/executor.md"],
 			},
 		};
@@ -220,7 +216,6 @@ describe("checkUnmanagedConflicts", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/executor.md"],
 			},
 		};

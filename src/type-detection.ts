@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { AssetType } from "./drivers/types.js";
+import type { AssetType } from "./asset-targets.js";
 import { pathExists } from "./fs-utils.js";
 
 export const ASSET_DIRS = [

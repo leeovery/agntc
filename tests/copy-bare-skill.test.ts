@@ -10,18 +10,10 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
-import type { AgentDriver } from "../src/drivers/types.js";
 
 let testDir: string;
 let sourceDir: string;
 let projectDir: string;
-
-function makeDriver(targetDir: string | null): AgentDriver {
-	return {
-		detect: async () => true,
-		getTargetDir: () => targetDir,
-	};
-}
 
 async function createSourceFile(...segments: string[]): Promise<void> {
 	const filePath = join(sourceDir, ...segments);
@@ -59,7 +51,6 @@ describe("copyBareSkill", () => {
 		const result = await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -80,7 +71,6 @@ describe("copyBareSkill", () => {
 		const result = await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -96,7 +86,6 @@ describe("copyBareSkill", () => {
 		await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -106,19 +95,6 @@ describe("copyBareSkill", () => {
 		);
 	});
 
-	it("creates destination dir when missing", async () => {
-		await createSourceFile("SKILL.md");
-
-		await copyBareSkill({
-			sourceDir,
-			projectDir,
-			agents: [{ id: "claude", driver: makeDriver("deep/nested/skills") }],
-		});
-
-		const destDir = join(projectDir, "deep/nested/skills/source-skill");
-		expect(await fileExists(join(destDir, "SKILL.md"))).toBe(true);
-	});
-
 	it("returns correct relative paths with trailing slash", async () => {
 		await createSourceFile("SKILL.md");
 		await createSourceFile("references", "guide.md");
@@ -126,7 +102,6 @@ describe("copyBareSkill", () => {
 		const result = await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const skillName = basename(sourceDir);
@@ -134,37 +109,13 @@ describe("copyBareSkill", () => {
 		expect(result.copiedFiles).toContain(expectedDir);
 	});
 
-	it("skips agent when getTargetDir null", async () => {
+	it("creates the .claude/skills destination when missing", async () => {
 		await createSourceFile("SKILL.md");
 
-		const result = await copyBareSkill({
-			sourceDir,
-			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(null) }],
-		});
+		await copyBareSkill({ sourceDir, projectDir });
 
-		expect(result.copiedFiles).toEqual([]);
-	});
-
-	it("copies to multiple agents independently", async () => {
-		await createSourceFile("SKILL.md");
-
-		const result = await copyBareSkill({
-			sourceDir,
-			projectDir,
-			agents: [
-				{ id: "claude", driver: makeDriver(".claude/skills") },
-				{ id: "codex", driver: makeDriver(".codex/skills") },
-			],
-		});
-
-		const skillName = basename(sourceDir);
-		const claudeDest = join(projectDir, ".claude/skills", skillName);
-		const codexDest = join(projectDir, ".codex/skills", skillName);
-		expect(await fileExists(join(claudeDest, "SKILL.md"))).toBe(true);
-		expect(await fileExists(join(codexDest, "SKILL.md"))).toBe(true);
-		expect(result.copiedFiles).toContain(`.claude/skills/${skillName}/`);
-		expect(result.copiedFiles).toContain(`.codex/skills/${skillName}/`);
+		const destDir = join(projectDir, ".claude/skills/source-skill");
+		expect(await fileExists(join(destDir, "SKILL.md"))).toBe(true);
 	});
 
 	it("handles empty skill dir (only agntc.json)", async () => {
@@ -173,7 +124,6 @@ describe("copyBareSkill", () => {
 		const result = await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const skillName = basename(sourceDir);
@@ -190,7 +140,6 @@ describe("copyBareSkill", () => {
 		const result = await copyBareSkill({
 			sourceDir: customSourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/my-awesome-skill");
@@ -210,7 +159,6 @@ describe("copyBareSkill", () => {
 		await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -230,12 +178,13 @@ describe("copyBareSkill", () => {
 		const result = await copyBareSkill({
 			sourceDir: cloneDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 			skillName: "refero-design",
 		});
 
 		expect(
-			await fileExists(join(projectDir, ".claude/skills/refero-design/SKILL.md")),
+			await fileExists(
+				join(projectDir, ".claude/skills/refero-design/SKILL.md"),
+			),
 		).toBe(true);
 		expect(
 			await fileExists(join(projectDir, ".claude/skills/refero-design/.git")),
@@ -253,7 +202,6 @@ describe("copyBareSkill", () => {
 		await copyBareSkill({
 			sourceDir,
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");

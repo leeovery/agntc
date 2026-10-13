@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeEntry, makeFakeDriver } from "./helpers/factories.js";
-
-vi.mock("../src/config.js", () => ({
-	readConfig: vi.fn(),
-}));
+import { makeEntry } from "./helpers/factories.js";
 
 vi.mock("../src/fs-utils.js", () => ({
 	pathExists: vi.fn(),
@@ -21,10 +17,6 @@ vi.mock("../src/copy-bare-skill.js", () => ({
 	copyBareSkill: vi.fn(),
 }));
 
-vi.mock("../src/drivers/registry.js", () => ({
-	getDriver: vi.fn(),
-}));
-
 vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
 	const { mockCopySafety } = await import("./helpers/copy-safety-mock.js");
@@ -35,7 +27,6 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	};
 });
 
-import { readConfig } from "../src/config.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPluginAssets } from "../src/copy-plugin-assets.js";
 import {
@@ -43,25 +34,19 @@ import {
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
-import { getDriver } from "../src/drivers/registry.js";
 import { pathExists } from "../src/fs-utils.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
-	resolveAgents,
 } from "../src/nuke-reinstall-pipeline.js";
 
-const mockReadConfig = vi.mocked(readConfig);
 const mockPathExists = vi.mocked(pathExists);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
-const mockGetDriver = vi.mocked(getDriver);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
-
-const fakeDriver = makeFakeDriver();
 
 function makeOptions(
 	overrides: Partial<NukeReinstallOptions> = {},
@@ -79,7 +64,6 @@ function makeOptions(
 beforeEach(() => {
 	vi.clearAllMocks();
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-	mockGetDriver.mockReturnValue(fakeDriver);
 	mockPathExists.mockResolvedValue(true);
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 });
@@ -87,7 +71,6 @@ beforeEach(() => {
 describe("executeNukeAndReinstall", () => {
 	describe("recorded-skill replay", () => {
 		it("replays recorded skill: checks SKILL.md, nukes, copies via copyBareSkill, returns entry", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -109,7 +92,6 @@ describe("executeNukeAndReinstall", () => {
 				}),
 			);
 			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
-			expect(result.entry.agents).toEqual(["claude"]);
 			expect(result.entry.files).toEqual([".claude/skills/my-skill/"]);
 			expect(result.copiedFiles).toEqual([".claude/skills/my-skill/"]);
 		});
@@ -119,7 +101,6 @@ describe("executeNukeAndReinstall", () => {
 			// clone dir, so the re-copy must take its name from the manifest KEY
 			// (owner/repo → "repo"), not basename(tempDir) — otherwise the skill (and
 			// the recorded files) land under a garbage temp-dir name.
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/repo/"],
@@ -138,7 +119,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("uses the member basename as the skill name for a keyed member", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/alpha/"],
@@ -157,7 +137,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("ignores benign added asset dir: replays as skill via copyBareSkill not copyPluginAssets", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -171,7 +150,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("preserves recorded type on the rewritten entry", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -187,7 +165,6 @@ describe("executeNukeAndReinstall", () => {
 
 	describe("recorded-plugin replay", () => {
 		it("replays recorded plugin: scans present asset dirs, nukes, copies via copyPluginAssets", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			// SKILL.md absent; skills/ present, agents/ absent, hooks/ absent.
 			mockPathExists.mockImplementation(async (p: string) => {
 				if (p === "/tmp/source/skills") return true;
@@ -195,7 +172,7 @@ describe("executeNukeAndReinstall", () => {
 			});
 			mockCopyPluginAssets.mockResolvedValue({
 				copiedFiles: [".claude/skills/foo/"],
-				assetCountsByAgent: {},
+				assetCounts: {},
 			});
 
 			const result = await executeNukeAndReinstall(
@@ -224,7 +201,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("picks up benign added asset dir: assetDirs includes newly-present agents/", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockImplementation(async (p: string) => {
 				if (p === "/tmp/source/skills") return true;
 				if (p === "/tmp/source/agents") return true;
@@ -232,7 +208,7 @@ describe("executeNukeAndReinstall", () => {
 			});
 			mockCopyPluginAssets.mockResolvedValue({
 				copiedFiles: [".claude/skills/foo/"],
-				assetCountsByAgent: {},
+				assetCounts: {},
 			});
 
 			const result = await executeNukeAndReinstall(
@@ -246,7 +222,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("ignores added root SKILL.md while >=1 asset dir present: still plugin", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockImplementation(async (p: string) => {
 				if (p === "/tmp/source/skills") return true;
 				if (p === "/tmp/source/SKILL.md") return true;
@@ -254,7 +229,7 @@ describe("executeNukeAndReinstall", () => {
 			});
 			mockCopyPluginAssets.mockResolvedValue({
 				copiedFiles: [".claude/skills/foo/"],
-				assetCountsByAgent: {},
+				assetCounts: {},
 			});
 
 			const result = await executeNukeAndReinstall(
@@ -267,8 +242,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("scans asset dirs BEFORE nukeManifestFiles (success ordering)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
 			const callOrder: string[] = [];
 			mockPathExists.mockImplementation(async (p: string) => {
 				callOrder.push(`scan:${p}`);
@@ -280,7 +253,7 @@ describe("executeNukeAndReinstall", () => {
 			});
 			mockCopyPluginAssets.mockImplementation(async () => {
 				callOrder.push("copy");
-				return { copiedFiles: [], assetCountsByAgent: {} };
+				return { copiedFiles: [], assetCounts: {} };
 			});
 
 			await executeNukeAndReinstall(
@@ -294,33 +267,10 @@ describe("executeNukeAndReinstall", () => {
 			expect(nukeIdx).toBeGreaterThan(lastScanIdx);
 			expect(callOrder.indexOf("copy")).toBeGreaterThan(nukeIdx);
 		});
-
-		it("configless recorded-plugin update proceeds (null config, no abort)", async () => {
-			mockReadConfig.mockResolvedValue(null);
-			mockPathExists.mockImplementation(async (p: string) => {
-				return p === "/tmp/source/skills";
-			});
-			mockCopyPluginAssets.mockResolvedValue({
-				copiedFiles: [".claude/skills/foo/"],
-				assetCountsByAgent: {},
-			});
-
-			const result = await executeNukeAndReinstall(
-				makeOptions({
-					existingEntry: makeEntry({ type: "plugin", agents: ["claude"] }),
-				}),
-			);
-
-			expect(result.status).toBe("success");
-			if (result.status !== "success") return;
-			expect(mockCopyPluginAssets).toHaveBeenCalledOnce();
-			expect(result.entry.agents).toEqual(["claude"]);
-		});
 	});
 
 	describe("recorded-plugin abort (no asset dir remains)", () => {
 		it("aborts when zero asset dirs present: no nuke, no copy", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await executeNukeAndReinstall(
@@ -337,7 +287,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("aborts when source became a bare skill (SKILL.md only, no asset dir)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockImplementation(async (p: string) => {
 				return p === "/tmp/source/SKILL.md";
 			});
@@ -354,7 +303,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("asset-dir scan runs BEFORE nukeManifestFiles on abort (nuke count 0)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			const callOrder: string[] = [];
 			mockPathExists.mockImplementation(async () => {
 				callOrder.push("scan");
@@ -374,7 +322,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("member plugin whose subdir vanished aborts (zero asset dirs in its sourceDir)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await executeNukeAndReinstall(
@@ -398,7 +345,6 @@ describe("executeNukeAndReinstall", () => {
 
 	describe("derive-before-delete abort (recorded skill, SKILL.md gone)", () => {
 		it("returns aborted and does NOT nuke or copy when SKILL.md is absent", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await executeNukeAndReinstall(makeOptions());
@@ -412,8 +358,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("validation runs BEFORE nukeManifestFiles (abort -> nuke count 0)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
 			const callOrder: string[] = [];
 			mockPathExists.mockImplementation(async () => {
 				callOrder.push("validate");
@@ -432,8 +376,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("on success validation runs before nuke (ordering: validate then nuke then copy)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
 			const callOrder: string[] = [];
 			mockPathExists.mockImplementation(async () => {
 				callOrder.push("validate");
@@ -454,7 +396,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("abort result names recorded-vs-current cause in reason", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await executeNukeAndReinstall(makeOptions());
@@ -470,7 +411,6 @@ describe("executeNukeAndReinstall", () => {
 
 	describe("member entry whose subdir vanished", () => {
 		it("aborts identically when its own subdir lacks SKILL.md", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(false);
 
 			const result = await executeNukeAndReinstall(
@@ -490,129 +430,89 @@ describe("executeNukeAndReinstall", () => {
 		});
 	});
 
-	describe("configless recorded-skill update (null config)", () => {
-		it("proceeds: null config means no agent restriction, not abort", async () => {
-			mockReadConfig.mockResolvedValue(null);
+	describe("legacy multi-agent entry", () => {
+		const legacySkillFiles = [
+			".claude/skills/my-skill/",
+			".agents/skills/my-skill/",
+			".cursor/skills/my-skill/",
+		];
+
+		it("nukes every recorded file, whatever its root, and reinstalls a skill into .claude only", async () => {
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
+				copiedFiles: [".claude/skills/repo/"],
 			});
 
 			const result = await executeNukeAndReinstall(
 				makeOptions({
-					existingEntry: makeEntry({ type: "skill", agents: ["claude"] }),
+					existingEntry: makeEntry({ type: "skill", files: legacySkillFiles }),
 				}),
 			);
 
 			expect(result.status).toBe("success");
 			if (result.status !== "success") return;
-			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-			expect(result.entry.agents).toEqual(["claude"]);
-		});
-
-		it("does not call onAgentsDropped when config is null", async () => {
-			const onAgentsDropped = vi.fn();
-			mockReadConfig.mockResolvedValue(null);
-			mockPathExists.mockResolvedValue(true);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				legacySkillFiles,
+			);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith({
+				sourceDir: "/tmp/source",
+				projectDir: "/fake/project",
+				skillName: "repo",
 			});
-
-			await executeNukeAndReinstall(makeOptions({ onAgentsDropped }));
-
-			expect(onAgentsDropped).not.toHaveBeenCalled();
+			expect(result.entry.files).toEqual([".claude/skills/repo/"]);
 		});
-	});
 
-	describe("re-cloned empty-agents config (lenient default)", () => {
-		it("treats { agents: [], type } as no restriction: succeeds preserving recorded agents", async () => {
-			mockReadConfig.mockResolvedValue({ agents: [], type: "plugin" });
-			mockPathExists.mockResolvedValue(true);
+		it("migrates a Codex-only plugin entry into .claude", async () => {
+			const codexFiles = [".agents/skills/a/", ".agents/skills/b/"];
+			mockPathExists.mockImplementation(
+				async (p: string) => p === "/tmp/source/skills",
+			);
 			mockCopyPluginAssets.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
+				copiedFiles: [".claude/skills/a/", ".claude/skills/b/"],
+				assetCounts: { skills: 2 },
 			});
 
 			const result = await executeNukeAndReinstall(
 				makeOptions({
-					existingEntry: makeEntry({
-						type: "plugin",
-						agents: ["claude", "codex"],
-					}),
+					existingEntry: makeEntry({ type: "plugin", files: codexFiles }),
 				}),
 			);
 
 			expect(result.status).toBe("success");
 			if (result.status !== "success") return;
-			expect(result.entry.agents).toEqual(["claude", "codex"]);
-			expect(result.droppedAgents).toEqual([]);
-			expect(mockCopyPluginAssets).toHaveBeenCalledOnce();
-		});
-
-		it("does not call onAgentsDropped for an empty-agents config", async () => {
-			const onAgentsDropped = vi.fn();
-			mockReadConfig.mockResolvedValue({ agents: [], type: "plugin" });
-			mockPathExists.mockResolvedValue(true);
-			mockCopyPluginAssets.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			await executeNukeAndReinstall(
-				makeOptions({
-					existingEntry: makeEntry({
-						type: "plugin",
-						agents: ["claude", "codex"],
-					}),
-					onAgentsDropped,
-				}),
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				codexFiles,
 			);
-
-			expect(onAgentsDropped).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("dropped-agents callback", () => {
-		it("invokes onAgentsDropped when new config removes agents", async () => {
-			const onAgentsDropped = vi.fn();
-			const options = makeOptions({
-				existingEntry: makeEntry({
-					type: "skill",
-					agents: ["claude", "codex"],
-				}),
-				onAgentsDropped,
+			expect(mockCopyPluginAssets).toHaveBeenCalledWith({
+				sourceDir: "/tmp/source",
+				assetDirs: ["skills"],
+				projectDir: "/fake/project",
 			});
+			expect(result.entry.files).toEqual([
+				".claude/skills/a/",
+				".claude/skills/b/",
+			]);
+		});
 
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
+		it("writes the reinstalled entry without an agents field", async () => {
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
+				copiedFiles: [".claude/skills/repo/"],
 			});
+			const legacyEntry = {
+				...makeEntry({ type: "skill", files: legacySkillFiles }),
+				agents: ["claude", "codex", "cursor"],
+			};
 
-			const result = await executeNukeAndReinstall(options);
+			const result = await executeNukeAndReinstall(
+				makeOptions({ existingEntry: legacyEntry }),
+			);
 
 			expect(result.status).toBe("success");
 			if (result.status !== "success") return;
-
-			expect(onAgentsDropped).toHaveBeenCalledWith(["codex"], ["claude"]);
-			expect(result.droppedAgents).toEqual(["codex"]);
-			expect(result.entry.agents).toEqual(["claude"]);
-		});
-	});
-
-	describe("all agents dropped", () => {
-		it("returns no-agents failure when all agents are dropped", async () => {
-			const options = makeOptions({
-				existingEntry: makeEntry({ type: "skill", agents: ["codex"] }),
-			});
-
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockPathExists.mockResolvedValue(true);
-
-			const result = await executeNukeAndReinstall(options);
-
-			expect(result.status).toBe("no-agents");
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockCopyBareSkill).not.toHaveBeenCalled();
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(result.entry).not.toHaveProperty("agents");
 		});
 	});
 
@@ -623,7 +523,6 @@ describe("executeNukeAndReinstall", () => {
 				newCommit: "b".repeat(40),
 			});
 
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -647,7 +546,6 @@ describe("executeNukeAndReinstall", () => {
 				}),
 			});
 
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -665,7 +563,6 @@ describe("executeNukeAndReinstall", () => {
 
 	describe("copy failure after nuke", () => {
 		it("returns copy-failed with recovery message when copyBareSkill throws", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockRejectedValue(
 				new Error("ENOSPC: no space left on device"),
@@ -683,7 +580,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("confirms nuke was called before copy failed", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
@@ -701,7 +597,6 @@ describe("executeNukeAndReinstall", () => {
 				existingEntry: makeEntry({ type: "skill", constraint: "^1.0" }),
 			});
 
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -720,7 +615,6 @@ describe("executeNukeAndReinstall", () => {
 				existingEntry: makeEntry({ type: "skill" }),
 			});
 
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -738,7 +632,6 @@ describe("executeNukeAndReinstall", () => {
 
 	describe("symlink-escape pre-flight guard", () => {
 		it("scans sourceDir against cloneRoot before nuking (clone root differs from member subdir)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
@@ -760,7 +653,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("runs the symlink scan BEFORE nukeManifestFiles and copy", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 
 			const callOrder: string[] = [];
@@ -783,7 +675,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("blocks before any file removal when an escaping symlink is found (no nuke, no copy)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockScanForEscapingSymlinks.mockRejectedValue(
 				new SymlinkEscapeError("evil", "../../../etc/passwd"),
@@ -798,7 +689,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("surfaces the offending symlink in the blocked reason (a copy-safety violation, NOT a recorded-type abort)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockScanForEscapingSymlinks.mockRejectedValue(
 				new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
@@ -814,7 +704,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("does NOT call assertSubpathWithinClone on the update path", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
@@ -826,7 +715,6 @@ describe("executeNukeAndReinstall", () => {
 		});
 
 		it("does not abort for a within-clone cross-member symlink (scan resolves clean)", async () => {
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockPathExists.mockResolvedValue(true);
 			mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 			mockCopyBareSkill.mockResolvedValue({
@@ -843,70 +731,5 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.status).toBe("success");
 		});
-	});
-
-	describe("agent+driver pair construction", () => {
-		it("builds agents with drivers from effective agents", async () => {
-			const options = makeOptions({
-				existingEntry: makeEntry({
-					type: "skill",
-					agents: ["claude", "codex"],
-				}),
-			});
-
-			mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
-			mockPathExists.mockResolvedValue(true);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-
-			const result = await executeNukeAndReinstall(options);
-
-			expect(result.status).toBe("success");
-			expect(mockGetDriver).toHaveBeenCalledWith("claude");
-			expect(mockGetDriver).toHaveBeenCalledWith("codex");
-			expect(mockCopyBareSkill).toHaveBeenCalledWith(
-				expect.objectContaining({
-					agents: [
-						expect.objectContaining({ id: "claude" }),
-						expect.objectContaining({ id: "codex" }),
-					],
-				}),
-			);
-		});
-	});
-});
-
-describe("resolveAgents", () => {
-	it("imposes no restriction for an empty config array: keeps recorded agents", () => {
-		const result = resolveAgents(["claude", "codex"], []);
-		expect(result).toEqual({
-			status: "ok",
-			effectiveAgents: ["claude", "codex"],
-			droppedAgents: [],
-		});
-	});
-
-	it("imposes no restriction for an undefined config: keeps recorded agents", () => {
-		const result = resolveAgents(["claude", "codex"], undefined);
-		expect(result).toEqual({
-			status: "ok",
-			effectiveAgents: ["claude", "codex"],
-			droppedAgents: [],
-		});
-	});
-
-	it("narrows by intersection for a non-empty config", () => {
-		const result = resolveAgents(["claude", "codex"], ["claude"]);
-		expect(result).toEqual({
-			status: "ok",
-			effectiveAgents: ["claude"],
-			droppedAgents: ["codex"],
-		});
-	});
-
-	it("returns no-agents when a non-empty config is disjoint from recorded agents", () => {
-		const result = resolveAgents(["claude"], ["codex"]);
-		expect(result).toEqual({ status: "no-agents" });
 	});
 });

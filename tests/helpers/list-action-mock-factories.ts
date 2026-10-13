@@ -42,13 +42,6 @@ export function mockGitCloneModule() {
 	};
 }
 
-/** Factory body for `vi.mock("../../src/config.js", ...)`. */
-export function mockConfigModule() {
-	return {
-		readConfig: vi.fn(),
-	};
-}
-
 /**
  * Factory body for `vi.mock("../../src/type-detection.js", ...)`. Mocks
  * `detectType` while keeping the real `ASSET_DIRS` constant both files rely on.
@@ -81,12 +74,5 @@ export function mockCopyPluginAssetsModule() {
 export function mockCopyBareSkillModule() {
 	return {
 		copyBareSkill: vi.fn(),
-	};
-}
-
-/** Factory body for `vi.mock("../../src/drivers/registry.js", ...)`. */
-export function mockDriversRegistryModule() {
-	return {
-		getDriver: vi.fn(),
 	};
 }
