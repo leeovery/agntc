@@ -35,6 +35,7 @@ import { removeCommand, runRemove } from "../../src/commands/remove.js";
 import { readManifestOrExit, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { interactiveUi } from "../../src/ui.js";
+import { makeEntry } from "../helpers/factories.js";
 import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
@@ -67,12 +68,12 @@ describe("remove command", () => {
 	describe("exact key match — standalone plugin", () => {
 		it("removes a standalone plugin", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -100,18 +101,18 @@ describe("remove command", () => {
 	describe("exact key match — specific collection plugin", () => {
 		it("removes a specific collection plugin", async () => {
 			const manifest: Manifest = {
-				"owner/repo/go": {
+				"owner/repo/go": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/go/"],
-				},
-				"owner/repo/python": {
+				}),
+				"owner/repo/python": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/python/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -169,24 +170,24 @@ describe("remove command", () => {
 	describe("collection prefix match", () => {
 		it("removes all collection plugins matching prefix", async () => {
 			const manifest: Manifest = {
-				"owner/repo/go": {
+				"owner/repo/go": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/go/"],
-				},
-				"owner/repo/python": {
+				}),
+				"owner/repo/python": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/python/"],
-				},
-				"other/plugin": {
+				}),
+				"other/plugin": makeEntry({
 					ref: "v1.0",
 					commit: "xyz789",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/other/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -211,18 +212,18 @@ describe("remove command", () => {
 
 		it("shows summary with collection key and total file count", async () => {
 			const manifest: Manifest = {
-				"owner/repo/go": {
+				"owner/repo/go": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/go/"],
-				},
-				"owner/repo/python": {
+				}),
+				"owner/repo/python": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/python/", ".claude/agents/python-agent.md"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -242,12 +243,12 @@ describe("remove command", () => {
 	describe("non-existent key", () => {
 		it("exits 1 with spec error message", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 
@@ -264,12 +265,12 @@ describe("remove command", () => {
 	describe("confirmation", () => {
 		it("shows files that will be deleted in confirmation", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -291,12 +292,12 @@ describe("remove command", () => {
 
 		it("cancels and exits 0 when user declines", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(false);
@@ -311,12 +312,12 @@ describe("remove command", () => {
 
 		it("cancels and exits 0 when confirm is cancelled (symbol)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			});
 			mockConfirm.mockResolvedValue(Symbol.for("cancel") as unknown as boolean);
 
@@ -331,7 +332,7 @@ describe("remove command", () => {
 	describe("files nuked", () => {
 		it("calls nukeManifestFiles with project dir and file list", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
@@ -340,7 +341,7 @@ describe("remove command", () => {
 						".claude/skills/review/",
 						".claude/agents/executor.md",
 					],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -366,12 +367,12 @@ describe("remove command", () => {
 	describe("ENOENT tolerance", () => {
 		it("succeeds even when some files were already missing", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -389,18 +390,18 @@ describe("remove command", () => {
 	describe("manifest updated", () => {
 		it("writes manifest without the removed entry", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
-				"other/plugin": {
+				}),
+				"other/plugin": makeEntry({
 					ref: "v2.0",
 					commit: "def456",
 					installedAt: "2026-01-16T10:00:00.000Z",
 					files: [".claude/skills/other/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -420,24 +421,24 @@ describe("remove command", () => {
 	describe("preserves unrelated entries", () => {
 		it("keeps unrelated plugins in manifest after removal", async () => {
 			const manifest: Manifest = {
-				"owner/repo/go": {
+				"owner/repo/go": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/go/"],
-				},
-				"owner/repo/python": {
+				}),
+				"owner/repo/python": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/python/"],
-				},
-				"unrelated/plugin": {
+				}),
+				"unrelated/plugin": makeEntry({
 					ref: "v1.0",
 					commit: "xyz789",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/unrelated/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -454,7 +455,7 @@ describe("remove command", () => {
 	describe("summary", () => {
 		it("shows 'Removed {key}' with file count for standalone", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
@@ -463,7 +464,7 @@ describe("remove command", () => {
 						".claude/skills/review/",
 						".claude/agents/executor.md",
 					],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -483,12 +484,12 @@ describe("remove command", () => {
 
 		it("shows correct file count for single file plugin", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -506,12 +507,12 @@ describe("remove command", () => {
 	describe("empty parent directories left in place", () => {
 		it("does not attempt to remove parent directories after file deletion", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -570,18 +571,18 @@ describe("remove command", () => {
 		describe("multiselect shown", () => {
 			it("presents multiselect with all manifest keys", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
-					"other/plugin": {
+					}),
+					"other/plugin": makeEntry({
 						ref: null,
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
 						files: [".claude/skills/other/"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo"]);
@@ -591,19 +592,19 @@ describe("remove command", () => {
 
 				expect(mockMultiselect).toHaveBeenCalledOnce();
 				const call = mockMultiselect.mock.calls[0]![0];
-				const values = call.options.map((o: { value: string }) => o.value);
+				const values = call.options.map((o) => o.value);
 				expect(values).toEqual(["owner/repo", "other/plugin"]);
 				expect(call.message).toBe("Select what to remove");
 			});
 
 			it("shows the 'agntc remove' intro before the multiselect", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo"]);
@@ -619,18 +620,18 @@ describe("remove command", () => {
 
 			it("shows ref hints on multiselect options", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
-					"other/plugin": {
+					}),
+					"other/plugin": makeEntry({
 						ref: null,
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
 						files: [".claude/skills/other/"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo"]);
@@ -639,25 +640,23 @@ describe("remove command", () => {
 				await runRemove();
 
 				const call = mockMultiselect.mock.calls[0]![0];
-				const ownerOption = call.options.find(
-					(o: { value: string }) => o.value === "owner/repo",
-				);
+				const ownerOption = call.options.find((o) => o.value === "owner/repo");
 				expect(ownerOption?.hint).toBe("v1.0");
 
 				const otherOption = call.options.find(
-					(o: { value: string }) => o.value === "other/plugin",
+					(o) => o.value === "other/plugin",
 				);
 				expect(otherOption?.hint).toBe("HEAD");
 			});
 
 			it("shows single plugin in multiselect", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo"]);
@@ -675,12 +674,12 @@ describe("remove command", () => {
 		describe("cancel and zero selection", () => {
 			it("exits 0 when multiselect is cancelled", async () => {
 				mockReadManifestOrExit.mockResolvedValue({
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
+					}),
 				});
 				mockMultiselect.mockResolvedValue(
 					Symbol("cancel") as unknown as string[],
@@ -696,12 +695,12 @@ describe("remove command", () => {
 
 			it("exits 0 when zero plugins selected", async () => {
 				mockReadManifestOrExit.mockResolvedValue({
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
+					}),
 				});
 				mockMultiselect.mockResolvedValue([]);
 
@@ -717,18 +716,18 @@ describe("remove command", () => {
 		describe("selection flows to confirm and remove", () => {
 			it("removes single selected plugin after confirmation", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
-					},
-					"other/plugin": {
+					}),
+					"other/plugin": makeEntry({
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
 						files: [".claude/skills/other/"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo"]);
@@ -751,24 +750,24 @@ describe("remove command", () => {
 
 			it("removes multiple selected plugins after confirmation", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
-					"other/plugin": {
+					}),
+					"other/plugin": makeEntry({
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
 						files: [".claude/skills/other/"],
-					},
-					"keep/this": {
+					}),
+					"keep/this": makeEntry({
 						ref: null,
 						commit: "xyz789",
 						installedAt: "2026-01-17T10:00:00.000Z",
 						files: [".claude/skills/keep/"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
@@ -790,12 +789,12 @@ describe("remove command", () => {
 
 			it("does not nuke or write when confirmation declined", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo"]);
@@ -811,7 +810,7 @@ describe("remove command", () => {
 
 			it("shows correct nuke args for selected keys", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
@@ -820,7 +819,7 @@ describe("remove command", () => {
 							".claude/skills/review/",
 							".claude/agents/executor.md",
 						],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo"]);
@@ -845,18 +844,18 @@ describe("remove command", () => {
 
 			it("shows summary with selected count and total files", async () => {
 				const manifest: Manifest = {
-					"owner/repo": {
+					"owner/repo": makeEntry({
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
 						files: [".claude/skills/my-skill/"],
-					},
-					"other/plugin": {
+					}),
+					"other/plugin": makeEntry({
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
 						files: [".claude/skills/other/", ".claude/agents/agent.md"],
-					},
+					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
 				mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
@@ -874,7 +873,7 @@ describe("remove command", () => {
 	describe("file grouping by type in confirmation display", () => {
 		it("groups files by type with headers", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
@@ -884,7 +883,7 @@ describe("remove command", () => {
 						".claude/agents/executor.md",
 						".claude/hooks/pre-commit.sh",
 					],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -912,12 +911,12 @@ describe("remove command", () => {
 
 		it("only shows headers for types that have files", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -941,18 +940,18 @@ describe("remove command", () => {
 	describe("collection remove lists affected plugins", () => {
 		it("lists affected plugin names before file list for collection prefix match", async () => {
 			const manifest: Manifest = {
-				"owner/repo/go": {
+				"owner/repo/go": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/go/"],
-				},
-				"owner/repo/python": {
+				}),
+				"owner/repo/python": makeEntry({
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/python/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -971,12 +970,12 @@ describe("remove command", () => {
 
 		it("does not list affected plugins for single exact key match", async () => {
 			const manifest: Manifest = {
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
@@ -1079,12 +1078,12 @@ describe("remove command", () => {
 	describe("without a terminal", () => {
 		it("refuses with no key, naming the key argument, since it can't show the list", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: null,
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			});
 
 			const run = await runMachine(removeCommand, ["-y"]);
@@ -1101,12 +1100,12 @@ describe("remove command", () => {
 
 		it("prints an error document for a key that isn't installed", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo": {
+				"owner/repo": makeEntry({
 					ref: null,
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files: [".claude/skills/my-skill/"],
-				},
+				}),
 			});
 
 			const run = await runMachine(removeCommand, ["nope/repo", "-y"]);

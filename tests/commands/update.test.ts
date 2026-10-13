@@ -1656,6 +1656,8 @@ describe("update command", () => {
 				key,
 				summary: `${key}: Updated`,
 				newEntry: makeEntry(),
+				notes: [],
+				absorbed: [],
 			};
 		}
 
@@ -5912,6 +5914,7 @@ describe("failureMemberLine (shared loud member-line rendering)", () => {
 			status: "copy-failed",
 			key: "owner/repo/design",
 			summary: "re-run update",
+			absorbed: [],
 		};
 
 		// Collapsed path name source: the full member key.

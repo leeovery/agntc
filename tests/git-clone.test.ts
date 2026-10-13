@@ -9,19 +9,18 @@ vi.mock("node:child_process");
 vi.mock("node:fs/promises");
 vi.mock("node:os");
 
-function makeParsed(overrides: Partial<ParsedSource> = {}): ParsedSource {
-	const owner =
-		((overrides as Record<string, unknown>).owner as string) ?? "acme";
-	const repo =
-		((overrides as Record<string, unknown>).repo as string) ?? "skills";
+function makeParsed(
+	overrides: { owner?: string; repo?: string; ref?: string | null } = {},
+): ParsedSource {
+	const { owner = "acme", repo = "skills", ref = null } = overrides;
 	return {
 		type: "github-shorthand",
 		owner,
 		repo,
-		ref: null,
+		ref,
+		constraint: null,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl: `https://github.com/${owner}/${repo}.git`,
-		...overrides,
 	};
 }
 
@@ -32,7 +31,7 @@ const FAKE_SHA = "a".repeat(40);
 function mockExecFileSuccess(stdout = FAKE_SHA + "\n"): void {
 	const execFileMock = vi.mocked(childProcess.execFile);
 	execFileMock.mockImplementation(
-		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
+		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function | null) => {
 			if (typeof _opts === "function") {
 				cb = _opts;
 			}
@@ -53,7 +52,7 @@ function mockExecFileFailure(
 	let callCount = 0;
 
 	execFileMock.mockImplementation(
-		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
+		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function | null) => {
 			if (typeof _opts === "function") {
 				cb = _opts;
 			}
@@ -316,6 +315,7 @@ describe("cloneSource", () => {
 			owner: "team",
 			repo: "tools",
 			ref: null,
+			constraint: null,
 			manifestKey: "team/tools",
 			cloneUrl: "https://gitlab.com/team/tools.git",
 		};
@@ -337,6 +337,7 @@ describe("cloneSource", () => {
 			owner: "team",
 			repo: "tools",
 			ref: null,
+			constraint: null,
 			manifestKey: "team/tools",
 			cloneUrl: "git@gitlab.com:team/tools.git",
 		};

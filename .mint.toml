@@ -12,8 +12,8 @@ diff_exclude = [
 ]
 
 [release.hooks]
-# Gate the release on a clean-install build + test BEFORE the tag PONR. npm
-# publish (.github/workflows/publish.yml) only runs AFTER the tag is pushed, so
-# without this a broken build/test would leave an orphaned tag + GitHub release.
-# Mirrors the CI job exactly (clean install included).
-pre_tag = ['npm ci', 'npm run build', 'npm test']
+# Gate the release on a clean-install type-check + build + test BEFORE the tag
+# PONR. npm publish (.github/workflows/publish.yml) only runs AFTER the tag is
+# pushed, so without this a broken build/test would leave an orphaned tag +
+# GitHub release. Mirrors the CI job exactly (clean install included).
+pre_tag = ['npm ci', 'npm run typecheck', 'npm run build', 'npm test']

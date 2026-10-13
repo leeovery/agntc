@@ -1267,7 +1267,7 @@ describe("buildManifestEntry", () => {
 			ref: null,
 			commit: null,
 			files: [],
-			type: "plugin",
+			type: "pack",
 			cloneUrl: null,
 		});
 
@@ -1279,7 +1279,7 @@ describe("buildManifestEntry", () => {
 			ref: "v2.0.0",
 			commit: "sha",
 			files: ["x"],
-			type: "plugin",
+			type: "pack",
 			cloneUrl: "https://example.com/repo.git",
 			constraint: "^2.0.0",
 		});
@@ -1289,7 +1289,7 @@ describe("buildManifestEntry", () => {
 			commit: "sha",
 			installedAt: FIXED,
 			files: ["x"],
-			type: "plugin",
+			type: "pack",
 			cloneUrl: "https://example.com/repo.git",
 			constraint: "^2.0.0",
 		});
@@ -1301,7 +1301,7 @@ describe("buildManifestEntry", () => {
 			ref: "v2.0.0",
 			commit: "sha",
 			files: ["x"],
-			type: "plugin",
+			type: "pack",
 			cloneUrl: null,
 			constraint: undefined,
 		});
@@ -1312,7 +1312,7 @@ describe("buildManifestEntry", () => {
 			commit: "sha",
 			installedAt: FIXED,
 			files: ["x"],
-			type: "plugin",
+			type: "pack",
 			cloneUrl: null,
 		});
 	});
