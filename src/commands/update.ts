@@ -78,15 +78,21 @@ interface KeyUpdate {
 	outOfConstraint: OutOfConstraintInfo | null;
 }
 
-/**
- * The statuses that end a single-key update non-zero: all-mode's failures,
- * plus the check failures all-mode only warns about.
- */
-const KEY_FAILURES = new Set<PluginOutcome["status"]>([
+/** The statuses that end an update of every entry non-zero. */
+const ALL_FAILURES = new Set<PluginOutcome["status"]>([
 	"failed",
 	"copy-failed",
 	"aborted",
 	"blocked",
+]);
+
+/**
+ * The statuses that end an update given a key non-zero: all-mode's failures,
+ * plus the check failures all-mode only warns about, since the user named
+ * these entries. However many entries the key names, the rule is the same.
+ */
+const KEY_FAILURES = new Set<PluginOutcome["status"]>([
+	...ALL_FAILURES,
 	"check-failed",
 	"constrained-no-match",
 ]);
@@ -125,7 +131,7 @@ export async function runUpdate(
 	}
 
 	if (key === undefined) {
-		await runGroupedUpdates(manifest, manifest, run);
+		await runGroupedUpdates(manifest, manifest, ALL_FAILURES, run);
 		return;
 	}
 	const targets = pick(manifest, resolveTargetKeys(key, manifest, ui));
@@ -134,7 +140,7 @@ export async function runUpdate(
 		await runKeyUpdate({ key: only[0], entry: only[1] }, manifest, run);
 		return;
 	}
-	await runGroupedUpdates(manifest, targets, run);
+	await runGroupedUpdates(manifest, targets, KEY_FAILURES, run);
 }
 
 /** The entries of `manifest` recorded under `keys`, in manifest order. */
@@ -158,7 +164,7 @@ async function runKeyUpdate(
 	const update = await updateKey(member, manifest, run);
 	await persistUnitOutcomes(scope.root, manifest, [update.outcome]);
 
-	const failed = KEY_FAILURES.has(update.outcome.status);
+	const failed = hasFailedOutcome([update.outcome], KEY_FAILURES);
 	if (!failed && update.outOfConstraint !== null) {
 		renderOutOfConstraintOutput([update.outOfConstraint], ui);
 	}
@@ -477,11 +483,13 @@ interface CategorizedGroups {
  * no key is given, and the entries a key names when it names several. Entries
  * sharing a repo and version intent resolve and clone once; each local entry
  * reinstalls on its own. The whole manifest is threaded and written per unit,
- * so entries outside `selected` stay recorded as they were.
+ * so entries outside `selected` stay recorded as they were. The run exits
+ * non-zero when any outcome's status is in `failures`.
  */
 async function runGroupedUpdates(
 	manifest: Manifest,
 	selected: Manifest,
+	failures: Set<PluginOutcome["status"]>,
 	run: UpdateRun,
 ): Promise<void> {
 	const { scope, ui } = run;
@@ -502,7 +510,7 @@ async function runGroupedUpdates(
 
 	const categorized = categorizeGroups(resolved);
 
-	// Actioned work streams in manifest order as each unit lands; only the
+	// Actioned work streams as each unit lands, packs first; only the
 	// non-actioned categories wait for the trailing summary.
 	const work = orderWork(categorized.updatableGroups, localEntries, entries);
 	const actioned = await streamActionedWork(work, manifest, groups, run);
@@ -548,7 +556,7 @@ async function runGroupedUpdates(
 
 	// Units that succeeded stay written; any that aborted or failed make the
 	// run exit non-zero without rolling them back.
-	if (hasFailedOutcome(outcomes)) {
+	if (hasFailedOutcome(outcomes, failures)) {
 		throw new ExitSignal(1);
 	}
 }
@@ -696,9 +704,12 @@ function upToDateOutcome(key: string): PluginOutcome {
 }
 
 /**
- * Interleaves updatable groups and local group-of-ones into a single list in
- * manifest (processing) order — each unit keyed by the manifest index of its
- * representative key, so the actioned stream is deterministic.
+ * Interleaves updatable groups and local group-of-ones into a single list:
+ * every unit holding a pack ahead of those that don't, otherwise in manifest
+ * order by the index of each unit's representative key. Packs run first
+ * across the whole run, not only within a group, so a loose skill a pack
+ * absorbs is skipped wherever its own unit sits, rather than updated and
+ * then taken over.
  */
 function orderWork(
 	updatableGroups: UpdatableGroup[],
@@ -719,8 +730,14 @@ function orderWork(
 	for (const [key, entry] of localEntries) {
 		work.push({ kind: "local", position: position.get(key)!, key, entry });
 	}
-	work.sort((a, b) => a.position - b.position);
+	const rank = (item: WorkItem) => (holdsPack(item) ? 0 : 1);
+	work.sort((a, b) => rank(a) - rank(b) || a.position - b.position);
 	return work;
+}
+
+function holdsPack(item: WorkItem): boolean {
+	const members = item.kind === "group" ? item.updating : [item];
+	return members.some(({ entry }) => entry.type === "pack");
 }
 
 type GroupWorkItem = Extract<WorkItem, { kind: "group" }>;
@@ -1184,14 +1201,11 @@ function renderFailedOutcome(outcome: PluginOutcome, ui: Ui): void {
 	}
 }
 
-function hasFailedOutcome(outcomes: PluginOutcome[]): boolean {
-	return outcomes.some(
-		(outcome) =>
-			outcome.status === "aborted" ||
-			outcome.status === "blocked" ||
-			outcome.status === "failed" ||
-			outcome.status === "copy-failed",
-	);
+function hasFailedOutcome(
+	outcomes: PluginOutcome[],
+	failures: Set<PluginOutcome["status"]>,
+): boolean {
+	return outcomes.some((outcome) => failures.has(outcome.status));
 }
 
 function renderOutOfConstraintOutput(
