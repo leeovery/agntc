@@ -29,6 +29,7 @@ vi.mock("../../src/git-clone.js", () => ({
 
 vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
+	fetchDefaultBranch: vi.fn(),
 }));
 
 vi.mock("../../src/collision-resolve.js", async (importOriginal) => ({
@@ -64,7 +65,7 @@ import { copyItem } from "../../src/copy-item.js";
 import { listAgentFiles } from "../../src/copy-pack.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
-import { fetchRemoteTags } from "../../src/git-utils.js";
+import { fetchDefaultBranch, fetchRemoteTags } from "../../src/git-utils.js";
 import type { EntryType, Manifest, ManifestEntry } from "../../src/manifest.js";
 import {
 	nukeManifestFiles,
@@ -84,6 +85,7 @@ const actualCopyItem = await vi.importActual<
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
+const mockFetchDefaultBranch = vi.mocked(fetchDefaultBranch);
 const mockResolveCollisions = vi.mocked(resolveCollisions);
 const mockResolveUnmanaged = vi.mocked(resolveUnmanagedConflicts);
 const mockNuke = vi.mocked(nukeManifestFiles);
@@ -114,6 +116,7 @@ beforeEach(async () => {
 	vi.spyOn(process, "cwd").mockReturnValue(projectDir);
 
 	mockFetchRemoteTags.mockResolvedValue([]);
+	mockFetchDefaultBranch.mockResolvedValue("main");
 	mockCloneSource.mockImplementation(async () => {
 		await cp(upstreamDir, cloneDir, { recursive: true });
 		return { tempDir: cloneDir, commit: SHA };
@@ -436,6 +439,59 @@ describe("add command", () => {
 				'owner/repo: path "nope" not found in source',
 			]);
 			expect(await installed(".agntc")).toBe(false);
+		});
+
+		describe("a path not at the latest release a bare add resolves to", () => {
+			beforeEach(() => {
+				mockFetchRemoteTags.mockResolvedValue(["v1.2.0"]);
+			});
+
+			it("says so and how to add it from the default branch, named by the remote", async () => {
+				mockFetchDefaultBranch.mockResolvedValue("trunk");
+
+				const code = await exitCode(runAdd("owner/repo/skills/new"));
+
+				expect(code).toBe(1);
+				expect(mockFetchDefaultBranch).toHaveBeenCalledWith(
+					"https://github.com/owner/repo.git",
+				);
+				expect(mockCloneSource).toHaveBeenCalledTimes(1);
+				expect(cancelled()).toEqual([
+					'owner/repo: path "skills/new" not found in source at v1.2.0, the latest release — to add it from the default branch, use owner/repo/skills/new@trunk, or name a version',
+				]);
+			});
+
+			it("reaches a repo off GitHub by its URL", async () => {
+				await exitCode(runAdd("https://gitlab.com/owner/repo/skills/new"));
+
+				expect(cancelled()[0]).toContain(
+					"use https://gitlab.com/owner/repo/skills/new@main,",
+				);
+			});
+
+			it("stands in for the branch when the remote won't name it", async () => {
+				mockFetchDefaultBranch.mockRejectedValue(new Error("network"));
+
+				await exitCode(runAdd("owner/repo/skills/new"));
+
+				expect(cancelled()[0]).toContain(
+					"use owner/repo/skills/new@<branch>, or name a version",
+				);
+			});
+
+			it.each([
+				"owner/repo/skills/new@v1",
+				"owner/repo/skills/new@main",
+				"owner/repo/skills/new@^1.0",
+			])("keeps the plain message for a version given: %s", async (source) => {
+				const code = await exitCode(runAdd(source));
+
+				expect(code).toBe(1);
+				expect(cancelled()).toEqual([
+					'owner/repo: path "skills/new" not found in source',
+				]);
+				expect(mockFetchDefaultBranch).not.toHaveBeenCalled();
+			});
 		});
 
 		it("refuses a path escaping the source", async () => {
@@ -863,6 +919,50 @@ describe("add command", () => {
 				"owner/repo/foo",
 				"owner/repo/tools",
 			]);
+		});
+
+		describe("held by the same owner/repo from another source", () => {
+			async function skillContent(): Promise<string> {
+				return readFile(
+					join(projectDir, ".claude/skills/foo/SKILL.md"),
+					"utf-8",
+				);
+			}
+
+			beforeEach(async () => {
+				await runAdd("owner/repo", { skill: ["foo"] });
+				await upstream({ "skills/foo/SKILL.md": "elsewhere" });
+				vi.clearAllMocks();
+			});
+
+			it("refuses a repo of that name on another host, removing nothing", async () => {
+				const before = await manifest();
+
+				const code = await exitCode(
+					runAdd("https://gitlab.com/owner/repo", { skill: ["foo"] }),
+				);
+
+				expect(code).toBe(1);
+				expect(logged("error")).toEqual([
+					"skills/foo: failed — owner/repo/foo is already installed from https://github.com/owner/repo.git, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again",
+				]);
+				expect(mockNuke).not.toHaveBeenCalled();
+				expect(await skillContent()).toBe("skill");
+				expect(await manifest()).toEqual(before);
+			});
+
+			it("reinstalls the same GitHub repo reached over SSH", async () => {
+				const code = await exitCode(
+					runAdd("git@github.com:owner/repo", { skill: ["foo"] }),
+				);
+
+				expect(code).toBeNull();
+				expect(await skillContent()).toBe("elsewhere");
+				expect((await manifest())["owner/repo/foo"]).toMatchObject({
+					cloneUrl: "git@github.com:owner/repo.git",
+					sourceSubpath: "skills/foo",
+				});
+			});
 		});
 
 		describe("held by a legacy entry", () => {
@@ -1484,7 +1584,7 @@ describe("add command", () => {
 				"p (pack · 1 skill)\ntools/a (Does A)",
 			);
 			expect(logged("warn")).toEqual([
-				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo@v1.0.0 --pack",
+				"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
 			]);
 			expect(mockOutro).toHaveBeenCalledWith(
 				"owner/repo@v1.0.0 holds 1 pack and 1 skill",
@@ -1692,7 +1792,7 @@ describe("add command", () => {
 
 			expect(run.document.warnings).toEqual([
 				expect.stringMatching(/^Ignoring malformed agntc\.json/),
-				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo --pack",
+				"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
 			]);
 			expect(run.document.notes).toEqual([
 				"a is part of the pack p — installed on its own, without b",

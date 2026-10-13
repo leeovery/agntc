@@ -200,4 +200,35 @@ describe("checkFileCollisions", () => {
 
 		expect(result.size).toBe(0);
 	});
+
+	describe("a folder and a file at one install path", () => {
+		function owning(files: string[]): Manifest {
+			return {
+				"owner/repo-a": {
+					ref: "main",
+					commit: "abc123",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files,
+				},
+			};
+		}
+
+		it("finds a file claim on another entry's folder", () => {
+			const result = checkFileCollisions(
+				[".claude/hooks/x"],
+				owning([".claude/hooks/x/", ".claude/hooks/x/a.sh"]),
+			);
+
+			expect(result.get("owner/repo-a")).toEqual([".claude/hooks/x/"]);
+		});
+
+		it("finds a folder claim on another entry's file", () => {
+			const result = checkFileCollisions(
+				[".claude/hooks/x/"],
+				owning([".claude/hooks/x"]),
+			);
+
+			expect(result.get("owner/repo-a")).toEqual([".claude/hooks/x"]);
+		});
+	});
 });

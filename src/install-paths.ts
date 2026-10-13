@@ -23,6 +23,17 @@ export function withoutTrailingSlash(path: string): string {
 	return path.replace(/\/+$/, "");
 }
 
+/**
+ * Tells whether a path is one of `paths`. A folder's install path is the same
+ * with or without its trailing slash, as a file claim on it must collide.
+ */
+export function installPathMatcher(
+	paths: Iterable<string>,
+): (path: string) => boolean {
+	const normalised = new Set([...paths].map(withoutTrailingSlash));
+	return (path) => normalised.has(withoutTrailingSlash(path));
+}
+
 /** A single folder or file name: not empty, `.` or `..`, and holding no `/`. */
 export function isSafeSegment(name: string): boolean {
 	return name !== "" && name !== "." && name !== ".." && !name.includes("/");

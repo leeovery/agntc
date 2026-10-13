@@ -164,6 +164,50 @@ describe("checkUnmanagedConflicts", () => {
 		expect(result).toEqual([".claude/skills/skill-b/"]);
 	});
 
+	it("counts a tracked folder as tracked when the incoming path has no trailing slash", async () => {
+		await mkdir(join(projectDir, ".claude/hooks/x"), { recursive: true });
+		await writeFile(join(projectDir, ".claude/hooks/x/a.sh"), "#!/bin/bash");
+		const manifest: Manifest = {
+			"owner/repo/p": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/hooks/x/", ".claude/hooks/x/a.sh"],
+				type: "pack",
+			},
+		};
+
+		const result = await checkUnmanagedConflicts(
+			[".claude/hooks/x"],
+			manifest,
+			projectDir,
+		);
+
+		expect(result).toEqual([]);
+	});
+
+	it("counts a tracked file as tracked when the incoming path names it as a folder", async () => {
+		await mkdir(join(projectDir, ".claude/hooks"), { recursive: true });
+		await writeFile(join(projectDir, ".claude/hooks/x"), "#!/bin/bash");
+		const manifest: Manifest = {
+			"owner/repo/p": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/hooks/x"],
+				type: "pack",
+			},
+		};
+
+		const result = await checkUnmanagedConflicts(
+			[".claude/hooks/x/"],
+			manifest,
+			projectDir,
+		);
+
+		expect(result).toEqual([]);
+	});
+
 	it("collects tracked files from all manifest entries", async () => {
 		await mkdir(join(projectDir, ".claude/skills/skill-a"), {
 			recursive: true,

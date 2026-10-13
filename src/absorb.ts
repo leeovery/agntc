@@ -2,6 +2,7 @@ import { skillTarget } from "./asset-targets.js";
 import { checkFileCollisions } from "./collision-check.js";
 import type { Discovery } from "./discover.js";
 import { isSameSource, type SourceId, sourceIdOf } from "./entry-source.js";
+import { installPathMatcher } from "./install-paths.js";
 import type { Manifest } from "./manifest.js";
 import { memberName } from "./source-parser.js";
 
@@ -95,7 +96,7 @@ function packHolding(
 	return Object.entries(manifest).find(
 		([key, entry]) =>
 			entry.type === "pack" &&
-			entry.files.includes(target) &&
+			installPathMatcher(entry.files)(target) &&
 			isSameSource(sourceIdOf(key, entry), source),
 	)?.[0];
 }

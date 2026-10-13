@@ -29,17 +29,23 @@ describe("agntcCommand", () => {
 		);
 	});
 
-	it("leaves plain arguments bare: repos, versions, constraints and flags", () => {
+	it("leaves plain arguments bare: repos, exact versions and flags", () => {
 		expect(
 			agntcCommand("project", "add", [
-				"owner/repo/skills/go@^1.2.0",
+				"owner/repo/skills/go@v1.2.0",
 				"--skill",
 				"a_b",
 				"c-d",
 			]),
-		).toBe("npx agntc add owner/repo/skills/go@^1.2.0 --skill a_b c-d");
+		).toBe("npx agntc add owner/repo/skills/go@v1.2.0 --skill a_b c-d");
+	});
+
+	it("single-quotes a constraint, whose ^ or ~ zsh's extendedglob would expand", () => {
+		expect(
+			agntcCommand("project", "add", ["owner/repo/skills/go@^1.2.0"]),
+		).toBe("npx agntc add 'owner/repo/skills/go@^1.2.0'");
 		expect(agntcCommand("project", "add", ["owner/repo@~1.0", "--pack"])).toBe(
-			"npx agntc add owner/repo@~1.0 --pack",
+			"npx agntc add 'owner/repo@~1.0' --pack",
 		);
 	});
 

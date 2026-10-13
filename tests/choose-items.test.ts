@@ -215,7 +215,7 @@ describe("chooseItems", () => {
 			);
 
 			expect(choice.strayNotices[0]).toContain(
-				"npx agntc add owner/repo/p@^1.0 --pack",
+				"npx agntc add 'owner/repo/p@^1.0' --pack",
 			);
 		});
 
@@ -241,6 +241,51 @@ describe("chooseItems", () => {
 			expect(choice.strayNotices[0]).toContain(
 				"to install them as a pack: npx agntc add -g owner/repo/p --pack",
 			);
+		});
+
+		it("says why, with no command, for a root stray holding a pack, which --pack refuses", () => {
+			const choice = chooseItems(
+				found({
+					packs: [pack("packs/p", { skills: [skill("packs/p/skills/a")] })],
+					strays: [{ path: "", assetDirs: ["agents"] }],
+				}),
+				AUTO,
+				ctx,
+			);
+
+			expect(choice.strayNotices).toEqual([
+				"repo has agents/ that won't be installed — it contains packs (packs/p), so --pack can't bundle it",
+			]);
+		});
+
+		it("says why for a stray whose folder holds packs further down, naming each", () => {
+			const choice = chooseItems(
+				found({
+					packs: [pack("tools/a/p"), pack("tools/q"), pack("other/r")],
+					strays: [{ path: "tools", assetDirs: ["hooks"] }],
+				}),
+				AUTO,
+				ctx,
+			);
+
+			expect(choice.strayNotices).toEqual([
+				"tools has hooks/ that won't be installed — it contains packs (tools/a/p, tools/q), so --pack can't bundle it",
+			]);
+		});
+
+		it("keeps the --pack command when the packs sit beside the stray, not in it", () => {
+			const choice = chooseItems(
+				found({
+					packs: [pack("toolsx/p"), pack("other/q")],
+					strays: [{ path: "tools", assetDirs: ["hooks"] }],
+				}),
+				AUTO,
+				ctx,
+			);
+
+			expect(choice.strayNotices).toEqual([
+				"tools has hooks/ that won't be installed — to install them as a pack: npx agntc add owner/repo/tools --pack",
+			]);
 		});
 
 		it("come with a menu and with a refusal alike", () => {

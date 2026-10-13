@@ -34,11 +34,16 @@ import {
 	StartPathError,
 } from "../discover.js";
 import { addBody, listingBody, type SourceJson } from "../documents.js";
-import { installedFrom, type SourceId } from "../entry-source.js";
+import {
+	installedFrom,
+	isSameSource,
+	type SourceId,
+	sourceIdOf,
+} from "../entry-source.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
-import { fetchRemoteTags } from "../git-utils.js";
+import { fetchDefaultBranch, fetchRemoteTags } from "../git-utils.js";
 import {
 	type InstallItem,
 	itemLabel,
@@ -47,11 +52,13 @@ import {
 	keyItems,
 	pathLabel,
 } from "../install-item.js";
+import { installPathMatcher } from "../install-paths.js";
 import { promptForItems } from "../item-menu.js";
 import {
 	addEntry,
 	buildManifestEntry,
 	type Manifest,
+	type ManifestEntry,
 	readManifest,
 	removeEntry,
 	writeManifest,
@@ -66,6 +73,7 @@ import {
 } from "../scope.js";
 import {
 	addSourceFor,
+	locateSource,
 	type ParsedSource,
 	parseSource,
 	resolveCloneUrl,
@@ -94,6 +102,8 @@ interface FetchedSource {
 	rootName: string;
 	/** The `@ref` or `@constraint` the user typed, for suggested commands. */
 	version?: string;
+	/** The newest semver tag a remote add with no version typed resolved to. */
+	latestRelease?: string;
 	ref: string | null;
 	commit: string | null;
 	cloneUrl: string | null;
@@ -247,6 +257,9 @@ function describeSource(
 		rootName: parsed.repo,
 		cloneUrl: parsed.cloneUrl,
 		...(parsed.startPath !== undefined ? { startPath: parsed.startPath } : {}),
+		...(version === null && parsed.ref !== null
+			? { latestRelease: parsed.ref }
+			: {}),
 	};
 }
 
@@ -347,11 +360,35 @@ async function discoverSource(
 			onWarn: (message) => ui.warn(message),
 		});
 	} catch (err) {
+		if (err instanceof StartPathError) {
+			return refuse(src, await startPathMessage(err, src), ui);
+		}
 		if (ENGINE_ERRORS.some((engineError) => err instanceof engineError)) {
 			return refuse(src, errorMessage(err), ui);
 		}
 		throw err;
 	}
+}
+
+/**
+ * A start path that isn't at the latest release, which an add with no version
+ * resolves to, may be on the default branch already: says how to add it from
+ * there. Naming that branch takes an `ls-remote`, never a second clone.
+ */
+async function startPathMessage(
+	err: StartPathError,
+	src: FetchedSource,
+): Promise<string> {
+	if (src.latestRelease === undefined || src.cloneUrl === null) {
+		return err.message;
+	}
+	const branch = await fetchDefaultBranch(src.cloneUrl).catch(() => null);
+	const fromBranch = locateSource(
+		addSourceFor(src.key, src.cloneUrl),
+		src.startPath ?? "",
+		branch ?? "<branch>",
+	);
+	return `${err.message} at ${src.latestRelease}, the latest release — to add it from the default branch, use ${fromBranch}, or name a version`;
 }
 
 async function settle(
@@ -536,12 +573,12 @@ async function checkItem(
 		keyed.item.kind === "pack"
 			? claimFiles(incoming, manifest, keyed.key, source).absorbed
 			: [];
-	const absorbed = new Set(
+	const isAbsorbed = installPathMatcher(
 		absorbs.flatMap((key) => manifest[key]?.files ?? []),
 	);
 	const conflicts = await clearConflicts(
 		{
-			incomingFiles: incoming.filter((file) => !absorbed.has(file)),
+			incomingFiles: incoming.filter((file) => !isAbsorbed(file)),
 			manifest,
 			key: keyed.key,
 			projectDir: installRoot,
@@ -559,8 +596,9 @@ async function checkItem(
 
 /**
  * Why the item can't install under its key: the entry already there isn't an
- * earlier install of it, being another type or from another path. Replacing
- * that entry is the user's call: remove it, then add.
+ * earlier install of it, being from another repo (keys don't name the host),
+ * another type or another path. Replacing that entry is the user's call:
+ * remove it, then add.
  */
 function keyTaken(
 	{ key, item }: KeyedItem,
@@ -574,11 +612,30 @@ function keyTaken(
 	}
 	const type = holder.type ?? "skill";
 	const from = installedFrom(key, holder);
-	if (type === item.kind && from === sourcePathOf(item, src)) {
+	const otherRepo = otherRemoteSource(key, holder, src);
+	if (
+		otherRepo === null &&
+		type === item.kind &&
+		from === sourcePathOf(item, src)
+	) {
 		return null;
 	}
+	const where = otherRepo ?? pathLabel(from, src.rootName);
 	const remove = agntcCommand(scope, "remove", [key]);
-	return `${key} is already installed from ${pathLabel(from, src.rootName)}, as a ${type}; to replace it: ${remove}, then add again`;
+	return `${key} is already installed from ${where}, as a ${type}; to replace it: ${remove}, then add again`;
+}
+
+/** The clone URL a remote entry was installed from, when it isn't `src`'s repo. */
+function otherRemoteSource(
+	key: string,
+	holder: ManifestEntry,
+	src: FetchedSource,
+): string | null {
+	const held = sourceIdOf(key, holder);
+	if (held.kind !== "remote" || src.cloneUrl === null) {
+		return null;
+	}
+	return isSameSource(held, sourceIdOfFetched(src)) ? null : held.cloneUrl;
 }
 
 /** Where an item comes from, as `installedFrom` gives it for an entry. */

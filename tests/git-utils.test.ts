@@ -2,6 +2,7 @@ import * as childProcess from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	execGit,
+	fetchDefaultBranch,
 	fetchRemoteTagRefs,
 	fetchRemoteTags,
 } from "../src/git-utils.js";
@@ -154,7 +155,7 @@ describe("fetchRemoteTagRefs", () => {
 		]);
 	});
 
-	it("filters out ^{} annotated tag refs", async () => {
+	it("gives annotated tags the commit from their peeled ^{} line", async () => {
 		const lsRemoteOutput = [
 			"abc123\trefs/tags/v1.0.0",
 			"abc124\trefs/tags/v1.0.0^{}",
@@ -166,8 +167,8 @@ describe("fetchRemoteTagRefs", () => {
 		const refs = await fetchRemoteTagRefs("https://github.com/owner/repo.git");
 
 		expect(refs).toEqual([
-			{ tag: "v1.0.0", sha: "abc123" },
-			{ tag: "v2.0.0", sha: "def456" },
+			{ tag: "v1.0.0", sha: "abc124" },
+			{ tag: "v2.0.0", sha: "def457" },
 		]);
 	});
 
@@ -209,7 +210,7 @@ describe("fetchRemoteTags", () => {
 		expect(tags).toEqual(["v1.0.0", "v1.1.0", "v2.0.0"]);
 	});
 
-	it("filters out ^{} annotated tag refs", async () => {
+	it("lists each annotated tag once, without its ^{} line", async () => {
 		const lsRemoteOutput = [
 			"abc123\trefs/tags/v1.0.0",
 			"abc124\trefs/tags/v1.0.0^{}",
@@ -244,5 +245,38 @@ describe("fetchRemoteTags", () => {
 			"--tags",
 			"https://github.com/owner/repo.git",
 		]);
+	});
+});
+
+describe("fetchDefaultBranch", () => {
+	it("reads the branch HEAD points at from ls-remote --symref", async () => {
+		mockExecFileSuccess(
+			`ref: refs/heads/trunk\tHEAD\n${"a".repeat(40)}\tHEAD\n`,
+		);
+
+		const branch = await fetchDefaultBranch("https://github.com/o/r.git");
+
+		expect(branch).toBe("trunk");
+		const call = vi.mocked(childProcess.execFile).mock.calls[0]!;
+		expect(call[1]).toEqual([
+			"ls-remote",
+			"--symref",
+			"https://github.com/o/r.git",
+			"HEAD",
+		]);
+	});
+
+	it("keeps a branch name with a slash whole", async () => {
+		mockExecFileSuccess("ref: refs/heads/release/v2\tHEAD\n");
+
+		expect(await fetchDefaultBranch("https://github.com/o/r.git")).toBe(
+			"release/v2",
+		);
+	});
+
+	it("is null when the remote names no branch for HEAD", async () => {
+		mockExecFileSuccess(`${"a".repeat(40)}\tHEAD\n`);
+
+		expect(await fetchDefaultBranch("https://github.com/o/r.git")).toBeNull();
 	});
 });

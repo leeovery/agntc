@@ -44,6 +44,16 @@ describe("claimFiles", () => {
 		).toEqual(["owner/repo/a"]);
 	});
 
+	it("absorbs a loose skill added over SSH into a pack from the same repo over HTTPS", () => {
+		const manifest: Manifest = {
+			"owner/repo/a": skill("a", { cloneUrl: "git@github.com:owner/repo.git" }),
+		};
+
+		expect(
+			claimFiles(incoming, manifest, "owner/repo/tools", REPO).absorbed,
+		).toEqual(["owner/repo/a"]);
+	});
+
 	it("clashes with a loose skill from another source, naming the files", () => {
 		const manifest: Manifest = { "other/repo/a": skill("a") };
 

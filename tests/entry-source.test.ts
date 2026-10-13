@@ -6,6 +6,7 @@ import {
 	localRootOf,
 	reAddCommand,
 	recordedSubpath,
+	type SourceId,
 	sourceIdOf,
 } from "../src/entry-source.js";
 import { parseSource } from "../src/source-parser.js";
@@ -386,6 +387,42 @@ describe("isSameSource", () => {
 				sourceIdOf("other/repo/a", makeEntry()),
 			),
 		).toBe(false);
+	});
+
+	describe("remote clone URLs of one repo", () => {
+		const remote = (cloneUrl: string): SourceId => ({
+			kind: "remote",
+			cloneUrl,
+		});
+
+		it.each([
+			["https://github.com/o/r.git", "https://github.com/o/r"],
+			["https://github.com/o/r.git", "git@github.com:o/r.git"],
+			["https://github.com/o/r", "git@github.com:o/r"],
+			["https://lee:token@github.com/o/r.git", "https://github.com/o/r"],
+			["ssh://git@github.com:22/o/r.git", "git@github.com:o/r.git"],
+			["https://GitHub.com/o/r.git", "git@github.com:o/r.git"],
+		])("match whatever the protocol, login, port or .git: %s and %s", (a, b) => {
+			expect(isSameSource(remote(a), remote(b))).toBe(true);
+		});
+
+		it.each([
+			["https://github.com/o/r.git", "https://gitlab.com/o/r.git"],
+			["git@github.com:o/r.git", "git@gitlab.com:o/r.git"],
+			["https://github.com/o/r.git", "https://github.com/o/other.git"],
+			["https://github.com/o/r.git", "https://github.com/x/r.git"],
+		])("don't match on another host or repo: %s and %s", (a, b) => {
+			expect(isSameSource(remote(a), remote(b))).toBe(false);
+		});
+
+		it("tells local repo paths apart by the path itself", () => {
+			expect(isSameSource(remote("/srv/a.git"), remote("/srv/a.git"))).toBe(
+				true,
+			);
+			expect(isSameSource(remote("/srv/a.git"), remote("/srv/b.git"))).toBe(
+				false,
+			);
+		});
 	});
 
 	it("uses a recorded clone URL over the one the key implies", () => {
