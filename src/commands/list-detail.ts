@@ -1,7 +1,7 @@
-import * as p from "@clack/prompts";
-import { identifyFileOwnership } from "../drivers/identify.js";
-import type { ManifestEntry } from "../manifest.js";
+import { identifyAssetType } from "../asset-targets.js";
+import type { EntryType, ManifestEntry } from "../manifest.js";
 import { formatRefLabel } from "../summary.js";
+import type { Ui } from "../ui.js";
 import {
 	hasOutOfConstraintVersion,
 	type UpdateCheckResult,
@@ -15,6 +15,11 @@ export interface DetailViewInput {
 	entry: ManifestEntry;
 	updateStatus: UpdateCheckResult;
 }
+
+const ENTRY_LABELS: Record<EntryType, string> = {
+	skill: "Skill",
+	pack: "Pack",
+};
 
 function formatCommit(entry: ManifestEntry): string {
 	if (entry.commit) return entry.commit.slice(0, 7);
@@ -32,19 +37,12 @@ interface AssetCounts {
 	other: number;
 }
 
-function computePerAgentCounts(files: string[]): Map<string, AssetCounts> {
-	const map = new Map<string, AssetCounts>();
+function computeAssetCounts(files: string[]): AssetCounts {
+	const counts: AssetCounts = { skills: 0, agents: 0, hooks: 0, other: 0 };
 	for (const file of files) {
-		const ownership = identifyFileOwnership(file);
-		const agent = ownership?.agentId ?? "other";
-		const assetType: keyof AssetCounts = ownership?.assetType ?? "other";
-		if (!map.has(agent)) {
-			map.set(agent, { skills: 0, agents: 0, hooks: 0, other: 0 });
-		}
-		const counts = map.get(agent)!;
-		counts[assetType]++;
+		counts[identifyAssetType(file) ?? "other"]++;
 	}
-	return map;
+	return counts;
 }
 
 function formatAssetCounts(counts: AssetCounts): string {
@@ -93,6 +91,7 @@ function getActions(
 
 export async function renderDetailView(
 	input: DetailViewInput,
+	ui: Ui,
 ): Promise<DetailAction> {
 	const { key, entry, updateStatus } = input;
 
@@ -102,27 +101,22 @@ export async function renderDetailView(
 		? ` (${updateStatus.latestOverall} available outside constraint)`
 		: "";
 
-	p.log.info(`Plugin: ${key}`);
-	p.log.info(`Ref: ${formatRefLabel(entry.ref, entry.commit)}`);
+	ui.log.info(`${ENTRY_LABELS[entry.type ?? "skill"]}: ${key}`);
+	ui.log.info(`Ref: ${formatRefLabel(entry.ref, entry.commit)}`);
 	if (entry.constraint) {
-		p.log.info(`Constraint: ${entry.constraint}${outOfConstraint}`);
+		ui.log.info(`Constraint: ${entry.constraint}${outOfConstraint}`);
 	}
-	p.log.info(`Commit: ${formatCommit(entry)}`);
-	p.log.info(`Installed: ${formatDate(entry.installedAt)}`);
+	ui.log.info(`Commit: ${formatCommit(entry)}`);
+	ui.log.info(`Installed: ${formatDate(entry.installedAt)}`);
 
-	// One compact agents line with per-agent counts — no repeated agents list,
-	// no per-agent sub-bullets, no raw file-path dump.
-	const perAgent = computePerAgentCounts(entry.files);
-	const agentSummary = entry.agents
-		.map((agent) => {
-			const counts = perAgent.get(agent);
-			return counts ? `${agent} (${formatAssetCounts(counts)})` : agent;
-		})
-		.join(", ");
-	p.log.info(`Agents: ${agentSummary}`);
+	// One compact counts line — no raw file-path dump.
+	const assetSummary = formatAssetCounts(computeAssetCounts(entry.files));
+	if (assetSummary.length > 0) {
+		ui.log.info(`Assets: ${assetSummary}`);
+	}
 
 	if (updateStatus.status === "constrained-no-match") {
-		p.log.error(
+		ui.log.error(
 			`No matching version found for constraint "${entry.constraint}"`,
 		);
 	}
@@ -133,14 +127,10 @@ export async function renderDetailView(
 		isVersionTag(entry.ref) && updateStatus.status !== "check-failed";
 	const actions = getActions(updateStatus, canChangeVersion);
 
-	const selected = await p.select<DetailAction>({
+	const selected = await ui.select<DetailAction>({
 		message: "Action",
 		options: actions,
 	});
 
-	if (p.isCancel(selected)) {
-		return "back";
-	}
-
-	return selected;
+	return selected ?? "back";
 }

@@ -1,23 +1,28 @@
-import * as p from "@clack/prompts";
-import type { AgentId } from "./drivers/types.js";
+import { localItemPath, localRootOf, reAddCommand } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry, writeManifest } from "./manifest.js";
-import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
+import {
+	executeNukeAndReinstall,
+	type NukeReinstallOptions,
+} from "./nuke-reinstall-pipeline.js";
+import { agntcCommand, type Scope, type ScopeName } from "./scope.js";
 import {
 	buildParsedSourceFromKey,
+	guardSourceDir,
 	resolveGuardedSourceDir,
 } from "./source-parser.js";
+import type { Ui } from "./ui.js";
 
 export interface CloneAndReinstallOptions {
 	key: string;
 	entry: ManifestEntry;
-	projectDir: string;
+	scope: Scope;
 	newRef?: string;
 	newCommit?: string;
-	/** Provide to skip cloning (local path). */
+	/** The local folder to reinstall from instead of cloning. */
 	sourceDir?: string;
 	/** When provided, copy-failed will automatically remove the entry and write the manifest. */
 	manifest?: Manifest;
@@ -25,7 +30,7 @@ export interface CloneAndReinstallOptions {
 
 /**
  * Per-call inputs the four reinstall entry points layer on top of the shared
- * key/entry/projectDir triple: an optional `manifest` (enables copy-failed
+ * key/entry/scope triple: an optional `manifest` (enables copy-failed
  * removal), and version overrides (`newRef`/`newCommit`) for constrained or
  * change-version flows.
  */
@@ -42,33 +47,33 @@ export type PrepareReinstallResult =
 /**
  * Shared preparation for the four update entry points (update single, update
  * all, list update action, list change-version action). Detects local vs remote
- * from `entry.commit === null`, validates the local source path when local, and
- * assembles the {@link CloneAndReinstallOptions} object (including the
- * `sourceDir: key` spread for local installs). On a failed local-path check it
- * returns `{ ok: false }` carrying the validation reason; callers map that to
- * their own presentation channel.
+ * from `entry.commit === null`, validates the local source folder when local,
+ * and assembles the {@link CloneAndReinstallOptions} object (including that
+ * folder as `sourceDir` for local installs). On a failed local-path check it
+ * returns `{ ok: false }` carrying the validation reason, naming the folder; callers
+ * print it as it is.
  */
 export async function prepareReinstall(
 	key: string,
 	entry: ManifestEntry,
-	projectDir: string,
+	scope: Scope,
 	opts: PrepareReinstallOpts = {},
 ): Promise<PrepareReinstallResult> {
-	const isLocal = entry.commit === null;
+	const localRoot = entry.commit === null ? localRootOf(key, entry) : undefined;
 
-	if (isLocal) {
-		const pathResult = await validateLocalSourcePath(key);
+	if (localRoot !== undefined) {
+		const pathResult = await validateLocalSourcePath(localRoot);
 		if (!pathResult.valid) {
-			return { ok: false, reason: pathResult.reason };
+			return { ok: false, reason: `${localRoot}: ${pathResult.reason}` };
 		}
 	}
 
 	const options: CloneAndReinstallOptions = {
 		key,
 		entry,
-		projectDir,
+		scope,
 		...(opts.manifest !== undefined ? { manifest: opts.manifest } : {}),
-		...(isLocal ? { sourceDir: key } : {}),
+		...(localRoot !== undefined ? { sourceDir: localRoot } : {}),
 		...(opts.newRef !== undefined ? { newRef: opts.newRef } : {}),
 		...(opts.newCommit !== undefined ? { newCommit: opts.newCommit } : {}),
 	};
@@ -80,27 +85,37 @@ interface CloneReinstallSuccess {
 	status: "success";
 	manifestEntry: ManifestEntry;
 	copiedFiles: string[];
-	droppedAgents: AgentId[];
-}
-
-export interface CloneReinstallFailed {
-	status: "failed";
-	failureReason: "clone-failed" | "copy-failed" | "unknown";
-	message: string;
+	/** What the user should hear about how the entry was reinstalled. */
+	notes: string[];
+	/** Loose skill entries a pack took over: their files are gone, their entries are the caller's to drop. */
+	absorbed: string[];
 }
 
 /**
- * The lenient no-agents skip: the re-cloned tree's config narrows the entry's
- * agents to zero. Per the spec's lenient agent posture this is a *skip, not a
- * failure* — the existing install is left intact, nothing is nuked, and the
- * command must NOT exit non-zero on its account. It carries its own
- * non-`failed` status so the type mirrors that intent; {@link mapCloneFailure}
- * still routes it through `onNoAgents`, preserving the exact downstream outcome.
+ * Nothing the entry installs is left in its source. Nothing was touched; the
+ * caller decides whether to remove it.
  */
-export interface CloneReinstallNoAgents {
-	status: "no-agents";
-	message: string;
+interface CloneReinstallGone {
+	status: "gone";
 }
+
+/**
+ * A copy failure has already removed the entry's files, and those of the loose
+ * skills a pack took over: `absorbed` names those, whose entries go too. A
+ * removal failure keeps every entry, so whatever is left stays tracked.
+ */
+export type CloneReinstallFailed =
+	| {
+			status: "failed";
+			failureReason: "clone-failed" | "remove-failed";
+			message: string;
+	  }
+	| {
+			status: "failed";
+			failureReason: "copy-failed";
+			message: string;
+			absorbed: string[];
+	  };
 
 /**
  * The non-success clone-reinstall outcomes: the union {@link mapCloneFailure}
@@ -110,17 +125,15 @@ export interface CloneReinstallNoAgents {
  */
 export type CloneReinstallFailure =
 	| CloneReinstallFailed
-	| CloneReinstallNoAgents
 	| CloneReinstallAborted
 	| CloneReinstallBlocked;
 
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
-	onNoAgents: (msg: string) => T;
-	onCopyFailed: (msg: string) => T;
-	onAborted: (recordedType: "skill" | "plugin", reason: string) => T;
+	onCopyFailed: (msg: string, absorbed: string[]) => T;
+	onAborted: (abort: AbortCause) => T;
 	onBlocked: (reason: string) => T;
-	onUnknown: (msg: string) => T;
+	onRemoveFailed: (msg: string) => T;
 }
 
 /**
@@ -135,41 +148,36 @@ export function isCloneReinstallFailure(
 	return (
 		result.status === "failed" ||
 		result.status === "aborted" ||
-		result.status === "blocked" ||
-		result.status === "no-agents"
+		result.status === "blocked"
 	);
 }
 
 /**
  * Routes a non-success clone-reinstall result to the matching handler, using
- * `status` as the single cross-boundary discriminator for the three
+ * `status` as the single cross-boundary discriminator for the two
  * structurally-distinct cases that leave the existing install intact:
  * `aborted` (derive-before-delete — re-cloned tree no longer supports the
- * recorded type), `blocked` (symlink-escape copy-safety — source contains a
- * link escaping the clone), and `no-agents` (lenient skip — the new config
- * narrows agents to zero; not a hard error). The remaining `failed` family is
- * refined on `failureReason` into clone-failed / copy-failed / unknown.
+ * recorded type) and `blocked` (copy-safety — a symlink in the source agntc
+ * won't follow). The remaining `failed` family is refined on
+ * `failureReason` into clone-failed / copy-failed / remove-failed.
  */
 export function mapCloneFailure<T>(
 	result: CloneReinstallFailure,
 	handlers: CloneFailureHandlers<T>,
 ): T {
 	if (result.status === "aborted") {
-		return handlers.onAborted(result.recordedType, result.reason);
+		return handlers.onAborted(result);
 	}
 	if (result.status === "blocked") {
 		return handlers.onBlocked(result.reason);
-	}
-	if (result.status === "no-agents") {
-		return handlers.onNoAgents(result.message);
 	}
 	switch (result.failureReason) {
 		case "clone-failed":
 			return handlers.onCloneFailed(result.message);
 		case "copy-failed":
-			return handlers.onCopyFailed(result.message);
-		case "unknown":
-			return handlers.onUnknown(result.message);
+			return handlers.onCopyFailed(result.message, result.absorbed);
+		case "remove-failed":
+			return handlers.onRemoveFailed(result.message);
 	}
 }
 
@@ -177,61 +185,52 @@ export function mapCloneFailure<T>(
  * Collapses any {@link CloneReinstallFailure} to a single user-facing message,
  * shared by the two `list` actions (update + change-version) whose failure tails
  * were otherwise byte-identical. Implemented in terms of {@link mapCloneFailure}
- * so the dispatch logic isn't re-authored: clone-failed/copy-failed/unknown and
- * the lenient no-agents skip pass through the failure's own message, `aborted`
- * routes through {@link buildAbortMessage} and `blocked` through
+ * so the dispatch logic isn't re-authored: clone-failed/copy-failed/remove-failed
+ * pass through the failure's own message, `aborted` routes through
+ * {@link buildAbortMessage} and `blocked` through
  * {@link buildCopySafetyMessage}. A new failure variant is a single edit here;
  * the list actions can't drift. update.ts keeps its richer per-status handler.
  */
 export function failureMessage(
 	result: CloneReinstallFailure,
 	key: string,
+	entry: ManifestEntry,
+	scope: ScopeName,
 ): string {
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
-		onNoAgents: (msg) => msg,
 		onCopyFailed: (msg) => msg,
-		onUnknown: (msg) => msg,
-		onAborted: (recordedType, reason) =>
-			buildAbortMessage(key, recordedType, reason),
+		onRemoveFailed: (msg) => msg,
+		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope),
 		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
 	});
 }
 
 /**
- * The single source of the lenient no-agents sentence. Every site that surfaces
- * "this plugin no longer supports any installed agent" — the
- * {@link CloneReinstallNoAgents} message built in {@link runPipeline} (which
- * {@link failureMessage}'s `onNoAgents` arm then passes through) and update.ts's
- * richer warning (which appends its own remedy) — derives from here so the
- * wording can't drift across copies.
- */
-export function noAgentsMessage(key: string): string {
-	return `Plugin ${key} no longer supports any of your installed agents`;
-}
-
-/**
  * The unit's update was aborted by the derive-before-delete validation gate: the
- * re-cloned tree no longer supports the entry's recorded type, so no files were
- * removed and the existing install is left intact. Carries the structured cause
- * ({@link recordedType} + {@link reason}); the user-facing message and manual
- * remedy are assembled by the reporting layer. The distinct `status: "aborted"`
- * is the single discriminator: {@link mapCloneFailure} dispatches it via
- * `onAborted` on `status` alone, keeping it separate from the `status: "failed"`
- * reasons (notably copy-failed, which removes the entry) without a redundant
- * second tag.
+ * re-cloned tree can't be replayed for the entry, so no files were removed and
+ * the existing install is left intact. Carries the structured cause
+ * ({@link reason}); the user-facing message and manual remedy are assembled by
+ * the reporting layer. The distinct `status: "aborted"` is the single
+ * discriminator: {@link mapCloneFailure} dispatches it via `onAborted` on
+ * `status` alone, keeping it separate from the `status: "failed"` reasons
+ * (notably copy-failed, which removes the entry) without a redundant second tag.
  */
 export interface CloneReinstallAborted {
 	status: "aborted";
-	recordedType: "skill" | "plugin";
 	reason: string;
+	/** What stopped it was files in the way, which an add with --overwrite replaces. */
+	inTheWay?: true;
 }
 
+/** Why an update aborted, as {@link buildAbortMessage} reports it. */
+export type AbortCause = Omit<CloneReinstallAborted, "status">;
+
 /**
- * The unit's update was blocked by the symlink-escape copy-safety pre-flight:
- * the re-cloned source contains a symlink whose target resolves outside the
- * clone. The scan runs BEFORE any file removal, so the existing install is left
- * fully intact (no nuke, no copy, manifest unchanged). Distinct from
+ * The unit's update was blocked by the copy-safety pre-flight: the re-cloned
+ * source holds a symlink agntc won't follow, leading out of the clone or on
+ * the entry's path. It runs BEFORE any file removal, so the existing install
+ * is left fully intact (no nuke, no copy, manifest unchanged). Distinct from
  * {@link CloneReinstallAborted}: there is no recorded-type mismatch, so the
  * report must NOT offer the remove+add migrate remedy (it just re-trips the same
  * guard). The distinct `status: "blocked"` is the single discriminator;
@@ -248,33 +247,45 @@ export interface CloneReinstallBlocked {
 export type CloneReinstallResult =
 	| CloneReinstallSuccess
 	| CloneReinstallFailed
-	| CloneReinstallNoAgents
 	| CloneReinstallAborted
-	| CloneReinstallBlocked;
+	| CloneReinstallBlocked
+	| CloneReinstallGone;
 
 /**
- * The user-facing report for a derive-before-delete abort: names the recorded
- * type and how the current source structure diverges from it ({@link reason}),
- * affirms the existing install is unchanged, and states the manual remove+add
- * remedy. Distinct from the copy-failed report, which tells the user the unit is
- * currently uninstalled and to re-run update — here nothing was touched.
+ * The user-facing report for a derive-before-delete abort: why the source
+ * can't be replayed for the entry, that the existing install is unchanged,
+ * and the manual remedy built from the entry. Files in the way are cleared by
+ * hand or replaced by an add with --overwrite, which update doesn't take; any
+ * other abort migrates by remove+add. Distinct from the copy-failed report,
+ * which tells the user the unit is currently uninstalled and to re-run update —
+ * here nothing was touched.
  */
 export function buildAbortMessage(
 	key: string,
-	recordedType: "skill" | "plugin",
-	reason: string,
+	entry: ManifestEntry,
+	{ reason, inTheWay }: AbortCause,
+	scope: ScopeName,
 ): string {
+	const reAdd = reAddCommand(key, entry, scope);
+	const remove = agntcCommand(scope, "remove", [key]);
+	if (inTheWay) {
+		return (
+			`${key} can't be updated: ${reason}. The existing install is ` +
+			`unchanged. Clear them and update again, or replace them: ` +
+			`${remove} then ${reAdd} --overwrite`
+		);
+	}
 	return (
-		`${key} was installed as a ${recordedType}, but its source no longer ` +
-		`supports that type (${reason}). The existing install is unchanged. ` +
-		`To migrate: npx agntc remove ${key} then npx agntc add ${key}`
+		`${key} was installed as a ${entry.type ?? "skill"} and can't be ` +
+		`updated (${reason}). The existing install is unchanged. ` +
+		`To migrate: ${remove} then ${reAdd}`
 	);
 }
 
 /**
- * The user-facing report for a symlink-escape copy-safety block. Names the
- * source (key), states the source contains a symlink escaping the clone (the
- * structured {@link reason} surfaces the offending link), and affirms the
+ * The user-facing report for a copy-safety block. Names the source (key) and
+ * the offending link (the structured {@link reason} says why agntc won't
+ * follow it), and affirms the
  * update is blocked with the existing install left intact. Mirrors the add
  * path's identity-prefixed cancel framing (`${key}: <reason>`). Deliberately
  * distinct from {@link buildAbortMessage}: this is a copy-safety violation, not
@@ -283,21 +294,8 @@ export function buildAbortMessage(
  */
 export function buildCopySafetyMessage(key: string, reason: string): string {
 	return (
-		`${key}: ${reason}. The source contains a symlink escaping the clone, ` +
-		`so the update is blocked. The existing install is unchanged.`
-	);
-}
-
-export function formatAgentsDroppedWarning(
-	key: string,
-	dropped: AgentId[],
-	installedAgents: AgentId[],
-	newConfigAgents: AgentId[],
-): string {
-	return (
-		`Plugin ${key} no longer declares support for ${dropped.join(", ")}. ` +
-		`Currently installed for: ${installedAgents.join(", ")}. ` +
-		`New version supports: ${newConfigAgents.join(", ")}.`
+		`${key}: ${reason}. agntc won't follow that symlink, so the update is ` +
+		`blocked. The existing install is unchanged.`
 	);
 }
 
@@ -325,23 +323,39 @@ export async function cloneRepoOnce(input: {
 	return cloneSource(parsed);
 }
 
+/**
+ * `installed` is every entry the manifest holds, for what a pack's re-walk
+ * absorbs or clashes with.
+ */
 export async function cloneAndReinstall(
 	options: CloneAndReinstallOptions,
+	ui: Ui,
+	installed: Manifest,
 ): Promise<CloneReinstallResult> {
-	const { key, entry, projectDir } = options;
+	const { key, entry, scope } = options;
 
-	// Local path mode: no cloning needed
 	if (options.sourceDir !== undefined) {
+		const localRoot = options.sourceDir;
+		const guarded = guardSourceDir(
+			localRoot,
+			localItemPath(key, entry, localRoot),
+		);
+		if (!guarded.ok) {
+			return {
+				status: "failed",
+				failureReason: "clone-failed",
+				message: guarded.message,
+			};
+		}
 		const result = await runPipeline({
 			key,
 			entry,
-			projectDir,
-			sourceDir: options.sourceDir,
-			// Local-path mode: the provided source root is the containment
-			// boundary for the symlink-escape scan (cloneRoot === sourceDir).
-			cloneRoot: options.sourceDir,
-			newRef: options.newRef ?? null,
-			newCommit: options.newCommit ?? null,
+			installed,
+			scope,
+			sourceDir: guarded.sourceDir,
+			cloneRoot: localRoot,
+			newRef: options.newRef,
+			newCommit: options.newCommit,
 		});
 		return handleCopyFailedRemoval(result, options);
 	}
@@ -350,7 +364,7 @@ export async function cloneAndReinstall(
 	let tempDir: string | undefined;
 
 	try {
-		const spin = p.spinner();
+		const spin = ui.spinner();
 		spin.start("Cloning repository...");
 
 		let cloneResult: CloneResult;
@@ -374,8 +388,8 @@ export async function cloneAndReinstall(
 		const newCommit = options.newCommit ?? cloneResult.commit;
 		// Guard + source-dir resolution for the re-cloned tree is authored once in
 		// resolveGuardedSourceDir, composed identically by the group orchestrator's
-		// reinstallMember. It runs the cycle-9 source-dir rule (prefer the recorded
-		// sourceSubpath, else the key-derived dir) behind the analysis-10-2 lexical
+		// reinstallMember. It runs the source-dir rule (prefer the recorded
+		// sourceSubpath, else the key-derived dir) behind the lexical
 		// containment guard, gated BEFORE the join is first read (readConfig +
 		// derive-before-delete in runPipeline both read at the joined path). A
 		// recorded subpath that lexically escapes the clone (e.g. `../evil`) is
@@ -396,14 +410,15 @@ export async function cloneAndReinstall(
 		const result = await runPipeline({
 			key,
 			entry,
-			projectDir,
+			installed,
+			scope,
 			sourceDir,
 			// Clone mode: the clone temp dir is the containment boundary for the
 			// symlink-escape scan. For a member unit `sourceDir` is a subdir of
 			// tempDir, so within-clone cross-member symlinks are allowed; only
 			// links escaping the whole clone are rejected.
 			cloneRoot: tempDir,
-			newRef: options.newRef ?? null,
+			newRef: options.newRef,
 			newCommit,
 		});
 		return handleCopyFailedRemoval(result, options);
@@ -418,6 +433,7 @@ export async function cloneAndReinstall(
 	}
 }
 
+/** A copy failure removed the files of the entry and of what it took over, so their entries go. */
 async function handleCopyFailedRemoval(
 	result: CloneReinstallResult,
 	options: CloneAndReinstallOptions,
@@ -427,22 +443,19 @@ async function handleCopyFailedRemoval(
 		result.failureReason === "copy-failed" &&
 		options.manifest !== undefined
 	) {
+		const removed = [options.key, ...result.absorbed];
 		await writeManifest(
-			options.projectDir,
-			removeEntry(options.manifest, options.key),
+			options.scope.root,
+			removed.reduce((rest, key) => removeEntry(rest, key), options.manifest),
 		);
 	}
 	return result;
 }
 
-export interface PipelineInput {
-	key: string;
+/** {@link NukeReinstallOptions}, with the entry under its caller-side name. */
+export interface PipelineInput
+	extends Omit<NukeReinstallOptions, "existingEntry"> {
 	entry: ManifestEntry;
-	projectDir: string;
-	sourceDir: string;
-	cloneRoot: string;
-	newRef: string | null;
-	newCommit: string | null;
 }
 
 /**
@@ -457,64 +470,37 @@ export interface PipelineInput {
 export async function runPipeline(
 	input: PipelineInput,
 ): Promise<CloneReinstallResult> {
-	const { key, entry, projectDir, sourceDir, cloneRoot, newRef, newCommit } =
-		input;
-
-	const onWarn = (message: string) => p.log.warn(message);
-
+	const { entry, ...rest } = input;
 	const pipelineResult = await executeNukeAndReinstall({
-		key,
-		sourceDir,
-		cloneRoot,
+		...rest,
 		existingEntry: entry,
-		projectDir,
-		newRef,
-		newCommit,
-		onAgentsDropped: (dropped, newConfigAgents) => {
-			p.log.warn(
-				formatAgentsDroppedWarning(key, dropped, entry.agents, newConfigAgents),
-			);
-		},
-		onWarn,
 	});
 
-	if (pipelineResult.status === "no-agents") {
-		return {
-			status: "no-agents",
-			message: noAgentsMessage(key),
-		};
+	switch (pipelineResult.status) {
+		case "copy-failed":
+			return {
+				status: "failed",
+				failureReason: "copy-failed",
+				message: pipelineResult.recoveryHint,
+				absorbed: pipelineResult.absorbed,
+			};
+		case "remove-failed":
+			return {
+				status: "failed",
+				failureReason: "remove-failed",
+				message: pipelineResult.reason,
+			};
+		case "success":
+			return {
+				status: "success",
+				manifestEntry: pipelineResult.entry,
+				copiedFiles: pipelineResult.copiedFiles,
+				notes: pipelineResult.notes,
+				absorbed: pipelineResult.absorbed,
+			};
+		default:
+			// Aborted, blocked and gone leave the entry intact: with no
+			// failureReason, handleCopyFailedRemoval never removes it.
+			return pipelineResult;
 	}
-
-	if (pipelineResult.status === "copy-failed") {
-		return {
-			status: "failed",
-			failureReason: "copy-failed",
-			message: pipelineResult.recoveryHint,
-		};
-	}
-
-	if (pipelineResult.status === "aborted") {
-		return {
-			status: "aborted",
-			recordedType: pipelineResult.recordedType,
-			reason: pipelineResult.reason,
-		};
-	}
-
-	// Symlink-escape copy-safety block: like aborted, the entry stays intact (no
-	// failureReason, so handleCopyFailedRemoval never removes it). Distinct status
-	// keeps it off the type-migration remedy.
-	if (pipelineResult.status === "blocked") {
-		return {
-			status: "blocked",
-			reason: pipelineResult.reason,
-		};
-	}
-
-	return {
-		status: "success",
-		manifestEntry: pipelineResult.entry,
-		copiedFiles: pipelineResult.copiedFiles,
-		droppedAgents: pipelineResult.droppedAgents,
-	};
 }

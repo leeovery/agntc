@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest } from "../../src/manifest.js";
-import type { DetectedType } from "../../src/type-detection.js";
 
 // The clone-reinstall dependency surface shared with list-update-action is
 // mocked via factory bodies authored once in ../helpers/list-action-mock-
@@ -28,22 +27,6 @@ vi.mock("../../src/git-clone.js", async () => {
 	return mockGitCloneModule();
 });
 
-vi.mock("../../src/config.js", async () => {
-	const { mockConfigModule } = await import(
-		"../helpers/list-action-mock-factories.js"
-	);
-	return mockConfigModule();
-});
-
-vi.mock("../../src/type-detection.js", async (importOriginal) => {
-	const { mockTypeDetectionModule } = await import(
-		"../helpers/list-action-mock-factories.js"
-	);
-	return mockTypeDetectionModule(
-		importOriginal<typeof import("../../src/type-detection.js")>,
-	);
-});
-
 // File-specific: this file mocks `access` only (no local-path `stat`).
 vi.mock("node:fs/promises", () => ({
 	access: vi.fn(),
@@ -66,11 +49,13 @@ vi.mock("../../src/nuke-files.js", async () => {
 	return mockNukeFilesModule();
 });
 
-vi.mock("../../src/copy-plugin-assets.js", async () => {
-	const { mockCopyPluginAssetsModule } = await import(
+vi.mock("../../src/copy-pack.js", async (importOriginal) => {
+	const { mockCopyPackModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockCopyPluginAssetsModule();
+	return mockCopyPackModule(
+		importOriginal<typeof import("../../src/copy-pack.js")>,
+	);
 });
 
 vi.mock("../../src/copy-bare-skill.js", async () => {
@@ -80,11 +65,20 @@ vi.mock("../../src/copy-bare-skill.js", async () => {
 	return mockCopyBareSkillModule();
 });
 
-vi.mock("../../src/drivers/registry.js", async () => {
-	const { mockDriversRegistryModule } = await import(
+vi.mock("../../src/discover.js", async (importOriginal) => {
+	const { mockDiscoverModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockDriversRegistryModule();
+	return mockDiscoverModule(
+		importOriginal<typeof import("../../src/discover.js")>,
+	);
+});
+
+vi.mock("../../src/unmanaged-check.js", async () => {
+	const { mockUnmanagedCheckModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockUnmanagedCheckModule();
 });
 
 // File-specific: change-version always fetches the full remote tag list.
@@ -96,8 +90,11 @@ import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
+import { globalScope, projectScope } from "../../src/scope.js";
+import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
+	looseSkillsAt,
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
@@ -107,13 +104,11 @@ const mockWriteManifest = mocks.writeManifest;
 const mockAddEntry = mocks.addEntry;
 const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
-const mockReadConfig = mocks.readConfig;
-const mockDetectType = mocks.detectType;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
-const mockLog = vi.mocked(p.log);
+const mockDiscover = mocks.discover;
 // File-specific handles for the change-version flow.
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockSelect = vi.mocked(p.select);
@@ -127,8 +122,6 @@ function primeSuccessfulReinstall(): void {
 		tempDir: "/tmp/agntc-clone",
 		commit: REMOTE_SHA,
 	});
-	mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-	mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 	mockCopyBareSkill.mockResolvedValue({
 		copiedFiles: [".claude/skills/my-skill/"],
 	});
@@ -159,7 +152,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
 
 			expect(mockSelect).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -181,7 +180,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
 
 			expect(mockSelect).toHaveBeenCalledWith(
 				expect.objectContaining({ maxItems: 15 }),
@@ -199,7 +204,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -216,7 +222,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
 
 			expect(mockFetchRemoteTags).toHaveBeenCalledTimes(1);
 		});
@@ -236,7 +248,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -256,7 +269,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(mockConfirm).toHaveBeenCalled();
@@ -277,7 +291,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -300,14 +315,14 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(true);
 			expect(result.newEntry).toBeDefined();
 			expect(result.newEntry!.commit).toBe(REMOTE_SHA);
 			expect(result.newEntry!.ref).toBe("v2.0.0");
-			expect(result.newEntry!.agents).toEqual(["claude"]);
 			expect(result.newEntry!.files).toEqual([".claude/skills/my-skill/"]);
 			expect(result.message).toBe("Changed owner/repo to v2.0.0");
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -324,7 +339,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -349,7 +370,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -357,60 +379,6 @@ describe("executeChangeVersionAction", () => {
 			expect(result.newEntry).toBeUndefined();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("all agents dropped", () => {
-		it("returns changed: false, does not nuke", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ ref: "v1.0.0", agents: ["codex"] });
-			const manifest: Manifest = { [key]: entry };
-
-			mockSelect.mockResolvedValue("v1.1.0");
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// New version only supports claude, entry has codex
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			const result = await executeChangeVersionAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.changed).toBe(false);
-			expect(result.message).toContain(
-				"no longer supports any of your installed agents",
-			);
-			expect(result.newEntry).toBeUndefined();
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
-	});
-
-	describe("agent drop warning", () => {
-		it("emits warning for partial drop", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ ref: "v1.0.0", agents: ["claude", "codex"] });
-			const manifest: Manifest = { [key]: entry };
-
-			mockSelect.mockResolvedValue("v1.1.0");
-			primeSuccessfulReinstall();
-
-			const result = await executeChangeVersionAction(
-				key,
-				entry,
-				manifest,
-				"/fake/project",
-			);
-
-			expect(result.changed).toBe(true);
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
 		});
 	});
 
@@ -423,7 +391,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -438,15 +412,14 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const result = await executeChangeVersionAction(
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -463,7 +436,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
 
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				manifest,
@@ -487,23 +466,77 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const result = await executeChangeVersionAction(
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
-			expect(result.message).toContain("npx agntc update owner/repo");
+			expect(result.message).toContain("npx agntc add owner/repo");
 			expect(mockWriteManifest).toHaveBeenCalledWith(
 				"/fake/project",
 				expect.not.objectContaining({ "owner/repo": expect.anything() }),
 			);
+		});
+	});
+
+	describe("a removal that fails part way", () => {
+		it("returns changed: false with the reason, copying nothing and keeping the entry", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0" });
+
+			mockSelect.mockResolvedValue("v1.1.0");
+			primeSuccessfulReinstall();
+			mockNukeManifestFiles.mockRejectedValue(new Error("EACCES"));
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				message: "couldn't remove its old files: EACCES",
+				notes: [],
+			});
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("a local source folder that's gone", () => {
+		it("names the recorded root, not the key", async () => {
+			const key = "/Users/lee/Code/skills/go";
+			const entry = makeEntry({
+				commit: null,
+				ref: "v1.0.0",
+				localRoot: "/Users/lee/Code/skills",
+			});
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0"]);
+			mockSelect.mockResolvedValue("v1.1.0");
+			mockConfirm.mockResolvedValue(true);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				message: "/Users/lee/Code/skills: path does not exist",
+				notes: [],
+			});
 		});
 	});
 
@@ -522,25 +555,159 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			// Recorded skill's SKILL.md is gone in the re-clone → abort.
+			// The recorded SKILL.md is gone and two skills now carry its name → abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
 
 			const result = await executeChangeVersionAction(
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
-			expect(result.message).toContain("installed as a skill");
-			expect(result.message).toContain("unchanged");
-			expect(result.message).toContain("npx agntc remove owner/repo");
-			expect(result.message).toContain("npx agntc add owner/repo");
+			expect(result.message).toBe(
+				"owner/repo was installed as a skill and can't be updated (its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo). The existing install is unchanged. To migrate: npx agntc remove owner/repo then npx agntc add owner/repo",
+			);
 			expect(result.newEntry).toBeUndefined();
 			// Install intact: no nuke, no manifest write.
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("carries -g in the remedy for a global entry", async () => {
+			const entry = makeEntry({ type: "skill", ref: "v1.0.0" });
+			mockSelect.mockResolvedValue("v1.1.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
+
+			const result = await executeChangeVersionAction(
+				"owner/repo",
+				entry,
+				{ "owner/repo": entry },
+				globalScope("/home/lee"),
+				interactiveUi,
+			);
+
+			expect(result.message).toContain(
+				"To migrate: npx agntc remove -g owner/repo then npx agntc add -g owner/repo",
+			);
+		});
+	});
+
+	describe("an entry gone upstream at the chosen version", () => {
+		const key = "owner/repo/go";
+		const entry = makeEntry({
+			type: "skill",
+			ref: "v1.0.0",
+			files: [".claude/skills/go/"],
+		});
+		const other = makeEntry({ files: [".claude/skills/other/"] });
+		const manifest: Manifest = { [key]: entry, "owner/other": other };
+
+		function arrangeGone(removeIt: boolean): void {
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/other"));
+			// The first confirm is the version change itself.
+			mockConfirm.mockResolvedValueOnce(true).mockResolvedValueOnce(removeIt);
+		}
+
+		it("asks whether to remove it, no by default, after the change is confirmed", async () => {
+			arrangeGone(false);
+
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(mockConfirm).toHaveBeenCalledTimes(2);
+			expect(mockConfirm).toHaveBeenLastCalledWith({
+				message: "owner/repo/go is gone upstream — remove it?",
+				initialValue: false,
+			});
+		});
+
+		it("keeps it on no: nothing removed or written", async () => {
+			arrangeGone(false);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: true,
+				message:
+					"Kept owner/repo/go — it's gone upstream; update will ask again",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("removes its files and its entry on yes", async () => {
+			arrangeGone(true);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: true,
+				message: "Removed owner/repo/go — it's gone upstream",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/go/"],
+			);
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/other": other },
+			);
+		});
+
+		it("keeps it and reports the failure, without throwing, when removing it fails", async () => {
+			arrangeGone(true);
+			mockNukeManifestFiles.mockRejectedValue(
+				new Error("EACCES: permission denied"),
+			);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				message:
+					"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
+				notes: [],
+			});
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 	});
@@ -560,7 +727,6 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockScanForEscapingSymlinks.mockRejectedValue(
 				new SymlinkEscapeError("evil-link", "/etc/passwd"),
 			);
@@ -569,7 +735,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -604,7 +771,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(true);
@@ -626,7 +794,8 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(true);

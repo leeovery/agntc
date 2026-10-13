@@ -1,31 +1,36 @@
-import * as p from "@clack/prompts";
 import { Command } from "commander";
 import {
 	buildAbortMessage,
 	buildCopySafetyMessage,
+	type CloneReinstallFailure,
 	cloneAndReinstall,
 	isCloneReinstallFailure,
 	mapCloneFailure,
-	noAgentsMessage,
 	prepareReinstall,
 } from "../clone-reinstall.js";
+import { commandAction, globalOption, jsonOption } from "../command-action.js";
+import { updateBody } from "../documents.js";
+import { groupReAddCommands, reAddCommand } from "../entry-source.js";
 import { errorMessage } from "../errors.js";
-import { ExitSignal, withExitSignal } from "../exit-signal.js";
+import { ExitSignal } from "../exit-signal.js";
+import { settleGone } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import {
-	addEntry,
-	readManifestOrExit,
-	removeEntry,
-	writeManifest,
-} from "../manifest.js";
+import { readManifestOrExit, writeManifest } from "../manifest.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
-import { memberName, repoFromKey } from "../source-parser.js";
+import {
+	commandTitle,
+	projectScope,
+	type Scope,
+	type ScopeName,
+} from "../scope.js";
+import { memberName } from "../source-parser.js";
 import {
 	type OutOfConstraintInfo,
 	renderGitUpdateSummary,
 	renderLocalUpdateSummary,
 	renderOutOfConstraintSection,
 } from "../summary.js";
+import { interactiveUi, type Ui } from "../ui.js";
 import type { GroupTarget, UpdateCheckResult } from "../update-check.js";
 import {
 	categorizeMember,
@@ -34,14 +39,18 @@ import {
 	resolveGroupTarget,
 } from "../update-check.js";
 import {
+	applyOutcome,
 	type EntryGroup,
 	failedOutcome,
+	type GroupMember,
 	groupEntriesForUpdate,
 	groupTargetFacets,
 	isSuccessOutcome,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
+	packsFirst,
 	processGroupUpdate,
+	withAbsorptions,
 } from "../update-groups.js";
 import {
 	formatCheckFailedLine,
@@ -53,7 +62,6 @@ import {
 	formatUpToDateLine,
 	groupLabel,
 	type MemberLine,
-	repoOf,
 } from "../update-render.js";
 import {
 	isAtOrAboveVersion,
@@ -61,62 +69,115 @@ import {
 	type VersionOverrides,
 } from "../version-resolve.js";
 
-interface SingleUpdateResult {
-	newEntry: ManifestEntry | null;
+/** One key's update in single-key mode: what became of it and what its check found. */
+interface KeyUpdate {
+	outcome: PluginOutcome;
+	check: UpdateCheckResult;
 	outOfConstraint: OutOfConstraintInfo | null;
 }
 
-export async function runUpdate(key?: string): Promise<void> {
-	p.intro("agntc update");
+/**
+ * The statuses that end a single-key update non-zero: all-mode's failures,
+ * plus the check failures all-mode only warns about.
+ */
+const KEY_FAILURES = new Set<PluginOutcome["status"]>([
+	"failed",
+	"copy-failed",
+	"aborted",
+	"blocked",
+	"check-failed",
+	"constrained-no-match",
+]);
 
+export interface UpdateOptions {
+	/** Remove entries gone upstream without asking. */
+	yes?: boolean;
+}
+
+/** What every step of one update run shares. */
+interface UpdateRun {
+	scope: Scope;
+	yes: boolean;
+	ui: Ui;
+}
+
+export async function runUpdate(
+	key?: string,
+	options: UpdateOptions = {},
+	ui: Ui = interactiveUi,
+	scope: Scope = projectScope(),
+): Promise<void> {
+	ui.intro(commandTitle("update", scope.name));
+
+	const run: UpdateRun = {
+		scope,
+		yes: options.yes === true,
+		ui,
+	};
 	if (key === undefined) {
-		await runAllUpdates();
+		await runAllUpdates(run);
 		return;
 	}
+	await runKeyUpdates(key, run);
+}
 
-	const projectDir = process.cwd();
+/**
+ * Updates the entries a key names one at a time, packs first, stopping at the
+ * first that fails. Each is recorded as it finishes, so what changed before a
+ * failure, or a throw, stays recorded. An entry a pack absorbed on the way is
+ * skipped.
+ */
+async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
+	const { scope, ui } = run;
 
-	const manifest = await readManifestOrExit(projectDir);
+	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
-		p.outro("No plugins installed.");
+		ui.outro("No skills or packs installed.");
+		ui.report(updateBody(manifest, [], new Map()));
 		return;
 	}
 
-	const targetKeys = resolveTargetKeys(key, manifest);
+	const targets = resolveTargetKeys(key, manifest, ui).map((targetKey) => ({
+		key: targetKey,
+		entry: manifest[targetKey]!,
+	}));
+	const updates: KeyUpdate[] = [];
+	let current = manifest;
+	for (const target of packsFirst(targets)) {
+		if (!(target.key in current)) {
+			continue;
+		}
+		const update = await updateKey(target, current, run);
+		updates.push(update);
+		current = await persistUnitOutcomes(scope.root, current, [update.outcome]);
+		if (KEY_FAILURES.has(update.outcome.status)) {
+			break;
+		}
+	}
 
-	let updatedManifest = { ...manifest };
-	let hasChanges = false;
-	const outOfConstraintInfos: OutOfConstraintInfo[] = [];
+	const outcomes = withAbsorptions(updates.map((update) => update.outcome));
 
-	for (const targetKey of targetKeys) {
-		const entry = manifest[targetKey]!;
-		const result = await runSingleUpdate(
-			targetKey,
-			entry,
-			manifest,
-			projectDir,
+	const failed = outcomes.some((outcome) => KEY_FAILURES.has(outcome.status));
+	if (!failed) {
+		renderOutOfConstraintOutput(
+			updates.flatMap((update) => update.outOfConstraint ?? []),
+			ui,
 		);
-		if (result.newEntry !== null) {
-			updatedManifest = addEntry(updatedManifest, targetKey, result.newEntry);
-			hasChanges = true;
-		}
-		if (result.outOfConstraint !== null) {
-			outOfConstraintInfos.push(result.outOfConstraint);
-		}
 	}
-
-	if (hasChanges) {
-		await writeManifest(projectDir, updatedManifest);
+	const checks = new Map(
+		updates.map((update) => [update.outcome.key, update.check]),
+	);
+	ui.report(updateBody(manifest, outcomes, checks));
+	if (failed) {
+		throw new ExitSignal(1);
 	}
-
-	renderOutOfConstraintOutput(outOfConstraintInfos);
 }
 
 function extractOutOfConstraint(
-	key: string,
-	entry: ManifestEntry,
+	{ key, entry }: GroupMember,
 	checkResult: UpdateCheckResult,
+	scope: ScopeName,
 ): OutOfConstraintInfo | null {
 	if (
 		hasOutOfConstraintVersion(checkResult) &&
@@ -135,196 +196,206 @@ function extractOutOfConstraint(
 			key,
 			current,
 			latestOverall: checkResult.latestOverall,
-			// The BARE owner/repo for the re-add command — strip any /<member>
-			// segment so a collection member's command re-adds the collection.
-			repo: repoFromKey(key),
+			commands: [reAddCommand(key, entry, scope)],
 		};
 	}
 	return null;
 }
 
-async function runSingleUpdate(
-	key: string,
-	entry: ManifestEntry,
-	manifest: Manifest,
-	projectDir: string,
-): Promise<SingleUpdateResult> {
-	// Check for update
-	const result = await checkForUpdate(key, entry);
-	const outOfConstraint = extractOutOfConstraint(key, entry, result);
+async function updateKey(
+	member: GroupMember,
+	installed: Manifest,
+	run: UpdateRun,
+): Promise<KeyUpdate> {
+	const check = await checkForUpdate(member.key, member.entry);
+	return {
+		outcome: await settleKey(member, check, installed, run),
+		check,
+		outOfConstraint: extractOutOfConstraint(member, check, run.scope.name),
+	};
+}
 
-	if (result.status === "up-to-date") {
-		p.outro(`${key} is already up to date.`);
-		return { newEntry: null, outOfConstraint };
+async function settleKey(
+	member: GroupMember,
+	check: UpdateCheckResult,
+	installed: Manifest,
+	run: UpdateRun,
+): Promise<PluginOutcome> {
+	const { key, entry } = member;
+	const { ui } = run;
+	switch (check.status) {
+		case "up-to-date":
+		case "constrained-up-to-date":
+			return reportUpToDate(key, ui);
+		case "check-failed":
+			ui.log.error(`Update check failed for ${key}: ${check.reason}`);
+			return { status: "check-failed", key };
+		case "newer-tags":
+			reportNewerTags(member, check.tags, run);
+			return { status: "newer-tags", key };
+		case "constrained-no-match":
+			ui.log.error(
+				`No tags satisfy the constraint for ${key}. Left untouched.`,
+			);
+			return { status: "constrained-no-match", key };
+		case "constrained-update-available":
+			if (isAtOrAboveVersion(entry.ref, check.tag)) {
+				return reportUpToDate(key, ui);
+			}
+			return reinstallKey(member, installed, run, {
+				newRef: check.tag,
+				newCommit: check.commit,
+			});
+		case "update-available":
+		case "local":
+			return reinstallKey(member, installed, run);
+	}
+}
+
+function reportUpToDate(key: string, ui: Ui): PluginOutcome {
+	ui.outro(`${key} is already up to date.`);
+	return upToDateOutcome(key);
+}
+
+function reportNewerTags(
+	{ key, entry }: GroupMember,
+	tags: string[],
+	{ scope, ui }: UpdateRun,
+): void {
+	ui.log.info(`Pinned to ${entry.ref}. Newer tags available:`);
+	for (const tag of [...tags].reverse()) {
+		ui.log.message(`  ${tag}`);
+	}
+	const reAdd = reAddCommand(key, entry, scope.name, newestTag(tags));
+	ui.outro(`To upgrade: ${reAdd}`);
+}
+
+async function reinstallKey(
+	member: GroupMember,
+	installed: Manifest,
+	run: UpdateRun,
+	overrides?: VersionOverrides,
+): Promise<PluginOutcome> {
+	const { key, entry } = member;
+	const { scope, ui } = run;
+	const prepared = await prepareReinstall(key, entry, scope, overrides);
+	if (!prepared.ok) {
+		ui.log.error(prepared.reason);
+		return failedOutcome(key, prepared.reason);
 	}
 
-	if (result.status === "check-failed") {
-		p.log.error(`Update check failed for ${key}: ${result.reason}`);
-		throw new ExitSignal(1);
+	const result = await cloneAndReinstall(prepared.options, ui, installed);
+	if (result.status === "gone") {
+		const outcome = await settleGoneOutcome(member, run);
+		reportSettledGone(outcome, ui);
+		return outcome;
+	}
+	if (isCloneReinstallFailure(result)) {
+		reportKeyFailure(key, entry, result, run);
+		return mapReinstallResultToOutcome(key, entry, result, null, scope.name);
 	}
 
-	if (result.status === "newer-tags") {
-		p.log.info(`Pinned to ${entry.ref}. Newer tags available:`);
-		const reversed = [...result.tags].reverse();
-		for (const tag of reversed) {
-			p.log.message(`  ${tag}`);
-		}
-		const newest = newestTag(result.tags);
-		p.outro(`To upgrade: npx agntc add ${key}@${newest}`);
-		return { newEntry: null, outOfConstraint };
+	for (const note of result.notes) {
+		ui.note(note);
 	}
-
-	if (result.status === "constrained-up-to-date") {
-		p.outro(`${key} is already up to date.`);
-		return { newEntry: null, outOfConstraint };
-	}
-
-	if (result.status === "constrained-no-match") {
-		p.log.error(
-			`No tags satisfy the constraint for ${key}. Plugin left untouched.`,
-		);
-		throw new ExitSignal(1);
-	}
-
-	if (result.status === "constrained-update-available") {
-		if (isAtOrAboveVersion(entry.ref, result.tag)) {
-			p.outro(`${key} is already up to date.`);
-			return { newEntry: null, outOfConstraint };
-		}
-		const newEntry = await runSinglePluginUpdate(
-			key,
-			entry,
-			manifest,
-			projectDir,
-			{
-				newRef: result.tag,
-				newCommit: result.commit,
-			},
-		);
-		return { newEntry, outOfConstraint };
-	}
-
-	// update-available or local — proceed with single plugin update
-	const newEntry = await runSinglePluginUpdate(
+	ui.outro(
+		entry.commit === null
+			? renderLocalUpdateSummary({ key, copiedFiles: result.copiedFiles })
+			: renderGitUpdateSummary({
+					key,
+					oldRef: entry.ref,
+					newRef: result.manifestEntry.ref,
+					oldCommit: entry.commit,
+					newCommit: result.manifestEntry.commit!,
+					copiedFiles: result.copiedFiles,
+				}),
+	);
+	return mapReinstallResultToOutcome(
 		key,
 		entry,
-		manifest,
-		projectDir,
+		result,
+		result.manifestEntry.ref,
+		scope.name,
 	);
-	return { newEntry, outOfConstraint };
 }
 
-async function runSinglePluginUpdate(
+/**
+ * An abort or a block leaves the install intact and says why; a copy failure
+ * has already removed it, and a removal failure leaves what's left of it
+ * recorded. A remote clone failure closes the run after the spinner's "Clone
+ * failed"; a local entry's is its source path failing the containment guard.
+ */
+function reportKeyFailure(
 	key: string,
 	entry: ManifestEntry,
-	manifest: Manifest,
-	projectDir: string,
-	overrides?: VersionOverrides,
-): Promise<ManifestEntry | null> {
-	const isLocal = entry.commit === null;
-
-	const prepared = await prepareReinstall(key, entry, projectDir, {
-		manifest,
-		...overrides,
+	failure: CloneReinstallFailure,
+	{ scope, ui }: UpdateRun,
+): void {
+	const reportCloneFailed = (message: string) =>
+		entry.commit === null
+			? ui.log.error(`${key}: ${message}`)
+			: ui.cancel(message);
+	mapCloneFailure<void>(failure, {
+		onCopyFailed: (message) => ui.log.error(message),
+		onRemoveFailed: (message) => ui.log.error(`${key}: ${message}`),
+		onAborted: (abort) =>
+			ui.log.error(buildAbortMessage(key, entry, abort, scope.name)),
+		onBlocked: (reason) => ui.log.error(buildCopySafetyMessage(key, reason)),
+		onCloneFailed: reportCloneFailed,
 	});
-	if (!prepared.ok) {
-		p.log.error(`Path ${key} does not exist or is not a directory.`);
-		throw new ExitSignal(1);
-	}
-
-	const result = await cloneAndReinstall(prepared.options);
-
-	if (isCloneReinstallFailure(result)) {
-		return mapCloneFailure(result, {
-			onNoAgents: () => {
-				p.log.warn(
-					`${noAgentsMessage(key)}. ` +
-						`No update performed. Run npx agntc remove ${key} to clean up.`,
-				);
-				return null;
-			},
-			onCopyFailed: (msg) => {
-				p.log.error(msg);
-				throw new ExitSignal(1);
-			},
-			onAborted: (recordedType, reason) => {
-				// Derive-before-delete abort: install fully intact (no nuke, entry
-				// untouched). Loud report names recorded-vs-current + remove+add
-				// remedy; single-key update exits non-zero. Distinct from copy-failed
-				// (entry removed, currently-uninstalled retry hint).
-				p.log.error(buildAbortMessage(key, recordedType, reason));
-				throw new ExitSignal(1);
-			},
-			onBlocked: (reason) => {
-				// Symlink-escape copy-safety block: install fully intact (no nuke,
-				// entry untouched), same posture as onAborted but a DIFFERENT message —
-				// it describes the escaping symlink, NOT a recorded-type change, and
-				// offers no remove+add remedy (that re-trips the guard). Single-key
-				// update exits non-zero.
-				p.log.error(buildCopySafetyMessage(key, reason));
-				throw new ExitSignal(1);
-			},
-			onCloneFailed: (msg) => {
-				if (!isLocal) p.cancel(msg);
-				throw new ExitSignal(1);
-			},
-			onUnknown: (msg) => {
-				if (!isLocal) p.cancel(msg);
-				throw new ExitSignal(1);
-			},
-		});
-	}
-
-	if (isLocal) {
-		p.outro(
-			renderLocalUpdateSummary({
-				key,
-				copiedFiles: result.copiedFiles,
-				effectiveAgents: result.manifestEntry.agents,
-				droppedAgents: result.droppedAgents,
-			}),
-		);
-	} else {
-		p.outro(
-			renderGitUpdateSummary({
-				key,
-				// Old ref = pre-update entry.ref; new ref = post-update
-				// result.manifestEntry.ref (the resolved result.tag for a constrained
-				// update; unchanged entry.ref for a branch/HEAD update). The shared
-				// formatVersionMove decides tags-vs-hashes from these.
-				oldRef: entry.ref,
-				newRef: result.manifestEntry.ref,
-				oldCommit: entry.commit,
-				newCommit: result.manifestEntry.commit!,
-				copiedFiles: result.copiedFiles,
-				effectiveAgents: result.manifestEntry.agents,
-				droppedAgents: result.droppedAgents,
-			}),
-		);
-	}
-
-	return result.manifestEntry;
 }
 
-// --- All-plugins mode helpers ---
-
-type GroupMember = { key: string; entry: ManifestEntry };
-
-async function processLocalUpdate(
-	key: string,
-	entry: ManifestEntry,
-	projectDir: string,
+/**
+ * Removes or keeps a member found gone upstream. Gone is never a failure, but
+ * a removal that can't delete the member's files is.
+ */
+async function settleGoneOutcome(
+	{ key, entry }: GroupMember,
+	{ scope, yes, ui }: UpdateRun,
 ): Promise<PluginOutcome> {
 	try {
-		const prepared = await prepareReinstall(key, entry, projectDir);
+		const settled = await settleGone(key, entry, scope, { yes, ui });
+		if (settled.removed) {
+			return { status: "gone-removed", key, summary: settled.message };
+		}
+		return {
+			status: "gone-kept",
+			key,
+			summary: settled.message,
+			...(settled.flags !== undefined ? { flags: settled.flags } : {}),
+		};
+	} catch (err) {
+		return failedOutcome(key, errorMessage(err));
+	}
+}
+
+function reportSettledGone(outcome: PluginOutcome, ui: Ui): void {
+	if (outcome.status === "gone-removed") {
+		ui.log.success(outcome.summary);
+	} else if (outcome.status === "gone-kept") {
+		ui.log.warn(outcome.summary);
+	} else if (outcome.status === "failed") {
+		ui.log.error(outcome.summary);
+	}
+}
+
+// --- All-mode helpers ---
+
+async function processLocalUpdate(
+	{ key, entry }: GroupMember,
+	installed: Manifest,
+	{ scope, ui }: UpdateRun,
+): Promise<PluginOutcome> {
+	try {
+		const prepared = await prepareReinstall(key, entry, scope);
 		if (!prepared.ok) {
 			return failedOutcome(key, prepared.reason);
 		}
 
-		const result = await cloneAndReinstall(prepared.options);
+		const result = await cloneAndReinstall(prepared.options, ui, installed);
 		// A local entry (`commit === null`) always takes the ref-free `refreshed`
 		// (local-update) arm, which never consults `newRef`.
-		return mapReinstallResultToOutcome(key, entry, result, null);
+		return mapReinstallResultToOutcome(key, entry, result, null, scope.name);
 	} catch (err) {
 		return failedOutcome(key, errorMessage(err));
 	}
@@ -349,8 +420,8 @@ type WorkItem =
 
 /**
  * One group's non-actioned members plus the shared resolved target it was
- * categorized against — the source for the trailing per-group collapse (task
- * 2-5). A group appears here only when it has ≥1 non-actioned member; a group can
+ * categorized against — the source for the trailing per-group collapse.
+ * A group appears here only when it has ≥1 non-actioned member; a group can
  * appear in BOTH {@link CategorizedGroups.updatableGroups} and here (the
  * genuine-state split: behind members stream, up-to-date members collapse). The
  * `target` carries the group-level fields the collapse needs — `newerTags` (tag),
@@ -366,6 +437,8 @@ interface CategorizedGroups {
 	updatableGroups: UpdatableGroup[];
 	nonActionedGroups: NonActionedGroup[];
 	outOfConstraintInfo: OutOfConstraintInfo[];
+	/** Each grouped member's own check result, by key. */
+	checks: Map<string, UpdateCheckResult>;
 	/**
 	 * True when any grouped member's RAW category (pre never-downgrade) is not
 	 * (constrained-)up-to-date. Gates the all-up-to-date early return exactly as
@@ -375,73 +448,93 @@ interface CategorizedGroups {
 	hasNotableCategory: boolean;
 }
 
-async function runAllUpdates(): Promise<void> {
-	const projectDir = process.cwd();
+async function runAllUpdates(run: UpdateRun): Promise<void> {
+	const { scope, ui } = run;
 
-	const manifest = await readManifestOrExit(projectDir);
+	const manifest = await readManifestOrExit(scope.root, ui);
 
 	const entries = Object.entries(manifest);
 
 	if (entries.length === 0) {
-		p.outro("No plugins installed.");
+		ui.outro("No skills or packs installed.");
+		ui.report(updateBody(manifest, [], new Map()));
 		return;
 	}
 
-	// Group-first pipeline: partition non-local entries into clone-dedup groups
-	// (task 1-1); local entries never clone and are handled as groups-of-one.
 	const groups = groupEntriesForUpdate(manifest);
 	const localEntries = entries.filter(([, entry]) => entry.commit === null);
 
-	// Resolve/check ONCE per group (task 1-3) — in parallel across distinct repos,
-	// under the single leading spinner — replacing the old per-member checks.
-	const spin = p.spinner();
+	const spin = ui.spinner();
 	spin.start("Checking for updates...");
 	const targets = await Promise.all(groups.map(resolveGroupTarget));
 	spin.stop("Update checks complete.");
 
-	const categorized = categorizeGroups(groups, targets);
+	const categorized = categorizeGroups(groups, targets, scope.name);
 
-	// Actioned work STREAMS inline in manifest (processing) order (task 2-4):
-	// each updatable group opens its own `Updating <label> …` spinner, clones
-	// once (task 1-4), persists its manifest (task 1-6) BEFORE showing any line,
-	// then emits its per-member outcome lines (task 2-3); each local group-of-one
-	// reinstalls without a spinner and emits its single line. The initial
-	// manifest is threaded through so each per-group write is cumulative (matching
-	// disk at group boundaries). Only NON-actioned categories now defer to the
-	// trailing summary loop below.
+	// Actioned work streams in manifest order as each unit lands; only the
+	// non-actioned categories wait for the trailing summary.
 	const work = orderWork(categorized.updatableGroups, localEntries, entries);
-	const outcomes = await streamActionedWork(work, projectDir, manifest, groups);
+	const actioned = await streamActionedWork(work, manifest, groups, run);
+
+	const outcomes = withAbsorptions([
+		...actioned,
+		...categorized.nonActionedGroups.flatMap((group) => group.outcomes),
+	]);
+	const absorbed = new Set(
+		outcomes.flatMap((outcome) =>
+			outcome.status === "absorbed" ? [outcome.key] : [],
+		),
+	);
 
 	const allUpToDate =
 		!categorized.hasNotableCategory && localEntries.length === 0;
 	if (allUpToDate) {
-		p.outro("All plugins are up to date.");
-		renderOutOfConstraintOutput(categorized.outOfConstraintInfo);
-		return;
+		ui.outro("Everything is up to date.");
+	} else {
+		for (const nonActioned of categorized.nonActionedGroups) {
+			emitCollapsedGroupSummary(
+				withoutAbsorbed(nonActioned, absorbed),
+				groups,
+				run,
+			);
+		}
 	}
+	renderOutOfConstraintOutput(categorized.outOfConstraintInfo, ui);
 
-	// Trailing non-actioned summaries collapse to at most ONE line per group per
-	// category (task 2-5), iterated in manifest (group) order: an up-to-date count,
-	// a per-group newer-tags notice + repo-level add command, a shared check-failed
-	// reason, or a shared constrained-no-match constraint — never one line per
-	// member. The flat outcomes still feed exit accounting; none trips
-	// hasFailedOutcome, so collapsing the DISPLAY here leaves the exit code
-	// unchanged.
-	for (const nonActioned of categorized.nonActionedGroups) {
-		emitCollapsedGroupSummary(nonActioned, groups);
-		outcomes.push(...nonActioned.outcomes);
-	}
+	ui.report(
+		updateBody(
+			manifest,
+			inManifestOrder(outcomes, manifest),
+			categorized.checks,
+		),
+	);
 
-	renderOutOfConstraintOutput(categorized.outOfConstraintInfo);
-
-	// Partial-success exit: the successful updates have been written and streamed
-	// inline. Now, if ANY unit aborted (derive-before-delete, entry left intact)
-	// or hard-errored/copy-failed, exit non-zero so the command surfaces the
-	// failure — without rolling back the units that did succeed. Each unit stands
-	// alone (no collection-level coherence rollback).
+	// Units that succeeded stay written; any that aborted or failed make the
+	// run exit non-zero without rolling them back.
 	if (hasFailedOutcome(outcomes)) {
 		throw new ExitSignal(1);
 	}
+}
+
+/** A pack updated in this run took these members over, so they no longer collapse. */
+function withoutAbsorbed(
+	nonActioned: NonActionedGroup,
+	absorbed: Set<string>,
+): NonActionedGroup {
+	return {
+		...nonActioned,
+		outcomes: nonActioned.outcomes.filter(({ key }) => !absorbed.has(key)),
+	};
+}
+
+function inManifestOrder(
+	outcomes: PluginOutcome[],
+	manifest: Manifest,
+): PluginOutcome[] {
+	const position = new Map(Object.keys(manifest).map((key, i) => [key, i]));
+	return [...outcomes].sort(
+		(a, b) => (position.get(a.key) ?? 0) - (position.get(b.key) ?? 0),
+	);
 }
 
 /**
@@ -452,10 +545,12 @@ async function runAllUpdates(): Promise<void> {
 function categorizeGroups(
 	groups: EntryGroup[],
 	targets: GroupTarget[],
+	scope: ScopeName,
 ): CategorizedGroups {
 	const updatableGroups: UpdatableGroup[] = [];
 	const nonActionedGroups: NonActionedGroup[] = [];
 	const outOfConstraintInfo: OutOfConstraintInfo[] = [];
+	const checks = new Map<string, UpdateCheckResult>();
 	let hasNotableCategory = false;
 
 	for (let i = 0; i < groups.length; i++) {
@@ -464,16 +559,17 @@ function categorizeGroups(
 		const updating: GroupMember[] = [];
 		const nonActioned: PluginOutcome[] = [];
 
-		// One out-of-constraint footer info PER GROUP (task 2-7) — an N-member
-		// collection collapses to a single line, keyed by the group label; two
+		// One out-of-constraint footer info PER GROUP — an N-member
+		// group collapses to a single line, keyed by the group label; two
 		// distinct-intent groups of one repo keep separate @intent lines.
-		const groupInfo = groupOutOfConstraintInfo(group, target, groups);
+		const groupInfo = groupOutOfConstraintInfo(group, target, groups, scope);
 		if (groupInfo !== null) {
 			outOfConstraintInfo.push(groupInfo);
 		}
 
 		for (const member of group.members) {
 			const result = categorizeMember(member.entry, target);
+			checks.set(member.key, result);
 
 			if (
 				result.status !== "up-to-date" &&
@@ -489,7 +585,7 @@ function categorizeGroups(
 		}
 
 		if (updating.length > 0) {
-			updatableGroups.push({ group, target, updating });
+			updatableGroups.push({ group, target, updating: packsFirst(updating) });
 		}
 		// A group with non-actioned members feeds the trailing per-group collapse —
 		// keyed alongside its shared target so the collapse can read group-level
@@ -503,23 +599,25 @@ function categorizeGroups(
 		updatableGroups,
 		nonActionedGroups,
 		outOfConstraintInfo,
+		checks,
 		hasNotableCategory,
 	};
 }
 
 /**
- * The ONE out-of-constraint footer info a constrained group contributes (task
- * 2-7). A group whose shared resolved target carries a non-null `latestOverall`
+ * The ONE out-of-constraint footer info a constrained group contributes.
+ * A group whose shared resolved target carries a non-null `latestOverall`
  * is out of constraint (matching {@link hasOutOfConstraintVersion}: latestOverall
  * !== null iff out of constraint), and collapses to a SINGLE info keyed by its
- * {@link groupLabel} — so an N-member collection yields one footer line, not N,
+ * {@link groupLabel} — so an N-member group yields one footer line, not N,
  * while two distinct-intent groups of one repo keep their own @intent lines.
- * `versionIntent` is the group's constraint (non-null for a constrained target).
+ * The line carries the group's re-add commands ({@link groupReAddCommands}).
  */
 function groupOutOfConstraintInfo(
 	group: EntryGroup,
 	target: GroupTarget,
 	groups: EntryGroup[],
+	scope: ScopeName,
 ): OutOfConstraintInfo | null {
 	if (target.kind !== "constrained" || target.latestOverall === null) {
 		return null;
@@ -530,9 +628,7 @@ function groupOutOfConstraintInfo(
 		// best-within-constraint tag (the version this run lands the group on).
 		current: target.tag,
 		latestOverall: target.latestOverall,
-		// The BARE owner/repo re-add command (task 2-1 repoOf) — never the @intent
-		// label, even when the line prefix is @intent-disambiguated.
-		repo: repoOf(group),
+		commands: groupReAddCommands(group.members, scope),
 	};
 }
 
@@ -609,33 +705,57 @@ function orderWork(
 type GroupWorkItem = Extract<WorkItem, { kind: "group" }>;
 
 /**
- * Streams the ordered work items sequentially (task 2-4), collecting one
+ * Streams the ordered work items sequentially, collecting one
  * {@link PluginOutcome} per member for {@link hasFailedOutcome} while emitting
  * each unit's progress + outcome lines the moment it completes — replacing the
  * old deferred end-of-run render. Each updatable group runs under its own
  * `Updating <label> …` spinner ({@link streamGroupWork}); each local entry
  * reinstalls without a spinner ({@link streamLocalWork}). Per-unit manifest
- * persistence (task 1-6) still happens BEFORE that unit's lines stream, and the
+ * persistence still happens BEFORE that unit's lines stream, and the
  * working manifest is threaded so each write is cumulative (matching disk at
- * group boundaries).
+ * group boundaries). A member an earlier unit's pack absorbed is no longer in
+ * it, so it is left out, and a unit left with no members doesn't run.
  */
 async function streamActionedWork(
 	work: WorkItem[],
-	projectDir: string,
 	manifest: Manifest,
 	groups: EntryGroup[],
+	run: UpdateRun,
 ): Promise<PluginOutcome[]> {
 	const outcomes: PluginOutcome[] = [];
 	let workingManifest: Manifest = { ...manifest };
 	for (const item of work) {
+		const live = stillInstalled(item, workingManifest);
+		if (live === null) {
+			continue;
+		}
 		const unit =
-			item.kind === "group"
-				? await streamGroupWork(item, projectDir, workingManifest, groups)
-				: await streamLocalWork(item, projectDir, workingManifest);
+			live.kind === "group"
+				? await streamGroupWork(live, workingManifest, groups, run)
+				: await streamLocalWork(live, workingManifest, run);
+		reportNotes(unit.outcomes, run.ui);
 		outcomes.push(...unit.outcomes);
 		workingManifest = unit.manifest;
 	}
 	return outcomes;
+}
+
+function stillInstalled(item: WorkItem, manifest: Manifest): WorkItem | null {
+	if (item.kind === "local") {
+		return item.key in manifest ? item : null;
+	}
+	const updating = item.updating.filter(({ key }) => key in manifest);
+	return updating.length === 0 ? null : { ...item, updating };
+}
+
+function reportNotes(outcomes: PluginOutcome[], ui: Ui): void {
+	for (const outcome of outcomes) {
+		if (isSuccessOutcome(outcome)) {
+			for (const note of outcome.notes) {
+				ui.note(note);
+			}
+		}
+	}
 }
 
 /** One streamed unit's per-member outcomes plus the manifest after its write. */
@@ -645,35 +765,40 @@ interface StreamedUnit {
 }
 
 /**
- * Streams one updatable group: opens a single `p.spinner()` (task 2-2) that spins
+ * Streams one updatable group: opens a single `ui.spinner()` that spins
  * through {@link processGroupUpdate}'s one clone WITHOUT ticking per member,
- * persists the group's manifest (task 1-6) BEFORE emitting any line (so the ✓ is
+ * persists the group's manifest BEFORE emitting any line (so the ✓ is
  * honest), then renders the outcomes.
  *
  * A group of one collapses to exactly ONE physical line. clack's `spinner.stop()`
  * ALWAYS writes a persistent stop-frame, so a header stop-frame plus a separate
- * `p.log` line would render TWO lines; instead the spinner starts on a bare
+ * `ui.log` line would render TWO lines; instead the spinner starts on a bare
  * `Updating <label>` (no `(1 members)`, no move) and its settled stop-frame IS the
  * collapsed outcome ({@link collapsedMemberLine}) — no second line. Two or more
  * updating members keep the counted {@link formatGroupHeader} stop-frame followed
  * by one member line each ({@link streamGroupMemberLines}).
  *
- * A group-fatal clone failure (task 2-6) splits by member count. A group-of-one
+ * A group-fatal clone failure splits by member count. A group-of-one
  * keeps its single collapsed stop-frame ({@link collapsedMemberLine} at error
  * level → code 2) — an "affects 1 members" enumeration would be redundant with the
  * repo name AND regress the group-of-one collapse. A >=2-member group instead
  * settles its header stop-frame then emits ONE enumerated
  * {@link formatCloneFailureLine} line naming the affected members, in place of the
  * per-member lines — never N identical anonymous lines. Either way the model stays
- * the N `failed` outcomes {@link processGroupUpdate} fanned out (Phase 1 task 1-7),
+ * the N `failed` outcomes {@link processGroupUpdate} fanned out,
  * so persistence and exit accounting are untouched.
+ *
+ * Members found gone upstream get no line under the spinner: once it has
+ * stopped, {@link settleGoneMembers} asks about each and reports the answer. A
+ * group of one that is gone stops on its header.
  */
 async function streamGroupWork(
 	item: GroupWorkItem,
-	projectDir: string,
 	workingManifest: Manifest,
 	groups: EntryGroup[],
+	run: UpdateRun,
 ): Promise<StreamedUnit> {
+	const { scope, ui } = run;
 	const { commit: newCommit, displayRef: newRef } = groupTargetFacets(
 		item.target,
 		item.group,
@@ -695,57 +820,89 @@ async function streamGroupWork(
 				divergent,
 			});
 
-	const spin = p.spinner();
+	const spin = ui.spinner();
 	spin.start(header);
 	const result = await processGroupUpdate(
 		item.group,
 		item.updating,
 		item.target,
-		projectDir,
+		scope,
+		workingManifest,
 	);
 	const { outcomes } = result;
 	const manifest = await persistUnitOutcomes(
-		projectDir,
+		scope.root,
 		workingManifest,
 		outcomes,
 	);
 
-	if (single) {
+	if (single && outcomes[0]!.status !== "gone-kept") {
 		const line = collapsedMemberLine(outcomes[0]!);
 		spin.stop(line.text, line.level === "error" ? 2 : 0);
 	} else if (result.cloneFailed) {
 		spin.stop(header);
 		const affected = item.updating.map((m) => memberName(m.key));
-		p.log.error(formatCloneFailureLine(label, affected));
+		ui.log.error(formatCloneFailureLine(label, affected));
 	} else {
 		spin.stop(header);
-		streamGroupMemberLines(item, outcomes, newCommit, newRef, divergent);
+		streamGroupMemberLines(item, outcomes, newCommit, newRef, divergent, ui);
 	}
 
-	return { outcomes, manifest };
+	return settleGoneMembers(outcomes, item.updating, manifest, run);
+}
+
+/**
+ * Asks about every member a unit found gone upstream, after its spinner has
+ * stopped so no prompt runs under it, then records the removals and reports
+ * each answer.
+ */
+async function settleGoneMembers(
+	outcomes: PluginOutcome[],
+	members: GroupMember[],
+	manifest: Manifest,
+	run: UpdateRun,
+): Promise<StreamedUnit> {
+	const settled: PluginOutcome[] = [];
+	for (const outcome of outcomes) {
+		const member = members.find(({ key }) => key === outcome.key);
+		if (outcome.status !== "gone-kept" || member === undefined) {
+			settled.push(outcome);
+			continue;
+		}
+		const answer = await settleGoneOutcome(member, run);
+		reportSettledGone(answer, run.ui);
+		settled.push(answer);
+	}
+	const removed = settled.filter(
+		(outcome) => outcome.status === "gone-removed",
+	);
+	return {
+		outcomes: settled,
+		manifest: await persistUnitOutcomes(run.scope.root, manifest, removed),
+	};
 }
 
 /**
  * The ONE outcome→{@link MemberLine} mapping shared by the collapsed group-of-one
  * path ({@link collapsedMemberLine}) and the streamed multi-member path
- * ({@link emitMemberLine}) for the loud/skip statuses that render IDENTICALLY on
- * both — copy-failed / aborted / blocked / skipped-no-agents. Each rides its
- * already-assembled summary/hint through {@link formatMemberLine}, so a new such
- * status is a single-site change here and the two paths cannot drift apart.
+ * ({@link emitMemberLine}) for the loud statuses that render IDENTICALLY on
+ * both — copy-failed / aborted / blocked. Each rides its already-assembled
+ * summary/hint through {@link formatMemberLine}, so a new such status is a
+ * single-site change here and the two paths cannot drift apart.
  *
  * `name` is a PARAMETER so each caller keeps its own name source: the collapsed
  * path passes the FULL member key (`outcome.key`); the streamed path passes the
  * member basename.
  *
- * Returns `null` for a bare `failed` (and any other non-loud/skip status): that
+ * Returns `null` for a bare `failed` (and any other non-loud status): that
  * fallback is deliberately NOT shared, because the two paths reach red by
  * different mechanics and no single {@link MemberLine} can reproduce both — the
  * collapsed path settles a red error spinner stop-frame (`level: "error"` →
- * `spin.stop` code 2), while the streamed path emits `p.log.error` via
+ * `spin.stop` code 2), while the streamed path emits `ui.log.error` via
  * {@link renderFailedOutcome}. Both render `failed` at ERROR (red ✗) — uniform
  * severity across layouts — so each caller keeps its own bare-`failed` rendering.
  */
-export function failureOrSkipMemberLine(
+export function failureMemberLine(
 	outcome: PluginOutcome,
 	name: string,
 ): MemberLine | null {
@@ -768,8 +925,6 @@ export function failureOrSkipMemberLine(
 				name,
 				message: outcome.summary,
 			});
-		case "skipped-no-agents":
-			return formatMemberLine({ kind: "no-agents", name });
 		default:
 			return null;
 	}
@@ -778,12 +933,11 @@ export function failureOrSkipMemberLine(
 /**
  * The single collapsed line a group-of-one renders as its spinner stop-frame —
  * its clack {@link MemberLine} `level` and glyph-free `text`. The level maps to
- * the `spin.stop` code at the call site (`error` → 2, else → 0; clack `stop` has
- * no warn code, so a `no-agents` warn accepts the ◇ glyph — its text already
- * carries "skipped — …"). A success reuses the interim
- * {@link renderUpdateOutcomeSummary} text (full key, any `/member` suffix,
- * matching {@link streamCollapsedOutcome}); the loud failure/skip variants defer
- * to the shared {@link failureOrSkipMemberLine} at the full member key; a bare
+ * the `spin.stop` code at the call site (`error` → 2, else → 0). A success
+ * reuses the interim {@link renderUpdateOutcomeSummary} text (full key, any
+ * `/member` suffix, matching {@link streamCollapsedOutcome}); the loud failure
+ * variants defer to the shared {@link failureMemberLine} at the full member
+ * key; a bare
  * `failed` (clone fan-out / defensive throw) is not a shared-format status (the
  * helper returns null) and rides its inline summary at error level.
  */
@@ -792,7 +946,7 @@ function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
 		return { level: "success", text: outcome.summary };
 	}
 	return (
-		failureOrSkipMemberLine(outcome, outcome.key) ?? {
+		failureMemberLine(outcome, outcome.key) ?? {
 			level: "error",
 			// A bare `failed` (clone fan-out / defensive throw) is the sole
 			// non-shared-format status that reaches this fallback; the non-actioned
@@ -803,45 +957,46 @@ function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
 }
 
 /**
- * Streams one local group-of-one: reinstalls without cloning (task 1-5) and with
- * NO spinner, persists its manifest (task 1-6), then emits its single collapsed
+ * Streams one local group-of-one: reinstalls without cloning and with
+ * NO spinner, persists its manifest, then emits its single collapsed
  * line — `<key>: Refreshed from local path` on success, else its
- * {@link formatMemberLine} failure/skip line (name = the full key).
+ * {@link formatMemberLine} failure line (name = the full key).
  */
 async function streamLocalWork(
 	item: Extract<WorkItem, { kind: "local" }>,
-	projectDir: string,
 	workingManifest: Manifest,
+	run: UpdateRun,
 ): Promise<StreamedUnit> {
-	const outcome = await processLocalUpdate(item.key, item.entry, projectDir);
-	const manifest = await persistUnitOutcomes(projectDir, workingManifest, [
+	const member = { key: item.key, entry: item.entry };
+	const outcome = await processLocalUpdate(member, workingManifest, run);
+	const manifest = await persistUnitOutcomes(run.scope.root, workingManifest, [
 		outcome,
 	]);
-	streamCollapsedOutcome(outcome);
-	return { outcomes: [outcome], manifest };
+	streamCollapsedOutcome(outcome, run.ui);
+	return settleGoneMembers([outcome], [member], manifest, run);
 }
 
 /**
- * Collapses a group-of-one (a standalone or a single-updated collection member)
+ * Collapses a group-of-one (a standalone or a single-updated member of a multi-item repo)
  * or a local entry to a single streamed line: a success reuses the interim
  * {@link renderUpdateOutcomeSummary} text (`<key>: Updated …` / `<key>: Refreshed
- * from local path`, full key preserving any `/member` suffix); a failure/skip
+ * from local path`, full key preserving any `/member` suffix); a failure
  * renders its {@link formatMemberLine} line with the full member key. No group
  * header and no `(N members)`.
  */
-function streamCollapsedOutcome(outcome: PluginOutcome): void {
+function streamCollapsedOutcome(outcome: PluginOutcome, ui: Ui): void {
 	if (isSuccessOutcome(outcome)) {
-		p.log.success(outcome.summary);
+		ui.log.success(outcome.summary);
 		return;
 	}
-	emitMemberLine(outcome, outcome.key, null);
+	emitMemberLine(outcome, outcome.key, null, ui);
 }
 
 /**
  * Emits one {@link formatMemberLine} line per attempted member (member order),
  * name = basename, each dispatched at its own severity level. The version move
  * rides each member line only when the group is divergent-old — the header then
- * carried the target only (task 2-2); the shared-old common case leaves the move
+ * carried the target only; the shared-old common case leaves the move
  * on the header. The divergent-old decision is NOT derived here: the caller
  * ({@link streamGroupWork}) computes it ONCE and supplies it as `divergent`, the
  * same boolean it threads into {@link formatGroupHeader}, so the header-move /
@@ -853,6 +1008,7 @@ export function streamGroupMemberLines(
 	newCommit: string,
 	newRef: string | null,
 	divergent: boolean,
+	ui: Ui,
 ): void {
 	for (let i = 0; i < outcomes.length; i++) {
 		const member = item.updating[i]!;
@@ -864,22 +1020,18 @@ export function streamGroupMemberLines(
 					newCommit,
 				}
 			: null;
-		emitMemberLine(outcomes[i]!, memberName(member.key), move);
+		emitMemberLine(outcomes[i]!, memberName(member.key), move, ui);
 	}
 }
 
 /**
  * Maps one member outcome to its {@link formatMemberLine} line and dispatches it
- * via `p.log[level]`. A success composes from the outcome's STRUCTURED fields —
- * the reinstalled entry's effective agents and the pipeline's own
- * `droppedAgents` set (carried on the outcome, no `oldEntry`-vs-`newEntry`
- * recompute) — plus the optional divergent-old `move`; the loud/skip variants
- * (copy-failed/aborted/blocked/no-agents) defer to the shared
- * {@link failureOrSkipMemberLine} at the member basename — the same rendering the
- * collapsed path uses. A `failed` outcome — now only a per-member defensive throw
+ * via `ui.log[level]`. A success renders the member name plus the optional
+ * divergent-old `move`; the loud variants (copy-failed/aborted/blocked) defer to
+ * the shared {@link failureMemberLine} at the member basename — the same
+ * rendering the collapsed path uses. A `failed` outcome — now only a per-member defensive throw
  * or a per-member subpath-traversal reject, the GROUP-FATAL clone fan-out being
- * intercepted upstream by {@link streamGroupWork} as one enumerated line (task
- * 2-6) — is not a shared-format status (the helper returns null), so it falls
+ * intercepted upstream by {@link streamGroupWork} as one enumerated line — is not a shared-format status (the helper returns null), so it falls
  * back to the {@link renderFailedOutcome} render at ERROR (red ✗) — uniform with
  * the collapsed group-of-one stop-frame.
  */
@@ -892,103 +1044,91 @@ function emitMemberLine(
 		oldCommit: string;
 		newCommit: string;
 	} | null,
+	ui: Ui,
 ): void {
 	if (isSuccessOutcome(outcome)) {
-		const line = formatMemberLine({
-			kind: "success",
-			name,
-			agents: outcome.newEntry.agents,
-			droppedAgents: outcome.droppedAgents,
-			move,
-		});
-		p.log[line.level](line.text);
+		const line = formatMemberLine({ kind: "success", name, move });
+		ui.log[line.level](line.text);
 		return;
 	}
 
-	const line = failureOrSkipMemberLine(outcome, name);
+	const line = failureMemberLine(outcome, name);
 	if (line === null) {
-		renderFailedOutcome(outcome);
+		renderFailedOutcome(outcome, ui);
 		return;
 	}
-	p.log[line.level](line.text);
+	ui.log[line.level](line.text);
 }
 
 /**
- * Folds ONE unit's (group or local) outcomes into the working manifest and
- * writes it — the per-group / per-local persistence boundary (task 1-6).
- * Applies today's VERBATIM remove-vs-intact rules: updated/refreshed add their
- * new entry; copy-failed removes its entry (its old files are already gone);
- * everything else — aborted / blocked / no-agents / non-actioned check
- * categories — leaves the manifest untouched. The write is SKIPPED for a no-op
- * unit (no add/remove mutation). Returns the (possibly-updated) manifest so the
- * caller threads it into the next unit, keeping each write cumulative.
+ * Folds ONE unit's (group, local or single key) outcomes into the working
+ * manifest via {@link applyOutcome} and writes it — the per-unit persistence
+ * boundary. The write is SKIPPED for a no-op unit. Returns the
+ * (possibly-updated) manifest so the caller threads it into the next unit,
+ * keeping each write cumulative.
  */
 async function persistUnitOutcomes(
-	projectDir: string,
+	root: string,
 	manifest: Manifest,
 	outcomes: PluginOutcome[],
 ): Promise<Manifest> {
-	let updatedManifest = manifest;
-	let mutated = false;
-
-	for (const outcome of outcomes) {
-		if (isSuccessOutcome(outcome)) {
-			updatedManifest = addEntry(
-				updatedManifest,
-				outcome.key,
-				outcome.newEntry,
-			);
-			mutated = true;
-		} else if (outcome.status === "copy-failed") {
-			updatedManifest = removeEntry(updatedManifest, outcome.key);
-			mutated = true;
-		}
+	const updatedManifest = outcomes.reduce(applyOutcome, manifest);
+	if (updatedManifest !== manifest) {
+		await writeManifest(root, updatedManifest);
 	}
-
-	if (mutated) {
-		await writeManifest(projectDir, updatedManifest);
-	}
-
 	return updatedManifest;
 }
 
 /**
  * Emits a group's trailing non-actioned summary as ONE collapsed line per
- * category (task 2-5), dispatched on the shared target kind:
+ * category, dispatched on the shared target kind:
  *
  * - `check-failed` → the group's single shared probe reason (all-mode warns, exit
  *   0), count-collapsed — never one line per member.
  * - `constrained-no-match` → the group's single shared constraint (warn),
  *   count-collapsed. `versionIntent` is the constraint (non-null: a
  *   constrained-no-match target only arises for a constrained entry).
- * - `tag` with newer tags → the pinned-ref notice + repo-level add command
- *   (info), one per group (every exact-pin member shares the notice). `newestTag`
- *   is the newest of the shared newer-tags list (via `newestTag` — the tail of
- *   the ascending list); `pinnedRef` is
- *   the group's version intent (non-null: a tag group keys on its ref).
+ * - `tag` with newer tags → the pinned-ref notice + the group's re-add commands
+ *   at the newest tag (info), one line per group (every exact-pin member shares
+ *   the notice). `newestTag` is the newest of the shared newer-tags list (via
+ *   `newestTag` — the tail of the ascending list); `pinnedRef` is the group's
+ *   version intent (non-null: a tag group keys on its ref).
  * - otherwise (constrained / branch / head / tag-with-no-newer) → the up-to-date
  *   count (message). These are the members that did NOT stream under the header
  *   (the genuine-state split); the count excludes any behind sibling that updated.
+ *
+ * A group whose every non-actioned member was absorbed says nothing.
  */
 function emitCollapsedGroupSummary(
 	nonActioned: NonActionedGroup,
 	groups: EntryGroup[],
+	{ scope, ui }: UpdateRun,
 ): void {
 	const { group, target, outcomes } = nonActioned;
 	const label = groupLabel(group, groups);
 
+	if (outcomes.length === 0) {
+		return;
+	}
 	if (target.kind === "check-failed") {
-		p.log.warn(formatCheckFailedLine(label, target.reason));
+		ui.log.warn(formatCheckFailedLine(label, target.reason));
 		return;
 	}
 	if (target.kind === "constrained-no-match") {
-		p.log.warn(formatConstrainedNoMatchLine(label, group.versionIntent!));
+		ui.log.warn(formatConstrainedNoMatchLine(label, group.versionIntent!));
 		return;
 	}
 	if (target.kind === "tag" && target.newerTags.length > 0) {
 		const newest = newestTag(target.newerTags);
-		p.log.info(
-			formatNewerTagsLine(label, repoOf(group), group.versionIntent!, newest),
+		const commands = groupReAddCommands(
+			group.members.filter((member) =>
+				outcomes.some(({ key }) => key === member.key),
+			),
+			scope.name,
+			newest,
+		);
+		ui.log.info(
+			formatNewerTagsLine(label, group.versionIntent!, newest, commands),
 		);
 		return;
 	}
@@ -997,19 +1137,20 @@ function emitCollapsedGroupSummary(
 		(outcome) => outcome.status === "up-to-date",
 	).length;
 	if (upToDate > 0) {
-		p.log.message(formatUpToDateLine(label, upToDate));
+		ui.log.message(formatUpToDateLine(label, upToDate));
 	}
 }
 
 /**
- * Renders the {@link emitMemberLine} bare-`failed` fallback at ERROR (red ✗) —
- * the sole outcome that reaches this path (success is handled upstream, and every
- * loud/skip variant renders via {@link failureOrSkipMemberLine}). Any other status
- * is unreachable here and intentionally a no-op.
+ * Renders the {@link emitMemberLine} bare-`failed` fallback at ERROR (red ✗)
+ * (success is handled upstream, and every loud variant renders via
+ * {@link failureMemberLine}). Nothing else renders here: an entry gone
+ * upstream is reported once settled, and one a pack absorbed is told by the
+ * pack's note.
  */
-function renderFailedOutcome(outcome: PluginOutcome): void {
+function renderFailedOutcome(outcome: PluginOutcome, ui: Ui): void {
 	if (outcome.status === "failed") {
-		p.log.error(outcome.summary);
+		ui.log.error(outcome.summary);
 	}
 }
 
@@ -1023,18 +1164,28 @@ function hasFailedOutcome(outcomes: PluginOutcome[]): boolean {
 	);
 }
 
-function renderOutOfConstraintOutput(infos: OutOfConstraintInfo[]): void {
-	const lines = renderOutOfConstraintSection(infos);
-	for (const line of lines) {
-		p.log.info(line);
+function renderOutOfConstraintOutput(
+	infos: OutOfConstraintInfo[],
+	ui: Ui,
+): void {
+	for (const line of renderOutOfConstraintSection(infos)) {
+		ui.log.info(line);
 	}
 }
 
 export const updateCommand = new Command("update")
-	.description("Update installed plugins")
-	.argument("[key]", "Plugin key to update (owner/repo or owner/repo/plugin)")
+	.description("Update installed skills and packs")
+	.argument(
+		"[key]",
+		"Key to update (owner/repo or owner/repo/<skill or pack path>)",
+	)
+	.option("-y, --yes", "Remove what's gone upstream without asking")
+	.addOption(globalOption())
+	.addOption(jsonOption())
 	.action(
-		withExitSignal(async (key?: string) => {
-			await runUpdate(key);
-		}),
+		commandAction(
+			"update",
+			(ui, scope, key: string | undefined, options: UpdateOptions) =>
+				runUpdate(key, options, ui, scope),
+		),
 	);

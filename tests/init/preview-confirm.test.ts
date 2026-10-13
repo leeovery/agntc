@@ -7,80 +7,64 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { previewAndConfirm } from "../../src/init/preview-confirm.js";
+import {
+	previewAndConfirm,
+	previewTree,
+} from "../../src/init/preview-confirm.js";
+import { packScaffold } from "../../src/init/scaffold-pack.js";
+import { skillScaffold } from "../../src/init/scaffold-skill.js";
+import { interactiveUi } from "../../src/ui.js";
 
 const mockConfirm = vi.mocked(p.confirm);
 const mockNote = vi.mocked(p.note);
+
+const skillFiles = skillScaffold.files("/work/my-skill");
+const packFiles = packScaffold.files("/work/my-pack");
 
 beforeEach(() => {
 	vi.clearAllMocks();
 });
 
 describe("previewAndConfirm", () => {
-	it("displays agntc.json and SKILL.md for skill type", async () => {
+	it("displays SKILL.md for a skill", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "skill" });
+		await previewAndConfirm(skillFiles, interactiveUi);
 
 		expect(mockNote).toHaveBeenCalledOnce();
-		const message = mockNote.mock.calls[0]![0]!;
-		expect(message).toBe("  agntc.json\n  SKILL.md");
+		expect(mockNote.mock.calls[0]?.[0]).toBe("  SKILL.md");
 	});
 
-	it("preview message includes 'This will create:'", async () => {
+	it("displays a pack's files as a tree, each folder once", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "skill" });
-
-		const title = mockNote.mock.calls[0]![1];
-		expect(title).toBe("This will create:");
-	});
-
-	it("returns true when user confirms", async () => {
-		mockConfirm.mockResolvedValue(true);
-
-		const result = await previewAndConfirm({ type: "skill" });
-
-		expect(result).toBe(true);
-	});
-
-	it("returns false when user declines", async () => {
-		mockConfirm.mockResolvedValue(false);
-
-		const result = await previewAndConfirm({ type: "skill" });
-
-		expect(result).toBe(false);
-	});
-
-	it("returns false when user cancels", async () => {
-		mockConfirm.mockResolvedValue(Symbol("cancel"));
-
-		const result = await previewAndConfirm({ type: "skill" });
-
-		expect(result).toBe(false);
-	});
-
-	it("builds plugin preview lines matching spec tree format", async () => {
-		mockConfirm.mockResolvedValue(true);
-
-		await previewAndConfirm({ type: "plugin" });
+		await previewAndConfirm(packFiles, interactiveUi);
 
 		expect(mockNote).toHaveBeenCalledOnce();
-		const message = mockNote.mock.calls[0]![0]!;
-		expect(message).toBe(
+		expect(mockNote.mock.calls[0]?.[0]).toBe(
 			[
 				"  agntc.json",
 				"  skills/",
 				"    my-skill/",
 				"      SKILL.md",
 				"  agents/",
+				"    my-agent.md",
 				"  hooks/",
+				"    my-hook.sh",
 			].join("\n"),
 		);
 	});
 
-	it("plugin preview is shown before confirmation prompt", async () => {
+	it("preview message includes 'This will create:'", async () => {
 		mockConfirm.mockResolvedValue(true);
+
+		await previewAndConfirm(skillFiles, interactiveUi);
+
+		const title = mockNote.mock.calls[0]?.[1];
+		expect(title).toBe("This will create:");
+	});
+
+	it("shows the preview before the confirmation prompt", async () => {
 		const callOrder: string[] = [];
 		mockNote.mockImplementation(() => {
 			callOrder.push("note");
@@ -90,65 +74,52 @@ describe("previewAndConfirm", () => {
 			return Promise.resolve(true);
 		});
 
-		await previewAndConfirm({ type: "plugin" });
+		await previewAndConfirm(packFiles, interactiveUi);
 
 		expect(callOrder).toEqual(["note", "confirm"]);
-	});
-
-	it("cancelling plugin confirm returns false", async () => {
-		mockConfirm.mockResolvedValue(Symbol("cancel"));
-
-		const result = await previewAndConfirm({ type: "plugin" });
-
-		expect(result).toBe(false);
-	});
-
-	it("builds collection preview lines with my-plugin/ at root", async () => {
-		mockConfirm.mockResolvedValue(true);
-
-		await previewAndConfirm({ type: "collection" });
-
-		expect(mockNote).toHaveBeenCalledOnce();
-		const message = mockNote.mock.calls[0]![0]!;
-		const lines = (message as string).split("\n");
-		expect(lines[0]).toBe("  my-plugin/");
-		expect(lines[1]).toBe("    agntc.json");
-	});
-
-	it("preview shows correct 2-space indentation", async () => {
-		mockConfirm.mockResolvedValue(true);
-
-		await previewAndConfirm({ type: "collection" });
-
-		const message = mockNote.mock.calls[0]![0]!;
-		expect(message).toBe(
-			[
-				"  my-plugin/",
-				"    agntc.json",
-				"    skills/",
-				"      my-skill/",
-				"        SKILL.md",
-				"    agents/",
-				"    hooks/",
-			].join("\n"),
-		);
-	});
-
-	it("cancelling collection confirm returns false", async () => {
-		mockConfirm.mockResolvedValue(Symbol("cancel"));
-
-		const result = await previewAndConfirm({ type: "collection" });
-
-		expect(result).toBe(false);
 	});
 
 	it("asks 'Proceed?' via confirm prompt", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "skill" });
+		await previewAndConfirm(skillFiles, interactiveUi);
 
 		expect(mockConfirm).toHaveBeenCalledOnce();
-		const call = mockConfirm.mock.calls[0]![0];
-		expect(call.message).toBe("Proceed?");
+		expect(mockConfirm.mock.calls[0]?.[0].message).toBe("Proceed?");
+	});
+
+	it("returns true when user confirms", async () => {
+		mockConfirm.mockResolvedValue(true);
+
+		expect(await previewAndConfirm(skillFiles, interactiveUi)).toBe(true);
+	});
+
+	it("returns false when user declines", async () => {
+		mockConfirm.mockResolvedValue(false);
+
+		expect(await previewAndConfirm(skillFiles, interactiveUi)).toBe(false);
+	});
+
+	it("returns false when user cancels", async () => {
+		mockConfirm.mockResolvedValue(Symbol("cancel"));
+
+		expect(await previewAndConfirm(packFiles, interactiveUi)).toBe(false);
+	});
+});
+
+describe("previewTree", () => {
+	it("shows a shared folder once and a repeated name under each of its folders", () => {
+		expect(
+			previewTree(["agntc.json", "skills/a/SKILL.md", "skills/b/SKILL.md"]),
+		).toBe(
+			[
+				"  agntc.json",
+				"  skills/",
+				"    a/",
+				"      SKILL.md",
+				"    b/",
+				"      SKILL.md",
+			].join("\n"),
+		);
 	});
 });

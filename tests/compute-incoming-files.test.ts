@@ -1,352 +1,253 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { computeIncomingFiles } from "../src/compute-incoming-files.js";
-import type { AgentDriver, AssetType } from "../src/drivers/types.js";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	computeClaims,
+	computeIncomingFiles,
+	describeClash,
+	findTargetClashes,
+	skillClaims,
+} from "../src/compute-incoming-files.js";
+import { copyItem } from "../src/copy-item.js";
+import type { FoundPack } from "../src/discover.js";
+import type { InstallItem } from "../src/install-item.js";
 
-function makeDriver(
-	targetDirs: Partial<Record<AssetType, string>>,
-): AgentDriver {
+let base: string;
+let root: string;
+
+beforeEach(async () => {
+	base = await mkdtemp(join(tmpdir(), "agntc-incoming-"));
+	root = join(base, "source");
+	await mkdir(root, { recursive: true });
+});
+
+afterEach(async () => {
+	await rm(base, { recursive: true, force: true });
+});
+
+async function tree(spec: Record<string, string>): Promise<void> {
+	for (const [path, content] of Object.entries(spec)) {
+		const full = join(root, path);
+		await mkdir(dirname(full), { recursive: true });
+		await writeFile(full, content);
+	}
+}
+
+function packItem(overrides: Partial<FoundPack> = {}): InstallItem {
 	return {
-		detect: vi.fn().mockResolvedValue(true),
-		getTargetDir: vi.fn(
-			(assetType: AssetType) => targetDirs[assetType] ?? null,
-		),
+		kind: "pack",
+		pack: { name: "p", path: "p", skills: [], assetDirs: [], ...overrides },
 	};
 }
 
 describe("computeIncomingFiles", () => {
-	describe("bare-skill", () => {
-		it("computes target path for single agent", async () => {
-			const driver = makeDriver({ skills: ".claude/skills" });
-			const agents = [{ id: "claude", driver }];
+	describe("skill", () => {
+		it("claims .claude/skills/<folder name>/", async () => {
+			const result = await computeIncomingFiles(
+				{ kind: "skill", skill: { name: "hooks", path: "skills/react/hooks" } },
+				root,
+			);
 
-			const result = await computeIncomingFiles({
-				type: "bare-skill",
-				sourceDir: "/tmp/my-skill",
-				agents,
-			});
-
-			expect(result).toEqual([".claude/skills/my-skill/"]);
+			expect(result).toEqual([".claude/skills/hooks/"]);
 		});
 
-		it("computes target paths for multiple agents", async () => {
-			const claudeDriver = makeDriver({ skills: ".claude/skills" });
-			const codexDriver = makeDriver({ skills: ".agents/skills" });
-			const agents = [
-				{ id: "claude", driver: claudeDriver },
-				{ id: "codex", driver: codexDriver },
-			];
-
-			const result = await computeIncomingFiles({
-				type: "bare-skill",
-				sourceDir: "/tmp/my-skill",
-				agents,
-			});
-
-			expect(result).toEqual([
-				".claude/skills/my-skill/",
-				".agents/skills/my-skill/",
-			]);
-		});
-
-		it("skips agents where driver returns null for skills", async () => {
-			const claudeDriver = makeDriver({ skills: ".claude/skills" });
-			const nullDriver = makeDriver({});
-			const agents = [
-				{ id: "claude", driver: claudeDriver },
-				{ id: "codex", driver: nullDriver },
-			];
-
-			const result = await computeIncomingFiles({
-				type: "bare-skill",
-				sourceDir: "/tmp/my-skill",
-				agents,
-			});
-
-			expect(result).toEqual([".claude/skills/my-skill/"]);
-		});
-
-		// Regression: a whole-repo bare skill's sourceDir is the random clone dir,
-		// so the destination path must come from the explicit skillName, not
-		// basename(sourceDir) — otherwise the collision check targets the wrong dir.
-		it("uses skillName over basename(sourceDir) when provided", async () => {
-			const driver = makeDriver({ skills: ".claude/skills" });
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "bare-skill",
-				sourceDir: "/tmp/agntc-Xy12ab", // mkdtemp clone root
-				agents,
-				skillName: "refero-design",
-			});
+		it("claims the root's name for a skill at the root", async () => {
+			const result = await computeIncomingFiles(
+				{ kind: "skill", skill: { name: "refero-design", path: "" } },
+				"/tmp/agntc-Xy12ab",
+			);
 
 			expect(result).toEqual([".claude/skills/refero-design/"]);
 		});
-
-		it("uses basename of sourceDir as skill name", async () => {
-			const driver = makeDriver({ skills: ".claude/skills" });
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "bare-skill",
-				sourceDir: "/some/deep/path/planning-skill",
-				agents,
-			});
-
-			expect(result).toEqual([".claude/skills/planning-skill/"]);
-		});
 	});
 
-	describe("plugin", () => {
-		let sourceDir: string;
-
-		beforeEach(async () => {
-			sourceDir = await mkdtemp(join(tmpdir(), "compute-incoming-"));
-		});
-
-		afterEach(async () => {
-			await rm(sourceDir, { recursive: true, force: true });
-		});
-
-		it("enumerates individual skill directories", async () => {
-			await mkdir(join(sourceDir, "skills/planning"), { recursive: true });
-			await writeFile(
-				join(sourceDir, "skills/planning/SKILL.md"),
-				"# Planning",
-			);
-			await mkdir(join(sourceDir, "skills/review"), { recursive: true });
-			await writeFile(join(sourceDir, "skills/review/SKILL.md"), "# Review");
-
-			const driver = makeDriver({ skills: ".claude/skills" });
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["skills"],
-				agents,
+	describe("pack", () => {
+		it("claims each skill, each .md agent and each top-level hook entry", async () => {
+			await tree({
+				"p/skills/a/SKILL.md": "",
+				"p/agents/reviewer.md": "",
+				"p/agents/nested/planner.md": "",
+				"p/agents/openai.yaml": "",
+				"p/hooks/pre.sh": "",
+				"p/hooks/lint/run.sh": "",
 			});
 
-			expect(result).toEqual(
-				expect.arrayContaining([
-					".claude/skills/planning/",
-					".claude/skills/review/",
-				]),
-			);
-			expect(result).toHaveLength(2);
-		});
-
-		it("enumerates individual agent files", async () => {
-			await mkdir(join(sourceDir, "agents"), { recursive: true });
-			await writeFile(join(sourceDir, "agents/executor.md"), "# Executor");
-
-			const driver = makeDriver({ agents: ".claude/agents" });
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["agents"],
-				agents,
-			});
-
-			expect(result).toEqual([".claude/agents/executor.md"]);
-		});
-
-		it("enumerates individual hook files", async () => {
-			await mkdir(join(sourceDir, "hooks"), { recursive: true });
-			await writeFile(join(sourceDir, "hooks/pre-commit.sh"), "#!/bin/bash");
-
-			const driver = makeDriver({ hooks: ".claude/hooks" });
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["hooks"],
-				agents,
-			});
-
-			expect(result).toEqual([".claude/hooks/pre-commit.sh"]);
-		});
-
-		it("enumerates all asset types together", async () => {
-			await mkdir(join(sourceDir, "skills/planning"), { recursive: true });
-			await writeFile(
-				join(sourceDir, "skills/planning/SKILL.md"),
-				"# Planning",
-			);
-			await mkdir(join(sourceDir, "skills/review"), { recursive: true });
-			await writeFile(join(sourceDir, "skills/review/SKILL.md"), "# Review");
-			await mkdir(join(sourceDir, "agents"), { recursive: true });
-			await writeFile(join(sourceDir, "agents/executor.md"), "# Executor");
-			await mkdir(join(sourceDir, "hooks"), { recursive: true });
-			await writeFile(join(sourceDir, "hooks/pre-commit.sh"), "#!/bin/bash");
-
-			const driver = makeDriver({
-				skills: ".claude/skills",
-				agents: ".claude/agents",
-				hooks: ".claude/hooks",
-			});
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["skills", "agents", "hooks"],
-				agents,
-			});
-
-			expect(result).toEqual(
-				expect.arrayContaining([
-					".claude/skills/planning/",
-					".claude/skills/review/",
-					".claude/agents/executor.md",
-					".claude/hooks/pre-commit.sh",
-				]),
-			);
-			expect(result).toHaveLength(4);
-		});
-
-		it("skips asset dirs where driver returns null", async () => {
-			await mkdir(join(sourceDir, "skills/planning"), { recursive: true });
-			await writeFile(
-				join(sourceDir, "skills/planning/SKILL.md"),
-				"# Planning",
-			);
-			await mkdir(join(sourceDir, "agents"), { recursive: true });
-			await writeFile(join(sourceDir, "agents/executor.md"), "# Executor");
-
-			const codexDriver = makeDriver({ skills: ".agents/skills" });
-			const agents = [{ id: "codex", driver: codexDriver }];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["skills", "agents"],
-				agents,
-			});
-
-			// Codex doesn't support agents, so only skills should appear
-			expect(result).toEqual([".agents/skills/planning/"]);
-		});
-
-		it("deduplicates paths across agents", async () => {
-			await mkdir(join(sourceDir, "skills/planning"), { recursive: true });
-			await writeFile(
-				join(sourceDir, "skills/planning/SKILL.md"),
-				"# Planning",
+			const result = await computeIncomingFiles(
+				packItem({
+					skills: [{ name: "a", path: "p/skills/a" }],
+					assetDirs: ["agents", "hooks"],
+				}),
+				root,
 			);
 
-			const claudeDriver = makeDriver({ skills: ".claude/skills" });
-			const codexDriver = makeDriver({ skills: ".claude/skills" });
-			const agents = [
-				{ id: "claude", driver: claudeDriver },
-				{ id: "codex", driver: codexDriver },
-			];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["skills"],
-				agents,
-			});
-
-			expect(result).toEqual([".claude/skills/planning/"]);
+			expect([...result].sort()).toEqual([
+				".claude/agents/nested/planner.md",
+				".claude/agents/reviewer.md",
+				".claude/hooks/lint/",
+				".claude/hooks/pre.sh",
+				".claude/skills/a/",
+			]);
 		});
 
-		it("produces paths for multiple agents with different targets", async () => {
-			await mkdir(join(sourceDir, "skills/planning"), { recursive: true });
-			await writeFile(
-				join(sourceDir, "skills/planning/SKILL.md"),
-				"# Planning",
+		it("claims nothing from agents/ or hooks/ the pack doesn't list", async () => {
+			await tree({ "p/agents/a.md": "", "p/hooks/h.sh": "" });
+
+			expect(await computeIncomingFiles(packItem(), root)).toEqual([]);
+		});
+
+		it("predicts the top-level paths copying claims", async () => {
+			await tree({
+				"p/skills/a/SKILL.md": "",
+				"p/agents/x.md": "",
+				"p/hooks/h.sh": "",
+			});
+			const item = packItem({
+				skills: [{ name: "a", path: "p/skills/a" }],
+				assetDirs: ["agents", "hooks"],
+			});
+			const projectDir = join(base, "project");
+
+			const incoming = await computeIncomingFiles(item, root);
+			const { copiedFiles } = await copyItem(
+				item,
+				{ root, local: false },
+				projectDir,
 			);
 
-			const claudeDriver = makeDriver({ skills: ".claude/skills" });
-			const codexDriver = makeDriver({ skills: ".agents/skills" });
-			const agents = [
-				{ id: "claude", driver: claudeDriver },
-				{ id: "codex", driver: codexDriver },
-			];
+			expect([...incoming].sort()).toEqual([...copiedFiles].sort());
+		});
 
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["skills"],
-				agents,
+		it("skips hidden hooks/ entries, matching what copying installs", async () => {
+			await tree({
+				"p/hooks/h.sh": "",
+				"p/hooks/.DS_Store": "",
+				"p/hooks/.cache/run.sh": "",
 			});
+			const item = packItem({ assetDirs: ["hooks"] });
+			const projectDir = join(base, "project");
 
-			expect(result).toEqual(
-				expect.arrayContaining([
-					".claude/skills/planning/",
-					".agents/skills/planning/",
-				]),
+			const incoming = await computeIncomingFiles(item, root);
+			const { copiedFiles } = await copyItem(
+				item,
+				{ root, local: false },
+				projectDir,
 			);
-			expect(result).toHaveLength(2);
-		});
 
-		it("returns empty array when source asset dir is empty", async () => {
-			await mkdir(join(sourceDir, "skills"), { recursive: true });
-
-			const driver = makeDriver({ skills: ".claude/skills" });
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["skills"],
-				agents,
-			});
-
-			expect(result).toEqual([]);
-		});
-
-		it("returns empty array when source asset dir does not exist", async () => {
-			// sourceDir exists but skills/ does not
-			const driver = makeDriver({ skills: ".claude/skills" });
-			const agents = [{ id: "claude", driver }];
-
-			const result = await computeIncomingFiles({
-				type: "plugin",
-				sourceDir,
-				assetDirs: ["skills"],
-				agents,
-			});
-
-			expect(result).toEqual([]);
+			expect(incoming).toEqual([".claude/hooks/h.sh"]);
+			expect(copiedFiles).toEqual(incoming);
 		});
 	});
+});
 
-	describe("edge cases", () => {
-		it("returns empty array when no agents provided", async () => {
-			const result = await computeIncomingFiles({
-				type: "bare-skill",
-				sourceDir: "/tmp/my-skill",
-				agents: [],
-			});
-
-			expect(result).toEqual([]);
+describe("computeClaims", () => {
+	it("names the source path behind each claimed install path", async () => {
+		await tree({
+			"p/skills/a/SKILL.md": "",
+			"p/agents/nested/planner.md": "",
+			"p/hooks/pre.sh": "",
 		});
 
-		it("returns empty array for plugin with no asset dirs", async () => {
-			const sourceDir = await mkdtemp(join(tmpdir(), "compute-incoming-"));
-			try {
-				const driver = makeDriver({ skills: ".claude/skills" });
-				const agents = [{ id: "claude", driver }];
+		const claims = await computeClaims(
+			packItem({
+				skills: [{ name: "a", path: "p/skills/a" }],
+				assetDirs: ["agents", "hooks"],
+			}),
+			root,
+		);
 
-				const result = await computeIncomingFiles({
-					type: "plugin",
-					sourceDir,
-					assetDirs: [],
-					agents,
-				});
+		expect(claims).toEqual([
+			{ target: ".claude/skills/a/", source: "p/skills/a" },
+			{
+				target: ".claude/agents/nested/planner.md",
+				source: "p/agents/nested/planner.md",
+			},
+			{ target: ".claude/hooks/pre.sh", source: "p/hooks/pre.sh" },
+		]);
+	});
 
-				expect(result).toEqual([]);
-			} finally {
-				await rm(sourceDir, { recursive: true, force: true });
-			}
-		});
+	it("names a root pack's assets from the root", async () => {
+		await tree({ "agents/x.md": "" });
+
+		const claims = await computeClaims(
+			packItem({ path: "", assetDirs: ["agents"] }),
+			root,
+		);
+
+		expect(claims).toEqual([
+			{ target: ".claude/agents/x.md", source: "agents/x.md" },
+		]);
+	});
+});
+
+describe("findTargetClashes", () => {
+	it("finds each install path claimed more than once, with every source claiming it", () => {
+		const clashes = findTargetClashes([
+			...skillClaims([
+				{ name: "foo", path: "skills/a/foo" },
+				{ name: "bar", path: "bar" },
+				{ name: "foo", path: "tools/foo" },
+			]),
+			{ target: ".claude/agents/x.md", source: "p/agents/x.md" },
+			{ target: ".claude/agents/x.md", source: "q/agents/x.md" },
+		]);
+
+		expect(clashes).toEqual([
+			{
+				target: ".claude/skills/foo",
+				sources: ["skills/a/foo", "tools/foo"],
+			},
+			{
+				target: ".claude/agents/x.md",
+				sources: ["p/agents/x.md", "q/agents/x.md"],
+			},
+		]);
+	});
+
+	it("matches a hook file against a hook folder of the same name", () => {
+		const clashes = findTargetClashes([
+			{ target: ".claude/hooks/lint", source: "p/hooks/lint" },
+			{ target: ".claude/hooks/lint/", source: "q/hooks/lint" },
+		]);
+
+		expect(clashes).toEqual([
+			{
+				target: ".claude/hooks/lint",
+				sources: ["p/hooks/lint", "q/hooks/lint"],
+			},
+		]);
+	});
+
+	it("finds nothing when every install path is claimed once", () => {
+		expect(
+			findTargetClashes(
+				skillClaims([
+					{ name: "a", path: "a" },
+					{ name: "b", path: "skills/b" },
+				]),
+			),
+		).toEqual([]);
+	});
+});
+
+describe("describeClash", () => {
+	it("names both paths and the install path they share", () => {
+		expect(
+			describeClash({
+				target: ".claude/skills/foo",
+				sources: ["skills/a/foo", "tools/foo"],
+			}),
+		).toBe(
+			"skills/a/foo and tools/foo would both install to .claude/skills/foo",
+		);
+	});
+
+	it("says all for more than two", () => {
+		expect(
+			describeClash({
+				target: ".claude/skills/foo",
+				sources: ["a/foo", "b/foo", "c/foo"],
+			}),
+		).toBe("a/foo, b/foo and c/foo would all install to .claude/skills/foo");
 	});
 });

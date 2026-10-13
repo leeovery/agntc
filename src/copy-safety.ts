@@ -1,5 +1,13 @@
-import { readdir, readlink } from "node:fs/promises";
+import {
+	copyFile,
+	lstat,
+	mkdir,
+	readdir,
+	readlink,
+	symlink,
+} from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { relativePosix } from "./fs-utils.js";
 
 /**
  * Pure lexical containment predicate: does `candidate` resolve at or below
@@ -7,7 +15,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
  * directories sharing a prefix (`/clone` vs `/clone-evil`) are NOT contained.
  * No filesystem access.
  */
-function isContained(root: string, candidate: string): boolean {
+export function isContained(root: string, candidate: string): boolean {
 	const rel = relative(resolve(root), candidate);
 	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
@@ -43,6 +51,40 @@ export function assertSubpathWithinClone(
 	}
 }
 
+/** What a `/`-joined path below a source root leads to, found without following a link. */
+export type SourcePathState =
+	| { kind: "directory" }
+	| { kind: "missing" }
+	| { kind: "not-directory" }
+	/** A symlink at the path or at a folder above it, as a path below the root. */
+	| { kind: "link"; at: string };
+
+/**
+ * Walks a path below `root` one segment at a time with `lstat`, stopping at the
+ * first that is missing, a symlink or not a folder, so nothing reached through
+ * the path can lie behind a link: the deep walk never follows one either.
+ */
+export async function inspectSourcePath(
+	root: string,
+	path: string,
+): Promise<SourcePathState> {
+	let current = "";
+	for (const segment of path.split("/").filter(Boolean)) {
+		current = current === "" ? segment : `${current}/${segment}`;
+		const stats = await lstat(join(root, current)).catch(() => null);
+		if (stats === null) {
+			return { kind: "missing" };
+		}
+		if (stats.isSymbolicLink()) {
+			return { kind: "link", at: current };
+		}
+		if (!stats.isDirectory()) {
+			return { kind: "not-directory" };
+		}
+	}
+	return { kind: "directory" };
+}
+
 export class SymlinkEscapeError extends Error {
 	constructor(relPath: string, target: string) {
 		super(`symlink "${relPath}" points outside the clone (target: ${target})`);
@@ -54,10 +96,10 @@ export class SymlinkEscapeError extends Error {
  * Recursive pre-flight scan that rejects any symlink in `unitDir` whose target
  * resolves outside `cloneRoot` (the boundary). Read-only: no filesystem writes.
  *
- * `unitDir` is the tree to copy (bare-skill dir, plugin/unit dir, or member
+ * `unitDir` is the tree to copy (bare-skill dir, pack dir, or member
  * subdir); `cloneRoot` is the containment boundary. A symlink may legitimately
  * point anywhere inside the clone (e.g. a sibling unit dir in a multi-dir
- * plugin), so the boundary is the clone root, NOT the unit dir.
+ * pack), so the boundary is the clone root, NOT the unit dir.
  *
  * Symlinks are detected (dirent.isSymbolicLink) but never followed: symlinked
  * directories are validated and NOT descended into, so symlink-to-dir cycles
@@ -66,7 +108,7 @@ export class SymlinkEscapeError extends Error {
  * any depth.
  *
  * Target containment is evaluated LEXICALLY via path.resolve (no realpath/stat
- * on the target): this both implements the spec's broken-link semantics
+ * on the target): this both implements broken-link semantics
  * (a dangling link is judged by where it points lexically) and avoids
  * following symlink chains. Throws {@link SymlinkEscapeError} on the FIRST
  * escaping symlink (fail fast). Pure: throw only, no logging or process.exit.
@@ -91,7 +133,7 @@ async function scanDir(
 		const entryPath = join(dir, entry.name);
 
 		if (entry.isSymbolicLink()) {
-			await assertSymlinkContained(entryPath, cloneRoot, unitRoot);
+			await containedTarget(entryPath, cloneRoot, unitRoot);
 			// Validated but NOT descended into — prevents infinite loops on
 			// symlink-to-dir cycles (link to an ancestor).
 			continue;
@@ -127,19 +169,118 @@ export async function checkEscapingSymlinks(
 	}
 }
 
-async function assertSymlinkContained(
+/**
+ * Where a link leads, resolved from where it sits without following it, so a
+ * dangling link is judged the same way. One leading out of `cloneRoot` throws.
+ */
+async function containedTarget(
 	linkPath: string,
 	cloneRoot: string,
 	unitRoot: string,
-): Promise<void> {
-	const target = await readlink(linkPath);
-	// Resolve relative + absolute targets against the link's directory
-	// (absolute targets ignore the base). lexical against clone root — no
-	// realpath/stat, so broken links are judged by the same predicate.
-	const resolvedTarget = resolve(dirname(linkPath), target);
-
-	if (!isContained(cloneRoot, resolvedTarget)) {
-		const relPath = relative(unitRoot, linkPath);
-		throw new SymlinkEscapeError(relPath, target);
+): Promise<string> {
+	const written = await readlink(linkPath);
+	const target = resolve(dirname(linkPath), written);
+	if (!isContained(cloneRoot, target)) {
+		throw new SymlinkEscapeError(relative(unitRoot, linkPath), written);
 	}
+	return target;
+}
+
+/** What an item is copied from: the root its paths sit below, and its kind. */
+export interface CopySource {
+	root: string;
+	/** A local folder, which stays; otherwise a clone, deleted once copied. */
+	local: boolean;
+}
+
+/** One thing a copy writes, at a `/`-joined path below its destination; "" is the destination. */
+export type CopyStep =
+	| { kind: "dir"; path: string }
+	| { kind: "file"; path: string; from: string }
+	| { kind: "link"; path: string; target: string };
+
+/** Whether a copy keeps what sits at a `/`-joined path below the folder it copies. */
+export type CopyFilter = (path: string) => boolean;
+
+interface Plan {
+	unit: string;
+	root: string;
+	local: boolean;
+	keep: CopyFilter;
+	steps: CopyStep[];
+}
+
+/**
+ * Plans copying the folder `dir` without following a link. Folders and
+ * regular files copy; sockets, FIFOs and devices are left out. A link, read
+ * from where it sits:
+ * - out of the source root throws {@link SymlinkEscapeError};
+ * - to something inside `dir` the filter keeps stays a link, made relative;
+ * - to something inside `dir` the filter drops is left out;
+ * - to `dir` itself, above it or elsewhere in the source is an absolute link
+ *   into a local source, which stays, and is left out of a clone, which is
+ *   deleted once copied.
+ */
+export async function planCopy(
+	dir: string,
+	{ root, local }: CopySource,
+	keep: CopyFilter,
+): Promise<CopyStep[]> {
+	const unit = resolve(dir);
+	const plan: Plan = { unit, root: resolve(root), local, keep, steps: [] };
+	plan.steps.push({ kind: "dir", path: "" });
+	await planFolder(plan, unit, "");
+	return plan.steps;
+}
+
+/** Writes a planned copy below `dest`, which holds nothing of it yet. */
+export async function writeCopy(
+	steps: CopyStep[],
+	dest: string,
+): Promise<void> {
+	for (const step of steps) {
+		const path = join(dest, step.path);
+		if (step.kind === "dir") {
+			await mkdir(path, { recursive: true });
+		} else if (step.kind === "file") {
+			await copyFile(step.from, path);
+		} else {
+			await symlink(step.target, path);
+		}
+	}
+}
+
+async function planFolder(
+	plan: Plan,
+	folder: string,
+	dest: string,
+): Promise<void> {
+	for (const entry of await readdir(folder, { withFileTypes: true })) {
+		const path = dest === "" ? entry.name : `${dest}/${entry.name}`;
+		const from = join(folder, entry.name);
+		if (!plan.keep(path)) {
+			continue;
+		}
+		if (entry.isSymbolicLink()) {
+			const target = await installedLink(plan, from);
+			if (target !== null) {
+				plan.steps.push({ kind: "link", path, target });
+			}
+		} else if (entry.isDirectory()) {
+			plan.steps.push({ kind: "dir", path });
+			await planFolder(plan, from, path);
+		} else if (entry.isFile()) {
+			plan.steps.push({ kind: "file", path, from });
+		}
+	}
+}
+
+/** What a link is written as in the copy, or null when it's left out. */
+async function installedLink(plan: Plan, link: string): Promise<string | null> {
+	const target = await containedTarget(link, plan.root, plan.unit);
+	const inside = relativePosix(plan.unit, target);
+	if (inside === "" || !isContained(plan.unit, target)) {
+		return plan.local ? target : null;
+	}
+	return plan.keep(inside) ? relative(dirname(link), target) || "." : null;
 }

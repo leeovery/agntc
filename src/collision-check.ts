@@ -1,3 +1,4 @@
+import { installPathMatcher } from "./install-paths.js";
 import type { Manifest } from "./manifest.js";
 
 /**
@@ -20,17 +21,12 @@ export function checkFileCollisions(
 		return collisions;
 	}
 
-	const incomingSet = new Set(incomingFiles);
+	const isIncoming = installPathMatcher(incomingFiles);
 
 	for (const [key, entry] of Object.entries(manifest)) {
 		if (key === excludeKey) continue;
 
-		const overlapping: string[] = [];
-		for (const file of entry.files) {
-			if (incomingSet.has(file)) {
-				overlapping.push(file);
-			}
-		}
+		const overlapping = entry.files.filter(isIncoming);
 
 		if (overlapping.length > 0) {
 			collisions.set(key, overlapping);

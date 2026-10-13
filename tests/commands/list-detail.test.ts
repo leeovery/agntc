@@ -25,6 +25,7 @@ import {
 	type DetailViewInput,
 	renderDetailView,
 } from "../../src/commands/list-detail.js";
+import { interactiveUi } from "../../src/ui.js";
 
 const mockSelect = vi.mocked(p.select);
 const mockLog = vi.mocked(p.log);
@@ -49,18 +50,43 @@ beforeEach(() => {
 
 describe("renderDetailView", () => {
 	describe("info display", () => {
-		it("displays plugin key", async () => {
+		it("displays a skill's key under Skill", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ key: "acme/toolkit" }));
+			await renderDetailView(
+				makeInput({ key: "acme/toolkit", entry: { type: "skill" } }),
+				interactiveUi,
+			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Plugin: acme/toolkit");
+			expect(mockLog.info).toHaveBeenCalledWith("Skill: acme/toolkit");
+		});
+
+		it("displays a pack's key under Pack", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({ key: "acme/toolkit/laravel", entry: { type: "pack" } }),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Pack: acme/toolkit/laravel");
+		});
+
+		it("displays an untyped entry's key under Skill", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(makeInput({ key: "acme/toolkit" }), interactiveUi);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Skill: acme/toolkit");
 		});
 
 		it("displays ref as tag value when ref is set", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { ref: "v2.3.1" } }));
+			await renderDetailView(
+				makeInput({ entry: { ref: "v2.3.1" } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Ref: v2.3.1");
 		});
@@ -70,6 +96,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: { ref: null, commit: "abc1234567890def" } }),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Ref: HEAD");
@@ -78,7 +105,10 @@ describe("renderDetailView", () => {
 		it("displays ref as local when ref and commit are both null", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { ref: null, commit: null } }));
+			await renderDetailView(
+				makeInput({ entry: { ref: null, commit: null } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Ref: local");
 		});
@@ -88,6 +118,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: { commit: "abc1234567890def" } }),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Commit: abc1234");
@@ -96,7 +127,10 @@ describe("renderDetailView", () => {
 		it("displays em dash when commit is null", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { commit: null } }));
+			await renderDetailView(
+				makeInput({ entry: { commit: null } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Commit: \u2014");
 		});
@@ -106,32 +140,32 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: { installedAt: "2026-02-10T14:22:33.000Z" } }),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Installed: 2026-02-10");
 		});
 
-		it("displays agents with per-agent counts on one line", async () => {
+		it("names no agent anywhere in the detail view", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
-				makeInput({
-					entry: {
-						agents: ["claude", "codex"],
-						files: [".claude/skills/a/SKILL.md", ".agents/skills/b/SKILL.md"],
-					},
-				}),
+				makeInput({ entry: { files: [".claude/skills/a/SKILL.md"] } }),
+				interactiveUi,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
-				"Agents: claude (1 skill), codex (1 skill)",
-			);
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			expect(infoCalls.some((line) => line.startsWith("Agents:"))).toBe(false);
+			expect(infoCalls.some((line) => /claude/i.test(line))).toBe(false);
 		});
 
 		it("displays constraint line when entry has constraint", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { constraint: "^1.0.0" } }));
+			await renderDetailView(
+				makeInput({ entry: { constraint: "^1.0.0" } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Constraint: ^1.0.0");
 		});
@@ -139,7 +173,7 @@ describe("renderDetailView", () => {
 		it("does not display constraint line when entry has no constraint", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput());
+			await renderDetailView(makeInput(), interactiveUi);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			const constraintLines = infoCalls.filter((line) =>
@@ -150,7 +184,7 @@ describe("renderDetailView", () => {
 	});
 
 	describe("asset counts", () => {
-		it("displays per-agent asset counts for claude files", async () => {
+		it("displays asset counts on one line", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
@@ -159,27 +193,13 @@ describe("renderDetailView", () => {
 						files: [".claude/skills/a/SKILL.md", ".claude/skills/b/SKILL.md"],
 					},
 				}),
+				interactiveUi,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude (2 skills)");
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
 		});
 
-		it("displays per-agent asset counts for codex files", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			await renderDetailView(
-				makeInput({
-					entry: {
-						agents: ["codex"],
-						files: [".agents/skills/a/SKILL.md"],
-					},
-				}),
-			);
-
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: codex (1 skill)");
-		});
-
-		it("displays mixed asset types for a single agent", async () => {
+		it("displays mixed asset types", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
@@ -192,37 +212,13 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
+				interactiveUi,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
-				"Agents: claude (2 skills, 1 hook)",
-			);
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills, 1 hook");
 		});
 
-		it("displays both agent lines for multi-agent plugin", async () => {
-			mockSelect.mockResolvedValue("back");
-
-			await renderDetailView(
-				makeInput({
-					entry: {
-						agents: ["claude", "codex"],
-						files: [
-							".claude/skills/a/SKILL.md",
-							".claude/skills/b/SKILL.md",
-							".claude/hooks/pre-commit.sh",
-							".agents/skills/c/SKILL.md",
-							".agents/skills/d/SKILL.md",
-						],
-					},
-				}),
-			);
-
-			expect(mockLog.info).toHaveBeenCalledWith(
-				"Agents: claude (2 skills, 1 hook), codex (2 skills)",
-			);
-		});
-
-		it("counts agent files within an agent group", async () => {
+		it("counts agent files", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(
@@ -231,18 +227,22 @@ describe("renderDetailView", () => {
 						files: [".claude/agents/agent-a.md"],
 					},
 				}),
+				interactiveUi,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude (1 agent)");
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 agent");
 		});
 
-		it("lists an agent without counts when it has no files", async () => {
+		it("omits the assets line when the entry has no files", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { files: [] } }));
+			await renderDetailView(
+				makeInput({ entry: { files: [] } }),
+				interactiveUi,
+			);
 
-			// No files → the agent is still listed, just without a count suffix.
-			expect(mockLog.info).toHaveBeenCalledWith("Agents: claude");
+			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			expect(infoCalls.some((line) => line.startsWith("Assets:"))).toBe(false);
 		});
 	});
 
@@ -256,6 +256,7 @@ describe("renderDetailView", () => {
 						files: [".claude/skills/a/SKILL.md", ".claude/hooks/lint.sh"],
 					},
 				}),
+				interactiveUi,
 			);
 
 			const messages = mockLog.message.mock.calls.map((c) => c[0] as string);
@@ -284,6 +285,7 @@ describe("renderDetailView", () => {
 					entry: headEntry,
 					updateStatus: { status: "update-available", remoteCommit: "def456" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -298,6 +300,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: headEntry, updateStatus: { status: "local" } }),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -312,6 +315,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: headEntry, updateStatus: { status: "up-to-date" } }),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -328,6 +332,7 @@ describe("renderDetailView", () => {
 					entry: headEntry,
 					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -344,6 +349,7 @@ describe("renderDetailView", () => {
 					entry: headEntry,
 					updateStatus: { status: "constrained-no-match" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -362,6 +368,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v2.0.0" },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -379,6 +386,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -401,6 +409,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -422,6 +431,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -439,6 +449,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "constrained-no-match" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -456,6 +467,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "check-failed", reason: "timeout" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -472,6 +484,7 @@ describe("renderDetailView", () => {
 					entry: { ref: null, commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -488,6 +501,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "main", commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -510,6 +524,7 @@ describe("renderDetailView", () => {
 						remoteCommit: "b".repeat(40),
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -530,6 +545,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v4", commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -548,6 +564,7 @@ describe("renderDetailView", () => {
 					entry: { constraint: "^1.0.0" },
 					updateStatus: { status: "constrained-no-match" },
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.error).toHaveBeenCalledWith(
@@ -566,6 +583,7 @@ describe("renderDetailView", () => {
 						latestOverall: "v2.0.0",
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
@@ -584,6 +602,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
@@ -606,6 +625,7 @@ describe("renderDetailView", () => {
 						latestOverall: "v2.0.0",
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
@@ -626,6 +646,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
@@ -640,7 +661,7 @@ describe("renderDetailView", () => {
 		it("returns selected action value", async () => {
 			mockSelect.mockResolvedValue("remove");
 
-			const result = await renderDetailView(makeInput());
+			const result = await renderDetailView(makeInput(), interactiveUi);
 
 			expect(result).toBe("remove");
 		});
@@ -648,7 +669,7 @@ describe("renderDetailView", () => {
 		it("cancel returns back", async () => {
 			mockSelect.mockResolvedValue(Symbol("cancel"));
 
-			const result = await renderDetailView(makeInput());
+			const result = await renderDetailView(makeInput(), interactiveUi);
 
 			expect(result).toBe("back");
 		});
@@ -658,7 +679,7 @@ describe("renderDetailView", () => {
 		it("uses Action as the select message", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput());
+			await renderDetailView(makeInput(), interactiveUi);
 
 			const selectCall = mockSelect.mock.calls[0]![0];
 			expect(selectCall.message).toBe("Action");

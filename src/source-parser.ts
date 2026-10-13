@@ -1,48 +1,37 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { validRange } from "semver";
 import { assertSubpathWithinClone, PathTraversalError } from "./copy-safety.js";
 
-interface GitHubShorthandSource {
+interface RemoteSource {
+	owner: string;
+	repo: string;
+	ref: string | null;
+	constraint: string | null;
+	manifestKey: string;
+	cloneUrl: string;
+	/** Repo-relative folder the discovery walk starts at; absent for the root. */
+	startPath?: string;
+}
+
+interface GitHubShorthandSource extends RemoteSource {
 	type: "github-shorthand";
-	owner: string;
-	repo: string;
-	ref: string | null;
-	constraint: string | null;
-	manifestKey: string;
-	cloneUrl: string;
 }
 
-interface HttpsUrlSource {
+interface HttpsUrlSource extends RemoteSource {
 	type: "https-url";
-	owner: string;
-	repo: string;
-	ref: string | null;
-	constraint: string | null;
-	manifestKey: string;
-	cloneUrl: string;
 }
 
-interface SshUrlSource {
+interface SshUrlSource extends RemoteSource {
 	type: "ssh-url";
-	owner: string;
-	repo: string;
-	ref: string | null;
-	constraint: string | null;
-	manifestKey: string;
-	cloneUrl: string;
 }
 
-interface DirectPathSource {
-	type: "direct-path";
-	owner: string;
-	repo: string;
+interface TreeUrlSource extends RemoteSource {
+	type: "tree-url";
 	ref: string;
 	constraint: null;
-	targetPlugin: string;
-	manifestKey: string;
-	cloneUrl: string;
+	startPath: string;
 }
 
 interface LocalPathSource {
@@ -57,7 +46,7 @@ export type ParsedSource =
 	| GitHubShorthandSource
 	| HttpsUrlSource
 	| SshUrlSource
-	| DirectPathSource
+	| TreeUrlSource
 	| LocalPathSource;
 
 function isLocalPath(input: string): boolean {
@@ -85,7 +74,7 @@ export async function parseSource(raw: string): Promise<ParsedSource> {
 	} else if (trimmed.startsWith("https://")) {
 		const withoutProtocol = trimmed.slice("https://".length);
 		if (hasTreePath(withoutProtocol)) {
-			result = parseDirectPath(trimmed);
+			result = parseTreeUrl(trimmed);
 		} else {
 			result = parseHttpsUrl(trimmed);
 		}
@@ -102,28 +91,16 @@ export async function parseSource(raw: string): Promise<ParsedSource> {
 	return result;
 }
 
+/**
+ * A local source is the real folder the path leads to, so a linked folder
+ * installs and is keyed as the folder it links to.
+ */
 async function parseLocalPath(input: string): Promise<LocalPathSource> {
-	let expanded = input;
-	if (expanded.startsWith("~")) {
-		expanded = homedir() + expanded.slice(1);
-	}
-
-	const resolvedPath = resolve(expanded);
-
-	try {
-		const stats = await stat(resolvedPath);
-		if (!stats.isDirectory()) {
-			throw new Error(
-				`Path ${resolvedPath} does not exist or is not a directory`,
-			);
-		}
-	} catch (err) {
-		if (err instanceof Error && err.message.startsWith("Path ")) {
-			throw err;
-		}
-		throw new Error(
-			`Path ${resolvedPath} does not exist or is not a directory`,
-		);
+	const expanded = input.startsWith("~") ? homedir() + input.slice(1) : input;
+	const path = resolve(expanded);
+	const resolvedPath = await realDirectory(path);
+	if (resolvedPath === null) {
+		throw new Error(`Path ${path} does not exist or is not a directory`);
 	}
 
 	return {
@@ -135,6 +112,15 @@ async function parseLocalPath(input: string): Promise<LocalPathSource> {
 	};
 }
 
+async function realDirectory(path: string): Promise<string | null> {
+	try {
+		const real = await realpath(path);
+		return (await stat(real)).isDirectory() ? real : null;
+	} catch {
+		return null;
+	}
+}
+
 function hasTreePath(withoutProtocol: string): boolean {
 	// Check if the path portion (after the host) contains /tree/
 	const slashIndex = withoutProtocol.indexOf("/");
@@ -143,7 +129,7 @@ function hasTreePath(withoutProtocol: string): boolean {
 	return pathPart.includes("/tree/") || pathPart.endsWith("/tree/");
 }
 
-function parseDirectPath(input: string): DirectPathSource {
+function parseTreeUrl(input: string): TreeUrlSource {
 	const withoutProtocol = input.slice("https://".length);
 	const slashIndex = withoutProtocol.indexOf("/");
 	const host = withoutProtocol.slice(0, slashIndex);
@@ -155,14 +141,12 @@ function parseDirectPath(input: string): DirectPathSource {
 		throw new Error("tree URLs cannot have @ref suffix");
 	}
 
-	// Split on /tree/ to get owner/repo prefix and ref/plugin suffix
 	const treeIndex = rawPath.indexOf("/tree/");
 	const ownerRepoPath = rawPath.slice(0, treeIndex);
 	const afterTree = rawPath
 		.slice(treeIndex + "/tree/".length)
 		.replace(/\/+$/, "");
 
-	// Parse owner/repo
 	const ownerRepoSegments = ownerRepoPath.split("/").filter((s) => s !== "");
 	if (ownerRepoSegments.length < 2) {
 		throw new Error(
@@ -172,32 +156,25 @@ function parseDirectPath(input: string): DirectPathSource {
 	const owner = ownerRepoSegments[0]!;
 	const repo = ownerRepoSegments[1]!;
 
-	// Parse ref (first segment) and plugin (rest)
 	const afterTreeSegments = afterTree.split("/").filter((s) => s !== "");
 
 	if (afterTreeSegments.length === 0) {
-		throw new Error("invalid tree URL: missing ref and plugin path");
+		throw new Error("invalid tree URL: missing ref and path");
 	}
 
 	if (afterTreeSegments.length === 1) {
-		throw new Error("invalid tree URL: missing plugin path after ref");
+		throw new Error("invalid tree URL: missing path after ref");
 	}
 
-	const ref = afterTreeSegments[0]!;
-	const targetPlugin = afterTreeSegments.slice(1).join("/");
-
-	const cloneUrl = `https://${host}/${owner}/${repo}.git`;
-	const manifestKey = `${owner}/${repo}/${targetPlugin}`;
-
 	return {
-		type: "direct-path",
+		type: "tree-url",
 		owner,
 		repo,
-		ref,
+		ref: afterTreeSegments[0]!,
 		constraint: null,
-		targetPlugin,
-		manifestKey,
-		cloneUrl,
+		manifestKey: `${owner}/${repo}`,
+		cloneUrl: `https://${host}/${owner}/${repo}.git`,
+		startPath: afterTreeSegments.slice(1).join("/"),
 	};
 }
 
@@ -218,97 +195,83 @@ function parseSshUrl(input: string): SshUrlSource {
 		throw new Error(`invalid SSH URL: missing owner/repo path in "${input}"`);
 	}
 
-	let pathPart: string;
-	let ref: string | null = null;
+	const { urlPart: pathPart, ref: rawRef } = extractRef(afterColon);
+	const repoPath = splitRepoPath(pathPart);
 
-	const dotGitIndex = afterColon.indexOf(".git");
-	if (dotGitIndex !== -1) {
-		const afterDotGit = afterColon.slice(dotGitIndex + ".git".length);
-		pathPart = afterColon.slice(0, dotGitIndex);
-
-		if (afterDotGit.startsWith("@")) {
-			ref = afterDotGit.slice(1);
-			if (ref === "") {
-				throw new Error("ref cannot be empty when @ is present");
-			}
-		}
-	} else {
-		const atIndex = afterColon.indexOf("@");
-		if (atIndex !== -1) {
-			pathPart = afterColon.slice(0, atIndex);
-			ref = afterColon.slice(atIndex + 1);
-			if (ref === "") {
-				throw new Error("ref cannot be empty when @ is present");
-			}
-		} else {
-			pathPart = afterColon;
-		}
-	}
-
-	const segments = pathPart.split("/").filter((s) => s !== "");
-
-	if (segments.length < 2) {
+	if (repoPath === null) {
 		throw new Error(
 			`invalid SSH URL: expected owner/repo path, got "${pathPart}"`,
 		);
 	}
 
-	const owner = segments[0]!;
-	const repo = segments[1]!;
-	const cloneUrl = `git@${host}:${owner}/${repo}.git`;
-
-	const { ref: finalRef, constraint } = classifyRefOrConstraint(ref);
+	const { owner, repo } = repoPath;
+	const { ref, constraint } = classifyRefOrConstraint(rawRef);
 
 	return {
 		type: "ssh-url",
-		owner,
-		repo,
-		ref: finalRef,
+		...repoPath,
+		ref,
 		constraint,
 		manifestKey: `${owner}/${repo}`,
-		cloneUrl,
+		cloneUrl: `git@${host}:${owner}/${repo}.git`,
 	};
 }
 
 function parseHttpsUrl(input: string): HttpsUrlSource {
 	const withoutProtocol = input.slice("https://".length);
-	const { urlPart: rawUrlPart, ref: rawRef } = extractRef(withoutProtocol);
 
-	const urlPart = rawUrlPart.replace(/\/+$/, "");
-
-	const slashIndex = urlPart.indexOf("/");
+	// The host ends at the first `/`, so a login (`user@host`) stays in it and
+	// only an `@` in the path starts the ref.
+	const slashIndex = withoutProtocol.indexOf("/");
 	if (slashIndex === -1) {
 		throw new Error(
-			`invalid HTTPS URL: no path segments in "https://${urlPart}"`,
+			`invalid HTTPS URL: no path segments in "https://${withoutProtocol}"`,
 		);
 	}
 
-	const host = urlPart.slice(0, slashIndex);
-	const pathPart = urlPart.slice(slashIndex + 1).replace(/\.git$/, "");
+	const host = withoutProtocol.slice(0, slashIndex);
+	const { urlPart: rawPathPart, ref: rawRef } = extractRef(
+		withoutProtocol.slice(slashIndex + 1),
+	);
+	const pathPart = rawPathPart.replace(/\/+$/, "");
+	const repoPath = splitRepoPath(pathPart);
 
-	const segments = pathPart.split("/").filter((s) => s !== "");
-
-	if (segments.length < 2) {
+	if (repoPath === null) {
 		throw new Error(
 			`invalid HTTPS URL: expected owner/repo path, got "${pathPart}"`,
 		);
 	}
 
-	const owner = segments[segments.length - 2]!;
-	const repo = segments[segments.length - 1]!;
-	const cloneUrl = `https://${host}/${owner}/${repo}.git`;
-
+	const { owner, repo } = repoPath;
 	const { ref, constraint } = classifyRefOrConstraint(rawRef);
 
 	return {
 		type: "https-url",
-		owner,
-		repo,
+		...repoPath,
 		ref,
 		constraint,
 		manifestKey: `${owner}/${repo}`,
-		cloneUrl,
+		cloneUrl: `https://${host}/${owner}/${repo}.git`,
 	};
+}
+
+/**
+ * A URL's `owner/repo[.git][/path]`: the first two segments name the repo and
+ * the rest is the repo-relative start path, as in `owner/repo/path` shorthand.
+ * Null when the owner or repo is missing.
+ */
+function splitRepoPath(
+	pathPart: string,
+): { owner: string; repo: string; startPath?: string } | null {
+	const [owner, rawRepo = "", ...rest] = pathPart
+		.split("/")
+		.filter((s) => s !== "");
+	const repo = rawRepo.replace(/\.git$/, "");
+	if (owner === undefined || repo === "") {
+		return null;
+	}
+	const startPath = rest.join("/");
+	return { owner, repo, ...(startPath !== "" ? { startPath } : {}) };
 }
 
 function extractRef(input: string): { urlPart: string; ref: string | null } {
@@ -354,19 +317,13 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 		throw new Error("ref cannot be empty when @ is present");
 	}
 
-	const segments = pathPart!.split("/");
+	const [owner = "", repo, ...pathSegments] = pathPart!.split("/");
 
-	if (segments.length === 1) {
-		throw new Error(`source must be in owner/repo format, got "${pathPart}"`);
-	}
-
-	if (segments.length > 2) {
+	if (repo === undefined) {
 		throw new Error(
-			`too many slashes in source "${pathPart}" — expected owner/repo`,
+			`source must be in owner/repo[/path] format, got "${pathPart}"`,
 		);
 	}
-
-	const [owner, repo] = segments as [string, string];
 
 	if (owner === "") {
 		throw new Error("owner cannot be empty");
@@ -377,6 +334,7 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 	}
 
 	const { ref, constraint } = classifyRefOrConstraint(rawRef);
+	const startPath = pathSegments.join("/").replace(/\/+$/, "");
 
 	return {
 		type: "github-shorthand",
@@ -386,6 +344,7 @@ function parseGitHubShorthand(input: string): GitHubShorthandSource {
 		constraint,
 		manifestKey: `${owner}/${repo}`,
 		cloneUrl: `https://github.com/${owner}/${repo}.git`,
+		...(startPath !== "" ? { startPath } : {}),
 	};
 }
 
@@ -423,8 +382,8 @@ export function buildParsedSourceFromKey(
 
 /**
  * The bare `owner/repo` a manifest key installs from — its first two segments.
- * A key is `owner/repo` for a standalone entry or `owner/repo/<member>` for a
- * collection member; the repo is the first two segments either way, so any
+ * A key is `owner/repo` for a standalone entry or `owner/repo/<member>` for an
+ * entry from a multi-item repo; the repo is the first two segments either way, so any
  * `/<member>` suffix is stripped. The single home of this key→repo transform.
  */
 export function repoFromKey(key: string): string {
@@ -433,7 +392,7 @@ export function repoFromKey(key: string): string {
 
 /**
  * The member basename of a manifest key — its last `/`-segment. For a
- * standalone `owner/repo` key this is the repo name; for a collection member
+ * standalone `owner/repo` key this is the repo name; for an entry from a multi-item repo
  * `owner/repo/<member>` it is `<member>`. The single home of this key→basename
  * transform.
  */
@@ -461,33 +420,41 @@ export function deriveCloneUrlFromKey(
 	return `https://github.com/${owner}/${repo}.git`;
 }
 
-export function getSourceDirFromKey(tempDir: string, key: string): string {
-	const parts = key.split("/");
-	if (parts.length > 2) {
-		const subPath = parts.slice(2).join("/");
-		return join(tempDir, subPath);
-	}
-	return tempDir;
-}
-
 /**
- * Resolves the source dir of a re-cloned tree for an update. The single
- * authoring of the cycle-9 rule: PREFER the entry's recorded `sourceSubpath`
- * (a skills-only collection member keyed by basename lives at
- * `<clone>/skills/<name>`, not the key-derived `<clone>/<name>`); fall back to
- * the unchanged key-derived dir when no subpath was recorded (root-child
- * members and standalone entries round-trip exactly as before). Shared by
- * `cloneAndReinstall` and the integration tests so the rule and its tests
- * cannot drift.
+ * The folder a local entry was added from. A local key is that folder's path,
+ * plus the item's name for an item recorded with a `sourceSubpath`.
  */
-export function resolveUpdateSourceDir(
-	cloneRoot: string,
+export function localSourceRoot(
 	key: string,
 	sourceSubpath: string | undefined,
 ): string {
-	return sourceSubpath
-		? join(cloneRoot, sourceSubpath)
-		: getSourceDirFromKey(cloneRoot, key);
+	return sourceSubpath ? dirname(key) : key;
+}
+
+/** The repo-relative path a key spells after `owner/repo`; empty for the repo itself. */
+export function keySubpath(key: string): string {
+	return key.split("/").slice(2).join("/");
+}
+
+/**
+ * The source `add` takes to reach a remote key's repo again: `owner/repo`
+ * shorthand for GitHub over HTTPS (or no recorded clone URL), else the clone
+ * URL without `.git`, which takes a path and version as shorthand does.
+ */
+export function addSourceFor(key: string, cloneUrl: string | null): string {
+	const repo = repoFromKey(key);
+	const url = cloneUrl?.replace(/\.git$/, "");
+	return url === undefined || url === `https://github.com/${repo}` ? repo : url;
+}
+
+/** `source[/path][@version]`, the form `add` reads a start path and version in. */
+export function locateSource(
+	source: string,
+	path: string,
+	version?: string,
+): string {
+	const located = path === "" ? source : `${source}/${path}`;
+	return version === undefined ? located : `${located}@${version}`;
 }
 
 /**
@@ -504,31 +471,33 @@ export function resolveUpdateSourceDir(
  * narrowed to `{ ok: false, message }` (the error's message verbatim, for the
  * caller's clean clone-failed pre-flight abort — no nuke, no copy, install
  * intact), while ANY other error RETHROWS unchanged (never swallowed as a
- * failure result). On success it returns `{ ok: true, sourceDir }` resolved via
- * {@link resolveUpdateSourceDir}. The guard is a no-op when `sourceSubpath` is
- * absent (the key-derived fallback), so standalone entries and root-child
- * members round-trip exactly as before. Co-located with
- * {@link resolveUpdateSourceDir} — the source-dir authority both callers already
- * use — to keep the guard sequence in exactly one place.
+ * failure result). On success it returns `{ ok: true, sourceDir }`: the
+ * recorded `sourceSubpath` below the clone root, else the key's own suffix (a
+ * skill keyed by name that lives at `<clone>/skills/<name>` records the
+ * former). The guard covers whichever of the two the dir is read from, as a
+ * hand-edited key could point outside the clone.
  */
 export function resolveGuardedSourceDir(
 	cloneRoot: string,
 	key: string,
 	sourceSubpath: string | undefined,
-): { ok: true; sourceDir: string } | { ok: false; message: string } {
-	if (sourceSubpath) {
-		try {
-			assertSubpathWithinClone(cloneRoot, sourceSubpath);
-		} catch (err) {
-			if (err instanceof PathTraversalError) {
-				return { ok: false, message: err.message };
-			}
-			throw err;
-		}
-	}
+): GuardedSourceDir {
+	return guardSourceDir(cloneRoot, sourceSubpath || keySubpath(key));
+}
 
-	return {
-		ok: true,
-		sourceDir: resolveUpdateSourceDir(cloneRoot, key, sourceSubpath),
-	};
+export type GuardedSourceDir =
+	| { ok: true; sourceDir: string }
+	| { ok: false; message: string };
+
+/** `root/path`, unless `path` leads outside `root`. */
+export function guardSourceDir(root: string, path: string): GuardedSourceDir {
+	try {
+		assertSubpathWithinClone(root, path);
+	} catch (err) {
+		if (err instanceof PathTraversalError) {
+			return { ok: false, message: err.message };
+		}
+		throw err;
+	}
+	return { ok: true, sourceDir: join(root, path) };
 }

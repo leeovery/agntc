@@ -1,7 +1,8 @@
-import { isCancel, note, select } from "@clack/prompts";
+import { errorMessage } from "./errors.js";
 import { formatFileList } from "./format-file-list.js";
-import type { Manifest } from "./manifest.js";
+import { type Manifest, removeEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
+import type { Ui } from "./ui.js";
 
 export interface CollisionResolution {
 	resolved: boolean;
@@ -9,31 +10,25 @@ export interface CollisionResolution {
 }
 
 /**
- * Interactively resolves file path collisions with existing manifest entries.
- * For each colliding plugin, prompts user to either remove it or cancel.
- * Processes collisions sequentially — stops immediately on cancel.
+ * Asks, per colliding entry, whether to remove it and carry on or cancel the
+ * install. Stops at the first cancel.
  *
  * @param collisions - Map of manifest key to overlapping file paths
  * @param manifest - Current manifest
- * @param projectDir - Project root directory
+ * @param installRoot - The folder `.claude` and `.agntc` sit in, for either scope
  */
 export async function resolveCollisions(
 	collisions: Map<string, string[]>,
 	manifest: Manifest,
-	projectDir: string,
+	installRoot: string,
+	ui: Ui,
 ): Promise<CollisionResolution> {
-	if (collisions.size === 0) {
-		return { resolved: true, updatedManifest: manifest };
-	}
-
-	let updatedManifest = { ...manifest };
+	let updatedManifest = manifest;
 
 	for (const [key, files] of collisions) {
-		const fileList = formatFileList(files);
+		ui.box(formatFileList(files), `File collision with "${key}"`);
 
-		note(fileList, `File collision with "${key}"`);
-
-		const choice = await select({
+		const choice = await ui.select({
 			message: `How would you like to proceed with "${key}"?`,
 			options: [
 				{
@@ -47,18 +42,53 @@ export async function resolveCollisions(
 			],
 		});
 
-		if (isCancel(choice) || choice === "cancel") {
+		if (choice !== "remove") {
 			return { resolved: false, updatedManifest };
 		}
 
-		// choice === "remove"
-		const entry = updatedManifest[key];
-		if (entry) {
-			await nukeManifestFiles(projectDir, entry.files);
-			const { [key]: _, ...rest } = updatedManifest;
-			updatedManifest = rest;
-		}
+		updatedManifest = await removeCollidingEntries(
+			[key],
+			updatedManifest,
+			installRoot,
+		);
 	}
 
 	return { resolved: true, updatedManifest };
+}
+
+/**
+ * A removal that failed part way. `manifest` drops the entries removed before
+ * it and keeps the one that failed, so whatever is left of it stays tracked.
+ */
+export class PartialRemovalError extends Error {
+	constructor(
+		readonly manifest: Manifest,
+		cause: unknown,
+	) {
+		super(errorMessage(cause), { cause });
+	}
+}
+
+/**
+ * Deletes each entry's files and drops it from the manifest. A failed removal
+ * throws a `PartialRemovalError`.
+ */
+export async function removeCollidingEntries(
+	keys: Iterable<string>,
+	manifest: Manifest,
+	installRoot: string,
+): Promise<Manifest> {
+	let updatedManifest = manifest;
+	for (const key of keys) {
+		const entry = updatedManifest[key];
+		if (entry) {
+			try {
+				await nukeManifestFiles(installRoot, entry.files);
+			} catch (err) {
+				throw new PartialRemovalError(updatedManifest, err);
+			}
+			updatedManifest = removeEntry(updatedManifest, key);
+		}
+	}
+	return updatedManifest;
 }

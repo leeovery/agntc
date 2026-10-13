@@ -3,7 +3,6 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
-	rename,
 	rm,
 	writeFile,
 } from "node:fs/promises";
@@ -14,9 +13,9 @@ import { ExitSignal } from "../src/exit-signal.js";
 import {
 	addEntry,
 	buildManifestEntry,
+	deriveTypeFromFiles,
 	type Manifest,
 	type ManifestEntry,
-	manifestTypeFromDetected,
 	readManifest,
 	readManifestOrExit,
 	removeEntry,
@@ -34,6 +33,7 @@ vi.mock("@clack/prompts", () => ({
 }));
 
 import * as p from "@clack/prompts";
+import { interactiveUi, MachineUi } from "../src/ui.js";
 
 const mockLog = vi.mocked(p.log);
 
@@ -65,7 +65,6 @@ describe("readManifest", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 				type: "skill",
@@ -87,7 +86,6 @@ describe("readManifest", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 				cloneUrl: null,
 				type: "skill",
@@ -96,8 +94,7 @@ describe("readManifest", () => {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude", "codex"],
-				files: [".claude/skills/skill-b/", ".codex/skills/skill-b/"],
+				files: [".claude/skills/skill-b/"],
 				cloneUrl: null,
 				type: "skill",
 			},
@@ -143,7 +140,6 @@ describe("writeManifest", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 			},
@@ -164,7 +160,6 @@ describe("writeManifest", () => {
 				ref: "main",
 				commit: "old123",
 				installedAt: "2026-01-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/old/"],
 				cloneUrl: null,
 			},
@@ -174,8 +169,7 @@ describe("writeManifest", () => {
 				ref: "v2",
 				commit: "new456",
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["codex"],
-				files: [".codex/skills/new/"],
+				files: [".claude/skills/new/"],
 				cloneUrl: null,
 			},
 		};
@@ -201,7 +195,6 @@ describe("writeManifest", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 			},
@@ -213,7 +206,7 @@ describe("writeManifest", () => {
 			join(testDir, ".agntc", "manifest.json"),
 			"utf-8",
 		);
-		const expected = JSON.stringify(manifest, null, 2) + "\n";
+		const expected = `${JSON.stringify(manifest, null, 2)}\n`;
 		expect(content).toBe(expected);
 	});
 
@@ -223,7 +216,6 @@ describe("writeManifest", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 			},
@@ -251,7 +243,6 @@ describe("addEntry", () => {
 			ref: "main",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -266,7 +257,6 @@ describe("addEntry", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 				cloneUrl: null,
 			},
@@ -275,8 +265,7 @@ describe("addEntry", () => {
 			ref: "v2",
 			commit: "def456",
 			installedAt: "2026-01-16T10:00:00.000Z",
-			agents: ["codex"],
-			files: [".codex/skills/skill-b/"],
+			files: [".claude/skills/skill-b/"],
 			cloneUrl: null,
 		};
 
@@ -292,7 +281,6 @@ describe("addEntry", () => {
 			ref: "main",
 			commit: "old123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -300,8 +288,7 @@ describe("addEntry", () => {
 			ref: "v2",
 			commit: "new456",
 			installedAt: "2026-02-01T00:00:00.000Z",
-			agents: ["claude", "codex"],
-			files: [".claude/skills/skill/", ".codex/skills/skill/"],
+			files: [".claude/skills/skill/", ".claude/agents/reviewer.md"],
 			cloneUrl: null,
 		};
 		const manifest: Manifest = { "owner/repo/skill": original };
@@ -316,7 +303,6 @@ describe("addEntry", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 				cloneUrl: null,
 			},
@@ -326,8 +312,7 @@ describe("addEntry", () => {
 			ref: "v2",
 			commit: "def456",
 			installedAt: "2026-01-16T10:00:00.000Z",
-			agents: ["codex"],
-			files: [".codex/skills/skill-b/"],
+			files: [".claude/skills/skill-b/"],
 			cloneUrl: null,
 		};
 
@@ -344,7 +329,6 @@ describe("removeEntry", () => {
 			ref: "main",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill-a/"],
 			cloneUrl: null,
 		};
@@ -352,8 +336,7 @@ describe("removeEntry", () => {
 			ref: "v2",
 			commit: "def456",
 			installedAt: "2026-01-16T10:00:00.000Z",
-			agents: ["codex"],
-			files: [".codex/skills/skill-b/"],
+			files: [".claude/skills/skill-b/"],
 			cloneUrl: null,
 		};
 		const manifest: Manifest = {
@@ -372,7 +355,6 @@ describe("removeEntry", () => {
 			ref: "main",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -388,7 +370,6 @@ describe("removeEntry", () => {
 			ref: "main",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -409,7 +390,6 @@ describe("round-trip", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 				cloneUrl: "https://github.com/owner/repo.git",
 				type: "skill",
@@ -418,8 +398,7 @@ describe("round-trip", () => {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude", "codex"],
-				files: [".claude/skills/skill-b/", ".codex/skills/skill-b/"],
+				files: [".claude/skills/skill-b/"],
 				cloneUrl: null,
 				type: "skill",
 			},
@@ -432,20 +411,18 @@ describe("round-trip", () => {
 });
 
 describe("ManifestEntry fields", () => {
-	it("stores null ref for HEAD, string commit, ISO timestamp, agent array, file array", () => {
+	it("stores null ref for HEAD, string commit, ISO timestamp, file array", () => {
 		const entry: ManifestEntry = {
 			ref: null,
 			commit: "abc123def456",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude", "codex"],
-			files: [".claude/skills/skill/", ".codex/skills/skill/"],
+			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
 
 		expect(entry.ref).toBeNull();
 		expect(typeof entry.commit).toBe("string");
 		expect(entry.installedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-		expect(Array.isArray(entry.agents)).toBe(true);
 		expect(Array.isArray(entry.files)).toBe(true);
 	});
 
@@ -454,7 +431,6 @@ describe("ManifestEntry fields", () => {
 			ref: "main",
 			commit: "abc123def456",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: "https://gitlab.com/owner/repo.git",
 		};
@@ -467,7 +443,6 @@ describe("ManifestEntry fields", () => {
 			ref: null,
 			commit: null,
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -482,7 +457,6 @@ describe("constraint field", () => {
 			ref: "v1.2.3",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 			constraint: "^1.0",
@@ -496,7 +470,6 @@ describe("constraint field", () => {
 			ref: "v1.2.3",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -510,7 +483,6 @@ describe("constraint field", () => {
 				ref: "v1.2.3",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 				constraint: "^1.0",
@@ -529,7 +501,6 @@ describe("constraint field", () => {
 				ref: "v1.2.3",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 			},
@@ -550,7 +521,6 @@ describe("constraint field", () => {
 			ref: "v1.2.3",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -565,7 +535,6 @@ describe("constraint field", () => {
 			ref: "v1.2.3",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 			constraint: "^1.0",
@@ -583,7 +552,6 @@ describe("sourceSubpath field", () => {
 			ref: null,
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			cloneUrl: null,
 			sourceSubpath: "skills/alpha",
@@ -597,7 +565,6 @@ describe("sourceSubpath field", () => {
 			ref: null,
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			cloneUrl: null,
 		};
@@ -611,7 +578,6 @@ describe("sourceSubpath field", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/alpha/"],
 				cloneUrl: null,
 				sourceSubpath: "skills/alpha",
@@ -630,7 +596,6 @@ describe("sourceSubpath field", () => {
 				ref: null,
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/alpha/"],
 				cloneUrl: null,
 				type: "skill",
@@ -656,7 +621,6 @@ describe("sourceSubpath field", () => {
 			ref: null,
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			cloneUrl: null,
 		};
@@ -671,7 +635,6 @@ describe("sourceSubpath field", () => {
 			ref: null,
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			cloneUrl: null,
 			sourceSubpath: "skills/alpha",
@@ -689,7 +652,6 @@ describe("type field", () => {
 			ref: "v1.2.3",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 			type: "skill",
@@ -703,7 +665,6 @@ describe("type field", () => {
 			ref: "v1.2.3",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -717,17 +678,16 @@ describe("type field", () => {
 				ref: "v1.2.3",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
-				type: "plugin",
+				type: "pack",
 			},
 		};
 
 		await writeManifest(testDir, manifest);
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo/skill"]?.type).toBe("plugin");
+		expect(result["owner/repo/skill"]?.type).toBe("pack");
 	});
 
 	it("legacy entry without type field still parses", async () => {
@@ -736,7 +696,6 @@ describe("type field", () => {
 				ref: "v1.2.3",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 			},
@@ -757,7 +716,6 @@ describe("type field", () => {
 			ref: "v1.2.3",
 			commit: "abc123",
 			installedAt: "2026-01-15T10:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/skill/"],
 			cloneUrl: null,
 		};
@@ -765,24 +723,6 @@ describe("type field", () => {
 		const json = JSON.stringify(entry);
 
 		expect(json).not.toContain("type");
-	});
-});
-
-describe("manifestTypeFromDetected", () => {
-	it("maps bare-skill variant to skill", () => {
-		expect(manifestTypeFromDetected({ type: "bare-skill" })).toBe("skill");
-	});
-
-	it("maps plugin variant to plugin", () => {
-		expect(
-			manifestTypeFromDetected({ type: "plugin", assetDirs: ["skills"] }),
-		).toBe("plugin");
-	});
-
-	it("never returns the literal bare-skill", () => {
-		expect(manifestTypeFromDetected({ type: "bare-skill" })).not.toBe(
-			"bare-skill",
-		);
 	});
 });
 
@@ -797,7 +737,65 @@ describe("type backfill on read", () => {
 		);
 	}
 
-	it("backfills plugin when files include agents target", async () => {
+	it("reads a v1 plugin entry as a pack", async () => {
+		await writeLegacy({
+			"owner/repo/laravel": {
+				ref: "v1.0.0",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/a/", ".claude/agents/a.md"],
+				cloneUrl: null,
+				type: "plugin",
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo/laravel"]?.type).toBe("pack");
+	});
+
+	it("writes a read v1 plugin entry back as a pack", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/a/"],
+				cloneUrl: null,
+				type: "plugin",
+			},
+		});
+
+		await writeManifest(testDir, await readManifest(testDir));
+
+		const raw = JSON.parse(
+			await readFile(join(testDir, ".agntc", "manifest.json"), "utf-8"),
+		) as Manifest;
+		expect(raw["owner/repo"]?.type).toBe("pack");
+	});
+
+	it("keeps a v1 skill entry a skill", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/a/"],
+				cloneUrl: null,
+				type: "skill",
+				sourceSubpath: "skills/a",
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]).toMatchObject({
+			type: "skill",
+			sourceSubpath: "skills/a",
+		});
+	});
+
+	it("backfills pack when files include agents target", async () => {
 		await writeLegacy({
 			"owner/repo": {
 				ref: "main",
@@ -811,10 +809,10 @@ describe("type backfill on read", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
-	it("backfills plugin when files include hooks target", async () => {
+	it("backfills pack when files include hooks target", async () => {
 		await writeLegacy({
 			"owner/repo": {
 				ref: "main",
@@ -828,10 +826,10 @@ describe("type backfill on read", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
-	it("backfills plugin for multiple distinct skill dirs under one key", async () => {
+	it("backfills pack for multiple distinct skill dirs under one key", async () => {
 		await writeLegacy({
 			"owner/repo": {
 				ref: "main",
@@ -845,7 +843,7 @@ describe("type backfill on read", () => {
 
 		const result = await readManifest(testDir);
 
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
 	it("backfills skill for single skills dir, no agents/hooks (single-skill ambiguity accepted)", async () => {
@@ -883,7 +881,7 @@ describe("type backfill on read", () => {
 		expect(result["owner/repo"]?.type).toBe("skill");
 	});
 
-	it("recognises per-agent skills targets (claude, codex, cursor)", async () => {
+	it("classifies files under the legacy .agents/skills and .cursor/skills roots as skill files", async () => {
 		await writeLegacy({
 			"owner/repo/claude-skill": {
 				ref: "main",
@@ -918,14 +916,18 @@ describe("type backfill on read", () => {
 		expect(result["owner/repo/cursor-skill"]?.type).toBe("skill");
 	});
 
-	it("treats same skill dir across multiple agent targets as single skill", async () => {
+	it("treats same skill dir across Claude and legacy skill roots as single skill", async () => {
 		await writeLegacy({
 			"owner/repo/skill": {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude", "codex"],
-				files: [".claude/skills/skill/", ".agents/skills/skill/"],
+				agents: ["claude", "codex", "cursor"],
+				files: [
+					".claude/skills/skill/",
+					".agents/skills/skill/",
+					".cursor/skills/skill/",
+				],
 				cloneUrl: null,
 			},
 		});
@@ -933,6 +935,23 @@ describe("type backfill on read", () => {
 		const result = await readManifest(testDir);
 
 		expect(result["owner/repo/skill"]?.type).toBe("skill");
+	});
+
+	it("counts distinct skill dirs under a legacy root toward pack", async () => {
+		await writeLegacy({
+			"owner/repo": {
+				ref: "main",
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["codex"],
+				files: [".agents/skills/a/", ".agents/skills/b/"],
+				cloneUrl: null,
+			},
+		});
+
+		const result = await readManifest(testDir);
+
+		expect(result["owner/repo"]?.type).toBe("pack");
 	});
 
 	it("backfills empty files array to skill without error", async () => {
@@ -1018,7 +1037,7 @@ describe("type backfill on read", () => {
 		const result = await readManifest(testDir);
 
 		expect(result["owner/repo/member-skill"]?.type).toBe("skill");
-		expect(result["owner/repo/member-plugin"]?.type).toBe("plugin");
+		expect(result["owner/repo/member-plugin"]?.type).toBe("pack");
 	});
 
 	it("backfilled type persists on next writeManifest", async () => {
@@ -1041,7 +1060,7 @@ describe("type backfill on read", () => {
 			"utf-8",
 		);
 		const reparsed = JSON.parse(content) as Manifest;
-		expect(reparsed["owner/repo"]?.type).toBe("plugin");
+		expect(reparsed["owner/repo"]?.type).toBe("pack");
 	});
 
 	it("backfills cloneUrl and type together", async () => {
@@ -1058,7 +1077,51 @@ describe("type backfill on read", () => {
 		const result = await readManifest(testDir);
 
 		expect(result["owner/repo"]?.cloneUrl).toBeNull();
-		expect(result["owner/repo"]?.type).toBe("plugin");
+		expect(result["owner/repo"]?.type).toBe("pack");
+	});
+});
+
+describe("legacy agents field", () => {
+	async function writeLegacy(
+		manifest: Record<string, Record<string, unknown>>,
+	): Promise<void> {
+		await mkdir(join(testDir, ".agntc"), { recursive: true });
+		await writeFile(
+			join(testDir, ".agntc", "manifest.json"),
+			JSON.stringify(manifest),
+		);
+	}
+
+	const legacyEntry = {
+		ref: "v1.0.0",
+		commit: "abc123",
+		installedAt: "2026-01-15T10:00:00.000Z",
+		agents: ["claude", "codex"],
+		files: [".claude/skills/skill/", ".agents/skills/skill/"],
+		cloneUrl: null,
+		type: "skill",
+	};
+
+	it("drops agents on read, keeping every other field", async () => {
+		await writeLegacy({ "owner/repo": legacyEntry });
+
+		const result = await readManifest(testDir);
+
+		const { agents: _, ...rest } = legacyEntry;
+		expect(result["owner/repo"]).toEqual(rest);
+		expect(result["owner/repo"]).not.toHaveProperty("agents");
+	});
+
+	it("does not re-emit agents when a read manifest is written back", async () => {
+		await writeLegacy({ "owner/repo": legacyEntry });
+
+		await writeManifest(testDir, await readManifest(testDir));
+
+		const content = await readFile(
+			join(testDir, ".agntc", "manifest.json"),
+			"utf-8",
+		);
+		expect(JSON.parse(content)["owner/repo"]).not.toHaveProperty("agents");
 	});
 });
 
@@ -1069,7 +1132,6 @@ describe("backward compatibility", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 			},
 		};
@@ -1096,7 +1158,6 @@ describe("readManifestOrExit", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill/"],
 				cloneUrl: null,
 				type: "skill",
@@ -1108,7 +1169,7 @@ describe("readManifestOrExit", () => {
 			JSON.stringify(manifest),
 		);
 
-		const result = await readManifestOrExit(testDir);
+		const result = await readManifestOrExit(testDir, interactiveUi);
 
 		expect(result).toEqual(manifest);
 	});
@@ -1117,7 +1178,9 @@ describe("readManifestOrExit", () => {
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
 		await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
 
-		const err = await readManifestOrExit(testDir).catch((e) => e);
+		const err = await readManifestOrExit(testDir, interactiveUi).catch(
+			(e) => e,
+		);
 
 		expect(err).toBeInstanceOf(ExitSignal);
 		expect((err as ExitSignal).code).toBe(1);
@@ -1127,7 +1190,7 @@ describe("readManifestOrExit", () => {
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
 		await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
 
-		await readManifestOrExit(testDir).catch(() => {});
+		await readManifestOrExit(testDir, interactiveUi).catch(() => {});
 
 		expect(mockLog.error).toHaveBeenCalledWith(
 			expect.stringContaining("Failed to read manifest:"),
@@ -1141,7 +1204,7 @@ describe("readManifestOrExit", () => {
 		await chmod(manifestPath, 0o000);
 
 		try {
-			await readManifestOrExit(testDir).catch(() => {});
+			await readManifestOrExit(testDir, interactiveUi).catch(() => {});
 
 			expect(mockLog.error).toHaveBeenCalledWith(
 				expect.stringMatching(/Failed to read manifest:.*permission/i),
@@ -1152,9 +1215,26 @@ describe("readManifestOrExit", () => {
 	});
 
 	it("returns empty object for missing manifest (ENOENT)", async () => {
-		const result = await readManifestOrExit(join(testDir, "nonexistent"));
+		const result = await readManifestOrExit(
+			join(testDir, "nonexistent"),
+			interactiveUi,
+		);
 
 		expect(result).toEqual({});
+	});
+
+	it("records the failure as the document's error without a terminal", async () => {
+		await mkdir(join(testDir, ".agntc"), { recursive: true });
+		await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
+		const ui = new MachineUi("list", "project");
+
+		const err = await readManifestOrExit(testDir, ui).catch((e) => e);
+
+		expect((err as ExitSignal).code).toBe(1);
+		expect(ui.document(1).error).toEqual({
+			message: expect.stringContaining("Failed to read manifest:"),
+		});
+		expect(mockLog.error).not.toHaveBeenCalled();
 	});
 });
 
@@ -1174,7 +1254,6 @@ describe("buildManifestEntry", () => {
 		const entry = buildManifestEntry({
 			ref: "v1.0.0",
 			commit: "abc123",
-			agents: ["claude"],
 			files: ["a.md"],
 			type: "skill",
 			cloneUrl: "https://example.com/repo.git",
@@ -1187,7 +1266,6 @@ describe("buildManifestEntry", () => {
 		const entry = buildManifestEntry({
 			ref: null,
 			commit: null,
-			agents: ["claude"],
 			files: [],
 			type: "plugin",
 			cloneUrl: null,
@@ -1200,7 +1278,6 @@ describe("buildManifestEntry", () => {
 		const entry = buildManifestEntry({
 			ref: "v2.0.0",
 			commit: "sha",
-			agents: ["claude", "codex"],
 			files: ["x"],
 			type: "plugin",
 			cloneUrl: "https://example.com/repo.git",
@@ -1211,7 +1288,6 @@ describe("buildManifestEntry", () => {
 			ref: "v2.0.0",
 			commit: "sha",
 			installedAt: FIXED,
-			agents: ["claude", "codex"],
 			files: ["x"],
 			type: "plugin",
 			cloneUrl: "https://example.com/repo.git",
@@ -1224,7 +1300,6 @@ describe("buildManifestEntry", () => {
 		const entry = buildManifestEntry({
 			ref: "v2.0.0",
 			commit: "sha",
-			agents: ["claude"],
 			files: ["x"],
 			type: "plugin",
 			cloneUrl: null,
@@ -1236,7 +1311,6 @@ describe("buildManifestEntry", () => {
 			ref: "v2.0.0",
 			commit: "sha",
 			installedAt: FIXED,
-			agents: ["claude"],
 			files: ["x"],
 			type: "plugin",
 			cloneUrl: null,
@@ -1247,7 +1321,6 @@ describe("buildManifestEntry", () => {
 		const entry = buildManifestEntry({
 			ref: null,
 			commit: null,
-			agents: ["claude"],
 			files: [],
 			type: "skill",
 			cloneUrl: null,
@@ -1256,11 +1329,29 @@ describe("buildManifestEntry", () => {
 		expect("constraint" in entry).toBe(false);
 	});
 
+	it("includes localRoot when provided and omits it when undefined", () => {
+		const fields = {
+			ref: null,
+			commit: null,
+			files: [],
+			type: "skill" as const,
+			cloneUrl: null,
+		};
+
+		expect(buildManifestEntry({ ...fields, localRoot: "/src/repo" })).toEqual({
+			...fields,
+			installedAt: FIXED,
+			localRoot: "/src/repo",
+		});
+		expect(
+			"localRoot" in buildManifestEntry({ ...fields, localRoot: undefined }),
+		).toBe(false);
+	});
+
 	it("includes sourceSubpath when provided (skills-only member)", () => {
 		const entry = buildManifestEntry({
 			ref: null,
 			commit: "sha",
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			type: "skill",
 			cloneUrl: null,
@@ -1271,7 +1362,6 @@ describe("buildManifestEntry", () => {
 			ref: null,
 			commit: "sha",
 			installedAt: FIXED,
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			type: "skill",
 			cloneUrl: null,
@@ -1284,7 +1374,6 @@ describe("buildManifestEntry", () => {
 		const entry = buildManifestEntry({
 			ref: null,
 			commit: "sha",
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			type: "skill",
 			cloneUrl: null,
@@ -1296,7 +1385,6 @@ describe("buildManifestEntry", () => {
 			ref: null,
 			commit: "sha",
 			installedAt: FIXED,
-			agents: ["claude"],
 			files: [".claude/skills/alpha/"],
 			type: "skill",
 			cloneUrl: null,
@@ -1307,7 +1395,6 @@ describe("buildManifestEntry", () => {
 		const entry = buildManifestEntry({
 			ref: null,
 			commit: null,
-			agents: ["claude"],
 			files: [],
 			type: "skill",
 			cloneUrl: null,
@@ -1320,7 +1407,6 @@ describe("buildManifestEntry", () => {
 		const local = buildManifestEntry({
 			ref: null,
 			commit: null,
-			agents: ["claude"],
 			files: ["s"],
 			type: "skill",
 			cloneUrl: null,
@@ -1328,7 +1414,6 @@ describe("buildManifestEntry", () => {
 		const remote = buildManifestEntry({
 			ref: "v1.0.0",
 			commit: "deadbeef",
-			agents: ["claude"],
 			files: ["s"],
 			type: "skill",
 			cloneUrl: "https://example.com/repo.git",
@@ -1336,5 +1421,26 @@ describe("buildManifestEntry", () => {
 
 		expect(local.commit).toBeNull();
 		expect(remote.commit).toBe("deadbeef");
+	});
+});
+
+describe("deriveTypeFromFiles", () => {
+	it("does not read a sibling of the agents root as an agent", () => {
+		expect(deriveTypeFromFiles([".claude/agentsfoo.md"])).toBe("skill");
+	});
+
+	it("does not count a sibling of a skills root as a second skill dir", () => {
+		expect(
+			deriveTypeFromFiles([".claude/skills/a/", ".claude/skillsX/b/"]),
+		).toBe("skill");
+		expect(
+			deriveTypeFromFiles([".agents/skills/a/", ".agents/skillsX/b/"]),
+		).toBe("skill");
+	});
+
+	it("still counts distinct skill dirs across the Claude and legacy roots", () => {
+		expect(
+			deriveTypeFromFiles([".claude/skills/a/", ".cursor/skills/b/"]),
+		).toBe("pack");
 	});
 });

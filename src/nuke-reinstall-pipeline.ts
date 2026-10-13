@@ -1,330 +1,458 @@
 import { basename, join } from "node:path";
-import { computeAgentChanges } from "./agent-compat.js";
-import { readConfig } from "./config.js";
-import { copyBareSkill } from "./copy-bare-skill.js";
-import { copyPluginAssets } from "./copy-plugin-assets.js";
-import { checkEscapingSymlinks } from "./copy-safety.js";
-import { getDriver } from "./drivers/registry.js";
-import type { AgentId, AgentWithDriver } from "./drivers/types.js";
+import {
+	absorptionNote,
+	type Claims,
+	claimFiles,
+	takenOverRemoved,
+} from "./absorb.js";
+import { checkFileCollisions } from "./collision-check.js";
+import {
+	computeIncomingFiles,
+	describeClash,
+	findTargetClashes,
+	skillClaims,
+} from "./compute-incoming-files.js";
+import { copyItem } from "./copy-item.js";
+import { checkEscapingSymlinks, inspectSourcePath } from "./copy-safety.js";
+import {
+	comparePaths,
+	discover,
+	PackConflictError,
+	StartPathError,
+} from "./discover.js";
+import { reAddCommand, recordedSubpath, sourceIdOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
-import { pathExists } from "./fs-utils.js";
-import { buildManifestEntry, type ManifestEntry } from "./manifest.js";
+import { pathExists, relativePosix } from "./fs-utils.js";
+import {
+	type InstallItem,
+	isEmptyPack,
+	itemPath,
+	pathLabel,
+} from "./install-item.js";
+import {
+	buildManifestEntry,
+	type Manifest,
+	type ManifestEntry,
+} from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
-import { findPresentAssetDirs } from "./type-detection.js";
+import type { Scope } from "./scope.js";
+import { memberName, repoFromKey } from "./source-parser.js";
+import { checkUnmanagedConflicts } from "./unmanaged-check.js";
 
 export interface NukeReinstallOptions {
 	key: string;
 	sourceDir: string;
 	/**
-	 * Containment boundary for the symlink-escape pre-flight scan: the cloned
-	 * repository root. For a member unit, `sourceDir` is a subdir of this root,
-	 * so within-clone cross-member symlinks are allowed; only links escaping the
-	 * whole clone are rejected. For local-path mode the provided source root is
-	 * the boundary (`cloneRoot === sourceDir`).
+	 * The cloned repository root: what `sourceDir` is relative to, and the
+	 * containment boundary for the symlink-escape scan. For local-path mode it
+	 * is the folder the source was added from.
 	 */
 	cloneRoot: string;
 	existingEntry: ManifestEntry;
-	projectDir: string;
-	newRef?: string | null;
-	newCommit?: string | null;
-	onAgentsDropped?: (dropped: AgentId[], newConfigAgents: AgentId[]) => void;
-	onWarn?: (message: string) => void;
+	/** Every installed entry, for what a pack's re-walk absorbs or clashes with. */
+	installed: Manifest;
+	scope: Scope;
+	/**
+	 * The ref a constrained resolve or a version change moves the entry to.
+	 * Absent, the entry keeps its recorded ref: a branch stays on its branch,
+	 * HEAD-tracked stays on HEAD.
+	 */
+	newRef?: string;
+	/** The commit the reinstall lands on. Absent, the recorded one stays. */
+	newCommit?: string;
 }
 
 interface NukeReinstallSuccess {
 	status: "success";
 	entry: ManifestEntry;
 	copiedFiles: string[];
-	droppedAgents: AgentId[];
+	/** What the user should hear about how the entry was reinstalled. */
+	notes: string[];
+	/** The loose skill entries a pack took over; their files are already removed. */
+	absorbed: string[];
 }
 
-interface NukeReinstallNoAgents {
-	status: "no-agents";
-}
-
+/**
+ * The copy failed after the entry's files, and those of any loose skills it
+ * took over, were removed.
+ */
 interface NukeReinstallCopyFailed {
 	status: "copy-failed";
 	errorMessage: string;
 	recoveryHint: string;
+	/** The loose skill entries a pack took over; their files are gone. */
+	absorbed: string[];
 }
 
 /**
- * The re-cloned tree no longer supports the entry's *recorded* type, detected by
- * the derive-before-delete validation gate *before* any file removal. The
- * existing install is left intact. {@link recordedType} and {@link reason} carry
- * the structured cause; the user-facing message + remedy are assembled by the
- * reporting layer.
+ * Removing the files of the entry, or of the loose skills it takes over,
+ * failed part way. Nothing was copied, and every entry stays recorded so
+ * whatever is left stays tracked.
  */
-interface NukeReinstallAborted {
-	status: "aborted";
-	recordedType: "skill" | "plugin";
+interface NukeReinstallRemoveFailed {
+	status: "remove-failed";
 	reason: string;
 }
 
 /**
- * The symlink-escape pre-flight scan found a symlink whose target resolves
- * outside the cloned repository root. This is a copy-safety/security violation,
- * NOT a recorded-type change: the scan runs BEFORE any file removal, so the
- * existing install is left fully intact (no nuke, no copy, manifest unchanged).
- * Distinct from {@link NukeReinstallAborted} — there is no recorded-type
- * mismatch here, and the remedy is NOT remove+add (that re-trips the same
- * guard). {@link reason} carries the structured cause (the offending symlink);
- * the user-facing copy-safety message is assembled by the reporting layer.
+ * The re-cloned tree can't be replayed for the entry, or files are in the way
+ * of what it would install. Found before any file is removed, so the existing
+ * install is left intact.
+ */
+interface NukeReinstallAborted {
+	status: "aborted";
+	reason: string;
+	/** What stopped it was files in the way, which an add with --overwrite replaces. */
+	inTheWay?: true;
+}
+
+/**
+ * The source holds a symlink escaping the clone, or one at or above the
+ * entry's recorded path. Found before any file is removed, so the existing
+ * install is left intact. Unlike an abort, the remove+add remedy doesn't
+ * apply: it would trip the same guard.
  */
 interface NukeReinstallBlocked {
 	status: "blocked";
 	reason: string;
 }
 
+/**
+ * Nothing the entry installs is left upstream. Found before any file is
+ * removed; whether to remove the entry is the caller's question.
+ */
+interface NukeReinstallGone {
+	status: "gone";
+}
+
 export type NukeReinstallResult =
 	| NukeReinstallSuccess
-	| NukeReinstallNoAgents
 	| NukeReinstallCopyFailed
+	| NukeReinstallRemoveFailed
 	| NukeReinstallAborted
-	| NukeReinstallBlocked;
+	| NukeReinstallBlocked
+	| NukeReinstallGone;
 
+/** What the re-cloned source now offers for an entry, decided before any delete. */
+type Replay =
+	| {
+			ok: true;
+			item: InstallItem;
+			/** What the reinstalled entry records, which moves when its skill did. */
+			sourceSubpath: string | undefined;
+			note?: string;
+	  }
+	| { ok: false; reason: string }
+	| { ok: false; gone: true };
+
+const GONE: Replay = { ok: false, gone: true };
+
+/** A replay cleared by every pre-flight check, with the loose skills it absorbs. */
+interface ClearedReplay {
+	status: "cleared";
+	replay: Extract<Replay, { ok: true }>;
+	absorbed: string[];
+}
+
+/**
+ * Reinstalls an entry from a re-cloned source, replaying its recorded type.
+ * Every check — a symlink on the recorded path, what the source still holds,
+ * what is in the way of the files it would install, and the symlink-escape
+ * scan — runs before any file is removed.
+ */
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
 ): Promise<NukeReinstallResult> {
-	const { sourceDir, cloneRoot, existingEntry, onAgentsDropped, onWarn } =
-		options;
+	const cleared = await clearReplay(options);
+	if (cleared.status !== "cleared") {
+		return cleared;
+	}
+	return reinstall(options, cleared);
+}
 
-	// Symlink-escape pre-flight: scan the unit tree for any symlink pointing
-	// outside the cloned repository root, BEFORE any file removal. A violation
-	// returns the dedicated copy-safety `blocked` outcome with the install left
-	// intact (no nuke, no copy) — sharing the derive-before-delete abort's
-	// install-intact posture, but NOT its meaning: this is a copy-safety/security
-	// violation, not a recorded-type change, so the reporting layer must NOT offer
-	// the remove+add remedy (it re-trips the same guard). It is also NOT routed
-	// through copy-failed (which removes the entry). No path-traversal guard HERE:
-	// the lexical containment pre-check lives upstream in cloneAndReinstall's
-	// remote branch, which calls assertSubpathWithinClone(tempDir, sourceSubpath)
-	// before the join (analysis 10-2). It originally lived nowhere because update
-	// replayed only a key-derived subdir (getSourceDirFromKey, not a fresh
-	// source-supplied selector); cycle-9 added `sourceSubpath` as a second
-	// source-derived path component fed into that join, so it now gets add's
-	// step-2c lexical guard too, restoring copy-safety symmetry. By the time the
-	// pipeline runs, `sourceDir` is already confirmed lexically contained; the
-	// symlink scan below remains the content-validation half of the pre-flight.
-	const symlinkCheck = await checkEscapingSymlinks(sourceDir, cloneRoot);
+async function clearReplay(
+	options: NukeReinstallOptions,
+): Promise<
+	| ClearedReplay
+	| NukeReinstallAborted
+	| NukeReinstallBlocked
+	| NukeReinstallGone
+> {
+	const { cloneRoot, existingEntry } = options;
+	const link = await linkOnRecordedPath(options);
+	if (link !== null) {
+		return { status: "blocked", reason: link };
+	}
+	const replay =
+		existingEntry.type === "pack"
+			? await derivePackReplay(options)
+			: await deriveSkillReplay(options);
+	if (!replay.ok) {
+		return "gone" in replay
+			? { status: "gone" }
+			: { status: "aborted", reason: replay.reason };
+	}
+
+	const way = await inTheWayOf(replay.item, options);
+	if (way.clashes.size > 0 || way.unmanaged.length > 0) {
+		return { status: "aborted", reason: inTheWayReason(way), inTheWay: true };
+	}
+
+	const symlinkCheck = await checkEscapingSymlinks(
+		join(cloneRoot, itemPath(replay.item)),
+		cloneRoot,
+	);
 	if (!symlinkCheck.ok) {
-		return {
-			status: "blocked",
-			reason: symlinkCheck.message,
-		};
+		return { status: "blocked", reason: symlinkCheck.message };
 	}
-
-	const ref = options.newRef !== undefined ? options.newRef : existingEntry.ref;
-	const commit =
-		options.newCommit !== undefined ? options.newCommit : existingEntry.commit;
-
-	// Read config from source. Under configless replay a missing config is normal
-	// (recorded units carry no agntc.json): null means "no agent restriction"
-	// (effective agents unchanged), not abort. Both recorded skills and recorded
-	// plugins replay by their persisted type, so neither bails on null config — the
-	// type is authoritative and is never re-derived from a present/absent config.
-	const config = await readConfig(sourceDir, { onWarn });
-
-	// The recorded type selects the replay predicate. 4-3 backfills `type` on
-	// manifest read, so every entry reaching the pipeline in production carries a
-	// concrete type; the `?? "skill"` is a defensive, non-throwing fallback for a
-	// typeless entry (the lenient single-skill default, matching the backfill's own
-	// derivation rule). The type is recorded, never re-derived from the clone.
-	const recordedType: "skill" | "plugin" = existingEntry.type ?? "skill";
-
-	const agentResolution = resolveAgents(existingEntry.agents, config?.agents);
-	if (agentResolution.status === "no-agents") {
-		return { status: "no-agents" };
-	}
-	const { effectiveAgents, droppedAgents } = agentResolution;
-
-	if (config !== null && droppedAgents.length > 0) {
-		onAgentsDropped?.(droppedAgents, config.agents);
-	}
-
-	const agents = effectiveAgents.map((id) => ({
-		id,
-		driver: getDriver(id),
-	}));
-
-	const ctx: ReplayContext = {
-		options,
-		agents,
-		effectiveAgents,
-		droppedAgents,
-		ref,
-		commit,
-	};
-
-	return recordedType === "skill"
-		? replayRecordedSkill(ctx)
-		: replayRecordedPlugin(ctx);
+	return { status: "cleared", replay, absorbed: way.absorbed };
 }
 
-interface ReplayContext {
-	options: NukeReinstallOptions;
-	agents: AgentWithDriver[];
-	effectiveAgents: AgentId[];
-	droppedAgents: AgentId[];
-	ref: string | null;
-	commit: string | null;
-}
-
-/**
- * Derive-before-delete replay for a recorded `skill`: the unit's root `SKILL.md`
- * must still exist in the re-cloned tree. Validation runs BEFORE nuking; on
- * failure the install is left intact (aborted). When present, re-copy the unit
- * dir via copyBareSkill — the recorded type is authoritative, so any
- * newly-added asset dirs are ignored (not re-derived into a plugin).
- */
-async function replayRecordedSkill(
-	ctx: ReplayContext,
+async function reinstall(
+	options: NukeReinstallOptions,
+	{ replay, absorbed }: ClearedReplay,
 ): Promise<NukeReinstallResult> {
-	const { options, agents } = ctx;
-	const { sourceDir, projectDir, existingEntry } = options;
+	const { key, cloneRoot, existingEntry, installed, scope } = options;
 
-	const skillMdExists = await pathExists(join(sourceDir, "SKILL.md"));
-	if (!skillMdExists) {
+	try {
+		await nukeManifestFiles(scope.root, [
+			...existingEntry.files,
+			...absorbed.flatMap((looseKey) => installed[looseKey]?.files ?? []),
+		]);
+	} catch (err: unknown) {
 		return {
-			status: "aborted",
-			recordedType: "skill",
-			reason:
-				"recorded as a bare skill, but SKILL.md is no longer present in the source",
+			status: "remove-failed",
+			reason: `couldn't remove its old files: ${errorMessage(err)}`,
 		};
 	}
 
-	await nukeManifestFiles(projectDir, existingEntry.files);
-
+	const source = { root: cloneRoot, local: existingEntry.commit === null };
 	let copiedFiles: string[];
 	try {
-		// Install name = manifest-key basename (identity = repo/unit basename per
-		// spec), NOT basename(sourceDir): for a whole-repo bare skill sourceDir is
-		// the random mkdtemp clone dir, so the re-copy would land under the temp-dir
-		// name (and the manifest would then record it). Mirrors the add path.
-		const bareResult = await copyBareSkill({
-			sourceDir,
-			projectDir,
-			agents,
-			skillName: basename(options.key),
-		});
-		copiedFiles = bareResult.copiedFiles;
+		({ copiedFiles } = await copyItem(replay.item, source, scope.root));
 	} catch (err: unknown) {
-		return copyFailed(options.key, err);
+		return copyFailed(options, err, absorbed);
 	}
-
-	return buildSuccess(ctx, copiedFiles, "skill");
-}
-
-/**
- * Derive-before-delete replay for a recorded `plugin`: {@link findPresentAssetDirs}
- * must report at least one asset-kind dir (`skills`/`agents`/`hooks`) still present
- * in the re-cloned tree. The scan runs BEFORE nuking; zero present dirs (the unit is
- * now a bare skill or a members collection) aborts with the install left intact. The
- * recorded type is authoritative — the helper only chooses *which* present dirs to
- * copy, never re-derives the type, so a benign newly-added asset dir is picked up and
- * an added root SKILL.md is ignored while any asset dir remains.
- */
-async function replayRecordedPlugin(
-	ctx: ReplayContext,
-): Promise<NukeReinstallResult> {
-	const { options, agents } = ctx;
-	const { sourceDir, projectDir, existingEntry } = options;
-
-	const presentAssetDirs = await findPresentAssetDirs(sourceDir);
-
-	if (presentAssetDirs.length === 0) {
-		return {
-			status: "aborted",
-			recordedType: "plugin",
-			reason:
-				"recorded as plugin but no asset dir (skills/agents/hooks) remains in the source",
-		};
-	}
-
-	await nukeManifestFiles(projectDir, existingEntry.files);
-
-	let copiedFiles: string[];
-	try {
-		const pluginResult = await copyPluginAssets({
-			sourceDir,
-			assetDirs: presentAssetDirs,
-			agents,
-			projectDir,
-		});
-		copiedFiles = pluginResult.copiedFiles;
-	} catch (err: unknown) {
-		return copyFailed(options.key, err);
-	}
-
-	return buildSuccess(ctx, copiedFiles, "plugin");
-}
-
-type AgentResolution =
-	| { status: "ok"; effectiveAgents: AgentId[]; droppedAgents: AgentId[] }
-	| { status: "no-agents" };
-
-/**
- * Resolves the effective agent set. Both an absent config (no agntc.json →
- * `undefined`) AND a defined-but-empty `agents` array impose no restriction — the
- * entry's recorded agents are kept unchanged. An empty array carries no usable
- * author intent (the spec's lenient "no valid constraint" case), so it is treated
- * identically to no config at all, matching the `add` path. Only a non-empty
- * config narrows to the intersection; dropping every recorded agent there is a
- * genuine no-agents failure.
- */
-export function resolveAgents(
-	entryAgents: AgentId[],
-	configAgents: AgentId[] | undefined,
-): AgentResolution {
-	if (configAgents === undefined || configAgents.length === 0) {
-		return { status: "ok", effectiveAgents: entryAgents, droppedAgents: [] };
-	}
-
-	const { effective, dropped } = computeAgentChanges(entryAgents, configAgents);
-	if (effective.length === 0) {
-		return { status: "no-agents" };
-	}
-	return { status: "ok", effectiveAgents: effective, droppedAgents: dropped };
-}
-
-function buildSuccess(
-	ctx: ReplayContext,
-	copiedFiles: string[],
-	type: "skill" | "plugin",
-): NukeReinstallSuccess {
-	const { options, effectiveAgents, droppedAgents, ref, commit } = ctx;
-	const { existingEntry } = options;
-
-	const entry = buildManifestEntry({
-		ref: ref ?? null,
-		commit: commit ?? null,
-		agents: effectiveAgents,
-		files: copiedFiles,
-		type,
-		cloneUrl: existingEntry.cloneUrl ?? null,
-		constraint: existingEntry.constraint,
-		// Preserve the divergent source subpath (cycle-9): identity is unchanged
-		// by an update, so a skills-only member keyed by basename keeps pointing at
-		// its `skills/<name>` source. Dropping it here would silently re-break the
-		// NEXT update (the resolver would fall back to the wrong key-derived dir).
-		sourceSubpath: existingEntry.sourceSubpath,
-	});
 
 	return {
 		status: "success",
-		entry,
+		entry: buildReplayedEntry(options, copiedFiles, replay),
 		copiedFiles,
-		droppedAgents,
+		notes: [
+			...(replay.note !== undefined ? [replay.note] : []),
+			...absorbed.map((looseKey) => absorptionNote(key, looseKey)),
+		],
+		absorbed,
 	};
 }
 
-function copyFailed(key: string, err: unknown): NukeReinstallCopyFailed {
+/** A skill whose recorded path no longer holds one is looked for by name. */
+async function deriveSkillReplay(
+	options: NukeReinstallOptions,
+): Promise<Replay> {
+	const { key, sourceDir, existingEntry } = options;
+	const path = startPathOf(options);
+	const name = memberName(key);
+	if (await pathExists(join(sourceDir, "SKILL.md"))) {
+		return {
+			ok: true,
+			item: skillAt(path, name),
+			sourceSubpath: existingEntry.sourceSubpath,
+		};
+	}
+	return followMovedSkill(options, path, name);
+}
+
+/**
+ * Re-walks the whole source for skills named like the entry, loose or in a
+ * pack: exactly one is followed, none means the skill is gone upstream, and
+ * several can't be told apart.
+ */
+async function followMovedSkill(
+	options: NukeReinstallOptions,
+	oldPath: string,
+	name: string,
+): Promise<Replay> {
+	const { key, cloneRoot, existingEntry } = options;
+	const rootName = sourceRootName(options);
+	const { skills, packs } = await discover(cloneRoot, { rootName });
+	const matches = [...skills, ...packs.flatMap((pack) => pack.skills)]
+		.filter((skill) => skill.name === name)
+		.map((skill) => skill.path)
+		.sort(comparePaths);
+	const [newPath] = matches;
+	const label = (path: string) => pathLabel(path, rootName);
+
+	if (newPath === undefined) {
+		return GONE;
+	}
+	if (matches.length > 1) {
+		return {
+			ok: false,
+			reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.join(", ")}`,
+		};
+	}
+	return {
+		ok: true,
+		item: skillAt(newPath, name),
+		sourceSubpath: recordedSubpath(key, existingEntry, cloneRoot, newPath),
+		note: `${key} moved from ${label(oldPath)} to ${label(newPath)}`,
+	};
+}
+
+/**
+ * Re-walks a pack so skills added upstream arrive and removed ones go. A path
+ * that is now a single skill reinstalls as that skill; a path that is gone,
+ * or holds nothing, is gone upstream. Two of its skills sharing a folder name
+ * would install to one place, so the pack aborts.
+ */
+async function derivePackReplay(
+	options: NukeReinstallOptions,
+): Promise<Replay> {
+	const { key, cloneRoot, existingEntry } = options;
+	const startPath = startPathOf(options);
+	const rootName = memberName(key);
+	const { sourceSubpath } = existingEntry;
+
+	try {
+		const { packs } = await discover(cloneRoot, {
+			startPath,
+			forcePack: true,
+			rootName,
+		});
+		const [pack] = packs;
+		if (pack === undefined || isEmptyPack(pack)) {
+			return GONE;
+		}
+		const clashes = findTargetClashes(skillClaims(pack.skills));
+		if (clashes.length > 0) {
+			return { ok: false, reason: clashes.map(describeClash).join("; ") };
+		}
+		return { ok: true, item: { kind: "pack", pack }, sourceSubpath };
+	} catch (err) {
+		if (err instanceof PackConflictError && err.conflict === "single-skill") {
+			return {
+				ok: true,
+				item: skillAt(startPath, rootName),
+				sourceSubpath,
+				note: `${key} is a single skill — reinstalled as a skill`,
+			};
+		}
+		if (err instanceof PackConflictError) {
+			return { ok: false, reason: "its folder now contains packs" };
+		}
+		if (err instanceof StartPathError) {
+			return GONE;
+		}
+		throw err;
+	}
+}
+
+/** Whatever already sits where the item installs, besides the entry's own files. */
+interface InTheWay extends Claims {
+	/** Files agntc didn't install. */
+	unmanaged: string[];
+}
+
+/**
+ * Sorts out what sits at every path the item would claim. Only a pack absorbs
+ * loose skills from its own source; any other entry's files clash.
+ */
+async function inTheWayOf(
+	item: InstallItem,
+	{ key, cloneRoot, existingEntry, installed, scope }: NukeReinstallOptions,
+): Promise<InTheWay> {
+	const incoming = await computeIncomingFiles(item, cloneRoot);
+	const claims: Claims =
+		item.kind === "pack"
+			? claimFiles(incoming, installed, key, sourceIdOf(key, existingEntry))
+			: {
+					absorbed: [],
+					clashes: checkFileCollisions(incoming, installed, key),
+				};
+	return {
+		...claims,
+		unmanaged: await checkUnmanagedConflicts(incoming, installed, scope.root),
+	};
+}
+
+function inTheWayReason({ clashes, unmanaged }: InTheWay): string {
+	const owned = [...clashes].map(
+		([other, files]) => `files of ${other} are in the way: ${files.join(", ")}`,
+	);
+	const unowned =
+		unmanaged.length > 0
+			? [`files agntc didn't install are in the way: ${unmanaged.join(", ")}`]
+			: [];
+	return [...owned, ...unowned].join("; ");
+}
+
+/**
+ * Names a symlink at or above the recorded path, as `add` refuses one: the
+ * replay would read through it, out of the clone even, and a pack's walk
+ * would take it for a path that's gone.
+ */
+async function linkOnRecordedPath(
+	options: NukeReinstallOptions,
+): Promise<string | null> {
+	const path = startPathOf(options);
+	const state = await inspectSourcePath(options.cloneRoot, path);
+	return state.kind === "link"
+		? `symlink "${state.at}" is on the path to ${path} — agntc won't copy through it`
+		: null;
+}
+
+function startPathOf({ cloneRoot, sourceDir }: NukeReinstallOptions): string {
+	return relativePosix(cloneRoot, sourceDir);
+}
+
+/** What the walk root is called: the local folder, or the repo. */
+function sourceRootName({
+	key,
+	cloneRoot,
+	existingEntry,
+}: NukeReinstallOptions): string {
+	return existingEntry.commit === null
+		? basename(cloneRoot)
+		: memberName(repoFromKey(key));
+}
+
+function skillAt(path: string, name: string): InstallItem {
+	return { kind: "skill", skill: { name, path } };
+}
+
+function buildReplayedEntry(
+	options: NukeReinstallOptions,
+	copiedFiles: string[],
+	replay: Extract<Replay, { ok: true }>,
+): ManifestEntry {
+	const { existingEntry, newRef, newCommit } = options;
+	return buildManifestEntry({
+		ref: newRef ?? existingEntry.ref,
+		commit: newCommit ?? existingEntry.commit,
+		files: copiedFiles,
+		type: replay.item.kind,
+		cloneUrl: existingEntry.cloneUrl ?? null,
+		constraint: existingEntry.constraint,
+		sourceSubpath: replay.sourceSubpath,
+		localRoot: existingEntry.localRoot,
+	});
+}
+
+function copyFailed(
+	{ key, existingEntry, scope }: NukeReinstallOptions,
+	err: unknown,
+	absorbed: string[],
+): NukeReinstallCopyFailed {
+	const takenOver =
+		absorbed.length > 0 ? `, and ${takenOverRemoved(absorbed)}` : "";
 	return {
 		status: "copy-failed",
 		errorMessage: errorMessage(err),
+		absorbed,
 		recoveryHint:
-			`Update failed for ${key} after removing old files. ` +
-			`The plugin is currently uninstalled. ` +
-			`Run \`npx agntc update ${key}\` to retry installation.`,
+			`Update failed for ${key} after removing old files${takenOver}. ` +
+			`It is currently uninstalled. ` +
+			`Run \`${reAddCommand(key, existingEntry, scope.name)}\` to install it again.`,
 	};
 }

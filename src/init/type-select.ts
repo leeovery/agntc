@@ -1,9 +1,11 @@
-import { isCancel, select } from "@clack/prompts";
+import type { Ui } from "../ui.js";
 
-export type InitType = "skill" | "plugin" | "collection";
+export const INIT_TYPES = ["skill", "pack"] as const;
 
-export async function selectInitType(): Promise<InitType | null> {
-	const result = await select<InitType>({
+export type InitType = (typeof INIT_TYPES)[number];
+
+export async function selectInitType(ui: Ui): Promise<InitType | null> {
+	return ui.select<InitType>({
 		message: "What are you creating?",
 		options: [
 			{
@@ -12,21 +14,10 @@ export async function selectInitType(): Promise<InitType | null> {
 				hint: "a single skill (SKILL.md)",
 			},
 			{
-				value: "plugin",
-				label: "Plugin",
-				hint: "skills, agents, and/or hooks that install together as one package",
-			},
-			{
-				value: "collection",
-				label: "Collection",
-				hint: "a repo of individually selectable plugins",
+				value: "pack",
+				label: "Pack",
+				hint: "skills, agents and hooks that install together as one",
 			},
 		],
 	});
-
-	if (isCancel(result)) {
-		return null;
-	}
-
-	return result;
 }

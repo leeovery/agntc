@@ -1,33 +1,48 @@
+import { execFileSync } from "node:child_process";
 import {
 	access,
+	chmod,
+	lstat,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
+	readlink,
 	rm,
+	stat,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
-import type { AgentDriver } from "../src/drivers/types.js";
+import { type CopySource, SymlinkEscapeError } from "../src/copy-safety.js";
 
 let testDir: string;
 let sourceDir: string;
 let projectDir: string;
-
-function makeDriver(targetDir: string | null): AgentDriver {
-	return {
-		detect: async () => true,
-		getTargetDir: () => targetDir,
-	};
-}
 
 async function createSourceFile(...segments: string[]): Promise<void> {
 	const filePath = join(sourceDir, ...segments);
 	const dir = filePath.substring(0, filePath.lastIndexOf("/"));
 	await mkdir(dir, { recursive: true });
 	await writeFile(filePath, `content of ${segments.join("/")}`);
+}
+
+async function tree(base: string, files: Record<string, string>) {
+	for (const [path, content] of Object.entries(files)) {
+		await mkdir(dirname(join(base, path)), { recursive: true });
+		await writeFile(join(base, path), content);
+	}
+}
+
+function remote(root: string): CopySource {
+	return { root, local: false };
+}
+
+function local(root: string): CopySource {
+	return { root, local: true };
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -58,8 +73,8 @@ describe("copyBareSkill", () => {
 
 		const result = await copyBareSkill({
 			sourceDir,
+			source: remote(sourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -77,10 +92,10 @@ describe("copyBareSkill", () => {
 		await createSourceFile("SKILL.md");
 		await createSourceFile("agntc.json");
 
-		const result = await copyBareSkill({
+		await copyBareSkill({
 			sourceDir,
+			source: remote(sourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -95,8 +110,8 @@ describe("copyBareSkill", () => {
 
 		await copyBareSkill({
 			sourceDir,
+			source: remote(sourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -106,27 +121,14 @@ describe("copyBareSkill", () => {
 		);
 	});
 
-	it("creates destination dir when missing", async () => {
-		await createSourceFile("SKILL.md");
-
-		await copyBareSkill({
-			sourceDir,
-			projectDir,
-			agents: [{ id: "claude", driver: makeDriver("deep/nested/skills") }],
-		});
-
-		const destDir = join(projectDir, "deep/nested/skills/source-skill");
-		expect(await fileExists(join(destDir, "SKILL.md"))).toBe(true);
-	});
-
 	it("returns correct relative paths with trailing slash", async () => {
 		await createSourceFile("SKILL.md");
 		await createSourceFile("references", "guide.md");
 
 		const result = await copyBareSkill({
 			sourceDir,
+			source: remote(sourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const skillName = basename(sourceDir);
@@ -134,37 +136,13 @@ describe("copyBareSkill", () => {
 		expect(result.copiedFiles).toContain(expectedDir);
 	});
 
-	it("skips agent when getTargetDir null", async () => {
+	it("creates the .claude/skills destination when missing", async () => {
 		await createSourceFile("SKILL.md");
 
-		const result = await copyBareSkill({
-			sourceDir,
-			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(null) }],
-		});
+		await copyBareSkill({ sourceDir, source: remote(sourceDir), projectDir });
 
-		expect(result.copiedFiles).toEqual([]);
-	});
-
-	it("copies to multiple agents independently", async () => {
-		await createSourceFile("SKILL.md");
-
-		const result = await copyBareSkill({
-			sourceDir,
-			projectDir,
-			agents: [
-				{ id: "claude", driver: makeDriver(".claude/skills") },
-				{ id: "codex", driver: makeDriver(".codex/skills") },
-			],
-		});
-
-		const skillName = basename(sourceDir);
-		const claudeDest = join(projectDir, ".claude/skills", skillName);
-		const codexDest = join(projectDir, ".codex/skills", skillName);
-		expect(await fileExists(join(claudeDest, "SKILL.md"))).toBe(true);
-		expect(await fileExists(join(codexDest, "SKILL.md"))).toBe(true);
-		expect(result.copiedFiles).toContain(`.claude/skills/${skillName}/`);
-		expect(result.copiedFiles).toContain(`.codex/skills/${skillName}/`);
+		const destDir = join(projectDir, ".claude/skills/source-skill");
+		expect(await fileExists(join(destDir, "SKILL.md"))).toBe(true);
 	});
 
 	it("handles empty skill dir (only agntc.json)", async () => {
@@ -172,8 +150,8 @@ describe("copyBareSkill", () => {
 
 		const result = await copyBareSkill({
 			sourceDir,
+			source: remote(sourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const skillName = basename(sourceDir);
@@ -189,8 +167,8 @@ describe("copyBareSkill", () => {
 
 		const result = await copyBareSkill({
 			sourceDir: customSourceDir,
+			source: remote(customSourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/my-awesome-skill");
@@ -209,8 +187,8 @@ describe("copyBareSkill", () => {
 
 		await copyBareSkill({
 			sourceDir,
+			source: remote(sourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -229,13 +207,15 @@ describe("copyBareSkill", () => {
 
 		const result = await copyBareSkill({
 			sourceDir: cloneDir,
+			source: remote(cloneDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 			skillName: "refero-design",
 		});
 
 		expect(
-			await fileExists(join(projectDir, ".claude/skills/refero-design/SKILL.md")),
+			await fileExists(
+				join(projectDir, ".claude/skills/refero-design/SKILL.md"),
+			),
 		).toBe(true);
 		expect(
 			await fileExists(join(projectDir, ".claude/skills/refero-design/.git")),
@@ -252,8 +232,8 @@ describe("copyBareSkill", () => {
 
 		await copyBareSkill({
 			sourceDir,
+			source: remote(sourceDir),
 			projectDir,
-			agents: [{ id: "claude", driver: makeDriver(".claude/skills") }],
 		});
 
 		const destDir = join(projectDir, ".claude/skills/source-skill");
@@ -263,5 +243,228 @@ describe("copyBareSkill", () => {
 		expect(
 			await readFile(join(destDir, "a", "b", "c", "deep.md"), "utf-8"),
 		).toBe("content of a/b/c/deep.md");
+	});
+
+	it.each([
+		"..",
+		".",
+		"",
+		"a/b",
+		"../escape",
+	])("refuses %j as a skill's folder name, writing nothing", async (skillName) => {
+		await createSourceFile("SKILL.md");
+
+		await expect(
+			copyBareSkill({
+				sourceDir,
+				source: remote(sourceDir),
+				projectDir,
+				skillName,
+			}),
+		).rejects.toThrow(`"${skillName}" can't be a skill's folder name`);
+
+		expect(await readdir(projectDir)).toEqual([]);
+	});
+
+	describe("a symlink in the way", () => {
+		let realDir: string;
+
+		beforeEach(async () => {
+			await createSourceFile("SKILL.md");
+			realDir = join(testDir, "my-own-skill");
+			await mkdir(realDir, { recursive: true });
+			await writeFile(join(realDir, "SKILL.md"), "mine");
+			await mkdir(join(projectDir, ".claude/skills"), { recursive: true });
+		});
+
+		it("refuses to write through a link at the target, leaving the link and its target", async () => {
+			const linkPath = join(projectDir, ".claude/skills/source-skill");
+			await symlink(realDir, linkPath);
+
+			await expect(
+				copyBareSkill({ sourceDir, source: remote(sourceDir), projectDir }),
+			).rejects.toThrow(
+				".claude/skills/source-skill is a symlink — agntc won't write through it",
+			);
+
+			expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
+			expect(await readdir(realDir)).toEqual(["SKILL.md"]);
+			expect(await readFile(join(realDir, "SKILL.md"), "utf-8")).toBe("mine");
+		});
+
+		it("refuses to write into a folder holding a link", async () => {
+			const destDir = join(projectDir, ".claude/skills/source-skill");
+			await mkdir(destDir);
+			await symlink(realDir, join(destDir, "shared"));
+
+			await expect(
+				copyBareSkill({ sourceDir, source: remote(sourceDir), projectDir }),
+			).rejects.toThrow(".claude/skills/source-skill/shared is a symlink");
+
+			expect(await readdir(realDir)).toEqual(["SKILL.md"]);
+		});
+	});
+
+	describe("a symlink in the source", () => {
+		const INSTALLED = ".claude/skills/foo";
+		let clone: string;
+		let skill: string;
+
+		beforeEach(async () => {
+			clone = join(testDir, "clone");
+			skill = join(clone, "skills/foo");
+			await tree(clone, {
+				"skills/foo/SKILL.md": "foo",
+				"skills/foo/ref/a.md": "a",
+				"shared/guide.md": "guide",
+			});
+		});
+
+		function copyFoo(source: CopySource) {
+			return copyBareSkill({ sourceDir: skill, source, projectDir });
+		}
+
+		/** Copies foo from a clone, then deletes the clone, as add and update do. */
+		async function copyFromCloneThenDelete(): Promise<void> {
+			await copyFoo(remote(clone));
+			await rm(clone, { recursive: true, force: true });
+		}
+
+		function installed(path: string): string {
+			return join(projectDir, INSTALLED, path);
+		}
+
+		async function installedNames(path = ""): Promise<string[]> {
+			return (await readdir(installed(path))).sort();
+		}
+
+		/** A link to its own folder, above it, and elsewhere in the clone. */
+		async function linkOutOfTheSkill(): Promise<void> {
+			await symlink("../foo", join(skill, "self"));
+			await symlink("..", join(skill, "ref/up"));
+			await symlink("../..", join(skill, "repo"));
+			await symlink("../../shared", join(skill, "shared"));
+			await symlink("../../shared/guide.md", join(skill, "guide.md"));
+		}
+
+		it("keeps a link to a file in the skill a relative link, which reads once the clone is gone", async () => {
+			await symlink("ref/a.md", join(skill, "link.md"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await readlink(installed("link.md"))).toBe("ref/a.md");
+			expect(await readFile(installed("link.md"), "utf-8")).toBe("a");
+		});
+
+		it("makes an absolute link to a file in the skill relative", async () => {
+			await symlink(join(skill, "ref/a.md"), join(skill, "ref/abs.md"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await readlink(installed("ref/abs.md"))).toBe("a.md");
+			expect(await readFile(installed("ref/abs.md"), "utf-8")).toBe("a");
+		});
+
+		it("leaves out of a clone's skill a link to its own folder, above it or elsewhere in the clone", async () => {
+			await linkOutOfTheSkill();
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+			expect(await installedNames("ref")).toEqual(["a.md"]);
+		});
+
+		it("links a local skill's link to its own folder, above it or elsewhere in the source absolutely into the source", async () => {
+			await linkOutOfTheSkill();
+
+			await copyFoo(local(clone));
+
+			expect(await readlink(installed("self"))).toBe(skill);
+			expect(await readlink(installed("ref/up"))).toBe(skill);
+			expect(await readlink(installed("repo"))).toBe(clone);
+			expect(await readlink(installed("shared"))).toBe(join(clone, "shared"));
+			expect(await readFile(installed("guide.md"), "utf-8")).toBe("guide");
+		});
+
+		it.each([
+			["a clone", remote],
+			["a local source", local],
+		])("leaves out a link to what the skill drops, from %s", async (_kind, kind) => {
+			await tree(skill, { ".git/HEAD": "ref", "agntc.json": "{}" });
+			await symlink(".git", join(skill, "history"));
+			await symlink(".git/HEAD", join(skill, "head"));
+			await symlink("agntc.json", join(skill, "config.json"));
+
+			await copyFoo(kind(clone));
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("finishes at once through chains of links, inside the skill and out of it", async () => {
+			for (let i = 0; i < 16; i += 1) {
+				await mkdir(join(skill, `c${i}`));
+				await mkdir(join(clone, `d${i}`));
+				for (const name of ["x", "y"]) {
+					await symlink(`../c${i + 1}`, join(skill, `c${i}`, name));
+					await symlink(`../d${i + 1}`, join(clone, `d${i}`, name));
+				}
+			}
+			await symlink("../../d0", join(skill, "chain"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await readlink(installed("c0/x"))).toBe("../c1");
+			expect(await readlink(installed("c15/y"))).toBe("../c16");
+			expect(await installedNames()).not.toContain("chain");
+		});
+
+		it("keeps a dangling link into the skill, and leaves out a dangling one elsewhere in a clone", async () => {
+			await symlink("ref/gone.md", join(skill, "dangling"));
+			await symlink("../../gone", join(skill, "nothing"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await readlink(installed("dangling"))).toBe("ref/gone.md");
+			expect(await installedNames()).not.toContain("nothing");
+		});
+
+		it.each([
+			["a clone", remote],
+			["a local source", local],
+		])("refuses a link out of %s, writing nothing", async (_kind, kind) => {
+			await tree(testDir, { "outside/secret.md": "secret" });
+			await symlink(join(testDir, "outside/secret.md"), join(skill, "leak"));
+
+			await expect(copyFoo(kind(clone))).rejects.toBeInstanceOf(
+				SymlinkEscapeError,
+			);
+			expect(await fileExists(join(projectDir, INSTALLED))).toBe(false);
+		});
+
+		it("keeps file modes, so a script stays executable", async () => {
+			await tree(skill, { "run.sh": "#!/bin/sh" });
+			await chmod(join(skill, "run.sh"), 0o755);
+
+			await copyFromCloneThenDelete();
+
+			expect((await stat(installed("run.sh"))).mode & 0o777).toBe(0o755);
+		});
+
+		it("keeps hidden files, dropping only .git", async () => {
+			await tree(skill, { ".env.example": "", ".config/settings.json": "" });
+
+			await copyFromCloneThenDelete();
+
+			expect(await fileExists(installed(".env.example"))).toBe(true);
+			expect(await fileExists(installed(".config/settings.json"))).toBe(true);
+		});
+
+		it("skips a FIFO without blocking", async () => {
+			execFileSync("mkfifo", [join(skill, "pipe")]);
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
 	});
 });

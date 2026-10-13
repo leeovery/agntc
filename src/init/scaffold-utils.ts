@@ -1,43 +1,41 @@
-import { access, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { AgentId } from "../drivers/types.js";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { pathExists } from "../fs-utils.js";
+
+export interface ScaffoldFile {
+	/** `/`-joined, relative to the folder being scaffolded. */
+	path: string;
+	content: string;
+	mode?: number;
+}
 
 export interface ScaffoldResult {
 	created: string[];
 	skipped: string[];
-	overwritten: string[];
 }
 
-export interface ConfigFileResult {
-	path: string;
-	status: "created" | "skipped" | "overwritten";
+/** What one init type writes, and what it says about the folder afterwards. */
+export interface Scaffold {
+	files(targetDir: string): ScaffoldFile[];
+	/** Why the scaffolded folder isn't what this type promises, if it isn't. */
+	warnings(targetDir: string): Promise<string[]>;
 }
 
-export async function pathExists(path: string): Promise<boolean> {
-	try {
-		await access(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-export async function writeConfigFile(
+/** Writes each file that doesn't exist yet; one that does is left as it is. */
+export async function writeScaffold(
 	targetDir: string,
-	agents: AgentId[],
-	reconfigure?: boolean,
-): Promise<ConfigFileResult> {
-	const filePath = join(targetDir, "agntc.json");
-	const content = `${JSON.stringify({ agents }, null, 2)}\n`;
-
-	if (await pathExists(filePath)) {
-		if (reconfigure) {
-			await writeFile(filePath, content, "utf-8");
-			return { path: "agntc.json", status: "overwritten" };
+	files: ScaffoldFile[],
+): Promise<ScaffoldResult> {
+	const result: ScaffoldResult = { created: [], skipped: [] };
+	for (const { path, content, mode } of files) {
+		const dest = join(targetDir, path);
+		if (await pathExists(dest)) {
+			result.skipped.push(path);
+			continue;
 		}
-		return { path: "agntc.json", status: "skipped" };
+		await mkdir(dirname(dest), { recursive: true });
+		await writeFile(dest, content, { encoding: "utf-8", mode });
+		result.created.push(path);
 	}
-
-	await writeFile(filePath, content, "utf-8");
-	return { path: "agntc.json", status: "created" };
+	return result;
 }

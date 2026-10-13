@@ -1,10 +1,18 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	realpath,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertSubpathWithinClone,
 	checkEscapingSymlinks,
+	inspectSourcePath,
 	PathTraversalError,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
@@ -120,6 +128,55 @@ describe("assertSubpathWithinClone", () => {
 				expect(err).toBeInstanceOf(PathTraversalError);
 				expect((err as PathTraversalError).name).toBe("PathTraversalError");
 			}
+		});
+	});
+});
+
+describe("inspectSourcePath", () => {
+	let root: string;
+
+	beforeEach(async () => {
+		root = await realpath(await mkdtemp(join(tmpdir(), "agntc-source-path-")));
+		await mkdir(join(root, "skills/foo"), { recursive: true });
+		await writeFile(join(root, "skills/foo/SKILL.md"), "");
+	});
+
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	it.each(["skills/foo", ""])("finds a real folder at %j", async (path) => {
+		expect(await inspectSourcePath(root, path)).toEqual({ kind: "directory" });
+	});
+
+	it("is missing from the first segment that isn't there", async () => {
+		expect(await inspectSourcePath(root, "skills/bar/baz")).toEqual({
+			kind: "missing",
+		});
+	});
+
+	it("isn't a directory when a segment is a file", async () => {
+		expect(await inspectSourcePath(root, "skills/foo/SKILL.md")).toEqual({
+			kind: "not-directory",
+		});
+	});
+
+	it.each([
+		["above the path", "linked", "linked/foo"],
+		["at the path", "skills/bar", "skills/bar"],
+	])("names a link %s without following it", async (_where, at, path) => {
+		await symlink(join(root, "skills"), join(root, "linked"));
+		await symlink("foo", join(root, "skills/bar"));
+
+		expect(await inspectSourcePath(root, path)).toEqual({ kind: "link", at });
+	});
+
+	it("names a dangling link rather than calling the path missing", async () => {
+		await symlink("gone", join(root, "dangling"));
+
+		expect(await inspectSourcePath(root, "dangling/foo")).toEqual({
+			kind: "link",
+			at: "dangling",
 		});
 	});
 });

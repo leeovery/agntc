@@ -1,15 +1,13 @@
 {
 	"name": "agntc",
 	"version": "0.0.0-development",
-	"description": "Agent skills and knowledge installer for AI coding agents",
+	"description": "Install Claude skills and packs from git repos",
 	"keywords": [
 		"agent",
 		"skills",
 		"cli",
 		"ai",
-		"claude",
-		"codex",
-		"cursor"
+		"claude"
 	],
 	"homepage": "https://github.com/leeovery/agntc#readme",
 	"bugs": {

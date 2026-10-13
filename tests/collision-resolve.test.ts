@@ -18,8 +18,13 @@ vi.mock("../src/nuke-files.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { resolveCollisions } from "../src/collision-resolve.js";
+import {
+	PartialRemovalError,
+	removeCollidingEntries,
+	resolveCollisions,
+} from "../src/collision-resolve.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
+import { interactiveUi } from "../src/ui.js";
 
 const mockedNote = vi.mocked(p.note);
 const mockedSelect = vi.mocked(p.select);
@@ -36,13 +41,17 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
 		const collisions = new Map<string, string[]>();
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(true);
 		expect(result.updatedManifest).toEqual(manifest);
@@ -55,14 +64,12 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/", ".claude/agents/executor.md"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			},
 		};
@@ -72,7 +79,12 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(true);
 		// repo-a should be removed from manifest
@@ -94,7 +106,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -104,7 +115,12 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(false);
 		// Manifest unchanged
@@ -118,21 +134,18 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/my-agent.md"],
 			},
 			"owner/repo-c": {
 				ref: "v1",
 				commit: "ghi789",
 				installedAt: "2026-01-17T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-c/"],
 			},
 		};
@@ -145,7 +158,12 @@ describe("resolveCollisions", () => {
 		mockedSelect.mockResolvedValueOnce("remove");
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(true);
 		expect(result.updatedManifest["owner/repo-a"]).toBeUndefined();
@@ -163,21 +181,18 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/my-agent.md"],
 			},
 			"owner/repo-c": {
 				ref: "v1",
 				commit: "ghi789",
 				installedAt: "2026-01-17T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-c/"],
 			},
 		};
@@ -190,7 +205,12 @@ describe("resolveCollisions", () => {
 		mockedSelect.mockResolvedValueOnce("remove");
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		// Cancel stops everything
 		expect(result.resolved).toBe(false);
@@ -215,7 +235,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -226,7 +245,12 @@ describe("resolveCollisions", () => {
 		// Clack returns symbol when user presses Ctrl+C
 		mockedSelect.mockResolvedValueOnce(Symbol("cancel") as unknown as string);
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(false);
 		expect(mockedNuke).not.toHaveBeenCalled();
@@ -238,17 +262,19 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/", ".claude/agents/executor.md"],
 			},
 		};
 		const collisions = new Map<string, string[]>([
-			["owner/repo-a", [".claude/skills/skill-a/", ".claude/agents/executor.md"]],
+			[
+				"owner/repo-a",
+				[".claude/skills/skill-a/", ".claude/agents/executor.md"],
+			],
 		]);
 
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		expect(mockedNote).toHaveBeenCalledWith(
 			"  - .claude/skills/skill-a/\n  - .claude/agents/executor.md",
@@ -266,7 +292,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -276,7 +301,7 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		const call = mockedSelect.mock.calls[0]!;
 		const { message } = call[0] as { message: string };
@@ -290,14 +315,12 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/my-agent.md"],
 			},
 		};
@@ -309,7 +332,7 @@ describe("resolveCollisions", () => {
 		mockedSelect.mockResolvedValueOnce("remove");
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		expect(mockedNote).toHaveBeenCalledTimes(2);
 		expect(mockedNote).toHaveBeenNthCalledWith(
@@ -330,7 +353,6 @@ describe("resolveCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -340,7 +362,7 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		// Verify the options passed to select do NOT include "install-anyway"
 		const call = mockedSelect.mock.calls[0]!;
@@ -349,5 +371,113 @@ describe("resolveCollisions", () => {
 		expect(values).not.toContain("install-anyway");
 		expect(values).toContain("remove");
 		expect(values).toContain("cancel");
+	});
+});
+
+describe("removeCollidingEntries", () => {
+	const entry = (files: string[]) => ({
+		ref: "main",
+		commit: "abc123",
+		installedAt: "2026-01-15T10:00:00.000Z",
+		files,
+	});
+
+	it("deletes each named entry's files and drops it from the manifest, asking nothing", async () => {
+		const manifest: Manifest = {
+			"owner/repo-a": entry([".claude/skills/a/"]),
+			"owner/repo-b": entry([".claude/skills/b/"]),
+			"owner/repo-c": entry([".claude/skills/c/"]),
+		};
+
+		const result = await removeCollidingEntries(
+			["owner/repo-a", "owner/repo-b"],
+			manifest,
+			"/project",
+		);
+
+		expect(result).toEqual({ "owner/repo-c": manifest["owner/repo-c"] });
+		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/a/"]);
+		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/b/"]);
+		expect(mockedSelect).not.toHaveBeenCalled();
+		expect(mockedNote).not.toHaveBeenCalled();
+	});
+
+	describe("when a removal fails", () => {
+		const manifest: Manifest = {
+			"owner/repo-a": entry([".claude/skills/a/"]),
+			"owner/repo-b": entry([".claude/skills/b/"]),
+			"owner/repo-c": entry([".claude/skills/c/"]),
+		};
+
+		async function partialRemoval(
+			run: Promise<unknown>,
+		): Promise<PartialRemovalError> {
+			const err = await run.then(
+				() => null,
+				(error: unknown) => error,
+			);
+			expect(err).toBeInstanceOf(PartialRemovalError);
+			return err as PartialRemovalError;
+		}
+
+		beforeEach(() => {
+			mockedNuke
+				.mockResolvedValueOnce({ removed: [], skipped: [] })
+				.mockRejectedValueOnce(new Error("EACCES: permission denied"));
+		});
+
+		it("throws with the manifest that drops the entries removed before it and keeps the one that failed", async () => {
+			const err = await partialRemoval(
+				removeCollidingEntries(
+					["owner/repo-a", "owner/repo-b"],
+					manifest,
+					"/project",
+				),
+			);
+
+			expect(err.message).toBe("EACCES: permission denied");
+			expect(err.manifest).toEqual({
+				"owner/repo-b": manifest["owner/repo-b"],
+				"owner/repo-c": manifest["owner/repo-c"],
+			});
+		});
+
+		it("carries the same manifest out of the prompt", async () => {
+			mockedSelect
+				.mockResolvedValueOnce("remove")
+				.mockResolvedValueOnce("remove");
+
+			const err = await partialRemoval(
+				resolveCollisions(
+					new Map([
+						["owner/repo-a", [".claude/skills/a/"]],
+						["owner/repo-b", [".claude/skills/b/"]],
+					]),
+					manifest,
+					"/project",
+					interactiveUi,
+				),
+			);
+
+			expect(err.manifest).toEqual({
+				"owner/repo-b": manifest["owner/repo-b"],
+				"owner/repo-c": manifest["owner/repo-c"],
+			});
+		});
+	});
+
+	it("passes over a key the manifest no longer holds", async () => {
+		const manifest: Manifest = {
+			"owner/repo-a": entry([".claude/skills/a/"]),
+		};
+
+		const result = await removeCollidingEntries(
+			["owner/gone"],
+			manifest,
+			"/project",
+		);
+
+		expect(result).toEqual(manifest);
+		expect(mockedNuke).not.toHaveBeenCalled();
 	});
 });

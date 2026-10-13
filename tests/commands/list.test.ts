@@ -34,7 +34,8 @@ vi.mock("../../src/manifest.js", () => ({
 	addEntry: vi.fn(),
 }));
 
-vi.mock("../../src/update-check-all.js", () => ({
+vi.mock("../../src/update-check-all.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/update-check-all.js")>()),
 	checkAllForUpdates: vi.fn(),
 }));
 
@@ -59,14 +60,17 @@ vi.mock("../../src/commands/list-change-version-action.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { runListLoop } from "../../src/commands/list.js";
+import { listCommand, runListLoop } from "../../src/commands/list.js";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { renderDetailView } from "../../src/commands/list-detail.js";
 import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { readManifest, readManifestOrExit } from "../../src/manifest.js";
+import { globalScope, projectScope } from "../../src/scope.js";
+import { interactiveUi } from "../../src/ui.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { checkAllForUpdates } from "../../src/update-check-all.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const mockReadManifest = vi.mocked(readManifest);
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
@@ -119,7 +123,7 @@ describe("runListLoop", () => {
 			await runListLoop();
 
 			expect(mockOutro).toHaveBeenCalledWith(
-				"No plugins installed. Run npx agntc add owner/repo to get started.",
+				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 			expect(mockSelect).not.toHaveBeenCalled();
 		});
@@ -143,6 +147,18 @@ describe("runListLoop", () => {
 			).toBe(false);
 			expect(mockRenderDetailView).not.toHaveBeenCalled();
 		});
+	});
+
+	it("asks for a skill or pack to manage", async () => {
+		mockReadManifestOrExit.mockResolvedValue(makeManifest(["owner/skill"]));
+		mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill"]));
+		mockSelect.mockResolvedValue(Symbol("cancel"));
+
+		await runListLoop();
+
+		expect(mockSelect.mock.calls[0]![0].message).toBe(
+			"Select a skill or pack to manage  (Esc when done)",
+		);
 	});
 
 	describe("cancel", () => {
@@ -222,6 +238,64 @@ describe("runListLoop", () => {
 			expect(mockReadManifest).toHaveBeenCalledTimes(1);
 			expect(mockSelect).toHaveBeenCalledTimes(2);
 		});
+
+		it("reports a failed removal and returns to the list, the entry still there", async () => {
+			const fullManifest = makeManifest(["owner/skill-a", "owner/skill-b"]);
+			const failure =
+				"Couldn't remove owner/skill-a: EACCES; it stays recorded";
+
+			mockReadManifestOrExit.mockResolvedValue(fullManifest);
+			mockCheckAll.mockResolvedValue(
+				setupCheckResults(["owner/skill-a", "owner/skill-b"]),
+			);
+			mockSelect
+				.mockResolvedValueOnce("owner/skill-a")
+				.mockResolvedValueOnce(Symbol("cancel"));
+			mockReadManifest.mockResolvedValueOnce(fullManifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "up-to-date" as const,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("remove");
+			mockExecuteRemoveAction.mockResolvedValueOnce({
+				removed: false,
+				message: failure,
+			});
+
+			await runListLoop();
+
+			expect(mockLog.error).toHaveBeenCalledWith(failure);
+			expect(mockLog.success).not.toHaveBeenCalled();
+			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(mockSelect.mock.calls[1]?.[0]).toMatchObject({
+				options: expect.arrayContaining([
+					expect.objectContaining({ value: "owner/skill-a" }),
+				]),
+			});
+		});
+
+		it("says nothing when the removal is cancelled", async () => {
+			const fullManifest = makeManifest(["owner/skill-a"]);
+
+			mockReadManifestOrExit.mockResolvedValue(fullManifest);
+			mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill-a"]));
+			mockSelect
+				.mockResolvedValueOnce("owner/skill-a")
+				.mockResolvedValueOnce(Symbol("cancel"));
+			mockReadManifest.mockResolvedValueOnce(fullManifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "up-to-date" as const,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("remove");
+			mockExecuteRemoveAction.mockResolvedValueOnce({
+				removed: false,
+				message: "Cancelled",
+			});
+
+			await runListLoop();
+
+			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(mockLog.success).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("remove last plugin", () => {
@@ -253,7 +327,7 @@ describe("runListLoop", () => {
 
 			expect(mockLog.success).toHaveBeenCalledWith("Removed owner/only-skill");
 			expect(mockOutro).toHaveBeenCalledWith(
-				"No plugins installed. Run npx agntc add owner/repo to get started.",
+				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 		});
 	});
@@ -286,6 +360,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest returns updated entry, user picks "back"
@@ -339,6 +414,7 @@ describe("runListLoop", () => {
 			mockExecuteChangeVersionAction.mockResolvedValueOnce({
 				changed: true,
 				message: "Changed owner/skill to v1.1.0",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest, user picks "back"
@@ -365,6 +441,63 @@ describe("runListLoop", () => {
 			expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
 			expect(mockReadManifest).toHaveBeenCalledTimes(2);
 			expect(mockSelect).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("action notes", () => {
+		function arrangeOneAction(action: "update" | "change-version"): void {
+			const manifest: Manifest = { "owner/repo/laravel": makeEntry() };
+			const status: UpdateCheckResult = {
+				status: "update-available",
+				remoteCommit: "def456",
+			};
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(
+				new Map([["owner/repo/laravel", status]]),
+			);
+			mockSelect.mockResolvedValueOnce("owner/repo/laravel");
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockRenderDetailView.mockResolvedValueOnce(action);
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce({ status: "up-to-date" });
+			mockRenderDetailView.mockResolvedValueOnce("back");
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(
+				setupCheckResults(["owner/repo/laravel"]),
+			);
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+		}
+
+		const NOTE =
+			"owner/repo/laravel is a single skill — reinstalled as a skill";
+
+		it("prints an update's note before its message", async () => {
+			arrangeOneAction("update");
+			mockExecuteUpdateAction.mockResolvedValueOnce({
+				success: true,
+				message: "Updated owner/repo/laravel",
+				notes: [NOTE],
+			});
+
+			await runListLoop();
+
+			expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+			expect(mockLog.info.mock.invocationCallOrder[0]).toBeLessThan(
+				mockLog.success.mock.invocationCallOrder[0]!,
+			);
+		});
+
+		it("prints a version change's note", async () => {
+			arrangeOneAction("change-version");
+			mockExecuteChangeVersionAction.mockResolvedValueOnce({
+				changed: true,
+				message: "Changed owner/repo/laravel to v2.0.0",
+				notes: [NOTE],
+			});
+
+			await runListLoop();
+
+			expect(mockLog.info).toHaveBeenCalledWith(NOTE);
 		});
 	});
 
@@ -407,7 +540,7 @@ describe("runListLoop", () => {
 			expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
 			expect(mockExecuteRemoveAction).toHaveBeenCalledTimes(1);
 			expect(mockOutro).toHaveBeenCalledWith(
-				"No plugins installed. Run npx agntc add owner/repo to get started.",
+				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 		});
 	});
@@ -438,6 +571,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: false,
 				message: "Clone failed",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest, user picks "back"
@@ -495,11 +629,14 @@ describe("runListLoop", () => {
 
 			await runListLoop();
 
-			expect(mockRenderDetailView).toHaveBeenCalledWith({
-				key: "owner/skill",
-				entry,
-				updateStatus,
-			});
+			expect(mockRenderDetailView).toHaveBeenCalledWith(
+				{
+					key: "owner/skill",
+					entry,
+					updateStatus,
+				},
+				interactiveUi,
+			);
 		});
 	});
 
@@ -525,6 +662,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner loop iteration 2: re-read, back
@@ -545,7 +683,8 @@ describe("runListLoop", () => {
 				"owner/skill",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 				undefined,
 			);
 		});
@@ -578,6 +717,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner loop iteration 2: re-read, back
@@ -599,7 +739,8 @@ describe("runListLoop", () => {
 				"owner/skill",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
 				{ newRef: "v1.3.0", newCommit: constrainedCommit },
 			);
 		});
@@ -624,6 +765,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -638,9 +780,9 @@ describe("runListLoop", () => {
 
 			await runListLoop();
 
-			// 5th arg should be undefined (no overrides for non-constrained)
+			// 6th arg should be undefined (no overrides for non-constrained)
 			const callArgs = mockExecuteUpdateAction.mock.calls[0]!;
-			expect(callArgs[4]).toBeUndefined();
+			expect(callArgs[5]).toBeUndefined();
 		});
 
 		it("passes fresh entry and manifest to executeRemoveAction", async () => {
@@ -671,7 +813,43 @@ describe("runListLoop", () => {
 				"owner/skill",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+		});
+
+		it("reads and acts on the global manifest in the global scope", async () => {
+			const entry = makeEntry();
+			const manifest: Manifest = { "owner/skill": entry };
+			const scope = globalScope("/home/lee");
+
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
+			mockSelect.mockResolvedValueOnce("owner/skill");
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "up-to-date" as const,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("remove");
+			mockExecuteRemoveAction.mockResolvedValueOnce({
+				removed: true,
+				message: "Removed owner/skill",
+			});
+			mockReadManifestOrExit.mockResolvedValueOnce({});
+
+			await runListLoop(interactiveUi, scope);
+
+			expect(mockReadManifestOrExit).toHaveBeenCalledWith(
+				"/home/lee",
+				interactiveUi,
+			);
+			expect(mockReadManifest).toHaveBeenCalledWith("/home/lee");
+			expect(mockExecuteRemoveAction).toHaveBeenCalledWith(
+				"owner/skill",
+				entry,
+				manifest,
+				scope,
+				interactiveUi,
 			);
 		});
 	});
@@ -716,7 +894,9 @@ describe("runListLoop", () => {
 			entry: Partial<ManifestEntry>,
 			result: UpdateCheckResult,
 		): Promise<{ value: string; label: string; hint: string }> {
-			mockReadManifestOrExit.mockResolvedValue({ "owner/skill": makeEntry(entry) });
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/skill": makeEntry(entry),
+			});
 			mockCheckAll.mockResolvedValue(new Map([["owner/skill", result]]));
 			mockSelect.mockResolvedValue(Symbol("cancel"));
 			await runListLoop();
@@ -745,19 +925,21 @@ describe("runListLoop", () => {
 
 		it("labels HEAD when ref is null but a commit exists", async () => {
 			expect(
-				(await optionFor({ ref: null, commit: "a".repeat(40) }, upToDate)).label,
+				(await optionFor({ ref: null, commit: "a".repeat(40) }, upToDate))
+					.label,
 			).toBe("owner/skill  HEAD");
 		});
 
 		it("labels local when ref and commit are null", async () => {
-			expect((await optionFor({ ref: null, commit: null }, upToDate)).label).toBe(
-				"owner/skill  local",
-			);
+			expect(
+				(await optionFor({ ref: null, commit: null }, upToDate)).label,
+			).toBe("owner/skill  local");
 		});
 
 		it("does not put the constraint in the list label", async () => {
 			expect(
-				(await optionFor({ ref: "v1.2.3", constraint: "^1.0" }, upToDate)).label,
+				(await optionFor({ ref: "v1.2.3", constraint: "^1.0" }, upToDate))
+					.label,
 			).toBe("owner/skill  v1.2.3");
 		});
 
@@ -778,10 +960,12 @@ describe("runListLoop", () => {
 				).hint,
 			).toBe("\u2691 newer tags");
 			expect(
-				(await optionFor({}, { status: "check-failed", reason: "timeout" })).hint,
+				(await optionFor({}, { status: "check-failed", reason: "timeout" }))
+					.hint,
 			).toBe("\u2717 check failed");
 			expect(
-				(await optionFor({ ref: null, commit: null }, { status: "local" })).hint,
+				(await optionFor({ ref: null, commit: null }, { status: "local" }))
+					.hint,
 			).toBe("\u25CF local");
 		});
 
@@ -858,6 +1042,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest (returns updated), checkForUpdate, back
@@ -874,18 +1059,26 @@ describe("runListLoop", () => {
 			await runListLoop();
 
 			// First detail render: original entry with update-available status
-			expect(mockRenderDetailView).toHaveBeenNthCalledWith(1, {
-				key: "owner/skill",
-				entry: originalEntry,
-				updateStatus: { status: "update-available", remoteCommit: "def456" },
-			});
+			expect(mockRenderDetailView).toHaveBeenNthCalledWith(
+				1,
+				{
+					key: "owner/skill",
+					entry: originalEntry,
+					updateStatus: { status: "update-available", remoteCommit: "def456" },
+				},
+				interactiveUi,
+			);
 
 			// Second detail render: updated entry with fresh status
-			expect(mockRenderDetailView).toHaveBeenNthCalledWith(2, {
-				key: "owner/skill",
-				entry: updatedEntry,
-				updateStatus: newUpdateStatus,
-			});
+			expect(mockRenderDetailView).toHaveBeenNthCalledWith(
+				2,
+				{
+					key: "owner/skill",
+					entry: updatedEntry,
+					updateStatus: newUpdateStatus,
+				},
+				interactiveUi,
+			);
 		});
 	});
 
@@ -917,6 +1110,124 @@ describe("runListLoop", () => {
 			await runListLoop();
 
 			expect(mockLog.success).not.toHaveBeenCalled();
+		});
+	});
+});
+
+describe("list without a terminal", () => {
+	it("prints every entry with its update status as one document, with no dashboard", async () => {
+		const manifest: Manifest = {
+			"owner/branch": makeEntry({ ref: "main", commit: "a1", type: "skill" }),
+			"owner/caret": makeEntry({
+				ref: "v1.0.0",
+				commit: "b1",
+				constraint: "^1.0.0",
+				type: "pack",
+			}),
+			"owner/pinned": makeEntry({ ref: "v2.0.0", commit: "c1" }),
+			"owner/broken": makeEntry({ ref: null, commit: "d1" }),
+		};
+		mockReadManifestOrExit.mockResolvedValue(manifest);
+		mockCheckAll.mockResolvedValue(
+			new Map<string, UpdateCheckResult>([
+				["owner/branch", { status: "update-available", remoteCommit: "a2" }],
+				[
+					"owner/caret",
+					{
+						status: "constrained-update-available",
+						tag: "v1.4.0",
+						commit: "b2",
+						latestOverall: "v2.1.0",
+					},
+				],
+				["owner/pinned", { status: "newer-tags", tags: ["v2.1.0", "v2.2.0"] }],
+				["owner/broken", { status: "check-failed", reason: "network down" }],
+			]),
+		);
+
+		const run = await runMachine(listCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document).toEqual({
+			ok: true,
+			command: "list",
+			scope: "project",
+			entries: [
+				{
+					key: "owner/branch",
+					type: "skill",
+					ref: "main",
+					commit: "a1",
+					constraint: null,
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "update-available",
+					availableRef: "main",
+					availableCommit: "a2",
+				},
+				{
+					key: "owner/caret",
+					type: "pack",
+					ref: "v1.0.0",
+					commit: "b1",
+					constraint: "^1.0.0",
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "constrained-update-available",
+					availableRef: "v1.4.0",
+					availableCommit: "b2",
+					latestOutsideConstraint: "v2.1.0",
+				},
+				{
+					key: "owner/pinned",
+					type: "skill",
+					ref: "v2.0.0",
+					commit: "c1",
+					constraint: null,
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "newer-tags",
+					newerTags: ["v2.1.0", "v2.2.0"],
+				},
+				{
+					key: "owner/broken",
+					type: "skill",
+					ref: null,
+					commit: "d1",
+					constraint: null,
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "check-failed",
+					reason: "network down",
+				},
+			],
+			warnings: [],
+			notes: [],
+		});
+		expect(clackCalls(p)).toEqual([]);
+		expect(mockRenderDetailView).not.toHaveBeenCalled();
+	});
+
+	it("prints no entries when nothing is installed", async () => {
+		mockReadManifestOrExit.mockResolvedValue({});
+		mockCheckAll.mockResolvedValue(new Map());
+
+		const run = await runMachine(listCommand, []);
+
+		expect(run.document).toMatchObject({ ok: true, entries: [] });
+	});
+
+	it("prints an error document when the manifest can't be read", async () => {
+		mockReadManifestOrExit.mockImplementation(async (_, ui) =>
+			ui.fail("Failed to read manifest: bad json", { style: "error" }),
+		);
+
+		const run = await runMachine(listCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document).toEqual({
+			ok: false,
+			command: "list",
+			scope: "project",
+			error: { message: "Failed to read manifest: bad json" },
+			warnings: [],
+			notes: [],
 		});
 	});
 });

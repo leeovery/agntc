@@ -42,27 +42,6 @@ export function mockGitCloneModule() {
 	};
 }
 
-/** Factory body for `vi.mock("../../src/config.js", ...)`. */
-export function mockConfigModule() {
-	return {
-		readConfig: vi.fn(),
-	};
-}
-
-/**
- * Factory body for `vi.mock("../../src/type-detection.js", ...)`. Mocks
- * `detectType` while keeping the real `ASSET_DIRS` constant both files rely on.
- */
-export async function mockTypeDetectionModule(
-	importOriginal: () => Promise<typeof import("../../src/type-detection.js")>,
-) {
-	const actual = await importOriginal();
-	return {
-		detectType: vi.fn(),
-		ASSET_DIRS: actual.ASSET_DIRS,
-	};
-}
-
 /** Factory body for `vi.mock("../../src/nuke-files.js", ...)`. */
 export function mockNukeFilesModule() {
 	return {
@@ -70,10 +49,41 @@ export function mockNukeFilesModule() {
 	};
 }
 
-/** Factory body for `vi.mock("../../src/copy-plugin-assets.js", ...)`. */
-export function mockCopyPluginAssetsModule() {
+/**
+ * Factory body for `vi.mock("../../src/copy-pack.js", ...)`. Keeps the real
+ * target helpers update's in-the-way check predicts a pack's files with.
+ */
+export async function mockCopyPackModule(
+	importOriginal: () => Promise<typeof import("../../src/copy-pack.js")>,
+): Promise<typeof import("../../src/copy-pack.js")> {
 	return {
-		copyPluginAssets: vi.fn(),
+		...(await importOriginal()),
+		copyPack: vi.fn(),
+	};
+}
+
+/**
+ * Factory body for `vi.mock("../../src/discover.js", ...)`. Keeps the real
+ * errors; `discover` itself is driven by each test, for the re-walk a skill
+ * falls back to when its recorded path no longer holds one.
+ */
+export async function mockDiscoverModule(
+	importOriginal: () => Promise<typeof import("../../src/discover.js")>,
+): Promise<typeof import("../../src/discover.js")> {
+	return {
+		...(await importOriginal()),
+		discover: vi.fn(),
+	};
+}
+
+/**
+ * Factory body for `vi.mock("../../src/unmanaged-check.js", ...)`. The files'
+ * `node:fs/promises` mock can't tell a missing file from a present one, so
+ * update's in-the-way check is driven directly.
+ */
+export function mockUnmanagedCheckModule() {
+	return {
+		checkUnmanagedConflicts: vi.fn(),
 	};
 }
 
@@ -81,12 +91,5 @@ export function mockCopyPluginAssetsModule() {
 export function mockCopyBareSkillModule() {
 	return {
 		copyBareSkill: vi.fn(),
-	};
-}
-
-/** Factory body for `vi.mock("../../src/drivers/registry.js", ...)`. */
-export function mockDriversRegistryModule() {
-	return {
-		getDriver: vi.fn(),
 	};
 }

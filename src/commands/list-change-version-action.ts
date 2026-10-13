@@ -1,4 +1,3 @@
-import * as p from "@clack/prompts";
 import {
 	cloneAndReinstall,
 	failureMessage,
@@ -6,14 +5,22 @@ import {
 	prepareReinstall,
 } from "../clone-reinstall.js";
 import { fetchRemoteTags } from "../git-utils.js";
+import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { addEntry, writeManifest } from "../manifest.js";
+import { addEntry, removeEntry, writeManifest } from "../manifest.js";
+import type { Scope } from "../scope.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
+import type { Ui } from "../ui.js";
 
+/**
+ * `changed` is false when no change was made: cancelled, or failed. Removing
+ * or keeping an entry gone upstream at the chosen version is a change made.
+ */
 export interface ChangeVersionResult {
 	changed: boolean;
 	newEntry?: ManifestEntry;
 	message: string;
+	notes: string[];
 }
 
 // Cap the visible version list so a repo with hundreds of tags scrolls within a
@@ -30,12 +37,13 @@ export async function executeChangeVersionAction(
 	key: string,
 	entry: ManifestEntry,
 	manifest: Manifest,
-	projectDir: string,
+	scope: Scope,
+	ui: Ui,
 ): Promise<ChangeVersionResult> {
 	// Fetching the full tag list is a network round-trip (git ls-remote) — show a
 	// spinner so the pause before the version list isn't silent.
 	const url = deriveCloneUrlFromKey(key, entry.cloneUrl);
-	const spin = p.spinner();
+	const spin = ui.spinner();
 	spin.start("Fetching available versions...");
 	let tags: string[];
 	try {
@@ -45,7 +53,7 @@ export async function executeChangeVersionAction(
 	}
 
 	if (tags.length === 0) {
-		return { changed: false, message: "No tagged versions available" };
+		return unchanged("No tagged versions available");
 	}
 
 	// Newest-first, with the currently-installed tag flagged so the user can see
@@ -56,55 +64,59 @@ export async function executeChangeVersionAction(
 		...(tag === entry.ref ? { hint: "current" } : {}),
 	}));
 
-	const selected = await p.select({
+	const selectedTag = await ui.select({
 		message: "Select a version",
 		options,
 		maxItems: MAX_VISIBLE_VERSIONS,
 	});
 
-	if (p.isCancel(selected)) {
-		return { changed: false, message: "Cancelled" };
+	if (selectedTag === null) {
+		return unchanged("Cancelled");
 	}
 
-	const selectedTag = selected as string;
-
 	if (selectedTag === entry.ref) {
-		return { changed: false, message: "Already on this version" };
+		return unchanged("Already on this version");
 	}
 
 	// Changing version re-installs (nuke + re-copy) and pins to the exact tag
 	// (dropping any constraint) — confirm before mutating anything.
-	const confirmed = await p.confirm({
+	const confirmed = await ui.confirm({
 		message: `Change ${key} to ${selectedTag}? This re-installs it at the new version.`,
 	});
-	if (p.isCancel(confirmed) || !confirmed) {
-		return { changed: false, message: "Cancelled" };
+	if (!confirmed) {
+		return unchanged("Cancelled");
 	}
 
-	const prepared = await prepareReinstall(key, entry, projectDir, {
+	const prepared = await prepareReinstall(key, entry, scope, {
 		manifest,
 		newRef: selectedTag,
 	});
 	if (!prepared.ok) {
-		return {
-			changed: false,
-			message: `Path ${key} does not exist or is not a directory`,
-		};
+		return unchanged(prepared.reason);
 	}
 
-	const result = await cloneAndReinstall(prepared.options);
+	const result = await cloneAndReinstall(prepared.options, ui, manifest);
 
+	if (result.status === "gone") {
+		const settled = await settleGoneInList(key, entry, manifest, scope, ui);
+		return { changed: settled.ok, message: settled.message, notes: [] };
+	}
 	if (isCloneReinstallFailure(result)) {
-		return { changed: false, message: failureMessage(result, key) };
+		return unchanged(failureMessage(result, key, entry, scope.name));
 	}
 
 	const finalEntry = stripConstraint(result.manifestEntry);
-	const updated = addEntry(manifest, key, finalEntry);
-	await writeManifest(projectDir, updated);
+	const rest = result.absorbed.reduce(removeEntry, manifest);
+	await writeManifest(scope.root, addEntry(rest, key, finalEntry));
 
 	return {
 		changed: true,
 		newEntry: finalEntry,
 		message: `Changed ${key} to ${selectedTag}`,
+		notes: result.notes,
 	};
+}
+
+function unchanged(message: string): ChangeVersionResult {
+	return { changed: false, message, notes: [] };
 }

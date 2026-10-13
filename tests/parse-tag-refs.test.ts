@@ -18,7 +18,7 @@ describe("parseTagRefs", () => {
 		]);
 	});
 
-	it("filters out ^{} annotated tag refs", () => {
+	it("takes an annotated tag's commit from its peeled line, not the tag object", () => {
 		const stdout = [
 			"abc123\trefs/tags/v1.0.0",
 			"abc124\trefs/tags/v1.0.0^{}",
@@ -29,9 +29,41 @@ describe("parseTagRefs", () => {
 		const result = parseTagRefs(stdout);
 
 		expect(result).toEqual([
-			{ tag: "v1.0.0", sha: "abc123" },
-			{ tag: "v2.0.0", sha: "def456" },
+			{ tag: "v1.0.0", sha: "abc124" },
+			{ tag: "v2.0.0", sha: "def457" },
 		]);
+	});
+
+	it("keeps a lightweight tag's own sha, which is its commit", () => {
+		const stdout = "abc123\trefs/tags/v1.0.0\n";
+
+		expect(parseTagRefs(stdout)).toEqual([{ tag: "v1.0.0", sha: "abc123" }]);
+	});
+
+	it("takes each tag's commit in a mix of annotated and lightweight tags, in order", () => {
+		const stdout = [
+			"aaa111\trefs/tags/v1.0.0",
+			"bbb111\trefs/tags/v1.1.0",
+			"bbb222\trefs/tags/v1.1.0^{}",
+			"ccc111\trefs/tags/v2.0.0",
+		].join("\n");
+
+		const result = parseTagRefs(stdout);
+
+		expect(result).toEqual([
+			{ tag: "v1.0.0", sha: "aaa111" },
+			{ tag: "v1.1.0", sha: "bbb222" },
+			{ tag: "v2.0.0", sha: "ccc111" },
+		]);
+	});
+
+	it("takes the peeled sha even when it is listed before the tag object", () => {
+		const stdout = [
+			"abc124\trefs/tags/v1.0.0^{}",
+			"abc123\trefs/tags/v1.0.0",
+		].join("\n");
+
+		expect(parseTagRefs(stdout)).toEqual([{ tag: "v1.0.0", sha: "abc124" }]);
 	});
 
 	it("returns empty array for empty string", () => {

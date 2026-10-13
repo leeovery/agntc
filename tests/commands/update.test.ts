@@ -1,19 +1,14 @@
 import type { Stats } from "node:fs";
+import { basename } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgntcConfig } from "../../src/config.js";
-import type { CopyBareSkillResult } from "../../src/copy-bare-skill.js";
-import type { CopyPluginAssetsResult } from "../../src/copy-plugin-assets.js";
 import { ExitSignal } from "../../src/exit-signal.js";
-import type { CloneResult } from "../../src/git-clone.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
-import type { NukeResult } from "../../src/nuke-files.js";
-import type { DetectedType } from "../../src/type-detection.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import type { PluginOutcome } from "../../src/update-groups.js";
 
 vi.mock("@clack/prompts", async () => {
 	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack();
+	return mockClack({ confirm: vi.fn(), isCancel: vi.fn(() => false) });
 });
 
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
@@ -45,39 +40,32 @@ vi.mock("../../src/git-clone.js", () => ({
 	cleanupTempDir: vi.fn(),
 }));
 
-vi.mock("../../src/config.js", () => ({
-	readConfig: vi.fn(),
-}));
-
-vi.mock("../../src/type-detection.js", async (importOriginal) => {
-	const actual =
-		await importOriginal<typeof import("../../src/type-detection.js")>();
-	return {
-		detectType: vi.fn(),
-		ASSET_DIRS: actual.ASSET_DIRS,
-		findPresentAssetDirs: actual.findPresentAssetDirs,
-	};
-});
-
 vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../../src/copy-plugin-assets.js", () => ({
-	copyPluginAssets: vi.fn(),
+vi.mock("../../src/copy-pack.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/copy-pack.js")>()),
+	copyPack: vi.fn(),
+}));
+
+vi.mock("../../src/unmanaged-check.js", () => ({
+	checkUnmanagedConflicts: vi.fn(),
+}));
+
+vi.mock("../../src/discover.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/discover.js")>()),
+	discover: vi.fn(),
 }));
 
 vi.mock("../../src/copy-bare-skill.js", () => ({
 	copyBareSkill: vi.fn(),
 }));
 
-vi.mock("../../src/drivers/registry.js", () => ({
-	getDriver: vi.fn(),
-}));
-
 vi.mock("node:fs/promises", () => ({
 	stat: vi.fn(),
 	access: vi.fn(),
+	readdir: vi.fn(async () => []),
 }));
 
 vi.mock("../../src/copy-safety.js", async (importOriginal) => {
@@ -93,18 +81,23 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 import { access, stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import {
-	failureOrSkipMemberLine,
+	failureMemberLine,
 	runUpdate,
 	streamGroupMemberLines,
+	updateCommand,
 } from "../../src/commands/update.js";
-import { readConfig } from "../../src/config.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
-import { copyPluginAssets } from "../../src/copy-plugin-assets.js";
+import { copyPack } from "../../src/copy-pack.js";
 import {
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../../src/copy-safety.js";
-import { getDriver } from "../../src/drivers/registry.js";
+import {
+	type Discovery,
+	discover,
+	type FoundPack,
+	PackConflictError,
+} from "../../src/discover.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import {
 	addEntry,
@@ -114,7 +107,7 @@ import {
 	writeManifest,
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
-import { detectType } from "../../src/type-detection.js";
+import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 import {
 	checkForUpdate,
 	type GroupTarget,
@@ -130,25 +123,51 @@ const mockCheckForUpdate = vi.mocked(checkForUpdate);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
-const mockReadConfig = vi.mocked(readConfig);
-const mockDetectType = vi.mocked(detectType);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
-const mockCopyPluginAssets = vi.mocked(copyPluginAssets);
+const mockCopyPack = vi.mocked(copyPack);
+const mockDiscover = vi.mocked(discover);
+const mockCheckUnmanaged = vi.mocked(checkUnmanagedConflicts);
+
+const LARAVEL_PACK: FoundPack = {
+	name: "repo",
+	path: "",
+	skills: [{ name: "new-skill", path: "skills/new-skill" }],
+	assetDirs: ["agents"],
+};
+
+function onlyPack(pack: FoundPack): Discovery {
+	return { packs: [pack], skills: [], strays: [] };
+}
+
+/**
+ * Arranges the re-walk a skill falls back to when its recorded path no longer
+ * holds one: it finds a loose skill at each path, named for its folder.
+ */
+function rewalkFinds(...paths: string[]): void {
+	mockDiscover.mockResolvedValue({
+		packs: [],
+		skills: paths.map((path) => ({ name: basename(path), path })),
+		strays: [],
+	});
+}
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
-const mockGetDriver = vi.mocked(getDriver);
 const mockStat = vi.mocked(stat);
 const mockAccess = vi.mocked(access);
 const mockOutro = vi.mocked(p.outro);
 const mockLog = vi.mocked(p.log);
 const mockCancel = vi.mocked(p.cancel);
+const mockConfirm = vi.mocked(p.confirm);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 
-import { makeEntry, makeFakeDriver } from "../helpers/factories.js";
+import { globalScope } from "../../src/scope.js";
+import { interactiveUi } from "../../src/ui.js";
+import { makeEntry } from "../helpers/factories.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
-
-const fakeDriver = makeFakeDriver();
+const HOME = "/home/lee";
+const GLOBAL = globalScope(HOME);
 
 // --- All-mode group-target bridge ---
 // runAllUpdates resolves ONE GroupTarget per group (task 1-5) instead of a
@@ -214,12 +233,12 @@ beforeEach(() => {
 	mockWriteManifest.mockResolvedValue(undefined);
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-	mockGetDriver.mockReturnValue(fakeDriver);
 	// Default: the recorded structural unit still exists in the re-clone, so the
 	// derive-before-delete gate passes (pathExists -> access resolves).
 	mockAccess.mockResolvedValue(undefined);
 	// Default: no escaping symlink in the re-clone (copy-safety scan passes).
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
+	mockCheckUnmanaged.mockResolvedValue([]);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -285,7 +304,7 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 
@@ -347,7 +366,7 @@ describe("update command", () => {
 			expect(mockSpinner.stop).toHaveBeenCalled();
 		});
 
-		it("shows all up-to-date message when all plugins are current", async () => {
+		it("shows all up-to-date message when every entry is current", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-a": makeEntry(),
 				"owner/repo-b": makeEntry(),
@@ -356,16 +375,13 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			expect(mockOutro).toHaveBeenCalledWith(
-				expect.stringContaining("up to date"),
-			);
+			expect(mockOutro).toHaveBeenCalledWith("Everything is up to date.");
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
 		it("processes update-available plugins via git update", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -379,10 +395,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -400,7 +412,6 @@ describe("update command", () => {
 				"owner/repo",
 				expect.objectContaining({
 					commit: REMOTE_SHA,
-					agents: ["claude"],
 				}),
 			);
 		});
@@ -411,17 +422,12 @@ describe("update command", () => {
 				ref: null,
 				commit: null,
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/my-plugin/"],
 				cloneUrl: null,
 			};
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -523,12 +529,10 @@ describe("update command", () => {
 		it("continues processing when one plugin fails during update", async () => {
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -549,10 +553,6 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -571,26 +571,22 @@ describe("update command", () => {
 		it("handles mixed types in a single run", async () => {
 			const gitEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/git-skill/"],
 			});
 			const localEntry: ManifestEntry = {
 				ref: null,
 				commit: null,
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/local-skill/"],
 				cloneUrl: null,
 			};
 			const tagEntry = makeEntry({
 				ref: "v1.0",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/tagged-skill/"],
 			});
 			const upToDateEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/current-skill/"],
 			});
 
@@ -618,10 +614,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/some-skill/"],
 			});
@@ -644,12 +636,10 @@ describe("update command", () => {
 			const handle = captureSpinner();
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -669,10 +659,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
@@ -698,60 +684,6 @@ describe("update command", () => {
 			expect(hasRepoB).toBe(true);
 		});
 
-		it("emits dropped-agent warning for git update in all-plugins mode", async () => {
-			const entry = makeEntry({
-				commit: INSTALLED_SHA,
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			await runUpdate();
-
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
-		});
-
-		it("emits dropped-agent warning for local update in all-plugins mode", async () => {
-			const LOCAL_KEY = "/Users/lee/Code/my-plugin";
-			const localEntry: ManifestEntry = {
-				ref: null,
-				commit: null,
-				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
-				cloneUrl: null,
-			};
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			await runUpdate();
-
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
-		});
-
 		it("does not write manifest when nothing was updated", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-a": makeEntry(),
@@ -773,7 +705,6 @@ describe("update command", () => {
 		it("cleans up temp dirs for git updates", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -785,10 +716,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -806,7 +733,6 @@ describe("update command", () => {
 					ref: "v1.2.3",
 					commit: INSTALLED_SHA,
 					constraint: "^1.2.3",
-					agents: ["claude"],
 					files: [`.claude/skills/${name}/`],
 				});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -825,7 +751,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -842,14 +767,11 @@ describe("update command", () => {
 				ref: null,
 				commit: null,
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/my-plugin/"],
 				cloneUrl: null,
 			};
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -873,12 +795,10 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 				"owner/repo/b": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 			});
@@ -890,7 +810,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -918,7 +837,6 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				}),
 			});
@@ -931,8 +849,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -960,12 +876,10 @@ describe("update command", () => {
 			// old single end-of-run write.
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -980,8 +894,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/updated/"],
 			});
@@ -1011,17 +923,14 @@ describe("update command", () => {
 			// = a standalone repo that updates → its own write. N groups → N writes.
 			const memberA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/a/"],
 			});
 			const memberB = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/b/"],
 			});
 			const standalone = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/c/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -1037,8 +946,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// Member `a` (first reinstall) copy-fails; `b` and the standalone succeed.
 			mockCopyBareSkill
 				.mockRejectedValueOnce(new Error("disk full"))
@@ -1065,39 +972,29 @@ describe("update command", () => {
 			expect(groupOneWrite["owner/repo/b"]).toBeDefined();
 		});
 
-		it("aborted / blocked / no-agents / up-to-date members leave the manifest entry intact (no add/remove)", async () => {
-			// Four standalone repos, each a group-of-one, hitting a non-mutating
-			// category: aborted (derive gate), blocked (symlink escape), no-agents
-			// (config drops the installed agent), and up-to-date (never actioned).
-			// None add or remove — so no group writes the manifest at all.
+		it("aborted / blocked / up-to-date members leave the manifest entry intact (no add/remove)", async () => {
+			// Three standalone repos, each a group-of-one, hitting a non-mutating
+			// category: aborted (derive gate), blocked (symlink escape), and
+			// up-to-date (never actioned). None add or remove — so no group writes
+			// the manifest at all.
 			const aborted = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/abort/"],
 			});
 			const blocked = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/block/"],
-			});
-			const noAgents = makeEntry({
-				type: "skill",
-				commit: INSTALLED_SHA,
-				agents: ["codex"],
-				files: [".agents/skills/noagents/"],
 			});
 			const upToDate = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/current/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/abort": aborted,
 				"owner/block": blocked,
-				"owner/noagents": noAgents,
 				"owner/current": upToDate,
 			});
 			mockResolveGroupTarget.mockImplementation(async (group) => {
@@ -1115,22 +1012,16 @@ describe("update command", () => {
 				.mockResolvedValueOnce({
 					tempDir: "/tmp/clone-block",
 					commit: REMOTE_SHA,
-				})
-				.mockResolvedValueOnce({
-					tempDir: "/tmp/clone-noagents",
-					commit: REMOTE_SHA,
 				});
-			// Re-cloned config supports only claude → the codex-only entry drops to
-			// no-agents.
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// abort clone: recorded SKILL.md gone → derive gate aborts (others present).
+			// abort clone: recorded SKILL.md gone and two skills now carry its name →
+			// aborted (others present).
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-abort")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/abort", "y/abort");
 			// block clone: escaping symlink → copy-safety block (others clean).
 			mockScanForEscapingSymlinks.mockImplementation(
 				async (sourceDir: unknown) => {
@@ -1165,12 +1056,10 @@ describe("update command", () => {
 			const SHA_B = "d".repeat(40);
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -1188,8 +1077,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/updated/"],
 			});
@@ -1216,19 +1103,16 @@ describe("update command", () => {
 			const cf = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/cf/"],
 			});
 			const ab = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/ab/"],
 			});
 			const bl = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/bl/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -1247,15 +1131,15 @@ describe("update command", () => {
 					tempDir: "/tmp/clone-bl",
 					commit: REMOTE_SHA,
 				});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// ab clone: SKILL.md gone → aborted (cf's present so it reaches copy).
+			// ab clone: SKILL.md gone and two skills now carry its name →
+			// aborted (cf's present so it reaches copy).
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-ab")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/ab", "y/ab");
 			// bl clone: escaping symlink → blocked.
 			mockScanForEscapingSymlinks.mockImplementation(
 				async (sourceDir: unknown) => {
@@ -1281,7 +1165,11 @@ describe("update command", () => {
 			// code 2 (error ✗).
 			const errorCalls = stopTexts(handle, 2);
 			expect(errorCalls.some((m) => m.includes("owner/cf"))).toBe(true);
-			expect(errorCalls.some((m) => m.includes("owner/ab"))).toBe(true);
+			expect(
+				errorCalls.some((m) =>
+					m.includes("owner/ab was installed as a skill and can't be updated"),
+				),
+			).toBe(true);
 			expect(errorCalls.some((m) => m.includes("owner/bl"))).toBe(true);
 			expect(mockRemoveEntry).toHaveBeenCalledWith(
 				expect.anything(),
@@ -1298,7 +1186,6 @@ describe("update command", () => {
 		function gitEntry(name: string): ManifestEntry {
 			return makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [`.claude/skills/${name}/`],
 			});
 		}
@@ -1308,7 +1195,6 @@ describe("update command", () => {
 				ref: null,
 				commit: null,
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/local/"],
 				cloneUrl: null,
 			};
@@ -1330,8 +1216,6 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1370,8 +1254,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1402,12 +1284,10 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 				"owner/repo/b": makeEntry({
 					commit: REMOTE_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 			});
@@ -1421,8 +1301,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/"],
 			});
@@ -1453,8 +1331,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// The re-copy throws after the old files are nuked → copy-failed.
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
@@ -1464,61 +1340,26 @@ describe("update command", () => {
 			// The single failure IS the spinner stop-frame at code 2 (error), carrying
 			// the copy-failed member line — no separate p.log.error beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo: copy failed — Update failed for owner/repo after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+				"owner/repo: copy failed — Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 				2,
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 		});
 
-		it("collapses a standalone whose single member skips (no agents) to one warn-text stop-frame (code 0, accepted ◇)", async () => {
-			const handle = captureSpinner();
-			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo": gitEntry("a"),
-			});
-			mockResolveGroupTarget.mockResolvedValue({
-				kind: "head",
-				resolvedSha: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/clone",
-				commit: REMOTE_SHA,
-			});
-			// The re-cloned config drops claude (codex-only) → no-agents skip.
-			mockReadConfig.mockResolvedValue({ agents: ["codex"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/x/"],
-			});
-
-			await runUpdate();
-
-			// clack `stop` has no warn code, so the accepted wrinkle is code 0 (the ◇
-			// glyph) with the "skipped — …" text carrying the meaning — one line only.
-			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo: skipped — no longer supports installed agents",
-				0,
-			);
-			expect(mockLog.warn).not.toHaveBeenCalled();
-			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
-		});
-
-		it("emits header + one member line per attempted member for a >=2-member group (mixed success/failure/skip in one block)", async () => {
+		it("emits header + one member line per attempted member for a >=2-member group (mixed success/failure in one block)", async () => {
 			const handle = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 				"owner/repo/b": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 				"owner/repo/c": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/c/"],
 				}),
 			});
@@ -1530,14 +1371,14 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// c's re-cloned config drops claude (codex-only) → no-agents skip;
-			// a and b keep claude.
-			mockReadConfig.mockImplementation(async (dir: unknown) =>
-				typeof dir === "string" && dir.endsWith("/c")
-					? { agents: ["codex"] }
-					: { agents: ["claude"] },
-			);
+			// c's recorded SKILL.md is gone and two skills now carry its name → aborted.
+			mockAccess.mockImplementation(async (path: unknown) => {
+				if (typeof path === "string" && path.endsWith("/c/SKILL.md")) {
+					throw new Error("ENOENT");
+				}
+				return undefined;
+			});
+			rewalkFinds("x/c", "y/c");
 			// b's re-copy throws → copy-failed; a succeeds; c never reaches copy.
 			mockCopyBareSkill.mockImplementation(
 				async (opts: { sourceDir: string }) => {
@@ -1556,56 +1397,13 @@ describe("update command", () => {
 				"Updating owner/repo  aaaaaaa -> bbbbbbb  (3 members)",
 			);
 			// One member line each, all under the one header, at the matching level.
-			expect(mockLog.success).toHaveBeenCalledWith("a → claude");
+			expect(mockLog.success).toHaveBeenCalledWith("a");
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"b: copy failed — Update failed for owner/repo/b after removing old files. The plugin is currently uninstalled. Run `npx agntc update owner/repo/b` to retry installation.",
+				"b: copy failed — Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
 			);
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				"c: skipped — no longer supports installed agents",
+			expect(mockLog.error).toHaveBeenCalledWith(
+				expect.stringMatching(/^c: owner\/repo\/c was installed as a skill/),
 			);
-		});
-
-		it("renders a multi-member success line's dropped-agents parenthetical from the outcome's structured field", async () => {
-			captureSpinner();
-			mockReadManifestOrExit.mockResolvedValue({
-				// Installed for claude+codex; the re-cloned config drops codex → the
-				// member line must carry the dropped-agents parenthetical.
-				"owner/repo/a": makeEntry({
-					commit: INSTALLED_SHA,
-					agents: ["claude", "codex"],
-					files: [".claude/skills/a/", ".agents/skills/a/"],
-				}),
-				// Installed for claude only → nothing dropped → a bare member line.
-				"owner/repo/b": makeEntry({
-					commit: INSTALLED_SHA,
-					agents: ["claude"],
-					files: [".claude/skills/b/"],
-				}),
-			});
-			mockResolveGroupTarget.mockResolvedValue({
-				kind: "head",
-				resolvedSha: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/clone",
-				commit: REMOTE_SHA,
-			});
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// The re-cloned config restricts to claude for every member.
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/updated/"],
-			});
-
-			await runUpdate();
-
-			// Member a drops codex — the parenthetical is sourced from the outcome's
-			// structured droppedAgents, not an oldEntry-vs-newEntry recompute.
-			expect(mockLog.success).toHaveBeenCalledWith(
-				"a → claude  (codex support removed by plugin author)",
-			);
-			// Member b drops nothing — a bare success line.
-			expect(mockLog.success).toHaveBeenCalledWith("b → claude");
 		});
 
 		it("emits a local entry Refreshed line with no spinner and no clone, interleaved at its manifest position", async () => {
@@ -1623,8 +1421,6 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1670,8 +1466,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1701,17 +1495,14 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 				"owner/repo/b": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 				"owner/repo/c": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/c/"],
 				}),
 			});
@@ -1723,8 +1514,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1755,8 +1544,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1784,7 +1571,6 @@ describe("update command", () => {
 				ref,
 				commit,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [`.claude/skills/${name}/`],
 			});
 		}
@@ -1807,8 +1593,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1843,8 +1627,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1857,12 +1639,8 @@ describe("update command", () => {
 			);
 			// Each member threads its OWN entry.ref as oldRef against the shared
 			// target.tag → its own tag move on the member line.
-			expect(mockLog.success).toHaveBeenCalledWith(
-				"a → claude  (v1.2.0 -> v1.3.0)",
-			);
-			expect(mockLog.success).toHaveBeenCalledWith(
-				"b → claude  (v1.1.0 -> v1.3.0)",
-			);
+			expect(mockLog.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
+			expect(mockLog.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
 		});
 	});
 
@@ -1877,8 +1655,7 @@ describe("update command", () => {
 				status: "updated",
 				key,
 				summary: `${key}: Updated`,
-				newEntry: makeEntry({ agents: ["claude"] }),
-				droppedAgents: [],
+				newEntry: makeEntry(),
 			};
 		}
 
@@ -1915,15 +1692,18 @@ describe("update command", () => {
 				successOutcome("owner/repo/b"),
 			];
 
-			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", true);
+			streamGroupMemberLines(
+				item,
+				outcomes,
+				REMOTE_SHA,
+				"v1.3.0",
+				true,
+				interactiveUi,
+			);
 
 			// Caller says divergent → each member line carries its own tag move.
-			expect(mockLog.success).toHaveBeenCalledWith(
-				"a → claude  (v1.2.0 -> v1.3.0)",
-			);
-			expect(mockLog.success).toHaveBeenCalledWith(
-				"b → claude  (v1.1.0 -> v1.3.0)",
-			);
+			expect(mockLog.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
+			expect(mockLog.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
 		});
 
 		it("leaves member lines bare when divergent=false even though the updating commits differ", () => {
@@ -1934,11 +1714,18 @@ describe("update command", () => {
 				successOutcome("owner/repo/b"),
 			];
 
-			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", false);
+			streamGroupMemberLines(
+				item,
+				outcomes,
+				REMOTE_SHA,
+				"v1.3.0",
+				false,
+				interactiveUi,
+			);
 
 			// Caller says shared → the move stays on the header, member lines are bare.
-			expect(mockLog.success).toHaveBeenCalledWith("a → claude");
-			expect(mockLog.success).toHaveBeenCalledWith("b → claude");
+			expect(mockLog.success).toHaveBeenCalledWith("a");
+			expect(mockLog.success).toHaveBeenCalledWith("b");
 		});
 	});
 
@@ -1946,7 +1733,6 @@ describe("update command", () => {
 		function member(name: string, overrides: Partial<ManifestEntry> = {}) {
 			return makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [`.claude/skills/${name}/`],
 				...overrides,
 			});
@@ -1957,8 +1743,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -1997,11 +1781,15 @@ describe("update command", () => {
 			);
 		});
 
-		it("collapses newer-tags to one line per group including the repo-level agntc add command", async () => {
+		it("collapses newer-tags to one line per group: its loose skills on one --skill command, each pack on its own", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo/a": member("a", { ref: "v1.0" }),
-				"owner/repo/b": member("b", { ref: "v1.0" }),
-				"owner/repo/c": member("c", { ref: "v1.0" }),
+				"owner/repo/zeta": member("zeta", {
+					ref: "v1.0",
+					sourceSubpath: "skills/zeta",
+				}),
+				"owner/repo/web": member("web", { ref: "v1.0", type: "pack" }),
+				"owner/repo/alpha": member("alpha", { ref: "v1.0" }),
+				"owner/repo/tools": member("tools", { ref: "v1.0", type: "pack" }),
 			});
 			// One exact-pin group; the shared tag target reports newer tags for all.
 			mockResolveGroupTarget.mockResolvedValue({
@@ -2013,28 +1801,25 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// ONE newer-tags line for the whole group, with the repo-level add command.
 			expect(infoCalls).toContain(
-				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
+				[
+					"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+					"    npx agntc add owner/repo@v3.0 --skill alpha zeta",
+					"    npx agntc add owner/repo/web@v3.0 --pack",
+					"    npx agntc add owner/repo/tools@v3.0 --pack",
+				].join("\n"),
 			);
-			// Not 3 near-identical per-member newer-tags lines.
+			// Not one near-identical newer-tags line per member.
 			expect(
 				infoCalls.filter((m) => m.includes("newer tags available")),
 			).toHaveLength(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
-		it("all-mode collapses an exact-pin collection to one repo-level npx agntc add owner/repo@<newest> newer-tags line", async () => {
-			// Regression-lock (task 4-2): an exact-pin collection — members sharing
-			// one UNCONSTRAINED tag ref (constraint undefined) — collapses to exactly
-			// ONE trailing newer-tags line whose command is REPO-LEVEL
-			// (`npx agntc add owner/repo@v3.0`, task 2-5 formatNewerTagsLine), never N
-			// per-member lines and never a member-scoped `owner/repo/<member>@…`.
+		it("an exact-pin member's newer-tags command re-adds that member at the newest tag, never the bare repo", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": member("a", { ref: "v1.0" }),
-				"owner/repo/b": member("b", { ref: "v1.0" }),
 			});
-			// One exact-pin group; its shared tag target reports newer tags [.., v3.0].
 			mockResolveGroupTarget.mockResolvedValue({
 				kind: "tag",
 				tag: "v1.0",
@@ -2044,17 +1829,10 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// Exactly ONE collapsed line for the group, carrying the repo-level @newest
-			// re-add command.
 			expect(infoCalls).toContain(
-				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo/a@v3.0",
 			);
-			expect(
-				infoCalls.filter((m) => m.includes("newer tags available")),
-			).toHaveLength(1);
-			// Repo-level, NOT member-scoped: no `owner/repo/<member>@…` command leaks
-			// into the collapsed line.
-			expect(infoCalls.some((m) => /owner\/repo\/\w+@/.test(m))).toBe(false);
+			expect(infoCalls.some((m) => m.includes("add owner/repo@"))).toBe(false);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -2175,7 +1953,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo");
 
-			expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 	});
@@ -2191,7 +1969,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Plugin owner/repo is not installed.",
+				"owner/repo is not installed.",
 			);
 		});
 	});
@@ -2263,10 +2041,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2288,10 +2062,10 @@ describe("update command", () => {
 
 		it("copies from temp dir after nuke", async () => {
 			const entry = makeEntry({
-				type: "plugin",
-				agents: ["claude"],
+				type: "pack",
 				files: [".claude/skills/my-skill/"],
 			});
+			mockDiscover.mockResolvedValue(onlyPack(LARAVEL_PACK));
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
 			mockCheckForUpdate.mockResolvedValue({
 				status: "update-available",
@@ -2301,10 +2075,9 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockCopyPluginAssets.mockResolvedValue({
+			mockCopyPack.mockResolvedValue({
 				copiedFiles: [".claude/skills/new-skill/"],
-				assetCountsByAgent: { claude: { skills: 1 } },
+				assetCounts: { skills: 1 },
 			});
 
 			await runUpdate("owner/repo");
@@ -2312,11 +2085,10 @@ describe("update command", () => {
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/my-skill/",
 			]);
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: "/tmp/agntc-clone",
-					projectDir: "/fake/project",
-				}),
+			expect(mockCopyPack).toHaveBeenCalledWith(
+				LARAVEL_PACK,
+				{ root: "/tmp/agntc-clone", local: false },
+				"/fake/project",
 			);
 		});
 
@@ -2324,7 +2096,6 @@ describe("update command", () => {
 			const entry = makeEntry({
 				ref: null,
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/old-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -2336,10 +2107,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2352,7 +2119,6 @@ describe("update command", () => {
 				expect.objectContaining({
 					ref: null,
 					commit: REMOTE_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				}),
 			);
@@ -2362,7 +2128,6 @@ describe("update command", () => {
 		it("shows summary with old and new commit", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
 			mockCheckForUpdate.mockResolvedValue({
@@ -2373,10 +2138,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2404,10 +2165,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -2420,13 +2177,19 @@ describe("update command", () => {
 		});
 	});
 
-	describe("agent compatibility — effective agents", () => {
-		it("uses intersection of entry.agents and new config.agents", async () => {
-			const entry = makeEntry({
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
+	describe("legacy multi-agent entry migrates to .claude", () => {
+		const legacyFiles = [
+			".claude/skills/my-skill/",
+			".agents/skills/my-skill/",
+			".cursor/skills/my-skill/",
+		];
+
+		function setupLegacyUpdate(files: string[]): void {
+			const legacyEntry = {
+				...makeEntry({ type: "skill", commit: INSTALLED_SHA, files }),
+				agents: ["claude", "codex", "cursor"],
+			};
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": legacyEntry });
 			mockCheckForUpdate.mockResolvedValue({
 				status: "update-available",
 				remoteCommit: REMOTE_SHA,
@@ -2435,248 +2198,58 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			// New version only supports claude (dropped codex)
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
+				copiedFiles: [".claude/skills/repo/"],
 			});
+		}
+
+		it("nukes every recorded file and reinstalls into .claude only", async () => {
+			setupLegacyUpdate(legacyFiles);
 
 			await runUpdate("owner/repo");
 
-			// Should only install for claude (effective agents)
-			expect(mockCopyBareSkill).toHaveBeenCalledWith(
-				expect.objectContaining({
-					agents: [expect.objectContaining({ id: "claude" })],
-				}),
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				legacyFiles,
 			);
-			// Manifest updated with effective agents
-			expect(mockAddEntry).toHaveBeenCalledWith(
-				expect.anything(),
-				"owner/repo",
-				expect.objectContaining({
-					agents: ["claude"],
-				}),
-			);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith({
+				sourceDir: "/tmp/agntc-clone",
+				source: { root: "/tmp/agntc-clone", local: false },
+				projectDir: "/fake/project",
+				skillName: "repo",
+			});
 		});
 
-		it("proceeds normally when agents have not changed", async () => {
-			const entry = makeEntry({
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
+		it("persists the reinstalled entry with .claude files and no agents field", async () => {
+			setupLegacyUpdate(legacyFiles);
 
 			await runUpdate("owner/repo");
 
-			expect(mockLog.warn).not.toHaveBeenCalled();
-			expect(mockCopyBareSkill).toHaveBeenCalledWith(
-				expect.objectContaining({
-					agents: [
-						expect.objectContaining({ id: "claude" }),
-						expect.objectContaining({ id: "codex" }),
-					],
-				}),
-			);
-			expect(mockAddEntry).toHaveBeenCalledWith(
-				expect.anything(),
-				"owner/repo",
-				expect.objectContaining({
-					agents: ["claude", "codex"],
-				}),
-			);
+			const written = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(written["owner/repo"]!.files).toEqual([".claude/skills/repo/"]);
+			expect(written["owner/repo"]).not.toHaveProperty("agents");
 		});
 
-		it("ignores new agents added by plugin author", async () => {
-			const entry = makeEntry({
-				agents: ["claude"],
-				files: [".claude/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// New version adds codex support, but entry only has claude
-			mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
+		it("migrates a Codex-only entry", async () => {
+			setupLegacyUpdate([".agents/skills/my-skill/"]);
 
 			await runUpdate("owner/repo");
 
-			// Only claude is used (intersection), codex is ignored
-			expect(mockCopyBareSkill).toHaveBeenCalledWith(
-				expect.objectContaining({
-					agents: [expect.objectContaining({ id: "claude" })],
-				}),
-			);
-			expect(mockAddEntry).toHaveBeenCalledWith(
-				expect.anything(),
-				"owner/repo",
-				expect.objectContaining({
-					agents: ["claude"],
-				}),
-			);
-			// No warnings for new agents
-			expect(mockLog.warn).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".agents/skills/my-skill/",
+			]);
+			const written = mockWriteManifest.mock.calls[0]![1] as Manifest;
+			expect(written["owner/repo"]!.files).toEqual([".claude/skills/repo/"]);
 		});
 
-		it("includes dropped agent info in summary when partial drop", async () => {
-			const entry = makeEntry({
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
+		it("names no agent in the update summary", async () => {
+			setupLegacyUpdate(legacyFiles);
 
 			await runUpdate("owner/repo");
 
-			const summaryCall = mockOutro.mock.calls[0]![0] as string;
-			expect(summaryCall).toContain("codex support removed");
-		});
-
-		it("warns when agents are dropped by new version", async () => {
-			const entry = makeEntry({
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			await runUpdate("owner/repo");
-
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
+			expect(mockOutro).toHaveBeenCalledWith(
+				"Updated owner/repo: aaaaaaa -> bbbbbbb — 1 file(s)",
 			);
-		});
-	});
-
-	describe("all-agents-dropped", () => {
-		it("aborts without nuking when all agents are dropped", async () => {
-			const entry = makeEntry({
-				agents: ["codex"],
-				files: [".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// New version only supports claude, entry has codex
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			await runUpdate("owner/repo");
-
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining(
-					"no longer supports any of your installed agents",
-				),
-			);
-			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
-		});
-
-		it("shows remove command in all-agents-dropped warning", async () => {
-			const entry = makeEntry({
-				agents: ["codex"],
-				files: [".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			await runUpdate("owner/repo");
-
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("npx agntc remove owner/repo"),
-			);
-		});
-
-		it("exits 0 when all agents dropped (preserves existing files)", async () => {
-			const entry = makeEntry({
-				agents: ["codex"],
-				files: [".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			// Should not throw — exits 0
-			await runUpdate("owner/repo");
-
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 	});
 
@@ -2685,7 +2258,6 @@ describe("update command", () => {
 			const entry = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ [key]: entry });
@@ -2697,9 +2269,9 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			// Recorded skill's SKILL.md is gone in the re-clone -> derive gate aborts.
+			// The recorded SKILL.md is gone and two skills now carry its name -> aborted.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("a/repo", "b/repo");
 			return entry;
 		}
 
@@ -2758,13 +2330,11 @@ describe("update command", () => {
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -2775,19 +2345,18 @@ describe("update command", () => {
 				status: "update-available",
 				remoteCommit: REMOTE_SHA,
 			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// repo-a's SKILL.md gone -> abort; repo-b's present -> succeeds.
+			mockCloneSource
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
+			// repo-a's SKILL.md is gone and two skills now carry its name -> aborted;
+			// repo-b's is present -> succeeds.
 			mockAccess.mockImplementation(async (path: unknown) => {
-				if (typeof path === "string" && path.includes("/skill-a/")) {
+				if (typeof path === "string" && path.includes("/clone-a/")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/repo-a", "y/repo-a");
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -2802,6 +2371,7 @@ describe("update command", () => {
 				"owner/repo-a",
 			);
 			const writeCalls = mockWriteManifest.mock.calls;
+			expect(writeCalls.length).toBeGreaterThan(0);
 			for (const call of writeCalls) {
 				const written = call[1] as Manifest;
 				// aborted entry stays exactly as it was, never removed.
@@ -2814,7 +2384,6 @@ describe("update command", () => {
 			const entry = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -2826,8 +2395,8 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("a/repo", "b/repo");
 
 			// All-updates abort exits non-zero after rendering the loud summary;
 			// catch so the summary assertions below still run.
@@ -2850,7 +2419,6 @@ describe("update command", () => {
 			const entry = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ [key]: entry });
@@ -2862,7 +2430,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			// The recorded unit is still structurally present (derive gate would
 			// pass), but the re-clone contains an escaping symlink -> copy-safety block.
 			mockAccess.mockResolvedValue(undefined);
@@ -2913,13 +2480,11 @@ describe("update command", () => {
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -2941,8 +2506,6 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's re-clone has an escaping symlink -> blocked; repo-b is clean.
 			mockScanForEscapingSymlinks.mockImplementation(
 				async (sourceDir: unknown) => {
@@ -3000,13 +2563,11 @@ describe("update command", () => {
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -3028,15 +2589,15 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// repo-a's recorded SKILL.md is gone -> derive gate aborts; repo-b stays.
+			// repo-a's recorded SKILL.md is gone and two skills now carry its name ->
+			// aborted; repo-b stays.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/agntc-clone-a/")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/repo-a", "y/repo-a");
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -3149,13 +2710,11 @@ describe("update command", () => {
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -3170,10 +2729,10 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// Both recorded skills are gone in the re-clone -> both abort.
+			// Both recorded skills are gone and each name now matches two skills ->
+			// both abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("x/repo-a", "y/repo-a", "x/repo-b", "y/repo-b");
 
 			await runUpdate().catch(() => {});
 
@@ -3184,6 +2743,12 @@ describe("update command", () => {
 			const msgB = errorCalls.find((m) => m.includes("owner/repo-b"));
 			expect(msgA).toBeDefined();
 			expect(msgB).toBeDefined();
+			expect(msgA).toContain(
+				"2 skills are now named repo-a: x/repo-a, y/repo-a",
+			);
+			expect(msgB).toContain(
+				"2 skills are now named repo-b: x/repo-b, y/repo-b",
+			);
 			expect(msgA).toContain("npx agntc remove owner/repo-a");
 			expect(msgB).toContain("npx agntc remove owner/repo-b");
 		});
@@ -3193,13 +2758,11 @@ describe("update command", () => {
 				"owner/repo-a": makeEntry({
 					type: "skill",
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/skill-a/"],
 				}),
 				"owner/repo-b": makeEntry({
 					type: "skill",
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/skill-b/"],
 				}),
 			});
@@ -3211,9 +2774,8 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("x/repo-a", "y/repo-a", "x/repo-b", "y/repo-b");
 
 			const err = await runUpdate().catch((e) => e);
 
@@ -3228,13 +2790,11 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-current": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/current/"],
 				}),
 				"owner/repo-a": makeEntry({
 					type: "skill",
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/skill-a/"],
 				}),
 			});
@@ -3248,9 +2808,8 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("x/repo-a", "y/repo-a");
 
 			const err = await runUpdate().catch((e) => e);
 
@@ -3265,11 +2824,10 @@ describe("update command", () => {
 			);
 		});
 
-		it("plugin single-entry abort is atomic — the entry stays intact and exits non-zero", async () => {
+		it("pack single-entry abort is atomic — the entry stays intact and exits non-zero", async () => {
 			const entry = makeEntry({
-				type: "plugin",
+				type: "pack",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-plugin/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -3281,10 +2839,10 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// Recorded plugin's marker is gone in the re-clone -> derive gate aborts.
-			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			// The pack's folder now holds declared packs -> derive gate aborts.
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("contains packs", "contains-packs"),
+			);
 
 			const err = await runUpdate().catch((e) => e);
 
@@ -3297,76 +2855,6 @@ describe("update command", () => {
 				"owner/repo",
 			);
 			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
-
-		it("a no-agents unit alongside a successful sibling exits 0 (benign skip)", async () => {
-			// repo-a's re-clone no longer supports its installed agent (no-agents) —
-			// a benign skip, NOT a hard error/abort. repo-b updates cleanly. The run
-			// must exit 0 (no ExitSignal), write the sibling, warn (not error) about
-			// the no-agents unit, and leave the no-agents entry untouched.
-			const handle = captureSpinner();
-			const entryA = makeEntry({
-				type: "skill",
-				commit: INSTALLED_SHA,
-				agents: ["codex"],
-				files: [".agents/skills/skill-a/"],
-			});
-			const entryB = makeEntry({
-				type: "skill",
-				commit: INSTALLED_SHA,
-				agents: ["claude"],
-				files: [".claude/skills/skill-b/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo-a": entryA,
-				"owner/repo-b": entryB,
-			});
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// Re-cloned config only supports claude: repo-a (codex) drops to
-			// no-agents; repo-b (claude) updates cleanly.
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/skill-b/"],
-			});
-
-			const err = await runUpdate().catch((e) => e);
-
-			// Exits 0 — no ExitSignal thrown for a benign no-agents skip.
-			expect(err).toBeUndefined();
-			// Sibling repo-b is written; no-agents repo-a entry left untouched.
-			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
-			expect(writtenManifest["owner/repo-b"]).toBeDefined();
-			expect(writtenManifest["owner/repo-b"]!.commit).toBe(REMOTE_SHA);
-			expect(mockAddEntry).not.toHaveBeenCalledWith(
-				expect.anything(),
-				"owner/repo-a",
-				expect.anything(),
-			);
-			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
-				expect.anything(),
-				"owner/repo-a",
-			);
-			// Reported as a benign code-0 stop-frame (◇), NOT a loud code-2 error (✗).
-			// clack `stop` has no warn code, so the no-agents skip rides code 0 with
-			// its "skipped — …" text carrying the meaning.
-			expect(
-				stopTexts(handle, 0).some(
-					(m) => m.includes("owner/repo-a") && m.includes("skipped"),
-				),
-			).toBe(true);
-			expect(stopTexts(handle, 2).some((m) => m.includes("owner/repo-a"))).toBe(
-				false,
-			);
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
-			expect(errorCalls.some((m) => m.includes("owner/repo-a"))).toBe(false);
 		});
 	});
 
@@ -3382,10 +2870,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -3408,33 +2892,11 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const err = await runUpdate("owner/repo").catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
-			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
-		});
-
-		it("cleans up temp dir when all agents dropped", async () => {
-			const entry = makeEntry({ agents: ["codex"] });
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			await runUpdate("owner/repo");
-
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
 	});
@@ -3470,9 +2932,11 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo").catch(() => {});
 
+			expect(mockCancel).toHaveBeenCalledOnce();
 			expect(mockCancel).toHaveBeenCalledWith(
 				expect.stringContaining("git clone failed"),
 			);
+			expect(mockLog.error).not.toHaveBeenCalled();
 		});
 	});
 
@@ -3488,7 +2952,6 @@ describe("update command", () => {
 			const member = (name: string): ManifestEntry =>
 				makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [`.claude/skills/${name}/`],
 				});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -3500,7 +2963,6 @@ describe("update command", () => {
 				kind: "head",
 				resolvedSha: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 		}
 
 		it("renders a group clone failure as one enumerated error line, not N lines", async () => {
@@ -3558,7 +3020,6 @@ describe("update command", () => {
 			const member = (name: string): ManifestEntry =>
 				makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [`.claude/skills/${name}/`],
 				});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -3578,8 +3039,6 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -3593,10 +3052,7 @@ describe("update command", () => {
 			expect(mockLog.error.mock.calls.map((c) => c[0])).toEqual([
 				"owner/repo-a: clone failed — affects 2 members: x, y",
 			]);
-			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual([
-				"m → claude",
-				"n → claude",
-			]);
+			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual(["m", "n"]);
 			// Only group B persisted; group A (clone-failed) wrote nothing.
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			expect(mockAddEntry).toHaveBeenCalledWith(
@@ -3627,7 +3083,6 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/solo/"],
 				}),
 			});
@@ -3636,7 +3091,6 @@ describe("update command", () => {
 				resolvedSha: REMOTE_SHA,
 			});
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 
 			await runUpdate().catch(() => {});
 
@@ -3668,7 +3122,6 @@ describe("update command", () => {
 			const member = (name: string): ManifestEntry =>
 				makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [`.claude/skills/${name}/`],
 				});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -3681,7 +3134,6 @@ describe("update command", () => {
 				kind: "check-failed",
 				reason: PROBE_REASON,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 		}
 
 		it("collapses a group probe failure to one check-failed line carrying the shared reason", async () => {
@@ -3722,12 +3174,10 @@ describe("update command", () => {
 			// hasFailedOutcome, so the run exits 0 while B still updates and persists.
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -3744,8 +3194,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone-b",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -3796,8 +3244,7 @@ describe("update command", () => {
 		//   | blocked                | ExitSignal(1)   | ExitSignal(1)      |
 		//   | failed (clone fan-out) | ExitSignal(1)   | ExitSignal(1)      |
 		//   | copy-failed            | ExitSignal(1)   | ExitSignal(1)      |
-		//   | up-to-date/newer-tags/ | exit 0          | exit 0             |
-		//   |   skipped-no-agents    |                 |                    |
+		//   | up-to-date/newer-tags  | exit 0          | exit 0             |
 		//
 		// Single-key exits 1 on check-failed / constrained-no-match because the
 		// requested action did not happen; all-mode WARNS and exits 0 (both are
@@ -3819,7 +3266,6 @@ describe("update command", () => {
 			return makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [`.claude/skills/${name}/`],
 			});
 		}
@@ -3858,7 +3304,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"No tags satisfy the constraint for owner/repo. Plugin left untouched.",
+				"No tags satisfy the constraint for owner/repo. Left untouched.",
 			);
 		});
 
@@ -3869,12 +3315,10 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-a": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 				"owner/repo-b": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 			});
@@ -3889,8 +3333,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone-b",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/b/"],
 			});
@@ -3967,16 +3409,15 @@ describe("update command", () => {
 			mockCloneSource
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			// repo-a's recorded SKILL.md is gone in its re-clone -> derive-before-delete
-			// abort (install intact, entry untouched); repo-b clean.
+			// repo-a's recorded SKILL.md is gone and two skills now carry its name ->
+			// derive-before-delete abort (install intact, entry untouched); repo-b clean.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-a/")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/repo-a", "y/repo-a");
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/b/"],
 			});
@@ -4019,8 +3460,6 @@ describe("update command", () => {
 			mockCloneSource
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's re-clone has an escaping symlink -> copy-safety block (install
 			// intact, entry untouched); repo-b clean.
 			mockScanForEscapingSymlinks.mockImplementation(
@@ -4064,7 +3503,6 @@ describe("update command", () => {
 			const member = (name: string): ManifestEntry =>
 				makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [`.claude/skills/${name}/`],
 				});
 			// Two 2-member collections -> two groups. Group A's shared clone throws
@@ -4083,8 +3521,6 @@ describe("update command", () => {
 			mockCloneSource
 				.mockRejectedValueOnce(new Error("git clone failed"))
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/x/"],
 			});
@@ -4113,12 +3549,10 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-a": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 				"owner/repo-b": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 			});
@@ -4130,8 +3564,6 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			// repo-a's re-copy throws AFTER its old files are nuked -> copy-failed
 			// (its entry is removed); repo-b succeeds.
 			mockCopyBareSkill
@@ -4159,44 +3591,32 @@ describe("update command", () => {
 		});
 
 		// --- capstone: hasFailedOutcome membership is EXACTLY the four hard failures;
-		// no non-actioned / skipped category trips the all-mode non-zero exit ---
+		// no non-actioned category trips the all-mode non-zero exit ---
 
-		it("no non-actioned status (up-to-date / newer-tags / check-failed / constrained-no-match / skipped-no-agents) trips the all-mode non-zero exit", async () => {
-			const handle = captureSpinner();
+		it("no non-actioned status (up-to-date / newer-tags / check-failed / constrained-no-match) trips the all-mode non-zero exit", async () => {
+			captureSpinner();
 			const CHECK_REASON = "ls-remote failed: dead remote";
-			// Five groups, one per non-actioned / skipped category — none of which is a
-			// member of hasFailedOutcome (aborted | blocked | failed | copy-failed).
+			// Four groups, one per non-actioned category — none of which is a member
+			// of hasFailedOutcome (aborted | blocked | failed | copy-failed).
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/uptodate": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/uptodate/"],
 				}),
 				"owner/newer": makeEntry({
 					ref: "v1.0",
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/newer/"],
 				}),
 				"owner/checkfail": makeEntry({
 					commit: INSTALLED_SHA,
-					agents: ["claude"],
 					files: [".claude/skills/checkfail/"],
 				}),
 				"owner/nomatch": makeEntry({
 					ref: "v1.2.3",
 					commit: INSTALLED_SHA,
 					constraint: "^2.0",
-					agents: ["claude"],
 					files: [".claude/skills/nomatch/"],
-				}),
-				// update-available at resolve time, then drops to skipped-no-agents at
-				// reinstall (re-cloned config no longer supports the installed agent).
-				"owner/noagents": makeEntry({
-					type: "skill",
-					commit: INSTALLED_SHA,
-					agents: ["codex"],
-					files: [".agents/skills/noagents/"],
 				}),
 			});
 			mockResolveGroupTarget.mockImplementation(async (group) => {
@@ -4210,26 +3630,12 @@ describe("update command", () => {
 				if (key === "owner/checkfail") {
 					return { kind: "check-failed", reason: CHECK_REASON };
 				}
-				if (key === "owner/nomatch") {
-					return { kind: "constrained-no-match" };
-				}
-				return { kind: "head", resolvedSha: REMOTE_SHA };
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/clone-noagents",
-				commit: REMOTE_SHA,
-			});
-			// Re-cloned config supports only claude -> the codex-only entry drops to
-			// no-agents (a benign skip, not a hard failure).
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/x/"],
+				return { kind: "constrained-no-match" };
 			});
 
 			const err = await runUpdate().catch((e) => e);
 
-			// None of the five categories is a hasFailedOutcome member -> exit 0.
+			// None of the four categories is a hasFailedOutcome member -> exit 0.
 			expect(err).toBeUndefined();
 			// Every category was genuinely produced (not swallowed by an early return):
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
@@ -4247,11 +3653,7 @@ describe("update command", () => {
 				true,
 			);
 			expect(messageCalls.some((m) => m.includes("up to date"))).toBe(true);
-			expect(
-				stopTexts(handle, 0).some(
-					(m) => m.includes("owner/noagents") && m.includes("skipped"),
-				),
-			).toBe(true);
+			expect(mockCloneSource).not.toHaveBeenCalled();
 			// No hard-failure category surfaced -> no loud error anywhere.
 			expect(mockLog.error).not.toHaveBeenCalled();
 		});
@@ -4269,10 +3671,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4286,6 +3684,38 @@ describe("update command", () => {
 					repo: "repo",
 					ref: "dev",
 				}),
+			);
+		});
+
+		it.each([
+			["by key", "owner/repo"],
+			["in all-mode", undefined],
+		])("keeps a branch entry on its branch when updated %s", async (_, key) => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ ref: "dev", commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await runUpdate(key);
+
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{
+					"owner/repo": expect.objectContaining({
+						ref: "dev",
+						commit: REMOTE_SHA,
+					}),
+				},
 			);
 		});
 
@@ -4303,10 +3733,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4331,10 +3757,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4361,10 +3783,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4379,11 +3797,10 @@ describe("update command", () => {
 		});
 	});
 
-	describe("plugin type detection — plugin with asset dirs", () => {
-		it("uses copyPluginAssets for plugin type", async () => {
+	describe("recorded type replay — pack", () => {
+		it("re-walks a pack entry and copies what it holds now", async () => {
 			const entry = makeEntry({
-				type: "plugin",
-				agents: ["claude"],
+				type: "pack",
 				files: [".claude/skills/old-skill/", ".claude/agents/executor.md"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -4395,36 +3812,117 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			// Recorded plugin: skills/ and agents/ remain, hooks/ does not.
-			mockAccess.mockImplementation(async (path) => {
-				if (String(path).endsWith("/hooks")) {
-					throw new Error("ENOENT");
-				}
-			});
-			mockCopyPluginAssets.mockResolvedValue({
+			mockDiscover.mockResolvedValue(onlyPack(LARAVEL_PACK));
+			mockCopyPack.mockResolvedValue({
 				copiedFiles: [
 					".claude/skills/new-skill/",
 					".claude/agents/executor.md",
 				],
-				assetCountsByAgent: { claude: { skills: 1, agents: 1 } },
+				assetCounts: { skills: 1, agents: 1 },
 			});
 
 			await runUpdate("owner/repo");
 
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: "/tmp/agntc-clone",
-					assetDirs: ["skills", "agents"],
-					projectDir: "/fake/project",
-				}),
+			expect(mockDiscover).toHaveBeenCalledWith("/tmp/agntc-clone", {
+				startPath: "",
+				forcePack: true,
+				rootName: "repo",
+			});
+			expect(mockCopyPack).toHaveBeenCalledWith(
+				LARAVEL_PACK,
+				{ root: "/tmp/agntc-clone", local: false },
+				"/fake/project",
 			);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo",
+				expect.objectContaining({
+					type: "pack",
+					files: [".claude/skills/new-skill/", ".claude/agents/executor.md"],
+				}),
+			);
+		});
+
+		it("reports a pack entry that is now a single skill before the outro", async () => {
+			const entry = makeEntry({
+				type: "pack",
+				files: [".claude/agents/openai.yaml"],
+			});
+			mockReadManifestOrExit.mockResolvedValue({ "owner/repo/swift": entry });
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single skill", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/swift/"],
+			});
+
+			await runUpdate("owner/repo/swift");
+
+			const note =
+				"owner/repo/swift is a single skill — reinstalled as a skill";
+			expect(mockLog.info).toHaveBeenCalledWith(note);
+			expect(mockLog.info.mock.invocationCallOrder.at(-1)).toBeLessThan(
+				mockOutro.mock.invocationCallOrder.at(-1)!,
+			);
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/agents/openai.yaml",
+			]);
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				expect.anything(),
+				"owner/repo/swift",
+				expect.objectContaining({
+					type: "skill",
+					files: [".claude/skills/swift/"],
+				}),
+			);
 		});
 	});
 
-	describe("plugin type detection — bare skill", () => {
-		it("uses copyBareSkill for bare-skill type", async () => {
+	describe("all-mode reinstall notes", () => {
+		it("prints a member's note after its group settles", async () => {
+			const handle = captureSpinner();
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/swift": makeEntry({
+					type: "pack",
+					files: [".claude/agents/openai.yaml"],
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single skill", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/swift/"],
+			});
+
+			await runUpdate();
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"owner/repo/swift is a single skill — reinstalled as a skill",
+			);
+			const settled = handle.stop.mock.invocationCallOrder.at(-1)!;
+			expect(mockLog.info.mock.invocationCallOrder[0]).toBeGreaterThan(settled);
+		});
+	});
+
+	describe("recorded type replay — skill", () => {
+		it("uses copyBareSkill for a skill entry", async () => {
 			const entry = makeEntry();
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
 			mockCheckForUpdate.mockResolvedValue({
@@ -4435,10 +3933,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -4451,7 +3945,7 @@ describe("update command", () => {
 					projectDir: "/fake/project",
 				}),
 			);
-			expect(mockCopyPluginAssets).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 	});
 
@@ -4619,7 +4113,6 @@ describe("update command", () => {
 			ref: null,
 			commit: null,
 			installedAt: "2026-02-01T00:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/my-plugin/"],
 			cloneUrl: null,
 		};
@@ -4628,8 +4121,6 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
@@ -4641,7 +4132,6 @@ describe("update command", () => {
 			await runUpdate(LOCAL_KEY);
 
 			expect(mockStat).toHaveBeenCalledWith(LOCAL_KEY);
-			expect(mockReadConfig).toHaveBeenCalledWith(LOCAL_KEY, expect.anything());
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
 				expect.objectContaining({
 					sourceDir: LOCAL_KEY,
@@ -4671,7 +4161,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("does not exist or is not a directory"),
+				`${LOCAL_KEY}: path does not exist`,
 			);
 		});
 
@@ -4685,7 +4175,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("does not exist or is not a directory"),
+				`${LOCAL_KEY}: path is not a directory`,
 			);
 		});
 
@@ -4696,125 +4186,6 @@ describe("update command", () => {
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).not.toHaveBeenCalled();
-		});
-
-		it("checks agent compatibility before nuking", async () => {
-			setupLocalBase();
-
-			const callOrder: string[] = [];
-			mockReadConfig.mockImplementation(async () => {
-				callOrder.push("readConfig");
-				return { agents: ["claude"] };
-			});
-			mockNukeManifestFiles.mockImplementation(async () => {
-				callOrder.push("nuke");
-				return { removed: [], skipped: [] };
-			});
-
-			await runUpdate(LOCAL_KEY);
-
-			expect(callOrder.indexOf("readConfig")).toBeLessThan(
-				callOrder.indexOf("nuke"),
-			);
-		});
-
-		it("preserves existing files when all agents are dropped", async () => {
-			const entry: ManifestEntry = {
-				...LOCAL_ENTRY,
-				agents: ["codex"],
-				files: [".agents/skills/my-plugin/"],
-			};
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			// New config only supports claude, entry has codex
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-
-			await runUpdate(LOCAL_KEY);
-
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining(
-					"no longer supports any of your installed agents",
-				),
-			);
-		});
-
-		it("uses effective agents for partial drop", async () => {
-			const entry: ManifestEntry = {
-				...LOCAL_ENTRY,
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
-			};
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			// New version drops codex
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			await runUpdate(LOCAL_KEY);
-
-			// Should only install for claude
-			expect(mockCopyBareSkill).toHaveBeenCalledWith(
-				expect.objectContaining({
-					agents: [expect.objectContaining({ id: "claude" })],
-				}),
-			);
-			expect(mockLog.warn).toHaveBeenCalledWith(
-				expect.stringContaining("codex"),
-			);
-		});
-
-		it("ignores new agents added by plugin author for local update", async () => {
-			const entry: ManifestEntry = {
-				...LOCAL_ENTRY,
-				agents: ["claude"],
-				files: [".claude/skills/my-plugin/"],
-			};
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			// New version adds codex, but entry only has claude
-			mockReadConfig.mockResolvedValue({ agents: ["claude", "codex"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			await runUpdate(LOCAL_KEY);
-
-			expect(mockCopyBareSkill).toHaveBeenCalledWith(
-				expect.objectContaining({
-					agents: [expect.objectContaining({ id: "claude" })],
-				}),
-			);
-			expect(mockLog.warn).not.toHaveBeenCalled();
-		});
-
-		it("includes dropped agent info in local summary", async () => {
-			const entry: ManifestEntry = {
-				...LOCAL_ENTRY,
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
-			};
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			await runUpdate(LOCAL_KEY);
-
-			const summaryCall = mockOutro.mock.calls[0]![0] as string;
-			expect(summaryCall).toContain("codex support removed");
 		});
 
 		it("nukes then copies for local re-copy", async () => {
@@ -4846,7 +4217,6 @@ describe("update command", () => {
 				expect.objectContaining({
 					ref: null,
 					commit: null,
-					agents: ["claude"],
 					files: [".claude/skills/my-plugin/"],
 				}),
 			);
@@ -4872,53 +4242,50 @@ describe("update command", () => {
 			expect(mockCleanupTempDir).not.toHaveBeenCalled();
 		});
 
-		it("proceeds when config is null (no agntc.json = no agent restriction)", async () => {
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: LOCAL_ENTRY });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue(null);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			await runUpdate(LOCAL_KEY);
-
-			// Recorded skill whose SKILL.md is still present replays via copyBareSkill;
-			// null config imposes no agent restriction, so the recorded agents are kept.
-			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-			expect(mockLog.error).not.toHaveBeenCalled();
-			expect(mockOutro).toHaveBeenCalledWith(
-				expect.stringContaining("Refreshed"),
-			);
-		});
-
-		it("uses copyPluginAssets when recorded type is plugin", async () => {
-			const pluginEntry: ManifestEntry = { ...LOCAL_ENTRY, type: "plugin" };
+		it("re-walks a local pack entry from its folder", async () => {
+			const pluginEntry: ManifestEntry = { ...LOCAL_ENTRY, type: "pack" };
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: pluginEntry });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			// Recorded plugin: derive-before-delete scans for present asset dirs.
-			// skills/ and agents/ remain, hooks/ does not.
-			mockAccess.mockImplementation(async (path) => {
-				if (String(path).endsWith("/hooks")) {
-					throw new Error("ENOENT");
-				}
-			});
-			mockCopyPluginAssets.mockResolvedValue({
+			mockDiscover.mockResolvedValue(onlyPack(LARAVEL_PACK));
+			mockCopyPack.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
-				assetCountsByAgent: { claude: { skills: 1, agents: 1 } },
+				assetCounts: { skills: 1, agents: 1 },
 			});
 
 			await runUpdate(LOCAL_KEY);
 
-			expect(mockCopyPluginAssets).toHaveBeenCalledWith(
-				expect.objectContaining({
-					sourceDir: LOCAL_KEY,
-					assetDirs: ["skills", "agents"],
-					projectDir: "/fake/project",
-				}),
+			expect(mockDiscover).toHaveBeenCalledWith(LOCAL_KEY, {
+				startPath: "",
+				forcePack: true,
+				rootName: basename(LOCAL_KEY),
+			});
+			expect(mockCopyPack).toHaveBeenCalledWith(
+				LARAVEL_PACK,
+				{ root: LOCAL_KEY, local: true },
+				"/fake/project",
 			);
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("says why when its recorded path leads outside its folder", async () => {
+			setupLocalBase();
+			mockReadManifestOrExit.mockResolvedValue({
+				[LOCAL_KEY]: {
+					...LOCAL_ENTRY,
+					localRoot: LOCAL_KEY,
+					sourceSubpath: "../x",
+				},
+			});
+
+			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockLog.error).toHaveBeenCalledTimes(1);
+			expect(mockLog.error).toHaveBeenCalledWith(
+				expect.stringMatching(new RegExp(`^${LOCAL_KEY}: .*"\\.\\./x"`)),
+			);
+			expect(mockCancel).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 	});
@@ -4927,7 +4294,6 @@ describe("update command", () => {
 		it("resolves collection key and clones from owner/repo", async () => {
 			const entry = makeEntry({
 				type: "skill",
-				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo/go": entry });
@@ -4940,7 +4306,6 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			// readConfig for the subdir go/
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
@@ -4954,138 +4319,9 @@ describe("update command", () => {
 					repo: "repo",
 				}),
 			);
-			// readConfig and the recorded-skill validation gate use the subdir
-			expect(mockReadConfig).toHaveBeenCalledWith(
-				"/tmp/agntc-clone/go",
-				expect.anything(),
-			);
+			// The recorded-skill validation gate uses the subdir
 			expect(mockAccess).toHaveBeenCalledWith("/tmp/agntc-clone/go/SKILL.md");
 			expect(mockCopyBareSkill).toHaveBeenCalledOnce();
-		});
-	});
-
-	describe("dropped agent summary includes 'by plugin author'", () => {
-		it("git update summary says 'support removed by plugin author'", async () => {
-			const entry = makeEntry({
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			await runUpdate("owner/repo");
-
-			const summaryCall = mockOutro.mock.calls[0]![0] as string;
-			expect(summaryCall).toContain("codex support removed by plugin author.");
-		});
-
-		it("local update summary says 'support removed by plugin author'", async () => {
-			const LOCAL_KEY = "/Users/lee/Code/my-plugin";
-			const entry: ManifestEntry = {
-				ref: null,
-				commit: null,
-				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
-				cloneUrl: null,
-			};
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: entry });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			await runUpdate(LOCAL_KEY);
-
-			const summaryCall = mockOutro.mock.calls[0]![0] as string;
-			expect(summaryCall).toContain("codex support removed by plugin author.");
-		});
-	});
-
-	describe("all-plugins mode dropped agent info in summary", () => {
-		it("git update summary includes dropped agent info", async () => {
-			const handle = captureSpinner();
-			const entry = makeEntry({
-				commit: INSTALLED_SHA,
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-skill/", ".agents/skills/my-skill/"],
-			});
-			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
-			mockCheckForUpdate.mockResolvedValue({
-				status: "update-available",
-				remoteCommit: REMOTE_SHA,
-			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			await runUpdate();
-
-			// The updated standalone is a group-of-one → its Updated summary (with the
-			// inline dropped-agent notice) is the spinner stop-frame at code 0.
-			const updatedSummary = stopTexts(handle, 0).find((msg) =>
-				msg.includes("owner/repo"),
-			);
-			expect(updatedSummary).toBeDefined();
-			expect(updatedSummary).toContain(
-				"codex support removed by plugin author",
-			);
-		});
-
-		it("local update summary includes dropped agent info in all-plugins mode", async () => {
-			const LOCAL_KEY = "/Users/lee/Code/my-plugin";
-			const localEntry: ManifestEntry = {
-				ref: null,
-				commit: null,
-				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude", "codex"],
-				files: [".claude/skills/my-plugin/", ".agents/skills/my-plugin/"],
-				cloneUrl: null,
-			};
-			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
-			mockCheckForUpdate.mockResolvedValue({ status: "local" });
-			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-plugin/"],
-			});
-
-			await runUpdate();
-
-			const successCalls = mockLog.success.mock.calls.map(
-				(c) => c[0] as string,
-			);
-			const refreshedSummary = successCalls.find((msg) =>
-				msg.includes(LOCAL_KEY),
-			);
-			expect(refreshedSummary).toBeDefined();
-			expect(refreshedSummary).toContain(
-				"codex support removed by plugin author",
-			);
 		});
 	});
 
@@ -5104,12 +4340,10 @@ describe("update command", () => {
 		it("resolves owner/repo to multiple collection keys and updates each", async () => {
 			const goEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
 			const tsEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/ts/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -5124,10 +4358,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 
 			// Return distinct copiedFiles per key so we can verify both entries
 			mockCopyBareSkill
@@ -5140,34 +4370,32 @@ describe("update command", () => {
 			expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/go", goEntry);
 			expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/ts", tsEntry);
 
-			// Manifest should be written once with BOTH updated entries
-			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
-			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
-			expect(writtenManifest["owner/repo/go"]).toEqual(
-				expect.objectContaining({
-					commit: REMOTE_SHA,
-					agents: ["claude"],
-					files: [".claude/skills/go/"],
-				}),
-			);
-			expect(writtenManifest["owner/repo/ts"]).toEqual(
-				expect.objectContaining({
-					commit: REMOTE_SHA,
-					agents: ["claude"],
-					files: [".claude/skills/ts/"],
-				}),
-			);
+			// Each key is recorded as it finishes: go alone, then BOTH
+			const goUpdated = expect.objectContaining({
+				commit: REMOTE_SHA,
+				files: [".claude/skills/go/"],
+			});
+			expect(
+				mockWriteManifest.mock.calls.map(([, written]) => written),
+			).toEqual([
+				{ "owner/repo/go": goUpdated, "owner/repo/ts": tsEntry },
+				{
+					"owner/repo/go": goUpdated,
+					"owner/repo/ts": expect.objectContaining({
+						commit: REMOTE_SHA,
+						files: [".claude/skills/ts/"],
+					}),
+				},
+			]);
 		});
 
 		it("resolves owner/repo/plugin-name to exact match", async () => {
 			const goEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/go/"],
 			});
 			const tsEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/ts/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -5182,10 +4410,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
@@ -5206,19 +4430,17 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Plugin nonexistent/repo is not installed.",
+				"nonexistent/repo is not installed.",
 			);
 		});
 
 		it("prefers exact match when key exists as both standalone and collection prefix", async () => {
 			const standaloneEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/standalone/"],
 			});
 			const collectionEntry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/sub-plugin/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -5233,10 +4455,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/standalone/"],
 			});
@@ -5256,7 +4474,6 @@ describe("update command", () => {
 		it("throws ExitSignal and removes manifest entry on copy failure", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			const manifest = { "owner/repo": entry };
@@ -5270,10 +4487,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const err = await runUpdate("owner/repo").catch((e) => e);
@@ -5289,7 +4502,6 @@ describe("update command", () => {
 		it("logs recovery hint on copy failure", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			const manifest = { "owner/repo": entry };
@@ -5303,16 +4515,12 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			await runUpdate("owner/repo").catch(() => {});
 
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("npx agntc update owner/repo"),
+				expect.stringContaining("npx agntc add owner/repo"),
 			);
 		});
 	});
@@ -5323,7 +4531,6 @@ describe("update command", () => {
 			ref: null,
 			commit: null,
 			installedAt: "2026-02-01T00:00:00.000Z",
-			agents: ["claude"],
 			files: [".claude/skills/my-plugin/"],
 			cloneUrl: null,
 		};
@@ -5334,10 +4541,6 @@ describe("update command", () => {
 			mockReadManifest.mockResolvedValue(manifest);
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
@@ -5356,16 +4559,12 @@ describe("update command", () => {
 			mockReadManifest.mockResolvedValue(manifest);
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			await runUpdate(LOCAL_KEY).catch(() => {});
 
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining(`npx agntc update ${LOCAL_KEY}`),
+				expect.stringContaining(`npx agntc add ${LOCAL_KEY}`),
 			);
 		});
 	});
@@ -5376,7 +4575,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5390,10 +4588,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5411,7 +4605,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5425,10 +4618,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5448,7 +4637,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5462,10 +4650,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5476,7 +4660,7 @@ describe("update command", () => {
 			// result.manifestEntry.ref (resolved v1.3.0) → the shared formatVersionMove
 			// renders the tag move, not commit hashes.
 			expect(mockOutro).toHaveBeenCalledWith(
-				"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s) for claude",
+				"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s)",
 			);
 		});
 
@@ -5485,7 +4669,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5499,10 +4682,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5525,7 +4704,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5539,10 +4717,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5563,7 +4737,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5577,10 +4750,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5599,7 +4768,6 @@ describe("update command", () => {
 				ref: "v1.5.0",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5739,7 +4907,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -5753,10 +4920,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -5825,7 +4988,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
@@ -5866,10 +5028,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
@@ -5901,26 +5059,22 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/constrained-skill/"],
 			});
 			const branchEntry = makeEntry({
 				ref: null,
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/branch-skill/"],
 			});
 			const tagEntry = makeEntry({
 				ref: "v1.0",
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/tagged-skill/"],
 			});
 			const localEntry: ManifestEntry = {
 				ref: null,
 				commit: null,
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/local-skill/"],
 				cloneUrl: null,
 			};
@@ -5957,10 +5111,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/some-skill/"],
 			});
@@ -5999,7 +5149,6 @@ describe("update command", () => {
 			const handle = captureSpinner();
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
@@ -6024,10 +5173,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
@@ -6054,7 +5199,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6068,10 +5212,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -6127,7 +5267,6 @@ describe("update command", () => {
 				ref: "v1.5.0",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6155,7 +5294,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6169,18 +5307,14 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
 			await runUpdate();
 
-			// Should NOT show "All plugins are up to date" — there was an update
-			expect(mockOutro).not.toHaveBeenCalledWith("All plugins are up to date.");
+			// Should NOT show "Everything is up to date." — there was an update
+			expect(mockOutro).not.toHaveBeenCalledWith("Everything is up to date.");
 		});
 	});
 
@@ -6188,12 +5322,10 @@ describe("update command", () => {
 		it("removes entry from batch manifest for git copy failure", async () => {
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -6213,10 +5345,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 
 			// First plugin copy fails, second succeeds
 			mockCopyBareSkill
@@ -6247,7 +5375,6 @@ describe("update command", () => {
 			const handle = captureSpinner();
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6259,10 +5386,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			// Copy failure exits non-zero after the summary is rendered; catch so
@@ -6272,7 +5395,7 @@ describe("update command", () => {
 			// The copy-failed standalone is a group-of-one → its loud recovery-hint
 			// line is the spinner stop-frame at code 2 (error ✗).
 			const hasRecoveryHint = stopTexts(handle, 2).some((msg) =>
-				msg.includes("npx agntc update owner/repo"),
+				msg.includes("npx agntc add owner/repo"),
 			);
 			expect(hasRecoveryHint).toBe(true);
 		});
@@ -6283,17 +5406,12 @@ describe("update command", () => {
 				ref: null,
 				commit: null,
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/my-plugin/"],
 				cloneUrl: null,
 			};
 			mockReadManifestOrExit.mockResolvedValue({ [LOCAL_KEY]: localEntry });
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			// Copy failure exits non-zero after the manifest write; catch so the
@@ -6314,7 +5432,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6328,10 +5445,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -6353,7 +5466,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6367,10 +5479,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -6389,14 +5497,12 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			});
 			const entryB = makeEntry({
 				ref: "v2.1.0",
 				commit: INSTALLED_SHA,
 				constraint: "^2.0",
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({
@@ -6435,7 +5541,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6449,10 +5554,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -6473,7 +5574,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6487,10 +5587,6 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockReadConfig.mockResolvedValue({ agents: ["claude"] });
-			mockDetectType.mockResolvedValue({
-				type: "bare-skill",
-			} as DetectedType);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
@@ -6509,7 +5605,6 @@ describe("update command", () => {
 				ref: "v1.3.0",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6533,7 +5628,6 @@ describe("update command", () => {
 				ref: "v0.3.3",
 				commit: INSTALLED_SHA,
 				constraint: "^0.3.3",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6557,7 +5651,6 @@ describe("update command", () => {
 				ref: "v1.3.0",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			});
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
@@ -6583,15 +5676,17 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.0",
-				agents: ["claude"],
 				files: [`.claude/skills/${name}/`],
 			});
 
-		it("renders one footer line per group for a constrained N-member collection (not N lines)", async () => {
+		it("renders one footer line per group for a constrained mixed collection: one bare --skill command for its loose skills, one per pack", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": constrainedMember("a"),
-				"owner/repo/b": constrainedMember("b"),
-				"owner/repo/c": constrainedMember("c"),
+				"owner/repo/b": {
+					...constrainedMember("b"),
+					sourceSubpath: "skills/b",
+				},
+				"owner/repo/tools": { ...constrainedMember("tools"), type: "pack" },
 			});
 			// ONE constrained group whose shared target is out of constraint
 			// (latestOverall set) and at the members' installed tag (all up to date).
@@ -6606,28 +5701,30 @@ describe("update command", () => {
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			// ONE footer line for the whole collection: current = group target.tag,
-			// keyed by the group label, bare owner/repo command.
+			// keyed by the group label, the group's bare re-add commands.
 			expect(infoCalls).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				[
+					"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade:",
+					"    npx agntc add owner/repo --skill a b",
+					"    npx agntc add owner/repo/tools --pack",
+				].join("\n"),
 			);
 			// Not N near-identical per-member footer lines.
 			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
 		});
 
-		it("a multi-group repo renders two @intent-prefixed footer lines, each with the bare owner/repo command", async () => {
+		it("a multi-group repo renders two @intent-prefixed footer lines, each with its member's bare re-add command", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					ref: "v1.2.3",
 					commit: INSTALLED_SHA,
 					constraint: "^1.2.3",
-					agents: ["claude"],
 					files: [".claude/skills/a/"],
 				}),
 				"owner/repo/b": makeEntry({
 					ref: "v2.0.0",
 					commit: INSTALLED_SHA,
 					constraint: "^2.0.0",
-					agents: ["claude"],
 					files: [".claude/skills/b/"],
 				}),
 			});
@@ -6652,18 +5749,18 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// Two footer lines: prefix disambiguated by @intent, command stays the
-			// BARE owner/repo. current = each group's own target.tag.
+			// Two footer lines: prefix disambiguated by @intent, command stays bare
+			// (no @intent). current = each group's own target.tag.
 			expect(infoCalls).toContain(
-				"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/a",
 			);
 			expect(infoCalls).toContain(
-				"  owner/repo@^2.0.0  v2.0.0 -> v3.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo@^2.0.0  v2.0.0 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/b",
 			);
 			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(2);
 		});
 
-		it("all-mode footer names the group target tag as current and the bare npx agntc add owner/repo command", async () => {
+		it("all-mode footer names the group target tag as current and the group's bare --skill re-add command", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": constrainedMember("a"),
 				"owner/repo/b": constrainedMember("b"),
@@ -6679,11 +5776,11 @@ describe("update command", () => {
 
 			// The footer is the ONLY info output on this all-up-to-date path, so the
 			// exact two lines pin the actionable wording verbatim: current = group
-			// target.tag (v1.2.3), bare owner/repo command, no (constraint: ...) tail.
+			// target.tag (v1.2.3), a bare --skill command, no (constraint: ...) tail.
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toEqual([
 				"Newer versions outside constraints:",
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			]);
 			// No (constraint: ...) tail survives the reword.
 			const footer = infoCalls.join("\n");
@@ -6707,7 +5804,7 @@ describe("update command", () => {
 			// The footer does not feed hasFailedOutcome, so all-mode exit stays 0.
 			expect(allModeErr).toBeUndefined();
 			expect(mockLog.info.mock.calls.map((c) => c[0] as string)).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			);
 
 			// Single-key path: constrained-up-to-date, out of constraint — also exit 0.
@@ -6716,7 +5813,6 @@ describe("update command", () => {
 					ref: "v1.3.0",
 					commit: INSTALLED_SHA,
 					constraint: "^1.0",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				}),
 			});
@@ -6741,7 +5837,6 @@ describe("update command", () => {
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
 				constraint: "^1.2.3",
-				agents: ["claude"],
 				files: [`.claude/skills/${name}/`],
 			});
 
@@ -6777,7 +5872,7 @@ describe("update command", () => {
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
-		it("a caret entry with an out-of-constraint major emits the bare npx agntc add owner/repo footer instead", async () => {
+		it("a caret entry with an out-of-constraint major emits the bare re-add footer instead", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": caretMember("a"),
 				"owner/repo/b": caretMember("b"),
@@ -6792,24 +5887,23 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// The caret out-of-constraint footer (task 4-1): current -> newer with the
-			// BARE repo-level re-add command (no @ suffix), collapsed to one line for
-			// the whole group.
+			// The caret out-of-constraint footer: current -> newer with the group's
+			// BARE re-add command (no @ suffix), collapsed to one line for the group.
 			expect(infoCalls).toContain("Newer versions outside constraints:");
 			expect(infoCalls).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			);
 			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
 		});
 	});
 });
 
-describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () => {
+describe("failureMemberLine (shared loud member-line rendering)", () => {
 	// The collapsed group-of-one path (collapsedMemberLine) and the streamed
-	// multi-member path (emitMemberLine) both route their loud/skip outcomes
+	// multi-member path (emitMemberLine) both route their loud outcomes
 	// through this ONE helper, differing only by the display `name` they supply
 	// (the collapsed path passes the FULL member key; the streamed path passes the
-	// member basename). Asserting the helper directly proves the four loud/skip
+	// member basename). Asserting the helper directly proves the three loud
 	// arms live in exactly one place and render identically — modulo that name —
 	// across both paths.
 
@@ -6821,13 +5915,13 @@ describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () 
 		};
 
 		// Collapsed path name source: the full member key.
-		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
+		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
 			level: "error",
 			text: "owner/repo/design: copy failed — re-run update",
 		});
 		// Streamed path name source: the member basename. Same shape, only the
 		// name differs — proving the name is a parameter, not baked in.
-		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
+		expect(failureMemberLine(outcome, "design")).toEqual({
 			level: "error",
 			text: "design: copy failed — re-run update",
 		});
@@ -6840,11 +5934,11 @@ describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () 
 			summary: "recorded as skill but SKILL.md missing; run remove then add",
 		};
 
-		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
+		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
 			level: "error",
 			text: "owner/repo/design: recorded as skill but SKILL.md missing; run remove then add",
 		});
-		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
+		expect(failureMemberLine(outcome, "design")).toEqual({
 			level: "error",
 			text: "design: recorded as skill but SKILL.md missing; run remove then add",
 		});
@@ -6857,31 +5951,13 @@ describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () 
 			summary: "symlink target escapes the clone",
 		};
 
-		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
+		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
 			level: "error",
 			text: "owner/repo/design: symlink target escapes the clone",
 		});
-		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
+		expect(failureMemberLine(outcome, "design")).toEqual({
 			level: "error",
 			text: "design: symlink target escapes the clone",
-		});
-	});
-
-	it("renders skipped-no-agents at warn level as the fixed skip sentence, honouring the passed name", () => {
-		const outcome: PluginOutcome = {
-			status: "skipped-no-agents",
-			key: "owner/repo/design",
-			summary:
-				"owner/repo/design: Skipped — no longer supports installed agents",
-		};
-
-		expect(failureOrSkipMemberLine(outcome, "owner/repo/design")).toEqual({
-			level: "warn",
-			text: "owner/repo/design: skipped — no longer supports installed agents",
-		});
-		expect(failureOrSkipMemberLine(outcome, "design")).toEqual({
-			level: "warn",
-			text: "design: skipped — no longer supports installed agents",
 		});
 	});
 
@@ -6897,7 +5973,7 @@ describe("failureOrSkipMemberLine (shared loud/skip member-line rendering)", () 
 			summary: "owner/repo: Failed — git clone failed",
 		};
 
-		expect(failureOrSkipMemberLine(outcome, "owner/repo")).toBeNull();
+		expect(failureMemberLine(outcome, "owner/repo")).toBeNull();
 	});
 });
 
@@ -6913,7 +5989,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 
 	it("renders a streamed multi-member `failed` via p.log.error (not p.log.warn)", async () => {
 		// A 2-member collection → one group, one shared clone that SUCCEEDS. Member a
-		// reinstalls cleanly (✓); member b's per-member readConfig throws, propagating
+		// reinstalls cleanly (✓); member b's per-member symlink scan throws, propagating
 		// to reinstallMember's defensive catch → a bare `failed` outcome with
 		// cloneFailed === false, so it streams through emitMemberLine →
 		// renderFailedOutcome (NOT the enumerated clone-failure line).
@@ -6921,12 +5997,10 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/repo/a": makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/a/"],
 			}),
 			"owner/repo/b": makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/b/"],
 			}),
 		});
@@ -6938,14 +6012,13 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 			tempDir: "/tmp/clone",
 			commit: REMOTE_SHA,
 		});
-		mockDetectType.mockResolvedValue({ type: "bare-skill" } as DetectedType);
-		// b's per-member reinstall throws BEFORE the copy try/catch (readConfig) →
-		// a bare `failed` outcome (not copy-failed); a keeps claude and succeeds.
-		mockReadConfig.mockImplementation(async (dir: unknown) => {
+		// b's per-member reinstall throws BEFORE the copy try/catch (a non-escape
+		// error from the symlink scan) → a bare `failed` outcome (not copy-failed);
+		// a succeeds.
+		mockScanForEscapingSymlinks.mockImplementation(async (dir: unknown) => {
 			if (typeof dir === "string" && dir.endsWith("/b")) {
 				throw new Error("boom");
 			}
-			return { agents: ["claude"] };
 		});
 		mockCopyBareSkill.mockResolvedValue({
 			copiedFiles: [".claude/skills/a/"],
@@ -6960,7 +6033,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 		// The successful sibling still streams its ✓ line under the shared header.
-		expect(mockLog.success).toHaveBeenCalledWith("a → claude");
+		expect(mockLog.success).toHaveBeenCalledWith("a");
 	});
 
 	it("renders a local `failed` red via p.log.error (not p.log.warn)", async () => {
@@ -6974,7 +6047,6 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 				ref: null,
 				commit: null,
 				installedAt: "2026-02-01T00:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/local/"],
 				cloneUrl: null,
 			},
@@ -6987,7 +6059,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		await runUpdate().catch(() => {});
 
 		expect(mockLog.error).toHaveBeenCalledWith(
-			`${LOCAL_KEY}: Failed — path does not exist`,
+			`${LOCAL_KEY}: Failed — ${LOCAL_KEY}: path does not exist`,
 		);
 		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
@@ -7002,7 +6074,6 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/repo": makeEntry({
 				commit: INSTALLED_SHA,
-				agents: ["claude"],
 				files: [".claude/skills/solo/"],
 			}),
 		});
@@ -7011,7 +6082,6 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 			resolvedSha: REMOTE_SHA,
 		});
 		mockCloneSource.mockRejectedValue(new Error("git clone failed"));
-		mockReadConfig.mockResolvedValue({ agents: ["claude"] });
 
 		await runUpdate().catch(() => {});
 
@@ -7022,5 +6092,949 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		// No warn glyph for the collapsed failure.
 		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
+	});
+});
+
+describe("update without a terminal", () => {
+	function targetsByKey(targets: Record<string, GroupTarget>): void {
+		mockResolveGroupTarget.mockImplementation(async ({ members: [first] }) => {
+			const target = first && targets[first.key];
+			if (!target) throw new Error(`no target for ${first?.key}`);
+			return target;
+		});
+	}
+
+	it("prints one document of every entry, a move carrying both ends, and never touches clack", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/caret": makeEntry({
+				type: "skill",
+				ref: "v1.0.0",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0.0",
+				files: [".claude/skills/caret/"],
+			}),
+			"owner/pinned": makeEntry({ ref: "v3.0.0", commit: INSTALLED_SHA }),
+		});
+		targetsByKey({
+			"owner/caret": {
+				kind: "constrained",
+				tag: "v1.1.0",
+				commit: REMOTE_SHA,
+				latestOverall: "v2.0.0",
+			},
+			"owner/pinned": { kind: "tag", tag: "v3.0.0", newerTags: ["v3.1.0"] },
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/caret/"],
+		});
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document).toEqual({
+			ok: true,
+			command: "update",
+			scope: "project",
+			items: [
+				{
+					key: "owner/caret",
+					type: "skill",
+					status: "updated",
+					ref: "v1.1.0",
+					commit: REMOTE_SHA,
+					constraint: "^1.0.0",
+					previousRef: "v1.0.0",
+					previousCommit: INSTALLED_SHA,
+					latestOutsideConstraint: "v2.0.0",
+				},
+				{
+					key: "owner/pinned",
+					type: "skill",
+					status: "newer-tags",
+					ref: "v3.0.0",
+					commit: INSTALLED_SHA,
+					constraint: null,
+					newerTags: ["v3.1.0"],
+				},
+			],
+			warnings: [],
+			notes: [],
+		});
+		expect(clackCalls(p)).toEqual([]);
+	});
+
+	it("reports each entry when one fails, exiting 1", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/a": makeEntry({ commit: INSTALLED_SHA }),
+			"owner/b": makeEntry({ commit: INSTALLED_SHA }),
+		});
+		targetsByKey({
+			"owner/a": { kind: "head", resolvedSha: REMOTE_SHA },
+			"owner/b": { kind: "head", resolvedSha: REMOTE_SHA },
+		});
+		mockCloneSource
+			.mockRejectedValueOnce(new Error("network down"))
+			.mockResolvedValueOnce({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/b/"],
+		});
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document.ok).toBe(false);
+		expect(run.document.items).toEqual([
+			{
+				key: "owner/a",
+				type: "skill",
+				status: "failed",
+				ref: null,
+				commit: INSTALLED_SHA,
+				constraint: null,
+				message: "owner/a: Failed — network down",
+			},
+			expect.objectContaining({ key: "owner/b", status: "updated" }),
+		]);
+	});
+
+	it("reports a check that failed with its reason, and stays ok as all-mode does", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/a": makeEntry({ commit: INSTALLED_SHA }),
+		});
+		targetsByKey({ "owner/a": { kind: "check-failed", reason: "timeout" } });
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document).toMatchObject({
+			ok: true,
+			items: [{ key: "owner/a", status: "check-failed", reason: "timeout" }],
+		});
+	});
+
+	it("carries a reinstall's note as a note", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/swift": makeEntry({
+				type: "pack",
+				files: [".claude/agents/openai.yaml"],
+			}),
+		});
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockDiscover.mockRejectedValue(
+			new PackConflictError("single skill", "single-skill"),
+		);
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/swift/"],
+		});
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.document.notes).toEqual([
+			"owner/repo/swift is a single skill — reinstalled as a skill",
+		]);
+		expect(run.document.items).toEqual([
+			expect.objectContaining({ key: "owner/repo/swift", type: "skill" }),
+		]);
+	});
+
+	describe("for one key", () => {
+		it("prints the entry it updated", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ ref: null, commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/repo/"],
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "update",
+				scope: "project",
+				items: [
+					{
+						key: "owner/repo",
+						type: "skill",
+						status: "updated",
+						ref: null,
+						commit: REMOTE_SHA,
+						constraint: null,
+						previousRef: null,
+						previousCommit: INSTALLED_SHA,
+					},
+				],
+				warnings: [],
+				notes: [],
+			});
+			expect(clackCalls(p)).toEqual([]);
+		});
+
+		it("reports a failed check and exits 1, as at a terminal", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: "network timeout",
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toMatchObject({
+				ok: false,
+				items: [
+					{
+						key: "owner/repo",
+						status: "check-failed",
+						reason: "network timeout",
+					},
+				],
+			});
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("prints an error document for a key that isn't installed", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"other/plugin": makeEntry(),
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "update",
+				scope: "project",
+				error: { message: "owner/repo is not installed." },
+				warnings: [],
+				notes: [],
+			});
+		});
+	});
+});
+
+describe("single-key update stopping at a failure", () => {
+	it("still records the entries it updated before the failure", async () => {
+		const goEntry = makeEntry({
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/go/"],
+		});
+		const tsEntry = makeEntry({
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/ts/"],
+		});
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/go": goEntry,
+			"owner/repo/ts": tsEntry,
+		});
+		mockCheckForUpdate
+			.mockResolvedValueOnce({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			})
+			.mockResolvedValueOnce({ status: "check-failed", reason: "timeout" });
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/go/"],
+		});
+
+		const err = await runUpdate("owner/repo").catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect((err as ExitSignal).code).toBe(1);
+		expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+		expect(mockWriteManifest).toHaveBeenCalledWith(expect.any(String), {
+			"owner/repo/go": expect.objectContaining({ commit: REMOTE_SHA }),
+			"owner/repo/ts": tsEntry,
+		});
+	});
+});
+
+describe("an entry gone upstream", () => {
+	const GONE_KEY = "owner/repo/go";
+
+	function goneEntry(): ManifestEntry {
+		return makeEntry({
+			type: "skill",
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/go/"],
+		});
+	}
+
+	function looseEntry(name: string): ManifestEntry {
+		return makeEntry({
+			type: "skill",
+			commit: INSTALLED_SHA,
+			files: [`.claude/skills/${name}/`],
+		});
+	}
+
+	/** go's SKILL.md is gone from the source and nothing named go turns up anywhere. */
+	function arrangeGone(manifest: Manifest = { [GONE_KEY]: goneEntry() }): void {
+		mockReadManifestOrExit.mockResolvedValue(manifest);
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockAccess.mockImplementation(async (path: unknown) => {
+			if (typeof path === "string" && path.endsWith("/go/SKILL.md")) {
+				throw new Error("ENOENT");
+			}
+			return undefined;
+		});
+		rewalkFinds("skills/other");
+	}
+
+	function recordOrder(): string[] {
+		const order: string[] = [];
+		mockNukeManifestFiles.mockImplementation(async () => {
+			order.push("nuke");
+			return { removed: [], skipped: [] };
+		});
+		mockWriteManifest.mockImplementation(async () => {
+			order.push("write");
+		});
+		return order;
+	}
+
+	describe("for one key at a terminal", () => {
+		it("asks whether to remove it, no by default", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			await runUpdate(GONE_KEY);
+
+			expect(mockConfirm).toHaveBeenCalledExactlyOnceWith({
+				message: "owner/repo/go is gone upstream — remove it?",
+				initialValue: false,
+			});
+		});
+
+		it("keeps its files and entry on no, says update will ask again, and exits 0", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			const err = await runUpdate(GONE_KEY).catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockLog.warn).toHaveBeenCalledWith(
+				"Kept owner/repo/go — it's gone upstream; update will ask again",
+			);
+		});
+
+		it("removes its files and then its entry on yes, and exits 0", async () => {
+			const other = looseEntry("other");
+			arrangeGone({ [GONE_KEY]: goneEntry(), "owner/other": other });
+			mockConfirm.mockResolvedValue(true);
+			const order = recordOrder();
+
+			const err = await runUpdate(GONE_KEY).catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/go/"],
+			);
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/other": other },
+			);
+			expect(order).toEqual(["nuke", "write"]);
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"Removed owner/repo/go — it's gone upstream",
+			);
+		});
+
+		it("removes it without asking under -y", async () => {
+			arrangeGone();
+
+			await runUpdate(GONE_KEY, { yes: true });
+
+			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
+		});
+
+		it("treats a local entry the same way, its folder standing in for the repo", async () => {
+			const localKey = "/Users/lee/Code/go";
+			const localEntry: ManifestEntry = {
+				ref: null,
+				commit: null,
+				installedAt: "2026-02-01T00:00:00.000Z",
+				files: [".claude/skills/go/"],
+				cloneUrl: null,
+				type: "skill",
+			};
+			mockReadManifestOrExit.mockResolvedValue({ [localKey]: localEntry });
+			mockCheckForUpdate.mockResolvedValue({ status: "local" });
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds();
+			mockConfirm.mockResolvedValue(true);
+
+			const err = await runUpdate(localKey).catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockDiscover).toHaveBeenCalledWith(localKey, { rootName: "go" });
+			expect(mockConfirm).toHaveBeenCalledWith({
+				message: "/Users/lee/Code/go is gone upstream — remove it?",
+				initialValue: false,
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
+		});
+	});
+
+	describe("in all-mode at a terminal", () => {
+		it("asks only once the group's spinner has stopped, after the group's lines", async () => {
+			const handle = captureSpinner();
+			arrangeGone({ "owner/repo/a": looseEntry("a"), [GONE_KEY]: goneEntry() });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/"],
+			});
+			mockConfirm.mockResolvedValue(false);
+
+			await runUpdate();
+
+			const asked = mockConfirm.mock.invocationCallOrder[0]!;
+			const beforeAsking = (order: number[]) => order.filter((o) => o < asked);
+			// The check spinner and the group's spinner both started and stopped
+			// before the question, and no spinner starts after it.
+			expect(beforeAsking(handle.start.mock.invocationCallOrder)).toHaveLength(
+				2,
+			);
+			expect(beforeAsking(handle.stop.mock.invocationCallOrder)).toHaveLength(
+				2,
+			);
+			expect(handle.start).toHaveBeenCalledTimes(2);
+			expect(handle.stop).toHaveBeenLastCalledWith(
+				"Updating owner/repo  aaaaaaa -> bbbbbbb  (2 members)",
+			);
+			// a's member line is out before the question; the answer follows it.
+			expect(mockLog.success).toHaveBeenCalledWith("a");
+			expect(mockLog.success.mock.invocationCallOrder[0]).toBeLessThan(asked);
+			expect(mockLog.warn.mock.invocationCallOrder[0]).toBeGreaterThan(asked);
+		});
+
+		it("stops a group of one on its header before asking", async () => {
+			const handle = captureSpinner();
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			await runUpdate();
+
+			expect(handle.stop).toHaveBeenLastCalledWith("Updating owner/repo");
+			expect(handle.stop.mock.invocationCallOrder.at(-1)).toBeLessThan(
+				mockConfirm.mock.invocationCallOrder[0]!,
+			);
+		});
+
+		it("keeps it on no and exits 0 while its sibling updates", async () => {
+			const entryA = looseEntry("a");
+			const gone = goneEntry();
+			arrangeGone({ "owner/repo/a": entryA, [GONE_KEY]: gone });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/"],
+			});
+			mockConfirm.mockResolvedValue(false);
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+			expect(written[GONE_KEY]).toEqual(gone);
+			expect(written["owner/repo/a"]!.commit).toBe(REMOTE_SHA);
+			expect(mockLog.warn).toHaveBeenCalledWith(
+				"Kept owner/repo/go — it's gone upstream; update will ask again",
+			);
+		});
+
+		it("removes its files and then its entry on yes", async () => {
+			arrangeGone({ "owner/repo/a": looseEntry("a"), [GONE_KEY]: goneEntry() });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/"],
+			});
+			mockConfirm.mockResolvedValue(true);
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+			expect(Object.keys(written)).toEqual(["owner/repo/a"]);
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"Removed owner/repo/go — it's gone upstream",
+			);
+		});
+
+		it("removes it without asking under -y", async () => {
+			arrangeGone();
+
+			await runUpdate(undefined, { yes: true });
+
+			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(mockWriteManifest).toHaveBeenLastCalledWith("/fake/project", {});
+		});
+	});
+
+	describe("without a terminal", () => {
+		const KEPT = {
+			key: GONE_KEY,
+			type: "skill",
+			status: "gone-kept",
+			ref: null,
+			commit: INSTALLED_SHA,
+			constraint: null,
+			message:
+				"Kept owner/repo/go — it's gone upstream; npx agntc update owner/repo/go -y removes it",
+			flags: ["-y"],
+		};
+
+		it("keeps it without -y, naming the flag that removes it, and exits 0", async () => {
+			arrangeGone();
+
+			const run = await runMachine(updateCommand, [GONE_KEY]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "update",
+				scope: "project",
+				items: [KEPT],
+				warnings: [],
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(clackCalls(p)).toEqual([]);
+		});
+
+		it("keeps it the same way in all-mode", async () => {
+			arrangeGone();
+
+			const run = await runMachine(updateCommand, []);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({ ok: true, items: [KEPT] });
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			["one key", [GONE_KEY, "-y"]],
+			["all-mode", ["--yes"]],
+		])("removes it under -y (%s) and reports it removed", async (_mode, args) => {
+			arrangeGone();
+
+			const run = await runMachine(updateCommand, args);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document.items).toEqual([
+				{
+					key: GONE_KEY,
+					type: "skill",
+					status: "gone-removed",
+					ref: null,
+					commit: INSTALLED_SHA,
+					constraint: null,
+					message: "Removed owner/repo/go — it's gone upstream",
+				},
+			]);
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
+		});
+	});
+});
+
+describe("a pack taking over loose skills from its own source", () => {
+	const PACK_KEY = "owner/repo/tools";
+	const TOOLS: FoundPack = {
+		name: "tools",
+		path: "tools",
+		skills: [
+			{ name: "a", path: "tools/skills/a" },
+			{ name: "b", path: "tools/skills/b" },
+		],
+		assetDirs: [],
+	};
+	const NOTE = "owner/repo/tools now includes a, installed on its own before";
+
+	function packEntry(): ManifestEntry {
+		return makeEntry({
+			type: "pack",
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/b/"],
+		});
+	}
+
+	function looseA(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
+		return makeEntry({
+			type: "skill",
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/a/"],
+			...overrides,
+		});
+	}
+
+	/** The pack now holds a as well as b. */
+	function arrangeTakeover(manifest: Manifest): void {
+		mockReadManifestOrExit.mockResolvedValue(manifest);
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockDiscover.mockResolvedValue(onlyPack(TOOLS));
+		mockCopyPack.mockResolvedValue({
+			copiedFiles: [".claude/skills/a/", ".claude/skills/b/"],
+			assetCounts: { skills: 2 },
+		});
+	}
+
+	it("all-mode updates the pack first, then skips the loose entry it took over in its group", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		await runUpdate();
+
+		expect(mockCloneSource).toHaveBeenCalledOnce();
+		expect(mockCopyPack).toHaveBeenCalledOnce();
+		expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+			"/fake/project",
+			[".claude/skills/b/", ".claude/skills/a/"],
+		);
+		const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+		expect(Object.keys(written)).toEqual([PACK_KEY]);
+		expect(written[PACK_KEY]!.files).toEqual([
+			".claude/skills/a/",
+			".claude/skills/b/",
+		]);
+		expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+	});
+
+	it("all-mode skips a taken-over loose entry whose own group comes after the pack's", async () => {
+		arrangeTakeover({
+			[PACK_KEY]: packEntry(),
+			"owner/repo/a": looseA({ ref: "main" }),
+		});
+
+		await runUpdate();
+
+		// Two groups (head and main), but only the pack's ever clones.
+		expect(mockCloneSource).toHaveBeenCalledOnce();
+		expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+		expect(Object.keys(written)).toEqual([PACK_KEY]);
+	});
+
+	it("reports the loose entry as absorbed into the pack, with the pack's note", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document.items).toEqual([
+			{
+				key: "owner/repo/a",
+				type: "skill",
+				status: "absorbed",
+				ref: null,
+				commit: INSTALLED_SHA,
+				constraint: null,
+				message: "owner/repo/a is now part of the pack owner/repo/tools",
+			},
+			expect.objectContaining({
+				key: PACK_KEY,
+				type: "pack",
+				status: "updated",
+			}),
+		]);
+		expect(run.document.notes).toEqual([NOTE]);
+	});
+
+	describe("when the pack's copy then fails", () => {
+		const LOOSE_MESSAGE =
+			"owner/repo/a was removed — the pack owner/repo/tools took it over, then failed to install";
+		const PACK_MESSAGE =
+			"Update failed for owner/repo/tools after removing old files, and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc add owner/repo/tools --pack` to install it again.";
+
+		it("all-mode drops the loose entry with the pack's, since its files are gone", async () => {
+			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+			mockCopyPack.mockRejectedValue(new Error("disk full"));
+
+			const run = await runMachine(updateCommand, []);
+
+			expect(run.exitCode).toBe(1);
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/b/", ".claude/skills/a/"],
+			);
+			expect(mockWriteManifest).toHaveBeenLastCalledWith("/fake/project", {});
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(run.document.items).toEqual([
+				{
+					key: "owner/repo/a",
+					type: "skill",
+					status: "absorbed",
+					ref: null,
+					commit: INSTALLED_SHA,
+					constraint: null,
+					message: LOOSE_MESSAGE,
+				},
+				{
+					key: PACK_KEY,
+					type: "pack",
+					status: "copy-failed",
+					ref: null,
+					commit: INSTALLED_SHA,
+					constraint: null,
+					message: PACK_MESSAGE,
+				},
+			]);
+			expect(run.document.notes).toEqual([]);
+		});
+
+		it("a key naming both drops the loose entry with the pack's", async () => {
+			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+			mockCopyPack.mockRejectedValue(new Error("disk full"));
+
+			const err = await runUpdate("owner/repo").catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{},
+			);
+			expect(mockLog.error).toHaveBeenCalledWith(PACK_MESSAGE);
+		});
+	});
+
+	it("a key naming both updates the pack and skips the loose entry", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		await runUpdate("owner/repo");
+
+		expect(mockCheckForUpdate).toHaveBeenCalledExactlyOnceWith(
+			PACK_KEY,
+			expect.anything(),
+		);
+		expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
+			[PACK_KEY]: expect.objectContaining({ commit: REMOTE_SHA }),
+		});
+		expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+	});
+
+	it("aborts the pack, install intact, when its skills would land on another source's files", async () => {
+		const other = looseA();
+		arrangeTakeover({ [PACK_KEY]: packEntry(), "other/repo/a": other });
+		mockResolveGroupTarget.mockImplementation(async ({ members: [first] }) =>
+			first!.key === PACK_KEY
+				? { kind: "head", resolvedSha: REMOTE_SHA }
+				: { kind: "head", resolvedSha: INSTALLED_SHA },
+		);
+
+		const err = await runUpdate().catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockCopyPack).not.toHaveBeenCalled();
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+	});
+
+	it("names the other entry and its files when it aborts", async () => {
+		arrangeTakeover({ [PACK_KEY]: packEntry(), "other/repo/a": looseA() });
+
+		await runUpdate(PACK_KEY).catch(() => {});
+
+		expect(mockLog.error).toHaveBeenCalledWith(
+			"owner/repo/tools can't be updated: files of other/repo/a are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
+		);
+	});
+
+	it("aborts, install intact, when files agntc didn't install sit at a new skill's target", async () => {
+		arrangeTakeover({ [PACK_KEY]: packEntry() });
+		mockCheckUnmanaged.mockResolvedValue([".claude/skills/a/"]);
+
+		const err = await runUpdate(PACK_KEY).catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect(mockCheckUnmanaged).toHaveBeenCalledWith(
+			[".claude/skills/a/", ".claude/skills/b/"],
+			{ [PACK_KEY]: packEntry() },
+			"/fake/project",
+		);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockCopyPack).not.toHaveBeenCalled();
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+		expect(mockLog.error).toHaveBeenCalledWith(
+			"owner/repo/tools can't be updated: files agntc didn't install are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
+		);
+	});
+
+	it("checks and names the remedy in the global scope for a global entry", async () => {
+		arrangeTakeover({ [PACK_KEY]: packEntry() });
+		mockCheckUnmanaged.mockResolvedValue([".claude/skills/a/"]);
+
+		await runUpdate(PACK_KEY, {}, interactiveUi, GLOBAL).catch(() => {});
+
+		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, interactiveUi);
+		expect(mockCheckUnmanaged).toHaveBeenCalledWith(
+			[".claude/skills/a/", ".claude/skills/b/"],
+			{ [PACK_KEY]: packEntry() },
+			HOME,
+		);
+		expect(mockLog.error).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"replace them: npx agntc remove -g owner/repo/tools then npx agntc add -g owner/repo/tools --pack --overwrite",
+			),
+		);
+	});
+});
+
+describe("a global update", () => {
+	it("titles itself global", async () => {
+		mockReadManifestOrExit.mockResolvedValue({});
+
+		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+
+		expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc update · global");
+		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, interactiveUi);
+	});
+
+	it("carries -g in a pinned key's upgrade command", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo": makeEntry({ ref: "v1.0" }),
+		});
+		mockCheckForUpdate.mockResolvedValue({
+			status: "newer-tags",
+			tags: ["v2.0", "v3.0"],
+		});
+
+		await runUpdate("owner/repo", {}, interactiveUi, GLOBAL);
+
+		expect(mockOutro).toHaveBeenCalledWith(
+			"To upgrade: npx agntc add -g owner/repo@v3.0",
+		);
+	});
+
+	it("carries -g in a key's out-of-constraint upgrade command", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo": makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0.0",
+			}),
+		});
+		mockCheckForUpdate.mockResolvedValue({
+			status: "constrained-up-to-date",
+			latestOverall: "v2.0.0",
+		});
+
+		await runUpdate("owner/repo", {}, interactiveUi, GLOBAL);
+
+		expect(mockLog.info).toHaveBeenCalledWith(
+			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo",
+		);
+	});
+
+	it("carries -g on every line of a pinned group's upgrade commands", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/a": makeEntry({ ref: "v1.0", commit: INSTALLED_SHA }),
+			"owner/repo/tools": makeEntry({
+				ref: "v1.0",
+				commit: INSTALLED_SHA,
+				type: "pack",
+			}),
+		});
+		mockResolveGroupTarget.mockResolvedValue({
+			kind: "tag",
+			tag: "v1.0",
+			newerTags: ["v3.0"],
+		});
+
+		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+
+		expect(mockLog.info).toHaveBeenCalledWith(
+			[
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+				"    npx agntc add -g owner/repo/a@v3.0",
+				"    npx agntc add -g owner/repo/tools@v3.0 --pack",
+			].join("\n"),
+		);
+	});
+
+	it("carries -g in a constrained group's out-of-constraint upgrade command", async () => {
+		const member = () =>
+			makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.2.3",
+			});
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/a": member(),
+			"owner/repo/b": member(),
+		});
+		mockResolveGroupTarget.mockResolvedValue({
+			kind: "constrained",
+			tag: "v1.2.3",
+			commit: INSTALLED_SHA,
+			latestOverall: "v2.0.0",
+		});
+
+		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+
+		expect(mockLog.info).toHaveBeenCalledWith(
+			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo --skill a b",
+		);
 	});
 });

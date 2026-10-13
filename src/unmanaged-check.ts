@@ -1,52 +1,48 @@
-import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import {
+	inspectInstallPath,
+	installPathMatcher,
+	withoutTrailingSlash,
+} from "./install-paths.js";
 import type { Manifest } from "./manifest.js";
 
 /**
- * Checks incoming file paths against disk for unmanaged conflicts.
- * A file is an "unmanaged conflict" if it exists on disk but is NOT
- * tracked by any manifest entry.
+ * Checks incoming file paths against disk for unmanaged conflicts: whatever
+ * stands where an incoming file would go and no manifest entry tracks. A
+ * symlink counts, dangling or not, and so does a symlinked folder the item
+ * owns above the file, which is reported in the file's place.
  *
  * @param incomingFiles - Relative file paths about to be installed
  * @param manifest - Current manifest (to exclude tracked files)
- * @param projectDir - Project root directory
- * @returns Array of conflicting relative paths
+ * @param installRoot - The folder `.claude` and `.agntc` sit in, for either scope
+ * @returns The conflicting relative paths, each once
  */
 export async function checkUnmanagedConflicts(
 	incomingFiles: string[],
 	manifest: Manifest,
-	projectDir: string,
+	installRoot: string,
 ): Promise<string[]> {
-	if (incomingFiles.length === 0) {
-		return [];
-	}
-
-	// Collect all tracked files from all manifest entries
-	const trackedFiles = new Set<string>();
-	for (const entry of Object.values(manifest)) {
-		for (const file of entry.files) {
-			trackedFiles.add(file);
-		}
-	}
-
-	const conflicts: string[] = [];
+	const isTracked = installPathMatcher(
+		Object.values(manifest).flatMap((entry) => entry.files),
+	);
+	const conflicts = new Set<string>();
 
 	for (const file of incomingFiles) {
-		// Skip if tracked by manifest
-		if (trackedFiles.has(file)) {
-			continue;
-		}
-
-		// Check if it exists on disk
-		const fullPath = join(projectDir, file);
-		try {
-			await stat(fullPath);
-			// Exists and is untracked — conflict
-			conflicts.push(file);
-		} catch {
-			// Does not exist — no conflict
+		const inTheWay = await findInTheWay(installRoot, file);
+		if (inTheWay !== null && !isTracked(inTheWay)) {
+			conflicts.add(inTheWay);
 		}
 	}
 
-	return conflicts;
+	return [...conflicts];
+}
+
+async function findInTheWay(
+	installRoot: string,
+	file: string,
+): Promise<string | null> {
+	const state = await inspectInstallPath(installRoot, file);
+	if (state.kind === "link" && state.at !== withoutTrailingSlash(file)) {
+		return state.at;
+	}
+	return state.kind === "missing" ? null : file;
 }

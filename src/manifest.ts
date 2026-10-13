@@ -1,40 +1,34 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import * as p from "@clack/prompts";
-import { identifyFileOwnership } from "./drivers/identify.js";
-import { getDriver } from "./drivers/registry.js";
-import type { AgentId } from "./drivers/types.js";
+import { identifyAssetType, isUnderRoot, targetDir } from "./asset-targets.js";
 import { errorMessage, isNodeError } from "./errors.js";
-import { ExitSignal } from "./exit-signal.js";
-import type { DetectedType } from "./type-detection.js";
+import type { Ui } from "./ui.js";
+
+/** What an entry installed: one skill, or a pack of skills, agents and hooks. */
+export type EntryType = "skill" | "pack";
 
 export interface ManifestEntry {
 	ref: string | null;
 	commit: string | null;
 	installedAt: string;
-	agents: AgentId[];
 	files: string[];
-	type?: "skill" | "plugin";
+	type?: EntryType;
 	cloneUrl: string | null;
 	constraint?: string;
 	/**
-	 * The unit's clone-relative source path, recorded ONLY when it diverges from
-	 * the manifest-key's basename segment — i.e. a skills-only collection member
-	 * keyed `owner/repo/<name>` whose source actually lives at
-	 * `<clone>/skills/<name>` (cycle-9 regression fix). `update` re-clones and
-	 * reconstructs the source dir from the manifest key via
-	 * {@link getSourceDirFromKey}; for a basename-keyed skills-only member that
-	 * derives the WRONG dir (`<clone>/<name>`), so derive-before-delete finds no
-	 * SKILL.md and aborts. The update source-resolver
-	 * (clone-reinstall `cloneAndReinstall`) PREFERS this stored subpath when
-	 * present, falling back to the key-derived dir when absent. Identity stays the
-	 * basename (key + install destination unchanged); this records only WHERE to
-	 * re-copy from. OPTIONAL and backward-compatible: root-child members and all
-	 * standalone entries (segment === basename) omit it and round-trip via the key
-	 * exactly as before; legacy manifests without it remain valid.
+	 * The item's clone-relative source path, recorded only when the key doesn't
+	 * spell it: a skill keyed `owner/repo/<name>` that lives at
+	 * `<clone>/skills/<name>`. `update` prefers it over the path derived from
+	 * the key ({@link resolveGuardedSourceDir}); entries without it re-copy from the
+	 * key-derived path.
 	 */
 	sourceSubpath?: string;
+	/**
+	 * The folder a local entry was added from, which its key doesn't mark.
+	 * Entries from before it was recorded derive it ({@link localSourceRoot}).
+	 */
+	localRoot?: string;
 }
 
 export type Manifest = Record<string, ManifestEntry>;
@@ -58,35 +52,21 @@ export type ManifestEntryInput = Omit<ManifestEntry, "installedAt">;
  * preserving the byte-identical entry shape they have today.
  */
 export function buildManifestEntry(fields: ManifestEntryInput): ManifestEntry {
-	const { constraint, sourceSubpath, ...rest } = fields;
+	const { constraint, sourceSubpath, localRoot, ...rest } = fields;
 	return {
 		...rest,
 		installedAt: new Date().toISOString(),
 		...(constraint !== undefined && { constraint }),
 		...(sourceSubpath !== undefined && { sourceSubpath }),
+		...(localRoot !== undefined && { localRoot }),
 	};
-}
-
-/**
- * Maps the resolved {@link DetectedType} of a standalone-installable unit to the
- * value persisted in {@link ManifestEntry.type}. Only the two standalone
- * variants reach the manifest write point (collection/not-agntc are routed or
- * exit earlier), so the param is the narrowed {@link DetectedType} variant —
- * anchoring the mapping to the union so a future structural variant forces a
- * compile error here. The `bare-skill` -> `skill` mapping is the seam: the
- * manifest never stores the literal `bare-skill`.
- */
-export function manifestTypeFromDetected(
-	t: Extract<DetectedType, { type: "bare-skill" | "plugin" }>,
-): "skill" | "plugin" {
-	return t.type === "bare-skill" ? "skill" : "plugin";
 }
 
 const AGNTC_DIR = ".agntc";
 const MANIFEST_FILE = "manifest.json";
 
-export async function readManifest(projectDir: string): Promise<Manifest> {
-	const manifestPath = join(projectDir, AGNTC_DIR, MANIFEST_FILE);
+export async function readManifest(installRoot: string): Promise<Manifest> {
+	const manifestPath = join(installRoot, AGNTC_DIR, MANIFEST_FILE);
 
 	let raw: string;
 	try {
@@ -100,76 +80,89 @@ export async function readManifest(projectDir: string): Promise<Manifest> {
 
 	const parsed = JSON.parse(raw) as Record<string, Record<string, unknown>>;
 
-	// Backfill cloneUrl for manifests written before this field existed.
 	for (const entry of Object.values(parsed)) {
-		if (!("cloneUrl" in entry)) {
-			entry.cloneUrl = null;
-		}
-	}
-
-	// Backfill type for manifests written before this field existed. Derived
-	// solely from local files (anti-drift: never re-clone/re-detect/read config).
-	// Mutated in-memory only; persisted on the next writeManifest.
-	for (const entry of Object.values(parsed)) {
-		if (!("type" in entry)) {
-			entry.type = deriveTypeFromFiles((entry.files as string[]) ?? []);
-		}
+		normalizeLegacyEntry(entry);
 	}
 
 	return parsed as unknown as Manifest;
 }
 
 /**
- * Derives a legacy entry's {@link ManifestEntry.type} from its installed local
- * files alone (anti-drift: no clone/detect/config read). Total and non-throwing.
- *
- * - Any agents- or hooks-owned file -> `plugin`.
- * - Otherwise, more than one distinct skill directory -> `plugin`.
- * - Otherwise (<=1 skill dir, no agents/hooks, empty, or unrecognised) ->
- *   `skill` (lenient default; single-skill ambiguity resolved to skill).
+ * Brings an entry written by an older agntc up to the current shape, in memory
+ * only; the next writeManifest persists it. Reads a v1 `plugin` as a pack,
+ * backfills `cloneUrl` and a missing `type` (derived solely from local files —
+ * never re-clone, re-detect or read config) and drops the per-agent `agents`
+ * list.
  */
-export function deriveTypeFromFiles(files: string[]): "skill" | "plugin" {
+function normalizeLegacyEntry(entry: Record<string, unknown>): void {
+	if (!("cloneUrl" in entry)) {
+		entry.cloneUrl = null;
+	}
+	if (!("type" in entry)) {
+		entry.type = deriveTypeFromFiles((entry.files as string[]) ?? []);
+	} else if (entry.type === "plugin") {
+		entry.type = "pack";
+	}
+	delete entry.agents;
+}
+
+/**
+ * Derives a legacy entry's {@link ManifestEntry.type} from its installed local
+ * files alone. Total and non-throwing.
+ *
+ * - Any agents- or hooks-owned file -> `pack`.
+ * - Otherwise, more than one distinct skill directory -> `pack`.
+ * - Otherwise (<=1 skill dir, no agents/hooks, empty, or unrecognised) ->
+ *   `skill`.
+ */
+export function deriveTypeFromFiles(files: string[]): EntryType {
 	const skillDirs = new Set<string>();
 
 	for (const file of files) {
-		const ownership = identifyFileOwnership(file);
-		if (ownership === null) {
-			continue;
+		const assetType = identifyAssetType(file);
+		if (assetType === "agents" || assetType === "hooks") {
+			return "pack";
 		}
-		if (ownership.assetType === "agents" || ownership.assetType === "hooks") {
-			return "plugin";
-		}
-		const skillDir = skillDirName(file, ownership.agentId);
+		const skillDir = skillDirName(file);
 		if (skillDir !== null) {
 			skillDirs.add(skillDir);
 		}
 	}
 
-	return skillDirs.size > 1 ? "plugin" : "skill";
+	return skillDirs.size > 1 ? "pack" : "skill";
 }
 
 /**
- * Extracts the `<name>` segment from a skills-owned path of the form
- * `<skills-target>/<name>/...`. Returns null when no segment follows the target.
+ * Skill roots that older, multi-agent manifests may record files under. Read
+ * only by the type backfill; nothing installs there.
  */
-function skillDirName(filePath: string, agentId: AgentId): string | null {
-	const targetDir = getDriver(agentId).getTargetDir("skills");
-	if (targetDir === null) {
+const LEGACY_SKILL_ROOTS = [".agents/skills", ".cursor/skills"];
+
+const SKILL_ROOTS = [targetDir("skills"), ...LEGACY_SKILL_ROOTS];
+
+/**
+ * Extracts the `<name>` segment from a skills-owned path of the form
+ * `<skills-root>/<name>/...`. Returns null when the path is under no skills
+ * root or no segment follows it.
+ */
+function skillDirName(filePath: string): string | null {
+	const root = SKILL_ROOTS.find((r) => isUnderRoot(filePath, r));
+	if (root === undefined) {
 		return null;
 	}
-	const remainder = filePath.slice(targetDir.length).replace(/^\/+/, "");
+	const remainder = filePath.slice(root.length).replace(/^\/+/, "");
 	const [name] = remainder.split("/");
 	return name === undefined || name === "" ? null : name;
 }
 
 export async function writeManifest(
-	projectDir: string,
+	installRoot: string,
 	manifest: Manifest,
 ): Promise<void> {
-	const dirPath = join(projectDir, AGNTC_DIR);
+	const dirPath = join(installRoot, AGNTC_DIR);
 	await mkdir(dirPath, { recursive: true });
 
-	const content = JSON.stringify(manifest, null, 2) + "\n";
+	const content = `${JSON.stringify(manifest, null, 2)}\n`;
 	const tempPath = join(dirPath, `.manifest-${randomUUID()}.tmp`);
 
 	await writeFile(tempPath, content, "utf-8");
@@ -190,10 +183,12 @@ export function removeEntry(manifest: Manifest, key: string): Manifest {
 }
 
 export async function readManifestOrExit(
-	projectDir: string,
+	installRoot: string,
+	ui: Ui,
 ): Promise<Manifest> {
-	return readManifest(projectDir).catch((err: unknown) => {
-		p.log.error(`Failed to read manifest: ${errorMessage(err)}`);
-		throw new ExitSignal(1);
-	});
+	return readManifest(installRoot).catch((err: unknown) =>
+		ui.fail(`Failed to read manifest: ${errorMessage(err)}`, {
+			style: "error",
+		}),
+	);
 }

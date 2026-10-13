@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import type { Manifest } from "../../src/manifest.js";
-import type { NukeResult } from "../../src/nuke-files.js";
 
 vi.mock("@clack/prompts", () => ({
 	intro: vi.fn(),
@@ -19,7 +18,9 @@ vi.mock("@clack/prompts", () => ({
 	isCancel: (value: unknown): value is symbol => typeof value === "symbol",
 }));
 
-vi.mock("../../src/manifest.js", () => ({
+vi.mock("../../src/manifest.js", async (importOriginal) => ({
+	removeEntry: (await importOriginal<typeof import("../../src/manifest.js")>())
+		.removeEntry,
 	readManifest: vi.fn(),
 	readManifestOrExit: vi.fn(),
 	writeManifest: vi.fn(),
@@ -30,9 +31,11 @@ vi.mock("../../src/nuke-files.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { runRemove } from "../../src/commands/remove.js";
+import { removeCommand, runRemove } from "../../src/commands/remove.js";
 import { readManifestOrExit, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { interactiveUi } from "../../src/ui.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockWriteManifest = vi.mocked(writeManifest);
@@ -41,7 +44,6 @@ const mockConfirm = vi.mocked(p.confirm);
 const mockMultiselect = vi.mocked(p.multiselect);
 const mockOutro = vi.mocked(p.outro);
 const mockIntro = vi.mocked(p.intro);
-const mockCancel = vi.mocked(p.cancel);
 const mockLog = vi.mocked(p.log);
 
 beforeEach(() => {
@@ -53,12 +55,12 @@ beforeEach(() => {
 
 describe("remove command", () => {
 	describe("empty manifest", () => {
-		it("displays 'No plugins installed.' and exits 0", async () => {
+		it("displays 'No skills or packs installed.' and exits 0", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
 			await expect(runRemove("owner/repo")).resolves.toBeUndefined();
 
-			expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 		});
 	});
 
@@ -69,7 +71,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				},
 			};
@@ -103,21 +104,19 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude", "codex"],
-					files: [".claude/skills/go/", ".agents/skills/go/"],
+					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockConfirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
-				removed: [".claude/skills/go/", ".agents/skills/go/"],
+				removed: [".claude/skills/go/"],
 				skipped: [],
 			});
 
@@ -125,11 +124,45 @@ describe("remove command", () => {
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
-				".agents/skills/go/",
 			]);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
 				"owner/repo/python": manifest["owner/repo/python"],
 			});
+		});
+	});
+
+	describe("legacy multi-agent entry", () => {
+		it("deletes every recorded file, whatever its root", async () => {
+			const legacyFiles = [
+				".claude/skills/go/",
+				".agents/skills/go/",
+				".cursor/skills/go/",
+			];
+			const manifest: Manifest = {
+				"owner/repo/go": {
+					ref: null,
+					commit: "def456",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: legacyFiles,
+					cloneUrl: null,
+				},
+			};
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockConfirm.mockResolvedValue(true);
+
+			await runRemove("owner/repo/go");
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				legacyFiles,
+			);
+			for (const file of legacyFiles) {
+				expect(mockLog.message).toHaveBeenCalledWith(`  ${file}`);
+			}
+			expect(mockOutro).toHaveBeenCalledWith(
+				expect.stringContaining("3 file(s)"),
+			);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
 		});
 	});
 
@@ -140,21 +173,18 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 				"other/plugin": {
 					ref: "v1.0",
 					commit: "xyz789",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/other/"],
 				},
 			};
@@ -185,14 +215,12 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/", ".claude/agents/python-agent.md"],
 				},
 			};
@@ -218,7 +246,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -229,7 +256,7 @@ describe("remove command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Plugin nonexistent/plugin is not installed.",
+				"nonexistent/plugin is not installed.",
 			);
 		});
 	});
@@ -241,7 +268,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				},
 			};
@@ -269,7 +295,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -290,7 +315,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			});
@@ -311,7 +335,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [
 						".claude/skills/planning/",
 						".claude/skills/review/",
@@ -347,7 +370,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				},
 			};
@@ -371,14 +393,12 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 				"other/plugin": {
 					ref: "v2.0",
 					commit: "def456",
 					installedAt: "2026-01-16T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/other/"],
 				},
 			};
@@ -404,21 +424,18 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 				"unrelated/plugin": {
 					ref: "v1.0",
 					commit: "xyz789",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/unrelated/"],
 				},
 			};
@@ -441,7 +458,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [
 						".claude/skills/planning/",
 						".claude/skills/review/",
@@ -471,7 +487,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -495,7 +510,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -523,7 +537,10 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo");
 
-			expect(mockReadManifestOrExit).toHaveBeenCalledWith("/fake/project");
+			expect(mockReadManifestOrExit).toHaveBeenCalledWith(
+				"/fake/project",
+				interactiveUi,
+			);
 		});
 	});
 
@@ -545,7 +562,7 @@ describe("remove command", () => {
 
 				await expect(runRemove()).resolves.toBeUndefined();
 
-				expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+				expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 				expect(mockMultiselect).not.toHaveBeenCalled();
 			});
 		});
@@ -557,14 +574,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: null,
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude", "codex"],
 						files: [".claude/skills/other/"],
 					},
 				};
@@ -578,6 +593,7 @@ describe("remove command", () => {
 				const call = mockMultiselect.mock.calls[0]![0];
 				const values = call.options.map((o: { value: string }) => o.value);
 				expect(values).toEqual(["owner/repo", "other/plugin"]);
+				expect(call.message).toBe("Select what to remove");
 			});
 
 			it("shows the 'agntc remove' intro before the multiselect", async () => {
@@ -586,7 +602,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				};
@@ -608,14 +623,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: null,
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/"],
 					},
 				};
@@ -643,7 +656,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				};
@@ -667,7 +679,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				});
@@ -689,7 +700,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				});
@@ -711,14 +721,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 					},
 					"other/plugin": {
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/"],
 					},
 				};
@@ -747,21 +755,18 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/"],
 					},
 					"keep/this": {
 						ref: null,
 						commit: "xyz789",
 						installedAt: "2026-01-17T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/keep/"],
 					},
 				};
@@ -789,7 +794,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 				};
@@ -811,7 +815,6 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [
 							".claude/skills/planning/",
 							".claude/skills/review/",
@@ -846,14 +849,12 @@ describe("remove command", () => {
 						ref: "v1.0",
 						commit: "abc123",
 						installedAt: "2026-01-15T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/my-skill/"],
 					},
 					"other/plugin": {
 						ref: "v2.0",
 						commit: "def456",
 						installedAt: "2026-01-16T10:00:00.000Z",
-						agents: ["claude"],
 						files: [".claude/skills/other/", ".claude/agents/agent.md"],
 					},
 				};
@@ -864,7 +865,7 @@ describe("remove command", () => {
 				await runRemove();
 
 				expect(mockOutro).toHaveBeenCalledWith(
-					"Removed 2 plugin(s) — 3 file(s)",
+					"Removed 2 install(s) — 3 file(s)",
 				);
 			});
 		});
@@ -877,7 +878,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [
 						".claude/skills/planning/",
 						".claude/skills/review/",
@@ -916,7 +916,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -946,14 +945,12 @@ describe("remove command", () => {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/go/"],
 				},
 				"owner/repo/python": {
 					ref: null,
 					commit: "def456",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/python/"],
 				},
 			};
@@ -978,7 +975,6 @@ describe("remove command", () => {
 					ref: "v1.0",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
-					agents: ["claude"],
 					files: [".claude/skills/my-skill/"],
 				},
 			};
@@ -989,6 +985,252 @@ describe("remove command", () => {
 			await runRemove("owner/repo");
 
 			expect(mockLog.info).not.toHaveBeenCalled();
+		});
+	});
+	describe("-y", () => {
+		const manifest: Manifest = {
+			"owner/repo/go": {
+				ref: "v1.0.0",
+				commit: "def456",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/go/"],
+				type: "skill",
+				cloneUrl: null,
+			},
+			"other/plugin": {
+				ref: null,
+				commit: "xyz789",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/other/"],
+				cloneUrl: null,
+			},
+		};
+
+		beforeEach(() => {
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+		});
+
+		it("is taken as -y and --yes", () => {
+			const option = removeCommand.options.find((o) => o.long === "--yes");
+			expect(option?.short).toBe("-y");
+		});
+
+		it("removes without asking at a terminal", async () => {
+			await runRemove("owner/repo/go", { yes: true });
+
+			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockOutro).toHaveBeenCalledWith(
+				"Removed owner/repo/go — 1 file(s)",
+			);
+		});
+
+		it("removes without a terminal, printing one document of what went", async () => {
+			const run = await runMachine(removeCommand, ["owner/repo/go", "-y"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "remove",
+				scope: "project",
+				removed: [
+					{
+						key: "owner/repo/go",
+						type: "skill",
+						ref: "v1.0.0",
+						commit: "def456",
+						constraint: null,
+						files: [".claude/skills/go/"],
+					},
+				],
+				failed: [],
+				warnings: [],
+				notes: [],
+			});
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+				"other/plugin": manifest["other/plugin"],
+			});
+			expect(clackCalls(p)).toEqual([]);
+		});
+
+		it("left off without a terminal, refuses before deleting anything, naming -y", async () => {
+			const run = await runMachine(removeCommand, ["owner/repo/go"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "remove",
+				scope: "project",
+				error: {
+					message: "removing owner/repo/go deletes 1 file(s) — confirm with -y",
+					flags: ["-y"],
+				},
+				warnings: [],
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(clackCalls(p)).toEqual([]);
+		});
+	});
+
+	describe("without a terminal", () => {
+		it("refuses with no key, naming the key argument, since it can't show the list", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": {
+					ref: null,
+					commit: "abc123",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: [".claude/skills/my-skill/"],
+				},
+			});
+
+			const run = await runMachine(removeCommand, ["-y"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document.error).toEqual({
+				message:
+					"remove needs the key of what to remove without a terminal: npx agntc remove <key>",
+				flags: ["<key>"],
+			});
+			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("prints an error document for a key that isn't installed", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": {
+					ref: null,
+					commit: "abc123",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: [".claude/skills/my-skill/"],
+				},
+			});
+
+			const run = await runMachine(removeCommand, ["nope/repo", "-y"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "remove",
+				scope: "project",
+				error: { message: "nope/repo is not installed." },
+				warnings: [],
+				notes: [],
+			});
+		});
+
+		it("reports nothing removed when nothing is installed", async () => {
+			mockReadManifestOrExit.mockResolvedValue({});
+
+			const run = await runMachine(removeCommand, []);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({ ok: true, removed: [], failed: [] });
+		});
+	});
+
+	describe("a key whose removal fails", () => {
+		function installed(skill: string) {
+			return {
+				ref: null,
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [`.claude/skills/${skill}/`],
+				type: "skill" as const,
+				cloneUrl: null,
+			};
+		}
+
+		const manifest: Manifest = {
+			"owner/repo/a": installed("a"),
+			"owner/repo/b": installed("b"),
+			"owner/repo/c": installed("c"),
+			"other/repo": installed("other"),
+		};
+
+		function removedJson(key: string, skill: string) {
+			return {
+				key,
+				type: "skill",
+				ref: null,
+				commit: "abc123",
+				constraint: null,
+				files: [`.claude/skills/${skill}/`],
+			};
+		}
+
+		beforeEach(() => {
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockNukeManifestFiles.mockImplementation(async (_, files) => {
+				if (files.includes(".claude/skills/b/")) {
+					throw new Error("EACCES: permission denied");
+				}
+				return { removed: files, skipped: [] };
+			});
+		});
+
+		it("removes the keys around it, keeps it recorded, names it and exits 1", async () => {
+			await expect(
+				runRemove("owner/repo", { yes: true }),
+			).rejects.toMatchObject({ code: 1 });
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledTimes(3);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+				"owner/repo/b": manifest["owner/repo/b"],
+				"other/repo": manifest["other/repo"],
+			});
+			expect(mockLog.error).toHaveBeenCalledWith(
+				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
+			);
+			expect(mockOutro).toHaveBeenCalledWith(
+				"Removed 2 install(s) — 2 file(s)",
+			);
+		});
+
+		it("without a terminal, reports only the keys removed and the failure, with ok false", async () => {
+			const run = await runMachine(removeCommand, ["owner/repo", "-y"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "remove",
+				scope: "project",
+				removed: [
+					removedJson("owner/repo/a", "a"),
+					removedJson("owner/repo/c", "c"),
+				],
+				failed: [
+					{
+						key: "owner/repo/b",
+						type: "skill",
+						ref: null,
+						commit: "abc123",
+						constraint: null,
+						reason: "EACCES: permission denied",
+					},
+				],
+				warnings: [],
+				notes: [],
+			});
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+				"owner/repo/b": manifest["owner/repo/b"],
+				"other/repo": manifest["other/repo"],
+			});
+		});
+
+		it("alone, removes nothing, keeps it recorded and exits 1", async () => {
+			await expect(
+				runRemove("owner/repo/b", { yes: true }),
+			).rejects.toMatchObject({ code: 1 });
+
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", manifest);
+			expect(mockLog.error).toHaveBeenCalledWith(
+				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
+			);
+			expect(mockOutro).toHaveBeenCalledWith("Nothing removed");
 		});
 	});
 });

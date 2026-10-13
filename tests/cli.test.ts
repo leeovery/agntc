@@ -46,10 +46,17 @@ function run(args: string[]): {
 	}
 }
 
+// execFileSync pipes stdin and stdout, so every subcommand here runs without a
+// terminal and answers with one JSON document.
+function runPiped(args: string[]) {
+	const result = run(args);
+	return { ...result, document: JSON.parse(result.stdout) };
+}
+
 beforeAll(() => {
 	execSync("npm run build", { cwd: ROOT, stdio: "pipe" });
 	cwd = mkdtempSync(join(tmpdir(), "agntc-cli-test-"));
-});
+}, 60_000);
 
 afterAll(() => {
 	if (cwd) rmSync(cwd, { recursive: true, force: true });
@@ -75,6 +82,21 @@ describe("agntc --help", () => {
 		expect(stdout).toContain("remove");
 		expect(stdout).toContain("update");
 	});
+
+	it("names what's installed as skills and packs, never plugins or collections", () => {
+		const helps = ["add", "list", "remove", "update", "init"].map(
+			(command) => run([command, "--help"]).stdout,
+		);
+		const all = [run(["--help"]).stdout, ...helps].join("\n");
+
+		expect(all).not.toMatch(/plugin|collection/i);
+		expect(all).toContain("List installed skills and packs");
+		expect(all).toContain("Remove installed skills and packs");
+		expect(all).toContain("Update installed skills and packs");
+		expect(all).toContain(
+			"Key to remove (owner/repo or owner/repo/<skill or pack path>)",
+		);
+	});
 });
 
 describe("agntc add", () => {
@@ -84,31 +106,41 @@ describe("agntc add", () => {
 	});
 
 	it("exits non-zero with malformed source (bare repo name)", () => {
-		const { stdout, exitCode } = run(["add", "repo"]);
+		const { document, exitCode } = runPiped(["add", "repo"]);
 		expect(exitCode).not.toBe(0);
-		expect(stdout).toContain("owner/repo");
+		expect(document).toMatchObject({ ok: false, command: "add" });
+		expect(document.error.message).toContain("owner/repo");
 	});
 });
 
 describe("agntc list", () => {
-	it("exits 0 and outputs placeholder message", () => {
-		const { stdout, exitCode } = run(["list"]);
+	it("exits 0 and prints what's installed as JSON", () => {
+		const { document, exitCode } = runPiped(["list"]);
 		expect(exitCode).toBe(0);
-		expect(stdout.length).toBeGreaterThan(0);
+		expect(document).toEqual({
+			ok: true,
+			command: "list",
+			scope: "project",
+			entries: [],
+			warnings: [],
+			notes: [],
+		});
 	});
 });
 
 describe("agntc remove", () => {
-	it("exits 0 with no key argument (interactive mode)", () => {
-		const { exitCode } = run(["remove"]);
+	it("exits 0 with no key argument and nothing installed", () => {
+		const { document, exitCode } = runPiped(["remove"]);
 		expect(exitCode).toBe(0);
+		expect(document).toMatchObject({ ok: true, removed: [] });
 	});
 });
 
 describe("agntc update", () => {
 	it("exits 0 with no key argument (all-plugins mode)", () => {
-		const { exitCode } = run(["update"]);
+		const { document, exitCode } = runPiped(["update"]);
 		expect(exitCode).toBe(0);
+		expect(document).toMatchObject({ ok: true, items: [] });
 	});
 });
 
@@ -117,12 +149,33 @@ describe("agntc init", () => {
 		const { stdout, exitCode } = run(["--help"]);
 		expect(exitCode).toBe(0);
 		expect(stdout).toContain("init");
-		expect(stdout).toContain("Scaffold a new agntc plugin");
+		expect(stdout).toContain("Scaffold a new skill or pack");
 	});
 
-	it("exits with code 0", () => {
-		const { exitCode } = run(["init"]);
-		expect(exitCode).toBe(0);
+	it("refuses without a terminal when no type is given, naming the types", () => {
+		const { document, exitCode } = runPiped(["init"]);
+		expect(exitCode).not.toBe(0);
+		expect(document).toMatchObject({
+			ok: false,
+			command: "init",
+			error: { flags: ["skill", "pack"] },
+		});
+	});
+
+	it("refuses without a terminal when -y isn't given", () => {
+		const { document, exitCode } = runPiped(["init", "skill"]);
+		expect(exitCode).not.toBe(0);
+		expect(document).toMatchObject({
+			ok: false,
+			command: "init",
+			error: { flags: ["-y"] },
+		});
+	});
+
+	it("rejects a type that isn't skill or pack", () => {
+		const { exitCode, stderr } = run(["init", "plugin"]);
+		expect(exitCode).not.toBe(0);
+		expect(stderr).toContain("Allowed choices are skill, pack");
 	});
 
 	it("rejects extra arguments", () => {
@@ -158,9 +211,10 @@ describe("banner", () => {
 		expect(run(["--help"]).stdout).toContain("agent skills installer");
 	});
 
-	it("shows on a subcommand (always-on)", () => {
-		// list exits 0 even with no manifest; its output should carry the banner
-		expect(run(["list"]).stdout).toContain("agent skills installer");
+	it("is suppressed on a subcommand without a terminal, leaving stdout one JSON document", () => {
+		const { stdout } = run(["list"]);
+		expect(stdout).not.toContain("agent skills installer");
+		expect(() => JSON.parse(stdout)).not.toThrow();
 	});
 
 	it("is suppressed for --version (clean for scripts)", () => {

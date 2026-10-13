@@ -252,15 +252,11 @@ describe("formatGroupHeader", () => {
 });
 
 describe("formatMemberLine", () => {
-	it("success renders <name> → <agents> at success level with no parenthetical when no move or drop", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "design",
-				agents: ["claude"],
-				droppedAgents: [],
-			}),
-		).toEqual({ level: "success", text: "design → claude" });
+	it("success renders the bare member name at success level with no parenthetical when no move", () => {
+		expect(formatMemberLine({ kind: "success", name: "design" })).toEqual({
+			level: "success",
+			text: "design",
+		});
 	});
 
 	it("divergent-old success carries its own (old -> new) move parenthetical", () => {
@@ -268,13 +264,11 @@ describe("formatMemberLine", () => {
 			formatMemberLine({
 				kind: "success",
 				name: "macos",
-				agents: ["claude"],
-				droppedAgents: [],
 				move: { oldRef: null, newRef: null, oldCommit: OLD_A, newCommit: NEW },
 			}),
 		).toEqual({
 			level: "success",
-			text: "macos → claude  (1a2b3c4 -> 9f8e7d6)",
+			text: "macos  (1a2b3c4 -> 9f8e7d6)",
 		});
 	});
 
@@ -283,8 +277,6 @@ describe("formatMemberLine", () => {
 			formatMemberLine({
 				kind: "success",
 				name: "macos",
-				agents: ["claude"],
-				droppedAgents: [],
 				move: {
 					oldRef: "v1.2.0",
 					newRef: "v1.3.0",
@@ -294,36 +286,7 @@ describe("formatMemberLine", () => {
 			}),
 		).toEqual({
 			level: "success",
-			text: "macos → claude  (v1.2.0 -> v1.3.0)",
-		});
-	});
-
-	it("success with dropped agents appends the support removed by plugin author notice in the parenthetical", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "macos",
-				agents: ["claude"],
-				droppedAgents: ["codex"],
-			}),
-		).toEqual({
-			level: "success",
-			text: "macos → claude  (codex support removed by plugin author)",
-		});
-	});
-
-	it("success with both a move and a drop shares one parenthetical joined by ;", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "macos",
-				agents: ["claude"],
-				droppedAgents: ["codex"],
-				move: { oldRef: null, newRef: null, oldCommit: OLD_A, newCommit: NEW },
-			}),
-		).toEqual({
-			level: "success",
-			text: "macos → claude  (1a2b3c4 -> 9f8e7d6; codex support removed by plugin author)",
+			text: "macos  (v1.2.0 -> v1.3.0)",
 		});
 	});
 
@@ -367,13 +330,6 @@ describe("formatMemberLine", () => {
 		expect(line.text).not.toContain("npx agntc remove");
 		expect(line.text).not.toContain("npx agntc add");
 	});
-
-	it("no-agents renders at warn level as a skip", () => {
-		expect(formatMemberLine({ kind: "no-agents", name: "design" })).toEqual({
-			level: "warn",
-			text: "design: skipped — no longer supports installed agents",
-		});
-	});
 });
 
 describe("formatUpToDateLine", () => {
@@ -397,19 +353,38 @@ describe("formatUpToDateLine", () => {
 });
 
 describe("formatNewerTagsLine", () => {
-	it("renders the pinned-ref notice plus the repo-level agntc add command", () => {
+	it("renders the pinned-ref notice plus the one member's re-add command inline", () => {
 		expect(
-			formatNewerTagsLine("owner/repo", "owner/repo", "v1.0", "v3.0"),
+			formatNewerTagsLine("owner/repo", "v1.0", "v3.0", [
+				"npx agntc add owner/repo@v3.0",
+			]),
 		).toBe(
 			"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
 		);
 	});
 
-	it("builds the add command from the bare repo target, not the @intent display label", () => {
+	it("keeps the @intent display label out of the commands", () => {
 		expect(
-			formatNewerTagsLine("owner/repo@main", "owner/repo", "v1.0", "v2.0"),
+			formatNewerTagsLine("owner/repo@main", "v1.0", "v2.0", [
+				"npx agntc add owner/repo/skills/a@v2.0",
+			]),
 		).toBe(
-			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo@v2.0",
+			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo/skills/a@v2.0",
+		);
+	});
+
+	it("lists several members' commands one per line", () => {
+		expect(
+			formatNewerTagsLine("owner/repo", "v1.0", "v2.0", [
+				"npx agntc add owner/repo/a@v2.0",
+				"npx agntc add owner/repo/tools@v2.0 --pack",
+			]),
+		).toBe(
+			[
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade:",
+				"    npx agntc add owner/repo/a@v2.0",
+				"    npx agntc add owner/repo/tools@v2.0 --pack",
+			].join("\n"),
 		);
 	});
 });

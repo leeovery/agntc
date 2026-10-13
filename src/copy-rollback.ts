@@ -1,16 +1,14 @@
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
 import { errorMessage } from "./errors.js";
+import { removeInstallPath } from "./nuke-files.js";
 
 export async function rollbackCopiedFiles(
 	files: string[],
-	projectDir: string,
+	installRoot: string,
 	onWarn?: (message: string) => void,
 ): Promise<void> {
 	for (const file of files) {
-		const fullPath = join(projectDir, file);
 		try {
-			await rm(fullPath, { recursive: true, force: true });
+			await removeInstallPath(installRoot, file);
 		} catch (err) {
 			if (onWarn) {
 				onWarn(`Rollback: failed to delete ${file}: ${errorMessage(err)}`);

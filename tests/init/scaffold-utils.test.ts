@@ -1,10 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeConfigFile } from "../../src/init/scaffold-utils.js";
+import { writeScaffold } from "../../src/init/scaffold-utils.js";
 
-describe("writeConfigFile", () => {
+describe("writeScaffold", () => {
 	let testDir: string;
 
 	beforeEach(async () => {
@@ -15,68 +15,39 @@ describe("writeConfigFile", () => {
 		await rm(testDir, { recursive: true, force: true });
 	});
 
-	it("returns created status when file does not exist", async () => {
-		const result = await writeConfigFile(testDir, ["claude"]);
+	it("writes each file, creating the folders on its path", async () => {
+		const result = await writeScaffold(testDir, [
+			{ path: "top.md", content: "top" },
+			{ path: "a/b/deep.md", content: "deep" },
+		]);
 
-		expect(result).toEqual({ path: "agntc.json", status: "created" });
-	});
-
-	it("writes agntc.json with correct content when created", async () => {
-		await writeConfigFile(testDir, ["claude"]);
-
-		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
-		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
-	});
-
-	it("returns skipped status when file exists and reconfigure is undefined", async () => {
-		await writeFile(join(testDir, "agntc.json"), "{}");
-
-		const result = await writeConfigFile(testDir, ["claude"]);
-
-		expect(result).toEqual({ path: "agntc.json", status: "skipped" });
-	});
-
-	it("returns skipped status when file exists and reconfigure is false", async () => {
-		await writeFile(join(testDir, "agntc.json"), "{}");
-
-		const result = await writeConfigFile(testDir, ["claude"], false);
-
-		expect(result).toEqual({ path: "agntc.json", status: "skipped" });
-	});
-
-	it("does not modify file when skipped", async () => {
-		const original = '{"agents": ["codex"]}\n';
-		await writeFile(join(testDir, "agntc.json"), original);
-
-		await writeConfigFile(testDir, ["claude"]);
-
-		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
-		expect(content).toBe(original);
-	});
-
-	it("returns overwritten status when file exists and reconfigure is true", async () => {
-		await writeFile(join(testDir, "agntc.json"), "{}");
-
-		const result = await writeConfigFile(testDir, ["claude"], true);
-
-		expect(result).toEqual({ path: "agntc.json", status: "overwritten" });
-	});
-
-	it("overwrites file content when reconfigure is true", async () => {
-		await writeFile(join(testDir, "agntc.json"), '{"agents": ["codex"]}');
-
-		await writeConfigFile(testDir, ["claude"], true);
-
-		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
-		expect(content).toBe('{\n  "agents": [\n    "claude"\n  ]\n}\n');
-	});
-
-	it("writes both agents when both selected", async () => {
-		await writeConfigFile(testDir, ["claude", "codex"]);
-
-		const content = await readFile(join(testDir, "agntc.json"), "utf-8");
-		expect(content).toBe(
-			'{\n  "agents": [\n    "claude",\n    "codex"\n  ]\n}\n',
+		expect(await readFile(join(testDir, "top.md"), "utf-8")).toBe("top");
+		expect(await readFile(join(testDir, "a", "b", "deep.md"), "utf-8")).toBe(
+			"deep",
 		);
+		expect(result).toEqual({
+			created: ["top.md", "a/b/deep.md"],
+			skipped: [],
+		});
+	});
+
+	it("leaves a file that already exists untouched and reports it skipped", async () => {
+		await writeFile(join(testDir, "top.md"), "mine");
+
+		const result = await writeScaffold(testDir, [
+			{ path: "top.md", content: "theirs" },
+			{ path: "other.md", content: "other" },
+		]);
+
+		expect(await readFile(join(testDir, "top.md"), "utf-8")).toBe("mine");
+		expect(result).toEqual({ created: ["other.md"], skipped: ["top.md"] });
+	});
+
+	it("writes a file with the mode it asks for", async () => {
+		await writeScaffold(testDir, [
+			{ path: "run.sh", content: "exit 0\n", mode: 0o755 },
+		]);
+
+		expect((await stat(join(testDir, "run.sh"))).mode & 0o111).toBe(0o111);
 	});
 });

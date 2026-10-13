@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../src/fs-utils.js", () => ({
+vi.mock("../src/fs-utils.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/fs-utils.js")>()),
 	validateLocalSourcePath: vi.fn(),
 }));
 
 import { prepareReinstall } from "../src/clone-reinstall.js";
 import { validateLocalSourcePath } from "../src/fs-utils.js";
+import { projectScope } from "../src/scope.js";
 import { makeEntry } from "./helpers/factories.js";
 
 const mockValidate = vi.mocked(validateLocalSourcePath);
@@ -23,14 +25,14 @@ describe("prepareReinstall", () => {
 			const result = await prepareReinstall(
 				"owner/repo",
 				entry,
-				"/fake/project",
+				projectScope("/fake/project"),
 			);
 
 			expect(result.ok).toBe(true);
 			if (!result.ok) return;
 			expect(result.options.key).toBe("owner/repo");
 			expect(result.options.entry).toBe(entry);
-			expect(result.options.projectDir).toBe("/fake/project");
+			expect(result.options.scope).toEqual(projectScope("/fake/project"));
 			expect(result.options.sourceDir).toBeUndefined();
 			expect(mockValidate).not.toHaveBeenCalled();
 		});
@@ -42,7 +44,7 @@ describe("prepareReinstall", () => {
 			const result = await prepareReinstall(
 				"owner/repo",
 				entry,
-				"/fake/project",
+				projectScope("/fake/project"),
 				{ manifest, newRef: "v2.0.0", newCommit: "b".repeat(40) },
 			);
 
@@ -59,12 +61,35 @@ describe("prepareReinstall", () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null });
 
-			const result = await prepareReinstall(key, entry, "/fake/project");
+			const result = await prepareReinstall(
+				key,
+				entry,
+				projectScope("/fake/project"),
+			);
 
 			expect(mockValidate).toHaveBeenCalledWith(key);
 			expect(result.ok).toBe(true);
 			if (!result.ok) return;
 			expect(result.options.sourceDir).toBe(key);
+		});
+
+		it("reinstalls an item recorded with a sourceSubpath from the folder it was added from", async () => {
+			const entry = makeEntry({
+				commit: null,
+				ref: null,
+				sourceSubpath: "skills/react/hooks",
+			});
+
+			const result = await prepareReinstall(
+				"/Users/lee/Code/skills/hooks",
+				entry,
+				projectScope("/fake/project"),
+			);
+
+			expect(mockValidate).toHaveBeenCalledWith("/Users/lee/Code/skills");
+			expect(result.ok && result.options.sourceDir).toBe(
+				"/Users/lee/Code/skills",
+			);
 		});
 
 		it("returns not-ok with the validation reason when the path is invalid", async () => {
@@ -75,11 +100,39 @@ describe("prepareReinstall", () => {
 				reason: "path does not exist",
 			});
 
-			const result = await prepareReinstall(key, entry, "/fake/project");
+			const result = await prepareReinstall(
+				key,
+				entry,
+				projectScope("/fake/project"),
+			);
 
 			expect(result.ok).toBe(false);
 			if (result.ok) return;
-			expect(result.reason).toBe("path does not exist");
+			expect(result.reason).toBe(`${key}: path does not exist`);
+		});
+
+		it("names the recorded root, not the key, when that root is gone", async () => {
+			const entry = makeEntry({
+				commit: null,
+				ref: null,
+				localRoot: "/Users/lee/Code/skills",
+			});
+			mockValidate.mockResolvedValue({
+				valid: false,
+				reason: "path does not exist",
+			});
+
+			const result = await prepareReinstall(
+				"/Users/lee/Code/skills/go",
+				entry,
+				projectScope("/fake/project"),
+			);
+
+			expect(mockValidate).toHaveBeenCalledWith("/Users/lee/Code/skills");
+			expect(result).toEqual({
+				ok: false,
+				reason: "/Users/lee/Code/skills: path does not exist",
+			});
 		});
 	});
 });

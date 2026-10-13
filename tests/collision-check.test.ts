@@ -9,7 +9,6 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -31,7 +30,6 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/shared-skill/"],
 			},
 		};
@@ -53,7 +51,6 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [
 					".claude/skills/planning/",
 					".claude/agents/executor.md",
@@ -80,14 +77,12 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/my-agent.md"],
 			},
 		};
@@ -108,14 +103,12 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-b/"],
 			},
 		};
@@ -135,14 +128,12 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/", ".claude/skills/shared/"],
 			},
 			"owner/repo-b": {
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/shared/"],
 			},
 		};
@@ -163,7 +154,6 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/my-skill/"],
 			},
 		};
@@ -183,7 +173,6 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/agents/executor.md"],
 			},
 		};
@@ -203,7 +192,6 @@ describe("checkFileCollisions", () => {
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
-				agents: ["claude"],
 				files: [".claude/skills/skill-a/"],
 			},
 		};
@@ -211,5 +199,36 @@ describe("checkFileCollisions", () => {
 		const result = checkFileCollisions([], manifest);
 
 		expect(result.size).toBe(0);
+	});
+
+	describe("a folder and a file at one install path", () => {
+		function owning(files: string[]): Manifest {
+			return {
+				"owner/repo-a": {
+					ref: "main",
+					commit: "abc123",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files,
+				},
+			};
+		}
+
+		it("finds a file claim on another entry's folder", () => {
+			const result = checkFileCollisions(
+				[".claude/hooks/x"],
+				owning([".claude/hooks/x/", ".claude/hooks/x/a.sh"]),
+			);
+
+			expect(result.get("owner/repo-a")).toEqual([".claude/hooks/x/"]);
+		});
+
+		it("finds a folder claim on another entry's file", () => {
+			const result = checkFileCollisions(
+				[".claude/hooks/x/"],
+				owning([".claude/hooks/x"]),
+			);
+
+			expect(result.get("owner/repo-a")).toEqual([".claude/hooks/x"]);
+		});
 	});
 });

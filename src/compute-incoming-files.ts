@@ -1,89 +1,103 @@
-import { basename, join } from "node:path";
-import type { AgentWithDriver, AssetType } from "./drivers/types.js";
-import { type DirEntry, readDirEntries } from "./fs-utils.js";
+import { join, posix } from "node:path";
+import { skillTarget } from "./asset-targets.js";
+import {
+	agentTarget,
+	hookTarget,
+	listAgentFiles,
+	listHookEntries,
+} from "./copy-pack.js";
+import type { FoundPack, FoundSkill } from "./discover.js";
+import type { InstallItem } from "./install-item.js";
+import { withoutTrailingSlash } from "./install-paths.js";
+import { joinWithAnd } from "./summary.js";
 
-interface BareSkillInput {
-	type: "bare-skill";
-	sourceDir: string;
-	agents: AgentWithDriver[];
-	/**
-	 * Installed skill dir name (identity = repo/unit basename). Must match the
-	 * name {@link copyBareSkill} writes to, or collision/unmanaged checks compute
-	 * the wrong destination path. Defaults to `basename(sourceDir)` when omitted.
-	 */
-	skillName?: string;
+/** An install path an item claims, and the repo-relative path it's copied from. */
+export interface Claim {
+	target: string;
+	source: string;
 }
 
-interface PluginInput {
-	type: "plugin";
-	sourceDir: string;
-	assetDirs: AssetType[];
-	agents: AgentWithDriver[];
+/** An install path more than one source path claims. */
+export interface TargetClash {
+	target: string;
+	sources: string[];
 }
-
-export type ComputeInput = BareSkillInput | PluginInput;
 
 /**
- * Predicts the file paths that would be produced by copy operations,
- * without actually copying. Used for collision and unmanaged checks
- * before copy begins.
+ * Predicts the install paths copying an item would claim, without copying, so
+ * collision and unmanaged checks can run before anything is written. `root` is
+ * the source root the item's paths are relative to.
  */
 export async function computeIncomingFiles(
-	input: ComputeInput,
+	item: InstallItem,
+	root: string,
 ): Promise<string[]> {
-	if (input.type === "bare-skill") {
-		return computeBareSkillFiles(input);
-	}
-	return computePluginFiles(input);
+	const claims = await computeClaims(item, root);
+	return claims.map(({ target }) => target);
 }
 
-function computeBareSkillFiles(input: BareSkillInput): string[] {
-	const skillName = input.skillName ?? basename(input.sourceDir);
-	const files: string[] = [];
-
-	for (const agent of input.agents) {
-		const targetDir = agent.driver.getTargetDir("skills");
-		if (targetDir === null) {
-			continue;
-		}
-		files.push(`${targetDir}/${skillName}/`);
+/** What {@link computeIncomingFiles} predicts, with the source path behind each. */
+export async function computeClaims(
+	item: InstallItem,
+	root: string,
+): Promise<Claim[]> {
+	if (item.kind === "skill") {
+		return skillClaims([item.skill]);
 	}
-
-	return files;
+	return [
+		...skillClaims(item.pack.skills),
+		...(await packAssetClaims(item.pack, root)),
+	];
 }
 
-async function computePluginFiles(input: PluginInput): Promise<string[]> {
-	const { sourceDir, assetDirs, agents } = input;
-	const seen = new Set<string>();
-	const files: string[] = [];
+/** Skills install flat by folder name, so each claims `.claude/skills/<name>/`. */
+export function skillClaims(skills: FoundSkill[]): Claim[] {
+	return skills.map((skill) => ({
+		target: skillTarget(skill.name),
+		source: skill.path,
+	}));
+}
 
-	// Scan source asset directories to enumerate individual assets
-	const assetEntries = new Map<AssetType, DirEntry[]>();
-	for (const assetDir of assetDirs) {
-		assetEntries.set(assetDir, await readDirEntries(join(sourceDir, assetDir)));
+/** The install paths claimed more than once, in the order first claimed. */
+export function findTargetClashes(claims: Claim[]): TargetClash[] {
+	const sourcesByTarget = new Map<string, string[]>();
+	for (const { target, source } of claims) {
+		const path = withoutTrailingSlash(target);
+		sourcesByTarget.set(path, [...(sourcesByTarget.get(path) ?? []), source]);
 	}
+	return [...sourcesByTarget]
+		.filter(([, sources]) => sources.length > 1)
+		.map(([target, sources]) => ({ target, sources }));
+}
 
-	for (const agent of agents) {
-		for (const assetDir of assetDirs) {
-			const targetDir = agent.driver.getTargetDir(assetDir);
-			if (targetDir === null) {
-				continue;
-			}
+export function describeClash({ target, sources }: TargetClash): string {
+	const quantifier = sources.length > 2 ? "all" : "both";
+	return `${joinWithAnd(sources)} would ${quantifier} install to ${target}`;
+}
 
-			const entries = assetEntries.get(assetDir) ?? [];
-			for (const entry of entries) {
-				// Skills are directories, agents/hooks are files
-				const path = entry.isDirectory
-					? `${targetDir}/${entry.name}/`
-					: `${targetDir}/${entry.name}`;
-
-				if (!seen.has(path)) {
-					seen.add(path);
-					files.push(path);
-				}
-			}
+async function packAssetClaims(
+	pack: FoundPack,
+	root: string,
+): Promise<Claim[]> {
+	const packDir = join(root, pack.path);
+	const claims: Claim[] = [];
+	if (pack.assetDirs.includes("agents")) {
+		const agents = await listAgentFiles(join(packDir, "agents"));
+		for (const relPath of agents) {
+			claims.push({
+				target: agentTarget(relPath),
+				source: posix.join(pack.path, "agents", relPath),
+			});
 		}
 	}
-
-	return files;
+	if (pack.assetDirs.includes("hooks")) {
+		const hooks = await listHookEntries(join(packDir, "hooks"));
+		for (const entry of hooks) {
+			claims.push({
+				target: hookTarget(entry),
+				source: posix.join(pack.path, "hooks", entry.name),
+			});
+		}
+	}
+	return claims;
 }

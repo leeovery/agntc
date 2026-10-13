@@ -7,10 +7,15 @@ import {
 	mapCloneFailure,
 	runPipeline,
 } from "./clone-reinstall.js";
-import type { AgentId } from "./drivers/types.js";
 import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
-import type { Manifest, ManifestEntry } from "./manifest.js";
+import {
+	addEntry,
+	type Manifest,
+	type ManifestEntry,
+	removeEntry,
+} from "./manifest.js";
+import type { Scope, ScopeName } from "./scope.js";
 import {
 	deriveCloneUrlFromKey,
 	resolveGuardedSourceDir,
@@ -33,8 +38,10 @@ export interface EntryGroup {
 	cloneUrl: string;
 	versionIntent: string | null;
 	constrained: boolean;
-	members: Array<{ key: string; entry: ManifestEntry }>;
+	members: GroupMember[];
 }
+
+export type GroupMember = { key: string; entry: ManifestEntry };
 
 /**
  * Namespaces the group-key intent component so a caret string can never
@@ -82,49 +89,55 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
 }
 
 /**
- * Per-plugin outcome of an all-mode update, collected across the run for the
+ * Per-entry outcome of an all-mode update, collected across the run for the
  * trailing summary and the `hasFailedOutcome` exit-code decision. Shared by the
  * local path (`processLocalUpdate`) and the grouped orchestrator
  * ({@link processGroupUpdate}) so both emit the identical shape.
  *
- * The two success variants (`updated`/`refreshed`) carry the STRUCTURED fields
- * the multi-member streamed renderer composes from — `newEntry` (effective
- * agents + persistence) and `droppedAgents` (the pipeline's own dropped set, in
- * source order) — alongside the pre-rendered `summary` the collapsed
- * group-of-one / local display path consumes verbatim. The renderer reads the
- * structured `droppedAgents` directly rather than recomputing an
- * `oldEntry`-vs-`newEntry` set-difference that had to be provably equal to this.
+ * The two success variants (`updated`/`refreshed`) carry the reinstalled
+ * `newEntry` (persisted per unit) alongside the pre-rendered `summary` the
+ * collapsed group-of-one / local display path consumes verbatim, and the keys
+ * of the loose skills a pack `absorbed`, whose entries persistence drops.
+ *
+ * An entry found gone upstream starts as `gone-kept`, which is true until its
+ * removal is settled; `-y` or a yes turns it into `gone-removed`. An entry a
+ * pack took over during the run ends as `absorbed`.
  */
 export type PluginOutcome =
-	| {
+	| ({
 			status: "updated";
 			key: string;
 			summary: string;
 			newEntry: ManifestEntry;
-			droppedAgents: AgentId[];
-	  }
-	| {
+	  } & Reinstalled)
+	| ({
 			status: "refreshed";
 			key: string;
 			summary: string;
 			newEntry: ManifestEntry;
-			droppedAgents: AgentId[];
-	  }
+	  } & Reinstalled)
 	| { status: "up-to-date"; key: string }
 	| { status: "newer-tags"; key: string }
 	| { status: "check-failed"; key: string }
 	| { status: "failed"; key: string; summary: string }
-	| { status: "copy-failed"; key: string; summary: string }
+	| { status: "copy-failed"; key: string; summary: string; absorbed: string[] }
 	| { status: "aborted"; key: string; summary: string }
 	| { status: "blocked"; key: string; summary: string }
-	| { status: "skipped-no-agents"; key: string; summary: string }
-	| { status: "constrained-no-match"; key: string };
+	| { status: "constrained-no-match"; key: string }
+	| { status: "gone-kept"; key: string; summary: string; flags?: string[] }
+	| { status: "gone-removed"; key: string; summary: string }
+	| { status: "absorbed"; key: string; into: string; summary: string };
+
+interface Reinstalled {
+	notes: string[];
+	absorbed: string[];
+}
 
 /**
  * The SINGLE constructor of the `failed` {@link PluginOutcome} literal and its
  * `<key>: Failed — <message>` summary wording. Every failure origin — the
  * `prepareReinstall`-not-ok branch, the `processLocalUpdate` outer catch, the
- * `onCloneFailed`/`onUnknown` arms of {@link mapReinstallResultToOutcome}, the
+ * `onCloneFailed`/`onRemoveFailed` arms of {@link mapReinstallResultToOutcome}, the
  * {@link reinstallMember} catch, and the clone-fatal fan-out in
  * {@link processGroupUpdate} — routes through here, so the discriminant, the
  * `key`, and the exact prefix/body wording can never drift apart (a new failure
@@ -148,12 +161,75 @@ export function isSuccessOutcome(
 }
 
 /**
+ * The loose skill entries a pack took over. Their files are removed before
+ * the pack is copied, so they are taken over whether or not the copy worked.
+ */
+function absorbedBy(outcome: PluginOutcome): string[] {
+	return isSuccessOutcome(outcome) || outcome.status === "copy-failed"
+		? outcome.absorbed
+		: [];
+}
+
+/** The outcome of a loose skill entry the pack whose outcome is `pack` took over. */
+export function absorbedOutcome(
+	key: string,
+	pack: PluginOutcome,
+): PluginOutcome {
+	const into = pack.key;
+	return {
+		status: "absorbed",
+		key,
+		into,
+		summary: isSuccessOutcome(pack)
+			? `${key} is now part of the pack ${into}`
+			: `${key} was removed — the pack ${into} took it over, then failed to install`,
+	};
+}
+
+/**
+ * Folds one outcome into the manifest: a reinstall records its new entry, a
+ * copy failure or a removal drops the entry, and both a reinstall and a copy
+ * failure drop the loose skills a pack took over. Anything else leaves the
+ * manifest as it was, same object included.
+ */
+export function applyOutcome(
+	manifest: Manifest,
+	outcome: PluginOutcome,
+): Manifest {
+	const rest = absorbedBy(outcome).reduce(removeEntry, manifest);
+	if (isSuccessOutcome(outcome)) {
+		return addEntry(rest, outcome.key, outcome.newEntry);
+	}
+	if (outcome.status === "copy-failed" || outcome.status === "gone-removed") {
+		return removeEntry(rest, outcome.key);
+	}
+	return manifest;
+}
+
+/**
+ * Gives every entry a pack took over during the run an `absorbed` outcome, in
+ * place of whatever it got before.
+ */
+export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
+	const takenBy = new Map<string, PluginOutcome>();
+	for (const outcome of outcomes) {
+		for (const looseKey of absorbedBy(outcome)) {
+			takenBy.set(looseKey, outcome);
+		}
+	}
+	return [
+		...outcomes.filter((outcome) => !takenBy.has(outcome.key)),
+		...[...takenBy].map(([key, pack]) => absorbedOutcome(key, pack)),
+	];
+}
+
+/**
  * Maps a {@link CloneReinstallResult} (from the shared reinstall half) plus the
  * member's key/entry to a {@link PluginOutcome}, using `status` as the single
  * cross-boundary discriminator. Factored out of `processLocalUpdate` so the
  * grouped orchestrator and the local path emit byte-identical
- * outcomes — the failure arms (skipped-no-agents / copy-failed / aborted /
- * blocked / clone-failed→failed / unknown→failed) and the success split
+ * outcomes — the failure arms (copy-failed / aborted / blocked /
+ * clone-failed→failed / remove-failed→failed) and the success split
  * (local `refreshed` vs git `updated`) live in exactly one place.
  *
  * `newRef` is the group's resolved target ref threaded through for the git-update
@@ -161,25 +237,35 @@ export function isSuccessOutcome(
  * unchanged branch name / `null` for a branch/HEAD group) — paired with the
  * member's pre-update `entry.ref` as the move's old ref. It is consulted only on
  * the git-update arm; the local (`refreshed`) and failure arms ignore it.
+ *
+ * A `gone` result maps to an unsettled `gone-kept`: nothing was touched yet.
  */
 export function mapReinstallResultToOutcome(
 	key: string,
 	entry: ManifestEntry,
 	result: CloneReinstallResult,
 	newRef: string | null,
+	scope: ScopeName,
 ): PluginOutcome {
+	if (result.status === "gone") {
+		return {
+			status: "gone-kept",
+			key,
+			summary: `Kept ${key} — it's gone upstream`,
+		};
+	}
 	if (isCloneReinstallFailure(result)) {
 		return mapCloneFailure<PluginOutcome>(result, {
-			onNoAgents: () => ({
-				status: "skipped-no-agents",
+			onCopyFailed: (msg, absorbed) => ({
+				status: "copy-failed",
 				key,
-				summary: `${key}: Skipped — no longer supports installed agents`,
+				summary: msg,
+				absorbed,
 			}),
-			onCopyFailed: (msg) => ({ status: "copy-failed", key, summary: msg }),
-			onAborted: (recordedType, reason) => ({
+			onAborted: (abort) => ({
 				status: "aborted",
 				key,
-				summary: buildAbortMessage(key, recordedType, reason),
+				summary: buildAbortMessage(key, entry, abort, scope),
 			}),
 			onBlocked: (reason) => ({
 				status: "blocked",
@@ -187,21 +273,19 @@ export function mapReinstallResultToOutcome(
 				summary: buildCopySafetyMessage(key, reason),
 			}),
 			onCloneFailed: (msg) => failedOutcome(key, msg),
-			onUnknown: (msg) => failedOutcome(key, msg),
+			onRemoveFailed: (msg) => failedOutcome(key, msg),
 		});
 	}
+
+	const reinstalled = { notes: result.notes, absorbed: result.absorbed };
 
 	if (entry.commit === null) {
 		return {
 			status: "refreshed",
 			key,
-			summary: renderUpdateOutcomeSummary({
-				type: "local-update",
-				key,
-				droppedAgents: result.droppedAgents,
-			}),
+			summary: renderUpdateOutcomeSummary({ type: "local-update", key }),
 			newEntry: result.manifestEntry,
-			droppedAgents: result.droppedAgents,
+			...reinstalled,
 		};
 	}
 
@@ -215,10 +299,9 @@ export function mapReinstallResultToOutcome(
 			newRef,
 			oldCommit: entry.commit,
 			newCommit: result.manifestEntry.commit!,
-			droppedAgents: result.droppedAgents,
 		}),
 		newEntry: result.manifestEntry,
-		droppedAgents: result.droppedAgents,
+		...reinstalled,
 	};
 }
 
@@ -227,8 +310,8 @@ export function mapReinstallResultToOutcome(
  * `outcomes` array is the SAME per-member model on both arms — one
  * {@link PluginOutcome} per attempted member — and is the only thing exit
  * accounting and manifest persistence read. `cloneFailed` is a pure DISPLAY
- * signal layered over Phase 1's N-outcome fan-out (task 1-7): when true, the
- * streaming layer (task 2-6) renders one enumerated grouped line naming the
+ * signal layered over the N-outcome fan-out: when true, the
+ * streaming layer renders one enumerated grouped line naming the
  * affected members instead of N per-member lines, and `reason` carries the
  * group's single shared clone-failure message. It does NOT change the outcomes
  * array (still N `failed` outcomes) or the exit.
@@ -249,8 +332,9 @@ export interface GroupTargetFacets {
 	 * sha (so all members land on one commit) AND the display "new" commit for the
 	 * header and per-member moves. */
 	commit: string;
-	/** The clone `--branch` override: the resolved tag for a constrained group,
-	 * `undefined` for a branch/HEAD group (clone at the stored branch/HEAD ref).
+	/** The clone `--branch` override and the ref members move to: the resolved tag
+	 * for a constrained group, `undefined` for a branch/HEAD group (clone at, and
+	 * keep, the stored branch/HEAD ref).
 	 * Deliberately DISTINCT from {@link displayRef} — a branch/HEAD group clones the
 	 * stored ref (`undefined` override) yet displays its version intent. */
 	cloneRef: string | undefined;
@@ -308,10 +392,11 @@ export function groupTargetFacets(
  * allowed and only escapes beyond it are rejected.
  */
 async function reinstallMember(
-	member: { key: string; entry: ManifestEntry },
+	member: GroupMember,
 	tempDir: string,
 	facets: GroupTargetFacets,
-	projectDir: string,
+	scope: Scope,
+	installed: Manifest,
 ): Promise<PluginOutcome> {
 	const { key, entry } = member;
 	const { commit, cloneRef, displayRef } = facets;
@@ -321,7 +406,7 @@ async function reinstallMember(
 	// or `null` for HEAD), which equals this member's own `ref` by the grouping
 	// invariant. The clone ref (`cloneRef`) stays SEPARATE below — a branch/HEAD
 	// group clones the stored ref (`undefined` override) yet displays its intent.
-	// Sharing this value with the grouped header (task 3-1) keeps the collapsed
+	// Sharing this value with the grouped header keeps the collapsed
 	// group-of-one wording identical to the grouped multi-member wording.
 	try {
 		const guarded = resolveGuardedSourceDir(tempDir, key, entry.sourceSubpath);
@@ -335,20 +420,28 @@ async function reinstallMember(
 					message: guarded.message,
 				},
 				displayRef,
+				scope.name,
 			);
 		}
 
 		const result = await runPipeline({
 			key,
 			entry,
-			projectDir,
+			installed,
+			scope,
 			sourceDir: guarded.sourceDir,
 			cloneRoot: tempDir,
-			newRef: cloneRef ?? null,
+			newRef: cloneRef,
 			newCommit: commit,
 		});
 
-		return mapReinstallResultToOutcome(key, entry, result, displayRef);
+		return mapReinstallResultToOutcome(
+			key,
+			entry,
+			result,
+			displayRef,
+			scope.name,
+		);
 	} catch (err) {
 		return failedOutcome(key, errorMessage(err));
 	}
@@ -376,16 +469,21 @@ async function reinstallMember(
  * trip `hasFailedOutcome` → non-zero exit, matching today's per-entry accounting.
  *
  * The return is an additive {@link GroupUpdateResult} wrapper: `cloneFailed` is a
- * DISPLAY-only discriminator (task 2-6) letting the streaming layer render one
+ * DISPLAY-only discriminator letting the streaming layer render one
  * enumerated grouped line for a clone-fatal group instead of N per-member lines;
  * the `outcomes` array is unchanged on both arms — still N `failed` outcomes on
  * clone failure — so exit accounting and manifest persistence are untouched.
+ *
+ * `installed` is the manifest as the group starts; each member reinstalls
+ * against it as the earlier members left it, so a member a pack absorbed is
+ * skipped as `absorbed`.
  */
 export async function processGroupUpdate(
 	group: EntryGroup,
-	members: Array<{ key: string; entry: ManifestEntry }>,
+	members: GroupMember[],
 	target: GroupTarget,
-	projectDir: string,
+	scope: Scope,
+	installed: Manifest,
 ): Promise<GroupUpdateResult> {
 	const firstMember = group.members[0]!;
 	const facets = groupTargetFacets(target, group);
@@ -407,14 +505,52 @@ export async function processGroupUpdate(
 		};
 	}
 
-	const outcomes: PluginOutcome[] = [];
 	try {
-		for (const member of members) {
-			outcomes.push(await reinstallMember(member, tempDir, facets, projectDir));
-		}
+		const reinstall = (member: GroupMember, current: Manifest) =>
+			reinstallMember(member, tempDir, facets, scope, current);
+		return {
+			cloneFailed: false,
+			outcomes: await reinstallInTurn(members, installed, reinstall),
+		};
 	} finally {
 		await cleanupTempDir(tempDir).catch(() => {});
 	}
+}
 
-	return { cloneFailed: false, outcomes };
+/**
+ * Reinstalls members one after another, each against the manifest the ones
+ * before it left. A member an earlier pack absorbed is skipped.
+ */
+export async function reinstallInTurn(
+	members: GroupMember[],
+	installed: Manifest,
+	reinstall: (member: GroupMember, current: Manifest) => Promise<PluginOutcome>,
+): Promise<PluginOutcome[]> {
+	const outcomes: PluginOutcome[] = [];
+	const takenBy = new Map<string, PluginOutcome>();
+	let current = installed;
+	for (const member of members) {
+		const pack = takenBy.get(member.key);
+		const outcome =
+			pack === undefined
+				? await reinstall(member, current)
+				: absorbedOutcome(member.key, pack);
+		for (const looseKey of absorbedBy(outcome)) {
+			takenBy.set(looseKey, outcome);
+		}
+		outcomes.push(outcome);
+		current = applyOutcome(current, outcome);
+	}
+	return outcomes;
+}
+
+/**
+ * Packs ahead of loose skills, otherwise in the given order, so a loose skill
+ * a pack absorbs is skipped rather than updated and then taken over.
+ */
+export function packsFirst<T extends { entry: ManifestEntry }>(
+	members: T[],
+): T[] {
+	const isPack = (member: T) => member.entry.type === "pack";
+	return [...members.filter(isPack), ...members.filter((m) => !isPack(m))];
 }

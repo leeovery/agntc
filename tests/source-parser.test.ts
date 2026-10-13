@@ -1,4 +1,10 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -10,16 +16,18 @@ import {
 	it,
 } from "vitest";
 import {
+	addSourceFor,
 	buildParsedSourceFromKey,
 	deriveCloneUrlFromKey,
-	getSourceDirFromKey,
+	keySubpath,
+	localSourceRoot,
+	locateSource,
 	memberName,
 	type ParsedSource,
 	parseSource,
 	repoFromKey,
 	resolveCloneUrl,
 	resolveGuardedSourceDir,
-	resolveUpdateSourceDir,
 } from "../src/source-parser.js";
 
 describe("parseSource", () => {
@@ -82,7 +90,7 @@ describe("parseSource", () => {
 
 	it("throws for missing owner segment (bare repo name)", async () => {
 		await expect(parseSource("repo")).rejects.toThrow(
-			/must be in owner\/repo format/,
+			/must be in owner\/repo\[\/path\] format/,
 		);
 	});
 
@@ -103,8 +111,60 @@ describe("parseSource", () => {
 		);
 	});
 
-	it("throws for extra slashes in path (three segments)", async () => {
-		await expect(parseSource("a/b/c")).rejects.toThrow(/too many slashes/);
+	describe("owner/repo/path shorthand", () => {
+		it("reads the segments after owner/repo as the start path, keyed by owner/repo", async () => {
+			const result = await parseSource("leeovery/agentic-skills/laravel");
+			expect(result).toEqual({
+				type: "github-shorthand",
+				owner: "leeovery",
+				repo: "agentic-skills",
+				ref: null,
+				constraint: null,
+				manifestKey: "leeovery/agentic-skills",
+				cloneUrl: "https://github.com/leeovery/agentic-skills.git",
+				startPath: "laravel",
+			});
+		});
+
+		it("keeps a nested path whole", async () => {
+			const result = await parseSource("owner/repo/skills/react/hooks");
+			expect(result).toMatchObject({ startPath: "skills/react/hooks" });
+		});
+
+		it("takes a constraint after the path", async () => {
+			const result = await parseSource("owner/repo/sub/path@^1.0");
+			expect(result).toMatchObject({
+				startPath: "sub/path",
+				ref: null,
+				constraint: "^1.0",
+				manifestKey: "owner/repo",
+			});
+		});
+
+		it("takes a ref after the path", async () => {
+			const result = await parseSource("owner/repo/sub@v2.0.0");
+			expect(result).toMatchObject({
+				startPath: "sub",
+				ref: "v2.0.0",
+				constraint: null,
+			});
+		});
+
+		it("treats a trailing slash after the repo as no path", async () => {
+			const result = await parseSource("owner/repo/");
+			expect(result).not.toHaveProperty("startPath");
+		});
+
+		it("drops trailing slashes from the path", async () => {
+			const result = await parseSource("owner/repo/laravel//");
+			expect(result).toMatchObject({ startPath: "laravel" });
+		});
+
+		it("still validates a constraint given after a path", async () => {
+			await expect(parseSource("owner/repo/sub@^not-valid")).rejects.toThrow(
+				/invalid version constraint/,
+			);
+		});
 	});
 
 	it("throws for empty string input", async () => {
@@ -305,6 +365,56 @@ describe("parseSource", () => {
 				cloneUrl: "https://git.mycompany.com/team/project.git",
 			});
 		});
+
+		describe("a login before the host", () => {
+			it("keeps the login in the host and the clone URL", async () => {
+				const result = await parseSource("https://user@gitlab.com/acme/skills");
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "acme",
+					repo: "skills",
+					ref: null,
+					constraint: null,
+					manifestKey: "acme/skills",
+					cloneUrl: "https://user@gitlab.com/acme/skills.git",
+				});
+			});
+
+			it("reads only an @ after the host as the ref", async () => {
+				const result = await parseSource("https://user@host/owner/repo@v1");
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "owner",
+					repo: "repo",
+					ref: "v1",
+					constraint: null,
+					manifestKey: "owner/repo",
+					cloneUrl: "https://user@host/owner/repo.git",
+				});
+			});
+
+			it("takes a start path and constraint after the host", async () => {
+				const result = await parseSource(
+					"https://user@gitlab.com/acme/skills.git/tools/lint@^1.2",
+				);
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "acme",
+					repo: "skills",
+					ref: null,
+					constraint: "^1.2",
+					manifestKey: "acme/skills",
+					cloneUrl: "https://user@gitlab.com/acme/skills.git",
+					startPath: "tools/lint",
+				});
+			});
+
+			it("still needs owner/repo after the host", async () => {
+				await expect(
+					parseSource("https://user@gitlab.com/acme"),
+				).rejects.toThrow(/invalid HTTPS URL/);
+			});
+		});
 	});
 
 	describe("SSH URL sources", () => {
@@ -471,6 +581,118 @@ describe("parseSource", () => {
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
+		});
+	});
+
+	describe("URLs with a path inside the repo", () => {
+		it("takes owner and repo from the first two HTTPS segments, the rest as start path", async () => {
+			const result = await parseSource("https://github.com/owner/repo/laravel");
+			expect(result).toEqual({
+				type: "https-url",
+				owner: "owner",
+				repo: "repo",
+				ref: null,
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "laravel",
+			});
+		});
+
+		it("keeps a nested HTTPS path whole, with a ref", async () => {
+			const result = await parseSource(
+				"https://github.com/owner/repo/skills/laravel@v1.2.0",
+			);
+			expect(result).toEqual({
+				type: "https-url",
+				owner: "owner",
+				repo: "repo",
+				ref: "v1.2.0",
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "skills/laravel",
+			});
+		});
+
+		it("strips .git from the HTTPS repo segment before a path, with a constraint", async () => {
+			const result = await parseSource(
+				"https://github.com/owner/repo.git/laravel/@^1.0",
+			);
+			expect(result).toEqual({
+				type: "https-url",
+				owner: "owner",
+				repo: "repo",
+				ref: null,
+				constraint: "^1.0",
+				manifestKey: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "laravel",
+			});
+		});
+
+		it("takes owner and repo from the first two SSH segments, the rest as start path", async () => {
+			const result = await parseSource("git@github.com:owner/repo/laravel");
+			expect(result).toEqual({
+				type: "ssh-url",
+				owner: "owner",
+				repo: "repo",
+				ref: null,
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "git@github.com:owner/repo.git",
+				startPath: "laravel",
+			});
+		});
+
+		it("strips .git from the SSH repo segment before a path, with a ref", async () => {
+			const result = await parseSource(
+				"git@github.com:owner/repo.git/skills/laravel@main",
+			);
+			expect(result).toEqual({
+				type: "ssh-url",
+				owner: "owner",
+				repo: "repo",
+				ref: "main",
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "git@github.com:owner/repo.git",
+				startPath: "skills/laravel",
+			});
+		});
+
+		it("reads an SSH path with a constraint", async () => {
+			const result = await parseSource("git@github.com:owner/repo/laravel@^2");
+			expect(result).toMatchObject({
+				repo: "repo",
+				ref: null,
+				constraint: "^2",
+				startPath: "laravel",
+			});
+		});
+
+		it("strips .git only as a suffix of the SSH repo segment", async () => {
+			const result = await parseSource(
+				"git@github.com:owner/owner.github.io.git",
+			);
+			expect(result).toEqual({
+				type: "ssh-url",
+				owner: "owner",
+				repo: "owner.github.io",
+				ref: null,
+				constraint: null,
+				manifestKey: "owner/owner.github.io",
+				cloneUrl: "git@github.com:owner/owner.github.io.git",
+			});
+		});
+
+		it("refuses a URL whose repo segment is only .git", async () => {
+			await expect(
+				parseSource("https://github.com/owner/.git"),
+			).rejects.toThrow(/invalid HTTPS URL/);
+			await expect(parseSource("git@github.com:owner/.git")).rejects.toThrow(
+				/invalid SSH URL/,
+			);
 		});
 	});
 
@@ -744,20 +966,20 @@ describe("parseSource", () => {
 		});
 	});
 
-	describe("direct path sources (tree URLs)", () => {
+	describe("tree URL sources", () => {
 		it("parses tree URL with branch ref", async () => {
 			const result = await parseSource(
 				"https://github.com/owner/repo/tree/main/plugin-name",
 			);
 			expect(result).toEqual({
-				type: "direct-path",
+				type: "tree-url",
 				owner: "owner",
 				repo: "repo",
 				ref: "main",
 				constraint: null,
-				targetPlugin: "plugin-name",
-				manifestKey: "owner/repo/plugin-name",
+				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "plugin-name",
 			});
 		});
 
@@ -766,30 +988,30 @@ describe("parseSource", () => {
 				"https://github.com/owner/repo/tree/v2.0/my-plugin",
 			);
 			expect(result).toEqual({
-				type: "direct-path",
+				type: "tree-url",
 				owner: "owner",
 				repo: "repo",
 				ref: "v2.0",
 				constraint: null,
-				targetPlugin: "my-plugin",
-				manifestKey: "owner/repo/my-plugin",
+				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "my-plugin",
 			});
 		});
 
-		it("parses tree URL with nested plugin path", async () => {
+		it("parses tree URL with a nested path", async () => {
 			const result = await parseSource(
 				"https://github.com/owner/repo/tree/develop/nested/plugin",
 			);
 			expect(result).toEqual({
-				type: "direct-path",
+				type: "tree-url",
 				owner: "owner",
 				repo: "repo",
 				ref: "develop",
 				constraint: null,
-				targetPlugin: "nested/plugin",
-				manifestKey: "owner/repo/nested/plugin",
+				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "nested/plugin",
 			});
 		});
 
@@ -798,14 +1020,14 @@ describe("parseSource", () => {
 				"https://gitlab.com/org/project/tree/main/my-skill",
 			);
 			expect(result).toEqual({
-				type: "direct-path",
+				type: "tree-url",
 				owner: "org",
 				repo: "project",
 				ref: "main",
 				constraint: null,
-				targetPlugin: "my-skill",
-				manifestKey: "org/project/my-skill",
+				manifestKey: "org/project",
 				cloneUrl: "https://gitlab.com/org/project.git",
+				startPath: "my-skill",
 			});
 		});
 
@@ -814,14 +1036,14 @@ describe("parseSource", () => {
 				"https://git.mycompany.com/team/tools/tree/main/helper",
 			);
 			expect(result).toEqual({
-				type: "direct-path",
+				type: "tree-url",
 				owner: "team",
 				repo: "tools",
 				ref: "main",
 				constraint: null,
-				targetPlugin: "helper",
-				manifestKey: "team/tools/helper",
+				manifestKey: "team/tools",
 				cloneUrl: "https://git.mycompany.com/team/tools.git",
+				startPath: "helper",
 			});
 		});
 
@@ -836,14 +1058,14 @@ describe("parseSource", () => {
 				"https://user@github.com/owner/repo/tree/main/plugin",
 			);
 			expect(result).toEqual({
-				type: "direct-path",
+				type: "tree-url",
 				owner: "owner",
 				repo: "repo",
 				ref: "main",
 				constraint: null,
-				targetPlugin: "plugin",
-				manifestKey: "owner/repo/plugin",
+				manifestKey: "owner/repo",
 				cloneUrl: "https://user@github.com/owner/repo.git",
+				startPath: "plugin",
 			});
 		});
 
@@ -853,16 +1075,16 @@ describe("parseSource", () => {
 			).rejects.toThrow(/tree URLs cannot have @ref suffix/);
 		});
 
-		it("throws for tree URL missing plugin path after ref", async () => {
+		it("throws for tree URL missing path after ref", async () => {
 			await expect(
 				parseSource("https://github.com/owner/repo/tree/main"),
-			).rejects.toThrow(/invalid tree URL: missing plugin path after ref/);
+			).rejects.toThrow(/invalid tree URL: missing path after ref/);
 		});
 
-		it("throws for tree URL missing ref and plugin", async () => {
+		it("throws for tree URL missing ref and path", async () => {
 			await expect(
 				parseSource("https://github.com/owner/repo/tree/"),
-			).rejects.toThrow(/invalid tree URL: missing ref and plugin path/);
+			).rejects.toThrow(/invalid tree URL: missing ref and path/);
 		});
 
 		it("trims whitespace from tree URL input", async () => {
@@ -870,14 +1092,14 @@ describe("parseSource", () => {
 				"  https://github.com/owner/repo/tree/main/plugin-name  ",
 			);
 			expect(result).toEqual({
-				type: "direct-path",
+				type: "tree-url",
 				owner: "owner",
 				repo: "repo",
 				ref: "main",
 				constraint: null,
-				targetPlugin: "plugin-name",
-				manifestKey: "owner/repo/plugin-name",
+				manifestKey: "owner/repo",
 				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "plugin-name",
 			});
 		});
 
@@ -903,6 +1125,7 @@ describe("parseSource", () => {
 				`agntc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 			);
 			mkdirSync(testDir, { recursive: true });
+			testDir = realpathSync(testDir);
 		});
 
 		afterEach(() => {
@@ -985,6 +1208,49 @@ describe("parseSource", () => {
 			await expect(parseSource(filePath)).rejects.toThrow(
 				`Path ${filePath} does not exist or is not a directory`,
 			);
+		});
+
+		describe("through a symlink", () => {
+			let real: string;
+
+			beforeEach(() => {
+				real = join(testDir, "code", "foo");
+				mkdirSync(real, { recursive: true });
+			});
+
+			it("is the folder a linked folder leads to", async () => {
+				const link = join(testDir, "foo");
+				symlinkSync(real, link);
+
+				const result = await parseSource(link);
+
+				expect(result).toMatchObject({ resolvedPath: real, manifestKey: real });
+			});
+
+			it("is the real folder below a linked parent", async () => {
+				mkdirSync(join(real, "skills"));
+				symlinkSync(join(testDir, "code"), join(testDir, "linked"));
+
+				const result = await parseSource(join(testDir, "linked/foo/skills"));
+
+				expect(result).toMatchObject({
+					resolvedPath: join(real, "skills"),
+					manifestKey: join(real, "skills"),
+				});
+			});
+
+			it.each([
+				["a missing folder", () => join(testDir, "gone")],
+				["a file", () => join(testDir, "somefile.txt")],
+			])("throws naming the path given for a link to %s", async (_target, to) => {
+				writeFileSync(join(testDir, "somefile.txt"), "content");
+				const link = join(testDir, "link");
+				symlinkSync(to(), link);
+
+				await expect(parseSource(link)).rejects.toThrow(
+					`Path ${link} does not exist or is not a directory`,
+				);
+			});
 		});
 
 		it("detects ./ prefix as local path", async () => {
@@ -1127,44 +1393,16 @@ describe("buildParsedSourceFromKey", () => {
 	});
 });
 
-describe("getSourceDirFromKey", () => {
-	it("returns tempDir for standalone key (owner/repo)", () => {
-		const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo");
-		expect(result).toBe("/tmp/clone-abc");
-	});
-
-	it("returns tempDir joined with subpath for collection key (owner/repo/plugin)", () => {
-		const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo/plugin");
-		expect(result).toBe(join("/tmp/clone-abc", "plugin"));
-	});
-
-	it("returns tempDir joined with nested subpath for deep collection key", () => {
-		const result = getSourceDirFromKey(
-			"/tmp/clone-abc",
-			"owner/repo/nested/plugin",
+describe("localSourceRoot", () => {
+	it("is the key itself for an entry without a sourceSubpath", () => {
+		expect(localSourceRoot("/home/me/skills/laravel", undefined)).toBe(
+			"/home/me/skills/laravel",
 		);
-		expect(result).toBe(join("/tmp/clone-abc", "nested/plugin"));
-	});
-});
-
-describe("resolveUpdateSourceDir", () => {
-	it("prefers sourceSubpath joined onto cloneRoot when present", () => {
-		const result = resolveUpdateSourceDir(
-			"/tmp/clone-abc",
-			"owner/repo/alpha",
-			"skills/alpha",
-		);
-		expect(result).toBe(join("/tmp/clone-abc", "skills/alpha"));
 	});
 
-	it("falls back to the key-derived dir when sourceSubpath is absent", () => {
-		const result = resolveUpdateSourceDir(
-			"/tmp/clone-abc",
-			"owner/repo/alpha",
-			undefined,
-		);
-		expect(result).toBe(
-			getSourceDirFromKey("/tmp/clone-abc", "owner/repo/alpha"),
+	it("is the folder the key's name hangs off when a sourceSubpath is recorded", () => {
+		expect(localSourceRoot("/home/me/skills/hooks", "react/hooks")).toBe(
+			"/home/me/skills",
 		);
 	});
 });
@@ -1185,7 +1423,7 @@ describe("resolveGuardedSourceDir", () => {
 		});
 	});
 
-	it("returns ok:true with the key-derived sourceDir when sourceSubpath is absent (guard no-op)", () => {
+	it("returns ok:true with the key-derived sourceDir when sourceSubpath is absent", () => {
 		const result = resolveGuardedSourceDir(
 			"/tmp/clone-abc",
 			"owner/repo/alpha",
@@ -1193,8 +1431,24 @@ describe("resolveGuardedSourceDir", () => {
 		);
 		expect(result).toEqual({
 			ok: true,
-			sourceDir: getSourceDirFromKey("/tmp/clone-abc", "owner/repo/alpha"),
+			sourceDir: join("/tmp/clone-abc", "alpha"),
 		});
+	});
+
+	it("returns the clone root itself for a root key", () => {
+		expect(
+			resolveGuardedSourceDir("/tmp/clone-abc", "owner/repo", undefined),
+		).toEqual({ ok: true, sourceDir: "/tmp/clone-abc" });
+	});
+
+	it("follows a nested key's whole suffix", () => {
+		expect(
+			resolveGuardedSourceDir(
+				"/tmp/clone-abc",
+				"owner/repo/nested/plugin",
+				undefined,
+			),
+		).toEqual({ ok: true, sourceDir: join("/tmp/clone-abc", "nested/plugin") });
 	});
 
 	it("returns ok:false carrying the containment message for a subpath that lexically escapes the clone", () => {
@@ -1207,6 +1461,37 @@ describe("resolveGuardedSourceDir", () => {
 			ok: false,
 			message: 'subpath "../evil" resolves outside the clone root',
 		});
+	});
+
+	it("returns ok:false for a key whose own suffix escapes the clone when no sourceSubpath is recorded", () => {
+		const result = resolveGuardedSourceDir(
+			"/tmp/clone-abc",
+			"owner/repo/../../etc",
+			undefined,
+		);
+		expect(result).toEqual({
+			ok: false,
+			message: 'subpath "../../etc" resolves outside the clone root',
+		});
+	});
+
+	it("guards the recorded sourceSubpath, not the key, when both are present", () => {
+		expect(
+			resolveGuardedSourceDir(
+				"/tmp/clone-abc",
+				"owner/repo/../evil",
+				"skills/evil",
+			),
+		).toEqual({
+			ok: true,
+			sourceDir: join("/tmp/clone-abc", "skills/evil"),
+		});
+	});
+
+	it("accepts a key suffix that stays inside the clone", () => {
+		expect(
+			resolveGuardedSourceDir("/tmp/clone-abc", "owner/repo/a/../b", undefined),
+		).toEqual({ ok: true, sourceDir: join("/tmp/clone-abc", "b") });
 	});
 });
 
@@ -1250,16 +1535,16 @@ describe("resolveCloneUrl", () => {
 		expect(result).toBe("git@github.com:team/tools.git");
 	});
 
-	it("returns cloneUrl for direct-path source", () => {
+	it("returns cloneUrl for tree-url source", () => {
 		const result = resolveCloneUrl({
-			type: "direct-path",
+			type: "tree-url",
 			owner: "owner",
 			repo: "repo",
 			ref: "main",
 			constraint: null,
-			targetPlugin: "plugin-name",
-			manifestKey: "owner/repo/plugin-name",
+			manifestKey: "owner/repo",
 			cloneUrl: "https://github.com/owner/repo.git",
+			startPath: "plugin-name",
 		});
 		expect(result).toBe("https://github.com/owner/repo.git");
 	});
@@ -1313,11 +1598,65 @@ describe("constraint type guarantees", () => {
 		}
 	});
 
-	it("DirectPathSource.constraint is typed as literal null", () => {
+	it("TreeUrlSource.constraint is typed as literal null", () => {
 		const source: ParsedSource = {} as ParsedSource;
-		if (source.type === "direct-path") {
+		if (source.type === "tree-url") {
 			expectTypeOf(source.constraint).toEqualTypeOf<null>();
 		}
+	});
+});
+
+describe("keySubpath", () => {
+	it("is the path below owner/repo", () => {
+		expect(keySubpath("owner/repo/skills/go")).toBe("skills/go");
+	});
+
+	it("is empty for a root key", () => {
+		expect(keySubpath("owner/repo")).toBe("");
+	});
+});
+
+describe("addSourceFor", () => {
+	it("is owner/repo shorthand with no clone URL recorded", () => {
+		expect(addSourceFor("owner/repo/go", null)).toBe("owner/repo");
+	});
+
+	it("is owner/repo shorthand for GitHub over HTTPS, with or without .git", () => {
+		expect(
+			addSourceFor("owner/repo/go", "https://github.com/owner/repo.git"),
+		).toBe("owner/repo");
+		expect(addSourceFor("owner/repo", "https://github.com/owner/repo")).toBe(
+			"owner/repo",
+		);
+	});
+
+	it("is the clone URL without .git for another host", () => {
+		expect(
+			addSourceFor("acme/skills/go", "https://gitlab.com/acme/skills.git"),
+		).toBe("https://gitlab.com/acme/skills");
+	});
+
+	it("is the SSH form without .git for an SSH clone, GitHub included", () => {
+		expect(addSourceFor("acme/skills", "git@gitlab.com:acme/skills.git")).toBe(
+			"git@gitlab.com:acme/skills",
+		);
+		expect(addSourceFor("acme/skills", "git@github.com:acme/skills.git")).toBe(
+			"git@github.com:acme/skills",
+		);
+	});
+});
+
+describe("locateSource", () => {
+	it("appends a path, then a version", () => {
+		expect(locateSource("owner/repo", "skills/go", "v1.0.0")).toBe(
+			"owner/repo/skills/go@v1.0.0",
+		);
+	});
+
+	it("leaves out an empty path and a missing version", () => {
+		expect(locateSource("git@gitlab.com:acme/skills", "")).toBe(
+			"git@gitlab.com:acme/skills",
+		);
 	});
 });
 

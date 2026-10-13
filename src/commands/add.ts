@@ -1,154 +1,127 @@
 import { basename, join } from "node:path";
-import * as p from "@clack/prompts";
-import { Command } from "commander";
-import { selectAgents } from "../agent-select.js";
-import { selectCollectionPlugins } from "../collection-select.js";
-import { checkFileCollisions } from "../collision-check.js";
-import { resolveCollisions } from "../collision-resolve.js";
-import { computeIncomingFiles } from "../compute-incoming-files.js";
-import type { AgntcConfig } from "../config.js";
-import { KNOWN_AGENTS, readConfig } from "../config.js";
-import type { AssetCounts } from "../copy-plugin-assets.js";
+import { Command, Option } from "commander";
 import {
-	assertSubpathWithinClone,
-	checkEscapingSymlinks,
-	PathTraversalError,
-} from "../copy-safety.js";
-import { copyUnit, toComputeInput } from "../copy-unit.js";
-import { detectAgents } from "../detect-agents.js";
-import { getDriver } from "../drivers/registry.js";
-import type { AgentId, AgentWithDriver } from "../drivers/types.js";
+	absorptionNote,
+	claimFiles,
+	skillsInInstalledPacks,
+	takenOverRemoved,
+} from "../absorb.js";
+import {
+	type ChoiceContext,
+	type ChoiceOutcome,
+	chooseItems,
+	menuOption,
+	offeredItems,
+	optionLine,
+	type Selection,
+	type SelectionFlags,
+	selectionFromFlags,
+	strayNotices,
+	unansweredMenu,
+} from "../choose-items.js";
+import {
+	type ConflictPolicy,
+	clearConflicts,
+	conflictPolicy,
+} from "../clear-conflicts.js";
+import { commandAction, globalOption, jsonOption } from "../command-action.js";
+import { copyItem } from "../copy-item.js";
+import { checkEscapingSymlinks, PathTraversalError } from "../copy-safety.js";
+import {
+	type Discovery,
+	discover,
+	PackConflictError,
+	StartPathError,
+} from "../discover.js";
+import { addBody, listingBody, type SourceJson } from "../documents.js";
+import {
+	installedFrom,
+	isSameSource,
+	type SourceId,
+	sourceIdOf,
+} from "../entry-source.js";
 import { errorMessage } from "../errors.js";
-import { ExitSignal, withExitSignal } from "../exit-signal.js";
+import { ExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
-import { fetchRemoteTags } from "../git-utils.js";
-import type { Manifest, ManifestEntry } from "../manifest.js";
+import { fetchDefaultBranch, fetchRemoteTags } from "../git-utils.js";
+import {
+	type InstallItem,
+	itemLabel,
+	itemPath,
+	type KeyedItem,
+	keyItems,
+	pathLabel,
+} from "../install-item.js";
+import { installPathMatcher } from "../install-paths.js";
+import { promptForItems } from "../item-menu.js";
 import {
 	addEntry,
 	buildManifestEntry,
-	manifestTypeFromDetected,
+	type Manifest,
+	type ManifestEntry,
 	readManifest,
+	removeEntry,
 	writeManifest,
 } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
-import { parseSource, resolveCloneUrl } from "../source-parser.js";
-import type { PluginInstallResult } from "../summary.js";
-import { renderAddSummary, renderCollectionAddSummary } from "../summary.js";
-import type { DetectedType } from "../type-detection.js";
 import {
-	detectType,
-	findPresentAssetDirs,
-	TypeConflictError,
-} from "../type-detection.js";
-import { checkUnmanagedConflicts } from "../unmanaged-check.js";
-import type { UnmanagedPluginConflicts } from "../unmanaged-resolve.js";
-import { resolveUnmanagedConflicts } from "../unmanaged-resolve.js";
+	agntcCommand,
+	commandTitle,
+	projectScope,
+	type Scope,
+	type ScopeName,
+} from "../scope.js";
+import {
+	addSourceFor,
+	locateSource,
+	type ParsedSource,
+	parseSource,
+	resolveCloneUrl,
+} from "../source-parser.js";
+import {
+	formatRefLabel,
+	type ItemIdentity,
+	type ItemOutcome,
+	pluralize,
+	renderAddSummary,
+} from "../summary.js";
+import { interactiveUi, type Ui } from "../ui.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
-function deriveCloneUrlForManifest(
-	parsed: Awaited<ReturnType<typeof parseSource>>,
-): string | null {
-	if (parsed.type === "local-path") return null;
-	return resolveCloneUrl(parsed);
+export interface AddOptions extends SelectionFlags {
+	/** Replace files in the way without asking. */
+	overwrite?: boolean;
 }
 
-/**
- * Assembles the {@link buildManifestEntry} input shared by the standalone
- * install tail and the collection per-member write loop — owning the single
- * field literal plus the {@link manifestTypeFromDetected} and
- * {@link deriveCloneUrlForManifest} calls so the two sites cannot drift. The
- * ref/commit/cloneUrl derive from `parsed`/`commit`; the per-call inputs are the
- * narrowed detected unit, its resolved agents/files, and the constraint.
- */
-function buildAddEntry(opts: {
-	detected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-	agents: AgentId[];
-	files: string[];
-	parsed: Awaited<ReturnType<typeof parseSource>>;
+/** A source ready to install from: its files on disk and how it is recorded. */
+interface FetchedSource {
+	/** The manifest key prefix: `owner/repo`, or the local path. */
+	key: string;
+	root: string;
+	startPath?: string;
+	rootName: string;
+	/** The `@ref` or `@constraint` the user typed, for suggested commands. */
+	version?: string;
+	/** The newest semver tag a remote add with no version typed resolved to. */
+	latestRelease?: string;
+	ref: string | null;
 	commit: string | null;
+	cloneUrl: string | null;
 	constraint: string | undefined;
-	/**
-	 * Divergent source subpath for a skills-only collection member (cycle-9); the
-	 * collection write loop passes {@link memberSourceSubpath}, the standalone
-	 * tail leaves it `undefined` (a root unit's source IS the key-derived dir).
-	 * `undefined` omits the field, preserving the legacy entry shape.
-	 */
-	sourceSubpath?: string;
-}): ManifestEntry {
-	return buildManifestEntry({
-		ref: opts.parsed.ref,
-		commit: opts.commit,
-		agents: opts.agents,
-		files: opts.files,
-		type: manifestTypeFromDetected(opts.detected),
-		cloneUrl: deriveCloneUrlForManifest(opts.parsed),
-		constraint: opts.constraint,
-		sourceSubpath: opts.sourceSubpath,
-	});
-}
-
-/**
- * Derives a collection member's manifest key — the single source for the
- * `direct-path ? manifestKey : ${manifestKey}/${basename(segment)}` rule shared
- * by the 5a conflict/nuke pass and the step-6 write loop, so the two cannot
- * diverge.
- *
- * `memberSegment` is the member's dir-relative path within the collection root
- * (e.g. "alpha" for a root-child member, "skills/a" for a skills-only inner
- * skill). Member identity — and therefore the manifest-key segment — is always
- * the basename, so a skills-only member keys `owner/repo/a`, not
- * `owner/repo/skills/a`. For root-child members the basename is the segment, so
- * this is a no-op for them.
- */
-function memberKey(
-	parsed: Awaited<ReturnType<typeof parseSource>>,
-	memberSegment: string,
-): string {
-	return parsed.type === "direct-path"
-		? parsed.manifestKey
-		: `${parsed.manifestKey}/${basename(memberSegment)}`;
-}
-
-/**
- * The divergent source subpath persisted on a collection member's manifest entry
- * (cycle-9 regression fix), or `undefined` when none is needed. A member is keyed
- * by its segment's basename, but its source dir is the full `memberSegment`. When
- * the two diverge — a skills-only inner skill with segment "skills/<name>" vs key
- * basename "<name>" — the update path cannot reconstruct the source dir from the
- * basename key, so the segment is recorded as {@link ManifestEntry.sourceSubpath}
- * for the resolver to prefer. For root-child members (segment === basename) and
- * direct-path selectors there is no divergence, so this returns `undefined` and
- * the entry omits the field, preserving the byte-identical legacy shape.
- */
-function memberSourceSubpath(memberSegment: string): string | undefined {
-	return memberSegment === basename(memberSegment) ? undefined : memberSegment;
-}
-
-/**
- * A user-facing label for the group of units being installed from a collection,
- * named by their resolved type (never the internal "member" jargon): "this
- * skill", "these 3 skills", "these 2 skills and 1 plugin". Drives the
- * collection-wide agent prompt's `unitLabel`.
- */
-function describeUnits(types: Array<"bare-skill" | "plugin">): string {
-	const skills = types.filter((t) => t === "bare-skill").length;
-	const plugins = types.length - skills;
-	if (types.length === 1) {
-		return `this ${skills === 1 ? "skill" : "plugin"}`;
-	}
-	const parts: string[] = [];
-	if (skills > 0) parts.push(`${skills} skill${skills === 1 ? "" : "s"}`);
-	if (plugins > 0) parts.push(`${plugins} plugin${plugins === 1 ? "" : "s"}`);
-	return `these ${parts.join(" and ")}`;
 }
 
 interface TagResolutionResult {
-	parsed: Awaited<ReturnType<typeof parseSource>>;
+	parsed: ParsedSource;
 	constraint: string | undefined;
 }
 
+const ENGINE_ERRORS = [StartPathError, PathTraversalError, PackConflictError];
+
+/** The flags that answer the menu when there's no terminal to show it on. */
+const MENU_FLAGS = ["--skill", "--pack", "--all"];
+
 export async function resolveTagConstraint(
-	parsed: Awaited<ReturnType<typeof parseSource>>,
+	parsed: ParsedSource,
 ): Promise<TagResolutionResult> {
 	if (parsed.type === "local-path") {
 		return { parsed, constraint: undefined };
@@ -182,738 +155,625 @@ export async function resolveTagConstraint(
 	return { parsed: updatedParsed, constraint: constraint ?? undefined };
 }
 
-interface ConflictCheckResult {
-	updatedManifest: Manifest;
-	proceed: boolean;
-}
-
-async function runConflictChecks(opts: {
-	incomingFiles: string[];
-	manifest: Manifest;
-	pluginKey: string;
-	projectDir: string;
-}): Promise<ConflictCheckResult> {
-	const { incomingFiles, pluginKey, projectDir } = opts;
-	let currentManifest = opts.manifest;
-
-	// Collision check
-	const collisions = checkFileCollisions(
-		incomingFiles,
-		currentManifest,
-		pluginKey,
-	);
-	if (collisions.size > 0) {
-		const resolution = await resolveCollisions(
-			collisions,
-			currentManifest,
-			projectDir,
-		);
-		currentManifest = resolution.updatedManifest;
-		if (!resolution.resolved) {
-			return { updatedManifest: currentManifest, proceed: false };
-		}
-	}
-
-	// Unmanaged check
-	const unmanagedConflicts = await checkUnmanagedConflicts(
-		incomingFiles,
-		currentManifest,
-		projectDir,
-	);
-	if (unmanagedConflicts.length > 0) {
-		const conflicts: UnmanagedPluginConflicts[] = [
-			{ pluginKey, files: unmanagedConflicts },
-		];
-		const unmanagedResolution = await resolveUnmanagedConflicts(conflicts);
-		if (unmanagedResolution.cancelled.length > 0) {
-			return { updatedManifest: currentManifest, proceed: false };
-		}
-	}
-
-	return { updatedManifest: currentManifest, proceed: true };
-}
-
 export async function runAdd(
 	source: string,
-	options?: { forcePlugin?: boolean },
+	options: AddOptions = {},
+	ui: Ui = interactiveUi,
+	scope: Scope = projectScope(),
 ): Promise<void> {
-	p.intro("agntc add");
+	ui.intro(commandTitle("add", scope.name));
+
+	if (options.plugin) {
+		ui.note("--plugin is now --pack");
+	}
+	const selection = selectionFromFlags(options);
+	if (!selection.ok) {
+		return ui.fail(selection.message);
+	}
 
 	let tempDir: string | undefined;
 
 	try {
-		// 1. Parse source and resolve tag constraint
-		const rawParsed = await parseSource(source);
-		const resolution = await resolveTagConstraint(rawParsed);
-		const parsed = resolution.parsed;
-		const resolvedConstraint = resolution.constraint;
+		const typed = await parseSource(source);
+		const { parsed, constraint } = await resolveTagConstraint(typed);
+		const fetched = await fetchSource(parsed, ui);
+		tempDir = fetched.tempDir;
 
-		// 2. Resolve source directory and commit
-		const spin = p.spinner();
-		let sourceDir: string;
-		let commit: string | null;
-
-		if (parsed.type === "local-path") {
-			sourceDir = parsed.resolvedPath;
-			commit = null;
-		} else {
-			spin.start("Cloning repository...");
-			let cloneResult;
-			try {
-				cloneResult = await cloneSource(parsed);
-			} catch (err) {
-				spin.stop("Clone failed");
-				throw err;
-			}
-			spin.stop("Cloned successfully");
-			tempDir = cloneResult.tempDir;
-			sourceDir = cloneResult.tempDir;
-			commit = cloneResult.commit;
-		}
-
-		// 2b. Resolve the unit directory. For a direct-path (tree URL) source the
-		// subpath is a standalone unit selector: detection, config, and copy all
-		// target join(sourceDir, parsed.targetPlugin), not the repo root (task
-		// 2-3). Every other source has unitDir === sourceDir (no-op). The lexical
-		// within-clone containment guard for targetPlugin runs immediately below
-		// at step 2c, before unitDir is first read.
-		const unitDir =
-			parsed.type === "direct-path"
-				? join(sourceDir, parsed.targetPlugin)
-				: sourceDir;
-
-		// 2c. Lexical path-traversal guard on the selector subpath (analysis 1-2).
-		// This is the cheap, pure containment check, gated BEFORE the FIRST use of
-		// the joined unitDir: readConfig (step 3) and detectType (step 4) both
-		// read the filesystem at that joined path, so the guard must precede them
-		// so an attacker-controlled `..`-escaped selector is rejected pre-flight
-		// before any read at the joined path. No-op for a whole-repo install
-		// (subpath undefined). The symlink scan (content validation that must
-		// precede copy) stays at step 9b. A violation surfaces as the same
-		// identity-prefixed cancel + non-zero exit as the 9b handling.
-		try {
-			assertSubpathWithinClone(
-				sourceDir,
-				parsed.type === "direct-path" ? parsed.targetPlugin : undefined,
-			);
-		} catch (err) {
-			if (err instanceof PathTraversalError) {
-				p.cancel(`${parsed.manifestKey}: ${err.message}`);
-				throw new ExitSignal(1);
-			}
-			throw err;
-		}
-
-		// 3. Read config (lenient — never throws; null when absent/empty)
-		const onWarn = (message: string) => p.log.warn(message);
-		const config = await readConfig(unitDir, { onWarn });
-
-		// 4. Detect type ONCE — structure is sole authority; optional root config
-		// type and the --plugin installer override are forwarded so detection owns
-		// recognition and conflict resolution (Phase 1, task 1-4).
-		let detected: DetectedType;
-		try {
-			detected = await detectType(unitDir, {
-				onWarn,
-				configType: config?.type,
-				forcePlugin: options?.forcePlugin,
-			});
-		} catch (err) {
-			if (err instanceof TypeConflictError) {
-				// Detector supplies the structural half (err.message); prepend the
-				// source identity so the message names the offending source (spec: hard
-				// errors name the source). Pre-flight, non-zero, before any copy/manifest
-				// write. detectType raises this for EITHER override origin — the
-				// --plugin flag or a config `type: plugin` — so attribute it to the one
-				// that actually triggered it. The flag is the explicit user action and
-				// the higher-precedence override, so when set it owns the conflict; only
-				// otherwise did the config declaration trigger it.
-				const conflictMessage =
-					options?.forcePlugin === true
-						? `${parsed.manifestKey}: the --plugin flag cannot bundle this source — ${err.message}`
-						: `${parsed.manifestKey} declares type plugin but ${err.message}`;
-				p.cancel(conflictMessage);
-				throw new ExitSignal(1);
-			}
-			throw err;
-		}
-
-		// 5. Branch on detected type
-		if (detected.type === "collection") {
-			await runCollectionPipeline({
-				sourceDir: unitDir,
-				cloneRoot: sourceDir,
-				parsed,
-				commit,
-				detected,
-				onWarn,
-				spin,
-				constraint: resolvedConstraint,
-			});
+		const src = describeSource(typed, parsed, constraint, fetched);
+		if (options.list) {
+			await listSource(src, selection.selection, scope.name, ui);
 			return;
 		}
-
-		if (detected.type === "not-agntc") {
-			// Loud non-zero pre-flight failure (spec: Error & Abort — Hard errors).
-			p.cancel(
-				`${parsed.manifestKey}: Not an agntc source — no SKILL.md, asset dirs, or collection members found`,
-			);
-			throw new ExitSignal(1);
-		}
-
-		// 7. Detect agents
-		const projectDir = process.cwd();
-		const detectedAgents = await detectAgents(projectDir);
-
-		// 8. Select agents. Cancellation (Esc) and a deliberate empty selection are
-		// distinct outcomes, but for a standalone unit both mean "nothing to
-		// install" — a clean non-error abort. Emit exactly one coherent cancel
-		// message for either case (no emit-then-overwrite).
-		const agentSelection = await selectAgents({
-			declaredAgents: config?.agents ?? [],
-			detectedAgents,
-			unitLabel: `the ${basename(parsed.manifestKey)} ${
-				detected.type === "plugin" ? "plugin" : "skill"
-			}`,
-		});
-
-		if (
-			agentSelection.kind === "cancelled" ||
-			agentSelection.agents.length === 0
-		) {
-			p.cancel("Cancelled — no agents selected");
-			throw new ExitSignal(0);
-		}
-
-		const selectedAgents = agentSelection.agents;
-
-		// 9. Build agent+driver pairs for copy
-		const agents = selectedAgents.map((id) => ({
-			id,
-			driver: getDriver(id),
-		}));
-
-		// 9b. Copy-safety pre-flight (Phase 5). The symlink scan is content
-		// validation that must precede the copy: it rejects any symlink whose
-		// target escapes the clone root (tempDir for a remote clone, the resolved
-		// local path otherwise) — NOT the per-unit unitDir, so a within-clone
-		// symlink in a multi-dir plugin is allowed. It runs BEFORE any nuke/copy/
-		// manifest write, so a violation leaves no on-disk window. The lexical
-		// selector traversal guard already ran pre-read at step 2c (analysis 1-2);
-		// it is not repeated here. A violation maps to an identity-prefixed cancel
-		// + non-zero exit (mirrors the TypeConflictError pre-flight above).
-		const symlinkCheck = await checkEscapingSymlinks(unitDir, sourceDir);
-		if (!symlinkCheck.ok) {
-			p.cancel(`${parsed.manifestKey}: ${symlinkCheck.message}`);
-			throw new ExitSignal(1);
-		}
-
-		// 10. Read manifest and nuke existing files if reinstalling
-		const manifest = await readManifest(projectDir);
-		const existingEntry = manifest[parsed.manifestKey];
-		if (existingEntry) {
-			await nukeManifestFiles(projectDir, existingEntry.files);
-		}
-
-		// 10a. Compute incoming files (against the resolved unit directory).
-		// The bare-skill install name is the manifest-key basename (identity = repo
-		// /unit basename per spec), NOT basename(unitDir): for a whole-repo bare
-		// skill unitDir is the random mkdtemp clone dir, which would name the
-		// install after the temp dir. For members/tree-path selectors the two
-		// coincide, so this is a no-op there.
-		const installName = basename(parsed.manifestKey);
-		const incomingFiles = await computeIncomingFiles(
-			toComputeInput(detected, unitDir, agents, installName),
+		const installed = await readManifest(scope.root);
+		const items = await pickItems(
+			src,
+			selection.selection,
+			installed,
+			scope.name,
+			ui,
 		);
-
-		// 10b. Collision + unmanaged conflict checks
-		const conflictResult = await runConflictChecks({
-			incomingFiles,
-			manifest,
-			pluginKey: parsed.manifestKey,
-			projectDir,
-		});
-		const currentManifest = conflictResult.updatedManifest;
-		if (!conflictResult.proceed) {
-			p.cancel("Cancelled — conflict not resolved");
-			throw new ExitSignal(0);
-		}
-
-		// 11. Copy assets (with spinner)
-		let copiedFiles: string[];
-		let assetCountsByAgent: Partial<Record<AgentId, AssetCounts>> | undefined;
-
-		spin.start("Copying skill files...");
-		try {
-			const copyResult = await copyUnit(detected, {
-				sourceDir: unitDir,
-				agents,
-				projectDir,
-				skillName: installName,
-			});
-			copiedFiles = copyResult.copiedFiles;
-			assetCountsByAgent = copyResult.assetCountsByAgent;
-		} catch (err) {
-			spin.stop("Copy failed");
-			throw err;
-		}
-		spin.stop("Copied successfully");
-
-		// 12. Handle empty plugin
-		if (detected.type === "plugin" && copiedFiles.length === 0) {
-			p.log.warn("No files to install");
-			throw new ExitSignal(0);
-		}
-
-		// 13. Write manifest
-		const entry = buildAddEntry({
-			detected,
-			agents: selectedAgents,
-			files: copiedFiles,
-			parsed,
-			commit,
-			constraint: resolvedConstraint,
-		});
-		const updated = addEntry(currentManifest, parsed.manifestKey, entry);
-		await writeManifest(projectDir, updated);
-
-		// 14. Summary — per-agent breakdown as gutterred log nodes, headline as the
-		// terminal outro node, so the tree stays connected.
-		const summary = renderAddSummary({
-			manifestKey: parsed.manifestKey,
-			ref: parsed.ref,
-			commit,
-			detectedType: detected.type,
-			selectedAgents,
-			assetCountsByAgent,
-			copiedFiles,
-		});
-		// Emit the breakdown as ONE node (multi-line) so the bar continues down each
-		// row with no blank line between — compact, still connected to the tree.
-		if (summary.detail.length > 0) {
-			p.log.success(summary.detail.join("\n"));
-		}
-		p.outro(summary.headline);
+		const policy = conflictPolicy(options.overwrite === true, ui.mode);
+		await installItems(items, src, installed, { policy, scope, ui });
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			throw err;
 		}
-		p.cancel(errorMessage(err));
-		throw new ExitSignal(1);
+		ui.fail(errorMessage(err));
 	} finally {
 		if (tempDir) {
-			try {
-				await cleanupTempDir(tempDir);
-			} catch {
-				// Swallow cleanup errors
-			}
+			await cleanupTempDir(tempDir).catch(() => {});
 		}
 	}
 }
 
-interface CollectionPipelineInput {
-	sourceDir: string;
-	// The TRUE clone/source root (tempDir for a remote clone, resolved local path
-	// otherwise). Distinct from sourceDir, which for a direct-path collection is
-	// the unit dir (join(cloneRoot, targetPlugin)) per task 2-3. The symlink
-	// boundary is always the clone root, never the unit dir.
-	cloneRoot: string;
-	parsed: Awaited<ReturnType<typeof parseSource>>;
-	commit: string | null;
-	detected: Extract<DetectedType, { type: "collection" }>;
-	onWarn: (message: string) => void;
-	spin: ReturnType<typeof p.spinner>;
-	constraint: string | undefined;
+async function fetchSource(
+	parsed: ParsedSource,
+	ui: Ui,
+): Promise<{ root: string; commit: string | null; tempDir?: string }> {
+	if (parsed.type === "local-path") {
+		return { root: parsed.resolvedPath, commit: null };
+	}
+
+	const spin = ui.spinner();
+	spin.start("Cloning repository...");
+	try {
+		const { tempDir, commit } = await cloneSource(parsed);
+		spin.stop("Cloned successfully");
+		return { root: tempDir, commit, tempDir };
+	} catch (err) {
+		spin.stop("Clone failed");
+		throw err;
+	}
 }
 
-async function runCollectionPipeline(
-	input: CollectionPipelineInput,
-): Promise<void> {
-	const {
-		sourceDir,
-		cloneRoot,
-		parsed,
-		commit,
-		detected,
-		onWarn,
-		spin,
-		constraint,
-	} = input;
-	const projectDir = process.cwd();
-
-	// 1. Read manifest
-	const manifest = await readManifest(projectDir);
-
-	// 2. Select plugins (or use targetPlugin for direct-path)
-	let selectedPlugins: string[];
-
-	if (parsed.type === "direct-path") {
-		if (!detected.plugins.includes(parsed.targetPlugin)) {
-			throw new Error(
-				`Plugin "${parsed.targetPlugin}" not found in collection. Available: ${detected.plugins.join(", ")}`,
-			);
-		}
-		selectedPlugins = [parsed.targetPlugin];
-	} else {
-		selectedPlugins = await selectCollectionPlugins({
-			plugins: detected.plugins,
-			manifest,
-			manifestKeyPrefix: parsed.manifestKey,
-		});
-
-		if (selectedPlugins.length === 0) {
-			p.cancel("Cancelled — no plugins selected");
-			throw new ExitSignal(0);
-		}
-	}
-
-	// 3. Read each selected member's config for its declared agents (its author
-	// ceiling). The member set is selectedPlugins (populated structurally upstream
-	// via Phase 1 qualifiesAsMember) — config presence is NOT membership. readConfig
-	// is total: it returns AgntcConfig for a valid config and null for a missing or
-	// unusable one (a legitimate configless member, never a skip reason). It never
-	// throws for config problems; only a genuine non-ENOENT IO error propagates, and
-	// that SHOULD abort the whole pipeline (surfaced via runAdd's outer catch).
-	//
-	// Agents are chosen ONCE for the whole collection (step 6) over the union of
-	// members' ceilings; each member then installs for (selection ∩ its ceiling) in
-	// step 7. There is one prompt, not one per member.
-	//
-	// Each entry of selectedPlugins is a member's dir-relative SEGMENT: the basename
-	// for a root-child member ("alpha"), or "skills/<name>" for a skills-only inner
-	// skill. The segment locates the on-disk dir (join below); member identity — the
-	// display name and the manifest-key segment — is its basename (memberName /
-	// memberKey). The two are decoupled because a skills-only member's dir path is
-	// one level deeper than its key. The config map is keyed by the segment so the
-	// later passes re-look-up by the same segment they iterate.
-	const pluginConfigs = new Map<string, AgntcConfig | null>();
-
-	for (const memberSegment of selectedPlugins) {
-		const pluginDir = join(sourceDir, memberSegment);
-		const pluginConfig = await readConfig(pluginDir, { onWarn });
-		pluginConfigs.set(memberSegment, pluginConfig);
-	}
-
-	// 4. Detect agents once for the whole collection (used to pre-tick the single
-	// collection-wide prompt below).
-	const detectedAgents = await detectAgents(projectDir);
-
-	const results: PluginInstallResult[] = [];
-	let currentManifest: Manifest = manifest;
-
-	// 5. Detection + ceiling pass. Resolve each selected member to an installable
-	// unit (bare-skill | plugin) and record the agents its author ALLOWS — its
-	// declared ceiling, or all KNOWN_AGENTS when configless. not-agntc and nested
-	// collection members are skipped here. This runs BEFORE agent selection so the
-	// single prompt can offer the UNION of what the installable members support.
-	const installable: Array<{
-		memberName: string;
-		memberSegment: string;
-		pluginDir: string;
-		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-		allowedAgents: AgentId[];
-	}> = [];
-
-	for (const memberSegment of selectedPlugins) {
-		// The iterated value is the member's dir-relative SEGMENT (locates the dir);
-		// memberName is its basename — the member's identity used for every
-		// user-facing field (warnings, results/summary) and the manifest key. They
-		// differ only for a skills-only inner skill (segment "skills/a", name "a").
-		const memberName = basename(memberSegment);
-
-		// readConfig is total (step 3): a null config is a legitimate configless
-		// member, never a skip reason.
-		const pluginConfig = pluginConfigs.get(memberSegment) ?? null;
-		const pluginDir = join(sourceDir, memberSegment);
-
-		// Membership rule (spec: "a child with ≥1 asset-kind dir is a plugin
-		// member"): a member with any asset dir at its OWN root is a plugin member,
-		// never a nested collection. The skills-only member (only skills/, no
-		// SKILL.md) hits the detector's skills-only ambiguity and would otherwise
-		// default to collection → be silently dropped as a "nested collection"
-		// (analysis 2-1). Forcing plugin ONLY when an asset dir is present resolves
-		// the ambiguity correctly without ever forcing a member-dirs child (which
-		// has ZERO asset dirs at its own root) — that case stays a genuine nested
-		// collection and is still skipped below.
-		const memberHasAssetDirs =
-			(await findPresentAssetDirs(pluginDir)).length > 0;
-		const pluginDetected = await detectType(pluginDir, {
-			onWarn,
-			configType: pluginConfig?.type,
-			forcePlugin: memberHasAssetDirs,
-		});
-
-		if (pluginDetected.type === "not-agntc") {
-			onWarn(`${memberName}: not a valid agntc plugin — skipping`);
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-				agents: [],
-			});
-			continue;
-		}
-
-		if (pluginDetected.type === "collection") {
-			onWarn(`${memberName}: nested collections not supported — skipping`);
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-				agents: [],
-			});
-			continue;
-		}
-
-		// Author ceiling: a valid, non-empty declared `agents` list restricts the
-		// member; an absent/empty/unusable config means configless (any agent).
-		const allowedAgents =
-			pluginConfig?.agents && pluginConfig.agents.length > 0
-				? pluginConfig.agents
-				: [...KNOWN_AGENTS];
-
-		installable.push({
-			memberName,
-			memberSegment,
-			pluginDir,
-			pluginDetected,
-			allowedAgents,
-		});
-	}
-
-	// 6. ONE collection-wide agent prompt over the UNION of installable members'
-	// ceilings (canonical KNOWN_AGENTS order). Configless members contribute all
-	// three; a Claude-only member contributes Claude. The installer picks once;
-	// each member then installs for (pick ∩ its own ceiling) in step 7. A single
-	// detected candidate auto-selects (no prompt), matching the standalone rule.
-	let selectedAgents: AgentId[] = [];
-	if (installable.length > 0) {
-		const candidateUnion = KNOWN_AGENTS.filter((id) =>
-			installable.some((m) => m.allowedAgents.includes(id)),
-		);
-		const selection = await selectAgents({
-			declaredAgents: candidateUnion,
-			detectedAgents,
-			unitLabel: describeUnits(installable.map((m) => m.pluginDetected.type)),
-		});
-		// Cancellation or an empty selection aborts the whole collection cleanly —
-		// there is nothing to install for.
-		if (selection.kind === "cancelled" || selection.agents.length === 0) {
-			p.cancel("Cancelled — no agents selected");
-			throw new ExitSignal(0);
-		}
-		selectedAgents = selection.agents;
-	}
-
-	// 7. Per-member conflict checks + install prep, applying each member's ceiling.
-	const pluginsToInstall: Array<{
-		pluginName: string;
-		pluginSegment: string;
-		pluginDir: string;
-		pluginDetected: Extract<DetectedType, { type: "bare-skill" | "plugin" }>;
-		pluginManifestKey: string;
-		pluginAgents: AgentId[];
-		pluginAgentDrivers: AgentWithDriver[];
-	}> = [];
-
-	for (const m of installable) {
-		const memberName = m.memberName;
-		const memberSegment = m.memberSegment;
-		const pluginDir = m.pluginDir;
-		const pluginDetected = m.pluginDetected;
-
-		// Honour the author ceiling: install for the picked agents this member
-		// allows (canonical order preserved from the selection).
-		const pluginAgents = selectedAgents.filter((id) =>
-			m.allowedAgents.includes(id),
-		);
-		if (pluginAgents.length === 0) {
-			// The collection-wide selection excludes every agent this member's author
-			// permits — it cannot be installed for anything you chose. Skipped (loud,
-			// non-fatal), reason shown inline + tallied in the summary.
-			onWarn(
-				`${memberName}: skipped — author restricts to ${m.allowedAgents.join(", ")}, none selected`,
-			);
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-				agents: [],
-			});
-			continue;
-		}
-		const pluginAgentDrivers: AgentWithDriver[] = pluginAgents.map((id) => ({
-			id,
-			driver: getDriver(id),
-		}));
-
-		const pluginManifestKey = memberKey(parsed, memberSegment);
-
-		// Copy-safety pre-flight per member (Phase 5). Each member is scanned
-		// independently against the clone root (NOT the unit dir) BEFORE its own
-		// nuke/copy. The direct-path selector subpath was already validated
-		// lexically pre-read at runAdd step 2c (analysis 1-2), so it is not
-		// re-checked here. A violation fails THIS member loudly (recorded failed,
-		// no nuke/copy/entry) but does NOT abort siblings — the non-zero exit is
-		// deferred to the end of the run.
-		const memberSymlinkCheck = await checkEscapingSymlinks(
-			pluginDir,
-			cloneRoot,
-		);
-		if (!memberSymlinkCheck.ok) {
-			results.push({
-				pluginName: memberName,
-				status: "failed",
-				copiedFiles: [],
-				agents: [],
-				errorMessage: memberSymlinkCheck.message,
-			});
-			continue;
-		}
-
-		// Nuke existing files if reinstalling this plugin
-		const existingPluginEntry = currentManifest[pluginManifestKey];
-		if (existingPluginEntry) {
-			try {
-				await nukeManifestFiles(projectDir, existingPluginEntry.files);
-			} catch {
-				onWarn(`${memberName}: failed to remove old files — skipping`);
-				results.push({
-					pluginName: memberName,
-					status: "skipped",
-					copiedFiles: [],
-					agents: [],
-				});
-				continue;
-			}
-		}
-
-		// Compute incoming files
-		const incomingFiles = await computeIncomingFiles(
-			toComputeInput(pluginDetected, pluginDir, pluginAgentDrivers),
-		);
-
-		// Collision + unmanaged conflict checks
-		const conflictResult = await runConflictChecks({
-			incomingFiles,
-			manifest: currentManifest,
-			pluginKey: pluginManifestKey,
-			projectDir,
-		});
-		currentManifest = conflictResult.updatedManifest;
-		if (!conflictResult.proceed) {
-			results.push({
-				pluginName: memberName,
-				status: "skipped",
-				copiedFiles: [],
-				agents: [],
-			});
-			continue;
-		}
-
-		pluginsToInstall.push({
-			pluginName: memberName,
-			pluginSegment: memberSegment,
-			pluginDir,
-			pluginDetected,
-			pluginManifestKey,
-			pluginAgents,
-			pluginAgentDrivers,
-		});
-	}
-
-	// 5b. Copy all approved plugins (independent failure handling)
-	spin.start("Copying skill files...");
-	for (const {
-		pluginName,
-		pluginSegment,
-		pluginDir,
-		pluginDetected,
-		pluginAgents,
-		pluginAgentDrivers,
-	} of pluginsToInstall) {
-		try {
-			const copyResult = await copyUnit(pluginDetected, {
-				sourceDir: pluginDir,
-				agents: pluginAgentDrivers,
-				projectDir,
-			});
-			results.push({
-				pluginName,
-				pluginSegment,
-				status: "installed",
-				copiedFiles: copyResult.copiedFiles,
-				agents: pluginAgents,
-				assetCountsByAgent: copyResult.assetCountsByAgent,
-				detectedType: pluginDetected,
-			});
-		} catch (err) {
-			results.push({
-				pluginName,
-				status: "failed",
-				copiedFiles: [],
-				agents: [],
-				errorMessage: errorMessage(err),
-			});
-		}
-	}
-	spin.stop("Copied successfully");
-
-	// 6. Single manifest write
-	let updatedManifest: Manifest = currentManifest;
-	for (const result of results) {
-		if (result.status !== "installed") continue;
-		// `status === "installed"` narrows `result` to the installed variant, whose
-		// `detectedType` is statically a standalone (bare-skill | plugin) unit —
-		// collection/not-agntc never reach an installed result (filtered earlier in
-		// the per-member loop), so no runtime narrowing guard is needed here.
-		const manifestKey = memberKey(parsed, result.pluginName);
-		const entry = buildAddEntry({
-			detected: result.detectedType,
-			agents: result.agents,
-			files: result.copiedFiles,
-			parsed,
-			commit,
-			constraint,
-			// Persist the divergent source subpath for a skills-only member so the
-			// basename-keyed entry stays updatable (cycle-9). Omitted for root-child
-			// members (segment === basename).
-			sourceSubpath: memberSourceSubpath(result.pluginSegment),
-		});
-		updatedManifest = addEntry(updatedManifest, manifestKey, entry);
-	}
-	await writeManifest(projectDir, updatedManifest);
-
-	// 7. Per-plugin summary — one compact "<member> → <agents>" row per member,
-	// emitted as ONE node (multi-line) so the bar continues with no blank between
-	// rows; headline as the terminal outro node.
-	const summary = renderCollectionAddSummary({
-		manifestKey: parsed.manifestKey,
+/**
+ * `typed` is the source as the user wrote it, `parsed` the same source with
+ * its version resolved.
+ */
+function describeSource(
+	typed: ParsedSource,
+	parsed: ParsedSource,
+	constraint: string | undefined,
+	fetched: { root: string; commit: string | null },
+): FetchedSource {
+	const version = typed.constraint ?? typed.ref;
+	const common = {
+		key: parsed.manifestKey,
+		root: fetched.root,
 		ref: parsed.ref,
-		commit,
-		results,
-	});
-	if (summary.detail.length > 0) {
-		p.log.success(summary.detail.join("\n"));
+		commit: fetched.commit,
+		constraint,
+		...(version !== null ? { version } : {}),
+	};
+	if (parsed.type === "local-path") {
+		return {
+			...common,
+			rootName: basename(parsed.resolvedPath),
+			cloneUrl: null,
+		};
 	}
-	p.outro(summary.headline);
+	return {
+		...common,
+		rootName: parsed.repo,
+		cloneUrl: parsed.cloneUrl,
+		...(parsed.startPath !== undefined ? { startPath: parsed.startPath } : {}),
+		...(version === null && parsed.ref !== null
+			? { latestRelease: parsed.ref }
+			: {}),
+	};
+}
 
-	// 8. Non-zero exit on partial failure (spec: Partial outcomes — the exit-status
-	// contract covers multi-member installs). Deferred to AFTER the write + summary
-	// so siblings commit and the full report is shown first (mirrors 4-7). A skipped
-	// member (nested-collection / not-agntc) is NON-fatal; only a failed member
-	// (a copy-safety violation, or a copy failure) triggers the non-zero exit.
-	if (results.some((r) => r.status === "failed")) {
+function choiceContext(
+	src: FetchedSource,
+	scope: ScopeName,
+	packed?: ReadonlyMap<string, string>,
+): ChoiceContext {
+	return {
+		source:
+			src.cloneUrl === null ? src.key : addSourceFor(src.key, src.cloneUrl),
+		rootName: src.rootName,
+		scope,
+		...(src.version !== undefined ? { version: src.version } : {}),
+		...(packed !== undefined ? { packed } : {}),
+	};
+}
+
+function sourceIdOfFetched(src: FetchedSource): SourceId {
+	return src.cloneUrl === null
+		? { kind: "local", root: src.root, exact: true }
+		: { kind: "remote", cloneUrl: src.cloneUrl };
+}
+
+function sourceJson(src: FetchedSource): SourceJson {
+	return {
+		source: src.key,
+		ref: src.ref,
+		commit: src.commit,
+		constraint: src.constraint ?? null,
+	};
+}
+
+/** Shows what the source holds, as the menu would offer it, and installs nothing. */
+async function listSource(
+	src: FetchedSource,
+	selection: Selection,
+	scope: ScopeName,
+	ui: Ui,
+): Promise<void> {
+	const discovery = await discoverSource(src, selection, ui);
+	const items = offeredItems(discovery);
+	const lines = items.map((item) => optionLine(menuOption(item, src.rootName)));
+
+	if (lines.length > 0) {
+		ui.log.message(lines.join("\n"));
+	}
+	for (const notice of strayNotices(discovery, choiceContext(src, scope))) {
+		ui.log.warn(notice);
+	}
+	const packs = items.filter((item) => item.kind === "pack").length;
+	ui.outro(
+		`${src.key}@${formatRefLabel(src.ref, src.commit)} holds ${pluralize(packs, "pack")} and ${pluralize(items.length - packs, "skill")}`,
+	);
+	ui.report(listingBody(sourceJson(src), items, discovery.strays));
+}
+
+async function pickItems(
+	src: FetchedSource,
+	selection: Selection,
+	manifest: Manifest,
+	scope: ScopeName,
+	ui: Ui,
+): Promise<KeyedItem[]> {
+	const discovery = await discoverSource(src, selection, ui);
+	const packed = skillsInInstalledPacks(
+		discovery,
+		manifest,
+		sourceIdOfFetched(src),
+	);
+	const choice = chooseItems(
+		discovery,
+		selection,
+		choiceContext(src, scope, packed),
+	);
+	for (const notice of choice.strayNotices) {
+		ui.warn(notice);
+	}
+
+	const picked = await settle(choice.outcome, src, discovery, ui);
+	const keyed = await keyItems(picked, src.key, src.rootName, src.root);
+	if (!keyed.ok) {
+		return refuse(src, keyed.message, ui);
+	}
+	return keyed.items;
+}
+
+async function discoverSource(
+	src: FetchedSource,
+	selection: Selection,
+	ui: Ui,
+): Promise<Discovery> {
+	try {
+		return await discover(src.root, {
+			...(src.startPath !== undefined ? { startPath: src.startPath } : {}),
+			forcePack: selection.kind === "pack",
+			rootName: src.rootName,
+			onWarn: (message) => ui.warn(message),
+		});
+	} catch (err) {
+		if (err instanceof StartPathError) {
+			return refuse(src, await startPathMessage(err, src), ui);
+		}
+		if (ENGINE_ERRORS.some((engineError) => err instanceof engineError)) {
+			return refuse(src, errorMessage(err), ui);
+		}
+		throw err;
+	}
+}
+
+/**
+ * A start path that isn't at the latest release, which an add with no version
+ * resolves to, may be on the default branch already: says how to add it from
+ * there. Naming that branch takes an `ls-remote`, never a second clone.
+ */
+async function startPathMessage(
+	err: StartPathError,
+	src: FetchedSource,
+): Promise<string> {
+	if (src.latestRelease === undefined || src.cloneUrl === null) {
+		return err.message;
+	}
+	const branch = await fetchDefaultBranch(src.cloneUrl).catch(() => null);
+	const fromBranch = locateSource(
+		addSourceFor(src.key, src.cloneUrl),
+		src.startPath ?? "",
+		branch ?? "<branch>",
+	);
+	return `${err.message} at ${src.latestRelease}, the latest release — to add it from the default branch, use ${fromBranch}, or name a version`;
+}
+
+async function settle(
+	outcome: ChoiceOutcome,
+	src: FetchedSource,
+	discovery: Discovery,
+	ui: Ui,
+): Promise<InstallItem[]> {
+	switch (outcome.kind) {
+		case "refuse":
+			return refuse(src, outcome.message, ui);
+		case "install":
+			for (const note of outcome.notes) {
+				ui.note(note);
+			}
+			return outcome.items;
+		case "menu": {
+			for (const note of outcome.notes) {
+				ui.note(note);
+			}
+			if (ui.mode === "machine") {
+				const offered = outcome.options.map(({ value }) => value);
+				ui.report(listingBody(sourceJson(src), offered, discovery.strays));
+				return refuse(src, unansweredMenu(outcome.options), ui, MENU_FLAGS);
+			}
+			const picked = await promptForItems(outcome.options, ui);
+			if (picked.length === 0) {
+				ui.cancel("Cancelled — nothing selected");
+				throw new ExitSignal(0);
+			}
+			return picked;
+		}
+	}
+}
+
+function refuse(
+	src: FetchedSource,
+	message: string,
+	ui: Ui,
+	flags?: string[],
+): never {
+	return ui.fail(
+		`${src.key}: ${message}`,
+		flags !== undefined ? { flags } : {},
+	);
+}
+
+/**
+ * Installs each item as its own manifest entry. Every item is checked before
+ * any install is touched; an item that fails or is stopped doesn't stop the
+ * others, and the command exits non-zero after the summary if any did.
+ */
+async function installItems(
+	items: KeyedItem[],
+	src: FetchedSource,
+	installed: Manifest,
+	{ policy, scope, ui }: InstallContext,
+): Promise<void> {
+	const installRoot = scope.root;
+	let manifest = installed;
+	const outcomes: ItemOutcome[] = [];
+	const cleared: ClearedItem[] = [];
+	const ctx = {
+		policy,
+		ui,
+		source: sourceIdOfFetched(src),
+		scope: scope.name,
+	};
+
+	for (const keyed of items) {
+		const checked = await checkItem(keyed, src, manifest, installRoot, ctx);
+		manifest = checked.manifest;
+		if (checked.outcome === null) {
+			cleared.push({ keyed, absorbs: checked.absorbs });
+		} else {
+			outcomes.push(checked.outcome);
+		}
+	}
+
+	const notes: string[] = [];
+	if (cleared.length > 0) {
+		const spin = ui.spinner();
+		spin.start("Copying skill files...");
+		for (const item of cleared) {
+			const installed = await installKeyedItem(
+				item,
+				src,
+				manifest,
+				installRoot,
+			);
+			manifest = installed.manifest;
+			outcomes.push(installed.outcome);
+			notes.push(...installed.notes);
+		}
+		spin.stop("Copied successfully");
+	}
+	for (const note of notes) {
+		ui.note(note);
+	}
+
+	await writeManifest(installRoot, manifest);
+	reportSummary(src, outcomes, ui);
+	ui.report(addBody(sourceJson(src), outcomes));
+
+	if (outcomes.some(failsTheRun)) {
 		throw new ExitSignal(1);
 	}
+}
+
+/** A failed item, or one stopped for want of a flag, makes the run exit non-zero. */
+function failsTheRun(outcome: ItemOutcome): boolean {
+	if (outcome.status === "installed") {
+		return false;
+	}
+	return outcome.status === "failed" || outcome.flags !== undefined;
+}
+
+function identify({ item, key }: KeyedItem, rootName: string): ItemIdentity {
+	return {
+		label: itemLabel(item, rootName),
+		key,
+		kind: item.kind,
+		path: itemPath(item),
+	};
+}
+
+interface InstallContext {
+	policy: ConflictPolicy;
+	scope: Scope;
+	ui: Ui;
+}
+
+interface CheckContext {
+	policy: ConflictPolicy;
+	ui: Ui;
+	/** Where the items come from, for what a pack absorbs. */
+	source: SourceId;
+	scope: ScopeName;
+}
+
+/** An item clear to copy, with the loose skills it takes over. */
+interface ClearedItem {
+	keyed: KeyedItem;
+	absorbs: string[];
+}
+
+interface CheckedItem {
+	manifest: Manifest;
+	/** Why the item won't be copied, or null when it's clear to copy. */
+	outcome: ItemOutcome | null;
+	/** The loose skills from its own source a pack takes over. */
+	absorbs: string[];
+}
+
+/**
+ * Clears an item for copying: its key, the symlink-escape scan, then whatever
+ * files are in its way, under the conflict policy. Files recorded under the
+ * item's own key count as its own, so a reinstall doesn't trip either check,
+ * and so do a pack's loose skills from its own source, which it absorbs.
+ */
+async function checkItem(
+	keyed: KeyedItem,
+	src: FetchedSource,
+	manifest: Manifest,
+	installRoot: string,
+	{ policy, ui, source, scope }: CheckContext,
+): Promise<CheckedItem> {
+	const identity = identify(keyed, src.rootName);
+	const refusal =
+		keyTaken(keyed, src, manifest, scope) ??
+		(await escapingSymlink(keyed, src));
+	if (refusal !== null) {
+		return {
+			manifest,
+			outcome: { ...identity, status: "failed", reason: refusal },
+			absorbs: [],
+		};
+	}
+
+	const incoming = keyed.claims.map(({ target }) => target);
+	const absorbs =
+		keyed.item.kind === "pack"
+			? claimFiles(incoming, manifest, keyed.key, source).absorbed
+			: [];
+	const isAbsorbed = installPathMatcher(
+		absorbs.flatMap((key) => manifest[key]?.files ?? []),
+	);
+	const conflicts = await clearConflicts(
+		{
+			incomingFiles: incoming.filter((file) => !isAbsorbed(file)),
+			manifest,
+			key: keyed.key,
+			projectDir: installRoot,
+		},
+		policy,
+		ui,
+	);
+	return {
+		manifest: conflicts.manifest,
+		outcome:
+			conflicts.stop === null ? null : { ...identity, ...conflicts.stop },
+		absorbs,
+	};
+}
+
+/**
+ * Why the item can't install under its key: the entry already there isn't an
+ * earlier install of it, being from another repo (keys don't name the host),
+ * another type or another path. Replacing that entry is the user's call:
+ * remove it, then add.
+ */
+function keyTaken(
+	{ key, item }: KeyedItem,
+	src: FetchedSource,
+	manifest: Manifest,
+	scope: ScopeName,
+): string | null {
+	const holder = manifest[key];
+	if (holder === undefined) {
+		return null;
+	}
+	const type = holder.type ?? "skill";
+	const from = installedFrom(key, holder);
+	const otherRepo = otherRemoteSource(key, holder, src);
+	if (
+		otherRepo === null &&
+		type === item.kind &&
+		from === sourcePathOf(item, src)
+	) {
+		return null;
+	}
+	const where = otherRepo ?? pathLabel(from, src.rootName);
+	const remove = agntcCommand(scope, "remove", [key]);
+	return `${key} is already installed from ${where}, as a ${type}; to replace it: ${remove}, then add again`;
+}
+
+/** The clone URL a remote entry was installed from, when it isn't `src`'s repo. */
+function otherRemoteSource(
+	key: string,
+	holder: ManifestEntry,
+	src: FetchedSource,
+): string | null {
+	const held = sourceIdOf(key, holder);
+	if (held.kind !== "remote" || src.cloneUrl === null) {
+		return null;
+	}
+	return isSameSource(held, sourceIdOfFetched(src)) ? null : held.cloneUrl;
+}
+
+/** Where an item comes from, as `installedFrom` gives it for an entry. */
+function sourcePathOf(item: InstallItem, src: FetchedSource): string {
+	const path = itemPath(item);
+	return src.commit === null ? join(src.root, path) : path;
+}
+
+async function escapingSymlink(
+	{ item }: KeyedItem,
+	src: FetchedSource,
+): Promise<string | null> {
+	const check = await checkEscapingSymlinks(
+		join(src.root, itemPath(item)),
+		src.root,
+	);
+	return check.ok ? null : check.message;
+}
+
+interface InstalledItem {
+	manifest: Manifest;
+	outcome: ItemOutcome;
+	notes: string[];
+}
+
+/**
+ * Removes the files of an earlier install under the item's key and of the
+ * loose skills it absorbs, then copies the item. Once their files are removed
+ * the absorbed entries go, copy or no copy, and a failed copy drops the key's
+ * entry too. A failed removal keeps every entry, so whatever is left stays
+ * tracked.
+ */
+async function installKeyedItem(
+	{ keyed, absorbs }: ClearedItem,
+	src: FetchedSource,
+	manifest: Manifest,
+	installRoot: string,
+): Promise<InstalledItem> {
+	const { item, key, sourceSubpath } = keyed;
+	const identity = identify(keyed, src.rootName);
+	const failed = (reason: string): ItemOutcome => ({
+		...identity,
+		status: "failed",
+		reason,
+	});
+
+	const existing = manifest[key];
+	const replaced = [key, ...absorbs].flatMap((k) => manifest[k]?.files ?? []);
+	if (replaced.length > 0) {
+		try {
+			await nukeManifestFiles(installRoot, replaced);
+		} catch (err) {
+			return {
+				manifest,
+				outcome: failed(
+					`couldn't remove its earlier install: ${errorMessage(err)}`,
+				),
+				notes: [],
+			};
+		}
+	}
+	const rest = absorbs.reduce(removeEntry, manifest);
+
+	try {
+		const { copiedFiles, assetCounts } = await copyItem(
+			item,
+			{ root: src.root, local: src.commit === null },
+			installRoot,
+		);
+		const entry = buildManifestEntry({
+			ref: src.ref,
+			commit: src.commit,
+			files: copiedFiles,
+			type: item.kind,
+			cloneUrl: src.cloneUrl,
+			constraint: src.constraint,
+			sourceSubpath,
+			localRoot: src.cloneUrl === null ? src.root : undefined,
+		});
+		return {
+			manifest: addEntry(rest, key, entry),
+			outcome: {
+				...identity,
+				status: "installed",
+				assetCounts,
+				files: copiedFiles,
+			},
+			notes: absorbs.map((looseKey) => absorptionNote(key, looseKey)),
+		};
+	} catch (err) {
+		const removed = [
+			...(existing ? ["its earlier install was removed"] : []),
+			...(absorbs.length > 0 ? [takenOverRemoved(absorbs)] : []),
+		];
+		return {
+			manifest: removeEntry(rest, key),
+			outcome: failed([errorMessage(err), ...removed].join("; ")),
+			notes: [],
+		};
+	}
+}
+
+function reportSummary(
+	src: FetchedSource,
+	outcomes: ItemOutcome[],
+	ui: Ui,
+): void {
+	const summary = renderAddSummary({
+		sourceKey: src.key,
+		ref: src.ref,
+		commit: src.commit,
+		outcomes,
+	});
+	if (summary.installed.length > 0) {
+		ui.log.success(summary.installed.join("\n"));
+	}
+	if (summary.skipped.length > 0) {
+		ui.log.warn(summary.skipped.join("\n"));
+	}
+	if (summary.failed.length > 0) {
+		ui.log.error(summary.failed.join("\n"));
+	}
+	ui.outro(summary.headline);
 }
 
 export const addCommand = new Command("add")
-	.description("Install a plugin from a git repo or local path")
-	.argument("<source>", "Git repo (owner/repo) or local path")
-	.option("--plugin", "Bundle a skills-only source as a single plugin")
+	.description("Install skills and packs from a git repo or local path")
+	.argument("<source>", "Git repo (owner/repo[/path]) or local path")
+	.option("--skill <names...>", "Install only the named skills")
+	.option("--pack", "Install the source path as one pack")
+	.option("--all", "Install everything found")
+	.option("--list", "Show what the source holds without installing anything")
+	.option("--overwrite", "Replace files in the way without asking")
+	.addOption(new Option("--plugin", "Renamed to --pack").hideHelp())
+	.addOption(globalOption())
+	.addOption(jsonOption())
 	.action(
-		withExitSignal(async (source: string, options: { plugin?: boolean }) => {
-			await runAdd(source, { forcePlugin: options.plugin === true });
-		}),
+		commandAction("add", (ui, scope, source: string, options: AddOptions) =>
+			runAdd(source, options, ui, scope),
+		),
 	);

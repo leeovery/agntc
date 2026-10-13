@@ -1,40 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("../src/drivers/registry.js", () => ({
-	getDriver: vi.fn(),
-}));
-
-import type { AssetCounts } from "../src/copy-plugin-assets.js";
-import { getDriver } from "../src/drivers/registry.js";
-import type { AgentId, AssetType } from "../src/drivers/types.js";
+import { describe, expect, it } from "vitest";
 import {
-	capitalizeAgentName,
-	formatBareSkillSummary,
-	formatDroppedAgentsSuffix,
-	formatPluginSummary,
+	formatAssetCounts,
 	formatRefLabel,
+	type ItemOutcome,
+	joinWithAnd,
 	renderAddSummary,
-	renderCollectionAddSummary,
 	renderGitUpdateSummary,
 	renderLocalUpdateSummary,
 	renderRemoveSummary,
 	renderUpdateOutcomeSummary,
 } from "../src/summary.js";
 import { formatVersionMove } from "../src/version-resolve.js";
-
-const mockGetDriver = vi.mocked(getDriver);
-
-beforeEach(() => {
-	vi.clearAllMocks();
-	mockGetDriver.mockImplementation((id: AgentId) => ({
-		detect: vi.fn(),
-		getTargetDir: (assetType: AssetType) => {
-			if (id === "claude") return `.claude/${assetType}/`;
-			if (id === "codex") return `.codex/${assetType}/`;
-			return null;
-		},
-	}));
-});
 
 describe("formatRefLabel", () => {
 	it("returns ref when ref is not null", () => {
@@ -50,305 +26,154 @@ describe("formatRefLabel", () => {
 	});
 });
 
-describe("capitalizeAgentName", () => {
-	it("capitalizes first letter of agent name", () => {
-		expect(capitalizeAgentName("claude")).toBe("Claude");
-		expect(capitalizeAgentName("codex")).toBe("Codex");
-	});
-});
-
-describe("formatPluginSummary", () => {
-	it("returns one aligned line per agent in canonical order", () => {
-		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
-			claude: { skills: 12, agents: 3, hooks: 2 },
-			codex: { skills: 12 },
-		};
-		// Pass codex first to prove canonical (claude, codex) reordering.
-		const result = formatPluginSummary(["codex", "claude"], assetCounts);
-		expect(result).toEqual([
-			"Claude  12 skills, 3 agents, 2 hooks",
-			"Codex   12 skills",
-		]);
+describe("formatAssetCounts", () => {
+	it("names each asset type with its count", () => {
+		expect(formatAssetCounts({ skills: 12, agents: 3, hooks: 2 })).toBe(
+			"12 skills, 3 agents, 2 hooks",
+		);
 	});
 
 	it("omits zero-count asset types", () => {
-		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
-			claude: { skills: 5, agents: 0, hooks: 0 },
-		};
-		const result = formatPluginSummary(["claude"], assetCounts);
-		expect(result).toEqual(["Claude  5 skills"]);
-	});
-
-	it("lists a selected agent whose counts are all zero as 'nothing to install'", () => {
-		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
-			claude: { skills: 3 },
-			codex: { skills: 0, agents: 0 },
-		};
-		const result = formatPluginSummary(["claude", "codex"], assetCounts);
-		expect(result).toEqual([
-			"Claude  3 skills",
-			"Codex   nothing to install (no compatible files)",
-		]);
-	});
-
-	it("lists a selected agent absent from assetCountsByAgent as 'nothing to install'", () => {
-		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
-			claude: { skills: 2 },
-		};
-		const result = formatPluginSummary(["claude", "codex"], assetCounts);
-		expect(result).toEqual([
-			"Claude  2 skills",
-			"Codex   nothing to install (no compatible files)",
-		]);
-	});
-
-	it("lists every no-op agent (agents/hooks-only plugin for codex+cursor)", () => {
-		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
-			claude: { agents: 1, hooks: 1 },
-			codex: {},
-			cursor: {},
-		};
-		const result = formatPluginSummary(
-			["claude", "codex", "cursor"],
-			assetCounts,
+		expect(formatAssetCounts({ skills: 5, agents: 0, hooks: 0 })).toBe(
+			"5 skills",
 		);
-		expect(result).toEqual([
-			"Claude  1 agent, 1 hook",
-			"Codex   nothing to install (no compatible files)",
-			"Cursor  nothing to install (no compatible files)",
-		]);
 	});
 
 	it("uses singular form for count of 1", () => {
-		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
-			claude: { skills: 1, agents: 1, hooks: 1 },
-		};
-		const result = formatPluginSummary(["claude"], assetCounts);
-		expect(result).toEqual(["Claude  1 skill, 1 agent, 1 hook"]);
+		expect(formatAssetCounts({ skills: 1, agents: 1, hooks: 1 })).toBe(
+			"1 skill, 1 agent, 1 hook",
+		);
 	});
 
-	it("returns [] when no agents are selected", () => {
-		expect(formatPluginSummary([], {})).toEqual([]);
+	it("returns an empty string when nothing was counted", () => {
+		expect(formatAssetCounts({})).toBe("");
 	});
 });
 
-describe("formatBareSkillSummary", () => {
-	it("returns one aligned line per agent in canonical order", () => {
-		const copiedFiles = [
-			".claude/skills/my-skill/file1.md",
-			".claude/skills/my-skill/file2.md",
-			".codex/skills/my-skill/file1.md",
-		];
-		// Pass codex first to prove canonical (claude, codex) reordering.
-		const result = formatBareSkillSummary(["codex", "claude"], copiedFiles);
-		expect(result).toEqual(["Claude  2 skills", "Codex   1 skill"]);
+describe("joinWithAnd", () => {
+	it("joins with commas and a final and", () => {
+		expect(joinWithAnd(["a", "b", "c"])).toBe("a, b and c");
 	});
 
-	it("omits agent with no matching files", () => {
-		const copiedFiles = [".claude/skills/my-skill/file1.md"];
-		const result = formatBareSkillSummary(["claude", "codex"], copiedFiles);
-		expect(result).toEqual(["Claude  1 skill"]);
+	it("joins two with and", () => {
+		expect(joinWithAnd(["a", "b"])).toBe("a and b");
+	});
+
+	it("returns one item as is, and nothing as empty", () => {
+		expect(joinWithAnd(["a"])).toBe("a");
+		expect(joinWithAnd([])).toBe("");
 	});
 });
 
 describe("renderAddSummary", () => {
-	it("formats standalone plugin add with headline + per-agent detail lines", () => {
-		const assetCounts: Partial<Record<AgentId, AssetCounts>> = {
-			claude: { skills: 12, agents: 3, hooks: 2 },
-			codex: { skills: 12 },
+	function skill(label: string): ItemOutcome {
+		return {
+			label,
+			status: "installed",
+			kind: "skill",
+			assetCounts: { skills: 1 },
 		};
+	}
+
+	it("gives one line per installed item under a source headline", () => {
 		const result = renderAddSummary({
-			manifestKey: "leeovery/claude-technical-workflows",
-			ref: "v2.1.6",
-			commit: "abc1234",
-			detectedType: "plugin",
-			selectedAgents: ["claude", "codex"],
-			assetCountsByAgent: assetCounts,
-			copiedFiles: [],
+			sourceKey: "owner/repo",
+			ref: "v1.0.0",
+			commit: "abc123",
+			outcomes: [skill("skills/react/hooks"), skill("tools/lint")],
 		});
+
 		expect(result).toEqual({
-			headline: "Installed leeovery/claude-technical-workflows@v2.1.6",
-			detail: ["Claude  12 skills, 3 agents, 2 hooks", "Codex   12 skills"],
+			headline: "Installed owner/repo@v1.0.0",
+			installed: ["skills/react/hooks", "tools/lint"],
+			skipped: [],
+			failed: [],
 		});
 	});
 
-	it("formats bare skill add with headline + per-agent detail lines", () => {
+	it("gives a pack's skill count with its agents and hooks counts", () => {
 		const result = renderAddSummary({
-			manifestKey: "owner/my-skill",
+			sourceKey: "owner/repo",
 			ref: "main",
-			commit: "abc123def456",
-			detectedType: "bare-skill",
-			selectedAgents: ["claude"],
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			commit: "abc123",
+			outcomes: [
+				{
+					label: "laravel",
+					status: "installed",
+					kind: "pack",
+					assetCounts: { skills: 12, agents: 3, hooks: 1 },
+				},
+			],
 		});
-		expect(result).toEqual({
-			headline: "Installed owner/my-skill@main",
-			detail: ["Claude  1 skill"],
+
+		expect(result.installed).toEqual([
+			"laravel (pack · 12 skills, 3 agents, 1 hook)",
+		]);
+	});
+
+	it("gives a pack's skill count even when it has none", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "main",
+			commit: "abc123",
+			outcomes: [
+				{
+					label: "repo",
+					status: "installed",
+					kind: "pack",
+					assetCounts: { skills: 0, agents: 2 },
+				},
+			],
 		});
+
+		expect(result.installed).toEqual(["repo (pack · 0 skills, 2 agents)"]);
+	});
+
+	it("lists skipped and failed items with their reasons", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "main",
+			commit: "abc123",
+			outcomes: [
+				skill("a"),
+				{ label: "b", status: "skipped", reason: "conflict not resolved" },
+				{ label: "c", status: "failed", reason: "disk full" },
+			],
+		});
+
+		expect(result.skipped).toEqual(["b: skipped — conflict not resolved"]);
+		expect(result.failed).toEqual(["c: failed — disk full"]);
+	});
+
+	it("says nothing was installed when no item installed", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "main",
+			commit: "abc123",
+			outcomes: [{ label: "a", status: "skipped", reason: "conflict" }],
+		});
+
+		expect(result.headline).toBe("Nothing installed from owner/repo");
 	});
 
 	it("uses HEAD label when ref is null with commit", () => {
 		const result = renderAddSummary({
-			manifestKey: "owner/my-skill",
+			sourceKey: "owner/my-skill",
 			ref: null,
 			commit: "abc123",
-			detectedType: "bare-skill",
-			selectedAgents: ["claude"],
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			outcomes: [skill("my-skill")],
 		});
-		expect(result.headline).toContain("owner/my-skill@HEAD");
+		expect(result.headline).toBe("Installed owner/my-skill@HEAD");
 	});
 
 	it("uses local label when ref and commit are null", () => {
 		const result = renderAddSummary({
-			manifestKey: "owner/my-skill",
+			sourceKey: "/path/to/skills",
 			ref: null,
 			commit: null,
-			detectedType: "bare-skill",
-			selectedAgents: ["claude"],
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
+			outcomes: [skill("a")],
 		});
-		expect(result.headline).toContain("owner/my-skill@local");
-	});
-});
-
-describe("renderCollectionAddSummary", () => {
-	it("shows per-plugin multi-line summaries for installed plugins", () => {
-		const results = [
-			{
-				pluginName: "pluginA",
-				status: "installed" as const,
-				copiedFiles: [".claude/skills/pluginA/file1.md"],
-				agents: ["claude"] as AgentId[],
-				detectedType: { type: "bare-skill" as const },
-			},
-			{
-				pluginName: "pluginB",
-				status: "installed" as const,
-				copiedFiles: [
-					".claude/skills/pluginB/file1.md",
-					".codex/skills/pluginB/file1.md",
-				],
-				agents: ["claude", "codex"] as AgentId[],
-				detectedType: { type: "bare-skill" as const },
-			},
-		];
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results,
-		});
-		expect(result.headline).toBe("Installed owner/my-collection@main");
-		const body = result.detail.join("\n");
-		// One compact "<member> → <agents>" row per member.
-		expect(body).toMatch(/pluginA → claude/);
-		expect(body).toMatch(/pluginB → claude, codex/);
-	});
-
-	it("notes skipped plugins", () => {
-		const results = [
-			{
-				pluginName: "pluginA",
-				status: "installed" as const,
-				copiedFiles: [".claude/skills/pluginA/file1.md"],
-				agents: ["claude"] as AgentId[],
-				detectedType: { type: "bare-skill" as const },
-			},
-			{
-				pluginName: "pluginB",
-				status: "skipped" as const,
-				copiedFiles: [],
-				agents: [] as AgentId[],
-			},
-		];
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results,
-		});
-		expect(result.detail.join("\n")).toMatch(/1 skipped/);
-	});
-
-	it("notes failed plugins with error messages", () => {
-		const results = [
-			{
-				pluginName: "pluginA",
-				status: "failed" as const,
-				copiedFiles: [],
-				agents: [] as AgentId[],
-				errorMessage: "permission denied",
-			},
-		];
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results,
-		});
-		expect(result.detail.join("\n")).toMatch(
-			/pluginA: failed — permission denied/,
-		);
-	});
-
-	it("handles mixed outcomes: installed, skipped, and failed", () => {
-		const results = [
-			{
-				pluginName: "pluginA",
-				status: "installed" as const,
-				copiedFiles: [".claude/skills/pluginA/file1.md"],
-				agents: ["claude"] as AgentId[],
-				detectedType: { type: "bare-skill" as const },
-			},
-			{
-				pluginName: "pluginB",
-				status: "skipped" as const,
-				copiedFiles: [],
-				agents: [] as AgentId[],
-			},
-			{
-				pluginName: "pluginC",
-				status: "failed" as const,
-				copiedFiles: [],
-				agents: [] as AgentId[],
-				errorMessage: "disk full",
-			},
-		];
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "v1.0",
-			commit: "abc123",
-			results,
-		});
-		const body = result.detail.join("\n");
-		expect(body).toMatch(/pluginA → claude/);
-		expect(body).toMatch(/1 skipped/);
-		expect(body).toMatch(/pluginC: failed — disk full/);
-	});
-
-	it("shows one compact row per installed member (member → agents)", () => {
-		const results = [
-			{
-				pluginName: "pluginA",
-				status: "installed" as const,
-				copiedFiles: [],
-				agents: ["claude"] as AgentId[],
-				assetCountsByAgent: {
-					claude: { skills: 5, agents: 2 },
-				} as Partial<Record<AgentId, AssetCounts>>,
-				detectedType: { type: "plugin" as const },
-			},
-		];
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results,
-		});
-		const body = result.detail.join("\n");
-		// Compact collection rows show the member's agents, not per-agent counts.
-		expect(body).toMatch(/pluginA → claude/);
+		expect(result.headline).toBe("Installed /path/to/skills@local");
 	});
 });
 
@@ -361,26 +186,8 @@ describe("renderGitUpdateSummary", () => {
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
-		expect(result).toBe(
-			"Updated owner/repo: abc1234 -> def4567 — 1 file(s) for claude",
-		);
-	});
-
-	it("includes dropped agent info when agents are dropped", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: ["codex"],
-		});
-		expect(result).toContain("codex support removed by plugin author.");
+		expect(result).toBe("Updated owner/repo: abc1234 -> def4567 — 1 file(s)");
 	});
 
 	it("uses 'unknown' when old commit is null", () => {
@@ -391,24 +198,8 @@ describe("renderGitUpdateSummary", () => {
 			oldCommit: null,
 			newCommit: "def4567890abc",
 			copiedFiles: [],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
 		expect(result).toContain("unknown -> def4567");
-	});
-
-	it("shows multiple effective agents joined", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [".claude/skills/x", ".codex/skills/x"],
-			effectiveAgents: ["claude", "codex"],
-			droppedAgents: [],
-		});
-		expect(result).toContain("2 file(s) for claude, codex");
 	});
 
 	it("renders tags for a constrained update (v1.2.3 -> v1.3.0)", () => {
@@ -419,31 +210,10 @@ describe("renderGitUpdateSummary", () => {
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
 		// Both refs are semver tags and the ref moved → the shared rule renders tags,
-		// not commit hashes. The file-count/agents tail is unchanged.
-		expect(result).toBe(
-			"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s) for claude",
-		);
-	});
-
-	it("keeps the dropped-agents suffix on a tag-rendered move", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: "v1.2.3",
-			newRef: "v1.3.0",
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: ["codex"],
-		});
-		expect(result).toBe(
-			"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s) for claude" +
-				". codex support removed by plugin author.",
-		);
+		// not commit hashes. The file-count tail is unchanged.
+		expect(result).toBe("Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s)");
 	});
 
 	it("falls to short hashes for a branch update (oldRef === newRef)", () => {
@@ -454,14 +224,10 @@ describe("renderGitUpdateSummary", () => {
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
 		// A branch update keeps the ref name fixed (only the commit moved), so the
 		// "ref actually moved" guard sends it to hashes.
-		expect(result).toBe(
-			"Updated owner/repo: abc1234 -> def4567 — 1 file(s) for claude",
-		);
+		expect(result).toBe("Updated owner/repo: abc1234 -> def4567 — 1 file(s)");
 	});
 
 	it("falls to short hashes for a HEAD update (newRef null)", () => {
@@ -472,12 +238,8 @@ describe("renderGitUpdateSummary", () => {
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
-		expect(result).toBe(
-			"Updated owner/repo: abc1234 -> def4567 — 1 file(s) for claude",
-		);
+		expect(result).toBe("Updated owner/repo: abc1234 -> def4567 — 1 file(s)");
 	});
 
 	it("still renders unknown -> <newShort> when old commit is null (hash path)", () => {
@@ -488,35 +250,21 @@ describe("renderGitUpdateSummary", () => {
 			oldCommit: null,
 			newCommit: "def4567890abc",
 			copiedFiles: [],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
 		expect(result).toContain("unknown -> def4567");
 	});
 });
 
 describe("renderLocalUpdateSummary", () => {
-	it("shows refreshed with file count and agents", () => {
+	it("shows refreshed with file count", () => {
 		const result = renderLocalUpdateSummary({
 			key: "/path/to/plugin",
 			copiedFiles: [
 				".claude/skills/my-skill/file1.md",
 				".claude/skills/my-skill/file2.md",
 			],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
-		expect(result).toBe("Refreshed /path/to/plugin — 2 file(s) for claude");
-	});
-
-	it("includes dropped agent info", () => {
-		const result = renderLocalUpdateSummary({
-			key: "/path/to/plugin",
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: ["codex"],
-		});
-		expect(result).toContain("codex support removed by plugin author.");
+		expect(result).toBe("Refreshed /path/to/plugin — 2 file(s)");
 	});
 });
 
@@ -529,22 +277,8 @@ describe("renderUpdateOutcomeSummary", () => {
 			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
-			droppedAgents: [],
 		});
 		expect(result).toBe("owner/repo: Updated abc1234 -> def4567");
-	});
-
-	it("includes dropped agents in git update outcome", () => {
-		const result = renderUpdateOutcomeSummary({
-			type: "git-update",
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			droppedAgents: ["codex"],
-		});
-		expect(result).toContain("codex support removed by plugin author");
 	});
 
 	it("git-update renders tags for a constrained update and hashes for a branch update", () => {
@@ -555,7 +289,6 @@ describe("renderUpdateOutcomeSummary", () => {
 			newRef: "v1.3.0",
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
-			droppedAgents: [],
 		});
 		expect(constrained).toBe("owner/repo: Updated v1.2.3 -> v1.3.0");
 
@@ -566,7 +299,6 @@ describe("renderUpdateOutcomeSummary", () => {
 			newRef: "main",
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
-			droppedAgents: [],
 		});
 		expect(branch).toBe("owner/repo: Updated abc1234 -> def4567");
 	});
@@ -575,37 +307,16 @@ describe("renderUpdateOutcomeSummary", () => {
 		const result = renderUpdateOutcomeSummary({
 			type: "local-update",
 			key: "/path/to/plugin",
-			droppedAgents: [],
 		});
 		expect(result).toBe("/path/to/plugin: Refreshed from local path");
-	});
-
-	it("includes dropped agents in local update outcome", () => {
-		const result = renderUpdateOutcomeSummary({
-			type: "local-update",
-			key: "/path/to/plugin",
-			droppedAgents: ["codex"],
-		});
-		expect(result).toContain("codex support removed by plugin author");
 	});
 
 	it("local-update is unchanged (no version move, tag rule untouched)", () => {
 		const plain = renderUpdateOutcomeSummary({
 			type: "local-update",
 			key: "/path/to/plugin",
-			droppedAgents: [],
 		});
 		expect(plain).toBe("/path/to/plugin: Refreshed from local path");
-
-		const dropped = renderUpdateOutcomeSummary({
-			type: "local-update",
-			key: "/path/to/plugin",
-			droppedAgents: ["codex"],
-		});
-		expect(dropped).toBe(
-			"/path/to/plugin: Refreshed from local path" +
-				" — codex support removed by plugin author",
-		);
 	});
 });
 
@@ -621,14 +332,11 @@ describe("shared tag-vs-hash rule across surfaces", () => {
 			key: "owner/repo",
 			...move,
 			copiedFiles: [".claude/skills/my-skill/file1.md"],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
 		const allMode = renderUpdateOutcomeSummary({
 			type: "git-update",
 			key: "owner/repo",
 			...move,
-			droppedAgents: [],
 		});
 
 		// The one shared rule produces the move; both surfaces embed it verbatim.
@@ -649,14 +357,11 @@ describe("shared tag-vs-hash rule across surfaces", () => {
 			key: "owner/repo",
 			...move,
 			copiedFiles: [],
-			effectiveAgents: ["claude"],
-			droppedAgents: [],
 		});
 		const allMode = renderUpdateOutcomeSummary({
 			type: "git-update",
 			key: "owner/repo",
 			...move,
-			droppedAgents: [],
 		});
 
 		const expectedMove = formatVersionMove(move);
@@ -677,10 +382,10 @@ describe("renderRemoveSummary", () => {
 
 	it("shows count label for multiple plugins", () => {
 		const result = renderRemoveSummary({
-			summaryLabel: "3 plugin(s)",
+			summaryLabel: "3 install(s)",
 			fileCount: 12,
 		});
-		expect(result).toBe("Removed 3 plugin(s) — 12 file(s)");
+		expect(result).toBe("Removed 3 install(s) — 12 file(s)");
 	});
 
 	it("handles zero files", () => {
@@ -693,27 +398,6 @@ describe("renderRemoveSummary", () => {
 });
 
 describe("edge cases", () => {
-	it("single plugin in collection produces multi-line summary", () => {
-		const results = [
-			{
-				pluginName: "myPlugin",
-				status: "installed" as const,
-				copiedFiles: [".claude/skills/myPlugin/file1.md"],
-				agents: ["claude"] as AgentId[],
-				detectedType: { type: "bare-skill" as const },
-			},
-		];
-		const result = renderCollectionAddSummary({
-			manifestKey: "owner/my-collection",
-			ref: "main",
-			commit: "abc123",
-			results,
-		});
-		expect(result.headline).toMatch(/^Installed /);
-		const body = result.detail.join("\n");
-		expect(body).toMatch(/myPlugin → claude/);
-	});
-
 	it("all up-to-date produces no crashed output from outcome formatter", () => {
 		// This tests that we can call the outcome formatter with various statuses
 		// without crashes; the actual "all up to date" message is in the command layer
@@ -724,66 +408,7 @@ describe("edge cases", () => {
 			newRef: null,
 			oldCommit: "abc1234567890",
 			newCommit: "def4567890abc",
-			droppedAgents: [],
 		});
 		expect(gitResult).toBeTruthy();
-	});
-
-	it("multiple dropped agents listed in git update summary", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [],
-			effectiveAgents: ["claude"],
-			droppedAgents: ["codex", "cursor"],
-		});
-		expect(result).toContain("codex, cursor support removed by plugin author.");
-	});
-
-	it("multiple dropped agents listed in outcome summary", () => {
-		const result = renderUpdateOutcomeSummary({
-			type: "git-update",
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			droppedAgents: ["codex", "cursor"],
-		});
-		expect(result).toContain("codex, cursor support removed by plugin author");
-	});
-});
-
-describe("formatDroppedAgentsSuffix", () => {
-	it("returns empty string when no agents dropped", () => {
-		expect(formatDroppedAgentsSuffix([], "sentence")).toBe("");
-		expect(formatDroppedAgentsSuffix([], "inline")).toBe("");
-	});
-
-	it("produces sentence style for single agent", () => {
-		expect(formatDroppedAgentsSuffix(["codex"], "sentence")).toBe(
-			". codex support removed by plugin author.",
-		);
-	});
-
-	it("produces sentence style for multiple agents", () => {
-		expect(formatDroppedAgentsSuffix(["claude", "codex"], "sentence")).toBe(
-			". claude, codex support removed by plugin author.",
-		);
-	});
-
-	it("produces inline style for single agent", () => {
-		expect(formatDroppedAgentsSuffix(["codex"], "inline")).toBe(
-			" \u2014 codex support removed by plugin author",
-		);
-	});
-
-	it("produces inline style for multiple agents", () => {
-		expect(formatDroppedAgentsSuffix(["claude", "codex"], "inline")).toBe(
-			" \u2014 claude, codex support removed by plugin author",
-		);
 	});
 });
