@@ -483,6 +483,29 @@ describe("copyBareSkill", () => {
 			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
 		});
 
+		// Root reads any folder, mode or not.
+		it.skipIf(process.getuid?.() === 0).each([
+			["a file", "guide.md"],
+			["a folder", "deep"],
+		])(
+			"leaves out a link to %s in a folder it can't list, passing the pre-flight and installing the rest",
+			async (_kind, name) => {
+				const locked = join(clone, "shared");
+				await tree(clone, { "shared/deep/more.md": "" });
+				await symlink(`../../shared/${name}`, join(skill, "linked"));
+				await chmod(locked, 0o311);
+				try {
+					const check = await preflightFoo(remote(clone));
+					await copyFoo(remote(clone));
+
+					expect(check).toEqual({ ok: true });
+				} finally {
+					await chmod(locked, 0o755);
+				}
+				expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+			},
+		);
+
 		it("leaves out a link elsewhere in a clone to a FIFO without blocking", async () => {
 			execFileSync("mkfifo", [join(clone, "pipe")]);
 			await symlink("../../pipe", join(skill, "pipe"));

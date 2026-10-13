@@ -8,6 +8,7 @@ import {
 	symlink,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
+import { isNodeError } from "./errors.js";
 import { relativePosix } from "./fs-utils.js";
 
 /**
@@ -321,10 +322,10 @@ async function materialise(
 /**
  * The entry `target` names below `root`, when it's out of `.git`, each name
  * on the way to it is listed in its folder exactly as written, and every
- * folder on the way is a real one; null otherwise. Exact names keep the checks
- * made on the target's path true of what is read where a filesystem ignores
- * case: `SKILLS` there would read the folder above the item, and `.GIT` the
- * clone's history.
+ * folder on the way is a real one that can be listed; null otherwise. Exact
+ * names keep the checks made on the target's path true of what is read where
+ * a filesystem ignores case: `SKILLS` there would read the folder above the
+ * item, and `.GIT` the clone's history.
  */
 async function listedEntry(
 	root: string,
@@ -340,12 +341,30 @@ async function listedEntry(
 		if (entry !== null && !entry.isDirectory()) {
 			return null;
 		}
-		const entries = await readdir(folder, { withFileTypes: true });
-		entry = entries.find((listed) => listed.name === name) ?? null;
+		const entries = await listingOnTheWay(folder);
+		entry = entries?.find((listed) => listed.name === name) ?? null;
 		if (entry === null) {
 			return null;
 		}
 		folder = join(folder, name);
 	}
 	return entry;
+}
+
+/** Why a folder on the way to a link's target can't be listed: not readable, or gone. */
+const UNLISTABLE = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR"]);
+
+/**
+ * A folder's entries, or null when it can't be listed, so the link through it
+ * is left out as one to a missing target is. Any other error is the plan's.
+ */
+async function listingOnTheWay(folder: string): Promise<Dirent[] | null> {
+	try {
+		return await readdir(folder, { withFileTypes: true });
+	} catch (err) {
+		if (isNodeError(err) && UNLISTABLE.has(err.code ?? "")) {
+			return null;
+		}
+		throw err;
+	}
 }
