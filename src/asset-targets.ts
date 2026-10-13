@@ -13,6 +13,11 @@ export function targetDir(assetType: AssetType): string {
 	return TARGET_DIRS[assetType];
 }
 
+/** Whether `path` is `root` itself or lies below it; a sibling sharing its prefix is not. */
+export function isUnderRoot(path: string, root: string): boolean {
+	return path === root || path.startsWith(`${root}/`);
+}
+
 /** The install-root-relative directory a skill installs as, trailing slash included. */
 export function skillTarget(name: string): string {
 	return `${targetDir("skills")}/${name}/`;
@@ -21,7 +26,7 @@ export function skillTarget(name: string): string {
 /** The asset type owning an install-root-relative file path, or null if none. */
 export function identifyAssetType(filePath: string): AssetType | null {
 	for (const [assetType, dir] of Object.entries(TARGET_DIRS)) {
-		if (filePath.startsWith(dir)) {
+		if (isUnderRoot(filePath, dir)) {
 			return assetType as AssetType;
 		}
 	}

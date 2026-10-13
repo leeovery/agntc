@@ -359,6 +359,56 @@ describe("parseSource", () => {
 				cloneUrl: "https://git.mycompany.com/team/project.git",
 			});
 		});
+
+		describe("a login before the host", () => {
+			it("keeps the login in the host and the clone URL", async () => {
+				const result = await parseSource("https://user@gitlab.com/acme/skills");
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "acme",
+					repo: "skills",
+					ref: null,
+					constraint: null,
+					manifestKey: "acme/skills",
+					cloneUrl: "https://user@gitlab.com/acme/skills.git",
+				});
+			});
+
+			it("reads only an @ after the host as the ref", async () => {
+				const result = await parseSource("https://user@host/owner/repo@v1");
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "owner",
+					repo: "repo",
+					ref: "v1",
+					constraint: null,
+					manifestKey: "owner/repo",
+					cloneUrl: "https://user@host/owner/repo.git",
+				});
+			});
+
+			it("takes a start path and constraint after the host", async () => {
+				const result = await parseSource(
+					"https://user@gitlab.com/acme/skills.git/tools/lint@^1.2",
+				);
+				expect(result).toEqual({
+					type: "https-url",
+					owner: "acme",
+					repo: "skills",
+					ref: null,
+					constraint: "^1.2",
+					manifestKey: "acme/skills",
+					cloneUrl: "https://user@gitlab.com/acme/skills.git",
+					startPath: "tools/lint",
+				});
+			});
+
+			it("still needs owner/repo after the host", async () => {
+				await expect(
+					parseSource("https://user@gitlab.com/acme"),
+				).rejects.toThrow(/invalid HTTPS URL/);
+			});
+		});
 	});
 
 	describe("SSH URL sources", () => {

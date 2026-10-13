@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { identifyAssetType, targetDir } from "./asset-targets.js";
+import { identifyAssetType, isUnderRoot, targetDir } from "./asset-targets.js";
 import { errorMessage, isNodeError } from "./errors.js";
 import type { Ui } from "./ui.js";
 
@@ -146,7 +146,7 @@ const SKILL_ROOTS = [targetDir("skills"), ...LEGACY_SKILL_ROOTS];
  * root or no segment follows it.
  */
 function skillDirName(filePath: string): string | null {
-	const root = SKILL_ROOTS.find((r) => filePath.startsWith(r));
+	const root = SKILL_ROOTS.find((r) => isUnderRoot(filePath, r));
 	if (root === undefined) {
 		return null;
 	}

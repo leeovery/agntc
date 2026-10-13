@@ -1,6 +1,18 @@
+/** A name YAML reads back as the same string without quotes. */
+const PLAIN_NAME = /^[A-Za-z_][\w.-]*$/;
+
+/** Plain words YAML would read as a boolean or null rather than a string. */
+const RESERVED_WORD = /^(?:true|false|yes|no|on|off|y|n|null)$/i;
+
+/** The name as a YAML scalar: bare when it reads back as itself, else quoted. */
+function yamlName(name: string): string {
+	const plain = PLAIN_NAME.test(name) && !RESERVED_WORD.test(name);
+	return plain ? name : JSON.stringify(name);
+}
+
 export function skillMd(name: string): string {
 	return `---
-name: ${name}
+name: ${yamlName(name)}
 description: Brief description of what this skill does and when to use it.
 ---
 

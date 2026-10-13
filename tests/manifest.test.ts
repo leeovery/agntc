@@ -13,6 +13,7 @@ import { ExitSignal } from "../src/exit-signal.js";
 import {
 	addEntry,
 	buildManifestEntry,
+	deriveTypeFromFiles,
 	type Manifest,
 	type ManifestEntry,
 	readManifest,
@@ -1420,5 +1421,26 @@ describe("buildManifestEntry", () => {
 
 		expect(local.commit).toBeNull();
 		expect(remote.commit).toBe("deadbeef");
+	});
+});
+
+describe("deriveTypeFromFiles", () => {
+	it("does not read a sibling of the agents root as an agent", () => {
+		expect(deriveTypeFromFiles([".claude/agentsfoo.md"])).toBe("skill");
+	});
+
+	it("does not count a sibling of a skills root as a second skill dir", () => {
+		expect(
+			deriveTypeFromFiles([".claude/skills/a/", ".claude/skillsX/b/"]),
+		).toBe("skill");
+		expect(
+			deriveTypeFromFiles([".agents/skills/a/", ".agents/skillsX/b/"]),
+		).toBe("skill");
+	});
+
+	it("still counts distinct skill dirs across the Claude and legacy roots", () => {
+		expect(
+			deriveTypeFromFiles([".claude/skills/a/", ".cursor/skills/b/"]),
+		).toBe("pack");
 	});
 });

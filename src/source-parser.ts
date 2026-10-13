@@ -222,19 +222,21 @@ function parseSshUrl(input: string): SshUrlSource {
 
 function parseHttpsUrl(input: string): HttpsUrlSource {
 	const withoutProtocol = input.slice("https://".length);
-	const { urlPart: rawUrlPart, ref: rawRef } = extractRef(withoutProtocol);
 
-	const urlPart = rawUrlPart.replace(/\/+$/, "");
-
-	const slashIndex = urlPart.indexOf("/");
+	// The host ends at the first `/`, so a login (`user@host`) stays in it and
+	// only an `@` in the path starts the ref.
+	const slashIndex = withoutProtocol.indexOf("/");
 	if (slashIndex === -1) {
 		throw new Error(
-			`invalid HTTPS URL: no path segments in "https://${urlPart}"`,
+			`invalid HTTPS URL: no path segments in "https://${withoutProtocol}"`,
 		);
 	}
 
-	const host = urlPart.slice(0, slashIndex);
-	const pathPart = urlPart.slice(slashIndex + 1);
+	const host = withoutProtocol.slice(0, slashIndex);
+	const { urlPart: rawPathPart, ref: rawRef } = extractRef(
+		withoutProtocol.slice(slashIndex + 1),
+	);
+	const pathPart = rawPathPart.replace(/\/+$/, "");
 	const repoPath = splitRepoPath(pathPart);
 
 	if (repoPath === null) {
