@@ -3,6 +3,7 @@ import { skillTarget } from "./asset-targets.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
 import {
 	type CopySource,
+	type CopyUnit,
 	inGitFolder,
 	planCopy,
 	writeCopy,
@@ -36,7 +37,7 @@ export async function copyBareSkill(
 		throw new Error(`"${skillName}" can't be a skill's folder name`);
 	}
 	const installedDir = skillTarget(skillName);
-	const steps = await planCopy(sourceDir, source, isSkillContent);
+	const steps = await planCopy(skillUnit(sourceDir), source);
 
 	// Outside the try: a link in the way isn't the copy's to roll back.
 	await assertNoLinkInTheWay(projectDir, installedDir);
@@ -48,6 +49,11 @@ export async function copyBareSkill(
 	}
 
 	return { copiedFiles: [installedDir] };
+}
+
+/** A skill folder, as its copy plans it. */
+export function skillUnit(dir: string): CopyUnit {
+	return { dir, keep: isSkillContent };
 }
 
 /**

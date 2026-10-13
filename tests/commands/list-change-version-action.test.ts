@@ -58,11 +58,13 @@ vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 	);
 });
 
-vi.mock("../../src/copy-bare-skill.js", async () => {
+vi.mock("../../src/copy-bare-skill.js", async (importOriginal) => {
 	const { mockCopyBareSkillModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockCopyBareSkillModule();
+	return mockCopyBareSkillModule(
+		importOriginal<typeof import("../../src/copy-bare-skill.js")>,
+	);
 });
 
 vi.mock("../../src/discover.js", async (importOriginal) => {

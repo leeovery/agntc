@@ -27,6 +27,11 @@ function local(root: string): CopySource {
 	return { root, local: true };
 }
 
+/** A filter keeping everything, so a scan reads all a copy of the folder could. */
+function everything(): boolean {
+	return true;
+}
+
 // Interpretation note (per task 5-1 / spec Copy-Safety Hardening):
 // This guard is a LEXICAL containment predicate over path strings. A source
 // selector is a string, not a symlink — "resolves within the clone" is
@@ -212,7 +217,7 @@ describe("scanForEscapingSymlinks", () => {
 		await writeFile(join(unitDir, "sub", "b.txt"), "b");
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -223,7 +228,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("/etc/passwd", join(unitDir, "leak"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, kind(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, kind(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -231,7 +236,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("../../../../etc/passwd", join(unitDir, "leak"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -240,7 +245,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("../shared.txt", join(unitDir, "link"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -251,7 +256,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("../other-unit", join(unitDir, "sibling-link"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -259,7 +264,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("./does-not-exist.txt", join(unitDir, "dangling"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -270,7 +275,7 @@ describe("scanForEscapingSymlinks", () => {
 		);
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -280,7 +285,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("/etc/passwd", join(deep, "leak"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -291,7 +296,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink(unitDir, join(unitDir, "cycle"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -302,7 +307,7 @@ describe("scanForEscapingSymlinks", () => {
 		try {
 			await symlink(outside, join(unitDir, "escape-dir"));
 			await expect(
-				scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 			).rejects.toBeInstanceOf(SymlinkEscapeError);
 		} finally {
 			await rm(outside, { recursive: true, force: true });
@@ -330,7 +335,7 @@ describe("scanForEscapingSymlinks", () => {
 			await linkToALeak();
 
 			await expect(
-				scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 			).rejects.toThrow(
 				new SymlinkEscapeError("shared/deep/leak", "/etc/passwd"),
 			);
@@ -340,7 +345,7 @@ describe("scanForEscapingSymlinks", () => {
 			await linkToALeak();
 
 			await expect(
-				scanForEscapingSymlinks(unitDir, local(cloneRoot)),
+				scanForEscapingSymlinks(unitDir, local(cloneRoot), everything),
 			).resolves.toBeUndefined();
 		});
 
@@ -359,7 +364,7 @@ describe("scanForEscapingSymlinks", () => {
 			});
 
 			await expect(
-				scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 			).resolves.toBeUndefined();
 		});
 
@@ -372,16 +377,28 @@ describe("scanForEscapingSymlinks", () => {
 			});
 
 			await expect(
-				scanForEscapingSymlinks(unitDir, remote(cloneRoot)),
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 			).resolves.toBeUndefined();
 		});
+	});
+
+	it("reads only what its filter keeps, so a link the copy drops isn't judged", async () => {
+		await symlink("/etc/passwd", join(unitDir, "dropped"));
+
+		await expect(
+			scanForEscapingSymlinks(
+				unitDir,
+				remote(cloneRoot),
+				(path) => path !== "dropped",
+			),
+		).resolves.toBeUndefined();
 	});
 
 	it("names the offending relative path and target in the error", async () => {
 		await symlink("/etc/passwd", join(unitDir, "leak"));
 
 		try {
-			await scanForEscapingSymlinks(unitDir, remote(cloneRoot));
+			await scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything);
 			expect.unreachable("expected throw");
 		} catch (err) {
 			expect(err).toBeInstanceOf(SymlinkEscapeError);
@@ -412,7 +429,11 @@ describe("checkEscapingSymlinks", () => {
 	it("returns { ok: true } when there is no escaping symlink", async () => {
 		await writeFile(join(unitDir, "a.txt"), "a");
 
-		const result = await checkEscapingSymlinks(unitDir, remote(cloneRoot));
+		const result = await checkEscapingSymlinks(
+			unitDir,
+			remote(cloneRoot),
+			everything,
+		);
 
 		expect(result).toEqual({ ok: true });
 	});
@@ -420,7 +441,11 @@ describe("checkEscapingSymlinks", () => {
 	it("returns { ok: false, message } for a SymlinkEscapeError", async () => {
 		await symlink("/etc/passwd", join(unitDir, "leak"));
 
-		const result = await checkEscapingSymlinks(unitDir, remote(cloneRoot));
+		const result = await checkEscapingSymlinks(
+			unitDir,
+			remote(cloneRoot),
+			everything,
+		);
 
 		expect(result.ok).toBe(false);
 		// message carries the SymlinkEscapeError's message verbatim.
@@ -436,12 +461,14 @@ describe("checkEscapingSymlinks", () => {
 			checkEscapingSymlinks(
 				join(cloneRoot, "does-not-exist"),
 				remote(cloneRoot),
+				everything,
 			),
 		).rejects.not.toBeInstanceOf(SymlinkEscapeError);
 		await expect(
 			checkEscapingSymlinks(
 				join(cloneRoot, "does-not-exist"),
 				remote(cloneRoot),
+				everything,
 			),
 		).rejects.toThrow();
 	});

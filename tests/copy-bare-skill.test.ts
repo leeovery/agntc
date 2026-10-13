@@ -17,11 +17,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
-import {
-	type CopySource,
-	checkEscapingSymlinks,
-	SymlinkEscapeError,
-} from "../src/copy-safety.js";
+import { checkItemLinks } from "../src/copy-item.js";
+import { type CopySource, SymlinkEscapeError } from "../src/copy-safety.js";
 
 let testDir: string;
 let sourceDir: string;
@@ -336,6 +333,14 @@ describe("copyBareSkill", () => {
 			return copyBareSkill({ sourceDir: skill, source, projectDir });
 		}
 
+		/** The symlink-escape pre-flight `add` and `update` run on foo. */
+		function preflightFoo(source: CopySource) {
+			return checkItemLinks(
+				{ kind: "skill", skill: { name: "foo", path: "skills/foo" } },
+				source,
+			);
+		}
+
 		/** Copies foo from a clone, then deletes the clone, as add and update do. */
 		async function copyFromCloneThenDelete(): Promise<void> {
 			await copyFoo(remote(clone));
@@ -542,7 +547,7 @@ describe("copyBareSkill", () => {
 			it("is refused from a clone, by the pre-flight and by the copy, writing nothing", async () => {
 				const refusal = new SymlinkEscapeError("shared/leak", SECRET());
 
-				const check = await checkEscapingSymlinks(skill, remote(clone));
+				const check = await preflightFoo(remote(clone));
 
 				expect(check).toEqual({ ok: false, message: refusal.message });
 				await expect(copyFoo(remote(clone))).rejects.toThrow(refusal);
@@ -550,13 +555,28 @@ describe("copyBareSkill", () => {
 			});
 
 			it("passes the pre-flight from a local source and installs as an absolute link", async () => {
-				const check = await checkEscapingSymlinks(skill, local(clone));
+				const check = await preflightFoo(local(clone));
 
 				await copyFoo(local(clone));
 
 				expect(check).toEqual({ ok: true });
 				expect(await readlink(installed("shared"))).toBe(join(clone, "shared"));
 			});
+		});
+
+		it("passes the pre-flight on a link out of the clone that the skill filter drops, as the copy never reads it", async () => {
+			await tree(testDir, { "outside/secret.md": "secret" });
+			await symlink(join(testDir, "outside"), join(clone, "shared/leak"));
+			await link(skill, {
+				".git": "../../shared",
+				"agntc.json": join(testDir, "outside/secret.md"),
+			});
+
+			const check = await preflightFoo(remote(clone));
+			await copyFromCloneThenDelete();
+
+			expect(check).toEqual({ ok: true });
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
 		});
 
 		it("links a local skill's link to its own folder, above it or elsewhere in the source absolutely into the source", async () => {

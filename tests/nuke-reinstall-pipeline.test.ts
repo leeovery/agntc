@@ -31,7 +31,8 @@ vi.mock("../src/discover.js", async (importOriginal) => ({
 	discover: vi.fn(),
 }));
 
-vi.mock("../src/copy-bare-skill.js", () => ({
+vi.mock("../src/copy-bare-skill.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/copy-bare-skill.js")>()),
 	copyBareSkill: vi.fn(),
 }));
 
@@ -679,6 +680,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/tmp/clone/lang/go",
 				{ root: "/tmp/clone", local: false },
+				expect.any(Function),
 			);
 		});
 
@@ -1662,6 +1664,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/tmp/clone/go",
 				{ root: "/tmp/clone", local: false },
+				expect.any(Function),
 			);
 		});
 
