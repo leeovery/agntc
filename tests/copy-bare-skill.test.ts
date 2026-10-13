@@ -37,6 +37,14 @@ async function tree(base: string, files: Record<string, string>) {
 	}
 }
 
+/** Links each path below `base` to its target, written as given. */
+async function link(base: string, links: Record<string, string>) {
+	for (const [path, target] of Object.entries(links)) {
+		await mkdir(dirname(join(base, path)), { recursive: true });
+		await symlink(target, join(base, path));
+	}
+}
+
 function remote(root: string): CopySource {
 	return { root, local: false };
 }
@@ -338,13 +346,25 @@ describe("copyBareSkill", () => {
 			return (await readdir(installed(path))).sort();
 		}
 
-		/** A link to its own folder, above it, and elsewhere in the clone. */
-		async function linkOutOfTheSkill(): Promise<void> {
+		/** A link to its own folder, and two to folders above it. */
+		async function linkToTheSkillAndAbove(): Promise<void> {
 			await symlink("../foo", join(skill, "self"));
 			await symlink("..", join(skill, "ref/up"));
 			await symlink("../..", join(skill, "repo"));
+		}
+
+		/** A link to a folder and one to a file elsewhere in the clone. */
+		async function linkElsewhere(): Promise<void> {
 			await symlink("../../shared", join(skill, "shared"));
 			await symlink("../../shared/guide.md", join(skill, "guide.md"));
+		}
+
+		async function isRealFolder(path: string): Promise<boolean> {
+			return (await lstat(installed(path))).isDirectory();
+		}
+
+		async function isRealFile(path: string): Promise<boolean> {
+			return (await lstat(installed(path))).isFile();
 		}
 
 		it("keeps a link to a file in the skill a relative link, which reads once the clone is gone", async () => {
@@ -365,8 +385,8 @@ describe("copyBareSkill", () => {
 			expect(await readFile(installed("ref/abs.md"), "utf-8")).toBe("a");
 		});
 
-		it("leaves out of a clone's skill a link to its own folder, above it or elsewhere in the clone", async () => {
-			await linkOutOfTheSkill();
+		it("leaves out of a clone's skill a link to its own folder or above it", async () => {
+			await linkToTheSkillAndAbove();
 
 			await copyFromCloneThenDelete();
 
@@ -374,8 +394,158 @@ describe("copyBareSkill", () => {
 			expect(await installedNames("ref")).toEqual(["a.md"]);
 		});
 
+		it("copies a file a clone's skill links to elsewhere in the clone in the link's place", async () => {
+			await symlink("../../shared/guide.md", join(skill, "guide.md"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await isRealFile("guide.md")).toBe(true);
+			expect(await readFile(installed("guide.md"), "utf-8")).toBe("guide");
+		});
+
+		it("copies a folder a clone's skill links to elsewhere in the clone in the link's place", async () => {
+			await tree(clone, { "shared/deep/more.md": "more" });
+			await symlink("../../../shared", join(skill, "ref/shared"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await isRealFolder("ref/shared")).toBe(true);
+			expect(await installedNames("ref/shared")).toEqual(["deep", "guide.md"]);
+			expect(await readFile(installed("ref/shared/guide.md"), "utf-8")).toBe(
+				"guide",
+			);
+			expect(
+				await readFile(installed("ref/shared/deep/more.md"), "utf-8"),
+			).toBe("more");
+		});
+
+		it("judges the links in a folder it copies in a link's place against that folder, and copies none in its turn", async () => {
+			await tree(clone, { "other/x.md": "x" });
+			await link(clone, {
+				"shared/alias.md": "guide.md",
+				"shared/self": ".",
+				"shared/up": "..",
+				"shared/back": "../skills/foo/ref",
+				"shared/other": "../other",
+				"shared/x.md": "../other/x.md",
+			});
+			await symlink("../../shared", join(skill, "shared"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames("shared")).toEqual(["alias.md", "guide.md"]);
+			expect(await readlink(installed("shared/alias.md"))).toBe("guide.md");
+			expect(await readFile(installed("shared/alias.md"), "utf-8")).toBe(
+				"guide",
+			);
+		});
+
+		it("copies each of two folders linking to each other once, through the skill's links to both", async () => {
+			await tree(clone, { "a/a.md": "a", "b/b.md": "b" });
+			await link(clone, { "a/to-b": "../b", "b/to-a": "../a" });
+			await link(skill, { a: "../../a", b: "../../b" });
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames("a")).toEqual(["a.md"]);
+			expect(await installedNames("b")).toEqual(["b.md"]);
+		});
+
+		it.each([
+			["a link", { "skills/foo/chain": "../../alias", alias: "shared" }],
+			[
+				"a link to a file",
+				{
+					"skills/foo/chain.md": "../../alias.md",
+					"alias.md": "shared/guide.md",
+				},
+			],
+			[
+				"below a linked folder",
+				{ "skills/foo/below": "../../linked/guide.md", linked: "shared" },
+			],
+			["missing", { "skills/foo/gone": "../../gone/guide.md" }],
+			["below a file", { "skills/foo/under": "../../shared/guide.md/x" }],
+		])("leaves out a link elsewhere in a clone to %s", async (_what, links) => {
+			await link(clone, links);
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("leaves out a link elsewhere in a clone to a FIFO without blocking", async () => {
+			execFileSync("mkfifo", [join(clone, "pipe")]);
+			await symlink("../../pipe", join(skill, "pipe"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("never copies a .git in a link's place, whether the link leads to one, into one, or to a folder holding one", async () => {
+			await tree(clone, {
+				".git/HEAD": "ref",
+				"vendor/lib/.git/config": "",
+				"shared/.git/HEAD": "ref",
+			});
+			await link(skill, {
+				history: "../../.git",
+				"head.txt": "../../.git/HEAD",
+				config: "../../vendor/lib/.git/config",
+				shared: "../../shared",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref", "shared"]);
+			expect(await installedNames("shared")).toEqual(["guide.md"]);
+		});
+
+		it("drops agntc.json only at the skill's top, from what it copies in a link's place too", async () => {
+			await tree(clone, {
+				"shared/agntc.json": "{}",
+				"config/agntc.json": "{}",
+			});
+			await link(clone, { "shared/config.json": "agntc.json" });
+			await link(skill, {
+				shared: "../../shared",
+				"agntc.json": "../../config/agntc.json",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref", "shared"]);
+			expect(await installedNames("shared")).toEqual([
+				"agntc.json",
+				"config.json",
+				"guide.md",
+			]);
+			expect(await readlink(installed("shared/config.json"))).toBe(
+				"agntc.json",
+			);
+		});
+
+		it("refuses a link out of the clone in a folder it would copy in a link's place, writing nothing", async () => {
+			await tree(testDir, { "outside/secret.md": "secret" });
+			await symlink(
+				join(testDir, "outside/secret.md"),
+				join(clone, "shared/leak"),
+			);
+			await symlink("../../shared", join(skill, "shared"));
+
+			await expect(copyFoo(remote(clone))).rejects.toThrow(
+				new SymlinkEscapeError(
+					"shared/leak",
+					join(testDir, "outside/secret.md"),
+				),
+			);
+			expect(await fileExists(join(projectDir, INSTALLED))).toBe(false);
+		});
+
 		it("links a local skill's link to its own folder, above it or elsewhere in the source absolutely into the source", async () => {
-			await linkOutOfTheSkill();
+			await linkToTheSkillAndAbove();
+			await linkElsewhere();
 
 			await copyFoo(local(clone));
 
@@ -415,7 +585,8 @@ describe("copyBareSkill", () => {
 
 			expect(await readlink(installed("c0/x"))).toBe("../c1");
 			expect(await readlink(installed("c15/y"))).toBe("../c16");
-			expect(await installedNames()).not.toContain("chain");
+			expect(await isRealFolder("chain")).toBe(true);
+			expect(await installedNames("chain")).toEqual([]);
 		});
 
 		it("keeps a dangling link into the skill, and leaves out a dangling one elsewhere in a clone", async () => {

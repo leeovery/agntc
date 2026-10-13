@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import {
 	copyFile,
 	lstat,
@@ -6,7 +7,7 @@ import {
 	readlink,
 	symlink,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
 import { relativePosix } from "./fs-utils.js";
 
 /**
@@ -93,56 +94,23 @@ export class SymlinkEscapeError extends Error {
 }
 
 /**
- * Recursive pre-flight scan that rejects any symlink in `unitDir` whose target
- * resolves outside `cloneRoot` (the boundary). Read-only: no filesystem writes.
+ * Pre-flight that refuses, before anything is written or removed, every link
+ * a copy of `unitDir` could read that leads out of `cloneRoot`: those in it,
+ * and those in a folder elsewhere in the clone it would copy in a link's place.
  *
- * `unitDir` is the tree to copy (bare-skill dir, pack dir, or member
- * subdir); `cloneRoot` is the containment boundary. A symlink may legitimately
- * point anywhere inside the clone (e.g. a sibling unit dir in a multi-dir
- * pack), so the boundary is the clone root, NOT the unit dir.
+ * `unitDir` is the tree to copy (bare-skill dir, pack dir, or member subdir);
+ * `cloneRoot` is the boundary, as a link may point anywhere inside the clone.
  *
- * Symlinks are detected (dirent.isSymbolicLink) but never followed: symlinked
- * directories are validated and NOT descended into, so symlink-to-dir cycles
- * (a link to an ancestor) cannot be traversed and the walk visits only the
- * finite real directory tree. Recursion descends into REAL subdirectories at
- * any depth.
- *
- * Target containment is evaluated LEXICALLY via path.resolve (no realpath/stat
- * on the target): this both implements broken-link semantics
- * (a dangling link is judged by where it points lexically) and avoids
- * following symlink chains. Throws {@link SymlinkEscapeError} on the FIRST
- * escaping symlink (fail fast). Pure: throw only, no logging or process.exit.
+ * It plans a clone's copy keeping everything, for a local source too, so it
+ * reads all any copy of the tree could, with the copy's rules: no link is
+ * followed, and a dangling one is judged by where it points. Throws
+ * {@link SymlinkEscapeError} on the first escaping link. Read-only.
  */
 export async function scanForEscapingSymlinks(
 	unitDir: string,
 	cloneRoot: string,
 ): Promise<void> {
-	const root = resolve(cloneRoot);
-	const unitRoot = resolve(unitDir);
-	await scanDir(unitRoot, root, unitRoot);
-}
-
-async function scanDir(
-	dir: string,
-	cloneRoot: string,
-	unitRoot: string,
-): Promise<void> {
-	const entries = await readdir(dir, { withFileTypes: true });
-
-	for (const entry of entries) {
-		const entryPath = join(dir, entry.name);
-
-		if (entry.isSymbolicLink()) {
-			await containedTarget(entryPath, cloneRoot, unitRoot);
-			// Validated but NOT descended into — prevents infinite loops on
-			// symlink-to-dir cycles (link to an ancestor).
-			continue;
-		}
-
-		if (entry.isDirectory()) {
-			await scanDir(entryPath, cloneRoot, unitRoot);
-		}
-	}
+	await planCopy(unitDir, { root: cloneRoot, local: false }, () => true);
 }
 
 /**
@@ -171,19 +139,25 @@ export async function checkEscapingSymlinks(
 
 /**
  * Where a link leads, resolved from where it sits without following it, so a
- * dangling link is judged the same way. One leading out of `cloneRoot` throws.
+ * dangling link is judged the same way. One leading out of `cloneRoot` throws,
+ * naming the link by `path`, where it sits in the copy.
  */
 async function containedTarget(
 	linkPath: string,
 	cloneRoot: string,
-	unitRoot: string,
+	path: string,
 ): Promise<string> {
 	const written = await readlink(linkPath);
 	const target = resolve(dirname(linkPath), written);
 	if (!isContained(cloneRoot, target)) {
-		throw new SymlinkEscapeError(relative(unitRoot, linkPath), written);
+		throw new SymlinkEscapeError(path, written);
 	}
 	return target;
+}
+
+/** Whether a `/`-joined path is a `.git` or lies below one: history, never content. */
+export function inGitFolder(path: string): boolean {
+	return path.split("/").includes(".git");
 }
 
 /** What an item is copied from: the root its paths sit below, and its kind. */
@@ -203,11 +177,16 @@ export type CopyStep =
 export type CopyFilter = (path: string) => boolean;
 
 interface Plan {
+	/** The folder links are judged against: the one copied, or a target copied in a link's place. */
 	unit: string;
+	/** Where `unit` lands, below the destination. */
+	at: string;
 	root: string;
 	local: boolean;
 	keep: CopyFilter;
 	steps: CopyStep[];
+	/** Whether a link elsewhere in a clone is copied in its place: never inside such a copy. */
+	materialises: boolean;
 }
 
 /**
@@ -217,9 +196,13 @@ interface Plan {
  * - out of the source root throws {@link SymlinkEscapeError};
  * - to something inside `dir` the filter keeps stays a link, made relative;
  * - to something inside `dir` the filter drops is left out;
- * - to `dir` itself, above it or elsewhere in the source is an absolute link
- *   into a local source, which stays, and is left out of a clone, which is
- *   deleted once copied.
+ * - to `dir` itself or above it is an absolute link into a local source,
+ *   which stays, and is left out of a clone, which is deleted once copied;
+ * - elsewhere in the source is an absolute link into a local source, and in
+ *   a clone is replaced by a copy of what it leads to (see {@link materialise}).
+ *
+ * The filter sees every path where it lands in the copy, so what a link
+ * brings in is filtered as if it sat at the link's path.
  */
 export async function planCopy(
 	dir: string,
@@ -227,7 +210,15 @@ export async function planCopy(
 	keep: CopyFilter,
 ): Promise<CopyStep[]> {
 	const unit = resolve(dir);
-	const plan: Plan = { unit, root: resolve(root), local, keep, steps: [] };
+	const plan: Plan = {
+		unit,
+		at: "",
+		root: resolve(root),
+		local,
+		keep,
+		steps: [],
+		materialises: true,
+	};
 	plan.steps.push({ kind: "dir", path: "" });
 	await planFolder(plan, unit, "");
 	return plan.steps;
@@ -262,10 +253,7 @@ async function planFolder(
 			continue;
 		}
 		if (entry.isSymbolicLink()) {
-			const target = await installedLink(plan, from);
-			if (target !== null) {
-				plan.steps.push({ kind: "link", path, target });
-			}
+			await planLink(plan, from, path);
 		} else if (entry.isDirectory()) {
 			plan.steps.push({ kind: "dir", path });
 			await planFolder(plan, from, path);
@@ -275,12 +263,58 @@ async function planFolder(
 	}
 }
 
-/** What a link is written as in the copy, or null when it's left out. */
-async function installedLink(plan: Plan, link: string): Promise<string | null> {
-	const target = await containedTarget(link, plan.root, plan.unit);
-	const inside = relativePosix(plan.unit, target);
-	if (inside === "" || !isContained(plan.unit, target)) {
-		return plan.local ? target : null;
+/** Plans what the link at `path` in the copy is written as, if anything. */
+async function planLink(plan: Plan, link: string, path: string): Promise<void> {
+	const target = await containedTarget(link, plan.root, path);
+	if (target !== plan.unit && isContained(plan.unit, target)) {
+		const inside = posix.join(plan.at, relativePosix(plan.unit, target));
+		if (plan.keep(inside)) {
+			const relativeTarget = relative(dirname(link), target) || ".";
+			plan.steps.push({ kind: "link", path, target: relativeTarget });
+		}
+	} else if (plan.local) {
+		plan.steps.push({ kind: "link", path, target });
+	} else if (plan.materialises && !isContained(target, plan.unit)) {
+		await materialise(plan, target, path);
 	}
-	return plan.keep(inside) ? relative(dirname(link), target) || "." : null;
+}
+
+/**
+ * Copies what a link elsewhere in a clone leads to in the link's place: a
+ * regular file, or a folder whose own links are judged against it and are
+ * never copied in their turn, so a chain or a cycle of links stops there.
+ * A target in `.git`, itself a link or below one, or neither a file nor a
+ * folder is left out.
+ */
+async function materialise(
+	plan: Plan,
+	target: string,
+	path: string,
+): Promise<void> {
+	const stats = await linkFreeStats(plan.root, target);
+	if (stats?.isDirectory()) {
+		plan.steps.push({ kind: "dir", path });
+		const inner = { ...plan, unit: target, at: path, materialises: false };
+		await planFolder(inner, target, path);
+	} else if (stats?.isFile()) {
+		plan.steps.push({ kind: "file", path, from: target });
+	}
+}
+
+/**
+ * What sits at `target` below `root`, from `lstat`, when no folder on the way
+ * to it is a link and it's out of `.git`; null otherwise.
+ */
+async function linkFreeStats(
+	root: string,
+	target: string,
+): Promise<Stats | null> {
+	if (inGitFolder(relativePosix(root, target))) {
+		return null;
+	}
+	const above = await inspectSourcePath(
+		root,
+		relativePosix(root, dirname(target)),
+	);
+	return above.kind === "directory" ? lstat(target).catch(() => null) : null;
 }
