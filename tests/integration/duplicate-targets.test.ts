@@ -55,6 +55,37 @@ async function run(
 	return { exitCode, document: ui.document(exitCode) };
 }
 
+describe("duplicate install targets on add", () => {
+	it("refuses before copying anything, listing each clash with its paths", async () => {
+		const repo = join(testDir, "repo");
+		await write(repo, {
+			"skills/a/foo/SKILL.md": "",
+			"tools/foo/SKILL.md": "",
+			"p/agntc.json": JSON.stringify({ type: "pack" }),
+			"p/skills/bar/SKILL.md": "",
+			"p/agents/lead.md": "",
+			"q/agntc.json": JSON.stringify({ type: "pack" }),
+			"q/bar/SKILL.md": "",
+			"q/agents/lead.md": "",
+		});
+
+		const { exitCode, document } = await run("add", (ui) =>
+			runAdd(repo, { all: true }, ui),
+		);
+
+		expect(exitCode).toBe(1);
+		expect(document.error?.message.split("\n")).toEqual([
+			`${repo}: p/skills/bar and q/bar would both install to .claude/skills/bar — choose one`,
+			"p/agents/lead.md and q/agents/lead.md would both install to .claude/agents/lead.md — choose one",
+			"skills/a/foo and tools/foo would both install to .claude/skills/foo — choose one",
+		]);
+		expect(await readManifest(projectDir)).toEqual({});
+		await expect(
+			readFile(join(projectDir, ".claude/skills/bar/SKILL.md")),
+		).rejects.toThrow();
+	});
+});
+
 describe("duplicate install targets on update", () => {
 	it("aborts a pack whose re-walk finds two skills with one folder name, leaving it installed", async () => {
 		await run("add", (ui) => runAdd(source, {}, ui));

@@ -1,3 +1,8 @@
+import {
+	computeClaims,
+	describeClash,
+	findTargetClashes,
+} from "./compute-incoming-files.js";
 import type { FoundPack, FoundSkill } from "./discover.js";
 import { joinWithAnd } from "./summary.js";
 
@@ -38,16 +43,20 @@ export function isEmptyPack(pack: FoundPack): boolean {
 
 /**
  * Keys each item under the source key: a root item takes the source key, a
- * skill appends its folder name and a pack its repo-relative path. Refuses
- * when two items would share a key, naming their paths.
+ * skill appends its folder name and a pack its repo-relative path. Refuses,
+ * naming the paths, when two items would install to one place or, failing
+ * that, share a key. `root` is the source root the items' paths are relative to.
  */
-export function keyItems(
+export async function keyItems(
 	items: InstallItem[],
 	sourceKey: string,
 	rootName: string,
-): KeyItemsResult {
+	root: string,
+): Promise<KeyItemsResult> {
 	const keyed = items.map((item) => toKeyedItem(item, sourceKey));
-	const clashes = findKeyClashes(keyed, rootName);
+	const targetClashes = await findTargetClashLines(items, root);
+	const clashes =
+		targetClashes.length > 0 ? targetClashes : findKeyClashes(keyed, rootName);
 	if (clashes.length > 0) {
 		return { ok: false, message: clashes.join("\n") };
 	}
@@ -69,6 +78,18 @@ function keySuffix(item: InstallItem): string {
 		return itemPath(item);
 	}
 	return item.skill.name;
+}
+
+async function findTargetClashLines(
+	items: InstallItem[],
+	root: string,
+): Promise<string[]> {
+	const claims = await Promise.all(
+		items.map((item) => computeClaims(item, root)),
+	);
+	return findTargetClashes(claims.flat()).map(
+		(clash) => `${describeClash(clash)} — choose one`,
+	);
 }
 
 function findKeyClashes(keyed: KeyedItem[], rootName: string): string[] {

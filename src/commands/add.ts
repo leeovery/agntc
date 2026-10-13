@@ -279,7 +279,7 @@ async function pickItems(
 	}
 
 	const picked = await settle(choice.outcome, src, discovery, ui);
-	const keyed = keyItems(picked, src.key, src.rootName);
+	const keyed = await keyItems(picked, src.key, src.rootName, src.root);
 	if (!keyed.ok) {
 		return refuse(src, keyed.message, ui);
 	}
