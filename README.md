@@ -51,7 +51,7 @@ npm install -g agntc
 npx agntc@latest add owner/repo                    # find what's in the repo; menu if more than one thing
 npx agntc@latest add owner/repo --skill go python  # install named skills
 npx agntc@latest add owner/repo/laravel            # install from a path in the repo
-npx agntc@latest add owner/repo@^1.0               # install with a semver constraint
+npx agntc@latest add 'owner/repo@^1.0'             # install with a semver constraint
 npx agntc@latest add -g owner/repo                 # install into ~/.claude/
 npx agntc@latest list                              # see installs + update status
 npx agntc@latest update                            # update all (respects constraints)
@@ -133,7 +133,7 @@ A skill already installed as part of a pack from the same repo isn't installed a
 
 **Version constraint behaviour:**
 - Bare `owner/repo`: if the remote has semver tags, the latest is resolved and a `^major.minor.patch` constraint is auto-applied. On 0.x the caret locks the minor.
-- `@^1.0` / `@~2.1`: explicit semver range; the best matching tag is installed.
+- `@^1.0` / `@~2.1`: explicit semver range; the best matching tag is installed. Quote the source in a shell (`'owner/repo@^1.0'`): zsh's extended globbing reads `^` and `~` as patterns. Commands agntc prints are quoted already.
 - `@v2.0.0`: exact tag pin, no constraint stored.
 - If no semver tags exist on the remote, the default branch HEAD is used with no constraint.
 
