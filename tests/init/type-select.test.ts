@@ -16,20 +16,20 @@ beforeEach(() => {
 });
 
 describe("selectInitType", () => {
-	it("renders three options: Skill, Plugin, Collection", async () => {
+	it("renders two options: Skill, Pack", async () => {
 		mockSelect.mockResolvedValue("skill");
 
 		await selectInitType(interactiveUi);
 
 		expect(mockSelect).toHaveBeenCalledOnce();
-		const call = mockSelect.mock.calls[0]![0];
-		expect(call.options).toHaveLength(3);
+		const call = mockSelect.mock.calls[0]?.[0];
+		expect(call.options).toHaveLength(2);
 
 		const values = call.options.map((o: { value: string }) => o.value);
-		expect(values).toEqual(["skill", "plugin", "collection"]);
+		expect(values).toEqual(["skill", "pack"]);
 
 		const labels = call.options.map((o: { label?: string }) => o.label);
-		expect(labels).toEqual(["Skill", "Plugin", "Collection"]);
+		expect(labels).toEqual(["Skill", "Pack"]);
 	});
 
 	it("uses prompt message 'What are you creating?'", async () => {
@@ -37,7 +37,7 @@ describe("selectInitType", () => {
 
 		await selectInitType(interactiveUi);
 
-		const call = mockSelect.mock.calls[0]![0];
+		const call = mockSelect.mock.calls[0]?.[0];
 		expect(call.message).toBe("What are you creating?");
 	});
 
@@ -49,20 +49,12 @@ describe("selectInitType", () => {
 		expect(result).toBe("skill");
 	});
 
-	it("returns 'plugin' when Plugin is selected", async () => {
-		mockSelect.mockResolvedValue("plugin");
+	it("returns 'pack' when Pack is selected", async () => {
+		mockSelect.mockResolvedValue("pack");
 
 		const result = await selectInitType(interactiveUi);
 
-		expect(result).toBe("plugin");
-	});
-
-	it("returns 'collection' when Collection is selected", async () => {
-		mockSelect.mockResolvedValue("collection");
-
-		const result = await selectInitType(interactiveUi);
-
-		expect(result).toBe("collection");
+		expect(result).toBe("pack");
 	});
 
 	it("returns null when user cancels", async () => {
@@ -78,12 +70,11 @@ describe("selectInitType", () => {
 
 		await selectInitType(interactiveUi);
 
-		const call = mockSelect.mock.calls[0]![0];
+		const call = mockSelect.mock.calls[0]?.[0];
 		const hints = call.options.map((o: { hint?: string }) => o.hint);
 		expect(hints).toEqual([
 			"a single skill (SKILL.md)",
-			"skills, agents, and/or hooks that install together as one package",
-			"a repo of individually selectable plugins",
+			"skills, agents and hooks that install together as one",
 		]);
 	});
 });
