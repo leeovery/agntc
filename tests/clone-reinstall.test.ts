@@ -1025,7 +1025,7 @@ describe("cloneAndReinstall", () => {
 				expect(mapped).toContain("evil-link");
 			});
 
-			it("does not invoke the path-traversal guard on the update path", async () => {
+			it("guards the key-derived subpath when no sourceSubpath is recorded", async () => {
 				const entry = makeEntry({ type: "skill" });
 
 				mockCloneSource.mockResolvedValue({
@@ -1039,14 +1039,17 @@ describe("cloneAndReinstall", () => {
 
 				await cloneAndReinstall(
 					{
-						key: "owner/repo",
+						key: "owner/repo/my-skill",
 						entry,
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
 				);
 
-				expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					"/tmp/agntc-clone",
+					"my-skill",
+				);
 			});
 
 			it("rejects a recorded sourceSubpath that lexically escapes the clone (analysis 10-2)", async () => {

@@ -723,8 +723,13 @@ describe("processGroupUpdate", () => {
 				expect.objectContaining({ sourceDir: `${CLONE_DIR}/${name}` }),
 			);
 		}
-		// No member carries a sourceSubpath here, so the traversal guard never runs.
-		expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
+		// No member carries a sourceSubpath, so each key's own suffix is guarded.
+		for (const name of ["a", "b", "c"]) {
+			expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+				CLONE_DIR,
+				name,
+			);
+		}
 		// Branch facets.commit is the group's resolved sha, not the clone's HEAD.
 		const first = outcomes[0]!;
 		if (first.status === "updated") {
