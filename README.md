@@ -169,7 +169,7 @@ Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved 
 - **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
 - **Packs absorb loose skills.** When a pack now holds a skill you installed on its own from the same repo, the pack takes it over and the loose entry goes.
 
-**Update-all is grouped and streamed.** Installs from the same repo at the same version intent are checked once and cloned once per group. Progress streams under a header per group, then a trailing summary:
+**Update-all is grouped and streamed.** Installs from the same repo at the same version intent are checked once and cloned once per group. A key naming several installs, such as `update owner/repo` over its loose skills, updates those installs the same way. Progress streams under a header per group, then a trailing summary:
 
 ```
 ◒ Checking for updates...
@@ -187,7 +187,8 @@ Newer versions outside constraints:
 - **Version moves render in tags** when both refs are semver tags and the ref moved; branch and HEAD-tracked updates show short commit hashes.
 - **The trailing summary collapses to one line per group** for up-to-date, newer-tags, check-failed and no-matching-version installs.
 - **Newer versions print the command to reach them.** A major bump (or a 0.x minor bump) outside your constraint prints a bare re-add, which re-establishes the caret at the new major; a tag-pinned install with newer tags prints a re-add at `@<newest>`. The command matches what you installed: its path, `--pack` for a pack, and several loose skills from one repo on one `--skill` line. These are informative and exit 0.
-- A dead remote or a stuck constraint warns and exits 0. An aborted, blocked or failed install exits non-zero.
+- A dead remote or a stuck constraint warns and exits 0. An aborted, blocked or failed install exits non-zero, and the rest still update.
+- **A key naming one install** updates just that install and stops there: a dead remote or a stuck constraint exits non-zero too.
 
 ### `list`
 
