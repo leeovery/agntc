@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -116,6 +123,76 @@ describe("computeIncomingFiles", () => {
 			);
 
 			expect([...incoming].sort()).toEqual([...copiedFiles].sort());
+		});
+
+		describe("with what a clone's links copy in their place", () => {
+			beforeEach(async () => {
+				await tree({
+					"p/skills/a/SKILL.md": "",
+					"p/hooks/lint/run.sh": "",
+					"shared/deep/more.md": "more",
+				});
+				await symlink("../../../shared", join(root, "p/skills/a/shared"));
+				await symlink("../../../shared", join(root, "p/hooks/lint/shared"));
+			});
+
+			/** Copies the item from the source as a clone; resolves to the paths recorded. */
+			async function copyFromClone(item: InstallItem): Promise<string[]> {
+				const projectDir = join(base, "project");
+				const { copiedFiles } = await copyItem(
+					item,
+					{ root, local: false },
+					projectDir,
+				);
+				return copiedFiles;
+			}
+
+			/** Whether `path` is a claim, or lies in a claimed folder. */
+			function isClaimed(claims: string[], path: string): boolean {
+				return claims.some(
+					(claim) =>
+						path === claim || (claim.endsWith("/") && path.startsWith(claim)),
+				);
+			}
+
+			it("claims exactly what copying a skill installs", async () => {
+				const item: InstallItem = {
+					kind: "skill",
+					skill: { name: "a", path: "p/skills/a" },
+				};
+
+				const incoming = await computeIncomingFiles(item, root);
+				const copiedFiles = await copyFromClone(item);
+
+				expect(incoming).toEqual([".claude/skills/a/"]);
+				expect(copiedFiles).toEqual(incoming);
+				expect(
+					await readFile(
+						join(base, "project/.claude/skills/a/shared/deep/more.md"),
+						"utf-8",
+					),
+				).toBe("more");
+			});
+
+			it("claims every path copying a pack records, each claim copied and every copied path in one", async () => {
+				const item = packItem({
+					skills: [{ name: "a", path: "p/skills/a" }],
+					assetDirs: ["hooks"],
+				});
+
+				const incoming = await computeIncomingFiles(item, root);
+				const copiedFiles = await copyFromClone(item);
+
+				expect([...incoming].sort()).toEqual([
+					".claude/hooks/lint/",
+					".claude/skills/a/",
+				]);
+				expect(copiedFiles).toEqual(expect.arrayContaining(incoming));
+				expect(copiedFiles).toContain(".claude/hooks/lint/shared/deep/more.md");
+				expect(
+					copiedFiles.filter((path) => !isClaimed(incoming, path)),
+				).toEqual([]);
+			});
 		});
 
 		it("skips hidden hooks/ entries, matching what copying installs", async () => {

@@ -6,6 +6,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readdir,
+	readFile,
 	readlink,
 	rm,
 	symlink,
@@ -412,11 +413,11 @@ describe("copyPack", () => {
 			]);
 		});
 
-		it("keeps a link in a hook folder to a file in it relative, and leaves out a clone's link out of it", async () => {
+		it("keeps a link in a hook folder to a file in it relative, and copies a file a clone's link out of it leads to in its place", async () => {
 			await tree({
 				"laravel/hooks/lint/run.sh": "run",
-				"laravel/hooks/pre.sh": "",
-				"scripts/env.sh": "",
+				"laravel/hooks/pre.sh": "pre",
+				"scripts/env.sh": "env",
 			});
 			await symlink("run.sh", join(root, "laravel/hooks/lint/alias.sh"));
 			await symlink("../pre.sh", join(root, "laravel/hooks/lint/pre.sh"));
@@ -430,12 +431,62 @@ describe("copyPack", () => {
 			expect(sorted(result.copiedFiles)).toEqual([
 				".claude/hooks/lint/",
 				".claude/hooks/lint/alias.sh",
+				".claude/hooks/lint/env.sh",
+				".claude/hooks/lint/pre.sh",
 				".claude/hooks/lint/run.sh",
 				".claude/hooks/pre.sh",
 			]);
 			expect(
 				await readlink(join(projectDir, ".claude/hooks/lint/alias.sh")),
 			).toBe("run.sh");
+			for (const [hook, text] of Object.entries({
+				"lint/pre.sh": "pre",
+				"lint/env.sh": "env",
+			})) {
+				const path = join(projectDir, ".claude/hooks", hook);
+				expect((await lstat(path)).isFile()).toBe(true);
+				expect(await readFile(path, "utf-8")).toBe(text);
+			}
+		});
+
+		it("copies a folder a clone's hook folder links to in the link's place, filtered as a hook folder, recording and claiming all of it", async () => {
+			await tree({
+				"laravel/hooks/lint/run.sh": "",
+				"scripts/lib/util.sh": "util",
+				"scripts/lib/.cache/state": "",
+				"scripts/lib/deep/more.sh": "",
+				"scripts/.hidden/x.sh": "",
+			});
+			await symlink(
+				"../../../scripts/lib",
+				join(root, "laravel/hooks/lint/lib"),
+			);
+			await symlink("util.sh", join(root, "scripts/lib/alias.sh"));
+			await symlink("../.hidden", join(root, "scripts/lib/hidden"));
+			await symlink(
+				"../../../scripts/.hidden/x.sh",
+				join(root, "laravel/hooks/lint/.x.sh"),
+			);
+			const claims = await hookClaims();
+
+			const result = await copyFromCloneThenDelete();
+
+			expect(sorted(result.copiedFiles)).toEqual([
+				".claude/hooks/lint/",
+				".claude/hooks/lint/lib/",
+				".claude/hooks/lint/lib/alias.sh",
+				".claude/hooks/lint/lib/deep/",
+				".claude/hooks/lint/lib/deep/more.sh",
+				".claude/hooks/lint/lib/util.sh",
+				".claude/hooks/lint/run.sh",
+			]);
+			expect(claims).toEqual([".claude/hooks/lint/"]);
+			expect(
+				(await lstat(join(projectDir, ".claude/hooks/lint/lib"))).isDirectory(),
+			).toBe(true);
+			expect(
+				await readlink(join(projectDir, ".claude/hooks/lint/lib/alias.sh")),
+			).toBe("util.sh");
 		});
 
 		it("links a local hook folder's link out of it absolutely into the source", async () => {
@@ -502,6 +553,39 @@ describe("copyPack", () => {
 
 			expect(check.ok).toBe(false);
 			await expect(copy).rejects.toBeInstanceOf(SymlinkEscapeError);
+			expect(await installed(".claude/skills/a")).toBe(false);
+			expect(await installed(".claude/hooks/lint")).toBe(false);
+		});
+
+		it("agrees with the pre-flight on a link out of the clone in a folder a hook folder links to: both refuse, and the pack rolls back", async () => {
+			await tree({
+				"laravel/skills/a/SKILL.md": "",
+				"laravel/hooks/lint/run.sh": "",
+				"scripts/lib/util.sh": "",
+			});
+			await symlink(
+				"../../../scripts/lib",
+				join(root, "laravel/hooks/lint/lib"),
+			);
+			await symlink("../../..", join(root, "scripts/lib/leak"));
+
+			const check = await checkEscapingSymlinks(join(root, "laravel"), root);
+			const copy = copyPack(
+				pack({
+					skills: [{ name: "a", path: "laravel/skills/a" }],
+					assetDirs: ["hooks"],
+				}),
+				remote(root),
+				projectDir,
+			);
+
+			expect(check).toEqual({
+				ok: false,
+				message: `symlink "hooks/lint/lib/leak" points outside the clone (target: ../../..)`,
+			});
+			await expect(copy).rejects.toThrow(
+				`symlink "lib/leak" points outside the clone (target: ../../..)`,
+			);
 			expect(await installed(".claude/skills/a")).toBe(false);
 			expect(await installed(".claude/hooks/lint")).toBe(false);
 		});

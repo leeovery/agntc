@@ -7,7 +7,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertSubpathWithinClone,
@@ -295,6 +295,59 @@ describe("scanForEscapingSymlinks", () => {
 		} finally {
 			await rm(outside, { recursive: true, force: true });
 		}
+	});
+
+	describe("a folder elsewhere in the clone a link leads to", () => {
+		async function linkIn(base: string, links: Record<string, string>) {
+			for (const [path, target] of Object.entries(links)) {
+				await mkdir(dirname(join(base, path)), { recursive: true });
+				await symlink(target, join(base, path));
+			}
+		}
+
+		it("rejects a link out of the clone in it, as a copy would read it in the link's place", async () => {
+			await writeFile(join(unitDir, "SKILL.md"), "");
+			await linkIn(cloneRoot, {
+				"shared/deep/leak": "/etc/passwd",
+				"unit/shared": "../shared",
+			});
+
+			await expect(scanForEscapingSymlinks(unitDir, cloneRoot)).rejects.toThrow(
+				new SymlinkEscapeError("shared/deep/leak", "/etc/passwd"),
+			);
+		});
+
+		it("allows a link out of the clone that no copy reads: through a link above the unit, a chain, .git, or a folder a copied folder links to", async () => {
+			await linkIn(cloneRoot, {
+				"above/leak": "/etc/passwd",
+				"unit/up": "..",
+				"chained/leak": "/etc/passwd",
+				alias: "chained",
+				"unit/chain": "../alias",
+				".git/leak": "/etc/passwd",
+				"unit/history": "../.git",
+				"b/leak": "/etc/passwd",
+				"a/to-b": "../b",
+				"unit/a": "../a",
+			});
+
+			await expect(
+				scanForEscapingSymlinks(unitDir, cloneRoot),
+			).resolves.toBeUndefined();
+		});
+
+		it("finishes on two folders linking to each other, both reached from the unit", async () => {
+			await linkIn(cloneRoot, {
+				"a/to-b": "../b",
+				"b/to-a": "../a",
+				"unit/a": "../a",
+				"unit/b": "../b",
+			});
+
+			await expect(
+				scanForEscapingSymlinks(unitDir, cloneRoot),
+			).resolves.toBeUndefined();
+		});
 	});
 
 	it("names the offending relative path and target in the error", async () => {

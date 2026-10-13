@@ -1,7 +1,12 @@
 import { basename, join } from "node:path";
 import { skillTarget } from "./asset-targets.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
-import { type CopySource, planCopy, writeCopy } from "./copy-safety.js";
+import {
+	type CopySource,
+	inGitFolder,
+	planCopy,
+	writeCopy,
+} from "./copy-safety.js";
 import { assertNoLinkInTheWay, isSafeSegment } from "./install-paths.js";
 
 export interface CopyBareSkillInput {
@@ -50,5 +55,5 @@ export async function copyBareSkill(
  * root is the whole clone's history, or its top-level `agntc.json`.
  */
 function isSkillContent(path: string): boolean {
-	return path !== "agntc.json" && !path.split("/").includes(".git");
+	return path !== "agntc.json" && !inGitFolder(path);
 }
