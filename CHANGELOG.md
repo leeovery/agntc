@@ -53,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An HTTPS URL with a path after the repo, such as `https://github.com/owner/repo/skills`, cloned the wrong repository (`repo/skills`); the first two segments now name the repo and the rest is the start path. SSH URLs take a path the same way.
 - Re-add commands printed for a source on another host, or added over SSH, named a GitHub repo; they now name the clone URL.
 - Hidden files in a pack's `hooks/`, such as `.DS_Store`, are no longer installed.
+- A constrained update recorded an annotated tag's object sha as the commit; it now records the commit the tag points at.
+- `update` no longer copies through a symlink at or above an install's path in the source; the entry is blocked and left intact.
+- A local source that is a symlink to a folder now installs from the folder it links to.
+- An `https://user@host/...` URL no longer reads the login as a version.
+- Adding the same `owner/repo` from another host no longer silently replaces an install; it is refused with the remove-then-add remedy. HTTPS and SSH of one repo still count as one source.
+- Printed commands quote versions holding `^` or `~`, so they paste into zsh with extended globbing.
+- `remove` carries on past a key whose files can't be removed, keeps that key recorded, and exits 1; before, it stopped part way with earlier keys deleted but still recorded.
+- An approved overwrite replaces a real folder where an agent or hook file installs, instead of failing the whole add.
 
 ## [0.4.0] - 2026-07-22
 
