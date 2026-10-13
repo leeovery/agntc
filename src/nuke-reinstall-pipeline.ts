@@ -17,6 +17,7 @@ import { checkEscapingSymlinks, inspectSourcePath } from "./copy-safety.js";
 import {
 	comparePaths,
 	discover,
+	type FoundSkill,
 	folderName,
 	PackConflictError,
 	StartPathError,
@@ -63,6 +64,42 @@ export interface NukeReinstallOptions {
 	newRef?: string;
 	/** The commit the reinstall lands on. Absent, the recorded one stays. */
 	newCommit?: string;
+	/**
+	 * The walk of `cloneRoot` shared by every entry reinstalled from it.
+	 * Absent, this reinstall walks the source on its own.
+	 */
+	walk?: SourceWalk;
+}
+
+/** Every skill a source holds, loose or in a pack: where a moved skill is looked for. */
+export type SourceSkills = readonly Readonly<FoundSkill>[];
+
+/** The whole-source walk under a root name, which names a skill at the root. */
+export type SourceWalk = (rootName: string) => Promise<SourceSkills>;
+
+/**
+ * Walks `root` at most once per root name, however many entries ask. It lives
+ * as long as the caller holds it: one per clone, so no walk outlives its tree.
+ */
+export function sourceWalk(root: string): SourceWalk {
+	const walks = new Map<string, Promise<SourceSkills>>();
+	return (rootName) => {
+		let walk = walks.get(rootName);
+		if (walk === undefined) {
+			walk = skillsIn(root, rootName);
+			walks.set(rootName, walk);
+		}
+		return walk;
+	};
+}
+
+async function skillsIn(root: string, rootName: string): Promise<SourceSkills> {
+	const { skills, packs } = await discover(root, { rootName });
+	return Object.freeze(
+		[...skills, ...packs.flatMap((pack) => pack.skills)].map((skill) =>
+			Object.freeze({ ...skill }),
+		),
+	);
 }
 
 interface NukeReinstallSuccess {
@@ -311,19 +348,18 @@ async function deriveSkillReplay(
 }
 
 /**
- * Re-walks the whole source for skills named like the entry, loose or in a
- * pack: exactly one is followed, none means the skill is gone upstream, and
- * several can't be told apart.
+ * Looks through the whole source's walk for skills named like the entry,
+ * loose or in a pack: exactly one is followed, none means the skill is gone
+ * upstream, and several can't be told apart.
  */
 async function followMovedSkill(
 	options: NukeReinstallOptions,
 	oldPath: string,
 	name: string,
 ): Promise<Replay> {
-	const { key, cloneRoot } = options;
+	const { key, cloneRoot, walk = sourceWalk(cloneRoot) } = options;
 	const rootName = sourceRootName(options);
-	const { skills, packs } = await discover(cloneRoot, { rootName });
-	const matches = [...skills, ...packs.flatMap((pack) => pack.skills)]
+	const matches = (await walk(rootName))
 		.filter((skill) => skill.name === name)
 		.map((skill) => skill.path)
 		.sort(comparePaths);

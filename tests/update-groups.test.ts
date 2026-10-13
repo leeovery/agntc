@@ -28,6 +28,11 @@ vi.mock("../src/copy-bare-skill.js", async (importOriginal) => ({
 	copyBareSkill: vi.fn(),
 }));
 
+vi.mock("../src/discover.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/discover.js")>();
+	return { ...actual, discover: vi.fn(actual.discover) };
+});
+
 vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
 	const { mockCopySafety } = await import("./helpers/copy-safety-mock.js");
@@ -45,6 +50,7 @@ import {
 	PathTraversalError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
+import { discover } from "../src/discover.js";
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { execGit, fetchRemoteTagRefs } from "../src/git-utils.js";
@@ -81,6 +87,7 @@ const mockPathExists = vi.mocked(pathExists);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
+const mockDiscover = vi.mocked(discover);
 
 const REPO_URL = "https://github.com/owner/repo.git";
 
@@ -1243,6 +1250,84 @@ describe("processGroupUpdate", () => {
 				newEntry: expect.objectContaining({ ref, commit: SHA_RESOLVED }),
 			}),
 		]);
+	});
+
+	describe("members whose skill moved", () => {
+		const movedSkills = {
+			packs: [],
+			skills: [
+				{ name: "a", path: "moved/a" },
+				{ name: "b", path: "moved/b" },
+			],
+			strays: [],
+		};
+
+		beforeEach(() => {
+			mockPathExists.mockResolvedValue(false);
+		});
+
+		it("walks the group's clone once for all of them", async () => {
+			mockDiscover.mockResolvedValueOnce(movedSkills);
+			const members = [
+				branchMember("owner/repo/a"),
+				branchMember("owner/repo/b"),
+			];
+
+			const { outcomes } = await processGroupUpdate(
+				branchGroup(members),
+				members,
+				BRANCH_TARGET,
+				projectScope("/fake/project"),
+				installedOf(members),
+			);
+
+			expect(mockDiscover).toHaveBeenCalledTimes(1);
+			expect(mockDiscover).toHaveBeenCalledWith(CLONE_DIR, {
+				rootName: "repo",
+			});
+			expect(outcomes).toEqual([
+				expect.objectContaining({
+					status: "updated",
+					newEntry: expect.objectContaining({ sourceSubpath: "moved/a" }),
+				}),
+				expect.objectContaining({
+					status: "updated",
+					newEntry: expect.objectContaining({ sourceSubpath: "moved/b" }),
+				}),
+			]);
+		});
+
+		it("walks each group's own clone", async () => {
+			mockDiscover
+				.mockResolvedValueOnce(movedSkills)
+				.mockResolvedValueOnce(movedSkills);
+			mockCloneSource
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-1",
+					commit: CLONE_COMMIT,
+				})
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-2",
+					commit: CLONE_COMMIT,
+				});
+			const first = [branchMember("owner/repo/a")];
+			const second = [branchMember("owner/repo/b")];
+
+			for (const members of [first, second]) {
+				await processGroupUpdate(
+					branchGroup(members),
+					members,
+					BRANCH_TARGET,
+					projectScope("/fake/project"),
+					installedOf(members),
+				);
+			}
+
+			expect(mockDiscover.mock.calls.map(([root]) => root)).toEqual([
+				"/tmp/clone-1",
+				"/tmp/clone-2",
+			]);
+		});
 	});
 
 	it("clones a constrained group once at the resolved target tag and records target.commit per member", async () => {

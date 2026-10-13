@@ -72,6 +72,7 @@ import {
 	failureMessage,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	recordCopyFailure,
 	recordReinstall,
 } from "../src/clone-reinstall.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
@@ -2031,6 +2032,24 @@ describe("recordReinstall", () => {
 			"owner/repo/new",
 		]);
 		expect(next["owner/repo/new"]).toBe(entry);
+	});
+});
+
+describe("recordCopyFailure", () => {
+	it("drops the entry whose copy failed and the loose skills it took over, leaving the rest in order", () => {
+		const manifest: Manifest = {
+			"owner/repo/a": makeEntry(),
+			"owner/repo/pack": makeEntry({ type: "pack" }),
+			"owner/repo/loose": makeEntry(),
+			"owner/repo/z": makeEntry(),
+		};
+
+		const next = recordCopyFailure(manifest, "owner/repo/pack", [
+			"owner/repo/loose",
+		]);
+
+		expect(Object.keys(next)).toEqual(["owner/repo/a", "owner/repo/z"]);
+		expect(Object.keys(manifest)).toHaveLength(4);
 	});
 });
 
