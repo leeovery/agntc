@@ -1,4 +1,9 @@
 import { join, posix, relative, sep } from "node:path";
+import {
+	describeClash,
+	findTargetClashes,
+	skillClaims,
+} from "./compute-incoming-files.js";
 import { copyItem } from "./copy-item.js";
 import { checkEscapingSymlinks } from "./copy-safety.js";
 import { discover, PackConflictError, StartPathError } from "./discover.js";
@@ -129,7 +134,8 @@ async function deriveSkillReplay(
 
 /**
  * Re-walks a pack so skills added upstream arrive and removed ones go. A path
- * that is now a single skill reinstalls as that skill.
+ * that is now a single skill reinstalls as that skill. Two of its skills
+ * sharing a folder name would install to one place, so the pack aborts.
  */
 async function derivePackReplay(
 	options: NukeReinstallOptions,
@@ -150,6 +156,10 @@ async function derivePackReplay(
 				ok: false,
 				reason: "it no longer holds any skills, agents or hooks",
 			};
+		}
+		const clashes = findTargetClashes(skillClaims(pack.skills));
+		if (clashes.length > 0) {
+			return { ok: false, reason: clashes.map(describeClash).join("; ") };
 		}
 		return { ok: true, item: { kind: "pack", pack } };
 	} catch (err) {

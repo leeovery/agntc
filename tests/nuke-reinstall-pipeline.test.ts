@@ -376,6 +376,31 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 
+		it("aborts, leaving the install intact, when two of its skills share a folder name", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						skills: [
+							{ name: "api", path: "laravel/skills/api" },
+							{ name: "lint", path: "laravel/skills/a/lint" },
+							{ name: "lint", path: "laravel/tools/lint" },
+						],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				recordedType: "pack",
+				reason:
+					"laravel/skills/a/lint and laravel/tools/lint would both install to .claude/skills/lint",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
 		it("aborts, naming the path, when its path is missing", async () => {
 			mockDiscover.mockRejectedValue(
 				new StartPathError('path "laravel" not found in source'),
