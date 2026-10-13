@@ -38,8 +38,8 @@ export async function copyBareSkill(
 		// Exclude `.git` — for a whole-repo bare skill `sourceDir` is the clone
 		// root, so an unfiltered recursive copy would drop the entire git repo
 		// into the installed skill. The filter prunes the `.git` subtree (any
-		// nested `.git` too); all other author content is kept (spec: keep
-		// everything). `agntc.json` is stripped post-copy below.
+		// nested `.git` too); all other author content is kept.
+		// `agntc.json` is stripped post-copy below.
 		await cp(sourceDir, destDir, {
 			recursive: true,
 			filter: (src) => basename(src) !== ".git",

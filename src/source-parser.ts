@@ -385,8 +385,8 @@ export function buildParsedSourceFromKey(
 
 /**
  * The bare `owner/repo` a manifest key installs from — its first two segments.
- * A key is `owner/repo` for a standalone entry or `owner/repo/<member>` for a
- * collection member; the repo is the first two segments either way, so any
+ * A key is `owner/repo` for a standalone entry or `owner/repo/<member>` for an
+ * entry from a multi-item repo; the repo is the first two segments either way, so any
  * `/<member>` suffix is stripped. The single home of this key→repo transform.
  */
 export function repoFromKey(key: string): string {
@@ -395,7 +395,7 @@ export function repoFromKey(key: string): string {
 
 /**
  * The member basename of a manifest key — its last `/`-segment. For a
- * standalone `owner/repo` key this is the repo name; for a collection member
+ * standalone `owner/repo` key this is the repo name; for an entry from a multi-item repo
  * `owner/repo/<member>` it is `<member>`. The single home of this key→basename
  * transform.
  */

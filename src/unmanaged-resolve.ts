@@ -12,10 +12,10 @@ export interface UnmanagedResolution {
 }
 
 /**
- * Asks, per plugin, whether to overwrite its unmanaged files (confirmed a
- * second time) or cancel that plugin's install.
+ * Asks, per entry, whether to overwrite its unmanaged files (confirmed a
+ * second time) or cancel that entry's install.
  *
- * @param conflicts - Per-plugin conflict groups
+ * @param conflicts - Per-entry conflict groups
  * @returns Approved files (OK to overwrite) and cancelled files (skip install)
  */
 export async function resolveUnmanagedConflicts(

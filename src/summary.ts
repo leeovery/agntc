@@ -177,8 +177,8 @@ export interface OutOfConstraintInfo {
 	 */
 	key?: string;
 	/**
-	 * The group label (task 2-1) — populated by the all-mode per-group footer so
-	 * an N-member collection collapses to ONE line and two distinct-intent groups
+	 * The group label — populated by the all-mode per-group footer so
+	 * an N-member group collapses to ONE line and two distinct-intent groups
 	 * of one repo keep their own @intent-disambiguated lines. Takes precedence over
 	 * {@link key} when present.
 	 */

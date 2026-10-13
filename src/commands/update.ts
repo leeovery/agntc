@@ -380,7 +380,7 @@ function reportSettledGone(outcome: PluginOutcome, ui: Ui): void {
 	}
 }
 
-// --- All-plugins mode helpers ---
+// --- All-mode helpers ---
 
 async function processLocalUpdate(
 	{ key, entry }: GroupMember,
@@ -421,8 +421,8 @@ type WorkItem =
 
 /**
  * One group's non-actioned members plus the shared resolved target it was
- * categorized against — the source for the trailing per-group collapse (task
- * 2-5). A group appears here only when it has ≥1 non-actioned member; a group can
+ * categorized against — the source for the trailing per-group collapse.
+ * A group appears here only when it has ≥1 non-actioned member; a group can
  * appear in BOTH {@link CategorizedGroups.updatableGroups} and here (the
  * genuine-state split: behind members stream, up-to-date members collapse). The
  * `target` carries the group-level fields the collapse needs — `newerTags` (tag),
@@ -560,8 +560,8 @@ function categorizeGroups(
 		const updating: GroupMember[] = [];
 		const nonActioned: PluginOutcome[] = [];
 
-		// One out-of-constraint footer info PER GROUP (task 2-7) — an N-member
-		// collection collapses to a single line, keyed by the group label; two
+		// One out-of-constraint footer info PER GROUP — an N-member
+		// group collapses to a single line, keyed by the group label; two
 		// distinct-intent groups of one repo keep separate @intent lines.
 		const groupInfo = groupOutOfConstraintInfo(group, target, groups, scope);
 		if (groupInfo !== null) {
@@ -606,11 +606,11 @@ function categorizeGroups(
 }
 
 /**
- * The ONE out-of-constraint footer info a constrained group contributes (task
- * 2-7). A group whose shared resolved target carries a non-null `latestOverall`
+ * The ONE out-of-constraint footer info a constrained group contributes.
+ * A group whose shared resolved target carries a non-null `latestOverall`
  * is out of constraint (matching {@link hasOutOfConstraintVersion}: latestOverall
  * !== null iff out of constraint), and collapses to a SINGLE info keyed by its
- * {@link groupLabel} — so an N-member collection yields one footer line, not N,
+ * {@link groupLabel} — so an N-member group yields one footer line, not N,
  * while two distinct-intent groups of one repo keep their own @intent lines.
  * The line carries the group's re-add commands ({@link groupReAddCommands}).
  */
@@ -706,13 +706,13 @@ function orderWork(
 type GroupWorkItem = Extract<WorkItem, { kind: "group" }>;
 
 /**
- * Streams the ordered work items sequentially (task 2-4), collecting one
+ * Streams the ordered work items sequentially, collecting one
  * {@link PluginOutcome} per member for {@link hasFailedOutcome} while emitting
  * each unit's progress + outcome lines the moment it completes — replacing the
  * old deferred end-of-run render. Each updatable group runs under its own
  * `Updating <label> …` spinner ({@link streamGroupWork}); each local entry
  * reinstalls without a spinner ({@link streamLocalWork}). Per-unit manifest
- * persistence (task 1-6) still happens BEFORE that unit's lines stream, and the
+ * persistence still happens BEFORE that unit's lines stream, and the
  * working manifest is threaded so each write is cumulative (matching disk at
  * group boundaries). A member an earlier unit's pack absorbed is no longer in
  * it, so it is left out, and a unit left with no members doesn't run.
@@ -779,14 +779,14 @@ interface StreamedUnit {
  * updating members keep the counted {@link formatGroupHeader} stop-frame followed
  * by one member line each ({@link streamGroupMemberLines}).
  *
- * A group-fatal clone failure (task 2-6) splits by member count. A group-of-one
+ * A group-fatal clone failure splits by member count. A group-of-one
  * keeps its single collapsed stop-frame ({@link collapsedMemberLine} at error
  * level → code 2) — an "affects 1 members" enumeration would be redundant with the
  * repo name AND regress the group-of-one collapse. A >=2-member group instead
  * settles its header stop-frame then emits ONE enumerated
  * {@link formatCloneFailureLine} line naming the affected members, in place of the
  * per-member lines — never N identical anonymous lines. Either way the model stays
- * the N `failed` outcomes {@link processGroupUpdate} fanned out (Phase 1 task 1-7),
+ * the N `failed` outcomes {@link processGroupUpdate} fanned out,
  * so persistence and exit accounting are untouched.
  *
  * Members found gone upstream get no line under the spinner: once it has
@@ -958,8 +958,8 @@ function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
 }
 
 /**
- * Streams one local group-of-one: reinstalls without cloning (task 1-5) and with
- * NO spinner, persists its manifest (task 1-6), then emits its single collapsed
+ * Streams one local group-of-one: reinstalls without cloning and with
+ * NO spinner, persists its manifest, then emits its single collapsed
  * line — `<key>: Refreshed from local path` on success, else its
  * {@link formatMemberLine} failure line (name = the full key).
  */
@@ -978,7 +978,7 @@ async function streamLocalWork(
 }
 
 /**
- * Collapses a group-of-one (a standalone or a single-updated collection member)
+ * Collapses a group-of-one (a standalone or a single-updated member of a multi-item repo)
  * or a local entry to a single streamed line: a success reuses the interim
  * {@link renderUpdateOutcomeSummary} text (`<key>: Updated …` / `<key>: Refreshed
  * from local path`, full key preserving any `/member` suffix); a failure
@@ -1032,8 +1032,7 @@ export function streamGroupMemberLines(
  * the shared {@link failureMemberLine} at the member basename — the same
  * rendering the collapsed path uses. A `failed` outcome — now only a per-member defensive throw
  * or a per-member subpath-traversal reject, the GROUP-FATAL clone fan-out being
- * intercepted upstream by {@link streamGroupWork} as one enumerated line (task
- * 2-6) — is not a shared-format status (the helper returns null), so it falls
+ * intercepted upstream by {@link streamGroupWork} as one enumerated line — is not a shared-format status (the helper returns null), so it falls
  * back to the {@link renderFailedOutcome} render at ERROR (red ✗) — uniform with
  * the collapsed group-of-one stop-frame.
  */
@@ -1083,7 +1082,7 @@ async function persistUnitOutcomes(
 
 /**
  * Emits a group's trailing non-actioned summary as ONE collapsed line per
- * category (task 2-5), dispatched on the shared target kind:
+ * category, dispatched on the shared target kind:
  *
  * - `check-failed` → the group's single shared probe reason (all-mode warns, exit
  *   0), count-collapsed — never one line per member.
