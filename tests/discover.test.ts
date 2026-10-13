@@ -409,6 +409,69 @@ describe("discover", () => {
 				},
 			]);
 		});
+
+		describe("a skill folder that declares a pack", () => {
+			const WARNING =
+				"has SKILL.md and declares a pack — treating it as a skill";
+
+			it("treats the root as a skill and warns once, naming the repo", async () => {
+				const onWarn = vi.fn();
+				await tree({ "SKILL.md": "", "agntc.json": PACK });
+
+				const result = await run({ onWarn });
+
+				expect(result).toEqual({
+					packs: [],
+					skills: [{ name: "repo", path: "" }],
+					strays: [],
+				});
+				expect(onWarn).toHaveBeenCalledTimes(1);
+				expect(onWarn).toHaveBeenCalledWith(`"repo" ${WARNING}`);
+			});
+
+			it("treats a start path folder as a skill and warns once, naming the path", async () => {
+				const onWarn = vi.fn();
+				await tree({ "tools/s/SKILL.md": "", "tools/s/agntc.json": PLUGIN });
+
+				const result = await run({ startPath: "tools/s", onWarn });
+
+				expect(paths(result.skills)).toEqual(["tools/s"]);
+				expect(onWarn).toHaveBeenCalledTimes(1);
+				expect(onWarn).toHaveBeenCalledWith(`"tools/s" ${WARNING}`);
+			});
+
+			it("treats a folder in the walk as a skill and warns once per folder", async () => {
+				const onWarn = vi.fn();
+				await tree({
+					...skillsAt("a", "b/c", "plain"),
+					"a/agntc.json": PACK,
+					"b/c/agntc.json": PLUGIN,
+				});
+
+				const result = await run({ onWarn });
+
+				expect(result.packs).toEqual([]);
+				expect(paths(result.skills)).toEqual(["a", "b/c", "plain"]);
+				expect(onWarn.mock.calls).toEqual([
+					[`"a" ${WARNING}`],
+					[`"b/c" ${WARNING}`],
+				]);
+			});
+
+			it("doesn't warn inside a pack, where declarations are ignored", async () => {
+				const onWarn = vi.fn();
+				await tree({
+					"agntc.json": PACK,
+					"s/SKILL.md": "",
+					"s/agntc.json": PACK,
+				});
+
+				const [pack] = (await run({ onWarn })).packs;
+
+				expect(paths(pack?.skills ?? [])).toEqual(["s"]);
+				expect(onWarn).not.toHaveBeenCalled();
+			});
+		});
 	});
 
 	describe("pack assetDirs", () => {
@@ -446,6 +509,16 @@ describe("discover", () => {
 			).toEqual(["agents", "hooks"]);
 		});
 
+		it.each([
+			"hooks/.gitkeep",
+			"hooks/.cache/run.sh",
+			"agents/.DS_Store",
+			"agents/.draft.md",
+			"agents/.hidden/a.md",
+		])("ignores hidden %s", async (hidden) => {
+			expect(await assetDirsOf({ [hidden]: "" })).toEqual([]);
+		});
+
 		it("ignores a symlinked agents/ folder", async () => {
 			await tree({ ".real/a.md": "" });
 			await symlink(join(root, ".real"), join(root, "agents"));
@@ -474,6 +547,15 @@ describe("discover", () => {
 
 		it("doesn't report agents/ or hooks/ that don't qualify", async () => {
 			await tree({ "group/agents/openai.yaml": "", "group/hooks/empty/": "" });
+
+			expect((await run()).strays).toEqual([]);
+		});
+
+		it("doesn't report agents/ or hooks/ holding only hidden files", async () => {
+			await tree({
+				"group/agents/.DS_Store": "",
+				"group/hooks/.gitkeep": "",
+			});
 
 			expect((await run()).strays).toEqual([]);
 		});

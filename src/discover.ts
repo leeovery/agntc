@@ -333,13 +333,17 @@ async function classifyFolder(
 	packsDeclarable: boolean,
 ): Promise<FolderKind> {
 	const abs = absolute(ctx, path);
-	if (await pathExists(join(abs, "SKILL.md"))) {
+	const isSkill = await pathExists(join(abs, "SKILL.md"));
+	const isPack = packsDeclarable && (await declaresPack(abs, ctx.onWarn));
+	if (isSkill && isPack) {
+		ctx.onWarn?.(
+			`"${displayPath(ctx, path)}" has SKILL.md and declares a pack — treating it as a skill`,
+		);
+	}
+	if (isSkill) {
 		return "skill";
 	}
-	if (packsDeclarable && (await declaresPack(abs, ctx.onWarn))) {
-		return "pack";
-	}
-	return "plain";
+	return isPack ? "pack" : "plain";
 }
 
 async function declaresPack(
@@ -373,7 +377,8 @@ async function containsFile(
 	dir: string,
 	matches: (entry: Dirent) => boolean,
 ): Promise<boolean> {
-	for (const entry of await readEntries(dir)) {
+	const visible = (await readEntries(dir)).filter((entry) => !isHidden(entry));
+	for (const entry of visible) {
 		if (matches(entry)) {
 			return true;
 		}
@@ -398,10 +403,12 @@ async function readEntries(dir: string): Promise<Dirent[]> {
 
 function isWalkable(entry: Dirent): boolean {
 	return (
-		entry.isDirectory() &&
-		!entry.name.startsWith(".") &&
-		!SKIPPED_DIRS.has(entry.name)
+		entry.isDirectory() && !isHidden(entry) && !SKIPPED_DIRS.has(entry.name)
 	);
+}
+
+function isHidden(entry: Dirent): boolean {
+	return entry.name.startsWith(".");
 }
 
 function isOwnAssetDir(entry: Dirent, depth: number, mode: WalkMode): boolean {
