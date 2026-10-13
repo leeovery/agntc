@@ -154,7 +154,7 @@ describe("fetchRemoteTagRefs", () => {
 		]);
 	});
 
-	it("filters out ^{} annotated tag refs", async () => {
+	it("gives annotated tags the commit from their peeled ^{} line", async () => {
 		const lsRemoteOutput = [
 			"abc123\trefs/tags/v1.0.0",
 			"abc124\trefs/tags/v1.0.0^{}",
@@ -166,8 +166,8 @@ describe("fetchRemoteTagRefs", () => {
 		const refs = await fetchRemoteTagRefs("https://github.com/owner/repo.git");
 
 		expect(refs).toEqual([
-			{ tag: "v1.0.0", sha: "abc123" },
-			{ tag: "v2.0.0", sha: "def456" },
+			{ tag: "v1.0.0", sha: "abc124" },
+			{ tag: "v2.0.0", sha: "def457" },
 		]);
 	});
 
@@ -209,7 +209,7 @@ describe("fetchRemoteTags", () => {
 		expect(tags).toEqual(["v1.0.0", "v1.1.0", "v2.0.0"]);
 	});
 
-	it("filters out ^{} annotated tag refs", async () => {
+	it("lists each annotated tag once, without its ^{} line", async () => {
 		const lsRemoteOutput = [
 			"abc123\trefs/tags/v1.0.0",
 			"abc124\trefs/tags/v1.0.0^{}",

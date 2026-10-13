@@ -72,6 +72,31 @@ describe("checkForUpdate — constrained entries", () => {
 				latestOverall: "v2.0.0",
 			});
 		});
+
+		it("gives an annotated tag's commit, from its peeled line, not the tag object", async () => {
+			const tagsOutput = [
+				`${SHA_B}\trefs/tags/v1.0.0`,
+				`${SHA_C}\trefs/tags/v1.1.0`,
+				`${SHA_D}\trefs/tags/v1.1.0^{}`,
+			].join("\n");
+			mockExecFile((_cmd, _args, _opts, cb) => {
+				cb(null, `${tagsOutput}\n`, "");
+			});
+
+			const entry = makeEntry({
+				ref: "v1.0.0",
+				commit: SHA_B,
+				constraint: "^1.0",
+			});
+
+			const result = await checkForUpdate("owner/repo", entry);
+
+			expect(result).toMatchObject({
+				status: "constrained-update-available",
+				tag: "v1.1.0",
+				commit: SHA_D,
+			});
+		});
 	});
 
 	describe("constrained-up-to-date", () => {

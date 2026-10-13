@@ -35,8 +35,11 @@ export function agntcCommand(
 	return ["npx agntc", command, ...flags, ...args.map(shellWord)].join(" ");
 }
 
-/** Characters a shell takes literally, `^` and `~` included as they sit mid-word in a version. */
-const PLAIN_WORD = /^[\w@%+=:,./^~-]+$/;
+/**
+ * Characters every shell takes literally. `^` and `~` are left out: zsh's
+ * `EXTENDED_GLOB` reads them as glob operators even mid-word, as in `@^1.2.3`.
+ */
+const PLAIN_WORD = /^[\w@%+=:,./-]+$/;
 
 function shellWord(word: string): string {
 	return PLAIN_WORD.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;

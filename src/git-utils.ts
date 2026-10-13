@@ -31,19 +31,25 @@ export interface TagRef {
 	sha: string;
 }
 
+const PEELED = "^{}";
+
+/**
+ * `ls-remote --tags` output as tags with the commit each points at. An
+ * annotated tag's own sha is the tag object; its peeled `^{}` line, when
+ * listed, gives the commit. A lightweight tag's sha is the commit already.
+ */
 export function parseTagRefs(stdout: string): TagRef[] {
-	const trimmed = stdout.trim();
-	if (trimmed === "") return [];
-	return trimmed
-		.split("\n")
-		.filter((line) => line.trim() !== "")
-		.filter((line) => !line.includes("^{}"))
-		.map((line) => {
-			const parts = line.split("\t");
-			const sha = parts[0]?.trim() ?? "";
-			const ref = parts[1]?.trim() ?? "";
-			return { tag: ref.replace("refs/tags/", ""), sha };
-		});
+	const shas = new Map<string, string>();
+	for (const line of stdout.split("\n")) {
+		const [sha = "", ref = ""] = line.split("\t").map((part) => part.trim());
+		if (sha === "" || ref === "") continue;
+		const peeled = ref.endsWith(PEELED);
+		const tag = ref.replace("refs/tags/", "").replace(PEELED, "");
+		if (peeled || !shas.has(tag)) {
+			shas.set(tag, sha);
+		}
+	}
+	return [...shas].map(([tag, sha]) => ({ tag, sha }));
 }
 
 export async function fetchRemoteTagRefs(url: string): Promise<TagRef[]> {

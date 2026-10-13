@@ -215,7 +215,7 @@ describe("chooseItems", () => {
 			);
 
 			expect(choice.strayNotices[0]).toContain(
-				"npx agntc add owner/repo/p@^1.0 --pack",
+				"npx agntc add 'owner/repo/p@^1.0' --pack",
 			);
 		});
 
