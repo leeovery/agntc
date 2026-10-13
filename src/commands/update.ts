@@ -8,7 +8,7 @@ import {
 	mapCloneFailure,
 	prepareReinstall,
 } from "../clone-reinstall.js";
-import { commandAction, jsonOption } from "../command-action.js";
+import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { updateBody } from "../documents.js";
 import { groupReAddCommands, reAddCommand } from "../entry-source.js";
 import { errorMessage } from "../errors.js";
@@ -17,6 +17,12 @@ import { settleGone } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { readManifestOrExit, writeManifest } from "../manifest.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
+import {
+	commandTitle,
+	projectScope,
+	type Scope,
+	type ScopeName,
+} from "../scope.js";
 import { memberName } from "../source-parser.js";
 import {
 	type OutOfConstraintInfo,
@@ -90,7 +96,7 @@ export interface UpdateOptions {
 
 /** What every step of one update run shares. */
 interface UpdateRun {
-	projectDir: string;
+	scope: Scope;
 	yes: boolean;
 	ui: Ui;
 }
@@ -99,11 +105,12 @@ export async function runUpdate(
 	key?: string,
 	options: UpdateOptions = {},
 	ui: Ui = interactiveUi,
+	scope: Scope = projectScope(),
 ): Promise<void> {
-	ui.intro("agntc update");
+	ui.intro(commandTitle("update", scope.name));
 
 	const run: UpdateRun = {
-		projectDir: process.cwd(),
+		scope,
 		yes: options.yes === true,
 		ui,
 	};
@@ -120,9 +127,9 @@ export async function runUpdate(
  * absorbed on the way is skipped.
  */
 async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
-	const { projectDir, ui } = run;
+	const { scope, ui } = run;
 
-	const manifest = await readManifestOrExit(projectDir, ui);
+	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
 		ui.outro("No plugins installed.");
@@ -149,7 +156,7 @@ async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
 	}
 
 	const outcomes = withAbsorptions(updates.map((update) => update.outcome));
-	await persistUnitOutcomes(projectDir, manifest, outcomes);
+	await persistUnitOutcomes(scope.root, manifest, outcomes);
 
 	const failed = outcomes.some((outcome) => KEY_FAILURES.has(outcome.status));
 	if (!failed) {
@@ -170,6 +177,7 @@ async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
 function extractOutOfConstraint(
 	{ key, entry }: GroupMember,
 	checkResult: UpdateCheckResult,
+	scope: ScopeName,
 ): OutOfConstraintInfo | null {
 	if (
 		hasOutOfConstraintVersion(checkResult) &&
@@ -188,7 +196,7 @@ function extractOutOfConstraint(
 			key,
 			current,
 			latestOverall: checkResult.latestOverall,
-			commands: [reAddCommand(key, entry)],
+			commands: [reAddCommand(key, entry, scope)],
 		};
 	}
 	return null;
@@ -203,7 +211,7 @@ async function updateKey(
 	return {
 		outcome: await settleKey(member, check, installed, run),
 		check,
-		outOfConstraint: extractOutOfConstraint(member, check),
+		outOfConstraint: extractOutOfConstraint(member, check, run.scope.name),
 	};
 }
 
@@ -223,7 +231,7 @@ async function settleKey(
 			ui.log.error(`Update check failed for ${key}: ${check.reason}`);
 			return { status: "check-failed", key };
 		case "newer-tags":
-			reportNewerTags(member, check.tags, ui);
+			reportNewerTags(member, check.tags, run);
 			return { status: "newer-tags", key };
 		case "constrained-no-match":
 			ui.log.error(
@@ -252,13 +260,14 @@ function reportUpToDate(key: string, ui: Ui): PluginOutcome {
 function reportNewerTags(
 	{ key, entry }: GroupMember,
 	tags: string[],
-	ui: Ui,
+	{ scope, ui }: UpdateRun,
 ): void {
 	ui.log.info(`Pinned to ${entry.ref}. Newer tags available:`);
 	for (const tag of [...tags].reverse()) {
 		ui.log.message(`  ${tag}`);
 	}
-	ui.outro(`To upgrade: ${reAddCommand(key, entry, newestTag(tags))}`);
+	const reAdd = reAddCommand(key, entry, scope.name, newestTag(tags));
+	ui.outro(`To upgrade: ${reAdd}`);
 }
 
 async function reinstallKey(
@@ -268,10 +277,10 @@ async function reinstallKey(
 	overrides?: VersionOverrides,
 ): Promise<PluginOutcome> {
 	const { key, entry } = member;
-	const { projectDir, ui } = run;
-	const prepared = await prepareReinstall(key, entry, projectDir, overrides);
+	const { scope, ui } = run;
+	const prepared = await prepareReinstall(key, entry, scope, overrides);
 	if (!prepared.ok) {
-		ui.log.error(`Path ${key} does not exist or is not a directory.`);
+		ui.log.error(prepared.reason);
 		return failedOutcome(key, prepared.reason);
 	}
 
@@ -282,8 +291,8 @@ async function reinstallKey(
 		return outcome;
 	}
 	if (isCloneReinstallFailure(result)) {
-		reportKeyFailure(key, entry, result, ui);
-		return mapReinstallResultToOutcome(key, entry, result, null);
+		reportKeyFailure(key, entry, result, run);
+		return mapReinstallResultToOutcome(key, entry, result, null, scope.name);
 	}
 
 	for (const note of result.notes) {
@@ -306,6 +315,7 @@ async function reinstallKey(
 		entry,
 		result,
 		result.manifestEntry.ref,
+		scope.name,
 	);
 }
 
@@ -318,7 +328,7 @@ function reportKeyFailure(
 	key: string,
 	entry: ManifestEntry,
 	failure: CloneReinstallFailure,
-	ui: Ui,
+	{ scope, ui }: UpdateRun,
 ): void {
 	const cancelUnlessLocal = (message: string) => {
 		if (entry.commit !== null) {
@@ -327,7 +337,8 @@ function reportKeyFailure(
 	};
 	mapCloneFailure<void>(failure, {
 		onCopyFailed: (message) => ui.log.error(message),
-		onAborted: (abort) => ui.log.error(buildAbortMessage(key, entry, abort)),
+		onAborted: (abort) =>
+			ui.log.error(buildAbortMessage(key, entry, abort, scope.name)),
 		onBlocked: (reason) => ui.log.error(buildCopySafetyMessage(key, reason)),
 		onCloneFailed: cancelUnlessLocal,
 		onUnknown: cancelUnlessLocal,
@@ -340,10 +351,10 @@ function reportKeyFailure(
  */
 async function settleGoneOutcome(
 	{ key, entry }: GroupMember,
-	{ projectDir, yes, ui }: UpdateRun,
+	{ scope, yes, ui }: UpdateRun,
 ): Promise<PluginOutcome> {
 	try {
-		const settled = await settleGone(key, entry, projectDir, { yes, ui });
+		const settled = await settleGone(key, entry, scope, { yes, ui });
 		if (settled.removed) {
 			return { status: "gone-removed", key, summary: settled.message };
 		}
@@ -373,10 +384,10 @@ function reportSettledGone(outcome: PluginOutcome, ui: Ui): void {
 async function processLocalUpdate(
 	{ key, entry }: GroupMember,
 	installed: Manifest,
-	{ projectDir, ui }: UpdateRun,
+	{ scope, ui }: UpdateRun,
 ): Promise<PluginOutcome> {
 	try {
-		const prepared = await prepareReinstall(key, entry, projectDir);
+		const prepared = await prepareReinstall(key, entry, scope);
 		if (!prepared.ok) {
 			return failedOutcome(key, prepared.reason);
 		}
@@ -384,7 +395,7 @@ async function processLocalUpdate(
 		const result = await cloneAndReinstall(prepared.options, ui, installed);
 		// A local entry (`commit === null`) always takes the ref-free `refreshed`
 		// (local-update) arm, which never consults `newRef`.
-		return mapReinstallResultToOutcome(key, entry, result, null);
+		return mapReinstallResultToOutcome(key, entry, result, null, scope.name);
 	} catch (err) {
 		return failedOutcome(key, errorMessage(err));
 	}
@@ -438,9 +449,9 @@ interface CategorizedGroups {
 }
 
 async function runAllUpdates(run: UpdateRun): Promise<void> {
-	const { projectDir, ui } = run;
+	const { scope, ui } = run;
 
-	const manifest = await readManifestOrExit(projectDir, ui);
+	const manifest = await readManifestOrExit(scope.root, ui);
 
 	const entries = Object.entries(manifest);
 
@@ -458,7 +469,7 @@ async function runAllUpdates(run: UpdateRun): Promise<void> {
 	const targets = await Promise.all(groups.map(resolveGroupTarget));
 	spin.stop("Update checks complete.");
 
-	const categorized = categorizeGroups(groups, targets);
+	const categorized = categorizeGroups(groups, targets, scope.name);
 
 	// Actioned work streams in manifest order as each unit lands; only the
 	// non-actioned categories wait for the trailing summary.
@@ -484,7 +495,7 @@ async function runAllUpdates(run: UpdateRun): Promise<void> {
 			emitCollapsedGroupSummary(
 				withoutAbsorbed(nonActioned, absorbed),
 				groups,
-				ui,
+				run,
 			);
 		}
 	}
@@ -534,6 +545,7 @@ function inManifestOrder(
 function categorizeGroups(
 	groups: EntryGroup[],
 	targets: GroupTarget[],
+	scope: ScopeName,
 ): CategorizedGroups {
 	const updatableGroups: UpdatableGroup[] = [];
 	const nonActionedGroups: NonActionedGroup[] = [];
@@ -550,7 +562,7 @@ function categorizeGroups(
 		// One out-of-constraint footer info PER GROUP (task 2-7) — an N-member
 		// collection collapses to a single line, keyed by the group label; two
 		// distinct-intent groups of one repo keep separate @intent lines.
-		const groupInfo = groupOutOfConstraintInfo(group, target, groups);
+		const groupInfo = groupOutOfConstraintInfo(group, target, groups, scope);
 		if (groupInfo !== null) {
 			outOfConstraintInfo.push(groupInfo);
 		}
@@ -605,6 +617,7 @@ function groupOutOfConstraintInfo(
 	group: EntryGroup,
 	target: GroupTarget,
 	groups: EntryGroup[],
+	scope: ScopeName,
 ): OutOfConstraintInfo | null {
 	if (target.kind !== "constrained" || target.latestOverall === null) {
 		return null;
@@ -615,7 +628,7 @@ function groupOutOfConstraintInfo(
 		// best-within-constraint tag (the version this run lands the group on).
 		current: target.tag,
 		latestOverall: target.latestOverall,
-		commands: groupReAddCommands(group.members),
+		commands: groupReAddCommands(group.members, scope),
 	};
 }
 
@@ -785,7 +798,7 @@ async function streamGroupWork(
 	groups: EntryGroup[],
 	run: UpdateRun,
 ): Promise<StreamedUnit> {
-	const { projectDir, ui } = run;
+	const { scope, ui } = run;
 	const { commit: newCommit, displayRef: newRef } = groupTargetFacets(
 		item.target,
 		item.group,
@@ -813,12 +826,12 @@ async function streamGroupWork(
 		item.group,
 		item.updating,
 		item.target,
-		projectDir,
+		scope,
 		workingManifest,
 	);
 	const { outcomes } = result;
 	const manifest = await persistUnitOutcomes(
-		projectDir,
+		scope.root,
 		workingManifest,
 		outcomes,
 	);
@@ -865,7 +878,7 @@ async function settleGoneMembers(
 	);
 	return {
 		outcomes: settled,
-		manifest: await persistUnitOutcomes(run.projectDir, manifest, removed),
+		manifest: await persistUnitOutcomes(run.scope.root, manifest, removed),
 	};
 }
 
@@ -956,7 +969,7 @@ async function streamLocalWork(
 ): Promise<StreamedUnit> {
 	const member = { key: item.key, entry: item.entry };
 	const outcome = await processLocalUpdate(member, workingManifest, run);
-	const manifest = await persistUnitOutcomes(run.projectDir, workingManifest, [
+	const manifest = await persistUnitOutcomes(run.scope.root, workingManifest, [
 		outcome,
 	]);
 	streamCollapsedOutcome(outcome, run.ui);
@@ -1056,13 +1069,13 @@ function emitMemberLine(
  * keeping each write cumulative.
  */
 async function persistUnitOutcomes(
-	projectDir: string,
+	root: string,
 	manifest: Manifest,
 	outcomes: PluginOutcome[],
 ): Promise<Manifest> {
 	const updatedManifest = outcomes.reduce(applyOutcome, manifest);
 	if (updatedManifest !== manifest) {
-		await writeManifest(projectDir, updatedManifest);
+		await writeManifest(root, updatedManifest);
 	}
 	return updatedManifest;
 }
@@ -1090,7 +1103,7 @@ async function persistUnitOutcomes(
 function emitCollapsedGroupSummary(
 	nonActioned: NonActionedGroup,
 	groups: EntryGroup[],
-	ui: Ui,
+	{ scope, ui }: UpdateRun,
 ): void {
 	const { group, target, outcomes } = nonActioned;
 	const label = groupLabel(group, groups);
@@ -1112,6 +1125,7 @@ function emitCollapsedGroupSummary(
 			group.members.filter((member) =>
 				outcomes.some(({ key }) => key === member.key),
 			),
+			scope.name,
 			newest,
 		);
 		ui.log.info(
@@ -1164,11 +1178,12 @@ export const updateCommand = new Command("update")
 	.description("Update installed plugins")
 	.argument("[key]", "Plugin key to update (owner/repo or owner/repo/plugin)")
 	.option("-y, --yes", "Remove what's gone upstream without asking")
+	.addOption(globalOption())
 	.addOption(jsonOption())
 	.action(
 		commandAction(
 			"update",
-			(ui, key: string | undefined, options: UpdateOptions) =>
-				runUpdate(key, options, ui),
+			(ui, scope, key: string | undefined, options: UpdateOptions) =>
+				runUpdate(key, options, ui, scope),
 		),
 	);

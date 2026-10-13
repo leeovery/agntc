@@ -12,7 +12,6 @@ import {
 import {
 	buildParsedSourceFromKey,
 	deriveCloneUrlFromKey,
-	getSourceDirFromKey,
 	localSourceRoot,
 	memberName,
 	type ParsedSource,
@@ -20,7 +19,6 @@ import {
 	repoFromKey,
 	resolveCloneUrl,
 	resolveGuardedSourceDir,
-	resolveUpdateSourceDir,
 } from "../src/source-parser.js";
 
 describe("parseSource", () => {
@@ -1180,26 +1178,6 @@ describe("buildParsedSourceFromKey", () => {
 	});
 });
 
-describe("getSourceDirFromKey", () => {
-	it("returns tempDir for standalone key (owner/repo)", () => {
-		const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo");
-		expect(result).toBe("/tmp/clone-abc");
-	});
-
-	it("returns tempDir joined with subpath for collection key (owner/repo/plugin)", () => {
-		const result = getSourceDirFromKey("/tmp/clone-abc", "owner/repo/plugin");
-		expect(result).toBe(join("/tmp/clone-abc", "plugin"));
-	});
-
-	it("returns tempDir joined with nested subpath for deep collection key", () => {
-		const result = getSourceDirFromKey(
-			"/tmp/clone-abc",
-			"owner/repo/nested/plugin",
-		);
-		expect(result).toBe(join("/tmp/clone-abc", "nested/plugin"));
-	});
-});
-
 describe("localSourceRoot", () => {
 	it("is the key itself for an entry without a sourceSubpath", () => {
 		expect(localSourceRoot("/home/me/skills/laravel", undefined)).toBe(
@@ -1210,28 +1188,6 @@ describe("localSourceRoot", () => {
 	it("is the folder the key's name hangs off when a sourceSubpath is recorded", () => {
 		expect(localSourceRoot("/home/me/skills/hooks", "react/hooks")).toBe(
 			"/home/me/skills",
-		);
-	});
-});
-
-describe("resolveUpdateSourceDir", () => {
-	it("prefers sourceSubpath joined onto cloneRoot when present", () => {
-		const result = resolveUpdateSourceDir(
-			"/tmp/clone-abc",
-			"owner/repo/alpha",
-			"skills/alpha",
-		);
-		expect(result).toBe(join("/tmp/clone-abc", "skills/alpha"));
-	});
-
-	it("falls back to the key-derived dir when sourceSubpath is absent", () => {
-		const result = resolveUpdateSourceDir(
-			"/tmp/clone-abc",
-			"owner/repo/alpha",
-			undefined,
-		);
-		expect(result).toBe(
-			getSourceDirFromKey("/tmp/clone-abc", "owner/repo/alpha"),
 		);
 	});
 });
@@ -1260,8 +1216,24 @@ describe("resolveGuardedSourceDir", () => {
 		);
 		expect(result).toEqual({
 			ok: true,
-			sourceDir: getSourceDirFromKey("/tmp/clone-abc", "owner/repo/alpha"),
+			sourceDir: join("/tmp/clone-abc", "alpha"),
 		});
+	});
+
+	it("returns the clone root itself for a root key", () => {
+		expect(
+			resolveGuardedSourceDir("/tmp/clone-abc", "owner/repo", undefined),
+		).toEqual({ ok: true, sourceDir: "/tmp/clone-abc" });
+	});
+
+	it("follows a nested key's whole suffix", () => {
+		expect(
+			resolveGuardedSourceDir(
+				"/tmp/clone-abc",
+				"owner/repo/nested/plugin",
+				undefined,
+			),
+		).toEqual({ ok: true, sourceDir: join("/tmp/clone-abc", "nested/plugin") });
 	});
 
 	it("returns ok:false carrying the containment message for a subpath that lexically escapes the clone", () => {

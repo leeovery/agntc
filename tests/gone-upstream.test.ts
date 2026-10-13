@@ -12,6 +12,7 @@ vi.mock("../src/manifest.js", async (importOriginal) => ({
 import { settleGone, settleGoneInList } from "../src/gone-upstream.js";
 import { type Manifest, writeManifest } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
+import { globalScope, projectScope } from "../src/scope.js";
 import { MachineUi, type Ui } from "../src/ui.js";
 import { makeEntry } from "./helpers/factories.js";
 
@@ -19,6 +20,7 @@ const mockNuke = vi.mocked(nukeManifestFiles);
 const mockWriteManifest = vi.mocked(writeManifest);
 
 const KEY = "owner/repo/go";
+const PROJECT = projectScope("/project");
 const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
 
 /** A terminal that answers the one question it's asked. */
@@ -39,7 +41,7 @@ describe("settleGone", () => {
 	it("asks at a terminal, no by default", async () => {
 		const ui = terminal(false);
 
-		await settleGone(KEY, entry, "/project", { yes: false, ui });
+		await settleGone(KEY, entry, PROJECT, { yes: false, ui });
 
 		expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
 			message: "owner/repo/go is gone upstream — remove it?",
@@ -48,7 +50,7 @@ describe("settleGone", () => {
 	});
 
 	it("keeps it on no, removing nothing, and says update will ask again", async () => {
-		const settled = await settleGone(KEY, entry, "/project", {
+		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(false),
 		});
@@ -61,7 +63,7 @@ describe("settleGone", () => {
 	});
 
 	it("removes its files on yes", async () => {
-		const settled = await settleGone(KEY, entry, "/project", {
+		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(true),
 		});
@@ -78,13 +80,13 @@ describe("settleGone", () => {
 	it("removes it without asking under -y, at a terminal or not", async () => {
 		const ui = terminal(false);
 
-		const atTerminal = await settleGone(KEY, entry, "/project", {
+		const atTerminal = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
 			ui,
 		});
-		const machine = await settleGone(KEY, entry, "/project", {
+		const machine = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
-			ui: new MachineUi("update"),
+			ui: new MachineUi("update", "project"),
 		});
 
 		expect(ui.confirm).not.toHaveBeenCalled();
@@ -94,17 +96,40 @@ describe("settleGone", () => {
 	});
 
 	it("keeps it without a terminal and without -y, naming -y as what removes it", async () => {
-		const settled = await settleGone(KEY, entry, "/project", {
+		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
-			ui: new MachineUi("update"),
+			ui: new MachineUi("update", "project"),
 		});
 
 		expect(settled).toEqual({
 			removed: false,
-			message: "Kept owner/repo/go — it's gone upstream; -y removes it",
+			message:
+				"Kept owner/repo/go — it's gone upstream; npx agntc update owner/repo/go -y removes it",
 			flags: ["-y"],
 		});
 		expect(mockNuke).not.toHaveBeenCalled();
+	});
+
+	it("names the global update that removes a global entry", async () => {
+		const settled = await settleGone(KEY, entry, globalScope("/home/lee"), {
+			yes: false,
+			ui: new MachineUi("update", "global"),
+		});
+
+		expect(settled.message).toBe(
+			"Kept owner/repo/go — it's gone upstream; npx agntc update -g owner/repo/go -y removes it",
+		);
+	});
+
+	it("removes a global entry's files below the home directory", async () => {
+		await settleGone(KEY, entry, globalScope("/home/lee"), {
+			yes: true,
+			ui: terminal(false),
+		});
+
+		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/home/lee", [
+			".claude/skills/go/",
+		]);
 	});
 });
 
@@ -113,7 +138,7 @@ describe("settleGoneInList", () => {
 	const manifest: Manifest = { [KEY]: entry, "owner/other": other };
 
 	it("records the removal at once on yes, after the files are gone", async () => {
-		await settleGoneInList(KEY, entry, manifest, "/project", terminal(true));
+		await settleGoneInList(KEY, entry, manifest, PROJECT, terminal(true));
 
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/project", {
 			"owner/other": other,
@@ -128,7 +153,7 @@ describe("settleGoneInList", () => {
 			KEY,
 			entry,
 			manifest,
-			"/project",
+			PROJECT,
 			terminal(false),
 		);
 

@@ -1,6 +1,7 @@
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { writeManifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
+import type { Scope } from "../scope.js";
 import type { Ui } from "../ui.js";
 
 export interface RemoveActionResult {
@@ -12,7 +13,7 @@ export async function executeRemoveAction(
 	key: string,
 	entry: ManifestEntry,
 	manifest: Manifest,
-	projectDir: string,
+	scope: Scope,
 	ui: Ui,
 ): Promise<RemoveActionResult> {
 	for (const file of entry.files) {
@@ -27,7 +28,7 @@ export async function executeRemoveAction(
 		return { removed: false, message: "Cancelled" };
 	}
 
-	await nukeManifestFiles(projectDir, entry.files);
+	await nukeManifestFiles(scope.root, entry.files);
 
 	const updated: Manifest = {};
 	for (const [k, v] of Object.entries(manifest)) {
@@ -35,7 +36,7 @@ export async function executeRemoveAction(
 			updated[k] = v;
 		}
 	}
-	await writeManifest(projectDir, updated);
+	await writeManifest(scope.root, updated);
 
 	return { removed: true, message: `Removed ${key}` };
 }

@@ -16,7 +16,11 @@ import type {
 	StrayAssets,
 } from "../src/discover.js";
 
-const ctx: ChoiceContext = { source: "owner/repo", rootName: "repo" };
+const ctx: ChoiceContext = {
+	source: "owner/repo",
+	rootName: "repo",
+	scope: "project",
+};
 const AUTO: Selection = { kind: "auto" };
 
 function skill(path: string, extra: Partial<FoundSkill> = {}): FoundSkill {
@@ -219,11 +223,23 @@ describe("chooseItems", () => {
 			const choice = chooseItems(
 				found({ strays: [{ path: "p", assetDirs: ["hooks"] }] }),
 				AUTO,
-				{ source: "/home/me/skills", rootName: "skills" },
+				{ source: "/home/me/skills", rootName: "skills", scope: "project" },
 			);
 
 			expect(choice.strayNotices[0]).toContain(
 				"npx agntc add /home/me/skills/p --pack",
+			);
+		});
+
+		it("carries -g for a global add", () => {
+			const choice = chooseItems(
+				found({ strays: [{ path: "p", assetDirs: ["hooks"] }] }),
+				AUTO,
+				{ ...ctx, scope: "global" },
+			);
+
+			expect(choice.strayNotices[0]).toContain(
+				"to install them as a pack: npx agntc add -g owner/repo/p --pack",
 			);
 		});
 

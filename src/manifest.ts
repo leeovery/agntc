@@ -20,10 +20,15 @@ export interface ManifestEntry {
 	 * The item's clone-relative source path, recorded only when the key doesn't
 	 * spell it: a skill keyed `owner/repo/<name>` that lives at
 	 * `<clone>/skills/<name>`. `update` prefers it over the path derived from
-	 * the key ({@link getSourceDirFromKey}); entries without it re-copy from the
+	 * the key ({@link resolveGuardedSourceDir}); entries without it re-copy from the
 	 * key-derived path.
 	 */
 	sourceSubpath?: string;
+	/**
+	 * The folder a local entry was added from, which its key doesn't mark.
+	 * Entries from before it was recorded derive it ({@link localSourceRoot}).
+	 */
+	localRoot?: string;
 }
 
 export type Manifest = Record<string, ManifestEntry>;
@@ -47,20 +52,21 @@ export type ManifestEntryInput = Omit<ManifestEntry, "installedAt">;
  * preserving the byte-identical entry shape they have today.
  */
 export function buildManifestEntry(fields: ManifestEntryInput): ManifestEntry {
-	const { constraint, sourceSubpath, ...rest } = fields;
+	const { constraint, sourceSubpath, localRoot, ...rest } = fields;
 	return {
 		...rest,
 		installedAt: new Date().toISOString(),
 		...(constraint !== undefined && { constraint }),
 		...(sourceSubpath !== undefined && { sourceSubpath }),
+		...(localRoot !== undefined && { localRoot }),
 	};
 }
 
 const AGNTC_DIR = ".agntc";
 const MANIFEST_FILE = "manifest.json";
 
-export async function readManifest(projectDir: string): Promise<Manifest> {
-	const manifestPath = join(projectDir, AGNTC_DIR, MANIFEST_FILE);
+export async function readManifest(installRoot: string): Promise<Manifest> {
+	const manifestPath = join(installRoot, AGNTC_DIR, MANIFEST_FILE);
 
 	let raw: string;
 	try {
@@ -150,10 +156,10 @@ function skillDirName(filePath: string): string | null {
 }
 
 export async function writeManifest(
-	projectDir: string,
+	installRoot: string,
 	manifest: Manifest,
 ): Promise<void> {
-	const dirPath = join(projectDir, AGNTC_DIR);
+	const dirPath = join(installRoot, AGNTC_DIR);
 	await mkdir(dirPath, { recursive: true });
 
 	const content = `${JSON.stringify(manifest, null, 2)}\n`;
@@ -177,10 +183,10 @@ export function removeEntry(manifest: Manifest, key: string): Manifest {
 }
 
 export async function readManifestOrExit(
-	projectDir: string,
+	installRoot: string,
 	ui: Ui,
 ): Promise<Manifest> {
-	return readManifest(projectDir).catch((err: unknown) =>
+	return readManifest(installRoot).catch((err: unknown) =>
 		ui.fail(`Failed to read manifest: ${errorMessage(err)}`, {
 			style: "error",
 		}),

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import type { Manifest } from "../../src/manifest.js";
-import type { NukeResult } from "../../src/nuke-files.js";
 
 vi.mock("@clack/prompts", () => ({
 	intro: vi.fn(),
@@ -43,7 +42,6 @@ const mockConfirm = vi.mocked(p.confirm);
 const mockMultiselect = vi.mocked(p.multiselect);
 const mockOutro = vi.mocked(p.outro);
 const mockIntro = vi.mocked(p.intro);
-const mockCancel = vi.mocked(p.cancel);
 const mockLog = vi.mocked(p.log);
 
 beforeEach(() => {
@@ -1033,6 +1031,7 @@ describe("remove command", () => {
 			expect(run.document).toEqual({
 				ok: true,
 				command: "remove",
+				scope: "project",
 				removed: [
 					{
 						key: "owner/repo/go",
@@ -1059,6 +1058,7 @@ describe("remove command", () => {
 			expect(run.document).toEqual({
 				ok: false,
 				command: "remove",
+				scope: "project",
 				error: {
 					message: "removing owner/repo/go deletes 1 file(s) — confirm with -y",
 					flags: ["-y"],
@@ -1111,6 +1111,7 @@ describe("remove command", () => {
 			expect(run.document).toEqual({
 				ok: false,
 				command: "remove",
+				scope: "project",
 				error: { message: "Plugin nope/repo is not installed." },
 				warnings: [],
 				notes: [],

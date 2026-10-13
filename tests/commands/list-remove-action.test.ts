@@ -26,6 +26,7 @@ import * as p from "@clack/prompts";
 import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
 import { writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 
 const mockWriteManifest = vi.mocked(writeManifest);
@@ -52,7 +53,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -77,7 +78,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -88,6 +89,24 @@ describe("executeRemoveAction", () => {
 	});
 
 	describe("confirmed removal", () => {
+		it("removes a global entry's files and record below the home directory", async () => {
+			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
+			mockConfirm.mockResolvedValue(true);
+
+			await executeRemoveAction(
+				"owner/repo",
+				entry,
+				{ "owner/repo": entry },
+				globalScope("/home/lee"),
+				interactiveUi,
+			);
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/home/lee", [
+				".claude/skills/my-skill/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/home/lee", {});
+		});
+
 		it("nukes files, removes entry from manifest, writes manifest, returns removed true", async () => {
 			const entry = makeEntry({
 				files: [".claude/skills/my-skill/"],
@@ -105,7 +124,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -131,7 +150,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -150,7 +169,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -171,7 +190,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -198,7 +217,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -219,7 +238,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -237,7 +256,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -255,7 +274,7 @@ describe("executeRemoveAction", () => {
 				"owner/repo",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 

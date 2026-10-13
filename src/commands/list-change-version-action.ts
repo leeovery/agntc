@@ -8,6 +8,7 @@ import { fetchRemoteTags } from "../git-utils.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, removeEntry, writeManifest } from "../manifest.js";
+import type { Scope } from "../scope.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
 import type { Ui } from "../ui.js";
 
@@ -36,7 +37,7 @@ export async function executeChangeVersionAction(
 	key: string,
 	entry: ManifestEntry,
 	manifest: Manifest,
-	projectDir: string,
+	scope: Scope,
 	ui: Ui,
 ): Promise<ChangeVersionResult> {
 	// Fetching the full tag list is a network round-trip (git ls-remote) — show a
@@ -86,33 +87,27 @@ export async function executeChangeVersionAction(
 		return unchanged("Cancelled");
 	}
 
-	const prepared = await prepareReinstall(key, entry, projectDir, {
+	const prepared = await prepareReinstall(key, entry, scope, {
 		manifest,
 		newRef: selectedTag,
 	});
 	if (!prepared.ok) {
-		return unchanged(`Path ${key} does not exist or is not a directory`);
+		return unchanged(prepared.reason);
 	}
 
 	const result = await cloneAndReinstall(prepared.options, ui, manifest);
 
 	if (result.status === "gone") {
-		const settled = await settleGoneInList(
-			key,
-			entry,
-			manifest,
-			projectDir,
-			ui,
-		);
+		const settled = await settleGoneInList(key, entry, manifest, scope, ui);
 		return { changed: true, message: settled.message, notes: [] };
 	}
 	if (isCloneReinstallFailure(result)) {
-		return unchanged(failureMessage(result, key, entry));
+		return unchanged(failureMessage(result, key, entry, scope.name));
 	}
 
 	const finalEntry = stripConstraint(result.manifestEntry);
 	const rest = result.absorbed.reduce(removeEntry, manifest);
-	await writeManifest(projectDir, addEntry(rest, key, finalEntry));
+	await writeManifest(scope.root, addEntry(rest, key, finalEntry));
 
 	return {
 		changed: true,

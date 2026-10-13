@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,8 +10,11 @@ vi.mock("@clack/prompts", async () => {
 import {
 	type CommandIo,
 	commandAction,
+	globalOption,
 	jsonOption,
+	processIo,
 	resolveMode,
+	resolveScope,
 } from "../src/command-action.js";
 import { addCommand } from "../src/commands/add.js";
 import { initCommand } from "../src/commands/init.js";
@@ -18,6 +22,7 @@ import { listCommand } from "../src/commands/list.js";
 import { removeCommand } from "../src/commands/remove.js";
 import { updateCommand } from "../src/commands/update.js";
 import { ExitSignal } from "../src/exit-signal.js";
+import type { Scope } from "../src/scope.js";
 import { interactiveUi, type Ui } from "../src/ui.js";
 
 const BANNER_TAGLINE = "agent skills installer";
@@ -35,6 +40,34 @@ describe("resolveMode", () => {
 	});
 });
 
+describe("resolveScope", () => {
+	const io = { cwd: () => "/work/project", homedir: () => "/home/lee" };
+
+	it("roots a project install at the working directory", () => {
+		expect(resolveScope(false, io)).toEqual({
+			name: "project",
+			root: "/work/project",
+		});
+	});
+
+	it("roots a global install at the home directory", () => {
+		expect(resolveScope(true, io)).toEqual({
+			name: "global",
+			root: "/home/lee",
+		});
+	});
+});
+
+describe("processIo", () => {
+	it("reads the working and home directories from the process", () => {
+		expect(processIo.cwd()).toBe(process.cwd());
+		expect(processIo.homedir()).toBe(homedir());
+	});
+});
+
+const CWD = "/work/project";
+const HOME = "/home/lee";
+
 interface FakeIo extends CommandIo {
 	written: string[];
 	exits: number[];
@@ -46,6 +79,8 @@ function fakeIo(terminal: boolean): FakeIo {
 		exits: [],
 		stdinIsTTY: () => terminal,
 		stdoutIsTTY: () => terminal,
+		cwd: () => CWD,
+		homedir: () => HOME,
 		write: async (text) => {
 			io.written.push(text);
 		},
@@ -66,12 +101,13 @@ function documentOf(io: FakeIo): Record<string, unknown> {
 
 /** Runs `run` as a command's action, the way commander would. */
 async function act(
-	run: (ui: Ui, name: string) => Promise<void>,
+	run: (ui: Ui, scope: Scope, name: string) => Promise<void>,
 	io: FakeIo,
 	args: string[] = [],
 ): Promise<void> {
 	const command = new Command("probe")
 		.argument("[name]")
+		.addOption(globalOption())
 		.addOption(jsonOption())
 		.action(commandAction("add", run, io));
 	await command.parseAsync(args, { from: "user" });
@@ -81,13 +117,14 @@ describe("commandAction", () => {
 	describe("at a terminal", () => {
 		it("prints the banner and runs with the interactive ui", async () => {
 			const io = fakeIo(true);
-			const run = vi.fn(async (_ui: Ui, _name: string) => {});
+			const run = vi.fn(async (_ui: Ui, _scope: Scope, _name: string) => {});
 
 			await act(run, io, ["skill-a"]);
 
 			expect(io.written.join("")).toContain(BANNER_TAGLINE);
 			expect(run).toHaveBeenCalledWith(
 				interactiveUi,
+				{ name: "project", root: CWD },
 				"skill-a",
 				{},
 				expect.any(Command),
@@ -156,6 +193,7 @@ describe("commandAction", () => {
 			expect(documentOf(io)).toEqual({
 				ok: true,
 				command: "add",
+				scope: "project",
 				items: ["x"],
 				warnings: ["careful"],
 				notes: [],
@@ -188,6 +226,7 @@ describe("commandAction", () => {
 			expect(documentOf(io)).toEqual({
 				ok: false,
 				command: "add",
+				scope: "project",
 				error: { message: "pick one", flags: ["--all"] },
 				warnings: [],
 				notes: [],
@@ -208,6 +247,78 @@ describe("commandAction", () => {
 			});
 			expect(io.exits).toEqual([1]);
 		});
+	});
+
+	describe("with -g", () => {
+		it("runs the command in the global scope, rooted at the home directory", async () => {
+			for (const flag of ["-g", "--global"]) {
+				let scope: Scope | undefined;
+
+				await act(
+					async (_ui, given) => {
+						scope = given;
+					},
+					fakeIo(true),
+					[flag],
+				);
+
+				expect(scope).toEqual({ name: "global", root: HOME });
+			}
+		});
+
+		it("says so in the machine document, as it says project without", async () => {
+			const global = fakeIo(false);
+			const project = fakeIo(false);
+
+			await act(async () => {}, global, ["-g"]);
+			await act(async () => {}, project);
+
+			expect(documentOf(global).scope).toBe("global");
+			expect(documentOf(project).scope).toBe("project");
+		});
+
+		it("names no scope for a command that takes no -g", async () => {
+			const io = fakeIo(false);
+			const command = new Command("probe")
+				.addOption(jsonOption())
+				.action(commandAction("init", async () => {}, io));
+
+			await command.parseAsync([], { from: "user" });
+
+			expect(documentOf(io)).not.toHaveProperty("scope");
+		});
+
+		it("says so in the document of a command that failed", async () => {
+			const io = fakeIo(false);
+
+			await act(
+				async (ui) => {
+					ui.fail("nope");
+				},
+				io,
+				["-g"],
+			);
+
+			expect(documentOf(io)).toMatchObject({ ok: false, scope: "global" });
+		});
+	});
+});
+
+describe("-g", () => {
+	it.each([
+		["add", addCommand],
+		["remove", removeCommand],
+		["update", updateCommand],
+		["list", listCommand],
+	])("is taken by %s", (_, command) => {
+		const option = command.options.find(({ long }) => long === "--global");
+		expect(option?.short).toBe("-g");
+	});
+
+	it("is not taken by init", () => {
+		expect(initCommand.options.some(({ long }) => long === "--global")).toBe(
+			false,
+		);
 	});
 });
 

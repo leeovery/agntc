@@ -295,8 +295,12 @@ describe("add command", () => {
 					commit: null,
 					cloneUrl: null,
 					type: "skill",
+					localRoot: local,
 				}),
-				[`${local}/a`]: expect.objectContaining({ sourceSubpath: "skills/a" }),
+				[`${local}/a`]: expect.objectContaining({
+					sourceSubpath: "skills/a",
+					localRoot: local,
+				}),
 			});
 			expect(mockOutro).toHaveBeenCalledWith(`Installed ${local}@local`);
 		});
@@ -841,6 +845,9 @@ describe("add command", () => {
 					files: [".claude/skills/a/"],
 				}),
 			});
+			for (const entry of Object.values(await manifest())) {
+				expect(entry).not.toHaveProperty("localRoot");
+			}
 		});
 
 		it("asks about a collision with another entry and installs once it's resolved", async () => {
@@ -1155,6 +1162,7 @@ describe("add command", () => {
 			expect(run.document).toEqual({
 				ok: true,
 				command: "add",
+				scope: "project",
 				source: "owner/repo",
 				ref: "v1.2.0",
 				commit: SHA,
@@ -1230,6 +1238,7 @@ describe("add command", () => {
 			expect(run.document).toEqual({
 				ok: true,
 				command: "add",
+				scope: "project",
 				source: "owner/repo",
 				ref: "v1.2.0",
 				commit: SHA,
@@ -1322,6 +1331,7 @@ describe("add command", () => {
 			expect(run.document).toEqual({
 				ok: false,
 				command: "add",
+				scope: "project",
 				error: { message: "git clone failed" },
 				warnings: [],
 				notes: [],

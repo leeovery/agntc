@@ -50,6 +50,7 @@ import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { execGit, fetchRemoteTagRefs } from "../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
+import { projectScope } from "../src/scope.js";
 import {
 	categorizeMember,
 	type GroupTarget,
@@ -166,6 +167,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			entry,
 			successResult(newEntry),
 			"v1.1.0",
+			"project",
 		);
 
 		expect(outcome).toEqual({
@@ -187,6 +189,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			entry,
 			successResult(newEntry),
 			null,
+			"project",
 		);
 
 		expect(outcome).toEqual({
@@ -214,6 +217,7 @@ describe("mapReinstallResultToOutcome success", () => {
 				makeEntry({ commit: SHA_CUR }),
 				result,
 				null,
+				"project",
 			),
 		).toMatchObject({ status: "updated", notes, absorbed: ["owner/repo/b"] });
 		expect(
@@ -222,6 +226,7 @@ describe("mapReinstallResultToOutcome success", () => {
 				makeEntry({ commit: null }),
 				result,
 				null,
+				"project",
 			),
 		).toMatchObject({ status: "refreshed", notes, absorbed: ["owner/repo/b"] });
 	});
@@ -233,6 +238,7 @@ describe("mapReinstallResultToOutcome success", () => {
 				makeEntry(),
 				{ status: "gone" },
 				null,
+				"project",
 			),
 		).toEqual({
 			status: "gone-kept",
@@ -253,6 +259,7 @@ describe("mapReinstallResultToOutcome success", () => {
 					absorbed: ["owner/repo/queues"],
 				},
 				null,
+				"project",
 			),
 		).toEqual({
 			status: "copy-failed",
@@ -270,6 +277,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			entry,
 			{ status: "aborted", reason: "its folder now contains packs" },
 			null,
+			"project",
 		);
 
 		expect(outcome).toMatchObject({ status: "aborted" });
@@ -989,7 +997,7 @@ describe("processGroupUpdate", () => {
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf(members),
 		);
 		const { outcomes } = result;
@@ -1064,7 +1072,7 @@ describe("processGroupUpdate", () => {
 			group,
 			members,
 			target,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf(members),
 		);
 		const { outcomes } = result;
@@ -1110,7 +1118,7 @@ describe("processGroupUpdate", () => {
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf(members),
 		);
 
@@ -1159,7 +1167,7 @@ describe("processGroupUpdate", () => {
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf(members),
 		);
 
@@ -1190,7 +1198,7 @@ describe("processGroupUpdate", () => {
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf(members),
 		);
 
@@ -1208,7 +1216,7 @@ describe("processGroupUpdate", () => {
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf(members),
 		);
 
@@ -1236,7 +1244,7 @@ describe("processGroupUpdate", () => {
 			branchGroup(members),
 			members,
 			BRANCH_TARGET,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf(members),
 		);
 		const { outcomes } = result;
@@ -1281,7 +1289,7 @@ describe("processGroupUpdate", () => {
 			branchGroup([updatingA, updatingB, upToDate]),
 			[updatingA, updatingB],
 			BRANCH_TARGET,
-			"/fake/project",
+			projectScope("/fake/project"),
 			installedOf([updatingA, updatingB, upToDate]),
 		);
 		const { outcomes } = result;

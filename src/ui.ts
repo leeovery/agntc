@@ -1,6 +1,7 @@
 import * as p from "@clack/prompts";
 import { errorMessage } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
+import type { ScopeName } from "./scope.js";
 
 /**
  * Interactive: a person at a terminal, served by clack. Machine: no terminal,
@@ -138,10 +139,14 @@ export interface CommandError {
 	flags?: string[];
 }
 
-/** What machine mode prints: one per command. `ok` is true exactly when the exit code is 0. */
+/**
+ * What machine mode prints: one per command. `ok` is true exactly when the
+ * exit code is 0. A command that takes `-g` names its scope.
+ */
 export type MachineDocument = {
 	ok: boolean;
 	command: CommandName;
+	scope?: ScopeName;
 	error?: CommandError;
 	warnings: string[];
 	notes: string[];
@@ -164,7 +169,10 @@ export class MachineUi implements Ui {
 	private body: object = {};
 	private error: CommandError | undefined;
 
-	constructor(private readonly command: CommandName) {}
+	constructor(
+		private readonly command: CommandName,
+		private readonly scope?: ScopeName,
+	) {}
 
 	warn(message: string): void {
 		this.warnings.push(message);
@@ -214,6 +222,7 @@ export class MachineUi implements Ui {
 		return {
 			ok: exitCode === 0,
 			command: this.command,
+			...(this.scope !== undefined ? { scope: this.scope } : {}),
 			...(error !== undefined ? { error } : {}),
 			...this.body,
 			warnings: this.warnings,

@@ -31,7 +31,8 @@ vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../src/fs-utils.js", () => ({
+vi.mock("../src/fs-utils.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/fs-utils.js")>()),
 	pathExists: vi.fn(),
 }));
 
@@ -85,6 +86,7 @@ import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { removeEntry, writeManifest } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
+import { projectScope } from "../src/scope.js";
 import { resolveGuardedSourceDir } from "../src/source-parser.js";
 
 const mockWriteManifest = vi.mocked(writeManifest);
@@ -140,7 +142,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -179,7 +181,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -203,7 +205,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -225,7 +227,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -253,7 +255,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -293,7 +295,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -317,7 +319,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -338,7 +340,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					manifest,
 				},
 				interactiveUi,
@@ -360,7 +362,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -380,7 +382,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo/go",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -421,7 +423,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo/go",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -467,7 +469,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo/go",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -500,7 +502,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -527,7 +529,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					manifest,
 				},
 				interactiveUi,
@@ -554,7 +556,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -574,7 +576,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -596,7 +598,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -623,7 +625,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key,
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					sourceDir: key,
 				},
 				interactiveUi,
@@ -654,7 +656,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "/Users/lee/Code/skills/hooks",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
 				interactiveUi,
@@ -687,7 +689,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "/Users/lee/Code/skills/evil",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
 				interactiveUi,
@@ -722,7 +724,7 @@ describe("cloneAndReinstall", () => {
 						type: "pack",
 						files: [".claude/agents/openai.yaml"],
 					}),
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -748,7 +750,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry: makeEntry({ type: "skill" }),
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -791,7 +793,11 @@ describe("cloneAndReinstall", () => {
 			});
 
 			const result = await cloneAndReinstall(
-				{ key: "owner/repo/laravel", entry: pack, projectDir: "/fake/project" },
+				{
+					key: "owner/repo/laravel",
+					entry: pack,
+					scope: projectScope("/fake/project"),
+				},
 				interactiveUi,
 				manifest,
 			);
@@ -844,7 +850,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo/laravel",
 					entry: pack,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					manifest,
 				},
 				interactiveUi,
@@ -881,7 +887,12 @@ describe("cloneAndReinstall", () => {
 			arrangeGoneSkill();
 
 			const result = await cloneAndReinstall(
-				{ key: "owner/repo/go", entry, projectDir: "/fake/project", manifest },
+				{
+					key: "owner/repo/go",
+					entry,
+					scope: projectScope("/fake/project"),
+					manifest,
+				},
 				interactiveUi,
 				manifest,
 			);
@@ -901,7 +912,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "/src/kit",
 					entry: makeEntry({ type: "skill", commit: null }),
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					sourceDir: "/src/kit",
 				},
 				interactiveUi,
@@ -932,7 +943,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 					newRef: "v2.0.0",
 				},
 				interactiveUi,
@@ -964,7 +975,7 @@ describe("cloneAndReinstall", () => {
 				{
 					key: "owner/repo/go",
 					entry,
-					projectDir: "/fake/project",
+					scope: projectScope("/fake/project"),
 				},
 				interactiveUi,
 				{},
@@ -994,7 +1005,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1025,7 +1036,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo/go",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1054,7 +1065,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key,
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 						sourceDir: key,
 					},
 					interactiveUi,
@@ -1083,7 +1094,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1118,7 +1129,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 						manifest,
 					},
 					interactiveUi,
@@ -1160,7 +1171,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1196,7 +1207,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo/my-skill",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1232,7 +1243,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo/evil",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1277,7 +1288,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo/evil",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 						manifest,
 					},
 					interactiveUi,
@@ -1310,7 +1321,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo/go",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1347,7 +1358,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1374,7 +1385,7 @@ describe("cloneAndReinstall", () => {
 					{
 						key: "owner/repo",
 						entry,
-						projectDir: "/fake/project",
+						scope: projectScope("/fake/project"),
 					},
 					interactiveUi,
 					{},
@@ -1624,6 +1635,7 @@ describe("failureMessage", () => {
 			},
 			"owner/repo",
 			makeEntry(),
+			"project",
 		);
 		expect(msg).toBe("network error");
 	});
@@ -1637,6 +1649,7 @@ describe("failureMessage", () => {
 			},
 			"owner/repo",
 			makeEntry(),
+			"project",
 		);
 		expect(msg).toBe("disk full hint");
 	});
@@ -1646,6 +1659,7 @@ describe("failureMessage", () => {
 			{ status: "failed", failureReason: "unknown", message: "something" },
 			"owner/repo",
 			makeEntry(),
+			"project",
 		);
 		expect(msg).toBe("something");
 	});
@@ -1657,8 +1671,11 @@ describe("failureMessage", () => {
 			{ status: "aborted", reason },
 			"owner/repo",
 			entry,
+			"project",
 		);
-		expect(msg).toBe(buildAbortMessage("owner/repo", entry, { reason }));
+		expect(msg).toBe(
+			buildAbortMessage("owner/repo", entry, { reason }, "project"),
+		);
 	});
 
 	it("returns buildCopySafetyMessage output for blocked", () => {
@@ -1668,6 +1685,7 @@ describe("failureMessage", () => {
 			{ status: "blocked", reason },
 			"owner/repo",
 			makeEntry(),
+			"project",
 		);
 		expect(msg).toBe(buildCopySafetyMessage("owner/repo", reason));
 	});
@@ -1705,7 +1723,7 @@ describe("buildCopySafetyMessage", () => {
 		expect(msg.toLowerCase()).toContain("symlink");
 		// Guard against accidental reuse of the derive-before-delete framing.
 		expect(msg).not.toBe(
-			buildAbortMessage("owner/repo", makeEntry(), { reason }),
+			buildAbortMessage("owner/repo", makeEntry(), { reason }, "project"),
 		);
 	});
 
@@ -1729,6 +1747,7 @@ describe("buildAbortMessage", () => {
 			"owner/repo/laravel",
 			makeEntry({ type: "pack" }),
 			{ reason: "its folder now contains packs" },
+			"project",
 		);
 
 		expect(msg).toBe(
@@ -1741,6 +1760,7 @@ describe("buildAbortMessage", () => {
 			"owner/repo/go",
 			makeEntry({ type: "skill", sourceSubpath: "skills/go" }),
 			{ reason: "two skills are named go" },
+			"project",
 		);
 
 		expect(msg).toContain(
@@ -1758,11 +1778,67 @@ describe("buildAbortMessage", () => {
 					"files agntc didn't install are in the way: .claude/skills/queues/",
 				inTheWay: true,
 			},
+			"project",
 		);
 
 		expect(msg).toBe(
 			"owner/repo/laravel can't be updated: files agntc didn't install are in the way: .claude/skills/queues/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel --pack --overwrite",
 		);
 		expect(msg).not.toContain("To migrate");
+	});
+
+	it("quotes a local key with a space in both commands", () => {
+		const key = "/src/My Skills/go";
+
+		expect(
+			buildAbortMessage(
+				key,
+				makeEntry({ type: "skill", commit: null, localRoot: "/src/My Skills" }),
+				{ reason: "files are in the way", inTheWay: true },
+				"project",
+			),
+		).toContain(
+			"replace them: npx agntc remove '/src/My Skills/go' then npx agntc add '/src/My Skills/go' --overwrite",
+		);
+	});
+
+	it("carries -g on both commands for a global entry", () => {
+		const pack = makeEntry({ type: "pack" });
+
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				pack,
+				{ reason: "its folder now contains packs" },
+				"global",
+			),
+		).toContain(
+			"To migrate: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack",
+		);
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				pack,
+				{ reason: "files are in the way", inTheWay: true },
+				"global",
+			),
+		).toContain(
+			"replace them: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack --overwrite",
+		);
+	});
+});
+
+describe("failureMessage for a global entry", () => {
+	it("carries -g in an abort's remedy", () => {
+		const msg = failureMessage(
+			{ status: "aborted", reason: "its folder now contains packs" },
+			"owner/repo",
+			makeEntry({ type: "pack" }),
+			"global",
+		);
+
+		expect(msg).toContain(
+			"npx agntc remove -g owner/repo then npx agntc add -g owner/repo --pack",
+		);
 	});
 });

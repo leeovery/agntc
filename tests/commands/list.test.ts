@@ -66,6 +66,7 @@ import { renderDetailView } from "../../src/commands/list-detail.js";
 import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { readManifest, readManifestOrExit } from "../../src/manifest.js";
+import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { checkAllForUpdates } from "../../src/update-check-all.js";
@@ -612,7 +613,7 @@ describe("runListLoop", () => {
 				"owner/skill",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 				undefined,
 			);
@@ -668,7 +669,7 @@ describe("runListLoop", () => {
 				"owner/skill",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 				{ newRef: "v1.3.0", newCommit: constrainedCommit },
 			);
@@ -742,7 +743,42 @@ describe("runListLoop", () => {
 				"owner/skill",
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+		});
+
+		it("reads and acts on the global manifest in the global scope", async () => {
+			const entry = makeEntry();
+			const manifest: Manifest = { "owner/skill": entry };
+			const scope = globalScope("/home/lee");
+
+			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
+			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
+			mockSelect.mockResolvedValueOnce("owner/skill");
+			mockReadManifest.mockResolvedValueOnce(manifest);
+			mockCheckForUpdate.mockResolvedValueOnce({
+				status: "up-to-date" as const,
+			});
+			mockRenderDetailView.mockResolvedValueOnce("remove");
+			mockExecuteRemoveAction.mockResolvedValueOnce({
+				removed: true,
+				message: "Removed owner/skill",
+			});
+			mockReadManifestOrExit.mockResolvedValueOnce({});
+
+			await runListLoop(interactiveUi, scope);
+
+			expect(mockReadManifestOrExit).toHaveBeenCalledWith(
+				"/home/lee",
+				interactiveUi,
+			);
+			expect(mockReadManifest).toHaveBeenCalledWith("/home/lee");
+			expect(mockExecuteRemoveAction).toHaveBeenCalledWith(
+				"owner/skill",
+				entry,
+				manifest,
+				scope,
 				interactiveUi,
 			);
 		});
@@ -1045,6 +1081,7 @@ describe("list without a terminal", () => {
 		expect(run.document).toEqual({
 			ok: true,
 			command: "list",
+			scope: "project",
 			entries: [
 				{
 					key: "owner/branch",
@@ -1117,6 +1154,7 @@ describe("list without a terminal", () => {
 		expect(run.document).toEqual({
 			ok: false,
 			command: "list",
+			scope: "project",
 			error: { message: "Failed to read manifest: bad json" },
 			warnings: [],
 			notes: [],

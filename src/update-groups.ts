@@ -15,6 +15,7 @@ import {
 	type ManifestEntry,
 	removeEntry,
 } from "./manifest.js";
+import type { Scope, ScopeName } from "./scope.js";
 import {
 	deriveCloneUrlFromKey,
 	resolveGuardedSourceDir,
@@ -244,6 +245,7 @@ export function mapReinstallResultToOutcome(
 	entry: ManifestEntry,
 	result: CloneReinstallResult,
 	newRef: string | null,
+	scope: ScopeName,
 ): PluginOutcome {
 	if (result.status === "gone") {
 		return {
@@ -263,7 +265,7 @@ export function mapReinstallResultToOutcome(
 			onAborted: (abort) => ({
 				status: "aborted",
 				key,
-				summary: buildAbortMessage(key, entry, abort),
+				summary: buildAbortMessage(key, entry, abort, scope),
 			}),
 			onBlocked: (reason) => ({
 				status: "blocked",
@@ -392,7 +394,7 @@ async function reinstallMember(
 	member: GroupMember,
 	tempDir: string,
 	facets: GroupTargetFacets,
-	projectDir: string,
+	scope: Scope,
 	installed: Manifest,
 ): Promise<PluginOutcome> {
 	const { key, entry } = member;
@@ -417,6 +419,7 @@ async function reinstallMember(
 					message: guarded.message,
 				},
 				displayRef,
+				scope.name,
 			);
 		}
 
@@ -424,14 +427,20 @@ async function reinstallMember(
 			key,
 			entry,
 			installed,
-			projectDir,
+			scope,
 			sourceDir: guarded.sourceDir,
 			cloneRoot: tempDir,
 			newRef: cloneRef ?? null,
 			newCommit: commit,
 		});
 
-		return mapReinstallResultToOutcome(key, entry, result, displayRef);
+		return mapReinstallResultToOutcome(
+			key,
+			entry,
+			result,
+			displayRef,
+			scope.name,
+		);
 	} catch (err) {
 		return failedOutcome(key, errorMessage(err));
 	}
@@ -472,7 +481,7 @@ export async function processGroupUpdate(
 	group: EntryGroup,
 	members: GroupMember[],
 	target: GroupTarget,
-	projectDir: string,
+	scope: Scope,
 	installed: Manifest,
 ): Promise<GroupUpdateResult> {
 	const firstMember = group.members[0]!;
@@ -497,7 +506,7 @@ export async function processGroupUpdate(
 
 	try {
 		const reinstall = (member: GroupMember, current: Manifest) =>
-			reinstallMember(member, tempDir, facets, projectDir, current);
+			reinstallMember(member, tempDir, facets, scope, current);
 		return {
 			cloneFailed: false,
 			outcomes: await reinstallInTurn(members, installed, reinstall),

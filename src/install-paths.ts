@@ -42,12 +42,12 @@ export function isContainedPath(relPath: string): boolean {
  * no link is ever followed and a dangling one is still found.
  */
 export async function inspectInstallPath(
-	projectDir: string,
+	installRoot: string,
 	relPath: string,
 ): Promise<InstallPathState> {
 	let state = MISSING;
 	for (const owned of ownedPaths(relPath)) {
-		const stats = await lstatOrNull(join(projectDir, owned));
+		const stats = await lstatOrNull(join(installRoot, owned));
 		if (stats === null) {
 			return MISSING;
 		}
@@ -64,34 +64,34 @@ export async function inspectInstallPath(
  * at a folder the item owns above it, or inside a folder already there.
  */
 export async function assertNoLinkInTheWay(
-	projectDir: string,
+	installRoot: string,
 	target: string,
 ): Promise<void> {
-	const link = await findLinkInTheWay(projectDir, target);
+	const link = await findLinkInTheWay(installRoot, target);
 	if (link !== null) {
 		throw new Error(`${link} is a symlink — agntc won't write through it`);
 	}
 }
 
 async function findLinkInTheWay(
-	projectDir: string,
+	installRoot: string,
 	target: string,
 ): Promise<string | null> {
-	const state = await inspectInstallPath(projectDir, target);
+	const state = await inspectInstallPath(installRoot, target);
 	if (state.kind === "link") {
 		return state.at;
 	}
 	if (state.kind === "present" && state.isDirectory) {
-		return findLinkWithin(projectDir, withoutTrailingSlash(target));
+		return findLinkWithin(installRoot, withoutTrailingSlash(target));
 	}
 	return null;
 }
 
 async function findLinkWithin(
-	projectDir: string,
+	installRoot: string,
 	folder: string,
 ): Promise<string | null> {
-	const entries = await readdir(join(projectDir, folder), {
+	const entries = await readdir(join(installRoot, folder), {
 		withFileTypes: true,
 	});
 	for (const entry of entries) {
@@ -100,7 +100,7 @@ async function findLinkWithin(
 			return path;
 		}
 		const inner = entry.isDirectory()
-			? await findLinkWithin(projectDir, path)
+			? await findLinkWithin(installRoot, path)
 			: null;
 		if (inner !== null) {
 			return inner;

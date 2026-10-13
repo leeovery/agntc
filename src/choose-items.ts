@@ -13,6 +13,7 @@ import {
 	itemPath,
 	pathLabel,
 } from "./install-item.js";
+import { agntcCommand, type ScopeName } from "./scope.js";
 import { joinWithAnd, pluralize } from "./summary.js";
 
 /** What the user asked `add` to install. */
@@ -42,6 +43,8 @@ export interface ChoiceContext {
 	/** The `@ref` or `@constraint` the user gave, without the `@`. */
 	version?: string;
 	rootName: string;
+	/** Where the suggested commands install. */
+	scope: ScopeName;
 	/**
 	 * Discovered skill paths an installed pack from this source already holds,
 	 * each to that pack's key. Such a skill is never installed on its own.
@@ -283,7 +286,11 @@ function nothingToInstall(discovery: Discovery, ctx: ChoiceContext): string {
 
 function strayNotice(stray: StrayAssets, ctx: ChoiceContext): string {
 	const dirs = joinWithAnd(stray.assetDirs.map((dir) => `${dir}/`));
-	return `${pathLabel(stray.path, ctx.rootName)} has ${dirs} that won't be installed — to install them as a pack: npx agntc add ${addSource(stray.path, ctx)} --pack`;
+	const command = agntcCommand(ctx.scope, "add", [
+		addSource(stray.path, ctx),
+		"--pack",
+	]);
+	return `${pathLabel(stray.path, ctx.rootName)} has ${dirs} that won't be installed — to install them as a pack: ${command}`;
 }
 
 /**

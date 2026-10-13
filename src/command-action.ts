@@ -1,6 +1,8 @@
+import { homedir } from "node:os";
 import { type Command, Option } from "commander";
 import { renderBanner } from "./banner.js";
 import { ExitSignal } from "./exit-signal.js";
+import { globalScope, projectScope, type Scope } from "./scope.js";
 import {
 	type CommandName,
 	interactiveUi,
@@ -25,10 +27,20 @@ export function resolveMode({
 	return json || !stdinIsTTY || !stdoutIsTTY ? "machine" : "interactive";
 }
 
+/** `-g` roots the command at the home directory; otherwise at the working directory. */
+export function resolveScope(
+	global: boolean,
+	io: Pick<CommandIo, "cwd" | "homedir">,
+): Scope {
+	return global ? globalScope(io.homedir()) : projectScope(io.cwd());
+}
+
 /** The process a command runs in: injectable so tests can stand in for it. */
 export interface CommandIo {
 	stdinIsTTY(): boolean;
 	stdoutIsTTY(): boolean;
+	cwd(): string;
+	homedir(): string;
 	/** Resolves once the text is flushed, so exiting straight after can't cut it short. */
 	write(text: string): Promise<void>;
 	exit(code: number): void;
@@ -37,6 +49,8 @@ export interface CommandIo {
 export const processIo: CommandIo = {
 	stdinIsTTY: () => process.stdin.isTTY === true,
 	stdoutIsTTY: () => process.stdout.isTTY === true,
+	cwd: () => process.cwd(),
+	homedir: () => homedir(),
 	write: (text) =>
 		new Promise((resolve) => {
 			process.stdout.write(text, () => resolve());
@@ -51,12 +65,23 @@ export function jsonOption(): Option {
 	);
 }
 
-type Run<A extends unknown[]> = (ui: Ui, ...args: A) => Promise<void>;
+export function globalOption(): Option {
+	return new Option(
+		"-g, --global",
+		"Work on the installs in your home folder (~/.claude) instead of this project's",
+	);
+}
+
+type Run<A extends unknown[]> = (
+	ui: Ui,
+	scope: Scope,
+	...args: A
+) => Promise<void>;
 
 /**
- * A commander action that resolves the mode once and runs the command with
- * the matching {@link Ui}. A terminal gets the banner and clack; machine mode
- * gets exactly one JSON document on stdout, whatever happens. An
+ * A commander action that resolves the mode and the scope once and runs the
+ * command with the matching {@link Ui}. A terminal gets the banner and clack;
+ * machine mode gets exactly one JSON document on stdout, whatever happens. An
  * {@link ExitSignal} sets the exit code.
  */
 export function commandAction<A extends unknown[]>(
@@ -65,15 +90,17 @@ export function commandAction<A extends unknown[]>(
 	io: CommandIo = processIo,
 ): (this: Command, ...args: A) => Promise<void> {
 	return async function (this: Command, ...args: A): Promise<void> {
+		const options = this.opts();
 		const mode = resolveMode({
-			json: this.opts().json === true,
+			json: options.json === true,
 			stdinIsTTY: io.stdinIsTTY(),
 			stdoutIsTTY: io.stdoutIsTTY(),
 		});
-		const start = (ui: Ui) => run(ui, ...args);
+		const scope = resolveScope(options.global === true, io);
+		const start = (ui: Ui) => run(ui, scope, ...args);
 		const exitCode =
 			mode === "machine"
-				? await runMachine(name, start, io)
+				? await runMachine(machineUi(name, scope, this), start, io)
 				: await runInteractive(start, io);
 		if (exitCode !== null) {
 			io.exit(exitCode);
@@ -100,12 +127,21 @@ async function runInteractive(
 	}
 }
 
-async function runMachine(
+/** A command that takes `-g` names its scope in its document; `init` has none. */
+function machineUi(
 	name: CommandName,
+	scope: Scope,
+	command: Command,
+): MachineUi {
+	const scoped = command.options.some(({ long }) => long === "--global");
+	return new MachineUi(name, scoped ? scope.name : undefined);
+}
+
+async function runMachine(
+	ui: MachineUi,
 	start: (ui: Ui) => Promise<void>,
 	io: CommandIo,
 ): Promise<ExitCode> {
-	const ui = new MachineUi(name);
 	let exitCode: ExitCode = null;
 	let crash: unknown;
 	try {

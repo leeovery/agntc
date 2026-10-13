@@ -87,6 +87,7 @@ import { stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
+import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
@@ -128,7 +129,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -165,7 +166,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -181,6 +182,31 @@ describe("executeUpdateAction", () => {
 			]);
 			expect(mockWriteManifest).toHaveBeenCalled();
 		});
+
+		it("names the recorded root, not the key, when that folder is gone", async () => {
+			const key = "/Users/lee/Code/skills/go";
+			const entry = makeEntry({
+				commit: null,
+				ref: null,
+				localRoot: "/Users/lee/Code/skills",
+			});
+			mockStat.mockRejectedValue(new Error("ENOENT"));
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				success: false,
+				message: "/Users/lee/Code/skills: path does not exist",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("clone failure", () => {
@@ -195,7 +221,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -225,7 +251,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -247,7 +273,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -277,7 +303,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -310,7 +336,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -336,7 +362,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -370,7 +396,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -382,6 +408,28 @@ describe("executeUpdateAction", () => {
 			// Install intact: no nuke, no manifest write.
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("carries -g in the remedy for a global entry", async () => {
+			const entry = makeEntry({ type: "skill", ref: "v1.0.0" });
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
+
+			const result = await executeUpdateAction(
+				"owner/repo",
+				entry,
+				{ "owner/repo": entry },
+				globalScope("/home/lee"),
+				interactiveUi,
+			);
+
+			expect(result.message).toContain(
+				"To migrate: npx agntc remove -g owner/repo then npx agntc add -g owner/repo",
+			);
 		});
 	});
 
@@ -404,7 +452,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				{ [key]: entry },
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -442,7 +490,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -460,7 +508,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -482,7 +530,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -526,7 +574,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -562,7 +610,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 				{ newRef: "v1.2.0", newCommit: overrideCommit },
 			);
@@ -593,7 +641,7 @@ describe("executeUpdateAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 

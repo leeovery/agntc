@@ -21,7 +21,7 @@ export interface CopyResult {
 export async function copyPack(
 	pack: FoundPack,
 	root: string,
-	projectDir: string,
+	installRoot: string,
 ): Promise<CopyResult> {
 	const packDir = join(root, pack.path);
 	const copiedFiles: string[] = [];
@@ -31,7 +31,7 @@ export async function copyPack(
 		for (const skill of pack.skills) {
 			const result = await copyBareSkill({
 				sourceDir: join(root, skill.path),
-				projectDir,
+				projectDir: installRoot,
 				skillName: skill.name,
 			});
 			copiedFiles.push(...result.copiedFiles);
@@ -39,19 +39,19 @@ export async function copyPack(
 		if (pack.assetDirs.includes("agents")) {
 			assetCounts.agents = await copyAgents(
 				join(packDir, "agents"),
-				projectDir,
+				installRoot,
 				copiedFiles,
 			);
 		}
 		if (pack.assetDirs.includes("hooks")) {
 			assetCounts.hooks = await copyHooks(
 				join(packDir, "hooks"),
-				projectDir,
+				installRoot,
 				copiedFiles,
 			);
 		}
 	} catch (err) {
-		await rollbackCopiedFiles(copiedFiles, projectDir);
+		await rollbackCopiedFiles(copiedFiles, installRoot);
 		throw err;
 	}
 
@@ -100,14 +100,14 @@ async function collectAgentFiles(
 
 async function copyAgents(
 	agentsDir: string,
-	projectDir: string,
+	installRoot: string,
 	copiedFiles: string[],
 ): Promise<number> {
 	const agents = await listAgentFiles(agentsDir);
 	for (const relPath of agents) {
 		const target = agentTarget(relPath);
-		const dest = join(projectDir, target);
-		await assertNoLinkInTheWay(projectDir, target);
+		const dest = join(installRoot, target);
+		await assertNoLinkInTheWay(installRoot, target);
 		copiedFiles.push(target);
 		await mkdir(dirname(dest), { recursive: true });
 		await cp(join(agentsDir, relPath), dest);
@@ -121,14 +121,14 @@ async function copyAgents(
  */
 async function copyHooks(
 	hooksDir: string,
-	projectDir: string,
+	installRoot: string,
 	copiedFiles: string[],
 ): Promise<number> {
 	const entries = await readDirEntries(hooksDir);
 	for (const entry of entries) {
 		const target = hookTarget(entry);
-		const dest = join(projectDir, target);
-		await assertNoLinkInTheWay(projectDir, target);
+		const dest = join(installRoot, target);
+		await assertNoLinkInTheWay(installRoot, target);
 		copiedFiles.push(target);
 		await mkdir(entry.isDirectory ? dest : dirname(dest), { recursive: true });
 		await cp(join(hooksDir, entry.name), dest, {

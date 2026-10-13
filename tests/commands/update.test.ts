@@ -159,12 +159,15 @@ const mockCancel = vi.mocked(p.cancel);
 const mockConfirm = vi.mocked(p.confirm);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 
+import { globalScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
+const HOME = "/home/lee";
+const GLOBAL = globalScope(HOME);
 
 // --- All-mode group-target bridge ---
 // runAllUpdates resolves ONE GroupTarget per group (task 1-5) instead of a
@@ -4125,7 +4128,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("does not exist or is not a directory"),
+				`${LOCAL_KEY}: path does not exist`,
 			);
 		});
 
@@ -4139,7 +4142,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("does not exist or is not a directory"),
+				`${LOCAL_KEY}: path is not a directory`,
 			);
 		});
 
@@ -6000,7 +6003,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		await runUpdate().catch(() => {});
 
 		expect(mockLog.error).toHaveBeenCalledWith(
-			`${LOCAL_KEY}: Failed — path does not exist`,
+			`${LOCAL_KEY}: Failed — ${LOCAL_KEY}: path does not exist`,
 		);
 		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
@@ -6079,6 +6082,7 @@ describe("update without a terminal", () => {
 		expect(run.document).toEqual({
 			ok: true,
 			command: "update",
+			scope: "project",
 			items: [
 				{
 					key: "owner/caret",
@@ -6214,6 +6218,7 @@ describe("update without a terminal", () => {
 			expect(run.document).toEqual({
 				ok: true,
 				command: "update",
+				scope: "project",
 				items: [
 					{
 						key: "owner/repo",
@@ -6268,6 +6273,7 @@ describe("update without a terminal", () => {
 			expect(run.document).toEqual({
 				ok: false,
 				command: "update",
+				scope: "project",
 				error: { message: "Plugin owner/repo is not installed." },
 				warnings: [],
 				notes: [],
@@ -6567,7 +6573,8 @@ describe("an entry gone upstream", () => {
 			ref: null,
 			commit: INSTALLED_SHA,
 			constraint: null,
-			message: "Kept owner/repo/go — it's gone upstream; -y removes it",
+			message:
+				"Kept owner/repo/go — it's gone upstream; npx agntc update owner/repo/go -y removes it",
 			flags: ["-y"],
 		};
 
@@ -6580,6 +6587,7 @@ describe("an entry gone upstream", () => {
 			expect(run.document).toEqual({
 				ok: true,
 				command: "update",
+				scope: "project",
 				items: [KEPT],
 				warnings: [],
 				notes: [],
@@ -6854,6 +6862,123 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockWriteManifest).not.toHaveBeenCalled();
 		expect(mockLog.error).toHaveBeenCalledWith(
 			"owner/repo/tools can't be updated: files agntc didn't install are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
+		);
+	});
+
+	it("checks and names the remedy in the global scope for a global entry", async () => {
+		arrangeTakeover({ [PACK_KEY]: packEntry() });
+		mockCheckUnmanaged.mockResolvedValue([".claude/skills/a/"]);
+
+		await runUpdate(PACK_KEY, {}, interactiveUi, GLOBAL).catch(() => {});
+
+		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, interactiveUi);
+		expect(mockCheckUnmanaged).toHaveBeenCalledWith(
+			[".claude/skills/a/", ".claude/skills/b/"],
+			{ [PACK_KEY]: packEntry() },
+			HOME,
+		);
+		expect(mockLog.error).toHaveBeenCalledWith(
+			expect.stringContaining(
+				"replace them: npx agntc remove -g owner/repo/tools then npx agntc add -g owner/repo/tools --pack --overwrite",
+			),
+		);
+	});
+});
+
+describe("a global update", () => {
+	it("titles itself global", async () => {
+		mockReadManifestOrExit.mockResolvedValue({});
+
+		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+
+		expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc update · global");
+		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, interactiveUi);
+	});
+
+	it("carries -g in a pinned key's upgrade command", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo": makeEntry({ ref: "v1.0" }),
+		});
+		mockCheckForUpdate.mockResolvedValue({
+			status: "newer-tags",
+			tags: ["v2.0", "v3.0"],
+		});
+
+		await runUpdate("owner/repo", {}, interactiveUi, GLOBAL);
+
+		expect(mockOutro).toHaveBeenCalledWith(
+			"To upgrade: npx agntc add -g owner/repo@v3.0",
+		);
+	});
+
+	it("carries -g in a key's out-of-constraint upgrade command", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo": makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0.0",
+			}),
+		});
+		mockCheckForUpdate.mockResolvedValue({
+			status: "constrained-up-to-date",
+			latestOverall: "v2.0.0",
+		});
+
+		await runUpdate("owner/repo", {}, interactiveUi, GLOBAL);
+
+		expect(mockLog.info).toHaveBeenCalledWith(
+			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo",
+		);
+	});
+
+	it("carries -g on every line of a pinned group's upgrade commands", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/a": makeEntry({ ref: "v1.0", commit: INSTALLED_SHA }),
+			"owner/repo/tools": makeEntry({
+				ref: "v1.0",
+				commit: INSTALLED_SHA,
+				type: "pack",
+			}),
+		});
+		mockResolveGroupTarget.mockResolvedValue({
+			kind: "tag",
+			tag: "v1.0",
+			newerTags: ["v3.0"],
+		});
+
+		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+
+		expect(mockLog.info).toHaveBeenCalledWith(
+			[
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+				"    npx agntc add -g owner/repo/a@v3.0",
+				"    npx agntc add -g owner/repo/tools@v3.0 --pack",
+			].join("\n"),
+		);
+	});
+
+	it("carries -g in a constrained group's out-of-constraint upgrade command", async () => {
+		const member = () =>
+			makeEntry({
+				ref: "v1.2.3",
+				commit: INSTALLED_SHA,
+				constraint: "^1.2.3",
+			});
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/a": member(),
+			"owner/repo/b": member(),
+		});
+		mockResolveGroupTarget.mockResolvedValue({
+			kind: "constrained",
+			tag: "v1.2.3",
+			commit: INSTALLED_SHA,
+			latestOverall: "v2.0.0",
+		});
+
+		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+
+		expect(mockLog.info).toHaveBeenCalledWith(
+			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo --skill a b",
 		);
 	});
 });

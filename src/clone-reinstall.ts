@@ -1,13 +1,14 @@
-import { reAddCommand } from "./entry-source.js";
+import { localItemPath, localRootOf, reAddCommand } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry, writeManifest } from "./manifest.js";
 import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
+import { agntcCommand, type Scope, type ScopeName } from "./scope.js";
 import {
 	buildParsedSourceFromKey,
-	localSourceRoot,
+	guardSourceDir,
 	resolveGuardedSourceDir,
 } from "./source-parser.js";
 import type { Ui } from "./ui.js";
@@ -15,7 +16,7 @@ import type { Ui } from "./ui.js";
 export interface CloneAndReinstallOptions {
 	key: string;
 	entry: ManifestEntry;
-	projectDir: string;
+	scope: Scope;
 	newRef?: string;
 	newCommit?: string;
 	/** The local folder to reinstall from instead of cloning. */
@@ -26,7 +27,7 @@ export interface CloneAndReinstallOptions {
 
 /**
  * Per-call inputs the four reinstall entry points layer on top of the shared
- * key/entry/projectDir triple: an optional `manifest` (enables copy-failed
+ * key/entry/scope triple: an optional `manifest` (enables copy-failed
  * removal), and version overrides (`newRef`/`newCommit`) for constrained or
  * change-version flows.
  */
@@ -46,31 +47,28 @@ export type PrepareReinstallResult =
  * from `entry.commit === null`, validates the local source folder when local,
  * and assembles the {@link CloneAndReinstallOptions} object (including that
  * folder as `sourceDir` for local installs). On a failed local-path check it
- * returns `{ ok: false }` carrying the validation reason; callers map that to
- * their own presentation channel.
+ * returns `{ ok: false }` carrying the validation reason, naming the folder; callers
+ * print it as it is.
  */
 export async function prepareReinstall(
 	key: string,
 	entry: ManifestEntry,
-	projectDir: string,
+	scope: Scope,
 	opts: PrepareReinstallOpts = {},
 ): Promise<PrepareReinstallResult> {
-	const localRoot =
-		entry.commit === null
-			? localSourceRoot(key, entry.sourceSubpath)
-			: undefined;
+	const localRoot = entry.commit === null ? localRootOf(key, entry) : undefined;
 
 	if (localRoot !== undefined) {
 		const pathResult = await validateLocalSourcePath(localRoot);
 		if (!pathResult.valid) {
-			return { ok: false, reason: pathResult.reason };
+			return { ok: false, reason: `${localRoot}: ${pathResult.reason}` };
 		}
 	}
 
 	const options: CloneAndReinstallOptions = {
 		key,
 		entry,
-		projectDir,
+		scope,
 		...(opts.manifest !== undefined ? { manifest: opts.manifest } : {}),
 		...(localRoot !== undefined ? { sourceDir: localRoot } : {}),
 		...(opts.newRef !== undefined ? { newRef: opts.newRef } : {}),
@@ -193,12 +191,13 @@ export function failureMessage(
 	result: CloneReinstallFailure,
 	key: string,
 	entry: ManifestEntry,
+	scope: ScopeName,
 ): string {
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
 		onCopyFailed: (msg) => msg,
 		onUnknown: (msg) => msg,
-		onAborted: (abort) => buildAbortMessage(key, entry, abort),
+		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope),
 		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
 	});
 }
@@ -261,19 +260,21 @@ export function buildAbortMessage(
 	key: string,
 	entry: ManifestEntry,
 	{ reason, inTheWay }: AbortCause,
+	scope: ScopeName,
 ): string {
-	const reAdd = reAddCommand(key, entry);
+	const reAdd = reAddCommand(key, entry, scope);
+	const remove = agntcCommand(scope, "remove", [key]);
 	if (inTheWay) {
 		return (
 			`${key} can't be updated: ${reason}. The existing install is ` +
 			`unchanged. Clear them and update again, or replace them: ` +
-			`npx agntc remove ${key} then ${reAdd} --overwrite`
+			`${remove} then ${reAdd} --overwrite`
 		);
 	}
 	return (
 		`${key} was installed as a ${entry.type ?? "skill"} and can't be ` +
 		`updated (${reason}). The existing install is unchanged. ` +
-		`To migrate: npx agntc remove ${key} then ${reAdd}`
+		`To migrate: ${remove} then ${reAdd}`
 	);
 }
 
@@ -327,14 +328,14 @@ export async function cloneAndReinstall(
 	ui: Ui,
 	installed: Manifest,
 ): Promise<CloneReinstallResult> {
-	const { key, entry, projectDir } = options;
+	const { key, entry, scope } = options;
 
 	if (options.sourceDir !== undefined) {
 		const localRoot = options.sourceDir;
-		const guarded =
-			entry.sourceSubpath === undefined
-				? { ok: true as const, sourceDir: localRoot }
-				: resolveGuardedSourceDir(localRoot, key, entry.sourceSubpath);
+		const guarded = guardSourceDir(
+			localRoot,
+			localItemPath(key, entry, localRoot),
+		);
 		if (!guarded.ok) {
 			return {
 				status: "failed",
@@ -346,7 +347,7 @@ export async function cloneAndReinstall(
 			key,
 			entry,
 			installed,
-			projectDir,
+			scope,
 			sourceDir: guarded.sourceDir,
 			cloneRoot: localRoot,
 			newRef: options.newRef ?? null,
@@ -406,7 +407,7 @@ export async function cloneAndReinstall(
 			key,
 			entry,
 			installed,
-			projectDir,
+			scope,
 			sourceDir,
 			// Clone mode: the clone temp dir is the containment boundary for the
 			// symlink-escape scan. For a member unit `sourceDir` is a subdir of
@@ -440,7 +441,7 @@ async function handleCopyFailedRemoval(
 	) {
 		const removed = [options.key, ...result.absorbed];
 		await writeManifest(
-			options.projectDir,
+			options.scope.root,
 			removed.reduce((rest, key) => removeEntry(rest, key), options.manifest),
 		);
 	}
@@ -451,7 +452,7 @@ export interface PipelineInput {
 	key: string;
 	entry: ManifestEntry;
 	installed: Manifest;
-	projectDir: string;
+	scope: Scope;
 	sourceDir: string;
 	cloneRoot: string;
 	newRef: string | null;

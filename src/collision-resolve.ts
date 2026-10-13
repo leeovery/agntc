@@ -14,12 +14,12 @@ export interface CollisionResolution {
  *
  * @param collisions - Map of manifest key to overlapping file paths
  * @param manifest - Current manifest
- * @param projectDir - Project root directory
+ * @param installRoot - The folder `.claude` and `.agntc` sit in, for either scope
  */
 export async function resolveCollisions(
 	collisions: Map<string, string[]>,
 	manifest: Manifest,
-	projectDir: string,
+	installRoot: string,
 	ui: Ui,
 ): Promise<CollisionResolution> {
 	let updatedManifest = manifest;
@@ -48,7 +48,7 @@ export async function resolveCollisions(
 		updatedManifest = await removeCollidingEntries(
 			[key],
 			updatedManifest,
-			projectDir,
+			installRoot,
 		);
 	}
 
@@ -59,13 +59,13 @@ export async function resolveCollisions(
 export async function removeCollidingEntries(
 	keys: Iterable<string>,
 	manifest: Manifest,
-	projectDir: string,
+	installRoot: string,
 ): Promise<Manifest> {
 	let updatedManifest = manifest;
 	for (const key of keys) {
 		const entry = updatedManifest[key];
 		if (entry) {
-			await nukeManifestFiles(projectDir, entry.files);
+			await nukeManifestFiles(installRoot, entry.files);
 			updatedManifest = removeEntry(updatedManifest, key);
 		}
 	}

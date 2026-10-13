@@ -9,13 +9,13 @@ import type { Manifest } from "./manifest.js";
  *
  * @param incomingFiles - Relative file paths about to be installed
  * @param manifest - Current manifest (to exclude tracked files)
- * @param projectDir - Project root directory
+ * @param installRoot - The folder `.claude` and `.agntc` sit in, for either scope
  * @returns The conflicting relative paths, each once
  */
 export async function checkUnmanagedConflicts(
 	incomingFiles: string[],
 	manifest: Manifest,
-	projectDir: string,
+	installRoot: string,
 ): Promise<string[]> {
 	const tracked = new Set(
 		Object.values(manifest).flatMap((entry) => entry.files),
@@ -23,7 +23,7 @@ export async function checkUnmanagedConflicts(
 	const conflicts = new Set<string>();
 
 	for (const file of incomingFiles) {
-		const inTheWay = await findInTheWay(projectDir, file);
+		const inTheWay = await findInTheWay(installRoot, file);
 		if (inTheWay !== null && !tracked.has(inTheWay)) {
 			conflicts.add(inTheWay);
 		}
@@ -33,10 +33,10 @@ export async function checkUnmanagedConflicts(
 }
 
 async function findInTheWay(
-	projectDir: string,
+	installRoot: string,
 	file: string,
 ): Promise<string | null> {
-	const state = await inspectInstallPath(projectDir, file);
+	const state = await inspectInstallPath(installRoot, file);
 	if (state.kind === "link" && state.at !== withoutTrailingSlash(file)) {
 		return state.at;
 	}

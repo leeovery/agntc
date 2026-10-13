@@ -24,7 +24,7 @@ import {
 	clearConflicts,
 	conflictPolicy,
 } from "../clear-conflicts.js";
-import { commandAction, jsonOption } from "../command-action.js";
+import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { computeIncomingFiles } from "../compute-incoming-files.js";
 import { copyItem } from "../copy-item.js";
 import { checkEscapingSymlinks, PathTraversalError } from "../copy-safety.js";
@@ -57,6 +57,12 @@ import {
 	writeManifest,
 } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
+import {
+	commandTitle,
+	projectScope,
+	type Scope,
+	type ScopeName,
+} from "../scope.js";
 import {
 	type ParsedSource,
 	parseSource,
@@ -141,8 +147,9 @@ export async function runAdd(
 	source: string,
 	options: AddOptions = {},
 	ui: Ui = interactiveUi,
+	scope: Scope = projectScope(),
 ): Promise<void> {
-	ui.intro("agntc add");
+	ui.intro(commandTitle("add", scope.name));
 
 	if (options.plugin) {
 		ui.note("--plugin is now --pack");
@@ -162,13 +169,19 @@ export async function runAdd(
 
 		const src = describeSource(typed, parsed, constraint, fetched);
 		if (options.list) {
-			await listSource(src, selection.selection, ui);
+			await listSource(src, selection.selection, scope.name, ui);
 			return;
 		}
-		const installed = await readManifest(process.cwd());
-		const items = await pickItems(src, selection.selection, installed, ui);
+		const installed = await readManifest(scope.root);
+		const items = await pickItems(
+			src,
+			selection.selection,
+			installed,
+			scope.name,
+			ui,
+		);
 		const policy = conflictPolicy(options.overwrite === true, ui.mode);
-		await installItems(items, src, installed, policy, ui);
+		await installItems(items, src, installed, { policy, scope, ui });
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			throw err;
@@ -237,11 +250,13 @@ function describeSource(
 
 function choiceContext(
 	src: FetchedSource,
+	scope: ScopeName,
 	packed?: ReadonlyMap<string, string>,
 ): ChoiceContext {
 	return {
 		source: src.key,
 		rootName: src.rootName,
+		scope,
 		...(src.version !== undefined ? { version: src.version } : {}),
 		...(packed !== undefined ? { packed } : {}),
 	};
@@ -249,7 +264,7 @@ function choiceContext(
 
 function sourceIdOfFetched(src: FetchedSource): SourceId {
 	return src.cloneUrl === null
-		? { kind: "local", root: src.root }
+		? { kind: "local", root: src.root, exact: true }
 		: { kind: "remote", cloneUrl: src.cloneUrl };
 }
 
@@ -266,6 +281,7 @@ function sourceJson(src: FetchedSource): SourceJson {
 async function listSource(
 	src: FetchedSource,
 	selection: Selection,
+	scope: ScopeName,
 	ui: Ui,
 ): Promise<void> {
 	const discovery = await discoverSource(src, selection, ui);
@@ -275,7 +291,7 @@ async function listSource(
 	if (lines.length > 0) {
 		ui.log.message(lines.join("\n"));
 	}
-	for (const notice of strayNotices(discovery, choiceContext(src))) {
+	for (const notice of strayNotices(discovery, choiceContext(src, scope))) {
 		ui.log.warn(notice);
 	}
 	const packs = items.filter((item) => item.kind === "pack").length;
@@ -289,6 +305,7 @@ async function pickItems(
 	src: FetchedSource,
 	selection: Selection,
 	manifest: Manifest,
+	scope: ScopeName,
 	ui: Ui,
 ): Promise<KeyedItem[]> {
 	const discovery = await discoverSource(src, selection, ui);
@@ -297,7 +314,11 @@ async function pickItems(
 		manifest,
 		sourceIdOfFetched(src),
 	);
-	const choice = chooseItems(discovery, selection, choiceContext(src, packed));
+	const choice = chooseItems(
+		discovery,
+		selection,
+		choiceContext(src, scope, packed),
+	);
 	for (const notice of choice.strayNotices) {
 		ui.warn(notice);
 	}
@@ -384,17 +405,16 @@ async function installItems(
 	items: KeyedItem[],
 	src: FetchedSource,
 	installed: Manifest,
-	policy: ConflictPolicy,
-	ui: Ui,
+	{ policy, scope, ui }: InstallContext,
 ): Promise<void> {
-	const projectDir = process.cwd();
+	const installRoot = scope.root;
 	let manifest = installed;
 	const outcomes: ItemOutcome[] = [];
 	const cleared: ClearedItem[] = [];
 	const ctx = { policy, ui, source: sourceIdOfFetched(src) };
 
 	for (const keyed of items) {
-		const checked = await checkItem(keyed, src, manifest, projectDir, ctx);
+		const checked = await checkItem(keyed, src, manifest, installRoot, ctx);
 		manifest = checked.manifest;
 		if (checked.outcome === null) {
 			cleared.push({ keyed, absorbs: checked.absorbs });
@@ -408,7 +428,12 @@ async function installItems(
 		const spin = ui.spinner();
 		spin.start("Copying skill files...");
 		for (const item of cleared) {
-			const installed = await installKeyedItem(item, src, manifest, projectDir);
+			const installed = await installKeyedItem(
+				item,
+				src,
+				manifest,
+				installRoot,
+			);
 			manifest = installed.manifest;
 			outcomes.push(installed.outcome);
 			notes.push(...installed.notes);
@@ -419,7 +444,7 @@ async function installItems(
 		ui.note(note);
 	}
 
-	await writeManifest(projectDir, manifest);
+	await writeManifest(installRoot, manifest);
 	reportSummary(src, outcomes, ui);
 	ui.report(addBody(sourceJson(src), outcomes));
 
@@ -443,6 +468,12 @@ function identify({ item, key }: KeyedItem, rootName: string): ItemIdentity {
 		kind: item.kind,
 		path: itemPath(item),
 	};
+}
+
+interface InstallContext {
+	policy: ConflictPolicy;
+	scope: Scope;
+	ui: Ui;
 }
 
 interface CheckContext {
@@ -476,7 +507,7 @@ async function checkItem(
 	keyed: KeyedItem,
 	src: FetchedSource,
 	manifest: Manifest,
-	projectDir: string,
+	installRoot: string,
 	{ policy, ui, source }: CheckContext,
 ): Promise<CheckedItem> {
 	const identity = identify(keyed, src.rootName);
@@ -505,7 +536,7 @@ async function checkItem(
 			incomingFiles: incoming.filter((file) => !absorbed.has(file)),
 			manifest,
 			key: keyed.key,
-			projectDir,
+			projectDir: installRoot,
 		},
 		policy,
 		ui,
@@ -537,7 +568,7 @@ async function installKeyedItem(
 	{ keyed, absorbs }: ClearedItem,
 	src: FetchedSource,
 	manifest: Manifest,
-	projectDir: string,
+	installRoot: string,
 ): Promise<InstalledItem> {
 	const { item, key, sourceSubpath } = keyed;
 	const identity = identify(keyed, src.rootName);
@@ -551,7 +582,7 @@ async function installKeyedItem(
 	const replaced = [key, ...absorbs].flatMap((k) => manifest[k]?.files ?? []);
 	if (replaced.length > 0) {
 		try {
-			await nukeManifestFiles(projectDir, replaced);
+			await nukeManifestFiles(installRoot, replaced);
 		} catch (err) {
 			return {
 				manifest,
@@ -568,7 +599,7 @@ async function installKeyedItem(
 		const { copiedFiles, assetCounts } = await copyItem(
 			item,
 			src.root,
-			projectDir,
+			installRoot,
 		);
 		const entry = buildManifestEntry({
 			ref: src.ref,
@@ -578,6 +609,7 @@ async function installKeyedItem(
 			cloneUrl: src.cloneUrl,
 			constraint: src.constraint,
 			sourceSubpath,
+			localRoot: src.cloneUrl === null ? src.root : undefined,
 		});
 		return {
 			manifest: addEntry(rest, key, entry),
@@ -634,9 +666,10 @@ export const addCommand = new Command("add")
 	.option("--list", "Show what the source holds without installing anything")
 	.option("--overwrite", "Replace files in the way without asking")
 	.addOption(new Option("--plugin", "Renamed to --pack").hideHelp())
+	.addOption(globalOption())
 	.addOption(jsonOption())
 	.action(
-		commandAction("add", (ui, source: string, options: AddOptions) =>
-			runAdd(source, options, ui),
+		commandAction("add", (ui, scope, source: string, options: AddOptions) =>
+			runAdd(source, options, ui, scope),
 		),
 	);

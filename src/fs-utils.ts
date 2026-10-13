@@ -1,4 +1,5 @@
 import { access, readdir, stat } from "node:fs/promises";
+import { posix, relative, sep } from "node:path";
 
 export interface DirEntry {
 	name: string;
@@ -21,6 +22,11 @@ export async function validateLocalSourcePath(
 	} catch {
 		return { valid: false, reason: "path does not exist" };
 	}
+}
+
+/** The path from `from` to `to` with `/` separators, as manifests record paths. */
+export function relativePosix(from: string, to: string): string {
+	return relative(from, to).split(sep).join(posix.sep);
 }
 
 /** Resolves to true when `path` exists (file or dir), false otherwise. */

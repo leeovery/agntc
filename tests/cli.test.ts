@@ -105,6 +105,7 @@ describe("agntc list", () => {
 		expect(document).toEqual({
 			ok: true,
 			command: "list",
+			scope: "project",
 			entries: [],
 			warnings: [],
 			notes: [],

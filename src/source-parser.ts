@@ -453,31 +453,6 @@ function keySubpath(key: string): string {
 	return key.split("/").slice(2).join("/");
 }
 
-export function getSourceDirFromKey(tempDir: string, key: string): string {
-	const subpath = keySubpath(key);
-	return subpath === "" ? tempDir : join(tempDir, subpath);
-}
-
-/**
- * Resolves the source dir of a re-cloned tree for an update. The single
- * authoring of the cycle-9 rule: PREFER the entry's recorded `sourceSubpath`
- * (a skills-only collection member keyed by basename lives at
- * `<clone>/skills/<name>`, not the key-derived `<clone>/<name>`); fall back to
- * the unchanged key-derived dir when no subpath was recorded (root-child
- * members and standalone entries round-trip exactly as before). Shared by
- * `cloneAndReinstall` and the integration tests so the rule and its tests
- * cannot drift.
- */
-export function resolveUpdateSourceDir(
-	cloneRoot: string,
-	key: string,
-	sourceSubpath: string | undefined,
-): string {
-	return sourceSubpath
-		? join(cloneRoot, sourceSubpath)
-		: getSourceDirFromKey(cloneRoot, key);
-}
-
 /**
  * The single home of the per-member path-traversal containment guard paired
  * with source-dir resolution — composed by BOTH clone entry points
@@ -492,29 +467,33 @@ export function resolveUpdateSourceDir(
  * narrowed to `{ ok: false, message }` (the error's message verbatim, for the
  * caller's clean clone-failed pre-flight abort — no nuke, no copy, install
  * intact), while ANY other error RETHROWS unchanged (never swallowed as a
- * failure result). On success it returns `{ ok: true, sourceDir }` resolved via
- * {@link resolveUpdateSourceDir}. The guard covers whichever subpath the dir is
- * read from: the recorded `sourceSubpath`, else the key's own suffix, which a
- * hand-edited key could point outside the clone. Co-located with
- * {@link resolveUpdateSourceDir} — the source-dir authority both callers already
- * use — to keep the guard sequence in exactly one place.
+ * failure result). On success it returns `{ ok: true, sourceDir }`: the
+ * recorded `sourceSubpath` below the clone root, else the key's own suffix (a
+ * skill keyed by name that lives at `<clone>/skills/<name>` records the
+ * former). The guard covers whichever of the two the dir is read from, as a
+ * hand-edited key could point outside the clone.
  */
 export function resolveGuardedSourceDir(
 	cloneRoot: string,
 	key: string,
 	sourceSubpath: string | undefined,
-): { ok: true; sourceDir: string } | { ok: false; message: string } {
+): GuardedSourceDir {
+	return guardSourceDir(cloneRoot, sourceSubpath || keySubpath(key));
+}
+
+export type GuardedSourceDir =
+	| { ok: true; sourceDir: string }
+	| { ok: false; message: string };
+
+/** `root/path`, unless `path` leads outside `root`. */
+export function guardSourceDir(root: string, path: string): GuardedSourceDir {
 	try {
-		assertSubpathWithinClone(cloneRoot, sourceSubpath || keySubpath(key));
+		assertSubpathWithinClone(root, path);
 	} catch (err) {
 		if (err instanceof PathTraversalError) {
 			return { ok: false, message: err.message };
 		}
 		throw err;
 	}
-
-	return {
-		ok: true,
-		sourceDir: resolveUpdateSourceDir(cloneRoot, key, sourceSubpath),
-	};
+	return { ok: true, sourceDir: join(root, path) };
 }

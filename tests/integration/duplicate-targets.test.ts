@@ -42,7 +42,7 @@ async function run(
 	command: CommandName,
 	action: (ui: MachineUi) => Promise<void>,
 ) {
-	const ui = new MachineUi(command);
+	const ui = new MachineUi(command, "project");
 	let exitCode = 0;
 	try {
 		await action(ui);

@@ -16,11 +16,11 @@ export type RemoveOutcome = "removed" | "skipped" | "refused";
 
 /**
  * Deletes recorded install paths. One that isn't a plain path below
- * `projectDir`, which only a hand-edited manifest holds, is left alone, and
+ * `installRoot`, which only a hand-edited manifest holds, is left alone, and
  * once the rest are done the call fails naming it.
  */
 export async function nukeManifestFiles(
-	projectDir: string,
+	installRoot: string,
 	files: string[],
 ): Promise<NukeResult> {
 	const outcomes: Record<RemoveOutcome, string[]> = {
@@ -30,12 +30,12 @@ export async function nukeManifestFiles(
 	};
 
 	for (const entry of files) {
-		outcomes[await removeInstallPath(projectDir, entry)].push(entry);
+		outcomes[await removeInstallPath(installRoot, entry)].push(entry);
 	}
 
 	if (outcomes.refused.length > 0) {
 		throw new Error(
-			`won't delete ${outcomes.refused.join(", ")} — not a plain path below ${projectDir}`,
+			`won't delete ${outcomes.refused.join(", ")} — not a plain path below ${installRoot}`,
 		);
 	}
 	return { removed: outcomes.removed, skipped: outcomes.skipped };
@@ -45,17 +45,17 @@ export async function nukeManifestFiles(
  * Removes one install path without following a symlink, so a link to someone's
  * own folder never costs them its contents: a link at the path is unlinked as
  * a link, and a path below a linked folder is left alone. A path that isn't
- * plainly below `projectDir`, such as one using `..`, is refused untouched.
+ * plainly below `installRoot`, such as one using `..`, is refused untouched.
  */
 export async function removeInstallPath(
-	projectDir: string,
+	installRoot: string,
 	entry: string,
 ): Promise<RemoveOutcome> {
 	if (!isContainedPath(entry)) {
 		return "refused";
 	}
 	const path = withoutTrailingSlash(entry);
-	const state = await inspectInstallPath(projectDir, path);
+	const state = await inspectInstallPath(installRoot, path);
 	switch (state.kind) {
 		case "missing":
 			return "skipped";
@@ -63,10 +63,10 @@ export async function removeInstallPath(
 			if (state.at !== path) {
 				return "skipped";
 			}
-			await unlink(join(projectDir, path));
+			await unlink(join(installRoot, path));
 			return "removed";
 		case "present":
-			await rm(join(projectDir, path), { recursive: entry.endsWith("/") });
+			await rm(join(installRoot, path), { recursive: entry.endsWith("/") });
 			return "removed";
 	}
 }

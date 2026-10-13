@@ -5,6 +5,7 @@ import {
 	writeManifest,
 } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
+import { agntcCommand, type Scope } from "./scope.js";
 import type { Ui } from "./ui.js";
 
 export interface GoneOptions {
@@ -29,13 +30,14 @@ export interface GoneSettlement {
 export async function settleGone(
 	key: string,
 	entry: ManifestEntry,
-	projectDir: string,
+	scope: Scope,
 	{ yes, ui }: GoneOptions,
 ): Promise<GoneSettlement> {
 	if (!yes && ui.mode === "machine") {
+		const removal = agntcCommand(scope.name, "update", [key, "-y"]);
 		return {
 			removed: false,
-			message: `Kept ${key} — it's gone upstream; -y removes it`,
+			message: `Kept ${key} — it's gone upstream; ${removal} removes it`,
 			flags: ["-y"],
 		};
 	}
@@ -51,7 +53,7 @@ export async function settleGone(
 			message: `Kept ${key} — it's gone upstream; update will ask again`,
 		};
 	}
-	await nukeManifestFiles(projectDir, entry.files);
+	await nukeManifestFiles(scope.root, entry.files);
 	return { removed: true, message: `Removed ${key} — it's gone upstream` };
 }
 
@@ -63,12 +65,12 @@ export async function settleGoneInList(
 	key: string,
 	entry: ManifestEntry,
 	manifest: Manifest,
-	projectDir: string,
+	scope: Scope,
 	ui: Ui,
 ): Promise<GoneSettlement> {
-	const settled = await settleGone(key, entry, projectDir, { yes: false, ui });
+	const settled = await settleGone(key, entry, scope, { yes: false, ui });
 	if (settled.removed) {
-		await writeManifest(projectDir, removeEntry(manifest, key));
+		await writeManifest(scope.root, removeEntry(manifest, key));
 	}
 	return settled;
 }

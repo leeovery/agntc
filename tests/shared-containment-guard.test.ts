@@ -21,6 +21,7 @@ vi.mock("../src/git-clone.js", async (importOriginal) => ({
 
 import { cloneAndReinstall } from "../src/clone-reinstall.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
+import { projectScope } from "../src/scope.js";
 import { interactiveUi } from "../src/ui.js";
 import type { GroupTarget } from "../src/update-check.js";
 import { type EntryGroup, processGroupUpdate } from "../src/update-groups.js";
@@ -53,7 +54,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			{
 				key: "owner/repo/evil",
 				entry,
-				projectDir: "/fake/project",
+				scope: projectScope("/fake/project"),
 			},
 			interactiveUi,
 		);
@@ -90,7 +91,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			group,
 			[member],
 			target,
-			"/fake/project",
+			projectScope("/fake/project"),
 		);
 
 		expect(outcomes).toHaveLength(1);
@@ -109,7 +110,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 					files: [".claude/skills/evil/"],
 					sourceSubpath: ESCAPING_SUBPATH,
 				}),
-				projectDir: "/fake/project",
+				scope: projectScope("/fake/project"),
 			},
 			interactiveUi,
 		);
@@ -132,7 +133,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			},
 			[member],
 			{ kind: "branch", resolvedSha: "d".repeat(40) },
-			"/fake/project",
+			projectScope("/fake/project"),
 		);
 
 		const singletonMessage =
@@ -147,7 +148,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 		const entry = makeEntry({ ref: "main", files: [".claude/skills/evil/"] });
 
 		const singleton = await cloneAndReinstall(
-			{ key, entry, projectDir: "/fake/project" },
+			{ key, entry, scope: projectScope("/fake/project") },
 			interactiveUi,
 		);
 		const member = { key, entry };
@@ -160,7 +161,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			},
 			[member],
 			{ kind: "branch", resolvedSha: "d".repeat(40) },
-			"/fake/project",
+			projectScope("/fake/project"),
 		);
 
 		expect(singleton).toEqual({

@@ -74,7 +74,7 @@ async function run(
 	command: CommandName,
 	action: (ui: MachineUi) => Promise<void>,
 ) {
-	const ui = new MachineUi(command);
+	const ui = new MachineUi(command, "project");
 	let exitCode = 0;
 	try {
 		await action(ui);
@@ -105,7 +105,9 @@ describe("a symlink in the destination", () => {
 		await run("add", (ui) => runAdd(source, {}, ui));
 		await linkSkillToMine();
 
-		const { exitCode } = await run("update", (ui) => runUpdate(undefined, {}, ui));
+		const { exitCode } = await run("update", (ui) =>
+			runUpdate(undefined, {}, ui),
+		);
 
 		expect(exitCode).toBe(0);
 		expect(await isLink(SKILL)).toBe(false);

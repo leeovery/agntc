@@ -205,7 +205,7 @@ describe("writeManifest", () => {
 			join(testDir, ".agntc", "manifest.json"),
 			"utf-8",
 		);
-		const expected = JSON.stringify(manifest, null, 2) + "\n";
+		const expected = `${JSON.stringify(manifest, null, 2)}\n`;
 		expect(content).toBe(expected);
 	});
 
@@ -1225,7 +1225,7 @@ describe("readManifestOrExit", () => {
 	it("records the failure as the document's error without a terminal", async () => {
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
 		await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
-		const ui = new MachineUi("list");
+		const ui = new MachineUi("list", "project");
 
 		const err = await readManifestOrExit(testDir, ui).catch((e) => e);
 
@@ -1326,6 +1326,25 @@ describe("buildManifestEntry", () => {
 		});
 
 		expect("constraint" in entry).toBe(false);
+	});
+
+	it("includes localRoot when provided and omits it when undefined", () => {
+		const fields = {
+			ref: null,
+			commit: null,
+			files: [],
+			type: "skill" as const,
+			cloneUrl: null,
+		};
+
+		expect(buildManifestEntry({ ...fields, localRoot: "/src/repo" })).toEqual({
+			...fields,
+			installedAt: FIXED,
+			localRoot: "/src/repo",
+		});
+		expect(
+			"localRoot" in buildManifestEntry({ ...fields, localRoot: undefined }),
+		).toBe(false);
 	});
 
 	it("includes sourceSubpath when provided (skills-only member)", () => {

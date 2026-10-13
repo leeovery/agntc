@@ -1,5 +1,7 @@
-import { dirname, isAbsolute, join, posix, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
+import { relativePosix } from "./fs-utils.js";
 import type { ManifestEntry } from "./manifest.js";
+import { agntcCommand, type ScopeName } from "./scope.js";
 import {
 	deriveCloneUrlFromKey,
 	localSourceRoot,
@@ -12,28 +14,63 @@ export function keySuffix(key: string): string {
 	return key.split("/").slice(2).join("/");
 }
 
-/** What makes two entries come from the same source. */
+/**
+ * What makes two entries come from the same source. A local root is `exact`
+ * when it is the recorded folder the source was added from, not one derived
+ * from a key.
+ */
 export type SourceId =
 	| { kind: "remote"; cloneUrl: string }
-	| { kind: "local"; root: string };
+	| { kind: "local"; root: string; exact: boolean };
 
 export function sourceIdOf(key: string, entry: ManifestEntry): SourceId {
 	return entry.commit === null
-		? { kind: "local", root: localSourceRoot(key, entry.sourceSubpath) }
+		? {
+				kind: "local",
+				root: localRootOf(key, entry),
+				exact: entry.localRoot !== undefined,
+			}
 		: { kind: "remote", cloneUrl: deriveCloneUrlFromKey(key, entry.cloneUrl) };
 }
 
 /**
- * Remote sources match on clone URL. A local entry's root is the folder it
- * was added from only when it records a `sourceSubpath`; otherwise it is the
- * item's own folder, inside that source. So two local roots match when either
- * holds the other.
+ * Remote sources match on clone URL. Two exact local roots match only when
+ * they are the same folder: a checkout nested inside another is a source of
+ * its own. A derived root is the folder it was added from only when the entry
+ * records a `sourceSubpath`; otherwise it is the item's own folder, inside
+ * that source, so against a derived root either root holding the other
+ * matches.
  */
 export function isSameSource(a: SourceId, b: SourceId): boolean {
 	if (a.kind === "remote") {
 		return b.kind === "remote" && a.cloneUrl === b.cloneUrl;
 	}
-	return b.kind === "local" && (holds(a.root, b.root) || holds(b.root, a.root));
+	if (b.kind !== "local") {
+		return false;
+	}
+	if (a.exact && b.exact) {
+		return a.root === b.root;
+	}
+	return holds(a.root, b.root) || holds(b.root, a.root);
+}
+
+/** The folder a local entry was added from: recorded, or derived from its key. */
+export function localRootOf(key: string, entry: ManifestEntry): string {
+	return entry.localRoot ?? localSourceRoot(key, entry.sourceSubpath);
+}
+
+/** Where a local entry's item lives below `root`, its {@link localRootOf}. */
+export function localItemPath(
+	key: string,
+	entry: ManifestEntry,
+	root: string,
+): string {
+	return entry.sourceSubpath ?? localKeyPath(key, root);
+}
+
+/** Where a local key puts its item below `root`, a recorded path aside. */
+function localKeyPath(key: string, root: string): string {
+	return relativePosix(root, key);
 }
 
 function holds(root: string, path: string): boolean {
@@ -55,30 +92,35 @@ export function recordedSubpath(
 	if (entry.commit !== null) {
 		return path === keySuffix(key) ? undefined : path;
 	}
+	if (entry.localRoot !== undefined) {
+		return path === localKeyPath(key, entry.localRoot) ? undefined : path;
+	}
 	const dir = join(walkRoot, path);
-	return dir === key
-		? undefined
-		: relative(dirname(key), dir).split(sep).join(posix.sep);
+	return dir === key ? undefined : relativePosix(dirname(key), dir);
 }
 
 /**
- * The `npx agntc add …` line that installs an entry again: its repo and
- * recorded path, or its local folder, with `--pack` for a pack. `version`
+ * The `npx agntc add …` line that installs an entry again in `scope`: its repo
+ * and recorded path, or its local folder, with `--pack` for a pack. `version`
  * pins a remote source to that tag.
  */
 export function reAddCommand(
 	key: string,
 	entry: ManifestEntry,
+	scope: ScopeName,
 	version?: string,
 ): string {
 	const source =
 		entry.commit === null
-			? join(
-					localSourceRoot(key, entry.sourceSubpath),
-					entry.sourceSubpath ?? "",
-				)
+			? localItemDir(key, entry)
 			: remoteSource(key, entry, version);
-	return `npx agntc add ${source}${entry.type === "pack" ? " --pack" : ""}`;
+	const pack = entry.type === "pack" ? ["--pack"] : [];
+	return agntcCommand(scope, "add", [source, ...pack]);
+}
+
+function localItemDir(key: string, entry: ManifestEntry): string {
+	const root = localRootOf(key, entry);
+	return join(root, localItemPath(key, entry, root));
 }
 
 /**
@@ -88,6 +130,7 @@ export function reAddCommand(
  */
 export function groupReAddCommands(
 	members: Array<{ key: string; entry: ManifestEntry }>,
+	scope: ScopeName,
 	version?: string,
 ): string[] {
 	const packs = members.filter(({ entry }) => entry.type === "pack");
@@ -97,22 +140,23 @@ export function groupReAddCommands(
 		first === undefined
 			? []
 			: skills.length === 1
-				? [reAddCommand(first.key, first.entry, version)]
-				: [skillsCommand(repoFromKey(first.key), skills, version)];
+				? [reAddCommand(first.key, first.entry, scope, version)]
+				: [skillsCommand(repoFromKey(first.key), skills, scope, version)];
 	return [
 		...skillLines,
-		...packs.map(({ key, entry }) => reAddCommand(key, entry, version)),
+		...packs.map(({ key, entry }) => reAddCommand(key, entry, scope, version)),
 	];
 }
 
 function skillsCommand(
 	repo: string,
 	skills: Array<{ key: string }>,
+	scope: ScopeName,
 	version: string | undefined,
 ): string {
 	const names = skills.map(({ key }) => memberName(key)).sort();
 	const located = version === undefined ? repo : `${repo}@${version}`;
-	return `npx agntc add ${located} --skill ${names.join(" ")}`;
+	return agntcCommand(scope, "add", [located, "--skill", ...names]);
 }
 
 function remoteSource(

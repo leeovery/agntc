@@ -144,7 +144,7 @@ describe("interactiveUi", () => {
 
 describe("MachineUi", () => {
 	it("never touches clack", async () => {
-		const ui = new MachineUi("add");
+		const ui = new MachineUi("add", "project");
 
 		present(ui);
 		await exitCode(() => ui.select({ message: "Pick", options: OPTIONS }));
@@ -156,27 +156,40 @@ describe("MachineUi", () => {
 	});
 
 	it("carries warnings and notes into the document, not what a person watches", () => {
-		const ui = new MachineUi("add");
+		const ui = new MachineUi("add", "project");
 
 		present(ui);
 
 		expect(ui.document(0)).toEqual({
 			ok: true,
 			command: "add",
+			scope: "project",
 			items: [],
 			warnings: ["a warning"],
 			notes: ["a note"],
 		});
 	});
 
+	it("names its scope in every document, a failed one's included", () => {
+		const ui = new MachineUi("remove", "global");
+
+		expect(ui.document(0).scope).toBe("global");
+		expect(ui.document(1, new Error("disk on fire")).scope).toBe("global");
+	});
+
+	it("names no scope for a command without one", () => {
+		expect(new MachineUi("init").document(0)).not.toHaveProperty("scope");
+	});
+
 	it("is ok exactly when the exit code is 0", () => {
-		const ui = new MachineUi("update");
+		const ui = new MachineUi("update", "project");
 		ui.report({ items: [{ key: "k" }] });
 
 		expect(ui.document(0).ok).toBe(true);
 		expect(ui.document(1)).toEqual({
 			ok: false,
 			command: "update",
+			scope: "project",
 			items: [{ key: "k" }],
 			warnings: [],
 			notes: [],
@@ -184,7 +197,7 @@ describe("MachineUi", () => {
 	});
 
 	it("records a failure, with the flags that would answer it, and exits 1", async () => {
-		const ui = new MachineUi("remove");
+		const ui = new MachineUi("remove", "project");
 
 		expect(await exitCode(() => ui.fail("needs -y", { flags: ["-y"] }))).toBe(
 			1,
@@ -192,6 +205,7 @@ describe("MachineUi", () => {
 		expect(ui.document(1)).toEqual({
 			ok: false,
 			command: "remove",
+			scope: "project",
 			error: { message: "needs -y", flags: ["-y"] },
 			warnings: [],
 			notes: [],
@@ -217,7 +231,7 @@ describe("MachineUi", () => {
 		],
 		["confirm", (ui: Ui) => ui.confirm({ message: "Pick one" })],
 	])("refuses a %s instead of waiting", async (_, ask) => {
-		const ui = new MachineUi("add");
+		const ui = new MachineUi("add", "project");
 
 		await expect(ask(ui)).rejects.toBeInstanceOf(ExitSignal);
 		expect(ui.document(1).error).toEqual({
@@ -226,7 +240,7 @@ describe("MachineUi", () => {
 	});
 
 	it("keeps the body it was given when the command fails after reporting", async () => {
-		const ui = new MachineUi("add");
+		const ui = new MachineUi("add", "project");
 		ui.report({ packs: [] });
 
 		await exitCode(() => ui.fail("several found", { flags: ["--all"] }));
@@ -239,11 +253,12 @@ describe("MachineUi", () => {
 	});
 
 	it("turns an error the command didn't catch into the document's error", () => {
-		const ui = new MachineUi("list");
+		const ui = new MachineUi("list", "project");
 
 		expect(ui.document(1, new Error("disk on fire"))).toEqual({
 			ok: false,
 			command: "list",
+			scope: "project",
 			error: { message: "disk on fire" },
 			warnings: [],
 			notes: [],

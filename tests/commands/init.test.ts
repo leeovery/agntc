@@ -202,6 +202,7 @@ describe("init without a terminal", () => {
 			warnings: [],
 			notes: [],
 		});
+		expect(run.document).not.toHaveProperty("scope");
 		expect(mockSelectInitType).not.toHaveBeenCalled();
 		expect(mockScaffoldSkill).not.toHaveBeenCalled();
 		expect(clackCalls(p)).toEqual([]);

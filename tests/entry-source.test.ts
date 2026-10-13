@@ -3,6 +3,8 @@ import {
 	groupReAddCommands,
 	isSameSource,
 	keySuffix,
+	localItemPath,
+	localRootOf,
 	reAddCommand,
 	recordedSubpath,
 	sourceIdOf,
@@ -24,15 +26,15 @@ describe("keySuffix", () => {
 
 describe("reAddCommand", () => {
 	it("re-adds a root skill by its repo", () => {
-		expect(reAddCommand("owner/repo", makeEntry({ type: "skill" }))).toBe(
-			"npx agntc add owner/repo",
-		);
+		expect(
+			reAddCommand("owner/repo", makeEntry({ type: "skill" }), "project"),
+		).toBe("npx agntc add owner/repo");
 	});
 
 	it("re-adds a skill by its key's path", () => {
-		expect(reAddCommand("owner/repo/go", makeEntry({ type: "skill" }))).toBe(
-			"npx agntc add owner/repo/go",
-		);
+		expect(
+			reAddCommand("owner/repo/go", makeEntry({ type: "skill" }), "project"),
+		).toBe("npx agntc add owner/repo/go");
 	});
 
 	it("re-adds a skill by its recorded path over its key", () => {
@@ -40,20 +42,21 @@ describe("reAddCommand", () => {
 			reAddCommand(
 				"owner/repo/go",
 				makeEntry({ type: "skill", sourceSubpath: "skills/lang/go" }),
+				"project",
 			),
 		).toBe("npx agntc add owner/repo/skills/lang/go");
 	});
 
 	it("re-adds a pack with --pack", () => {
-		expect(reAddCommand("owner/repo/tools", makeEntry({ type: "pack" }))).toBe(
-			"npx agntc add owner/repo/tools --pack",
-		);
+		expect(
+			reAddCommand("owner/repo/tools", makeEntry({ type: "pack" }), "project"),
+		).toBe("npx agntc add owner/repo/tools --pack");
 	});
 
 	it("re-adds a root pack with --pack", () => {
-		expect(reAddCommand("owner/repo", makeEntry({ type: "pack" }))).toBe(
-			"npx agntc add owner/repo --pack",
-		);
+		expect(
+			reAddCommand("owner/repo", makeEntry({ type: "pack" }), "project"),
+		).toBe("npx agntc add owner/repo --pack");
 	});
 
 	it("pins a version after the path and before --pack", () => {
@@ -61,33 +64,155 @@ describe("reAddCommand", () => {
 			reAddCommand(
 				"owner/repo/tools",
 				makeEntry({ type: "pack", sourceSubpath: "packs/tools" }),
+				"project",
 				"v2.0.0",
 			),
 		).toBe("npx agntc add owner/repo/packs/tools@v2.0.0 --pack");
 	});
 
 	it("re-adds a legacy entry with no type as a skill", () => {
-		expect(reAddCommand("owner/repo/go", makeEntry())).toBe(
+		expect(reAddCommand("owner/repo/go", makeEntry(), "project")).toBe(
 			"npx agntc add owner/repo/go",
 		);
 	});
 
 	it("re-adds a local entry by its folder", () => {
-		expect(reAddCommand("/src/go", local({ type: "skill" }))).toBe(
+		expect(reAddCommand("/src/go", local({ type: "skill" }), "project")).toBe(
 			"npx agntc add /src/go",
 		);
 	});
 
 	it("re-adds a local entry with a recorded path by the folder it was added from plus that path", () => {
 		expect(
-			reAddCommand("/src/repo/go", local({ sourceSubpath: "skills/lang/go" })),
+			reAddCommand(
+				"/src/repo/go",
+				local({ sourceSubpath: "skills/lang/go" }),
+				"project",
+			),
 		).toBe("npx agntc add /src/repo/skills/lang/go");
 	});
 
 	it("re-adds a local pack with --pack", () => {
-		expect(reAddCommand("/src/tools", local({ type: "pack" }))).toBe(
+		expect(reAddCommand("/src/tools", local({ type: "pack" }), "project")).toBe(
 			"npx agntc add /src/tools --pack",
 		);
+	});
+});
+
+describe("reAddCommand for a global entry", () => {
+	it("carries -g after add, for a skill, a pinned pack and a local folder", () => {
+		expect(
+			reAddCommand("owner/repo/go", makeEntry({ type: "skill" }), "global"),
+		).toBe("npx agntc add -g owner/repo/go");
+		expect(
+			reAddCommand(
+				"owner/repo/tools",
+				makeEntry({ type: "pack" }),
+				"global",
+				"v2.0.0",
+			),
+		).toBe("npx agntc add -g owner/repo/tools@v2.0.0 --pack");
+		expect(reAddCommand("/src/go", local({ type: "skill" }), "global")).toBe(
+			"npx agntc add -g /src/go",
+		);
+	});
+});
+
+describe("reAddCommand for a local entry with its root recorded", () => {
+	it("re-adds a skill by its folder below the recorded root", () => {
+		expect(
+			reAddCommand(
+				"/src/repo/go",
+				local({ localRoot: "/src/repo" }),
+				"project",
+			),
+		).toBe("npx agntc add /src/repo/go");
+	});
+
+	it("re-adds a skill recorded with a path by that path below the recorded root", () => {
+		expect(
+			reAddCommand(
+				"/src/repo/go",
+				local({ localRoot: "/src/repo", sourceSubpath: "skills/lang/go" }),
+				"project",
+			),
+		).toBe("npx agntc add /src/repo/skills/lang/go");
+	});
+
+	it("re-adds a pack by its folder below the recorded root", () => {
+		expect(
+			reAddCommand(
+				"/src/repo/packs/tools",
+				local({ type: "pack", localRoot: "/src/repo" }),
+				"project",
+			),
+		).toBe("npx agntc add /src/repo/packs/tools --pack");
+	});
+
+	it("re-adds a root skill by the recorded root itself", () => {
+		expect(
+			reAddCommand("/src/go", local({ localRoot: "/src/go" }), "project"),
+		).toBe("npx agntc add /src/go");
+	});
+
+	it("quotes a folder with a space so the line pastes", () => {
+		expect(
+			reAddCommand(
+				"/src/My Skills/tools",
+				local({ type: "pack", localRoot: "/src/My Skills" }),
+				"global",
+			),
+		).toBe("npx agntc add -g '/src/My Skills/tools' --pack");
+	});
+
+	it("quotes a folder with a quote, escaping it", () => {
+		expect(
+			reAddCommand(
+				"/src/lee's/go",
+				local({ localRoot: "/src/lee's" }),
+				"project",
+			),
+		).toBe("npx agntc add '/src/lee'\\''s/go'");
+	});
+});
+
+describe("localRootOf", () => {
+	it("is the recorded root when there is one", () => {
+		expect(localRootOf("/src/repo/go", local({ localRoot: "/src/repo" }))).toBe(
+			"/src/repo",
+		);
+	});
+
+	it("falls back to the item's own folder for an entry with no recorded path", () => {
+		expect(localRootOf("/src/repo/go", local())).toBe("/src/repo/go");
+	});
+
+	it("falls back to the folder the key sits in for an entry with a recorded path", () => {
+		expect(
+			localRootOf("/src/repo/go", local({ sourceSubpath: "skills/go" })),
+		).toBe("/src/repo");
+	});
+});
+
+describe("localItemPath", () => {
+	it("is the recorded path when there is one", () => {
+		expect(
+			localItemPath(
+				"/src/repo/go",
+				local({ sourceSubpath: "skills/go" }),
+				"/src/repo",
+			),
+		).toBe("skills/go");
+	});
+
+	it("is where the key sits below the root otherwise", () => {
+		expect(localItemPath("/src/repo/packs/tools", local(), "/src/repo")).toBe(
+			"packs/tools",
+		);
+	});
+
+	it("is empty for an item that is the root", () => {
+		expect(localItemPath("/src/go", local(), "/src/go")).toBe("");
 	});
 });
 
@@ -103,13 +228,16 @@ describe("groupReAddCommands", () => {
 
 	it("puts a mixed group's loose skills on one --skill line by folder name, in order, and each pack on its own", () => {
 		expect(
-			groupReAddCommands([
-				skill("owner/repo/zeta", "skills/zeta"),
-				pack("owner/repo/web"),
-				skill("owner/repo/alpha"),
-				pack("owner/repo/tools"),
-				{ key: "owner/repo/mid", entry: makeEntry() },
-			]),
+			groupReAddCommands(
+				[
+					skill("owner/repo/zeta", "skills/zeta"),
+					pack("owner/repo/web"),
+					skill("owner/repo/alpha"),
+					pack("owner/repo/tools"),
+					{ key: "owner/repo/mid", entry: makeEntry() },
+				],
+				"project",
+			),
 		).toEqual([
 			"npx agntc add owner/repo --skill alpha mid zeta",
 			"npx agntc add owner/repo/web --pack",
@@ -121,6 +249,7 @@ describe("groupReAddCommands", () => {
 		expect(
 			groupReAddCommands(
 				[skill("owner/repo/a"), skill("owner/repo/b"), pack("owner/repo/p")],
+				"project",
 				"v2.0.0",
 			),
 		).toEqual([
@@ -131,10 +260,10 @@ describe("groupReAddCommands", () => {
 
 	it("keeps a lone loose skill's path form", () => {
 		expect(
-			groupReAddCommands([
-				skill("owner/repo/go", "skills/lang/go"),
-				pack("owner/repo/p"),
-			]),
+			groupReAddCommands(
+				[skill("owner/repo/go", "skills/lang/go"), pack("owner/repo/p")],
+				"project",
+			),
 		).toEqual([
 			"npx agntc add owner/repo/skills/lang/go",
 			"npx agntc add owner/repo/p --pack",
@@ -143,10 +272,32 @@ describe("groupReAddCommands", () => {
 
 	it("gives a group of packs a line each", () => {
 		expect(
-			groupReAddCommands([pack("owner/repo/a"), pack("owner/repo/b")]),
+			groupReAddCommands(
+				[pack("owner/repo/a"), pack("owner/repo/b")],
+				"project",
+			),
 		).toEqual([
 			"npx agntc add owner/repo/a --pack",
 			"npx agntc add owner/repo/b --pack",
+		]);
+	});
+});
+
+describe("groupReAddCommands for a global group", () => {
+	it("carries -g on every line", () => {
+		expect(
+			groupReAddCommands(
+				[
+					{ key: "owner/repo/a", entry: makeEntry({ type: "skill" }) },
+					{ key: "owner/repo/b", entry: makeEntry({ type: "skill" }) },
+					{ key: "owner/repo/p", entry: makeEntry({ type: "pack" }) },
+				],
+				"global",
+				"v2.0.0",
+			),
+		).toEqual([
+			"npx agntc add -g owner/repo@v2.0.0 --skill a b",
+			"npx agntc add -g owner/repo/p@v2.0.0 --pack",
 		]);
 	});
 });
@@ -208,6 +359,62 @@ describe("isSameSource", () => {
 			),
 		).toBe(false);
 	});
+
+	describe("local entries with their roots recorded", () => {
+		const added = (key: string, localRoot: string, overrides = {}) =>
+			sourceIdOf(key, local({ localRoot, ...overrides }));
+
+		it("match when added from the same folder", () => {
+			expect(
+				isSameSource(
+					added("/src/repo/tools", "/src/repo", { type: "pack" }),
+					added("/src/repo/a", "/src/repo"),
+				),
+			).toBe(true);
+		});
+
+		it("tell a folder apart from one inside it, a nested checkout being a source of its own", () => {
+			expect(
+				isSameSource(
+					added("/src/repo/tools", "/src/repo/tools", { type: "pack" }),
+					added("/src/repo/a", "/src/repo"),
+				),
+			).toBe(false);
+		});
+
+		it("match an add from the same folder exactly", () => {
+			const fetched = (root: string) =>
+				({ kind: "local", root, exact: true }) as const;
+
+			expect(
+				isSameSource(fetched("/src/repo"), added("/src/repo/a", "/src/repo")),
+			).toBe(true);
+			expect(
+				isSameSource(
+					fetched("/src/repo/tools"),
+					added("/src/repo/a", "/src/repo"),
+				),
+			).toBe(false);
+		});
+
+		it("tell unrelated folders apart, neither holding the other", () => {
+			expect(
+				isSameSource(
+					added("/src/repo/a", "/src/repo"),
+					added("/src/repo-two/b", "/src/repo-two"),
+				),
+			).toBe(false);
+		});
+
+		it("fall back to either root holding the other against an entry without one", () => {
+			expect(
+				isSameSource(
+					added("/src/repo/tools", "/src/repo/tools", { type: "pack" }),
+					sourceIdOf("/src/repo/a", local({ sourceSubpath: "a" })),
+				),
+			).toBe(true);
+		});
+	});
 });
 
 describe("recordedSubpath", () => {
@@ -242,5 +449,27 @@ describe("recordedSubpath", () => {
 		expect(recordedSubpath("/src/go", local(), "/src/go", "skills/go")).toBe(
 			"go/skills/go",
 		);
+	});
+
+	describe("for a local entry with its root recorded", () => {
+		const entry = local({ localRoot: "/src/repo" });
+
+		it("omits a path the key leads to from the root", () => {
+			expect(
+				recordedSubpath("/src/repo/go", entry, "/src/repo", "go"),
+			).toBeUndefined();
+		});
+
+		it("records a path relative to the root", () => {
+			expect(
+				recordedSubpath("/src/repo/go", entry, "/src/repo", "lang/go"),
+			).toBe("lang/go");
+		});
+
+		it("records a root skill's new path relative to the root, not above it", () => {
+			expect(
+				recordedSubpath("/src/repo", entry, "/src/repo", "skills/repo"),
+			).toBe("skills/repo");
+		});
 	});
 });

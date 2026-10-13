@@ -33,7 +33,8 @@ import {
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { executeNukeAndReinstall } from "../../src/nuke-reinstall-pipeline.js";
-import { resolveUpdateSourceDir } from "../../src/source-parser.js";
+import { projectScope } from "../../src/scope.js";
+import { resolveGuardedSourceDir } from "../../src/source-parser.js";
 import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 
 async function fileExists(path: string): Promise<boolean> {
@@ -84,6 +85,19 @@ async function keyed(
  * read-time backfill — so a "type" present here was genuinely persisted by a
  * writeManifest, not derived in memory on read.
  */
+/** Where update reads an entry from in a re-cloned tree. */
+function updateSourceDirOf(
+	cloneRoot: string,
+	key: string,
+	sourceSubpath: string | undefined,
+): string {
+	const guarded = resolveGuardedSourceDir(cloneRoot, key, sourceSubpath);
+	if (!guarded.ok) {
+		throw new Error(guarded.message);
+	}
+	return guarded.sourceDir;
+}
+
 async function readRawManifest(projectDir: string): Promise<Manifest> {
 	const raw = await readFile(
 		join(projectDir, ".agntc", "manifest.json"),
@@ -268,7 +282,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: skillDir,
 				existingEntry: entry,
 				installed: { "owner/multi-agent-skill": entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -335,7 +349,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: pluginDir,
 				existingEntry: entry,
 				installed: { "owner/codex-plugin": entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -551,15 +565,11 @@ describe("integration: core workflows", () => {
 
 			const result = await executeNukeAndReinstall({
 				key,
-				sourceDir: resolveUpdateSourceDir(
-					reclonedDir,
-					key,
-					entry.sourceSubpath,
-				),
+				sourceDir: updateSourceDirOf(reclonedDir, key, entry.sourceSubpath),
 				cloneRoot: reclonedDir,
 				existingEntry: entry,
 				installed: { [key]: entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -607,11 +617,7 @@ describe("integration: core workflows", () => {
 			await createFile(reclonedDir, "alpha", "SKILL.md");
 			await createFile(reclonedDir, "alpha", "references", "new.md");
 
-			const updateSourceDir = resolveUpdateSourceDir(
-				reclonedDir,
-				key,
-				undefined,
-			);
+			const updateSourceDir = updateSourceDirOf(reclonedDir, key, undefined);
 			expect(updateSourceDir).toBe(join(reclonedDir, "alpha"));
 
 			const result = await executeNukeAndReinstall({
@@ -620,7 +626,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: reclonedDir,
 				existingEntry: entry,
 				installed: { [key]: entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -741,7 +747,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: reshapedDir,
 				existingEntry: entry,
 				installed: { "owner/reshaped-pack": entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -794,7 +800,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: reshapedDir,
 				existingEntry: entry,
 				installed: { "owner/reshaped-skill": entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -840,7 +846,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: movedDir,
 				existingEntry: entry,
 				installed: { "owner/moving-skill": entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -887,7 +893,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: grownDir,
 				existingEntry: entry,
 				installed: { "owner/growing-pack": entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -944,7 +950,7 @@ describe("integration: core workflows", () => {
 					"owner/repo/review": looseEntry,
 					"owner/repo/tools": packEntry,
 				},
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 
@@ -1080,7 +1086,7 @@ describe("integration: core workflows", () => {
 				cloneRoot: reclonedDir,
 				existingEntry: entry,
 				installed: { "owner/guarded-skill": entry },
-				projectDir,
+				scope: projectScope(projectDir),
 				newCommit: "v2hash",
 			});
 

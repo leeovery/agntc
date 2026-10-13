@@ -90,6 +90,7 @@ import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
+import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
@@ -155,7 +156,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -183,7 +184,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -203,7 +204,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -225,7 +226,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -247,7 +248,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -268,7 +269,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -290,7 +291,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -314,7 +315,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -342,7 +343,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -369,7 +370,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -394,7 +395,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -417,7 +418,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -439,7 +440,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -471,7 +472,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -481,6 +482,34 @@ describe("executeChangeVersionAction", () => {
 				"/fake/project",
 				expect.not.objectContaining({ "owner/repo": expect.anything() }),
 			);
+		});
+	});
+
+	describe("a local source folder that's gone", () => {
+		it("names the recorded root, not the key", async () => {
+			const key = "/Users/lee/Code/skills/go";
+			const entry = makeEntry({
+				commit: null,
+				ref: "v1.0.0",
+				localRoot: "/Users/lee/Code/skills",
+			});
+			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0"]);
+			mockSelect.mockResolvedValue("v1.1.0");
+			mockConfirm.mockResolvedValue(true);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				message: "/Users/lee/Code/skills: path does not exist",
+				notes: [],
+			});
 		});
 	});
 
@@ -507,7 +536,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -519,6 +548,29 @@ describe("executeChangeVersionAction", () => {
 			// Install intact: no nuke, no manifest write.
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("carries -g in the remedy for a global entry", async () => {
+			const entry = makeEntry({ type: "skill", ref: "v1.0.0" });
+			mockSelect.mockResolvedValue("v1.1.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
+
+			const result = await executeChangeVersionAction(
+				"owner/repo",
+				entry,
+				{ "owner/repo": entry },
+				globalScope("/home/lee"),
+				interactiveUi,
+			);
+
+			expect(result.message).toContain(
+				"To migrate: npx agntc remove -g owner/repo then npx agntc add -g owner/repo",
+			);
 		});
 	});
 
@@ -551,7 +603,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -569,7 +621,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -590,7 +642,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -633,7 +685,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -669,7 +721,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 
@@ -692,7 +744,7 @@ describe("executeChangeVersionAction", () => {
 				key,
 				entry,
 				manifest,
-				"/fake/project",
+				projectScope("/fake/project"),
 				interactiveUi,
 			);
 

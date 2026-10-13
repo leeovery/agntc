@@ -60,6 +60,7 @@ import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
 } from "../src/nuke-reinstall-pipeline.js";
+import { globalScope, projectScope } from "../src/scope.js";
 import { checkUnmanagedConflicts } from "../src/unmanaged-check.js";
 
 const mockPathExists = vi.mocked(pathExists);
@@ -80,7 +81,7 @@ function makeOptions(
 		cloneRoot: "/tmp/source",
 		existingEntry: makeEntry({ type: "skill" }),
 		installed: {},
-		projectDir: "/fake/project",
+		scope: projectScope("/fake/project"),
 		...overrides,
 	};
 }
@@ -1014,6 +1015,83 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/my-skill/",
 			]);
+		});
+	});
+
+	describe("a global entry", () => {
+		const options = () => makeOptions({ scope: globalScope("/home/lee") });
+
+		it("removes and copies below the home directory", async () => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await executeNukeAndReinstall(options());
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/home/lee", [
+				".claude/skills/my-skill/",
+			]);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ projectDir: "/home/lee" }),
+			);
+		});
+
+		it("carries -g in a copy failure's re-add command", async () => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			const result = await executeNukeAndReinstall(options());
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				recoveryHint: expect.stringContaining(
+					"Run `npx agntc add -g owner/repo` to install it again.",
+				),
+			});
+		});
+	});
+
+	describe("a local entry's recorded root", () => {
+		it("is kept on the reinstalled entry", async () => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "/src/repo/my-skill",
+					existingEntry: makeEntry({
+						type: "skill",
+						commit: null,
+						localRoot: "/src/repo",
+					}),
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { localRoot: "/src/repo" },
+			});
+		});
+
+		it("stays absent from an entry that never recorded one", async () => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "/src/my-skill",
+					existingEntry: makeEntry({ type: "skill", commit: null }),
+				}),
+			);
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") return;
+			expect(result.entry).not.toHaveProperty("localRoot");
 		});
 	});
 

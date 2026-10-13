@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { type AssetType, identifyAssetType } from "../asset-targets.js";
-import { commandAction, jsonOption } from "../command-action.js";
+import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { removeBody } from "../documents.js";
 import { ExitSignal } from "../exit-signal.js";
 import {
@@ -10,6 +10,13 @@ import {
 } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
+import {
+	agntcCommand,
+	commandTitle,
+	projectScope,
+	type Scope,
+	type ScopeName,
+} from "../scope.js";
 import { renderRemoveSummary } from "../summary.js";
 import { interactiveUi, type Ui } from "../ui.js";
 
@@ -84,12 +91,11 @@ export async function runRemove(
 	key?: string,
 	options: RemoveOptions = {},
 	ui: Ui = interactiveUi,
+	scope: Scope = projectScope(),
 ): Promise<void> {
-	ui.intro("agntc remove");
+	ui.intro(commandTitle("remove", scope.name));
 
-	const projectDir = process.cwd();
-
-	const manifest = await readManifestOrExit(projectDir, ui);
+	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
 		ui.outro("No plugins installed.");
@@ -100,7 +106,7 @@ export async function runRemove(
 	const targets =
 		key !== undefined
 			? targetsForKey(key, manifest, ui)
-			: await pickTargets(manifest, ui);
+			: await pickTargets(manifest, scope.name, ui);
 
 	const allFiles = targets.keys.flatMap((k) => manifest[k]?.files ?? []);
 
@@ -122,7 +128,7 @@ export async function runRemove(
 	for (const k of targets.keys) {
 		const entry = manifest[k];
 		if (entry) {
-			await nukeManifestFiles(projectDir, entry.files);
+			await nukeManifestFiles(scope.root, entry.files);
 		}
 	}
 
@@ -132,7 +138,7 @@ export async function runRemove(
 			updated[k] = v;
 		}
 	}
-	await writeManifest(projectDir, updated);
+	await writeManifest(scope.root, updated);
 
 	ui.outro(
 		renderRemoveSummary({
@@ -148,10 +154,14 @@ function targetsForKey(key: string, manifest: Manifest, ui: Ui): Targets {
 	return { keys, summaryLabel: labelFor(keys, key) };
 }
 
-async function pickTargets(manifest: Manifest, ui: Ui): Promise<Targets> {
+async function pickTargets(
+	manifest: Manifest,
+	scope: ScopeName,
+	ui: Ui,
+): Promise<Targets> {
 	if (ui.mode === "machine") {
 		ui.fail(
-			"remove needs the key of what to remove without a terminal: npx agntc remove <key>",
+			`remove needs the key of what to remove without a terminal: ${agntcCommand(scope, "remove", [])} <key>`,
 			{ flags: ["<key>"] },
 		);
 	}
@@ -198,11 +208,12 @@ export const removeCommand = new Command("remove")
 	.description("Remove installed plugins")
 	.argument("[key]", "Plugin key to remove (owner/repo or owner/repo/plugin)")
 	.option("-y, --yes", "Remove without asking for confirmation")
+	.addOption(globalOption())
 	.addOption(jsonOption())
 	.action(
 		commandAction(
 			"remove",
-			(ui, key: string | undefined, options: RemoveOptions) =>
-				runRemove(key, options, ui),
+			(ui, scope, key: string | undefined, options: RemoveOptions) =>
+				runRemove(key, options, ui, scope),
 		),
 	);

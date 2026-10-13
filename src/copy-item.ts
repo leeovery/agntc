@@ -10,14 +10,14 @@ import type { InstallItem } from "./install-item.js";
 export async function copyItem(
 	item: InstallItem,
 	root: string,
-	projectDir: string,
+	installRoot: string,
 ): Promise<CopyResult> {
 	if (item.kind === "pack") {
-		return copyPack(item.pack, root, projectDir);
+		return copyPack(item.pack, root, installRoot);
 	}
 	const { copiedFiles } = await copyBareSkill({
 		sourceDir: join(root, item.skill.path),
-		projectDir,
+		projectDir: installRoot,
 		skillName: item.skill.name,
 	});
 	return { copiedFiles, assetCounts: { skills: 1 } };

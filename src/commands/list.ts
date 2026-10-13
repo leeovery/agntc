@@ -1,5 +1,5 @@
 import { Command } from "commander";
-import { commandAction, jsonOption } from "../command-action.js";
+import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { listBody } from "../documents.js";
 import {
 	type Manifest,
@@ -7,6 +7,12 @@ import {
 	readManifest,
 	readManifestOrExit,
 } from "../manifest.js";
+import {
+	agntcCommand,
+	commandTitle,
+	projectScope,
+	type Scope,
+} from "../scope.js";
 import { interactiveUi, type Ui } from "../ui.js";
 import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
 import { checkAllForUpdates, checkResultFor } from "../update-check-all.js";
@@ -61,28 +67,32 @@ async function showListView(
 }
 
 /** The dashboard at a terminal; in machine mode, one document of every entry and its update status. */
-export async function runList(ui: Ui = interactiveUi): Promise<void> {
+export async function runList(
+	ui: Ui = interactiveUi,
+	scope: Scope = projectScope(),
+): Promise<void> {
 	if (ui.mode === "machine") {
-		const manifest = await readManifestOrExit(process.cwd(), ui);
+		const manifest = await readManifestOrExit(scope.root, ui);
 		ui.report(listBody(manifest, await checkAllForUpdates(manifest)));
 		return;
 	}
-	await runListLoop(ui);
+	await runListLoop(ui, scope);
 }
 
-export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
-	ui.intro("agntc list");
-
-	const projectDir = process.cwd();
+export async function runListLoop(
+	ui: Ui = interactiveUi,
+	scope: Scope = projectScope(),
+): Promise<void> {
+	ui.intro(commandTitle("list", scope.name));
 
 	while (true) {
-		const manifest = await readManifestOrExit(projectDir, ui);
+		const manifest = await readManifestOrExit(scope.root, ui);
 
 		const entries = Object.entries(manifest);
 
 		if (entries.length === 0) {
 			ui.outro(
-				"No plugins installed. Run npx agntc add owner/repo to get started.",
+				`No plugins installed. Run ${agntcCommand(scope.name, "add", ["owner/repo"])} to get started.`,
 			);
 			return;
 		}
@@ -109,7 +119,7 @@ export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
 		let firstRender = true;
 
 		while (true) {
-			const freshManifest = await readManifest(projectDir);
+			const freshManifest = await readManifest(scope.root);
 			const freshEntry = freshManifest[selectedKey];
 			if (!freshEntry) break;
 
@@ -138,7 +148,7 @@ export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
 					selectedKey,
 					freshEntry,
 					freshManifest,
-					projectDir,
+					scope,
 					ui,
 				);
 				if (result.removed) {
@@ -156,7 +166,7 @@ export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
 					selectedKey,
 					freshEntry,
 					freshManifest,
-					projectDir,
+					scope,
 					ui,
 					overrides,
 				);
@@ -174,7 +184,7 @@ export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
 					selectedKey,
 					freshEntry,
 					freshManifest,
-					projectDir,
+					scope,
 					ui,
 				);
 				if (result.changed) {
@@ -196,5 +206,6 @@ function reportNotes(notes: string[], ui: Ui): void {
 
 export const listCommand = new Command("list")
 	.description("List installed plugins")
+	.addOption(globalOption())
 	.addOption(jsonOption())
-	.action(commandAction("list", (ui) => runList(ui)));
+	.action(commandAction("list", (ui, scope) => runList(ui, scope)));

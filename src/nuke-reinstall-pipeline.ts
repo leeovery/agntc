@@ -1,4 +1,4 @@
-import { basename, join, posix, relative, sep } from "node:path";
+import { basename, join } from "node:path";
 import {
 	absorptionNote,
 	type Claims,
@@ -22,7 +22,7 @@ import {
 } from "./discover.js";
 import { reAddCommand, recordedSubpath, sourceIdOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
-import { pathExists } from "./fs-utils.js";
+import { pathExists, relativePosix } from "./fs-utils.js";
 import {
 	type InstallItem,
 	isEmptyPack,
@@ -35,6 +35,7 @@ import {
 	type ManifestEntry,
 } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
+import type { Scope } from "./scope.js";
 import { memberName, repoFromKey } from "./source-parser.js";
 import { checkUnmanagedConflicts } from "./unmanaged-check.js";
 
@@ -43,14 +44,14 @@ export interface NukeReinstallOptions {
 	sourceDir: string;
 	/**
 	 * The cloned repository root: what `sourceDir` is relative to, and the
-	 * containment boundary for the symlink-escape scan. For local-path mode the
-	 * provided source root is the boundary (`cloneRoot === sourceDir`).
+	 * containment boundary for the symlink-escape scan. For local-path mode it
+	 * is the folder the source was added from.
 	 */
 	cloneRoot: string;
 	existingEntry: ManifestEntry;
 	/** Every installed entry, for what a pack's re-walk absorbs or clashes with. */
 	installed: Manifest;
-	projectDir: string;
+	scope: Scope;
 	newRef?: string | null;
 	newCommit?: string | null;
 }
@@ -189,18 +190,18 @@ async function reinstall(
 	options: NukeReinstallOptions,
 	{ replay, absorbed }: ClearedReplay,
 ): Promise<NukeReinstallResult> {
-	const { key, cloneRoot, existingEntry, installed, projectDir } = options;
+	const { key, cloneRoot, existingEntry, installed, scope } = options;
 
-	await nukeManifestFiles(projectDir, [
+	await nukeManifestFiles(scope.root, [
 		...existingEntry.files,
 		...absorbed.flatMap((looseKey) => installed[looseKey]?.files ?? []),
 	]);
 
 	let copiedFiles: string[];
 	try {
-		({ copiedFiles } = await copyItem(replay.item, cloneRoot, projectDir));
+		({ copiedFiles } = await copyItem(replay.item, cloneRoot, scope.root));
 	} catch (err: unknown) {
-		return copyFailed(key, existingEntry, err, absorbed);
+		return copyFailed(options, err, absorbed);
 	}
 
 	return {
@@ -329,13 +330,7 @@ interface InTheWay extends Claims {
  */
 async function inTheWayOf(
 	item: InstallItem,
-	{
-		key,
-		cloneRoot,
-		existingEntry,
-		installed,
-		projectDir,
-	}: NukeReinstallOptions,
+	{ key, cloneRoot, existingEntry, installed, scope }: NukeReinstallOptions,
 ): Promise<InTheWay> {
 	const incoming = await computeIncomingFiles(item, cloneRoot);
 	const claims: Claims =
@@ -347,7 +342,7 @@ async function inTheWayOf(
 				};
 	return {
 		...claims,
-		unmanaged: await checkUnmanagedConflicts(incoming, installed, projectDir),
+		unmanaged: await checkUnmanagedConflicts(incoming, installed, scope.root),
 	};
 }
 
@@ -363,7 +358,7 @@ function inTheWayReason({ clashes, unmanaged }: InTheWay): string {
 }
 
 function startPathOf({ cloneRoot, sourceDir }: NukeReinstallOptions): string {
-	return relative(cloneRoot, sourceDir).split(sep).join(posix.sep);
+	return relativePosix(cloneRoot, sourceDir);
 }
 
 /** What the walk root is called: the local folder, or the repo. */
@@ -395,12 +390,12 @@ function buildReplayedEntry(
 		cloneUrl: existingEntry.cloneUrl ?? null,
 		constraint: existingEntry.constraint,
 		sourceSubpath: replay.sourceSubpath,
+		localRoot: existingEntry.localRoot,
 	});
 }
 
 function copyFailed(
-	key: string,
-	entry: ManifestEntry,
+	{ key, existingEntry, scope }: NukeReinstallOptions,
 	err: unknown,
 	absorbed: string[],
 ): NukeReinstallCopyFailed {
@@ -413,6 +408,6 @@ function copyFailed(
 		recoveryHint:
 			`Update failed for ${key} after removing old files${takenOver}. ` +
 			`It is currently uninstalled. ` +
-			`Run \`${reAddCommand(key, entry)}\` to install it again.`,
+			`Run \`${reAddCommand(key, existingEntry, scope.name)}\` to install it again.`,
 	};
 }
