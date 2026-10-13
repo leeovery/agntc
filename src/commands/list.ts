@@ -61,7 +61,7 @@ async function showListView(
 	}));
 
 	return ui.select<string>({
-		message: "Select a plugin to manage  (Esc when done)",
+		message: "Select a skill or pack to manage  (Esc when done)",
 		options,
 	});
 }
@@ -92,7 +92,7 @@ export async function runListLoop(
 
 		if (entries.length === 0) {
 			ui.outro(
-				`No plugins installed. Run ${agntcCommand(scope.name, "add", ["owner/repo"])} to get started.`,
+				`No skills or packs installed. Run ${agntcCommand(scope.name, "add", ["owner/repo"])} to get started.`,
 			);
 			return;
 		}
@@ -205,7 +205,7 @@ function reportNotes(notes: string[], ui: Ui): void {
 }
 
 export const listCommand = new Command("list")
-	.description("List installed plugins")
+	.description("List installed skills and packs")
 	.addOption(globalOption())
 	.addOption(jsonOption())
 	.action(commandAction("list", (ui, scope) => runList(ui, scope)));

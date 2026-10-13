@@ -30,7 +30,7 @@ interface Targets {
 	summaryLabel: string;
 }
 
-async function selectPluginsInteractive(
+async function selectKeysInteractive(
 	manifest: Manifest,
 	ui: Ui,
 ): Promise<string[]> {
@@ -41,7 +41,7 @@ async function selectPluginsInteractive(
 	}));
 
 	return ui.multiselect<string>({
-		message: "Select plugins to remove",
+		message: "Select what to remove",
 		options,
 		required: false,
 	});
@@ -98,7 +98,7 @@ export async function runRemove(
 	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
-		ui.outro("No plugins installed.");
+		ui.outro("No skills or packs installed.");
 		ui.report(removeBody([], manifest));
 		return;
 	}
@@ -165,12 +165,12 @@ async function pickTargets(
 			{ flags: ["<key>"] },
 		);
 	}
-	const keys = await selectPluginsInteractive(manifest, ui);
+	const keys = await selectKeysInteractive(manifest, ui);
 	if (keys.length === 0) {
 		ui.cancel("Cancelled");
 		throw new ExitSignal(0);
 	}
-	return { keys, summaryLabel: labelFor(keys, `${keys.length} plugin(s)`) };
+	return { keys, summaryLabel: labelFor(keys, `${keys.length} install(s)`) };
 }
 
 /** A lone key names itself; several go by `several`. */
@@ -205,8 +205,11 @@ async function confirmRemoval(
 }
 
 export const removeCommand = new Command("remove")
-	.description("Remove installed plugins")
-	.argument("[key]", "Plugin key to remove (owner/repo or owner/repo/plugin)")
+	.description("Remove installed skills and packs")
+	.argument(
+		"[key]",
+		"Key to remove (owner/repo or owner/repo/<skill or pack path>)",
+	)
 	.option("-y, --yes", "Remove without asking for confirmation")
 	.addOption(globalOption())
 	.addOption(jsonOption())

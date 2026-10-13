@@ -50,12 +50,34 @@ beforeEach(() => {
 
 describe("renderDetailView", () => {
 	describe("info display", () => {
-		it("displays plugin key", async () => {
+		it("displays a skill's key under Skill", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({ key: "acme/toolkit", entry: { type: "skill" } }),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Skill: acme/toolkit");
+		});
+
+		it("displays a pack's key under Pack", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({ key: "acme/toolkit/laravel", entry: { type: "pack" } }),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Pack: acme/toolkit/laravel");
+		});
+
+		it("displays an untyped entry's key under Skill", async () => {
 			mockSelect.mockResolvedValue("back");
 
 			await renderDetailView(makeInput({ key: "acme/toolkit" }), interactiveUi);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Plugin: acme/toolkit");
+			expect(mockLog.info).toHaveBeenCalledWith("Skill: acme/toolkit");
 		});
 
 		it("displays ref as tag value when ref is set", async () => {

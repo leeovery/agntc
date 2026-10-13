@@ -1,18 +1,16 @@
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, join } from "node:path";
+import { isContained } from "./copy-safety.js";
 import { relativePosix } from "./fs-utils.js";
 import type { ManifestEntry } from "./manifest.js";
 import { agntcCommand, type ScopeName } from "./scope.js";
 import {
+	addSourceFor,
 	deriveCloneUrlFromKey,
+	keySubpath,
 	localSourceRoot,
+	locateSource,
 	memberName,
-	repoFromKey,
 } from "./source-parser.js";
-
-/** A remote key's path below `owner/repo`: `""` for a root key. */
-export function keySuffix(key: string): string {
-	return key.split("/").slice(2).join("/");
-}
 
 /**
  * What makes two entries come from the same source. A local root is `exact`
@@ -51,7 +49,7 @@ export function isSameSource(a: SourceId, b: SourceId): boolean {
 	if (a.exact && b.exact) {
 		return a.root === b.root;
 	}
-	return holds(a.root, b.root) || holds(b.root, a.root);
+	return isContained(a.root, b.root) || isContained(b.root, a.root);
 }
 
 /** The folder a local entry was added from: recorded, or derived from its key. */
@@ -73,11 +71,6 @@ function localKeyPath(key: string, root: string): string {
 	return relativePosix(root, key);
 }
 
-function holds(root: string, path: string): boolean {
-	const rel = relative(root, path);
-	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
 /**
  * The `sourceSubpath` that leads update to `path`, a folder relative to the
  * root the entry's source was walked from. Omitted when the key alone leads
@@ -90,7 +83,7 @@ export function recordedSubpath(
 	path: string,
 ): string | undefined {
 	if (entry.commit !== null) {
-		return path === keySuffix(key) ? undefined : path;
+		return path === keySubpath(key) ? undefined : path;
 	}
 	if (entry.localRoot !== undefined) {
 		return path === localKeyPath(key, entry.localRoot) ? undefined : path;
@@ -141,7 +134,14 @@ export function groupReAddCommands(
 			? []
 			: skills.length === 1
 				? [reAddCommand(first.key, first.entry, scope, version)]
-				: [skillsCommand(repoFromKey(first.key), skills, scope, version)];
+				: [
+						skillsCommand(
+							addSourceFor(first.key, first.entry.cloneUrl),
+							skills,
+							scope,
+							version,
+						),
+					];
 	return [
 		...skillLines,
 		...packs.map(({ key, entry }) => reAddCommand(key, entry, scope, version)),
@@ -149,13 +149,13 @@ export function groupReAddCommands(
 }
 
 function skillsCommand(
-	repo: string,
+	source: string,
 	skills: Array<{ key: string }>,
 	scope: ScopeName,
 	version: string | undefined,
 ): string {
 	const names = skills.map(({ key }) => memberName(key)).sort();
-	const located = version === undefined ? repo : `${repo}@${version}`;
+	const located = locateSource(source, "", version);
 	return agntcCommand(scope, "add", [located, "--skill", ...names]);
 }
 
@@ -164,8 +164,9 @@ function remoteSource(
 	entry: ManifestEntry,
 	version: string | undefined,
 ): string {
-	const path = entry.sourceSubpath || keySuffix(key);
-	const repo = repoFromKey(key);
-	const located = path === "" ? repo : `${repo}/${path}`;
-	return version === undefined ? located : `${located}@${version}`;
+	return locateSource(
+		addSourceFor(key, entry.cloneUrl),
+		entry.sourceSubpath || keySubpath(key),
+		version,
+	);
 }

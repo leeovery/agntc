@@ -198,55 +198,25 @@ function parseSshUrl(input: string): SshUrlSource {
 		throw new Error(`invalid SSH URL: missing owner/repo path in "${input}"`);
 	}
 
-	let pathPart: string;
-	let ref: string | null = null;
+	const { urlPart: pathPart, ref: rawRef } = extractRef(afterColon);
+	const repoPath = splitRepoPath(pathPart);
 
-	const dotGitIndex = afterColon.indexOf(".git");
-	if (dotGitIndex !== -1) {
-		const afterDotGit = afterColon.slice(dotGitIndex + ".git".length);
-		pathPart = afterColon.slice(0, dotGitIndex);
-
-		if (afterDotGit.startsWith("@")) {
-			ref = afterDotGit.slice(1);
-			if (ref === "") {
-				throw new Error("ref cannot be empty when @ is present");
-			}
-		}
-	} else {
-		const atIndex = afterColon.indexOf("@");
-		if (atIndex !== -1) {
-			pathPart = afterColon.slice(0, atIndex);
-			ref = afterColon.slice(atIndex + 1);
-			if (ref === "") {
-				throw new Error("ref cannot be empty when @ is present");
-			}
-		} else {
-			pathPart = afterColon;
-		}
-	}
-
-	const segments = pathPart.split("/").filter((s) => s !== "");
-
-	if (segments.length < 2) {
+	if (repoPath === null) {
 		throw new Error(
 			`invalid SSH URL: expected owner/repo path, got "${pathPart}"`,
 		);
 	}
 
-	const owner = segments[0]!;
-	const repo = segments[1]!;
-	const cloneUrl = `git@${host}:${owner}/${repo}.git`;
-
-	const { ref: finalRef, constraint } = classifyRefOrConstraint(ref);
+	const { owner, repo } = repoPath;
+	const { ref, constraint } = classifyRefOrConstraint(rawRef);
 
 	return {
 		type: "ssh-url",
-		owner,
-		repo,
-		ref: finalRef,
+		...repoPath,
+		ref,
 		constraint,
 		manifestKey: `${owner}/${repo}`,
-		cloneUrl,
+		cloneUrl: `git@${host}:${owner}/${repo}.git`,
 	};
 }
 
@@ -264,31 +234,45 @@ function parseHttpsUrl(input: string): HttpsUrlSource {
 	}
 
 	const host = urlPart.slice(0, slashIndex);
-	const pathPart = urlPart.slice(slashIndex + 1).replace(/\.git$/, "");
+	const pathPart = urlPart.slice(slashIndex + 1);
+	const repoPath = splitRepoPath(pathPart);
 
-	const segments = pathPart.split("/").filter((s) => s !== "");
-
-	if (segments.length < 2) {
+	if (repoPath === null) {
 		throw new Error(
 			`invalid HTTPS URL: expected owner/repo path, got "${pathPart}"`,
 		);
 	}
 
-	const owner = segments[segments.length - 2]!;
-	const repo = segments[segments.length - 1]!;
-	const cloneUrl = `https://${host}/${owner}/${repo}.git`;
-
+	const { owner, repo } = repoPath;
 	const { ref, constraint } = classifyRefOrConstraint(rawRef);
 
 	return {
 		type: "https-url",
-		owner,
-		repo,
+		...repoPath,
 		ref,
 		constraint,
 		manifestKey: `${owner}/${repo}`,
-		cloneUrl,
+		cloneUrl: `https://${host}/${owner}/${repo}.git`,
 	};
+}
+
+/**
+ * A URL's `owner/repo[.git][/path]`: the first two segments name the repo and
+ * the rest is the repo-relative start path, as in `owner/repo/path` shorthand.
+ * Null when the owner or repo is missing.
+ */
+function splitRepoPath(
+	pathPart: string,
+): { owner: string; repo: string; startPath?: string } | null {
+	const [owner, rawRepo = "", ...rest] = pathPart
+		.split("/")
+		.filter((s) => s !== "");
+	const repo = rawRepo.replace(/\.git$/, "");
+	if (owner === undefined || repo === "") {
+		return null;
+	}
+	const startPath = rest.join("/");
+	return { owner, repo, ...(startPath !== "" ? { startPath } : {}) };
 }
 
 function extractRef(input: string): { urlPart: string; ref: string | null } {
@@ -449,8 +433,29 @@ export function localSourceRoot(
 }
 
 /** The repo-relative path a key spells after `owner/repo`; empty for the repo itself. */
-function keySubpath(key: string): string {
+export function keySubpath(key: string): string {
 	return key.split("/").slice(2).join("/");
+}
+
+/**
+ * The source `add` takes to reach a remote key's repo again: `owner/repo`
+ * shorthand for GitHub over HTTPS (or no recorded clone URL), else the clone
+ * URL without `.git`, which takes a path and version as shorthand does.
+ */
+export function addSourceFor(key: string, cloneUrl: string | null): string {
+	const repo = repoFromKey(key);
+	const url = cloneUrl?.replace(/\.git$/, "");
+	return url === undefined || url === `https://github.com/${repo}` ? repo : url;
+}
+
+/** `source[/path][@version]`, the form `add` reads a start path and version in. */
+export function locateSource(
+	source: string,
+	path: string,
+	version?: string,
+): string {
+	const located = path === "" ? source : `${source}/${path}`;
+	return version === undefined ? located : `${located}@${version}`;
 }
 
 /**

@@ -6,6 +6,14 @@ export interface AgntcConfig {
 	type?: string;
 }
 
+/** `"pack"`, and `"plugin"`, which declared a pack before v2. */
+const PACK_TYPES = new Set(["pack", "plugin"]);
+
+/** Whether a folder's config declares it a pack. */
+export function declaresPack(config: AgntcConfig | null): boolean {
+	return PACK_TYPES.has(config?.type ?? "");
+}
+
 export interface ReadConfigOptions {
 	onWarn?: (message: string) => void;
 }

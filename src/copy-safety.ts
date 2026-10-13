@@ -7,7 +7,7 @@ import { dirname, isAbsolute, join, relative, resolve } from "node:path";
  * directories sharing a prefix (`/clone` vs `/clone-evil`) are NOT contained.
  * No filesystem access.
  */
-function isContained(root: string, candidate: string): boolean {
+export function isContained(root: string, candidate: string): boolean {
 	const rel = relative(resolve(root), candidate);
 	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }

@@ -65,7 +65,7 @@ export async function keyItems(
 
 function toKeyedItem(item: InstallItem, sourceKey: string): KeyedItem {
 	const path = itemPath(item);
-	const suffix = keySuffix(item);
+	const suffix = itemKeySuffix(item);
 	return {
 		item,
 		key: suffix === "" ? sourceKey : `${sourceKey}/${suffix}`,
@@ -73,7 +73,7 @@ function toKeyedItem(item: InstallItem, sourceKey: string): KeyedItem {
 	};
 }
 
-function keySuffix(item: InstallItem): string {
+function itemKeySuffix(item: InstallItem): string {
 	if (item.kind === "pack" || item.skill.path === "") {
 		return itemPath(item);
 	}

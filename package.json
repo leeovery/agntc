@@ -1,7 +1,7 @@
 {
 	"name": "agntc",
 	"version": "0.0.0-development",
-	"description": "Agent skills and knowledge installer for AI coding agents",
+	"description": "Install Claude skills and packs from git repos",
 	"keywords": [
 		"agent",
 		"skills",

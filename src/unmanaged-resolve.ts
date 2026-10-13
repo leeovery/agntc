@@ -52,7 +52,7 @@ async function approveOverwrite(
 			},
 			{
 				value: "cancel" as const,
-				label: "Cancel this plugin's install",
+				label: "Cancel this install",
 			},
 		],
 	});

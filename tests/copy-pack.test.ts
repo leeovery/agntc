@@ -164,6 +164,44 @@ describe("copyPack", () => {
 		expect(await installed(".claude/hooks/lint/run.sh")).toBe(true);
 	});
 
+	it("skips hidden entries at every depth of hooks/", async () => {
+		await tree({
+			"laravel/hooks/pre.sh": "",
+			"laravel/hooks/.DS_Store": "",
+			"laravel/hooks/.cache/run.sh": "",
+			"laravel/hooks/lint/run.sh": "",
+			"laravel/hooks/lint/.DS_Store": "",
+			"laravel/hooks/lint/.git/HEAD": "",
+			"laravel/hooks/lint/deep/.env": "",
+			"laravel/hooks/lint/deep/check.sh": "",
+		});
+
+		const result = await copyPack(
+			pack({ assetDirs: ["hooks"] }),
+			root,
+			projectDir,
+		);
+
+		expect([...result.copiedFiles].sort()).toEqual([
+			".claude/hooks/lint/",
+			".claude/hooks/lint/deep/",
+			".claude/hooks/lint/deep/check.sh",
+			".claude/hooks/lint/run.sh",
+			".claude/hooks/pre.sh",
+		]);
+		expect(result.assetCounts.hooks).toBe(2);
+		for (const hidden of [
+			".claude/hooks/.DS_Store",
+			".claude/hooks/.cache",
+			".claude/hooks/lint/.DS_Store",
+			".claude/hooks/lint/.git",
+			".claude/hooks/lint/deep/.env",
+		]) {
+			expect(await installed(hidden)).toBe(false);
+		}
+		expect(await installed(".claude/hooks/lint/deep/check.sh")).toBe(true);
+	});
+
 	it("leaves agents/ and hooks/ alone when the pack doesn't list them", async () => {
 		await tree({
 			"laravel/agents/notes.txt": "",

@@ -1,5 +1,5 @@
 import { identifyAssetType } from "../asset-targets.js";
-import type { ManifestEntry } from "../manifest.js";
+import type { EntryType, ManifestEntry } from "../manifest.js";
 import { formatRefLabel } from "../summary.js";
 import type { Ui } from "../ui.js";
 import {
@@ -15,6 +15,11 @@ export interface DetailViewInput {
 	entry: ManifestEntry;
 	updateStatus: UpdateCheckResult;
 }
+
+const ENTRY_LABELS: Record<EntryType, string> = {
+	skill: "Skill",
+	pack: "Pack",
+};
 
 function formatCommit(entry: ManifestEntry): string {
 	if (entry.commit) return entry.commit.slice(0, 7);
@@ -96,7 +101,7 @@ export async function renderDetailView(
 		? ` (${updateStatus.latestOverall} available outside constraint)`
 		: "";
 
-	ui.log.info(`Plugin: ${key}`);
+	ui.log.info(`${ENTRY_LABELS[entry.type ?? "skill"]}: ${key}`);
 	ui.log.info(`Ref: ${formatRefLabel(entry.ref, entry.commit)}`);
 	if (entry.constraint) {
 		ui.log.info(`Constraint: ${entry.constraint}${outOfConstraint}`);

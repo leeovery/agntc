@@ -453,6 +453,29 @@ describe("add command", () => {
 	});
 
 	describe("choosing", () => {
+		it.each([
+			[
+				"https://gitlab.com/acme/skills@v1.0.0",
+				"npx agntc add https://gitlab.com/acme/skills/tools@v1.0.0 --pack",
+			],
+			[
+				"git@gitlab.com:acme/skills.git",
+				"npx agntc add git@gitlab.com:acme/skills/tools --pack",
+			],
+			[
+				"https://github.com/acme/skills",
+				"npx agntc add acme/skills/tools --pack",
+			],
+		])("points a stray notice for %s at the same source", async (source, command) => {
+			await upstream({ "tools/agents/a.md": "" });
+
+			await exitCode(runAdd(source));
+
+			expect(logged("warn")).toEqual([
+				`tools has agents/ that won't be installed — to install them as a pack: ${command}`,
+			]);
+		});
+
 		it("prints stray notices first, then refuses when nothing is found", async () => {
 			await upstream({ "agents/a.md": "" });
 

@@ -64,6 +64,7 @@ import {
 	type ScopeName,
 } from "../scope.js";
 import {
+	addSourceFor,
 	type ParsedSource,
 	parseSource,
 	resolveCloneUrl,
@@ -254,7 +255,8 @@ function choiceContext(
 	packed?: ReadonlyMap<string, string>,
 ): ChoiceContext {
 	return {
-		source: src.key,
+		source:
+			src.cloneUrl === null ? src.key : addSourceFor(src.key, src.cloneUrl),
 		rootName: src.rootName,
 		scope,
 		...(src.version !== undefined ? { version: src.version } : {}),

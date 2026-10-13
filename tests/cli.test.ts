@@ -82,6 +82,21 @@ describe("agntc --help", () => {
 		expect(stdout).toContain("remove");
 		expect(stdout).toContain("update");
 	});
+
+	it("names what's installed as skills and packs, never plugins or collections", () => {
+		const helps = ["add", "list", "remove", "update", "init"].map(
+			(command) => run([command, "--help"]).stdout,
+		);
+		const all = [run(["--help"]).stdout, ...helps].join("\n");
+
+		expect(all).not.toMatch(/plugin|collection/i);
+		expect(all).toContain("List installed skills and packs");
+		expect(all).toContain("Remove installed skills and packs");
+		expect(all).toContain("Update installed skills and packs");
+		expect(all).toContain(
+			"Key to remove (owner/repo or owner/repo/<skill or pack path>)",
+		);
+	});
 });
 
 describe("agntc add", () => {

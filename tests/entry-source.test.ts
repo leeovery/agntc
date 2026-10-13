@@ -2,25 +2,92 @@ import { describe, expect, it } from "vitest";
 import {
 	groupReAddCommands,
 	isSameSource,
-	keySuffix,
 	localItemPath,
 	localRootOf,
 	reAddCommand,
 	recordedSubpath,
 	sourceIdOf,
 } from "../src/entry-source.js";
+import { parseSource } from "../src/source-parser.js";
 import { makeEntry } from "./helpers/factories.js";
 
 const local = (overrides = {}) =>
 	makeEntry({ ref: null, commit: null, ...overrides });
 
-describe("keySuffix", () => {
-	it("is the path below owner/repo", () => {
-		expect(keySuffix("owner/repo/skills/go")).toBe("skills/go");
+describe("reAddCommand for a source off GitHub shorthand", () => {
+	const GITLAB_HTTPS = "https://gitlab.com/acme/skills.git";
+	const GITLAB_SSH = "git@gitlab.com:acme/skills.git";
+
+	it.each([
+		[
+			GITLAB_HTTPS,
+			"npx agntc add https://gitlab.com/acme/skills/packs/tools@v2.0.0 --pack",
+		],
+		[
+			GITLAB_SSH,
+			"npx agntc add git@gitlab.com:acme/skills/packs/tools@v2.0.0 --pack",
+		],
+		[
+			"git@github.com:acme/skills.git",
+			"npx agntc add git@github.com:acme/skills/packs/tools@v2.0.0 --pack",
+		],
+		[
+			"https://github.com/acme/skills.git",
+			"npx agntc add acme/skills/packs/tools@v2.0.0 --pack",
+		],
+		[
+			"https://github.com/acme/skills",
+			"npx agntc add acme/skills/packs/tools@v2.0.0 --pack",
+		],
+	])("re-adds a pack cloned from %s from that source", (cloneUrl, command) => {
+		expect(
+			reAddCommand(
+				"acme/skills/tools",
+				makeEntry({ type: "pack", cloneUrl, sourceSubpath: "packs/tools" }),
+				"project",
+				"v2.0.0",
+			),
+		).toBe(command);
 	});
 
-	it("is empty for a root key", () => {
-		expect(keySuffix("owner/repo")).toBe("");
+	it.each([
+		GITLAB_HTTPS,
+		GITLAB_SSH,
+	])("prints a %s line that parses back to the same clone URL and path", async (cloneUrl) => {
+		const command = reAddCommand(
+			"acme/skills/go",
+			makeEntry({ type: "skill", cloneUrl, sourceSubpath: "skills/go" }),
+			"project",
+		);
+
+		expect(
+			await parseSource(command.replace("npx agntc add ", "")),
+		).toMatchObject({ cloneUrl, startPath: "skills/go", ref: null });
+	});
+
+	it("re-adds a root entry by the URL alone", () => {
+		expect(
+			reAddCommand(
+				"acme/skills",
+				makeEntry({ type: "skill", cloneUrl: GITLAB_HTTPS }),
+				"project",
+			),
+		).toBe("npx agntc add https://gitlab.com/acme/skills");
+	});
+
+	it("puts a group's loose skills on one --skill line by the URL", () => {
+		const skill = (key: string) => ({
+			key,
+			entry: makeEntry({ type: "skill", cloneUrl: GITLAB_SSH }),
+		});
+
+		expect(
+			groupReAddCommands(
+				[skill("acme/skills/a"), skill("acme/skills/b")],
+				"project",
+				"v1.0.0",
+			),
+		).toEqual(["npx agntc add git@gitlab.com:acme/skills@v1.0.0 --skill a b"]);
 	});
 });
 

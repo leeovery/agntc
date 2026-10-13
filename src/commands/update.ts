@@ -132,7 +132,7 @@ async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
 	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
-		ui.outro("No plugins installed.");
+		ui.outro("No skills or packs installed.");
 		ui.report(updateBody(manifest, [], new Map()));
 		return;
 	}
@@ -235,7 +235,7 @@ async function settleKey(
 			return { status: "newer-tags", key };
 		case "constrained-no-match":
 			ui.log.error(
-				`No tags satisfy the constraint for ${key}. Plugin left untouched.`,
+				`No tags satisfy the constraint for ${key}. Left untouched.`,
 			);
 			return { status: "constrained-no-match", key };
 		case "constrained-update-available":
@@ -456,7 +456,7 @@ async function runAllUpdates(run: UpdateRun): Promise<void> {
 	const entries = Object.entries(manifest);
 
 	if (entries.length === 0) {
-		ui.outro("No plugins installed.");
+		ui.outro("No skills or packs installed.");
 		ui.report(updateBody(manifest, [], new Map()));
 		return;
 	}
@@ -489,7 +489,7 @@ async function runAllUpdates(run: UpdateRun): Promise<void> {
 	const allUpToDate =
 		!categorized.hasNotableCategory && localEntries.length === 0;
 	if (allUpToDate) {
-		ui.outro("All plugins are up to date.");
+		ui.outro("Everything is up to date.");
 	} else {
 		for (const nonActioned of categorized.nonActionedGroups) {
 			emitCollapsedGroupSummary(
@@ -1175,8 +1175,11 @@ function renderOutOfConstraintOutput(
 }
 
 export const updateCommand = new Command("update")
-	.description("Update installed plugins")
-	.argument("[key]", "Plugin key to update (owner/repo or owner/repo/plugin)")
+	.description("Update installed skills and packs")
+	.argument(
+		"[key]",
+		"Key to update (owner/repo or owner/repo/<skill or pack path>)",
+	)
 	.option("-y, --yes", "Remove what's gone upstream without asking")
 	.addOption(globalOption())
 	.addOption(jsonOption())

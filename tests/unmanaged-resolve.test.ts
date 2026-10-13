@@ -301,4 +301,20 @@ describe("resolveUnmanagedConflicts", () => {
 		expect(values).toContain("cancel");
 		expect(values).toHaveLength(2);
 	});
+
+	it("labels cancel as cancelling this install", async () => {
+		mockedSelect.mockResolvedValueOnce("cancel");
+
+		await resolveUnmanagedConflicts(
+			[{ pluginKey: "owner/repo-a", files: [".claude/skills/my-skill/"] }],
+			interactiveUi,
+		);
+
+		const { options } = mockedSelect.mock.calls[0]![0] as {
+			options: Array<{ value: string; label: string }>;
+		};
+		expect(options.find((o) => o.value === "cancel")?.label).toBe(
+			"Cancel this install",
+		);
+	});
 });

@@ -10,9 +10,12 @@ import {
 	it,
 } from "vitest";
 import {
+	addSourceFor,
 	buildParsedSourceFromKey,
 	deriveCloneUrlFromKey,
+	keySubpath,
 	localSourceRoot,
+	locateSource,
 	memberName,
 	type ParsedSource,
 	parseSource,
@@ -522,6 +525,118 @@ describe("parseSource", () => {
 				manifestKey: "owner/repo",
 				cloneUrl: "git@github.com:owner/repo.git",
 			});
+		});
+	});
+
+	describe("URLs with a path inside the repo", () => {
+		it("takes owner and repo from the first two HTTPS segments, the rest as start path", async () => {
+			const result = await parseSource("https://github.com/owner/repo/laravel");
+			expect(result).toEqual({
+				type: "https-url",
+				owner: "owner",
+				repo: "repo",
+				ref: null,
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "laravel",
+			});
+		});
+
+		it("keeps a nested HTTPS path whole, with a ref", async () => {
+			const result = await parseSource(
+				"https://github.com/owner/repo/skills/laravel@v1.2.0",
+			);
+			expect(result).toEqual({
+				type: "https-url",
+				owner: "owner",
+				repo: "repo",
+				ref: "v1.2.0",
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "skills/laravel",
+			});
+		});
+
+		it("strips .git from the HTTPS repo segment before a path, with a constraint", async () => {
+			const result = await parseSource(
+				"https://github.com/owner/repo.git/laravel/@^1.0",
+			);
+			expect(result).toEqual({
+				type: "https-url",
+				owner: "owner",
+				repo: "repo",
+				ref: null,
+				constraint: "^1.0",
+				manifestKey: "owner/repo",
+				cloneUrl: "https://github.com/owner/repo.git",
+				startPath: "laravel",
+			});
+		});
+
+		it("takes owner and repo from the first two SSH segments, the rest as start path", async () => {
+			const result = await parseSource("git@github.com:owner/repo/laravel");
+			expect(result).toEqual({
+				type: "ssh-url",
+				owner: "owner",
+				repo: "repo",
+				ref: null,
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "git@github.com:owner/repo.git",
+				startPath: "laravel",
+			});
+		});
+
+		it("strips .git from the SSH repo segment before a path, with a ref", async () => {
+			const result = await parseSource(
+				"git@github.com:owner/repo.git/skills/laravel@main",
+			);
+			expect(result).toEqual({
+				type: "ssh-url",
+				owner: "owner",
+				repo: "repo",
+				ref: "main",
+				constraint: null,
+				manifestKey: "owner/repo",
+				cloneUrl: "git@github.com:owner/repo.git",
+				startPath: "skills/laravel",
+			});
+		});
+
+		it("reads an SSH path with a constraint", async () => {
+			const result = await parseSource("git@github.com:owner/repo/laravel@^2");
+			expect(result).toMatchObject({
+				repo: "repo",
+				ref: null,
+				constraint: "^2",
+				startPath: "laravel",
+			});
+		});
+
+		it("strips .git only as a suffix of the SSH repo segment", async () => {
+			const result = await parseSource(
+				"git@github.com:owner/owner.github.io.git",
+			);
+			expect(result).toEqual({
+				type: "ssh-url",
+				owner: "owner",
+				repo: "owner.github.io",
+				ref: null,
+				constraint: null,
+				manifestKey: "owner/owner.github.io",
+				cloneUrl: "git@github.com:owner/owner.github.io.git",
+			});
+		});
+
+		it("refuses a URL whose repo segment is only .git", async () => {
+			await expect(
+				parseSource("https://github.com/owner/.git"),
+			).rejects.toThrow(/invalid HTTPS URL/);
+			await expect(parseSource("git@github.com:owner/.git")).rejects.toThrow(
+				/invalid SSH URL/,
+			);
 		});
 	});
 
@@ -1388,6 +1503,60 @@ describe("constraint type guarantees", () => {
 		if (source.type === "tree-url") {
 			expectTypeOf(source.constraint).toEqualTypeOf<null>();
 		}
+	});
+});
+
+describe("keySubpath", () => {
+	it("is the path below owner/repo", () => {
+		expect(keySubpath("owner/repo/skills/go")).toBe("skills/go");
+	});
+
+	it("is empty for a root key", () => {
+		expect(keySubpath("owner/repo")).toBe("");
+	});
+});
+
+describe("addSourceFor", () => {
+	it("is owner/repo shorthand with no clone URL recorded", () => {
+		expect(addSourceFor("owner/repo/go", null)).toBe("owner/repo");
+	});
+
+	it("is owner/repo shorthand for GitHub over HTTPS, with or without .git", () => {
+		expect(
+			addSourceFor("owner/repo/go", "https://github.com/owner/repo.git"),
+		).toBe("owner/repo");
+		expect(addSourceFor("owner/repo", "https://github.com/owner/repo")).toBe(
+			"owner/repo",
+		);
+	});
+
+	it("is the clone URL without .git for another host", () => {
+		expect(
+			addSourceFor("acme/skills/go", "https://gitlab.com/acme/skills.git"),
+		).toBe("https://gitlab.com/acme/skills");
+	});
+
+	it("is the SSH form without .git for an SSH clone, GitHub included", () => {
+		expect(addSourceFor("acme/skills", "git@gitlab.com:acme/skills.git")).toBe(
+			"git@gitlab.com:acme/skills",
+		);
+		expect(addSourceFor("acme/skills", "git@github.com:acme/skills.git")).toBe(
+			"git@github.com:acme/skills",
+		);
+	});
+});
+
+describe("locateSource", () => {
+	it("appends a path, then a version", () => {
+		expect(locateSource("owner/repo", "skills/go", "v1.0.0")).toBe(
+			"owner/repo/skills/go@v1.0.0",
+		);
+	});
+
+	it("leaves out an empty path and a missing version", () => {
+		expect(locateSource("git@gitlab.com:acme/skills", "")).toBe(
+			"git@gitlab.com:acme/skills",
+		);
 	});
 });
 

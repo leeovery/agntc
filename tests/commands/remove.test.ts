@@ -53,12 +53,12 @@ beforeEach(() => {
 
 describe("remove command", () => {
 	describe("empty manifest", () => {
-		it("displays 'No plugins installed.' and exits 0", async () => {
+		it("displays 'No skills or packs installed.' and exits 0", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
 			await expect(runRemove("owner/repo")).resolves.toBeUndefined();
 
-			expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 		});
 	});
 
@@ -254,7 +254,7 @@ describe("remove command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Plugin nonexistent/plugin is not installed.",
+				"nonexistent/plugin is not installed.",
 			);
 		});
 	});
@@ -560,7 +560,7 @@ describe("remove command", () => {
 
 				await expect(runRemove()).resolves.toBeUndefined();
 
-				expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+				expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 				expect(mockMultiselect).not.toHaveBeenCalled();
 			});
 		});
@@ -591,6 +591,7 @@ describe("remove command", () => {
 				const call = mockMultiselect.mock.calls[0]![0];
 				const values = call.options.map((o: { value: string }) => o.value);
 				expect(values).toEqual(["owner/repo", "other/plugin"]);
+				expect(call.message).toBe("Select what to remove");
 			});
 
 			it("shows the 'agntc remove' intro before the multiselect", async () => {
@@ -862,7 +863,7 @@ describe("remove command", () => {
 				await runRemove();
 
 				expect(mockOutro).toHaveBeenCalledWith(
-					"Removed 2 plugin(s) — 3 file(s)",
+					"Removed 2 install(s) — 3 file(s)",
 				);
 			});
 		});
@@ -1112,7 +1113,7 @@ describe("remove command", () => {
 				ok: false,
 				command: "remove",
 				scope: "project",
-				error: { message: "Plugin nope/repo is not installed." },
+				error: { message: "nope/repo is not installed." },
 				warnings: [],
 				notes: [],
 			});

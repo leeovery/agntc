@@ -113,6 +113,22 @@ describe("computeIncomingFiles", () => {
 
 			expect([...incoming].sort()).toEqual([...copiedFiles].sort());
 		});
+
+		it("skips hidden hooks/ entries, matching what copying installs", async () => {
+			await tree({
+				"p/hooks/h.sh": "",
+				"p/hooks/.DS_Store": "",
+				"p/hooks/.cache/run.sh": "",
+			});
+			const item = packItem({ assetDirs: ["hooks"] });
+			const projectDir = join(base, "project");
+
+			const incoming = await computeIncomingFiles(item, root);
+			const { copiedFiles } = await copyItem(item, root, projectDir);
+
+			expect(incoming).toEqual([".claude/hooks/h.sh"]);
+			expect(copiedFiles).toEqual(incoming);
+		});
 	});
 });
 

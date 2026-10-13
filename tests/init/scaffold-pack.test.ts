@@ -143,10 +143,20 @@ describe("packScaffold", () => {
 		expect(await packScaffold.warnings(packDir)).toEqual([]);
 	});
 
+	it('has nothing to warn about when an agntc.json already there declares the legacy "plugin"', async () => {
+		await writeFile(join(packDir, "agntc.json"), '{"type": "plugin"}');
+		await scaffold();
+
+		expect(await packScaffold.warnings(packDir)).toEqual([]);
+		expect((await discover(packDir, { rootName: "my-pack" })).packs).toEqual([
+			expect.objectContaining({ path: "" }),
+		]);
+	});
+
 	it.each([
 		["declares nothing", "{}"],
 		["isn't JSON", "not json"],
-		["declares the retired type", '{"type": "plugin"}'],
+		["declares another type", '{"type": "skill"}'],
 	])("warns when an agntc.json already there %s", async (_, content) => {
 		await writeFile(join(packDir, "agntc.json"), content);
 		await scaffold();

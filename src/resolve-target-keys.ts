@@ -15,7 +15,7 @@ export function resolveTargetKeys(
 	const prefixKeys = Object.keys(manifest).filter((k) => k.startsWith(prefix));
 
 	if (prefixKeys.length === 0) {
-		ui.fail(`Plugin ${key} is not installed.`, { style: "error" });
+		ui.fail(`${key} is not installed.`, { style: "error" });
 	}
 
 	return prefixKeys;

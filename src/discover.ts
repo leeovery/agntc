@@ -1,7 +1,7 @@
 import type { Dirent } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { join, posix } from "node:path";
-import { readConfig } from "./config.js";
+import { declaresPack, readConfig } from "./config.js";
 import { assertSubpathWithinClone } from "./copy-safety.js";
 import { readSkillFrontmatter } from "./frontmatter.js";
 import { pathExists } from "./fs-utils.js";
@@ -80,7 +80,6 @@ export class StartPathError extends Error {
 
 const MAX_DEPTH = 5;
 const SKIPPED_DIRS = new Set(["node_modules", "dist", "build", "vendor"]);
-const PACK_TYPES = new Set(["pack", "plugin"]);
 const PACK_ASSET_DIRS: readonly PackAssetDir[] = ["agents", "hooks"];
 const ASSET_FILE_TESTS: Record<PackAssetDir, (entry: Dirent) => boolean> = {
 	agents: (entry) => entry.isFile() && entry.name.endsWith(".md"),
@@ -342,7 +341,9 @@ async function classifyFolder(
 ): Promise<FolderKind> {
 	const abs = absolute(ctx, path);
 	const isSkill = await pathExists(join(abs, "SKILL.md"));
-	const isPack = packsDeclarable && (await declaresPack(abs, ctx.onWarn));
+	const isPack =
+		packsDeclarable &&
+		declaresPack(await readConfig(abs, { onWarn: ctx.onWarn }));
 	if (isSkill && isPack) {
 		ctx.onWarn?.(
 			`"${displayPath(ctx, path)}" has SKILL.md and declares a pack — treating it as a skill`,
@@ -352,14 +353,6 @@ async function classifyFolder(
 		return "skill";
 	}
 	return isPack ? "pack" : "plain";
-}
-
-async function declaresPack(
-	abs: string,
-	onWarn?: (message: string) => void,
-): Promise<boolean> {
-	const config = await readConfig(abs, { onWarn });
-	return PACK_TYPES.has(config?.type ?? "");
 }
 
 async function qualifyingAssetDirs(

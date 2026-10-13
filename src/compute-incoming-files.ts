@@ -1,8 +1,12 @@
 import { join, posix } from "node:path";
 import { skillTarget } from "./asset-targets.js";
-import { agentTarget, hookTarget, listAgentFiles } from "./copy-pack.js";
+import {
+	agentTarget,
+	hookTarget,
+	listAgentFiles,
+	listHookEntries,
+} from "./copy-pack.js";
 import type { FoundPack, FoundSkill } from "./discover.js";
-import { readDirEntries } from "./fs-utils.js";
 import type { InstallItem } from "./install-item.js";
 import { withoutTrailingSlash } from "./install-paths.js";
 import { joinWithAnd } from "./summary.js";
@@ -87,7 +91,7 @@ async function packAssetClaims(
 		}
 	}
 	if (pack.assetDirs.includes("hooks")) {
-		const hooks = await readDirEntries(join(packDir, "hooks"));
+		const hooks = await listHookEntries(join(packDir, "hooks"));
 		for (const entry of hooks) {
 			claims.push({
 				target: hookTarget(entry),

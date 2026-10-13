@@ -382,10 +382,10 @@ describe("renderRemoveSummary", () => {
 
 	it("shows count label for multiple plugins", () => {
 		const result = renderRemoveSummary({
-			summaryLabel: "3 plugin(s)",
+			summaryLabel: "3 install(s)",
 			fileCount: 12,
 		});
-		expect(result).toBe("Removed 3 plugin(s) — 12 file(s)");
+		expect(result).toBe("Removed 3 install(s) — 12 file(s)");
 	});
 
 	it("handles zero files", () => {

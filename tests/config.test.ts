@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { readConfig } from "../src/config.js";
+import { declaresPack, readConfig } from "../src/config.js";
 
 vi.mock("node:fs/promises");
 
@@ -169,5 +169,18 @@ describe("readConfig", () => {
 			path.join("/my/repo", "agntc.json"),
 			"utf-8",
 		);
+	});
+});
+
+describe("declaresPack", () => {
+	it('is true for "pack" and the legacy "plugin"', () => {
+		expect(declaresPack({ type: "pack" })).toBe(true);
+		expect(declaresPack({ type: "plugin" })).toBe(true);
+	});
+
+	it("is false for any other type, no type or no config", () => {
+		expect(declaresPack({ type: "skill" })).toBe(false);
+		expect(declaresPack({})).toBe(false);
+		expect(declaresPack(null)).toBe(false);
 	});
 });

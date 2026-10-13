@@ -176,7 +176,7 @@ describe("update -g", () => {
 		expect(run.document).toMatchObject({
 			ok: false,
 			scope: "global",
-			error: { message: `Plugin ${BAR()} is not installed.` },
+			error: { message: `${BAR()} is not installed.` },
 		});
 	});
 
@@ -245,11 +245,11 @@ describe("remove -g", () => {
 
 		expect(global.exitCode).toBe(1);
 		expect(global.document.error).toEqual({
-			message: `Plugin ${BAR()} is not installed.`,
+			message: `${BAR()} is not installed.`,
 		});
 		expect(project.exitCode).toBe(1);
 		expect(project.document.error).toEqual({
-			message: `Plugin ${FOO()} is not installed.`,
+			message: `${FOO()} is not installed.`,
 		});
 		expect(await exists(join(home, ".claude/skills/foo"))).toBe(true);
 		expect(await exists(join(projectDir, ".claude/skills/bar"))).toBe(true);
@@ -293,7 +293,7 @@ describe("at a terminal", () => {
 		await runListLoop(interactiveUi, scope());
 
 		expect(vi.mocked(p.outro)).toHaveBeenCalledWith(
-			"No plugins installed. Run npx agntc add -g owner/repo to get started.",
+			"No skills or packs installed. Run npx agntc add -g owner/repo to get started.",
 		);
 	});
 });

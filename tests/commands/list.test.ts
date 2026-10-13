@@ -123,7 +123,7 @@ describe("runListLoop", () => {
 			await runListLoop();
 
 			expect(mockOutro).toHaveBeenCalledWith(
-				"No plugins installed. Run npx agntc add owner/repo to get started.",
+				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 			expect(mockSelect).not.toHaveBeenCalled();
 		});
@@ -147,6 +147,18 @@ describe("runListLoop", () => {
 			).toBe(false);
 			expect(mockRenderDetailView).not.toHaveBeenCalled();
 		});
+	});
+
+	it("asks for a skill or pack to manage", async () => {
+		mockReadManifestOrExit.mockResolvedValue(makeManifest(["owner/skill"]));
+		mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill"]));
+		mockSelect.mockResolvedValue(Symbol("cancel"));
+
+		await runListLoop();
+
+		expect(mockSelect.mock.calls[0]![0].message).toBe(
+			"Select a skill or pack to manage  (Esc when done)",
+		);
 	});
 
 	describe("cancel", () => {
@@ -257,7 +269,7 @@ describe("runListLoop", () => {
 
 			expect(mockLog.success).toHaveBeenCalledWith("Removed owner/only-skill");
 			expect(mockOutro).toHaveBeenCalledWith(
-				"No plugins installed. Run npx agntc add owner/repo to get started.",
+				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 		});
 	});
@@ -470,7 +482,7 @@ describe("runListLoop", () => {
 			expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
 			expect(mockExecuteRemoveAction).toHaveBeenCalledTimes(1);
 			expect(mockOutro).toHaveBeenCalledWith(
-				"No plugins installed. Run npx agntc add owner/repo to get started.",
+				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 		});
 	});

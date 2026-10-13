@@ -14,6 +14,7 @@ import {
 	pathLabel,
 } from "./install-item.js";
 import { agntcCommand, type ScopeName } from "./scope.js";
+import { locateSource } from "./source-parser.js";
 import { joinWithAnd, pluralize } from "./summary.js";
 
 /** What the user asked `add` to install. */
@@ -38,7 +39,10 @@ export type SelectionResult =
 
 /** Where the items come from, for labels and the commands notices suggest. */
 export interface ChoiceContext {
-	/** `owner/repo`, or the local path. */
+	/**
+	 * What `add` takes to reach the source: `owner/repo`, the clone URL for
+	 * another host or SSH, or the local path.
+	 */
 	source: string;
 	/** The `@ref` or `@constraint` the user gave, without the `@`. */
 	version?: string;
@@ -287,7 +291,7 @@ function nothingToInstall(discovery: Discovery, ctx: ChoiceContext): string {
 function strayNotice(stray: StrayAssets, ctx: ChoiceContext): string {
 	const dirs = joinWithAnd(stray.assetDirs.map((dir) => `${dir}/`));
 	const command = agntcCommand(ctx.scope, "add", [
-		addSource(stray.path, ctx),
+		locateSource(ctx.source, stray.path, ctx.version),
 		"--pack",
 	]);
 	return `${pathLabel(stray.path, ctx.rootName)} has ${dirs} that won't be installed — to install them as a pack: ${command}`;
@@ -318,11 +322,6 @@ function leftOutOf(pack: FoundPack, present: Set<string>): string {
 	const assets =
 		pack.assetDirs.length > 0 ? `its ${pack.assetDirs.join("/")}` : "";
 	return [otherSkills, assets].filter((part) => part !== "").join(" and ");
-}
-
-function addSource(path: string, ctx: ChoiceContext): string {
-	const located = path === "" ? ctx.source : `${ctx.source}/${path}`;
-	return ctx.version === undefined ? located : `${located}@${ctx.version}`;
 }
 
 function byPath(a: { path: string }, b: { path: string }): number {

@@ -304,7 +304,7 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 
@@ -366,7 +366,7 @@ describe("update command", () => {
 			expect(mockSpinner.stop).toHaveBeenCalled();
 		});
 
-		it("shows all up-to-date message when all plugins are current", async () => {
+		it("shows all up-to-date message when every entry is current", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-a": makeEntry(),
 				"owner/repo-b": makeEntry(),
@@ -375,9 +375,7 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			expect(mockOutro).toHaveBeenCalledWith(
-				expect.stringContaining("up to date"),
-			);
+			expect(mockOutro).toHaveBeenCalledWith("Everything is up to date.");
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
@@ -1955,7 +1953,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo");
 
-			expect(mockOutro).toHaveBeenCalledWith("No plugins installed.");
+			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 	});
@@ -1971,7 +1969,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Plugin owner/repo is not installed.",
+				"owner/repo is not installed.",
 			);
 		});
 	});
@@ -3303,7 +3301,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"No tags satisfy the constraint for owner/repo. Plugin left untouched.",
+				"No tags satisfy the constraint for owner/repo. Left untouched.",
 			);
 		});
 
@@ -4374,7 +4372,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Plugin nonexistent/repo is not installed.",
+				"nonexistent/repo is not installed.",
 			);
 		});
 
@@ -5257,8 +5255,8 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			// Should NOT show "All plugins are up to date" — there was an update
-			expect(mockOutro).not.toHaveBeenCalledWith("All plugins are up to date.");
+			// Should NOT show "Everything is up to date." — there was an update
+			expect(mockOutro).not.toHaveBeenCalledWith("Everything is up to date.");
 		});
 	});
 
@@ -6274,7 +6272,7 @@ describe("update without a terminal", () => {
 				ok: false,
 				command: "update",
 				scope: "project",
-				error: { message: "Plugin owner/repo is not installed." },
+				error: { message: "owner/repo is not installed." },
 				warnings: [],
 				notes: [],
 			});
