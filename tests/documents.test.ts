@@ -191,15 +191,39 @@ describe("listBody", () => {
 
 describe("removeBody", () => {
 	it("describes each removed entry with the files it deleted", () => {
-		expect(removeBody(["owner/repo"], before)).toEqual({
-			removed: [
+		expect(removeBody(before, { removed: ["owner/repo"], failed: [] })).toEqual(
+			{
+				removed: [
+					{
+						key: "owner/repo",
+						type: "pack",
+						ref: "v1.0.0",
+						commit: OLD,
+						constraint: "^1.0.0",
+						files: [".claude/skills/my-skill/"],
+					},
+				],
+				failed: [],
+			},
+		);
+	});
+
+	it("describes each entry it couldn't remove with the reason", () => {
+		expect(
+			removeBody(before, {
+				removed: [],
+				failed: [{ key: "owner/repo", reason: "EACCES" }],
+			}),
+		).toEqual({
+			removed: [],
+			failed: [
 				{
 					key: "owner/repo",
 					type: "pack",
 					ref: "v1.0.0",
 					commit: OLD,
 					constraint: "^1.0.0",
-					files: [".claude/skills/my-skill/"],
+					reason: "EACCES",
 				},
 			],
 		});

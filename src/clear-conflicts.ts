@@ -4,7 +4,7 @@ import {
 	resolveCollisions,
 } from "./collision-resolve.js";
 import type { Manifest } from "./manifest.js";
-import { nukeManifestFiles } from "./nuke-files.js";
+import { removePathsInTheWay } from "./nuke-files.js";
 import { joinWithAnd } from "./summary.js";
 import type { Mode, Ui } from "./ui.js";
 import { checkUnmanagedConflicts } from "./unmanaged-check.js";
@@ -142,6 +142,6 @@ async function clearUnmanaged(
 			return NOT_RESOLVED;
 		}
 	}
-	await nukeManifestFiles(projectDir, files);
+	await removePathsInTheWay(projectDir, files);
 	return null;
 }

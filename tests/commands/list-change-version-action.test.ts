@@ -687,6 +687,28 @@ describe("executeChangeVersionAction", () => {
 				{ "owner/other": other },
 			);
 		});
+
+		it("keeps it and reports the failure, without throwing, when removing it fails", async () => {
+			arrangeGone(true);
+			mockNukeManifestFiles.mockRejectedValue(
+				new Error("EACCES: permission denied"),
+			);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				message: "EACCES: permission denied",
+				notes: [],
+			});
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("blocked (symlink-escape copy-safety)", () => {

@@ -131,16 +131,37 @@ export interface RemovedJson extends EntryJson {
 	files: string[];
 }
 
+export interface FailedRemovalJson extends EntryJson {
+	reason: string;
+}
+
+/** A key `remove` couldn't remove, and why; its entry stays recorded. */
+export interface RemovalFailure {
+	key: string;
+	reason: string;
+}
+
+/** What became of the keys `remove` set out to remove. */
+export interface Removal {
+	removed: string[];
+	failed: RemovalFailure[];
+}
+
+/** `manifest` is the one the run started from. */
 export function removeBody(
-	keys: string[],
 	manifest: Manifest,
-): { removed: RemovedJson[] } {
+	{ removed, failed }: Removal,
+): { removed: RemovedJson[]; failed: FailedRemovalJson[] } {
 	return {
-		removed: keys.flatMap((key) => {
+		removed: removed.flatMap((key) => {
 			const entry = manifest[key];
 			return entry === undefined
 				? []
 				: [{ ...entryJson(key, entry), files: entry.files }];
+		}),
+		failed: failed.flatMap(({ key, reason }) => {
+			const entry = manifest[key];
+			return entry === undefined ? [] : [{ ...entryJson(key, entry), reason }];
 		}),
 	};
 }

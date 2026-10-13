@@ -1,11 +1,13 @@
 import { Command } from "commander";
 import { type AssetType, identifyAssetType } from "../asset-targets.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
-import { removeBody } from "../documents.js";
+import { type Removal, removeBody } from "../documents.js";
+import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import {
 	type Manifest,
 	readManifestOrExit,
+	removeEntry,
 	writeManifest,
 } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
@@ -99,7 +101,7 @@ export async function runRemove(
 
 	if (Object.keys(manifest).length === 0) {
 		ui.outro("No skills or packs installed.");
-		ui.report(removeBody([], manifest));
+		ui.report(removeBody(manifest, { removed: [], failed: [] }));
 		return;
 	}
 
@@ -125,28 +127,60 @@ export async function runRemove(
 
 	await confirmRemoval(targets.summaryLabel, allFiles.length, options, ui);
 
-	for (const k of targets.keys) {
-		const entry = manifest[k];
-		if (entry) {
-			await nukeManifestFiles(scope.root, entry.files);
-		}
-	}
-
-	const updated: Manifest = {};
-	for (const [k, v] of Object.entries(manifest)) {
-		if (!targets.keys.includes(k)) {
-			updated[k] = v;
-		}
-	}
-	await writeManifest(scope.root, updated);
-
-	ui.outro(
-		renderRemoveSummary({
-			summaryLabel: targets.summaryLabel,
-			fileCount: allFiles.length,
-		}),
+	const removal = await removeEach(targets.keys, manifest, scope.root);
+	await writeManifest(
+		scope.root,
+		removal.removed.reduce(removeEntry, manifest),
 	);
-	ui.report(removeBody(targets.keys, manifest));
+
+	for (const failure of removal.failed) {
+		ui.log.error(
+			`${failure.key}: failed — ${failure.reason}; it stays recorded`,
+		);
+	}
+	ui.outro(removalSummary(targets, removal, manifest));
+	ui.report(removeBody(manifest, removal));
+
+	if (removal.failed.length > 0) {
+		throw new ExitSignal(1);
+	}
+}
+
+/**
+ * Removes each key's files, carrying on past a key that fails, which stays
+ * recorded so whatever is left of it stays tracked.
+ */
+async function removeEach(
+	keys: string[],
+	manifest: Manifest,
+	installRoot: string,
+): Promise<Removal> {
+	const removal: Removal = { removed: [], failed: [] };
+	for (const key of keys) {
+		try {
+			await nukeManifestFiles(installRoot, manifest[key]?.files ?? []);
+			removal.removed.push(key);
+		} catch (err) {
+			removal.failed.push({ key, reason: errorMessage(err) });
+		}
+	}
+	return removal;
+}
+
+function removalSummary(
+	targets: Targets,
+	{ removed }: Removal,
+	manifest: Manifest,
+): string {
+	if (removed.length === 0) {
+		return "Nothing removed";
+	}
+	const summaryLabel =
+		removed.length === targets.keys.length
+			? targets.summaryLabel
+			: labelFor(removed, `${removed.length} install(s)`);
+	const fileCount = removed.flatMap((k) => manifest[k]?.files ?? []).length;
+	return renderRemoveSummary({ summaryLabel, fileCount });
 }
 
 function targetsForKey(key: string, manifest: Manifest, ui: Ui): Targets {

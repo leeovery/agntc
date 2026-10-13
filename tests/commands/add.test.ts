@@ -1345,6 +1345,54 @@ describe("add command", () => {
 		});
 	});
 
+	describe("a real folder at a pack's agent and hook targets", () => {
+		const TARGETS = [".claude/agents/foo.md", ".claude/hooks/x.sh"];
+
+		beforeEach(async () => {
+			await upstream({
+				"agntc.json": PACK,
+				"skills/s/SKILL.md": "",
+				"agents/foo.md": "agent",
+				"hooks/x.sh": "hook",
+			});
+			await write(projectDir, {
+				".claude/agents/foo.md/notes.md": "mine",
+				".claude/hooks/x.sh/notes.md": "mine",
+			});
+		});
+
+		async function expectPackInstalled(): Promise<void> {
+			expect(
+				await readFile(join(projectDir, ".claude/agents/foo.md"), "utf-8"),
+			).toBe("agent");
+			expect(
+				await readFile(join(projectDir, ".claude/hooks/x.sh"), "utf-8"),
+			).toBe("hook");
+			expect(Object.keys(await manifest())).toEqual(["owner/repo"]);
+		}
+
+		it("is replaced with --overwrite", async () => {
+			await runAdd("owner/repo", { overwrite: true });
+
+			await expectPackInstalled();
+		});
+
+		it("is replaced once the prompt approves", async () => {
+			mockResolveUnmanaged.mockResolvedValue({
+				approved: TARGETS,
+				cancelled: [],
+			});
+
+			await runAdd("owner/repo");
+
+			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
+				[{ pluginKey: "owner/repo", files: TARGETS }],
+				interactiveUi,
+			);
+			await expectPackInstalled();
+		});
+	});
+
 	describe("--list", () => {
 		beforeEach(async () => {
 			await upstream({

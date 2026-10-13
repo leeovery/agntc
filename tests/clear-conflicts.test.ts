@@ -62,9 +62,13 @@ async function onDisk(file: string): Promise<void> {
 	await writeFile(full, "");
 }
 
-function clear(manifest: Manifest, policy: ConflictPolicy) {
+function clear(
+	manifest: Manifest,
+	policy: ConflictPolicy,
+	incomingFiles = INCOMING,
+) {
 	return clearConflicts(
-		{ incomingFiles: INCOMING, manifest, key: "owner/repo/a", projectDir },
+		{ incomingFiles, manifest, key: "owner/repo/a", projectDir },
 		policy,
 		interactiveUi,
 	);
@@ -211,6 +215,58 @@ describe("clearConflicts", () => {
 			await clear({}, "ask");
 
 			expect(await gone()).toBe(false);
+		});
+
+		describe("a real folder at an agent or hook file target", () => {
+			const FILE_TARGETS = [".claude/agents/foo.md", ".claude/hooks/x.sh"];
+
+			beforeEach(async () => {
+				for (const target of FILE_TARGETS) {
+					await onDisk(target);
+				}
+			});
+
+			async function targetsGone(): Promise<boolean[]> {
+				return Promise.all(
+					FILE_TARGETS.map(async (target) =>
+						lstat(join(projectDir, target)).then(
+							() => false,
+							() => true,
+						),
+					),
+				);
+			}
+
+			it("is removed when overwriting", async () => {
+				expect(await clear({}, "overwrite", FILE_TARGETS)).toEqual({
+					manifest: {},
+					stop: null,
+				});
+
+				expect(await targetsGone()).toEqual([true, true]);
+			});
+
+			it("is removed once the prompt approves", async () => {
+				mockResolveUnmanaged.mockResolvedValue({
+					approved: FILE_TARGETS,
+					cancelled: [],
+				});
+
+				expect((await clear({}, "ask", FILE_TARGETS)).stop).toBeNull();
+
+				expect(await targetsGone()).toEqual([true, true]);
+			});
+		});
+
+		it("unlinks a link at an agent file target, leaving the file it points to", async () => {
+			const agent = ".claude/agents/foo.md";
+			await mkdir(join(projectDir, ".claude/agents"), { recursive: true });
+			await symlink(join(mine, "SKILL.md"), join(projectDir, agent));
+
+			await clear({}, "overwrite", [agent]);
+
+			expect(await lstat(join(projectDir, agent)).catch(() => null)).toBeNull();
+			expect(await readFile(join(mine, "SKILL.md"), "utf-8")).toBe("mine");
 		});
 
 		it("unlinks a link agntc didn't install, leaving what it points to", async () => {

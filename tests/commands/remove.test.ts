@@ -18,7 +18,9 @@ vi.mock("@clack/prompts", () => ({
 	isCancel: (value: unknown): value is symbol => typeof value === "symbol",
 }));
 
-vi.mock("../../src/manifest.js", () => ({
+vi.mock("../../src/manifest.js", async (importOriginal) => ({
+	removeEntry: (await importOriginal<typeof import("../../src/manifest.js")>())
+		.removeEntry,
 	readManifest: vi.fn(),
 	readManifestOrExit: vi.fn(),
 	writeManifest: vi.fn(),
@@ -1043,6 +1045,7 @@ describe("remove command", () => {
 						files: [".claude/skills/go/"],
 					},
 				],
+				failed: [],
 				warnings: [],
 				notes: [],
 			});
@@ -1125,7 +1128,109 @@ describe("remove command", () => {
 			const run = await runMachine(removeCommand, []);
 
 			expect(run.exitCode).toBe(0);
-			expect(run.document).toMatchObject({ ok: true, removed: [] });
+			expect(run.document).toMatchObject({ ok: true, removed: [], failed: [] });
+		});
+	});
+
+	describe("a key whose removal fails", () => {
+		function installed(skill: string) {
+			return {
+				ref: null,
+				commit: "abc123",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [`.claude/skills/${skill}/`],
+				type: "skill" as const,
+				cloneUrl: null,
+			};
+		}
+
+		const manifest: Manifest = {
+			"owner/repo/a": installed("a"),
+			"owner/repo/b": installed("b"),
+			"owner/repo/c": installed("c"),
+			"other/repo": installed("other"),
+		};
+
+		function removedJson(key: string, skill: string) {
+			return {
+				key,
+				type: "skill",
+				ref: null,
+				commit: "abc123",
+				constraint: null,
+				files: [`.claude/skills/${skill}/`],
+			};
+		}
+
+		beforeEach(() => {
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+			mockNukeManifestFiles.mockImplementation(async (_, files) => {
+				if (files.includes(".claude/skills/b/")) {
+					throw new Error("EACCES: permission denied");
+				}
+				return { removed: files, skipped: [] };
+			});
+		});
+
+		it("removes the keys around it, keeps it recorded, names it and exits 1", async () => {
+			await expect(
+				runRemove("owner/repo", { yes: true }),
+			).rejects.toMatchObject({ code: 1 });
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledTimes(3);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+				"owner/repo/b": manifest["owner/repo/b"],
+				"other/repo": manifest["other/repo"],
+			});
+			expect(mockLog.error).toHaveBeenCalledWith(
+				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
+			);
+			expect(mockOutro).toHaveBeenCalledWith(
+				"Removed 2 install(s) — 2 file(s)",
+			);
+		});
+
+		it("without a terminal, reports only the keys removed and the failure, with ok false", async () => {
+			const run = await runMachine(removeCommand, ["owner/repo", "-y"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "remove",
+				scope: "project",
+				removed: [
+					removedJson("owner/repo/a", "a"),
+					removedJson("owner/repo/c", "c"),
+				],
+				failed: [
+					{
+						key: "owner/repo/b",
+						type: "skill",
+						ref: null,
+						commit: "abc123",
+						constraint: null,
+						reason: "EACCES: permission denied",
+					},
+				],
+				warnings: [],
+				notes: [],
+			});
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+				"owner/repo/b": manifest["owner/repo/b"],
+				"other/repo": manifest["other/repo"],
+			});
+		});
+
+		it("alone, removes nothing, keeps it recorded and exits 1", async () => {
+			await expect(
+				runRemove("owner/repo/b", { yes: true }),
+			).rejects.toMatchObject({ code: 1 });
+
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", manifest);
+			expect(mockLog.error).toHaveBeenCalledWith(
+				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
+			);
+			expect(mockOutro).toHaveBeenCalledWith("Nothing removed");
 		});
 	});
 });

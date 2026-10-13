@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { nukeManifestFiles } from "../src/nuke-files.js";
+import { nukeManifestFiles, removePathsInTheWay } from "../src/nuke-files.js";
 
 let testDir: string;
 let projectDir: string;
@@ -120,6 +120,18 @@ describe("nukeManifestFiles", () => {
 		} finally {
 			await chmod(parentDir, 0o755);
 		}
+	});
+
+	it("fails on a folder where a file is recorded, leaving the folder", async () => {
+		const folder = join(projectDir, ".claude/agents/foo.md");
+		await mkdir(folder, { recursive: true });
+		await writeFile(join(folder, "notes.md"), "mine");
+
+		await expect(
+			nukeManifestFiles(projectDir, [".claude/agents/foo.md"]),
+		).rejects.toMatchObject({ code: "ERR_FS_EISDIR" });
+
+		expect(await readFile(join(folder, "notes.md"), "utf-8")).toBe("mine");
 	});
 
 	it("empty files array is no-op", async () => {
@@ -325,5 +337,91 @@ describe("nukeManifestFiles", () => {
 			expect(result.removed).toEqual([".claude/skills/foo/"]);
 			expect(await fileExists(join(sharedRoot, "foo"))).toBe(false);
 		});
+	});
+});
+
+describe("removePathsInTheWay", () => {
+	beforeEach(async () => {
+		await mkdir(join(projectDir, ".claude/agents"), { recursive: true });
+		await mkdir(join(projectDir, ".claude/hooks"), { recursive: true });
+	});
+
+	it.each([
+		".claude/agents/foo.md",
+		".claude/hooks/x.sh",
+	])("removes a real folder at the file path %s, contents and all", async (path) => {
+		await mkdir(join(projectDir, path, "inner"), { recursive: true });
+		await writeFile(join(projectDir, path, "inner/notes.md"), "mine");
+
+		const result = await removePathsInTheWay(projectDir, [path]);
+
+		expect(result.removed).toEqual([path]);
+		expect(await fileExists(join(projectDir, path))).toBe(false);
+	});
+
+	it("removes a file at a path recorded as a folder", async () => {
+		await mkdir(join(projectDir, ".claude/skills"), { recursive: true });
+		await writeFile(join(projectDir, ".claude/skills/a"), "mine");
+
+		const result = await removePathsInTheWay(projectDir, [".claude/skills/a/"]);
+
+		expect(result.removed).toEqual([".claude/skills/a/"]);
+		expect(await fileExists(join(projectDir, ".claude/skills/a"))).toBe(false);
+	});
+
+	it("unlinks a link to a file outside, leaving that file intact", async () => {
+		const outside = join(testDir, "outside.md");
+		await writeFile(outside, "keep");
+		const linkPath = join(projectDir, ".claude/agents/foo.md");
+		await symlink(outside, linkPath);
+
+		const result = await removePathsInTheWay(projectDir, [
+			".claude/agents/foo.md",
+		]);
+
+		expect(result.removed).toEqual([".claude/agents/foo.md"]);
+		expect(await lstat(linkPath).catch(() => null)).toBeNull();
+		expect(await readFile(outside, "utf-8")).toBe("keep");
+	});
+
+	it("unlinks a link to a folder outside, leaving its contents intact", async () => {
+		const outside = join(testDir, "outside");
+		await mkdir(outside);
+		await writeFile(join(outside, "keep.sh"), "keep");
+		const linkPath = join(projectDir, ".claude/hooks/x.sh");
+		await symlink(outside, linkPath);
+
+		const result = await removePathsInTheWay(projectDir, [
+			".claude/hooks/x.sh",
+		]);
+
+		expect(result.removed).toEqual([".claude/hooks/x.sh"]);
+		expect(await lstat(linkPath).catch(() => null)).toBeNull();
+		expect(await readFile(join(outside, "keep.sh"), "utf-8")).toBe("keep");
+	});
+
+	it("leaves a path below a linked folder alone", async () => {
+		const outside = join(testDir, "outside");
+		await mkdir(join(outside, "foo.md"), { recursive: true });
+		await symlink(outside, join(projectDir, ".claude/agents/team"));
+
+		const result = await removePathsInTheWay(projectDir, [
+			".claude/agents/team/foo.md",
+		]);
+
+		expect(result.skipped).toEqual([".claude/agents/team/foo.md"]);
+		expect(await fileExists(join(outside, "foo.md"))).toBe(true);
+	});
+
+	it("refuses a path that isn't plainly below the project, leaving it untouched", async () => {
+		await mkdir(join(testDir, "outside"));
+
+		await expect(
+			removePathsInTheWay(projectDir, ["../outside"]),
+		).rejects.toThrow(
+			`won't delete ../outside — not a plain path below ${projectDir}`,
+		);
+
+		expect(await fileExists(join(testDir, "outside"))).toBe(true);
 	});
 });

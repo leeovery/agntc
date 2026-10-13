@@ -15,13 +15,40 @@ export interface NukeResult {
 export type RemoveOutcome = "removed" | "skipped" | "refused";
 
 /**
+ * How far a removal reaches into a folder: as recorded, where only a trailing
+ * slash marks a folder, or as found on disk.
+ */
+export type RemovalDepth = "recorded" | "on-disk";
+
+/**
  * Deletes recorded install paths. One that isn't a plain path below
  * `installRoot`, which only a hand-edited manifest holds, is left alone, and
- * once the rest are done the call fails naming it.
+ * once the rest are done the call fails naming it. A folder found where a file
+ * is recorded fails the call rather than costing someone their folder.
  */
-export async function nukeManifestFiles(
+export function nukeManifestFiles(
 	installRoot: string,
 	files: string[],
+): Promise<NukeResult> {
+	return removePaths(installRoot, files, "recorded");
+}
+
+/**
+ * Deletes whatever stands at paths the user approved replacing: a folder with
+ * its contents, a file, or a link as a link. Paths are refused as
+ * `nukeManifestFiles` refuses them.
+ */
+export function removePathsInTheWay(
+	installRoot: string,
+	files: string[],
+): Promise<NukeResult> {
+	return removePaths(installRoot, files, "on-disk");
+}
+
+async function removePaths(
+	installRoot: string,
+	files: string[],
+	depth: RemovalDepth,
 ): Promise<NukeResult> {
 	const outcomes: Record<RemoveOutcome, string[]> = {
 		removed: [],
@@ -30,7 +57,7 @@ export async function nukeManifestFiles(
 	};
 
 	for (const entry of files) {
-		outcomes[await removeInstallPath(installRoot, entry)].push(entry);
+		outcomes[await removeInstallPath(installRoot, entry, depth)].push(entry);
 	}
 
 	if (outcomes.refused.length > 0) {
@@ -50,6 +77,7 @@ export async function nukeManifestFiles(
 export async function removeInstallPath(
 	installRoot: string,
 	entry: string,
+	depth: RemovalDepth = "recorded",
 ): Promise<RemoveOutcome> {
 	if (!isContainedPath(entry)) {
 		return "refused";
@@ -66,7 +94,10 @@ export async function removeInstallPath(
 			await unlink(join(installRoot, path));
 			return "removed";
 		case "present":
-			await rm(join(installRoot, path), { recursive: entry.endsWith("/") });
+			await rm(join(installRoot, path), {
+				recursive:
+					depth === "on-disk" ? state.isDirectory : entry.endsWith("/"),
+			});
 			return "removed";
 	}
 }

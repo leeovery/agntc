@@ -4,6 +4,7 @@ import {
 	isCloneReinstallFailure,
 	prepareReinstall,
 } from "../clone-reinstall.js";
+import { errorMessage } from "../errors.js";
 import { fetchRemoteTags } from "../git-utils.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
@@ -98,8 +99,12 @@ export async function executeChangeVersionAction(
 	const result = await cloneAndReinstall(prepared.options, ui, manifest);
 
 	if (result.status === "gone") {
-		const settled = await settleGoneInList(key, entry, manifest, scope, ui);
-		return { changed: true, message: settled.message, notes: [] };
+		try {
+			const settled = await settleGoneInList(key, entry, manifest, scope, ui);
+			return { changed: true, message: settled.message, notes: [] };
+		} catch (err) {
+			return unchanged(errorMessage(err));
+		}
 	}
 	if (isCloneReinstallFailure(result)) {
 		return unchanged(failureMessage(result, key, entry, scope.name));
