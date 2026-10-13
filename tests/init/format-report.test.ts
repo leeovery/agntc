@@ -15,44 +15,31 @@ describe("formatInitReport", () => {
 
 	it("renders skipped files with already exists label", () => {
 		const result = formatInitReport(
-			{ created: ["hooks/"], skipped: ["agents/"] },
-			"plugin",
+			{ created: ["hooks/my-hook.sh"], skipped: ["agents/my-agent.md"] },
+			"pack",
 		);
 
 		expect(result).toEqual(
-			"hooks/, agents/ (already exists)\nDone. Add your skills, agents, and hooks.",
+			"hooks/my-hook.sh, agents/my-agent.md (already exists)\nDone. Add skills under `skills/`, agents to `agents/` and hooks to `hooks/`.",
 		);
 	});
 
-	it("includes success message for plugin type when files created", () => {
-		const result = formatInitReport(
-			{
-				created: ["skills/my-skill/SKILL.md", "agents/", "hooks/"],
-				skipped: [],
-			},
-			"plugin",
-		);
-
-		expect(result).toEqual(
-			"skills/my-skill/SKILL.md, agents/, hooks/\nDone. Add your skills, agents, and hooks.",
-		);
-	});
-
-	it("includes success message for collection type when files created", () => {
+	it("includes success message for pack type when files created", () => {
 		const result = formatInitReport(
 			{
 				created: [
-					"my-plugin/skills/my-skill/SKILL.md",
-					"my-plugin/agents/",
-					"my-plugin/hooks/",
+					"agntc.json",
+					"skills/my-skill/SKILL.md",
+					"agents/my-agent.md",
+					"hooks/my-hook.sh",
 				],
 				skipped: [],
 			},
-			"collection",
+			"pack",
 		);
 
 		expect(result).toEqual(
-			"my-plugin/skills/my-skill/SKILL.md, my-plugin/agents/, my-plugin/hooks/\nDone. Rename `my-plugin/` and duplicate for each plugin in your collection.",
+			"agntc.json, skills/my-skill/SKILL.md, agents/my-agent.md, hooks/my-hook.sh\nDone. Add skills under `skills/`, agents to `agents/` and hooks to `hooks/`.",
 		);
 	});
 
@@ -68,14 +55,14 @@ describe("formatInitReport", () => {
 	it("lists created files before skipped ones", () => {
 		const result = formatInitReport(
 			{
-				created: ["my-plugin/agents/"],
-				skipped: ["my-plugin/skills/my-skill/SKILL.md", "my-plugin/hooks/"],
+				created: ["agents/my-agent.md"],
+				skipped: ["skills/my-skill/SKILL.md", "hooks/my-hook.sh"],
 			},
-			"collection",
+			"pack",
 		);
 
 		expect(result).toEqual(
-			"my-plugin/agents/, my-plugin/skills/my-skill/SKILL.md (already exists), my-plugin/hooks/ (already exists)\nDone. Rename `my-plugin/` and duplicate for each plugin in your collection.",
+			"agents/my-agent.md, skills/my-skill/SKILL.md (already exists), hooks/my-hook.sh (already exists)\nDone. Add skills under `skills/`, agents to `agents/` and hooks to `hooks/`.",
 		);
 	});
 });

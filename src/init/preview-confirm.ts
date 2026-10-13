@@ -1,26 +1,29 @@
 import type { Ui } from "../ui.js";
-import type { InitType } from "./type-select.js";
-
-const filesByType: Record<InitType, string[]> = {
-	skill: ["SKILL.md"],
-	plugin: ["skills/", "  my-skill/", "    SKILL.md", "agents/", "hooks/"],
-	collection: [
-		"my-plugin/",
-		"  skills/",
-		"    my-skill/",
-		"      SKILL.md",
-		"  agents/",
-		"  hooks/",
-	],
-};
+import type { ScaffoldFile } from "./scaffold-utils.js";
 
 export async function previewAndConfirm(
-	options: { type: InitType },
+	files: ScaffoldFile[],
 	ui: Ui,
 ): Promise<boolean> {
-	const files = filesByType[options.type];
-
-	ui.box(files.map((f) => `  ${f}`).join("\n"), "This will create:");
+	ui.box(previewTree(files.map(({ path }) => path)), "This will create:");
 
 	return ui.confirm({ message: "Proceed?" });
+}
+
+/** Each folder once, before its first file, everything indented by depth. */
+export function previewTree(paths: string[]): string {
+	const lines: string[] = [];
+	const shown = new Set<string>();
+	for (const path of paths) {
+		const segments = path.split("/");
+		segments.forEach((segment, depth) => {
+			const isFolder = depth < segments.length - 1;
+			const key = segments.slice(0, depth + 1).join("/");
+			if (!shown.has(key)) {
+				shown.add(key);
+				lines.push(`${"  ".repeat(depth + 1)}${segment}${isFolder ? "/" : ""}`);
+			}
+		});
+	}
+	return lines.join("\n");
 }

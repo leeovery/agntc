@@ -1,79 +1,62 @@
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { scaffoldSkill } from "../../src/init/scaffold-skill.js";
+import { discover } from "../../src/discover.js";
+import { parseFrontmatter } from "../../src/frontmatter.js";
+import { skillScaffold } from "../../src/init/scaffold-skill.js";
+import { writeScaffold } from "../../src/init/scaffold-utils.js";
 
-const SKILL_MD_TEMPLATE = `---
-name: my-skill
-description: Brief description of what this skill does and when to use it.
----
-
-# My Skill
-
-## Instructions
-
-[Describe what the agent should do when this skill is invoked]
-`;
-
-async function exists(path: string): Promise<boolean> {
-	try {
-		await access(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-describe("scaffoldSkill", () => {
-	let testDir: string;
+describe("skillScaffold", () => {
+	let parent: string;
+	let skillDir: string;
 
 	beforeEach(async () => {
-		testDir = await mkdtemp(join(tmpdir(), "scaffold-skill-test-"));
+		parent = await mkdtemp(join(tmpdir(), "scaffold-skill-test-"));
+		skillDir = join(parent, "code-review");
+		await mkdir(skillDir);
 	});
 
 	afterEach(async () => {
-		await rm(testDir, { recursive: true, force: true });
+		await rm(parent, { recursive: true, force: true });
 	});
 
-	it("writes SKILL.md with frontmatter template", async () => {
-		await scaffoldSkill({ targetDir: testDir });
+	it("is a single SKILL.md, with no agntc.json", () => {
+		const paths = skillScaffold.files(skillDir).map(({ path }) => path);
 
-		const content = await readFile(join(testDir, "SKILL.md"), "utf-8");
-		expect(content).toBe(SKILL_MD_TEMPLATE);
+		expect(paths).toEqual(["SKILL.md"]);
 	});
 
-	it("does not write agntc.json", async () => {
-		await scaffoldSkill({ targetDir: testDir });
+	it("names the skill after its folder and gives a placeholder description", async () => {
+		await writeScaffold(skillDir, skillScaffold.files(skillDir));
 
-		expect(await exists(join(testDir, "agntc.json"))).toBe(false);
+		const content = await readFile(join(skillDir, "SKILL.md"), "utf-8");
+		expect(parseFrontmatter(content)).toEqual({
+			name: "code-review",
+			description:
+				"Brief description of what this skill does and when to use it.",
+		});
 	});
 
-	it("leaves an existing agntc.json untouched and unreported", async () => {
-		const original = '{"agents": ["claude"]}\n';
-		await writeFile(join(testDir, "agntc.json"), original);
+	it("is what discovery finds as one skill named by its folder", async () => {
+		await writeScaffold(skillDir, skillScaffold.files(skillDir));
 
-		const result = await scaffoldSkill({ targetDir: testDir });
+		const discovery = await discover(skillDir, { rootName: "code-review" });
 
-		expect(await readFile(join(testDir, "agntc.json"), "utf-8")).toBe(original);
-		expect(result.created).not.toContain("agntc.json");
-		expect(result.skipped).not.toContain("agntc.json");
+		expect(discovery).toEqual({
+			packs: [],
+			skills: [
+				expect.objectContaining({
+					name: "code-review",
+					path: "",
+					frontmatterName: "code-review",
+				}),
+			],
+			strays: [],
+		});
 	});
 
-	it("skips SKILL.md when it already exists", async () => {
-		const original = "# Existing skill\n";
-		await writeFile(join(testDir, "SKILL.md"), original);
-
-		const result = await scaffoldSkill({ targetDir: testDir });
-
-		const content = await readFile(join(testDir, "SKILL.md"), "utf-8");
-		expect(content).toBe(original);
-		expect(result).toEqual({ created: [], skipped: ["SKILL.md"] });
-	});
-
-	it("reports created files correctly", async () => {
-		const result = await scaffoldSkill({ targetDir: testDir });
-
-		expect(result).toEqual({ created: ["SKILL.md"], skipped: [] });
+	it("has nothing to warn about", async () => {
+		expect(await skillScaffold.warnings(skillDir)).toEqual([]);
 	});
 });

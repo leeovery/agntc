@@ -3,9 +3,7 @@ import type { InitType } from "./type-select.js";
 
 const successMessageByType: Record<InitType, string> = {
 	skill: "Done. Edit `SKILL.md` to define your skill.",
-	plugin: "Done. Add your skills, agents, and hooks.",
-	collection:
-		"Done. Rename `my-plugin/` and duplicate for each plugin in your collection.",
+	pack: "Done. Add skills under `skills/`, agents to `agents/` and hooks to `hooks/`.",
 };
 
 export function formatInitReport(

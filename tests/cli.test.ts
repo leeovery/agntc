@@ -134,17 +134,33 @@ describe("agntc init", () => {
 		const { stdout, exitCode } = run(["--help"]);
 		expect(exitCode).toBe(0);
 		expect(stdout).toContain("init");
-		expect(stdout).toContain("Scaffold a new agntc plugin");
+		expect(stdout).toContain("Scaffold a new skill or pack");
 	});
 
-	it("refuses without a terminal", () => {
+	it("refuses without a terminal when no type is given, naming the types", () => {
 		const { document, exitCode } = runPiped(["init"]);
 		expect(exitCode).not.toBe(0);
 		expect(document).toMatchObject({
 			ok: false,
 			command: "init",
-			error: { message: "agntc init needs a terminal" },
+			error: { flags: ["skill", "pack"] },
 		});
+	});
+
+	it("refuses without a terminal when -y isn't given", () => {
+		const { document, exitCode } = runPiped(["init", "skill"]);
+		expect(exitCode).not.toBe(0);
+		expect(document).toMatchObject({
+			ok: false,
+			command: "init",
+			error: { flags: ["-y"] },
+		});
+	});
+
+	it("rejects a type that isn't skill or pack", () => {
+		const { exitCode, stderr } = run(["init", "plugin"]);
+		expect(exitCode).not.toBe(0);
+		expect(stderr).toContain("Allowed choices are skill, pack");
 	});
 
 	it("rejects extra arguments", () => {
