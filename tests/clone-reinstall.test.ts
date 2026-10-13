@@ -699,6 +699,7 @@ describe("cloneAndReinstall", () => {
 			expect(result.status).toBe("success");
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
 				sourceDir: "/Users/lee/Code/skills/skills/react/hooks",
+				cloneRoot: "/Users/lee/Code/skills",
 				projectDir: "/fake/project",
 				skillName: "hooks",
 			});
@@ -1788,6 +1789,15 @@ describe("buildCopySafetyMessage", () => {
 		expect(msg).not.toContain("no longer supports that type");
 		expect(msg).not.toContain("npx agntc remove");
 		expect(msg).not.toContain("To migrate");
+	});
+
+	it("doesn't call a link on the item's path an escape, as it may stay inside the clone", () => {
+		const onPath =
+			'symlink "skills/foo" is on the path to skills/foo — agntc won\'t copy through it';
+
+		expect(buildCopySafetyMessage("owner/repo/foo", onPath)).toBe(
+			`owner/repo/foo: ${onPath}. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.`,
+		);
 	});
 
 	it("describes a symlink escaping the clone (consistent with abort being a different concern)", () => {

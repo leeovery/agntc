@@ -1,4 +1,12 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -56,6 +64,25 @@ describe("copyItem", () => {
 			true,
 		);
 		expect(await installed(".claude/agents")).toBe(false);
+	});
+
+	it("lets a skill's link reach anywhere in the source root, copying what it leads to", async () => {
+		await tree({ "skills/swift/SKILL.md": "", "shared/guide.md": "guide" });
+		await symlink("../../shared", join(root, "skills/swift/shared"));
+
+		await copyItem(
+			{ kind: "skill", skill: { name: "swift", path: "skills/swift" } },
+			root,
+			projectDir,
+		);
+		await rm(root, { recursive: true });
+
+		expect(
+			await readFile(
+				join(projectDir, ".claude/skills/swift/shared/guide.md"),
+				"utf-8",
+			),
+		).toBe("guide");
 	});
 
 	it("names a root skill after the root, not the source folder", async () => {

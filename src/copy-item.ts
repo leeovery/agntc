@@ -17,6 +17,7 @@ export async function copyItem(
 	}
 	const { copiedFiles } = await copyBareSkill({
 		sourceDir: join(root, item.skill.path),
+		cloneRoot: root,
 		projectDir: installRoot,
 		skillName: item.skill.name,
 	});

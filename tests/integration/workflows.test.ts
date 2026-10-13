@@ -158,6 +158,7 @@ describe("integration: core workflows", () => {
 			// 4. Copy the bare skill
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
+				cloneRoot: sourceDir,
 				projectDir,
 			});
 
@@ -776,6 +777,7 @@ describe("integration: core workflows", () => {
 
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
+				cloneRoot: sourceDir,
 				projectDir,
 			});
 
@@ -825,6 +827,7 @@ describe("integration: core workflows", () => {
 			await createFile(skillDir, "SKILL.md");
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
+				cloneRoot: sourceDir,
 				projectDir,
 			});
 			const entry: ManifestEntry = {
@@ -920,7 +923,11 @@ describe("integration: core workflows", () => {
 		it("(d5) a pack update takes over a loose skill installed from the same source", async () => {
 			const looseDir = join(sourceDir, "repo-v1", "review");
 			await createFile(looseDir, "SKILL.md");
-			const loose = await copyBareSkill({ sourceDir: looseDir, projectDir });
+			const loose = await copyBareSkill({
+				sourceDir: looseDir,
+				cloneRoot: sourceDir,
+				projectDir,
+			});
 			const looseEntry: ManifestEntry = {
 				ref: null,
 				commit: "v1hash",
@@ -987,7 +994,11 @@ describe("integration: core workflows", () => {
 			try {
 				await scanForEscapingSymlinks(skillDir, sourceDir);
 				// Only reached if the gate passed — would proceed to copy.
-				await copyBareSkill({ sourceDir: skillDir, projectDir });
+				await copyBareSkill({
+					sourceDir: skillDir,
+					cloneRoot: sourceDir,
+					projectDir,
+				});
 				copied = true;
 			} catch (err) {
 				if (err instanceof SymlinkEscapeError) {
@@ -1034,6 +1045,7 @@ describe("integration: core workflows", () => {
 
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
+				cloneRoot: sourceDir,
 				projectDir,
 			});
 

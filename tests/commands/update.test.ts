@@ -2214,6 +2214,7 @@ describe("update command", () => {
 			);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
 				sourceDir: "/tmp/agntc-clone",
+				cloneRoot: "/tmp/agntc-clone",
 				projectDir: "/fake/project",
 				skillName: "repo",
 			});

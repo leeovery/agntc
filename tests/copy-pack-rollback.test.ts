@@ -7,7 +7,7 @@ import type { FoundPack } from "../src/discover.js";
 
 vi.mock("node:fs/promises", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs/promises")>();
-	return { ...actual, cp: vi.fn(actual.cp) };
+	return { ...actual, copyFile: vi.fn(actual.copyFile) };
 });
 vi.mock("../src/copy-rollback.js");
 
@@ -15,7 +15,7 @@ import { rollbackCopiedFiles } from "../src/copy-rollback.js";
 
 const actualFs =
 	await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
-const mockedCp = vi.mocked(fs.cp);
+const mockedCopyFile = vi.mocked(fs.copyFile);
 const mockedRollback = vi.mocked(rollbackCopiedFiles);
 
 let base: string;
@@ -24,7 +24,7 @@ let projectDir: string;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
-	mockedCp.mockImplementation(actualFs.cp);
+	mockedCopyFile.mockImplementation(actualFs.copyFile);
 	mockedRollback.mockResolvedValue(undefined);
 	base = await actualFs.mkdtemp(join(tmpdir(), "agntc-copy-pack-rollback-"));
 	root = join(base, "source");
@@ -59,19 +59,19 @@ const PACK: FoundPack = {
 	assetDirs: ["agents", "hooks"],
 };
 
-/** Fails the `nth` copy whose project-relative destination matches `pattern`. */
+/** Fails the `nth` file copy whose project-relative destination matches `pattern`. */
 function failCopy(pattern: RegExp, error: Error, nth = 1): void {
 	let seen = 0;
-	mockedCp.mockImplementation(async (source, dest, options) => {
+	mockedCopyFile.mockImplementation(async (source, dest, mode) => {
 		if (pattern.test(relative(projectDir, String(dest))) && ++seen === nth) {
 			throw error;
 		}
-		return actualFs.cp(source, dest, options);
+		return actualFs.copyFile(source, dest, mode);
 	});
 }
 
 function copiedTo(pattern: RegExp): string[] {
-	return mockedCp.mock.calls
+	return mockedCopyFile.mock.calls
 		.map(([, dest]) => relative(projectDir, String(dest)))
 		.filter((dest) => pattern.test(dest));
 }
@@ -79,7 +79,7 @@ function copiedTo(pattern: RegExp): string[] {
 describe("copyPack rollback", () => {
 	it("rolls back the skills copied before one fails, then rethrows", async () => {
 		const error = new Error("disk full");
-		failCopy(/^\.claude\/skills\/b$/, error);
+		failCopy(/^\.claude\/skills\/b\//, error);
 
 		const thrown = await copyPack(PACK, root, projectDir).catch((e) => e);
 
@@ -95,7 +95,7 @@ describe("copyPack rollback", () => {
 			[".claude/skills/a/"],
 			projectDir,
 		);
-		expect(copiedTo(/^\.claude\/skills\/c$/)).toEqual([]);
+		expect(copiedTo(/^\.claude\/skills\/c\//)).toEqual([]);
 	});
 
 	it("rolls back every skill and the agents copied so far when an agent fails, then rethrows", async () => {
@@ -143,6 +143,22 @@ describe("copyPack rollback", () => {
 			],
 			projectDir,
 		);
+	});
+
+	it("rolls back a hook folder by everything its copy planned, written or not", async () => {
+		await tree({ "p/hooks/lint/a.sh": "", "p/hooks/lint/b.sh": "" });
+		const error = new Error("disk full");
+		failCopy(/^\.claude\/hooks\/lint\/b\.sh$/, error);
+
+		const thrown = await copyPack(PACK, root, projectDir).catch((e) => e);
+
+		expect(thrown).toBe(error);
+		const [[recorded]] = mockedRollback.mock.calls as [[string[]]];
+		expect(recorded.filter((path) => path.includes("lint"))).toEqual([
+			".claude/hooks/lint/",
+			".claude/hooks/lint/a.sh",
+			".claude/hooks/lint/b.sh",
+		]);
 	});
 
 	it("does not roll back when everything copies", async () => {

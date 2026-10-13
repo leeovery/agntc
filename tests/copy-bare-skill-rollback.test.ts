@@ -1,64 +1,63 @@
 import * as fs from "node:fs/promises";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 
-vi.mock("node:fs/promises");
+vi.mock("node:fs/promises", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs/promises")>();
+	return { ...actual, copyFile: vi.fn(actual.copyFile) };
+});
 vi.mock("../src/copy-rollback.js");
-
-const mockedFs = vi.mocked(fs);
 
 import { rollbackCopiedFiles } from "../src/copy-rollback.js";
 
+const actualFs =
+	await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+const mockedCopyFile = vi.mocked(fs.copyFile);
 const mockedRollback = vi.mocked(rollbackCopiedFiles);
 
+let base: string;
+let sourceDir: string;
+let projectDir: string;
+
+beforeEach(async () => {
+	vi.clearAllMocks();
+	mockedCopyFile.mockImplementation(actualFs.copyFile);
+	mockedRollback.mockResolvedValue(undefined);
+	base = await actualFs.mkdtemp(join(tmpdir(), "agntc-copy-skill-rollback-"));
+	sourceDir = join(base, "my-skill");
+	projectDir = join(base, "project");
+	for (const path of ["SKILL.md", "references/guide.md"]) {
+		await actualFs.mkdir(dirname(join(sourceDir, path)), { recursive: true });
+		await actualFs.writeFile(join(sourceDir, path), "");
+	}
+});
+
+afterEach(async () => {
+	await actualFs.rm(base, { recursive: true, force: true });
+});
+
+function copy() {
+	return copyBareSkill({ sourceDir, cloneRoot: sourceDir, projectDir });
+}
+
 describe("copyBareSkill rollback", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-		mockedFs.mkdir.mockResolvedValue(undefined);
-		mockedFs.cp.mockResolvedValue(undefined);
-		mockedFs.access.mockRejectedValue(new Error("ENOENT")); // agntc.json doesn't exist
-		// Nothing is in the way of the skill's target.
-		mockedFs.lstat.mockRejectedValue(
-			Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
-		);
-		mockedFs.rm.mockResolvedValue(undefined);
-		mockedRollback.mockResolvedValue(undefined);
-	});
+	it("rolls back the partly copied skill folder, then rethrows the copy's error", async () => {
+		const error = new Error("disk full");
+		mockedCopyFile.mockRejectedValueOnce(error);
 
-	it("rolls back the partially-copied skill dir when cp fails", async () => {
-		mockedFs.cp.mockRejectedValueOnce(new Error("disk full"));
+		const thrown = await copy().catch((e) => e);
 
-		await expect(
-			copyBareSkill({
-				sourceDir: "/source/my-skill",
-				projectDir: "/project",
-			}),
-		).rejects.toThrow("disk full");
-
-		expect(mockedRollback).toHaveBeenCalledOnce();
-		expect(mockedRollback).toHaveBeenCalledWith(
+		expect(thrown).toBe(error);
+		expect(mockedRollback).toHaveBeenCalledExactlyOnceWith(
 			[".claude/skills/my-skill/"],
-			"/project",
+			projectDir,
 		);
 	});
 
-	it("re-throws the original error after rollback", async () => {
-		const originalError = new Error("copy failed");
-		mockedFs.cp.mockRejectedValueOnce(originalError);
-
-		const thrownError = await copyBareSkill({
-			sourceDir: "/source/my-skill",
-			projectDir: "/project",
-		}).catch((e) => e);
-
-		expect(thrownError).toBe(originalError);
-	});
-
-	it("does not call rollback on success", async () => {
-		await copyBareSkill({
-			sourceDir: "/source/my-skill",
-			projectDir: "/project",
-		});
+	it("does not roll back on success", async () => {
+		await copy();
 
 		expect(mockedRollback).not.toHaveBeenCalled();
 	});

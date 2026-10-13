@@ -4,6 +4,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
+	realpath,
 	rm,
 	symlink,
 	writeFile,
@@ -107,7 +108,7 @@ let cloneDir: string;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
-	testDir = await mkdtemp(join(tmpdir(), "agntc-add-"));
+	testDir = await realpath(await mkdtemp(join(tmpdir(), "agntc-add-")));
 	projectDir = join(testDir, "project");
 	upstreamDir = join(testDir, "upstream");
 	cloneDir = join(testDir, "clone");

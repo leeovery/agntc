@@ -157,8 +157,8 @@ export function isCloneReinstallFailure(
  * `status` as the single cross-boundary discriminator for the two
  * structurally-distinct cases that leave the existing install intact:
  * `aborted` (derive-before-delete — re-cloned tree no longer supports the
- * recorded type) and `blocked` (symlink-escape copy-safety — source contains a
- * link escaping the clone). The remaining `failed` family is refined on
+ * recorded type) and `blocked` (copy-safety — a symlink in the source agntc
+ * won't follow). The remaining `failed` family is refined on
  * `failureReason` into clone-failed / copy-failed / remove-failed.
  */
 export function mapCloneFailure<T>(
@@ -227,10 +227,10 @@ export interface CloneReinstallAborted {
 export type AbortCause = Omit<CloneReinstallAborted, "status">;
 
 /**
- * The unit's update was blocked by the symlink-escape copy-safety pre-flight:
- * the re-cloned source contains a symlink whose target resolves outside the
- * clone. The scan runs BEFORE any file removal, so the existing install is left
- * fully intact (no nuke, no copy, manifest unchanged). Distinct from
+ * The unit's update was blocked by the copy-safety pre-flight: the re-cloned
+ * source holds a symlink agntc won't follow, leading out of the clone or on
+ * the entry's path. It runs BEFORE any file removal, so the existing install
+ * is left fully intact (no nuke, no copy, manifest unchanged). Distinct from
  * {@link CloneReinstallAborted}: there is no recorded-type mismatch, so the
  * report must NOT offer the remove+add migrate remedy (it just re-trips the same
  * guard). The distinct `status: "blocked"` is the single discriminator;
@@ -283,9 +283,9 @@ export function buildAbortMessage(
 }
 
 /**
- * The user-facing report for a symlink-escape copy-safety block. Names the
- * source (key), states the source contains a symlink escaping the clone (the
- * structured {@link reason} surfaces the offending link), and affirms the
+ * The user-facing report for a copy-safety block. Names the source (key) and
+ * the offending link (the structured {@link reason} says why agntc won't
+ * follow it), and affirms the
  * update is blocked with the existing install left intact. Mirrors the add
  * path's identity-prefixed cancel framing (`${key}: <reason>`). Deliberately
  * distinct from {@link buildAbortMessage}: this is a copy-safety violation, not
@@ -294,8 +294,8 @@ export function buildAbortMessage(
  */
 export function buildCopySafetyMessage(key: string, reason: string): string {
 	return (
-		`${key}: ${reason}. The source contains a symlink escaping the clone, ` +
-		`so the update is blocked. The existing install is unchanged.`
+		`${key}: ${reason}. agntc won't follow that symlink, so the update is ` +
+		`blocked. The existing install is unchanged.`
 	);
 }
 
