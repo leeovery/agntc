@@ -52,8 +52,14 @@ export interface NukeReinstallOptions {
 	/** Every installed entry, for what a pack's re-walk absorbs or clashes with. */
 	installed: Manifest;
 	scope: Scope;
-	newRef?: string | null;
-	newCommit?: string | null;
+	/**
+	 * The ref a constrained resolve or a version change moves the entry to.
+	 * Absent, the entry keeps its recorded ref: a branch stays on its branch,
+	 * HEAD-tracked stays on HEAD.
+	 */
+	newRef?: string;
+	/** The commit the reinstall lands on. Absent, the recorded one stays. */
+	newCommit?: string;
 }
 
 interface NukeReinstallSuccess {
@@ -76,6 +82,16 @@ interface NukeReinstallCopyFailed {
 	recoveryHint: string;
 	/** The loose skill entries a pack took over; their files are gone. */
 	absorbed: string[];
+}
+
+/**
+ * Removing the files of the entry, or of the loose skills it takes over,
+ * failed part way. Nothing was copied, and every entry stays recorded so
+ * whatever is left stays tracked.
+ */
+interface NukeReinstallRemoveFailed {
+	status: "remove-failed";
+	reason: string;
 }
 
 /**
@@ -111,6 +127,7 @@ interface NukeReinstallGone {
 export type NukeReinstallResult =
 	| NukeReinstallSuccess
 	| NukeReinstallCopyFailed
+	| NukeReinstallRemoveFailed
 	| NukeReinstallAborted
 	| NukeReinstallBlocked
 	| NukeReinstallGone;
@@ -192,10 +209,17 @@ async function reinstall(
 ): Promise<NukeReinstallResult> {
 	const { key, cloneRoot, existingEntry, installed, scope } = options;
 
-	await nukeManifestFiles(scope.root, [
-		...existingEntry.files,
-		...absorbed.flatMap((looseKey) => installed[looseKey]?.files ?? []),
-	]);
+	try {
+		await nukeManifestFiles(scope.root, [
+			...existingEntry.files,
+			...absorbed.flatMap((looseKey) => installed[looseKey]?.files ?? []),
+		]);
+	} catch (err: unknown) {
+		return {
+			status: "remove-failed",
+			reason: `couldn't remove its old files: ${errorMessage(err)}`,
+		};
+	}
 
 	let copiedFiles: string[];
 	try {
@@ -383,8 +407,8 @@ function buildReplayedEntry(
 ): ManifestEntry {
 	const { existingEntry, newRef, newCommit } = options;
 	return buildManifestEntry({
-		ref: newRef !== undefined ? newRef : existingEntry.ref,
-		commit: newCommit !== undefined ? newCommit : existingEntry.commit,
+		ref: newRef ?? existingEntry.ref,
+		commit: newCommit ?? existingEntry.commit,
 		files: copiedFiles,
 		type: replay.item.kind,
 		cloneUrl: existingEntry.cloneUrl ?? null,

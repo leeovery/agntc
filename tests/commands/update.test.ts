@@ -3686,6 +3686,38 @@ describe("update command", () => {
 			);
 		});
 
+		it.each([
+			["by key", "owner/repo"],
+			["in all-mode", undefined],
+		])("keeps a branch entry on its branch when updated %s", async (_, key) => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ ref: "dev", commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			await runUpdate(key);
+
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{
+					"owner/repo": expect.objectContaining({
+						ref: "dev",
+						commit: REMOTE_SHA,
+					}),
+				},
+			);
+		});
+
 		it("uses stored cloneUrl for cloneSource when available", async () => {
 			const entry = makeEntry({
 				ref: "dev",
@@ -4316,21 +4348,23 @@ describe("update command", () => {
 			expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/go", goEntry);
 			expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/ts", tsEntry);
 
-			// Manifest should be written once with BOTH updated entries
-			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
-			const writtenManifest = mockWriteManifest.mock.calls[0]![1] as Manifest;
-			expect(writtenManifest["owner/repo/go"]).toEqual(
-				expect.objectContaining({
-					commit: REMOTE_SHA,
-					files: [".claude/skills/go/"],
-				}),
-			);
-			expect(writtenManifest["owner/repo/ts"]).toEqual(
-				expect.objectContaining({
-					commit: REMOTE_SHA,
-					files: [".claude/skills/ts/"],
-				}),
-			);
+			// Each key is recorded as it finishes: go alone, then BOTH
+			const goUpdated = expect.objectContaining({
+				commit: REMOTE_SHA,
+				files: [".claude/skills/go/"],
+			});
+			expect(
+				mockWriteManifest.mock.calls.map(([, written]) => written),
+			).toEqual([
+				{ "owner/repo/go": goUpdated, "owner/repo/ts": tsEntry },
+				{
+					"owner/repo/go": goUpdated,
+					"owner/repo/ts": expect.objectContaining({
+						commit: REMOTE_SHA,
+						files: [".claude/skills/ts/"],
+					}),
+				},
+			]);
 		});
 
 		it("resolves owner/repo/plugin-name to exact match", async () => {

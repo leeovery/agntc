@@ -485,6 +485,33 @@ describe("executeChangeVersionAction", () => {
 		});
 	});
 
+	describe("a removal that fails part way", () => {
+		it("returns changed: false with the reason, copying nothing and keeping the entry", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0" });
+
+			mockSelect.mockResolvedValue("v1.1.0");
+			primeSuccessfulReinstall();
+			mockNukeManifestFiles.mockRejectedValue(new Error("EACCES"));
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				message: "couldn't remove its old files: EACCES",
+				notes: [],
+			});
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("a local source folder that's gone", () => {
 		it("names the recorded root, not the key", async () => {
 			const key = "/Users/lee/Code/skills/go";

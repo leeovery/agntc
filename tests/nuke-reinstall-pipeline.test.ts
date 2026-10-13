@@ -823,6 +823,28 @@ describe("executeNukeAndReinstall", () => {
 			});
 		});
 
+		it("reports a removal that fails part way, copying nothing and taking nothing over", async () => {
+			mockNukeManifestFiles.mockRejectedValue(
+				new Error("EISDIR: illegal operation on a directory"),
+			);
+
+			const result = await executeNukeAndReinstall(
+				packOptions({
+					"owner/repo/queues": makeEntry({
+						type: "skill",
+						files: [".claude/skills/queues/"],
+					}),
+				}),
+			);
+
+			expect(result).toEqual({
+				status: "remove-failed",
+				reason:
+					"couldn't remove its old files: EISDIR: illegal operation on a directory",
+			});
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
 		it("treats a same-source pack's files as a clash, not something to absorb", async () => {
 			const sibling = makeEntry({
 				type: "pack",

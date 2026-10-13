@@ -566,6 +566,39 @@ describe("cloneAndReinstall", () => {
 		});
 	});
 
+	describe("a removal that fails part way", () => {
+		it("returns failed with remove-failed, copying nothing and keeping the entry recorded", async () => {
+			const entry = makeEntry();
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockNukeManifestFiles.mockRejectedValue(
+				new Error("EACCES: permission denied"),
+			);
+
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					scope: projectScope("/fake/project"),
+					manifest: { "owner/repo": entry },
+				},
+				interactiveUi,
+				{},
+			);
+
+			expect(result).toEqual({
+				status: "failed",
+				failureReason: "remove-failed",
+				message: "couldn't remove its old files: EACCES: permission denied",
+			});
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
+		});
+	});
+
 	describe("clone failure", () => {
 		it("returns failed with clone-failed reason", async () => {
 			const entry = makeEntry();
@@ -955,6 +988,37 @@ describe("cloneAndReinstall", () => {
 				expect(result.manifestEntry.ref).toBe("v2.0.0");
 			}
 		});
+
+		it.each([
+			["a branch entry stays on its branch", "dev"],
+			["a HEAD-tracked entry stays on HEAD", null],
+		])("keeps the recorded ref without a newRef: %s, at the clone's commit", async (_, ref) => {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry: makeEntry({ ref }),
+					scope: projectScope("/fake/project"),
+				},
+				interactiveUi,
+				{},
+			);
+
+			expect(mockCloneSource).toHaveBeenCalledWith(
+				expect.objectContaining({ ref }),
+			);
+			expect(result).toMatchObject({
+				status: "success",
+				manifestEntry: { ref, commit: REMOTE_SHA },
+			});
+		});
 	});
 
 	describe("collection key", () => {
@@ -1185,7 +1249,7 @@ describe("cloneAndReinstall", () => {
 					onCopyFailed: () => "copy-failed",
 					onAborted: () => "aborted",
 					onBlocked: (reason) => `blocked:${reason}`,
-					onUnknown: () => "unknown",
+					onRemoveFailed: () => "remove-failed",
 				});
 				expect(mapped).toBe(`blocked:${result.reason}`);
 				expect(mapped).toContain("evil-link");
@@ -1485,7 +1549,7 @@ describe("mapCloneFailure", () => {
 			onAborted: ({ reason, inTheWay }) =>
 				`aborted${inTheWay ? " (in the way)" : ""}: ${reason}`,
 			onBlocked: (reason) => `blocked: ${reason}`,
-			onUnknown: (msg) => `unknown: ${msg}`,
+			onRemoveFailed: (msg) => `remove-failed: ${msg}`,
 		};
 	}
 
@@ -1509,12 +1573,16 @@ describe("mapCloneFailure", () => {
 		expect(result).toBe("copy-failed: disk full");
 	});
 
-	it("dispatches unknown to onUnknown handler", () => {
+	it("dispatches remove-failed to onRemoveFailed handler", () => {
 		const result = mapCloneFailure(
-			{ status: "failed", failureReason: "unknown", message: "something" },
+			{
+				status: "failed",
+				failureReason: "remove-failed",
+				message: "couldn't remove its old files: EACCES",
+			},
 			makeHandlers(),
 		);
-		expect(result).toBe("unknown: something");
+		expect(result).toBe("remove-failed: couldn't remove its old files: EACCES");
 	});
 
 	it("dispatches aborted (via status, no failureReason) to onAborted handler with its cause", () => {
@@ -1553,7 +1621,7 @@ describe("mapCloneFailure", () => {
 			onCopyFailed: () => 5,
 			onAborted: () => 7,
 			onBlocked: () => 8,
-			onUnknown: () => 6,
+			onRemoveFailed: () => 6,
 		};
 		const result = mapCloneFailure(
 			{ status: "blocked", reason: "test" },
@@ -1618,7 +1686,7 @@ describe("isCloneReinstallFailure", () => {
 				onCopyFailed: () => "copy",
 				onAborted: () => "aborted",
 				onBlocked: () => "blocked",
-				onUnknown: () => "unknown",
+				onRemoveFailed: () => "remove-failed",
 			});
 			expect(mapped).toBe("aborted");
 		}
@@ -1654,14 +1722,18 @@ describe("failureMessage", () => {
 		expect(msg).toBe("disk full hint");
 	});
 
-	it("returns the failure's own message for unknown", () => {
+	it("returns the failure's own message for remove-failed", () => {
 		const msg = failureMessage(
-			{ status: "failed", failureReason: "unknown", message: "something" },
+			{
+				status: "failed",
+				failureReason: "remove-failed",
+				message: "couldn't remove its old files: EACCES",
+			},
 			"owner/repo",
 			makeEntry(),
 			"project",
 		);
-		expect(msg).toBe("something");
+		expect(msg).toBe("couldn't remove its old files: EACCES");
 	});
 
 	it("returns buildAbortMessage output for aborted", () => {

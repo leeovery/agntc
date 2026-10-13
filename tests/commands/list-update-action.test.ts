@@ -652,5 +652,36 @@ describe("executeUpdateAction", () => {
 			);
 			expect(result.newEntry!.commit).toBe(REMOTE_SHA);
 		});
+
+		it("keeps a branch entry on its branch, at the clone's commit", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "dev" });
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(mockCloneSource).toHaveBeenCalledWith(
+				expect.objectContaining({ ref: "dev" }),
+			);
+			expect(result.newEntry).toMatchObject({ ref: "dev", commit: REMOTE_SHA });
+			expect(mockAddEntry).toHaveBeenCalledWith(
+				{ [key]: entry },
+				key,
+				expect.objectContaining({ ref: "dev" }),
+			);
+		});
 	});
 });
