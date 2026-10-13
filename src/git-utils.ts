@@ -63,3 +63,16 @@ export async function fetchRemoteTags(url: string): Promise<string[]> {
 	const refs = await fetchRemoteTagRefs(url);
 	return refs.map((r) => r.tag);
 }
+
+/** The branch `ls-remote --symref <url> HEAD` says HEAD points at, if any. */
+function parseDefaultBranch(stdout: string): string | null {
+	return /^ref: refs\/heads\/(\S+)\tHEAD$/m.exec(stdout)?.[1] ?? null;
+}
+
+/** A remote's default branch, asked of the remote without cloning it. */
+export async function fetchDefaultBranch(url: string): Promise<string | null> {
+	const { stdout } = await execGit(["ls-remote", "--symref", url, "HEAD"], {
+		timeout: 15_000,
+	});
+	return parseDefaultBranch(stdout);
+}

@@ -43,7 +43,7 @@ import {
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
-import { fetchRemoteTags } from "../git-utils.js";
+import { fetchDefaultBranch, fetchRemoteTags } from "../git-utils.js";
 import {
 	type InstallItem,
 	itemLabel,
@@ -73,6 +73,7 @@ import {
 } from "../scope.js";
 import {
 	addSourceFor,
+	locateSource,
 	type ParsedSource,
 	parseSource,
 	resolveCloneUrl,
@@ -101,6 +102,8 @@ interface FetchedSource {
 	rootName: string;
 	/** The `@ref` or `@constraint` the user typed, for suggested commands. */
 	version?: string;
+	/** The newest semver tag a remote add with no version typed resolved to. */
+	latestRelease?: string;
 	ref: string | null;
 	commit: string | null;
 	cloneUrl: string | null;
@@ -254,6 +257,9 @@ function describeSource(
 		rootName: parsed.repo,
 		cloneUrl: parsed.cloneUrl,
 		...(parsed.startPath !== undefined ? { startPath: parsed.startPath } : {}),
+		...(version === null && parsed.ref !== null
+			? { latestRelease: parsed.ref }
+			: {}),
 	};
 }
 
@@ -354,11 +360,35 @@ async function discoverSource(
 			onWarn: (message) => ui.warn(message),
 		});
 	} catch (err) {
+		if (err instanceof StartPathError) {
+			return refuse(src, await startPathMessage(err, src), ui);
+		}
 		if (ENGINE_ERRORS.some((engineError) => err instanceof engineError)) {
 			return refuse(src, errorMessage(err), ui);
 		}
 		throw err;
 	}
+}
+
+/**
+ * A start path that isn't at the latest release, which an add with no version
+ * resolves to, may be on the default branch already: says how to add it from
+ * there. Naming that branch takes an `ls-remote`, never a second clone.
+ */
+async function startPathMessage(
+	err: StartPathError,
+	src: FetchedSource,
+): Promise<string> {
+	if (src.latestRelease === undefined || src.cloneUrl === null) {
+		return err.message;
+	}
+	const branch = await fetchDefaultBranch(src.cloneUrl).catch(() => null);
+	const fromBranch = locateSource(
+		addSourceFor(src.key, src.cloneUrl),
+		src.startPath ?? "",
+		branch ?? "<branch>",
+	);
+	return `${err.message} at ${src.latestRelease}, the latest release — to add it from the default branch, use ${fromBranch}, or name a version`;
 }
 
 async function settle(

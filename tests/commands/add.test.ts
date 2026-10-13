@@ -29,6 +29,7 @@ vi.mock("../../src/git-clone.js", () => ({
 
 vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
+	fetchDefaultBranch: vi.fn(),
 }));
 
 vi.mock("../../src/collision-resolve.js", async (importOriginal) => ({
@@ -64,7 +65,7 @@ import { copyItem } from "../../src/copy-item.js";
 import { listAgentFiles } from "../../src/copy-pack.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
-import { fetchRemoteTags } from "../../src/git-utils.js";
+import { fetchDefaultBranch, fetchRemoteTags } from "../../src/git-utils.js";
 import type { EntryType, Manifest, ManifestEntry } from "../../src/manifest.js";
 import {
 	nukeManifestFiles,
@@ -84,6 +85,7 @@ const actualCopyItem = await vi.importActual<
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
+const mockFetchDefaultBranch = vi.mocked(fetchDefaultBranch);
 const mockResolveCollisions = vi.mocked(resolveCollisions);
 const mockResolveUnmanaged = vi.mocked(resolveUnmanagedConflicts);
 const mockNuke = vi.mocked(nukeManifestFiles);
@@ -114,6 +116,7 @@ beforeEach(async () => {
 	vi.spyOn(process, "cwd").mockReturnValue(projectDir);
 
 	mockFetchRemoteTags.mockResolvedValue([]);
+	mockFetchDefaultBranch.mockResolvedValue("main");
 	mockCloneSource.mockImplementation(async () => {
 		await cp(upstreamDir, cloneDir, { recursive: true });
 		return { tempDir: cloneDir, commit: SHA };
@@ -436,6 +439,59 @@ describe("add command", () => {
 				'owner/repo: path "nope" not found in source',
 			]);
 			expect(await installed(".agntc")).toBe(false);
+		});
+
+		describe("a path not at the latest release a bare add resolves to", () => {
+			beforeEach(() => {
+				mockFetchRemoteTags.mockResolvedValue(["v1.2.0"]);
+			});
+
+			it("says so and how to add it from the default branch, named by the remote", async () => {
+				mockFetchDefaultBranch.mockResolvedValue("trunk");
+
+				const code = await exitCode(runAdd("owner/repo/skills/new"));
+
+				expect(code).toBe(1);
+				expect(mockFetchDefaultBranch).toHaveBeenCalledWith(
+					"https://github.com/owner/repo.git",
+				);
+				expect(mockCloneSource).toHaveBeenCalledTimes(1);
+				expect(cancelled()).toEqual([
+					'owner/repo: path "skills/new" not found in source at v1.2.0, the latest release — to add it from the default branch, use owner/repo/skills/new@trunk, or name a version',
+				]);
+			});
+
+			it("reaches a repo off GitHub by its URL", async () => {
+				await exitCode(runAdd("https://gitlab.com/owner/repo/skills/new"));
+
+				expect(cancelled()[0]).toContain(
+					"use https://gitlab.com/owner/repo/skills/new@main,",
+				);
+			});
+
+			it("stands in for the branch when the remote won't name it", async () => {
+				mockFetchDefaultBranch.mockRejectedValue(new Error("network"));
+
+				await exitCode(runAdd("owner/repo/skills/new"));
+
+				expect(cancelled()[0]).toContain(
+					"use owner/repo/skills/new@<branch>, or name a version",
+				);
+			});
+
+			it.each([
+				"owner/repo/skills/new@v1",
+				"owner/repo/skills/new@main",
+				"owner/repo/skills/new@^1.0",
+			])("keeps the plain message for a version given: %s", async (source) => {
+				const code = await exitCode(runAdd(source));
+
+				expect(code).toBe(1);
+				expect(cancelled()).toEqual([
+					'owner/repo: path "skills/new" not found in source',
+				]);
+				expect(mockFetchDefaultBranch).not.toHaveBeenCalled();
+			});
 		});
 
 		it("refuses a path escaping the source", async () => {

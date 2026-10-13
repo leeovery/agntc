@@ -2,6 +2,7 @@ import * as childProcess from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	execGit,
+	fetchDefaultBranch,
 	fetchRemoteTagRefs,
 	fetchRemoteTags,
 } from "../src/git-utils.js";
@@ -244,5 +245,38 @@ describe("fetchRemoteTags", () => {
 			"--tags",
 			"https://github.com/owner/repo.git",
 		]);
+	});
+});
+
+describe("fetchDefaultBranch", () => {
+	it("reads the branch HEAD points at from ls-remote --symref", async () => {
+		mockExecFileSuccess(
+			`ref: refs/heads/trunk\tHEAD\n${"a".repeat(40)}\tHEAD\n`,
+		);
+
+		const branch = await fetchDefaultBranch("https://github.com/o/r.git");
+
+		expect(branch).toBe("trunk");
+		const call = vi.mocked(childProcess.execFile).mock.calls[0]!;
+		expect(call[1]).toEqual([
+			"ls-remote",
+			"--symref",
+			"https://github.com/o/r.git",
+			"HEAD",
+		]);
+	});
+
+	it("keeps a branch name with a slash whole", async () => {
+		mockExecFileSuccess("ref: refs/heads/release/v2\tHEAD\n");
+
+		expect(await fetchDefaultBranch("https://github.com/o/r.git")).toBe(
+			"release/v2",
+		);
+	});
+
+	it("is null when the remote names no branch for HEAD", async () => {
+		mockExecFileSuccess(`${"a".repeat(40)}\tHEAD\n`);
+
+		expect(await fetchDefaultBranch("https://github.com/o/r.git")).toBeNull();
 	});
 });
