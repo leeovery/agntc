@@ -36,7 +36,7 @@ src/
   copy-bare-skill.ts        # Copy of one skill folder through planCopy/writeCopy (drops top-level agntc.json and .git at any depth)
   copy-pack.ts              # Copy a pack: skills flat, agents/*.md, hooks/*; rollback on failure
   copy-rollback.ts          # Link-safe rollback of a partial copy
-  copy-safety.ts            # Path-traversal guard; inspectSourcePath (lstat each segment of a source path); planCopy/writeCopy, the link-safe copy whose plan is also the symlink pre-flight (clone-root boundary)
+  copy-safety.ts            # Path-traversal guard; inspectSourcePath (lstat each segment of a source path); lexical symlink-escape pre-flight (clone-root boundary); planCopy/writeCopy, a copy that never follows a link
   compute-incoming-files.ts # Files an item would install; claims + target clashes
   install-paths.ts          # lstat-only inspection of install paths; assertNoLinkInTheWay; contained-path checks; installPathMatcher (paths equal with or without a trailing slash)
   nuke-files.ts             # nukeManifestFiles: strict removal of recorded paths (recursion from the trailing slash); removePathsInTheWay: on-disk removal for approved replacements. Neither follows links; both refuse paths outside the root
@@ -91,7 +91,7 @@ src/
 - **Keys.** Root item → source key; loose skill → `<source>/<folder name>` (+ `sourceSubpath` when the path differs); pack → `<source>/<path>`. `keyItems` refuses two items claiming one install path, then two sharing a key.
 - **Identity = folder basename** throughout; frontmatter is display and `--skill` matching only.
 - **Copy-safety** (`copy-safety.ts`, `install-paths.ts`, `nuke-files.ts`): path-traversal + symlink-escape guards before any copy on `add` and `update`; never write or delete through a symlink in the destination (a link in the way is unlinked as a link); recorded paths outside the install root are refused. Shared `.claude/<asset>` roots are not checked.
-- **Links in a source.** A link at or above an item's path blocks it (`add` refuses the start path; `update` blocks before removing anything). Copies are planned (`planCopy`), then written: a link to something the copy holds stays a relative link; a link to anything else in the clone is replaced by what it points at; a link out of the clone, directly or through another link, is refused; dangling links to nothing copied, sockets, FIFOs and devices are left out. A local source resolves to its real folder.
+- **Links in a source.** A link at or above an item's path blocks it (`add` refuses the start path; `update` blocks before removing anything). A copy never follows a link; each is read from where it sits: out of the clone or local root → refused before anything is removed; to something inside the item the filters keep → a relative link; to the item itself, above it or elsewhere in the source → an absolute link into a local source, left out of a clone (deleted once copied); to something the filters drop → left out. A link at the top of a pack's `hooks/` never installs. Sockets, FIFOs and devices are left out. A local source resolves to its real folder.
 
 ## Asset Routing
 
