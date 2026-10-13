@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { identifyAssetType, targetDir } from "../src/asset-targets.js";
+import {
+	identifyAssetType,
+	isUnderRoot,
+	targetDir,
+} from "../src/asset-targets.js";
 
 describe("targetDir", () => {
 	it("routes skills to .claude/skills", () => {
@@ -43,5 +47,25 @@ describe("identifyAssetType", () => {
 
 	it("matches the target dir as a prefix, not a substring", () => {
 		expect(identifyAssetType("foo/.claude/skills/bar")).toBeNull();
+	});
+
+	it("returns null for a sibling folder sharing the target dir's prefix", () => {
+		expect(identifyAssetType(".claude/skillsX/foo")).toBeNull();
+		expect(identifyAssetType(".claude/agentsfoo.md")).toBeNull();
+		expect(identifyAssetType(".claude/hooks-old/x.sh")).toBeNull();
+	});
+});
+
+describe("isUnderRoot", () => {
+	it("holds for the root itself", () => {
+		expect(isUnderRoot(".claude/skills", ".claude/skills")).toBe(true);
+	});
+
+	it("holds for a path below the root", () => {
+		expect(isUnderRoot(".claude/skills/foo/", ".claude/skills")).toBe(true);
+	});
+
+	it("fails for a sibling sharing the root's prefix", () => {
+		expect(isUnderRoot(".claude/skillsX/foo", ".claude/skills")).toBe(false);
 	});
 });
