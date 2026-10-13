@@ -14,8 +14,13 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { computeIncomingFiles } from "../src/compute-incoming-files.js";
 import { copyPack, listAgentFiles } from "../src/copy-pack.js";
-import { SymlinkEscapeError } from "../src/copy-safety.js";
+import {
+	type CopySource,
+	checkEscapingSymlinks,
+	SymlinkEscapeError,
+} from "../src/copy-safety.js";
 import type { FoundPack } from "../src/discover.js";
 
 let base: string;
@@ -54,6 +59,14 @@ async function installed(path: string): Promise<boolean> {
 	);
 }
 
+function remote(root: string): CopySource {
+	return { root, local: false };
+}
+
+function local(root: string): CopySource {
+	return { root, local: true };
+}
+
 function pack(overrides: Partial<FoundPack> = {}): FoundPack {
 	return {
 		name: "laravel",
@@ -79,7 +92,7 @@ describe("copyPack", () => {
 					{ name: "api", path: "laravel/skills/api" },
 				],
 			}),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -99,7 +112,7 @@ describe("copyPack", () => {
 
 		await copyPack(
 			pack({ skills: [{ name: "api", path: "laravel/skills/api" }] }),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -116,7 +129,7 @@ describe("copyPack", () => {
 
 		const result = await copyPack(
 			pack({ assetDirs: ["agents"] }),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -138,7 +151,7 @@ describe("copyPack", () => {
 
 		const result = await copyPack(
 			pack({ assetDirs: ["agents"] }),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -155,7 +168,7 @@ describe("copyPack", () => {
 
 		const result = await copyPack(
 			pack({ assetDirs: ["hooks"] }),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -182,7 +195,7 @@ describe("copyPack", () => {
 
 		const result = await copyPack(
 			pack({ assetDirs: ["hooks"] }),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -212,7 +225,7 @@ describe("copyPack", () => {
 			"laravel/hooks/pre.sh": "",
 		});
 
-		const result = await copyPack(pack(), root, projectDir);
+		const result = await copyPack(pack(), remote(root), projectDir);
 
 		expect(result.copiedFiles).toEqual([]);
 		expect(await installed(".claude/hooks/pre.sh")).toBe(false);
@@ -228,7 +241,7 @@ describe("copyPack", () => {
 				skills: [{ name: "a", path: "skills/a" }],
 				assetDirs: ["agents"],
 			}),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -254,7 +267,7 @@ describe("copyPack", () => {
 				],
 				assetDirs: ["agents", "hooks"],
 			}),
-			root,
+			remote(root),
 			projectDir,
 		);
 
@@ -276,7 +289,7 @@ describe("copyPack", () => {
 					],
 					assetDirs: ["agents"],
 				}),
-				root,
+				remote(root),
 				projectDir,
 			),
 		).rejects.toThrow();
@@ -315,7 +328,7 @@ describe("copyPack", () => {
 			await linkAt(".claude/agents/team");
 
 			await expect(
-				copyPack(PACK_WITH_ASSETS, root, projectDir),
+				copyPack(PACK_WITH_ASSETS, remote(root), projectDir),
 			).rejects.toThrow(
 				".claude/agents/team is a symlink — agntc won't write through it",
 			);
@@ -331,7 +344,7 @@ describe("copyPack", () => {
 			await linkAt(".claude/hooks/lint");
 
 			await expect(
-				copyPack(PACK_WITH_ASSETS, root, projectDir),
+				copyPack(PACK_WITH_ASSETS, remote(root), projectDir),
 			).rejects.toThrow(".claude/hooks/lint is a symlink");
 
 			expect(await readdir(realDir)).toEqual(["keep.md"]);
@@ -342,127 +355,173 @@ describe("copyPack", () => {
 	describe("a symlink in the pack's hooks/ or agents/", () => {
 		const HOOKS = pack({ assetDirs: ["hooks"] });
 
-		/** Copies the pack, then deletes its source, so nothing installed can lean on it. */
-		async function copyThenDeleteSource(found: FoundPack = HOOKS) {
-			const result = await copyPack(found, root, projectDir);
+		/** Copies the pack from a clone, then deletes it, as add and update do. */
+		async function copyFromCloneThenDelete(found: FoundPack = HOOKS) {
+			const result = await copyPack(found, remote(root), projectDir);
 			await rm(root, { recursive: true, force: true });
 			return result;
 		}
 
-		async function at(path: string) {
-			return lstat(join(projectDir, path));
+		function hookClaims(): Promise<string[]> {
+			return computeIncomingFiles({ kind: "pack", pack: HOOKS }, root);
 		}
 
-		it("installs a hook linking to a script elsewhere as that script, still executable", async () => {
-			await tree({ "laravel/hooks/pre.sh": "", "scripts/fmt.sh": "fmt" });
-			await chmod(join(root, "scripts/fmt.sh"), 0o755);
-			await symlink("../../scripts/fmt.sh", join(root, "laravel/hooks/fmt.sh"));
+		function sorted(paths: string[]): string[] {
+			return [...paths].sort();
+		}
 
-			const result = await copyThenDeleteSource();
-
-			expect([...result.copiedFiles].sort()).toEqual([
-				".claude/hooks/fmt.sh",
-				".claude/hooks/pre.sh",
-			]);
-			expect((await at(".claude/hooks/fmt.sh")).isFile()).toBe(true);
-			expect((await at(".claude/hooks/fmt.sh")).mode & 0o777).toBe(0o755);
-		});
-
-		it("installs a hook linking to a folder elsewhere as that folder, recording what's in it", async () => {
+		it.each([
+			["a clone", remote],
+			["a local source", local],
+		])("never installs or claims a link at the top of hooks/, from %s", async (_kind, kind) => {
 			await tree({
 				"laravel/hooks/pre.sh": "",
-				"tools/lint/run.sh": "run",
-				"tools/lint/.cache/state": "",
+				"scripts/fmt.sh": "",
+				"tools/lint/run.sh": "",
 			});
+			await symlink("../../scripts/fmt.sh", join(root, "laravel/hooks/fmt.sh"));
 			await symlink("../../tools/lint", join(root, "laravel/hooks/lint"));
+			await symlink("pre.sh", join(root, "laravel/hooks/alias.sh"));
 
-			const result = await copyThenDeleteSource();
+			const result = await copyPack(HOOKS, kind(root), projectDir);
 
-			expect([...result.copiedFiles].sort()).toEqual([
+			expect(result.copiedFiles).toEqual([".claude/hooks/pre.sh"]);
+			expect(result.assetCounts.hooks).toBe(1);
+			expect(await hookClaims()).toEqual(result.copiedFiles);
+		});
+
+		it("never installs or claims a FIFO, at the top of hooks/ or in a hook folder", async () => {
+			await tree({
+				"laravel/hooks/pre.sh": "",
+				"laravel/hooks/lint/run.sh": "",
+			});
+			execFileSync("mkfifo", [join(root, "laravel/hooks/pipe")]);
+			execFileSync("mkfifo", [join(root, "laravel/hooks/lint/pipe")]);
+			const claims = await hookClaims();
+
+			const result = await copyFromCloneThenDelete();
+
+			expect(sorted(claims)).toEqual([
+				".claude/hooks/lint/",
+				".claude/hooks/pre.sh",
+			]);
+			expect(sorted(result.copiedFiles)).toEqual([
 				".claude/hooks/lint/",
 				".claude/hooks/lint/run.sh",
 				".claude/hooks/pre.sh",
 			]);
-			expect(result.assetCounts.hooks).toBe(2);
-			expect((await at(".claude/hooks/lint")).isDirectory()).toBe(true);
-			expect(await installed(".claude/hooks/lint/.cache")).toBe(false);
 		});
 
-		it("keeps a link to a file in its hook folder relative, and copies one to a file elsewhere", async () => {
+		it("keeps a link in a hook folder to a file in it relative, and leaves out a clone's link out of it", async () => {
 			await tree({
 				"laravel/hooks/lint/run.sh": "run",
-				"scripts/env.sh": "env",
+				"laravel/hooks/pre.sh": "",
+				"scripts/env.sh": "",
 			});
 			await symlink("run.sh", join(root, "laravel/hooks/lint/alias.sh"));
+			await symlink("../pre.sh", join(root, "laravel/hooks/lint/pre.sh"));
 			await symlink(
 				"../../../scripts/env.sh",
 				join(root, "laravel/hooks/lint/env.sh"),
 			);
 
-			const result = await copyThenDeleteSource();
+			const result = await copyFromCloneThenDelete();
 
-			expect([...result.copiedFiles].sort()).toEqual([
+			expect(sorted(result.copiedFiles)).toEqual([
 				".claude/hooks/lint/",
 				".claude/hooks/lint/alias.sh",
-				".claude/hooks/lint/env.sh",
 				".claude/hooks/lint/run.sh",
+				".claude/hooks/pre.sh",
 			]);
 			expect(
 				await readlink(join(projectDir, ".claude/hooks/lint/alias.sh")),
 			).toBe("run.sh");
-			expect((await at(".claude/hooks/lint/env.sh")).isFile()).toBe(true);
+		});
+
+		it("links a local hook folder's link out of it absolutely into the source", async () => {
+			await tree({ "laravel/hooks/lint/run.sh": "", "scripts/env.sh": "" });
+			await symlink(
+				"../../../scripts/env.sh",
+				join(root, "laravel/hooks/lint/env.sh"),
+			);
+
+			const result = await copyPack(HOOKS, local(root), projectDir);
+
+			expect(result.copiedFiles).toContain(".claude/hooks/lint/env.sh");
+			expect(
+				await readlink(join(projectDir, ".claude/hooks/lint/env.sh")),
+			).toBe(join(root, "scripts/env.sh"));
+		});
+
+		it("leaves out a link to a hidden file in a hook folder", async () => {
+			await tree({
+				"laravel/hooks/lint/run.sh": "",
+				"laravel/hooks/lint/.secrets/env": "TOKEN",
+			});
+			await symlink(".secrets/env", join(root, "laravel/hooks/lint/env"));
+
+			const result = await copyFromCloneThenDelete();
+
+			expect(sorted(result.copiedFiles)).toEqual([
+				".claude/hooks/lint/",
+				".claude/hooks/lint/run.sh",
+			]);
+		});
+
+		it("agrees with the pre-flight on links to a folder above a hook: both pass, and nothing above is copied", async () => {
+			await tree({ "laravel/hooks/lint/run.sh": "" });
+			await symlink("../../..", join(root, "laravel/hooks/lint/up"));
+			await symlink("../..", join(root, "laravel/hooks/up"));
+
+			const check = await checkEscapingSymlinks(join(root, "laravel"), root);
+			const result = await copyFromCloneThenDelete();
+
+			expect(check).toEqual({ ok: true });
+			expect(sorted(result.copiedFiles)).toEqual([
+				".claude/hooks/lint/",
+				".claude/hooks/lint/run.sh",
+			]);
+		});
+
+		it("agrees with the pre-flight on a link out of the clone in a hook folder: both refuse, and the pack rolls back", async () => {
+			await tree({
+				"laravel/skills/a/SKILL.md": "",
+				"laravel/hooks/lint/run.sh": "",
+			});
+			await symlink("../../../..", join(root, "laravel/hooks/lint/leak"));
+
+			const check = await checkEscapingSymlinks(join(root, "laravel"), root);
+			const copy = copyPack(
+				pack({
+					skills: [{ name: "a", path: "laravel/skills/a" }],
+					assetDirs: ["hooks"],
+				}),
+				remote(root),
+				projectDir,
+			);
+
+			expect(check.ok).toBe(false);
+			await expect(copy).rejects.toBeInstanceOf(SymlinkEscapeError);
+			expect(await installed(".claude/skills/a")).toBe(false);
+			expect(await installed(".claude/hooks/lint")).toBe(false);
 		});
 
 		it("keeps a hook executable", async () => {
-			await tree({ "laravel/hooks/pre.sh": "" });
-			await chmod(join(root, "laravel/hooks/pre.sh"), 0o755);
-
-			await copyThenDeleteSource();
-
-			expect((await at(".claude/hooks/pre.sh")).mode & 0o777).toBe(0o755);
-		});
-
-		it("leaves out a hook that is a dangling link, and a FIFO, without blocking", async () => {
 			await tree({
+				"laravel/hooks/pre.sh": "",
 				"laravel/hooks/lint/run.sh": "",
-				"laravel/hooks/pre.sh": "",
 			});
-			await symlink("../../gone.sh", join(root, "laravel/hooks/gone.sh"));
-			execFileSync("mkfifo", [join(root, "laravel/hooks/pipe")]);
-			execFileSync("mkfifo", [join(root, "laravel/hooks/lint/pipe")]);
+			await chmod(join(root, "laravel/hooks/pre.sh"), 0o755);
+			await chmod(join(root, "laravel/hooks/lint/run.sh"), 0o755);
 
-			const result = await copyThenDeleteSource();
+			await copyFromCloneThenDelete();
 
-			expect([...result.copiedFiles].sort()).toEqual([
-				".claude/hooks/lint/",
-				".claude/hooks/lint/run.sh",
+			for (const hook of [
 				".claude/hooks/pre.sh",
-			]);
-			expect(result.assetCounts.hooks).toBe(2);
-		});
-
-		it("refuses a hook linking out of the source, rolling the pack back", async () => {
-			await tree({
-				"laravel/skills/a/SKILL.md": "",
-				"laravel/hooks/pre.sh": "",
-			});
-			const outside = join(base, "outside");
-			await mkdir(outside);
-			await symlink(outside, join(root, "laravel/hooks/leak"));
-
-			await expect(
-				copyPack(
-					pack({
-						skills: [{ name: "a", path: "laravel/skills/a" }],
-						assetDirs: ["hooks"],
-					}),
-					root,
-					projectDir,
-				),
-			).rejects.toBeInstanceOf(SymlinkEscapeError);
-
-			expect(await installed(".claude/skills/a")).toBe(false);
-			expect(await installed(".claude/hooks/pre.sh")).toBe(false);
+				".claude/hooks/lint/run.sh",
+			]) {
+				expect((await lstat(join(projectDir, hook))).mode & 0o777).toBe(0o755);
+			}
 		});
 
 		it("installs only the regular .md files of agents/, never a link", async () => {
@@ -473,7 +532,7 @@ describe("copyPack", () => {
 			);
 			await symlink("../../elsewhere/team", join(root, "laravel/agents/team"));
 
-			const result = await copyThenDeleteSource(
+			const result = await copyFromCloneThenDelete(
 				pack({ assetDirs: ["agents"] }),
 			);
 

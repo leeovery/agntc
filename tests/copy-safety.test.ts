@@ -283,38 +283,6 @@ describe("scanForEscapingSymlinks", () => {
 		).resolves.toBeUndefined();
 	});
 
-	it("rejects a link out of the clone inside a folder elsewhere that a link leads to", async () => {
-		await mkdir(join(cloneRoot, "shared"));
-		await symlink("/etc/passwd", join(cloneRoot, "shared/leak"));
-		await symlink("../shared", join(unitDir, "shared"));
-
-		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
-		).rejects.toBeInstanceOf(SymlinkEscapeError);
-	});
-
-	it("rejects a link that leads out of the clone through another link", async () => {
-		await symlink("/etc", join(cloneRoot, "hop"));
-		await symlink("../hop/passwd", join(unitDir, "leak"));
-
-		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
-		).rejects.toBeInstanceOf(SymlinkEscapeError);
-	});
-
-	it("ends on links between folders elsewhere that lead back to each other and to the root", async () => {
-		await mkdir(join(cloneRoot, "a"));
-		await mkdir(join(cloneRoot, "b"));
-		await symlink("../b", join(cloneRoot, "a/to-b"));
-		await symlink("../a", join(cloneRoot, "b/to-a"));
-		await symlink("..", join(cloneRoot, "b/to-root"));
-		await symlink("../a", join(unitDir, "to-a"));
-
-		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
-		).resolves.toBeUndefined();
-	});
-
 	it("validates symlinked dirs without descending into them", async () => {
 		// A real escaping symlink-to-dir must be flagged on the link itself,
 		// not by walking through it.

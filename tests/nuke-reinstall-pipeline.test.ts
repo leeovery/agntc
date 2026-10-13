@@ -294,7 +294,7 @@ describe("executeNukeAndReinstall", () => {
 			);
 			expect(mockCopyPack).toHaveBeenCalledWith(
 				current,
-				"/tmp/clone",
+				{ root: "/tmp/clone", local: false },
 				"/fake/project",
 			);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
@@ -352,7 +352,7 @@ describe("executeNukeAndReinstall", () => {
 			]);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
 				sourceDir: "/tmp/clone/laravel",
-				cloneRoot: "/tmp/clone",
+				source: { root: "/tmp/clone", local: false },
 				projectDir: "/fake/project",
 				skillName: "laravel",
 			});
@@ -604,7 +604,7 @@ describe("executeNukeAndReinstall", () => {
 			]);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
 				sourceDir: "/tmp/clone/lang/go",
-				cloneRoot: "/tmp/clone",
+				source: { root: "/tmp/clone", local: false },
 				projectDir: "/fake/project",
 				skillName: "go",
 			});
@@ -1024,7 +1024,7 @@ describe("executeNukeAndReinstall", () => {
 			);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
 				sourceDir: "/tmp/source",
-				cloneRoot: "/tmp/source",
+				source: { root: "/tmp/source", local: false },
 				projectDir: "/fake/project",
 				skillName: "repo",
 			});

@@ -699,7 +699,7 @@ describe("cloneAndReinstall", () => {
 			expect(result.status).toBe("success");
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
 				sourceDir: "/Users/lee/Code/skills/skills/react/hooks",
-				cloneRoot: "/Users/lee/Code/skills",
+				source: { root: "/Users/lee/Code/skills", local: true },
 				projectDir: "/fake/project",
 				skillName: "hooks",
 			});

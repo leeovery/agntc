@@ -1,8 +1,10 @@
 import {
 	access,
+	lstat,
 	mkdir,
 	mkdtemp,
 	readFile,
+	readlink,
 	rm,
 	symlink,
 	writeFile,
@@ -42,6 +44,13 @@ async function installed(path: string): Promise<boolean> {
 	);
 }
 
+async function linked(path: string): Promise<boolean> {
+	return lstat(join(projectDir, path)).then(
+		(stats) => stats.isSymbolicLink(),
+		() => false,
+	);
+}
+
 describe("copyItem", () => {
 	it("copies a skill's whole folder, its own agents/ included, as one skill", async () => {
 		await tree({
@@ -51,7 +60,7 @@ describe("copyItem", () => {
 
 		const result = await copyItem(
 			{ kind: "skill", skill: { name: "swift", path: "skills/swift" } },
-			root,
+			{ root, local: false },
 			projectDir,
 		);
 
@@ -66,23 +75,37 @@ describe("copyItem", () => {
 		expect(await installed(".claude/agents")).toBe(false);
 	});
 
-	it("lets a skill's link reach anywhere in the source root, copying what it leads to", async () => {
-		await tree({ "skills/swift/SKILL.md": "", "shared/guide.md": "guide" });
-		await symlink("../../shared", join(root, "skills/swift/shared"));
+	describe("a skill's link to a folder beside it in the source", () => {
+		const SWIFT = {
+			kind: "skill",
+			skill: { name: "swift", path: "skills/swift" },
+		} as const;
 
-		await copyItem(
-			{ kind: "skill", skill: { name: "swift", path: "skills/swift" } },
-			root,
-			projectDir,
-		);
-		await rm(root, { recursive: true });
+		beforeEach(async () => {
+			await tree({ "skills/swift/SKILL.md": "", "shared/guide.md": "guide" });
+			await symlink("../../shared", join(root, "skills/swift/shared"));
+		});
 
-		expect(
-			await readFile(
-				join(projectDir, ".claude/skills/swift/shared/guide.md"),
-				"utf-8",
-			),
-		).toBe("guide");
+		it("is left out from a clone", async () => {
+			await copyItem(SWIFT, { root, local: false }, projectDir);
+
+			expect(await installed(".claude/skills/swift/SKILL.md")).toBe(true);
+			expect(await linked(".claude/skills/swift/shared")).toBe(false);
+		});
+
+		it("links absolutely into a local source", async () => {
+			await copyItem(SWIFT, { root, local: true }, projectDir);
+
+			expect(
+				await readlink(join(projectDir, ".claude/skills/swift/shared")),
+			).toBe(join(root, "shared"));
+			expect(
+				await readFile(
+					join(projectDir, ".claude/skills/swift/shared/guide.md"),
+					"utf-8",
+				),
+			).toBe("guide");
+		});
 	});
 
 	it("names a root skill after the root, not the source folder", async () => {
@@ -90,7 +113,7 @@ describe("copyItem", () => {
 
 		const result = await copyItem(
 			{ kind: "skill", skill: { name: "refero", path: "" } },
-			root,
+			{ root, local: false },
 			projectDir,
 		);
 
@@ -113,7 +136,7 @@ describe("copyItem", () => {
 					assetDirs: ["agents"],
 				},
 			},
-			root,
+			{ root, local: false },
 			projectDir,
 		);
 

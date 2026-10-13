@@ -702,7 +702,7 @@ async function installKeyedItem(
 	try {
 		const { copiedFiles, assetCounts } = await copyItem(
 			item,
-			src.root,
+			{ root: src.root, local: src.commit === null },
 			installRoot,
 		);
 		const entry = buildManifestEntry({

@@ -3,9 +3,14 @@ import { dirname, join } from "node:path";
 import { type AssetCounts, targetDir } from "./asset-targets.js";
 import { copyBareSkill } from "./copy-bare-skill.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
-import { type CopyStep, planCopy, writeCopy } from "./copy-safety.js";
+import {
+	type CopySource,
+	type CopyStep,
+	planCopy,
+	writeCopy,
+} from "./copy-safety.js";
 import type { FoundPack } from "./discover.js";
-import { type DirEntry, readDirEntries } from "./fs-utils.js";
+import type { DirEntry } from "./fs-utils.js";
 import { assertNoLinkInTheWay } from "./install-paths.js";
 
 export interface CopyResult {
@@ -21,18 +26,18 @@ export interface CopyResult {
  */
 export async function copyPack(
 	pack: FoundPack,
-	root: string,
+	source: CopySource,
 	installRoot: string,
 ): Promise<CopyResult> {
-	const packDir = join(root, pack.path);
+	const packDir = join(source.root, pack.path);
 	const copiedFiles: string[] = [];
 	const assetCounts: AssetCounts = { skills: pack.skills.length };
 
 	try {
 		for (const skill of pack.skills) {
 			const result = await copyBareSkill({
-				sourceDir: join(root, skill.path),
-				cloneRoot: root,
+				sourceDir: join(source.root, skill.path),
+				source,
 				projectDir: installRoot,
 				skillName: skill.name,
 			});
@@ -48,7 +53,7 @@ export async function copyPack(
 		if (pack.assetDirs.includes("hooks")) {
 			assetCounts.hooks = await copyHooks(
 				join(packDir, "hooks"),
-				root,
+				source,
 				installRoot,
 				copiedFiles,
 			);
@@ -76,10 +81,20 @@ export function agentTarget(relPath: string): string {
 	return `${targetDir("agents")}/${relPath}`;
 }
 
-/** A `hooks/` folder's top-level entries that install: hidden ones are skipped. */
+/**
+ * A `hooks/` folder's top-level entries that install: its regular files and
+ * real folders, hidden ones aside. A link at the top never installs.
+ */
 export async function listHookEntries(hooksDir: string): Promise<DirEntry[]> {
-	const entries = await readDirEntries(hooksDir);
-	return entries.filter((entry) => !isHidden(entry.name));
+	const entries = await readdir(hooksDir, { withFileTypes: true }).catch(
+		() => [],
+	);
+	return entries
+		.filter(
+			(entry) =>
+				!isHidden(entry.name) && (entry.isFile() || entry.isDirectory()),
+		)
+		.map((entry) => ({ name: entry.name, isDirectory: entry.isDirectory() }));
 }
 
 /** The install paths a pack's top-level `hooks/` entries claim. */
@@ -125,32 +140,29 @@ async function copyAgents(
 }
 
 /**
- * Copies every visible entry of `hooks/`, skipping hidden entries at any depth,
- * recording a copied directory and everything inside it. An entry that is a
- * link installs as what it leads to.
+ * Copies every entry of `hooks/` that installs, skipping hidden entries at any
+ * depth, recording a copied directory and everything inside it.
  */
 async function copyHooks(
 	hooksDir: string,
-	root: string,
+	source: CopySource,
 	installRoot: string,
 	copiedFiles: string[],
 ): Promise<number> {
-	let copied = 0;
-	for (const { name } of await listHookEntries(hooksDir)) {
-		const steps = await planCopy(join(hooksDir, name), root, isVisible);
-		const [top] = steps;
-		if (top === undefined) {
-			continue;
-		}
-		const target = hookTarget({ name, isDirectory: top.kind === "dir" });
+	const entries = await listHookEntries(hooksDir);
+	for (const entry of entries) {
+		const from = join(hooksDir, entry.name);
+		const steps: CopyStep[] = entry.isDirectory
+			? await planCopy(from, source, isVisible)
+			: [{ kind: "file", path: "", from }];
+		const target = hookTarget(entry);
 		const dest = join(installRoot, target);
 		await assertNoLinkInTheWay(installRoot, target);
 		copiedFiles.push(...steps.map((step) => installedPath(target, step)));
 		await mkdir(dirname(dest), { recursive: true });
 		await writeCopy(steps, dest);
-		copied += 1;
 	}
-	return copied;
+	return entries.length;
 }
 
 function installedPath(target: string, { kind, path }: CopyStep): string {

@@ -1,4 +1,4 @@
-import { access, readdir, stat } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { posix, relative, sep } from "node:path";
 
 export interface DirEntry {
@@ -36,14 +36,5 @@ export async function pathExists(path: string): Promise<boolean> {
 		return true;
 	} catch {
 		return false;
-	}
-}
-
-export async function readDirEntries(dirPath: string): Promise<DirEntry[]> {
-	try {
-		const entries = await readdir(dirPath, { withFileTypes: true });
-		return entries.map((e) => ({ name: e.name, isDirectory: e.isDirectory() }));
-	} catch {
-		return [];
 	}
 }

@@ -109,7 +109,11 @@ describe("computeIncomingFiles", () => {
 			const projectDir = join(base, "project");
 
 			const incoming = await computeIncomingFiles(item, root);
-			const { copiedFiles } = await copyItem(item, root, projectDir);
+			const { copiedFiles } = await copyItem(
+				item,
+				{ root, local: false },
+				projectDir,
+			);
 
 			expect([...incoming].sort()).toEqual([...copiedFiles].sort());
 		});
@@ -124,7 +128,11 @@ describe("computeIncomingFiles", () => {
 			const projectDir = join(base, "project");
 
 			const incoming = await computeIncomingFiles(item, root);
-			const { copiedFiles } = await copyItem(item, root, projectDir);
+			const { copiedFiles } = await copyItem(
+				item,
+				{ root, local: false },
+				projectDir,
+			);
 
 			expect(incoming).toEqual([".claude/hooks/h.sh"]);
 			expect(copiedFiles).toEqual(incoming);

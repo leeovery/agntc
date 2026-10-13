@@ -39,7 +39,11 @@ afterEach(async () => {
 });
 
 function copy() {
-	return copyBareSkill({ sourceDir, cloneRoot: sourceDir, projectDir });
+	return copyBareSkill({
+		sourceDir,
+		source: { root: sourceDir, local: false },
+		projectDir,
+	});
 }
 
 describe("copyBareSkill rollback", () => {

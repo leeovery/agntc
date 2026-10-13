@@ -2087,7 +2087,7 @@ describe("update command", () => {
 			]);
 			expect(mockCopyPack).toHaveBeenCalledWith(
 				LARAVEL_PACK,
-				"/tmp/agntc-clone",
+				{ root: "/tmp/agntc-clone", local: false },
 				"/fake/project",
 			);
 		});
@@ -2214,7 +2214,7 @@ describe("update command", () => {
 			);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
 				sourceDir: "/tmp/agntc-clone",
-				cloneRoot: "/tmp/agntc-clone",
+				source: { root: "/tmp/agntc-clone", local: false },
 				projectDir: "/fake/project",
 				skillName: "repo",
 			});
@@ -3830,7 +3830,7 @@ describe("update command", () => {
 			});
 			expect(mockCopyPack).toHaveBeenCalledWith(
 				LARAVEL_PACK,
-				"/tmp/agntc-clone",
+				{ root: "/tmp/agntc-clone", local: false },
 				"/fake/project",
 			);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
@@ -4262,7 +4262,7 @@ describe("update command", () => {
 			});
 			expect(mockCopyPack).toHaveBeenCalledWith(
 				LARAVEL_PACK,
-				LOCAL_KEY,
+				{ root: LOCAL_KEY, local: true },
 				"/fake/project",
 			);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();

@@ -116,7 +116,11 @@ describe("packScaffold", () => {
 			throw new Error("the scaffold isn't a pack");
 		}
 
-		const result = await copyPack(pack, packDir, projectDir);
+		const result = await copyPack(
+			pack,
+			{ root: packDir, local: true },
+			projectDir,
+		);
 
 		expect(result.copiedFiles).toEqual([
 			".claude/skills/my-skill/",

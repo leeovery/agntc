@@ -226,9 +226,10 @@ async function reinstall(
 		};
 	}
 
+	const source = { root: cloneRoot, local: existingEntry.commit === null };
 	let copiedFiles: string[];
 	try {
-		({ copiedFiles } = await copyItem(replay.item, cloneRoot, scope.root));
+		({ copiedFiles } = await copyItem(replay.item, source, scope.root));
 	} catch (err: unknown) {
 		return copyFailed(options, err, absorbed);
 	}

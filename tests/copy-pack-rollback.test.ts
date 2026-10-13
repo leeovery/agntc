@@ -81,7 +81,11 @@ describe("copyPack rollback", () => {
 		const error = new Error("disk full");
 		failCopy(/^\.claude\/skills\/b\//, error);
 
-		const thrown = await copyPack(PACK, root, projectDir).catch((e) => e);
+		const thrown = await copyPack(
+			PACK,
+			{ root, local: false },
+			projectDir,
+		).catch((e) => e);
 
 		expect(thrown).toBe(error);
 		expect(mockedRollback).toHaveBeenCalledTimes(2);
@@ -102,7 +106,11 @@ describe("copyPack rollback", () => {
 		const error = new Error("disk full");
 		failCopy(/^\.claude\/agents\/y\.md$/, error);
 
-		const thrown = await copyPack(PACK, root, projectDir).catch((e) => e);
+		const thrown = await copyPack(
+			PACK,
+			{ root, local: false },
+			projectDir,
+		).catch((e) => e);
 
 		expect(thrown).toBe(error);
 		expect(mockedRollback).toHaveBeenCalledOnce();
@@ -123,7 +131,11 @@ describe("copyPack rollback", () => {
 		const error = new Error("disk full");
 		failCopy(/^\.claude\/hooks\//, error, 2);
 
-		const thrown = await copyPack(PACK, root, projectDir).catch((e) => e);
+		const thrown = await copyPack(
+			PACK,
+			{ root, local: false },
+			projectDir,
+		).catch((e) => e);
 
 		expect(thrown).toBe(error);
 		const hooks = copiedTo(/^\.claude\/hooks\//);
@@ -150,7 +162,11 @@ describe("copyPack rollback", () => {
 		const error = new Error("disk full");
 		failCopy(/^\.claude\/hooks\/lint\/b\.sh$/, error);
 
-		const thrown = await copyPack(PACK, root, projectDir).catch((e) => e);
+		const thrown = await copyPack(
+			PACK,
+			{ root, local: false },
+			projectDir,
+		).catch((e) => e);
 
 		expect(thrown).toBe(error);
 		const [[recorded]] = mockedRollback.mock.calls as [[string[]]];
@@ -162,7 +178,7 @@ describe("copyPack rollback", () => {
 	});
 
 	it("does not roll back when everything copies", async () => {
-		await copyPack(PACK, root, projectDir);
+		await copyPack(PACK, { root, local: false }, projectDir);
 
 		expect(mockedRollback).not.toHaveBeenCalled();
 	});

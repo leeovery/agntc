@@ -15,6 +15,7 @@ import { computeIncomingFiles } from "../../src/compute-incoming-files.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyItem } from "../../src/copy-item.js";
 import {
+	type CopySource,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../../src/copy-safety.js";
@@ -85,6 +86,11 @@ async function keyed(
  * read-time backfill — so a "type" present here was genuinely persisted by a
  * writeManifest, not derived in memory on read.
  */
+/** The source add and update copy from: a clone, deleted once copied. */
+function remote(root: string): CopySource {
+	return { root, local: false };
+}
+
 /** Where update reads an entry from in a re-cloned tree. */
 function updateSourceDirOf(
 	cloneRoot: string,
@@ -158,7 +164,7 @@ describe("integration: core workflows", () => {
 			// 4. Copy the bare skill
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
-				cloneRoot: sourceDir,
+				source: remote(sourceDir),
 				projectDir,
 			});
 
@@ -213,7 +219,7 @@ describe("integration: core workflows", () => {
 			await createFile(packBDir, "skills", "review", "SKILL.md");
 
 			const packA = await bundle(packADir, "pack-a");
-			const copyResultA = await copyItem(packA, packADir, projectDir);
+			const copyResultA = await copyItem(packA, remote(packADir), projectDir);
 
 			const entryA: ManifestEntry = {
 				ref: null,
@@ -386,7 +392,7 @@ describe("integration: core workflows", () => {
 
 			const copyResult = await copyItem(
 				await bundle(packDir, "workflow-pack"),
-				packDir,
+				remote(packDir),
 				projectDir,
 			);
 
@@ -452,7 +458,11 @@ describe("integration: core workflows", () => {
 				"owner/my-skill",
 				skillDir,
 			);
-			const { copiedFiles } = await copyItem(root!.item, skillDir, projectDir);
+			const { copiedFiles } = await copyItem(
+				root!.item,
+				remote(skillDir),
+				projectDir,
+			);
 
 			expect(root!.key).toBe("owner/my-skill");
 			expect(root!.sourceSubpath).toBeUndefined();
@@ -500,7 +510,7 @@ describe("integration: core workflows", () => {
 				{ key: "owner/skills-only-repo/beta", sourceSubpath: "skills/beta" },
 			]);
 			for (const { item } of items) {
-				await copyItem(item, repoDir, projectDir);
+				await copyItem(item, remote(repoDir), projectDir);
 			}
 			expect(
 				await fileExists(
@@ -522,7 +532,11 @@ describe("integration: core workflows", () => {
 				"owner/skills-only-bundle",
 				repoDir,
 			);
-			const { copiedFiles } = await copyItem(item!.item, repoDir, projectDir);
+			const { copiedFiles } = await copyItem(
+				item!.item,
+				remote(repoDir),
+				projectDir,
+			);
 
 			expect(item!.key).toBe("owner/skills-only-bundle");
 			expect(copiedFiles).toEqual([
@@ -542,7 +556,11 @@ describe("integration: core workflows", () => {
 				"owner/skills-only-updatable",
 				repoDir,
 			);
-			const copyResult = await copyItem(alpha!.item, repoDir, projectDir);
+			const copyResult = await copyItem(
+				alpha!.item,
+				remote(repoDir),
+				projectDir,
+			);
 			const key = alpha!.key;
 			const entry: ManifestEntry = {
 				ref: null,
@@ -603,7 +621,11 @@ describe("integration: core workflows", () => {
 				repoDir,
 			);
 			expect(alpha!.sourceSubpath).toBeUndefined();
-			const copyResult = await copyItem(alpha!.item, repoDir, projectDir);
+			const copyResult = await copyItem(
+				alpha!.item,
+				remote(repoDir),
+				projectDir,
+			);
 			const key = alpha!.key;
 			const entry: ManifestEntry = {
 				ref: null,
@@ -715,7 +737,7 @@ describe("integration: core workflows", () => {
 
 			const copyResult = await copyItem(
 				await bundle(packDir, "reshaped-pack"),
-				packDir,
+				remote(packDir),
 				projectDir,
 			);
 
@@ -777,7 +799,7 @@ describe("integration: core workflows", () => {
 
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
-				cloneRoot: sourceDir,
+				source: remote(sourceDir),
 				projectDir,
 			});
 
@@ -827,7 +849,7 @@ describe("integration: core workflows", () => {
 			await createFile(skillDir, "SKILL.md");
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
-				cloneRoot: sourceDir,
+				source: remote(sourceDir),
 				projectDir,
 			});
 			const entry: ManifestEntry = {
@@ -872,7 +894,7 @@ describe("integration: core workflows", () => {
 			await createFile(packDir, "agents", "executor.md");
 			const copyResult = await copyItem(
 				await bundle(packDir, "growing-pack"),
-				packDir,
+				remote(packDir),
 				projectDir,
 			);
 			const entry: ManifestEntry = {
@@ -925,7 +947,7 @@ describe("integration: core workflows", () => {
 			await createFile(looseDir, "SKILL.md");
 			const loose = await copyBareSkill({
 				sourceDir: looseDir,
-				cloneRoot: sourceDir,
+				source: remote(sourceDir),
 				projectDir,
 			});
 			const looseEntry: ManifestEntry = {
@@ -996,7 +1018,7 @@ describe("integration: core workflows", () => {
 				// Only reached if the gate passed — would proceed to copy.
 				await copyBareSkill({
 					sourceDir: skillDir,
-					cloneRoot: sourceDir,
+					source: remote(sourceDir),
 					projectDir,
 				});
 				copied = true;
@@ -1045,7 +1067,7 @@ describe("integration: core workflows", () => {
 
 			const copyResult = await copyBareSkill({
 				sourceDir: skillDir,
-				cloneRoot: sourceDir,
+				source: remote(sourceDir),
 				projectDir,
 			});
 
