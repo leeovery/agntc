@@ -147,22 +147,33 @@ describe("a symlink in the destination", () => {
 		]);
 	});
 
-	it("add --overwrite never writes through an unmanaged link at the target", async () => {
+	it("add --overwrite replaces an unmanaged link at the target, leaving its target", async () => {
 		await linkSkillToMine();
 
 		const { exitCode, document } = await run("add", (ui) =>
 			runAdd(source, { overwrite: true }, ui),
 		);
 
-		expect(exitCode).toBe(1);
+		expect(exitCode).toBe(0);
 		expect(document.items).toEqual([
-			expect.objectContaining({
-				status: "failed",
-				reason: `${SKILL} is a symlink — agntc won't write through it`,
-			}),
+			expect.objectContaining({ status: "installed" }),
 		]);
-		expect(await isLink(SKILL)).toBe(true);
+		expect(await isLink(SKILL)).toBe(false);
+		expect(await readFile(join(projectDir, SKILL, "SKILL.md"), "utf-8")).toBe(
+			"from source",
+		);
 		await expectMineUntouched();
+	});
+
+	it("add --overwrite replaces an unmanaged folder rather than merging into it", async () => {
+		await write(join(projectDir, SKILL), { "stale.md": "old" });
+
+		const { exitCode } = await run("add", (ui) =>
+			runAdd(source, { overwrite: true }, ui),
+		);
+
+		expect(exitCode).toBe(0);
+		expect(await readdir(join(projectDir, SKILL))).toEqual(["SKILL.md"]);
 	});
 
 	it("add over its own install, now a link, replaces the link and leaves its target", async () => {
