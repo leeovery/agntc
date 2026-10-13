@@ -448,13 +448,14 @@ export function localSourceRoot(
 	return sourceSubpath ? dirname(key) : key;
 }
 
+/** The repo-relative path a key spells after `owner/repo`; empty for the repo itself. */
+function keySubpath(key: string): string {
+	return key.split("/").slice(2).join("/");
+}
+
 export function getSourceDirFromKey(tempDir: string, key: string): string {
-	const parts = key.split("/");
-	if (parts.length > 2) {
-		const subPath = parts.slice(2).join("/");
-		return join(tempDir, subPath);
-	}
-	return tempDir;
+	const subpath = keySubpath(key);
+	return subpath === "" ? tempDir : join(tempDir, subpath);
 }
 
 /**
@@ -492,9 +493,9 @@ export function resolveUpdateSourceDir(
  * caller's clean clone-failed pre-flight abort — no nuke, no copy, install
  * intact), while ANY other error RETHROWS unchanged (never swallowed as a
  * failure result). On success it returns `{ ok: true, sourceDir }` resolved via
- * {@link resolveUpdateSourceDir}. The guard is a no-op when `sourceSubpath` is
- * absent (the key-derived fallback), so standalone entries and root-child
- * members round-trip exactly as before. Co-located with
+ * {@link resolveUpdateSourceDir}. The guard covers whichever subpath the dir is
+ * read from: the recorded `sourceSubpath`, else the key's own suffix, which a
+ * hand-edited key could point outside the clone. Co-located with
  * {@link resolveUpdateSourceDir} — the source-dir authority both callers already
  * use — to keep the guard sequence in exactly one place.
  */
@@ -503,15 +504,13 @@ export function resolveGuardedSourceDir(
 	key: string,
 	sourceSubpath: string | undefined,
 ): { ok: true; sourceDir: string } | { ok: false; message: string } {
-	if (sourceSubpath) {
-		try {
-			assertSubpathWithinClone(cloneRoot, sourceSubpath);
-		} catch (err) {
-			if (err instanceof PathTraversalError) {
-				return { ok: false, message: err.message };
-			}
-			throw err;
+	try {
+		assertSubpathWithinClone(cloneRoot, sourceSubpath || keySubpath(key));
+	} catch (err) {
+		if (err instanceof PathTraversalError) {
+			return { ok: false, message: err.message };
 		}
+		throw err;
 	}
 
 	return {

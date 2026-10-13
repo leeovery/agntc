@@ -1,4 +1,12 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	lstat,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -145,6 +153,87 @@ describe("clearConflicts", () => {
 					"files in the way weren't installed by agntc: .claude/skills/a/",
 				flags: ["--overwrite"],
 			});
+		});
+	});
+
+	describe("replacing what's in the way", () => {
+		let mine: string;
+
+		beforeEach(async () => {
+			mine = await mkdtemp(join(tmpdir(), "agntc-conflicts-mine-"));
+			await writeFile(join(mine, "SKILL.md"), "mine");
+			await mkdir(join(projectDir, ".claude/skills"), { recursive: true });
+		});
+
+		afterEach(async () => {
+			await rm(mine, { recursive: true, force: true });
+		});
+
+		async function linkToMine(): Promise<void> {
+			await symlink(mine, join(projectDir, ".claude/skills/a"));
+		}
+
+		async function gone(): Promise<boolean> {
+			return (
+				(await lstat(join(projectDir, ".claude/skills/a")).catch(
+					() => null,
+				)) === null
+			);
+		}
+
+		it("removes a folder agntc didn't install when overwriting, rather than merging into it", async () => {
+			await onDisk(".claude/skills/a/");
+
+			await clear({}, "overwrite");
+
+			expect(await gone()).toBe(true);
+		});
+
+		it("removes it once the prompt approves", async () => {
+			await onDisk(".claude/skills/a/");
+			mockResolveUnmanaged.mockResolvedValue({
+				approved: INCOMING,
+				cancelled: [],
+			});
+
+			await clear({}, "ask");
+
+			expect(await gone()).toBe(true);
+		});
+
+		it("leaves it when the prompt cancels", async () => {
+			await onDisk(".claude/skills/a/");
+			mockResolveUnmanaged.mockResolvedValue({
+				approved: [],
+				cancelled: INCOMING,
+			});
+
+			await clear({}, "ask");
+
+			expect(await gone()).toBe(false);
+		});
+
+		it("unlinks a link agntc didn't install, leaving what it points to", async () => {
+			await linkToMine();
+
+			expect(await clear({}, "overwrite")).toEqual({
+				manifest: {},
+				stop: null,
+			});
+
+			expect(await gone()).toBe(true);
+			expect(await readFile(join(mine, "SKILL.md"), "utf-8")).toBe("mine");
+		});
+
+		it("unlinks another entry's recorded path that is a link, leaving what it points to", async () => {
+			await linkToMine();
+
+			expect(
+				await clear({ "other/repo": entry(INCOMING) }, "overwrite"),
+			).toEqual({ manifest: {}, stop: null });
+
+			expect(await gone()).toBe(true);
+			expect(await readFile(join(mine, "SKILL.md"), "utf-8")).toBe("mine");
 		});
 	});
 

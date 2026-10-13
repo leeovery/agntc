@@ -509,7 +509,7 @@ describe("cloneAndReinstall", () => {
 			expect(result.status).toBe("failed");
 			if (result.status === "failed") {
 				expect(result.failureReason).toBe("copy-failed");
-				expect(result.message).toContain("npx agntc update owner/repo");
+				expect(result.message).toContain("npx agntc add owner/repo");
 			}
 		});
 
@@ -855,7 +855,7 @@ describe("cloneAndReinstall", () => {
 				status: "failed",
 				failureReason: "copy-failed",
 				message:
-					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc update owner/repo/laravel` to retry installation.",
+					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
 				absorbed: ["owner/repo/queues"],
 			});
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
@@ -1180,7 +1180,7 @@ describe("cloneAndReinstall", () => {
 				expect(mapped).toContain("evil-link");
 			});
 
-			it("does not invoke the path-traversal guard on the update path", async () => {
+			it("guards the key-derived subpath when no sourceSubpath is recorded", async () => {
 				const entry = makeEntry({ type: "skill" });
 
 				mockCloneSource.mockResolvedValue({
@@ -1194,7 +1194,7 @@ describe("cloneAndReinstall", () => {
 
 				await cloneAndReinstall(
 					{
-						key: "owner/repo",
+						key: "owner/repo/my-skill",
 						entry,
 						projectDir: "/fake/project",
 					},
@@ -1202,7 +1202,10 @@ describe("cloneAndReinstall", () => {
 					{},
 				);
 
-				expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
+				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
+					"/tmp/agntc-clone",
+					"my-skill",
+				);
 			});
 
 			it("rejects a recorded sourceSubpath that lexically escapes the clone (analysis 10-2)", async () => {

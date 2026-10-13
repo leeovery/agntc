@@ -6,7 +6,12 @@ import {
 	takenOverRemoved,
 } from "./absorb.js";
 import { checkFileCollisions } from "./collision-check.js";
-import { computeIncomingFiles } from "./compute-incoming-files.js";
+import {
+	computeIncomingFiles,
+	describeClash,
+	findTargetClashes,
+	skillClaims,
+} from "./compute-incoming-files.js";
 import { copyItem } from "./copy-item.js";
 import { checkEscapingSymlinks } from "./copy-safety.js";
 import {
@@ -15,7 +20,7 @@ import {
 	PackConflictError,
 	StartPathError,
 } from "./discover.js";
-import { recordedSubpath, sourceIdOf } from "./entry-source.js";
+import { reAddCommand, recordedSubpath, sourceIdOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { pathExists } from "./fs-utils.js";
 import {
@@ -195,7 +200,7 @@ async function reinstall(
 	try {
 		({ copiedFiles } = await copyItem(replay.item, cloneRoot, projectDir));
 	} catch (err: unknown) {
-		return copyFailed(key, err, absorbed);
+		return copyFailed(key, existingEntry, err, absorbed);
 	}
 
 	return {
@@ -267,7 +272,8 @@ async function followMovedSkill(
 /**
  * Re-walks a pack so skills added upstream arrive and removed ones go. A path
  * that is now a single skill reinstalls as that skill; a path that is gone,
- * or holds nothing, is gone upstream.
+ * or holds nothing, is gone upstream. Two of its skills sharing a folder name
+ * would install to one place, so the pack aborts.
  */
 async function derivePackReplay(
 	options: NukeReinstallOptions,
@@ -286,6 +292,10 @@ async function derivePackReplay(
 		const [pack] = packs;
 		if (pack === undefined || isEmptyPack(pack)) {
 			return GONE;
+		}
+		const clashes = findTargetClashes(skillClaims(pack.skills));
+		if (clashes.length > 0) {
+			return { ok: false, reason: clashes.map(describeClash).join("; ") };
 		}
 		return { ok: true, item: { kind: "pack", pack }, sourceSubpath };
 	} catch (err) {
@@ -390,6 +400,7 @@ function buildReplayedEntry(
 
 function copyFailed(
 	key: string,
+	entry: ManifestEntry,
 	err: unknown,
 	absorbed: string[],
 ): NukeReinstallCopyFailed {
@@ -402,6 +413,6 @@ function copyFailed(
 		recoveryHint:
 			`Update failed for ${key} after removing old files${takenOver}. ` +
 			`It is currently uninstalled. ` +
-			`Run \`npx agntc update ${key}\` to retry installation.`,
+			`Run \`${reAddCommand(key, entry)}\` to install it again.`,
 	};
 }

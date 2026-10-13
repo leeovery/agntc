@@ -17,6 +17,10 @@ describe("copyBareSkill rollback", () => {
 		mockedFs.mkdir.mockResolvedValue(undefined);
 		mockedFs.cp.mockResolvedValue(undefined);
 		mockedFs.access.mockRejectedValue(new Error("ENOENT")); // agntc.json doesn't exist
+		// Nothing is in the way of the skill's target.
+		mockedFs.lstat.mockRejectedValue(
+			Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
+		);
 		mockedFs.rm.mockResolvedValue(undefined);
 		mockedRollback.mockResolvedValue(undefined);
 	});

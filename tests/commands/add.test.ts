@@ -576,13 +576,29 @@ describe("add command", () => {
 		});
 
 		it("refuses two picked items that would share a key, naming both paths", async () => {
+			await upstream({
+				"foo/agntc.json": PACK,
+				"foo/skills/bar/SKILL.md": "",
+				"x/foo/SKILL.md": "",
+			});
+
+			const code = await exitCode(runAdd("owner/repo", { all: true }));
+
+			expect(code).toBe(1);
+			expect(cancelled()).toEqual([
+				"owner/repo: foo and x/foo would share the key owner/repo/foo — choose one",
+			]);
+			expect(await installed(".claude")).toBe(false);
+		});
+
+		it("refuses two picked skills that would install to one place, naming both paths", async () => {
 			await upstream({ "x/foo/SKILL.md": "", "y/foo/SKILL.md": "" });
 
 			const code = await exitCode(runAdd("owner/repo", { all: true }));
 
 			expect(code).toBe(1);
 			expect(cancelled()).toEqual([
-				"owner/repo: x/foo and y/foo would share the key owner/repo/foo — choose one",
+				"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 			]);
 			expect(await installed(".claude")).toBe(false);
 		});

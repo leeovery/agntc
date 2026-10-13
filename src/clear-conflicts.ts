@@ -4,6 +4,7 @@ import {
 	resolveCollisions,
 } from "./collision-resolve.js";
 import type { Manifest } from "./manifest.js";
+import { nukeManifestFiles } from "./nuke-files.js";
 import { joinWithAnd } from "./summary.js";
 import type { Mode, Ui } from "./ui.js";
 import { checkUnmanagedConflicts } from "./unmanaged-check.js";
@@ -67,7 +68,7 @@ export async function clearConflicts(
 	);
 	return {
 		manifest: afterCollisions.manifest,
-		stop: await clearUnmanaged(unmanaged, check.key, policy, ui),
+		stop: await clearUnmanaged(unmanaged, check, policy, ui),
 	};
 }
 
@@ -113,13 +114,17 @@ async function clearCollisions(
 	}
 }
 
+/**
+ * Once replacing them is approved, removes the files in the way, a link as a
+ * link, so the copy writes real folders rather than merging into what was there.
+ */
 async function clearUnmanaged(
 	files: string[],
-	key: string,
+	{ key, projectDir }: ConflictCheck,
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<Stop | null> {
-	if (files.length === 0 || policy === "overwrite") {
+	if (files.length === 0) {
 		return null;
 	}
 	if (policy === "stop") {
@@ -128,9 +133,15 @@ async function clearUnmanaged(
 			flags: OVERWRITE_FLAGS,
 		};
 	}
-	const resolution = await resolveUnmanagedConflicts(
-		[{ pluginKey: key, files }],
-		ui,
-	);
-	return resolution.cancelled.length > 0 ? NOT_RESOLVED : null;
+	if (policy === "ask") {
+		const { cancelled } = await resolveUnmanagedConflicts(
+			[{ pluginKey: key, files }],
+			ui,
+		);
+		if (cancelled.length > 0) {
+			return NOT_RESOLVED;
+		}
+	}
+	await nukeManifestFiles(projectDir, files);
+	return null;
 }

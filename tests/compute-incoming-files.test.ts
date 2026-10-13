@@ -2,7 +2,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { computeIncomingFiles } from "../src/compute-incoming-files.js";
+import {
+	computeClaims,
+	computeIncomingFiles,
+	describeClash,
+	findTargetClashes,
+	skillClaims,
+} from "../src/compute-incoming-files.js";
 import { copyItem } from "../src/copy-item.js";
 import type { FoundPack } from "../src/discover.js";
 import type { InstallItem } from "../src/install-item.js";
@@ -107,5 +113,117 @@ describe("computeIncomingFiles", () => {
 
 			expect([...incoming].sort()).toEqual([...copiedFiles].sort());
 		});
+	});
+});
+
+describe("computeClaims", () => {
+	it("names the source path behind each claimed install path", async () => {
+		await tree({
+			"p/skills/a/SKILL.md": "",
+			"p/agents/nested/planner.md": "",
+			"p/hooks/pre.sh": "",
+		});
+
+		const claims = await computeClaims(
+			packItem({
+				skills: [{ name: "a", path: "p/skills/a" }],
+				assetDirs: ["agents", "hooks"],
+			}),
+			root,
+		);
+
+		expect(claims).toEqual([
+			{ target: ".claude/skills/a/", source: "p/skills/a" },
+			{
+				target: ".claude/agents/nested/planner.md",
+				source: "p/agents/nested/planner.md",
+			},
+			{ target: ".claude/hooks/pre.sh", source: "p/hooks/pre.sh" },
+		]);
+	});
+
+	it("names a root pack's assets from the root", async () => {
+		await tree({ "agents/x.md": "" });
+
+		const claims = await computeClaims(
+			packItem({ path: "", assetDirs: ["agents"] }),
+			root,
+		);
+
+		expect(claims).toEqual([
+			{ target: ".claude/agents/x.md", source: "agents/x.md" },
+		]);
+	});
+});
+
+describe("findTargetClashes", () => {
+	it("finds each install path claimed more than once, with every source claiming it", () => {
+		const clashes = findTargetClashes([
+			...skillClaims([
+				{ name: "foo", path: "skills/a/foo" },
+				{ name: "bar", path: "bar" },
+				{ name: "foo", path: "tools/foo" },
+			]),
+			{ target: ".claude/agents/x.md", source: "p/agents/x.md" },
+			{ target: ".claude/agents/x.md", source: "q/agents/x.md" },
+		]);
+
+		expect(clashes).toEqual([
+			{
+				target: ".claude/skills/foo",
+				sources: ["skills/a/foo", "tools/foo"],
+			},
+			{
+				target: ".claude/agents/x.md",
+				sources: ["p/agents/x.md", "q/agents/x.md"],
+			},
+		]);
+	});
+
+	it("matches a hook file against a hook folder of the same name", () => {
+		const clashes = findTargetClashes([
+			{ target: ".claude/hooks/lint", source: "p/hooks/lint" },
+			{ target: ".claude/hooks/lint/", source: "q/hooks/lint" },
+		]);
+
+		expect(clashes).toEqual([
+			{
+				target: ".claude/hooks/lint",
+				sources: ["p/hooks/lint", "q/hooks/lint"],
+			},
+		]);
+	});
+
+	it("finds nothing when every install path is claimed once", () => {
+		expect(
+			findTargetClashes(
+				skillClaims([
+					{ name: "a", path: "a" },
+					{ name: "b", path: "skills/b" },
+				]),
+			),
+		).toEqual([]);
+	});
+});
+
+describe("describeClash", () => {
+	it("names both paths and the install path they share", () => {
+		expect(
+			describeClash({
+				target: ".claude/skills/foo",
+				sources: ["skills/a/foo", "tools/foo"],
+			}),
+		).toBe(
+			"skills/a/foo and tools/foo would both install to .claude/skills/foo",
+		);
+	});
+
+	it("says all for more than two", () => {
+		expect(
+			describeClash({
+				target: ".claude/skills/foo",
+				sources: ["a/foo", "b/foo", "c/foo"],
+			}),
+		).toBe("a/foo, b/foo and c/foo would all install to .claude/skills/foo");
 	});
 });

@@ -1,4 +1,13 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	access,
+	lstat,
+	mkdir,
+	mkdtemp,
+	readdir,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -233,6 +242,59 @@ describe("copyPack", () => {
 		expect(await installed(".claude/skills/a")).toBe(false);
 		expect(await installed(".claude/skills/missing")).toBe(false);
 		expect(await installed(".claude/agents/x.md")).toBe(false);
+	});
+
+	describe("a symlink in the way", () => {
+		let realDir: string;
+
+		beforeEach(async () => {
+			await tree({
+				"laravel/skills/a/SKILL.md": "",
+				"laravel/agents/team/lead.md": "",
+				"laravel/hooks/lint/run.sh": "",
+			});
+			realDir = join(base, "my-own");
+			await mkdir(realDir, { recursive: true });
+			await writeFile(join(realDir, "keep.md"), "mine");
+		});
+
+		async function linkAt(relPath: string): Promise<void> {
+			const linkPath = join(projectDir, relPath);
+			await mkdir(dirname(linkPath), { recursive: true });
+			await symlink(realDir, linkPath);
+		}
+
+		const PACK_WITH_ASSETS = pack({
+			skills: [{ name: "a", path: "laravel/skills/a" }],
+			assetDirs: ["agents", "hooks"],
+		});
+
+		it("refuses an agent below a linked folder, writing nothing into it and rolling back", async () => {
+			await linkAt(".claude/agents/team");
+
+			await expect(
+				copyPack(PACK_WITH_ASSETS, root, projectDir),
+			).rejects.toThrow(
+				".claude/agents/team is a symlink — agntc won't write through it",
+			);
+
+			expect(await readdir(realDir)).toEqual(["keep.md"]);
+			expect(await installed(".claude/skills/a")).toBe(false);
+			expect(
+				(await lstat(join(projectDir, ".claude/agents/team"))).isSymbolicLink(),
+			).toBe(true);
+		});
+
+		it("refuses a hook entry that is a link, writing nothing into it", async () => {
+			await linkAt(".claude/hooks/lint");
+
+			await expect(
+				copyPack(PACK_WITH_ASSETS, root, projectDir),
+			).rejects.toThrow(".claude/hooks/lint is a symlink");
+
+			expect(await readdir(realDir)).toEqual(["keep.md"]);
+			expect(await installed(".claude/agents/team/lead.md")).toBe(false);
+		});
 	});
 });
 

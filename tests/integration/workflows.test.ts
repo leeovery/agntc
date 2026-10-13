@@ -67,8 +67,12 @@ async function bundle(dir: string, rootName: string): Promise<InstallItem> {
 	return { kind: "pack", pack: packs[0]! };
 }
 
-function keyed(items: InstallItem[], sourceKey: string): KeyedItem[] {
-	const result = keyItems(items, sourceKey, "repo");
+async function keyed(
+	items: InstallItem[],
+	sourceKey: string,
+	root: string,
+): Promise<KeyedItem[]> {
+	const result = await keyItems(items, sourceKey, "repo", root);
 	if (!result.ok) {
 		throw new Error(result.message);
 	}
@@ -428,9 +432,10 @@ describe("integration: core workflows", () => {
 			const discovery = await discover(skillDir, { rootName: "my-skill" });
 			expect(discovery.skills).toEqual([{ name: "my-skill", path: "" }]);
 
-			const [root] = keyed(
+			const [root] = await keyed(
 				discovery.skills.map((skill) => ({ kind: "skill", skill }) as const),
 				"owner/my-skill",
+				skillDir,
 			);
 			const { copiedFiles } = await copyItem(root!.item, skillDir, projectDir);
 
@@ -467,9 +472,10 @@ describe("integration: core workflows", () => {
 			const discovery = await discover(repoDir, {
 				rootName: "skills-only-repo",
 			});
-			const items = keyed(
+			const items = await keyed(
 				discovery.skills.map((skill) => ({ kind: "skill", skill }) as const),
 				"owner/skills-only-repo",
+				repoDir,
 			);
 
 			expect(
@@ -496,9 +502,10 @@ describe("integration: core workflows", () => {
 			await createFile(repoDir, "skills", "alpha", "SKILL.md");
 			await createFile(repoDir, "skills", "beta", "SKILL.md");
 
-			const [item] = keyed(
+			const [item] = await keyed(
 				[await bundle(repoDir, "skills-only-bundle")],
 				"owner/skills-only-bundle",
+				repoDir,
 			);
 			const { copiedFiles } = await copyItem(item!.item, repoDir, projectDir);
 
@@ -515,9 +522,10 @@ describe("integration: core workflows", () => {
 			await createFile(repoDir, "skills", "beta", "SKILL.md");
 
 			const discovery = await discover(repoDir, { rootName: "repo" });
-			const [alpha] = keyed(
+			const [alpha] = await keyed(
 				discovery.skills.map((skill) => ({ kind: "skill", skill }) as const),
 				"owner/skills-only-updatable",
+				repoDir,
 			);
 			const copyResult = await copyItem(alpha!.item, repoDir, projectDir);
 			const key = alpha!.key;
@@ -578,9 +586,10 @@ describe("integration: core workflows", () => {
 			await createFile(repoDir, "beta", "SKILL.md");
 
 			const discovery = await discover(repoDir, { rootName: "repo" });
-			const [alpha] = keyed(
+			const [alpha] = await keyed(
 				discovery.skills.map((skill) => ({ kind: "skill", skill }) as const),
 				"owner/member-dirs-repo",
+				repoDir,
 			);
 			expect(alpha!.sourceSubpath).toBeUndefined();
 			const copyResult = await copyItem(alpha!.item, repoDir, projectDir);

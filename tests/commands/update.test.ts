@@ -1339,7 +1339,7 @@ describe("update command", () => {
 			// The single failure IS the spinner stop-frame at code 2 (error), carrying
 			// the copy-failed member line — no separate p.log.error beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo: copy failed — Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+				"owner/repo: copy failed — Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 				2,
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
@@ -1398,7 +1398,7 @@ describe("update command", () => {
 			// One member line each, all under the one header, at the matching level.
 			expect(mockLog.success).toHaveBeenCalledWith("a");
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"b: copy failed — Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc update owner/repo/b` to retry installation.",
+				"b: copy failed — Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
 			);
 			expect(mockLog.error).toHaveBeenCalledWith(
 				expect.stringMatching(/^c: owner\/repo\/c was installed as a skill/),
@@ -4461,7 +4461,7 @@ describe("update command", () => {
 			await runUpdate("owner/repo").catch(() => {});
 
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("npx agntc update owner/repo"),
+				expect.stringContaining("npx agntc add owner/repo"),
 			);
 		});
 	});
@@ -4505,7 +4505,7 @@ describe("update command", () => {
 			await runUpdate(LOCAL_KEY).catch(() => {});
 
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining(`npx agntc update ${LOCAL_KEY}`),
+				expect.stringContaining(`npx agntc add ${LOCAL_KEY}`),
 			);
 		});
 	});
@@ -5336,7 +5336,7 @@ describe("update command", () => {
 			// The copy-failed standalone is a group-of-one → its loud recovery-hint
 			// line is the spinner stop-frame at code 2 (error ✗).
 			const hasRecoveryHint = stopTexts(handle, 2).some((msg) =>
-				msg.includes("npx agntc update owner/repo"),
+				msg.includes("npx agntc add owner/repo"),
 			);
 			expect(hasRecoveryHint).toBe(true);
 		});
@@ -6741,7 +6741,7 @@ describe("a pack taking over loose skills from its own source", () => {
 		const LOOSE_MESSAGE =
 			"owner/repo/a was removed — the pack owner/repo/tools took it over, then failed to install";
 		const PACK_MESSAGE =
-			"Update failed for owner/repo/tools after removing old files, and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc update owner/repo/tools` to retry installation.";
+			"Update failed for owner/repo/tools after removing old files, and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc add owner/repo/tools --pack` to install it again.";
 
 		it("all-mode drops the loose entry with the pack's, since its files are gone", async () => {
 			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });

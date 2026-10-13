@@ -401,6 +401,30 @@ describe("executeNukeAndReinstall", () => {
 			expect(result.status).toBe("success");
 		});
 
+		it("aborts, leaving the install intact, when two of its skills share a folder name", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						skills: [
+							{ name: "api", path: "laravel/skills/api" },
+							{ name: "lint", path: "laravel/skills/a/lint" },
+							{ name: "lint", path: "laravel/tools/lint" },
+						],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"laravel/skills/a/lint and laravel/tools/lint would both install to .claude/skills/lint",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
 		it("is gone upstream, leaving the install intact, when its path is missing", async () => {
 			mockDiscover.mockRejectedValue(
 				new StartPathError('path "laravel" not found in source'),
@@ -794,7 +818,7 @@ describe("executeNukeAndReinstall", () => {
 				errorMessage: "disk full",
 				absorbed: ["owner/repo/queues"],
 				recoveryHint:
-					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc update owner/repo/laravel` to retry installation.",
+					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
 			});
 		});
 
@@ -977,7 +1001,7 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.errorMessage).toBe("ENOSPC: no space left on device");
 			expect(result.recoveryHint).toBe(
-				"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc update owner/repo` to retry installation.",
+				"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 			);
 		});
 

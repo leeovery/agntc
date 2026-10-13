@@ -476,7 +476,7 @@ describe("executeChangeVersionAction", () => {
 			);
 
 			expect(result.changed).toBe(false);
-			expect(result.message).toContain("npx agntc update owner/repo");
+			expect(result.message).toContain("npx agntc add owner/repo");
 			expect(mockWriteManifest).toHaveBeenCalledWith(
 				"/fake/project",
 				expect.not.objectContaining({ "owner/repo": expect.anything() }),

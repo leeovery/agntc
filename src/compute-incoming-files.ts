@@ -1,9 +1,23 @@
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { skillTarget } from "./asset-targets.js";
 import { agentTarget, hookTarget, listAgentFiles } from "./copy-pack.js";
-import type { FoundPack } from "./discover.js";
+import type { FoundPack, FoundSkill } from "./discover.js";
 import { readDirEntries } from "./fs-utils.js";
 import type { InstallItem } from "./install-item.js";
+import { withoutTrailingSlash } from "./install-paths.js";
+import { joinWithAnd } from "./summary.js";
+
+/** An install path an item claims, and the repo-relative path it's copied from. */
+export interface Claim {
+	target: string;
+	source: string;
+}
+
+/** An install path more than one source path claims. */
+export interface TargetClash {
+	target: string;
+	sources: string[];
+}
 
 /**
  * Predicts the install paths copying an item would claim, without copying, so
@@ -14,25 +28,72 @@ export async function computeIncomingFiles(
 	item: InstallItem,
 	root: string,
 ): Promise<string[]> {
-	if (item.kind === "skill") {
-		return [skillTarget(item.skill.name)];
-	}
-	return computePackFiles(item.pack, root);
+	const claims = await computeClaims(item, root);
+	return claims.map(({ target }) => target);
 }
 
-async function computePackFiles(
+/** What {@link computeIncomingFiles} predicts, with the source path behind each. */
+export async function computeClaims(
+	item: InstallItem,
+	root: string,
+): Promise<Claim[]> {
+	if (item.kind === "skill") {
+		return skillClaims([item.skill]);
+	}
+	return [
+		...skillClaims(item.pack.skills),
+		...(await packAssetClaims(item.pack, root)),
+	];
+}
+
+/** Skills install flat by folder name, so each claims `.claude/skills/<name>/`. */
+export function skillClaims(skills: FoundSkill[]): Claim[] {
+	return skills.map((skill) => ({
+		target: skillTarget(skill.name),
+		source: skill.path,
+	}));
+}
+
+/** The install paths claimed more than once, in the order first claimed. */
+export function findTargetClashes(claims: Claim[]): TargetClash[] {
+	const sourcesByTarget = new Map<string, string[]>();
+	for (const { target, source } of claims) {
+		const path = withoutTrailingSlash(target);
+		sourcesByTarget.set(path, [...(sourcesByTarget.get(path) ?? []), source]);
+	}
+	return [...sourcesByTarget]
+		.filter(([, sources]) => sources.length > 1)
+		.map(([target, sources]) => ({ target, sources }));
+}
+
+export function describeClash({ target, sources }: TargetClash): string {
+	const quantifier = sources.length > 2 ? "all" : "both";
+	return `${joinWithAnd(sources)} would ${quantifier} install to ${target}`;
+}
+
+async function packAssetClaims(
 	pack: FoundPack,
 	root: string,
-): Promise<string[]> {
+): Promise<Claim[]> {
 	const packDir = join(root, pack.path);
-	const files = pack.skills.map((skill) => skillTarget(skill.name));
+	const claims: Claim[] = [];
 	if (pack.assetDirs.includes("agents")) {
 		const agents = await listAgentFiles(join(packDir, "agents"));
-		files.push(...agents.map(agentTarget));
+		for (const relPath of agents) {
+			claims.push({
+				target: agentTarget(relPath),
+				source: posix.join(pack.path, "agents", relPath),
+			});
+		}
 	}
 	if (pack.assetDirs.includes("hooks")) {
 		const hooks = await readDirEntries(join(packDir, "hooks"));
-		files.push(...hooks.map(hookTarget));
+		for (const entry of hooks) {
+			claims.push({
+				target: hookTarget(entry),
+				source: posix.join(pack.path, "hooks", entry.name),
+			});
+		}
 	}
-	return files;
+	return claims;
 }

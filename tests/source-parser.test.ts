@@ -1252,7 +1252,7 @@ describe("resolveGuardedSourceDir", () => {
 		});
 	});
 
-	it("returns ok:true with the key-derived sourceDir when sourceSubpath is absent (guard no-op)", () => {
+	it("returns ok:true with the key-derived sourceDir when sourceSubpath is absent", () => {
 		const result = resolveGuardedSourceDir(
 			"/tmp/clone-abc",
 			"owner/repo/alpha",
@@ -1274,6 +1274,37 @@ describe("resolveGuardedSourceDir", () => {
 			ok: false,
 			message: 'subpath "../evil" resolves outside the clone root',
 		});
+	});
+
+	it("returns ok:false for a key whose own suffix escapes the clone when no sourceSubpath is recorded", () => {
+		const result = resolveGuardedSourceDir(
+			"/tmp/clone-abc",
+			"owner/repo/../../etc",
+			undefined,
+		);
+		expect(result).toEqual({
+			ok: false,
+			message: 'subpath "../../etc" resolves outside the clone root',
+		});
+	});
+
+	it("guards the recorded sourceSubpath, not the key, when both are present", () => {
+		expect(
+			resolveGuardedSourceDir(
+				"/tmp/clone-abc",
+				"owner/repo/../evil",
+				"skills/evil",
+			),
+		).toEqual({
+			ok: true,
+			sourceDir: join("/tmp/clone-abc", "skills/evil"),
+		});
+	});
+
+	it("accepts a key suffix that stays inside the clone", () => {
+		expect(
+			resolveGuardedSourceDir("/tmp/clone-abc", "owner/repo/a/../b", undefined),
+		).toEqual({ ok: true, sourceDir: join("/tmp/clone-abc", "b") });
 	});
 });
 
