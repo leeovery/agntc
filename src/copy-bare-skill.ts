@@ -2,6 +2,7 @@ import { access, cp, mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { skillTarget } from "./asset-targets.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
+import { assertNoLinkInTheWay } from "./install-paths.js";
 
 export interface CopyBareSkillInput {
 	sourceDir: string;
@@ -26,6 +27,8 @@ export async function copyBareSkill(
 	const installedDir = skillTarget(skillName);
 	const destDir = join(projectDir, installedDir);
 
+	// Outside the try: a link in the way isn't the copy's to roll back.
+	await assertNoLinkInTheWay(projectDir, installedDir);
 	try {
 		await mkdir(destDir, { recursive: true });
 		// Exclude `.git` — for a whole-repo bare skill `sourceDir` is the clone

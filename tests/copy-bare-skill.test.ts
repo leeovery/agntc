@@ -1,9 +1,12 @@
 import {
 	access,
+	lstat,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	rm,
+	symlink,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -68,7 +71,7 @@ describe("copyBareSkill", () => {
 		await createSourceFile("SKILL.md");
 		await createSourceFile("agntc.json");
 
-		const result = await copyBareSkill({
+		await copyBareSkill({
 			sourceDir,
 			projectDir,
 		});
@@ -211,5 +214,42 @@ describe("copyBareSkill", () => {
 		expect(
 			await readFile(join(destDir, "a", "b", "c", "deep.md"), "utf-8"),
 		).toBe("content of a/b/c/deep.md");
+	});
+
+	describe("a symlink in the way", () => {
+		let realDir: string;
+
+		beforeEach(async () => {
+			await createSourceFile("SKILL.md");
+			realDir = join(testDir, "my-own-skill");
+			await mkdir(realDir, { recursive: true });
+			await writeFile(join(realDir, "SKILL.md"), "mine");
+			await mkdir(join(projectDir, ".claude/skills"), { recursive: true });
+		});
+
+		it("refuses to write through a link at the target, leaving the link and its target", async () => {
+			const linkPath = join(projectDir, ".claude/skills/source-skill");
+			await symlink(realDir, linkPath);
+
+			await expect(copyBareSkill({ sourceDir, projectDir })).rejects.toThrow(
+				".claude/skills/source-skill is a symlink — agntc won't write through it",
+			);
+
+			expect((await lstat(linkPath)).isSymbolicLink()).toBe(true);
+			expect(await readdir(realDir)).toEqual(["SKILL.md"]);
+			expect(await readFile(join(realDir, "SKILL.md"), "utf-8")).toBe("mine");
+		});
+
+		it("refuses to write into a folder holding a link", async () => {
+			const destDir = join(projectDir, ".claude/skills/source-skill");
+			await mkdir(destDir);
+			await symlink(realDir, join(destDir, "shared"));
+
+			await expect(copyBareSkill({ sourceDir, projectDir })).rejects.toThrow(
+				".claude/skills/source-skill/shared is a symlink",
+			);
+
+			expect(await readdir(realDir)).toEqual(["SKILL.md"]);
+		});
 	});
 });

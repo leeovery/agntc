@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Manifest } from "../src/manifest.js";
 import { checkUnmanagedConflicts } from "../src/unmanaged-check.js";
 
@@ -231,5 +231,75 @@ describe("checkUnmanagedConflicts", () => {
 		);
 
 		expect(result).toEqual([".claude/skills/skill-a/"]);
+	});
+
+	describe("symlinks", () => {
+		let realDir: string;
+
+		beforeEach(async () => {
+			realDir = join(projectDir, "my-own");
+			await mkdir(realDir);
+			await mkdir(join(projectDir, ".claude/skills"), { recursive: true });
+			await mkdir(join(projectDir, ".claude/agents"), { recursive: true });
+		});
+
+		it("reports a link at the target as in the way", async () => {
+			await symlink(realDir, join(projectDir, ".claude/skills/foo"));
+
+			const result = await checkUnmanagedConflicts(
+				[".claude/skills/foo/"],
+				{},
+				projectDir,
+			);
+
+			expect(result).toEqual([".claude/skills/foo/"]);
+		});
+
+		it("reports a dangling link at the target as in the way", async () => {
+			await symlink(
+				join(projectDir, "gone"),
+				join(projectDir, ".claude/skills/foo"),
+			);
+
+			const result = await checkUnmanagedConflicts(
+				[".claude/skills/foo/"],
+				{},
+				projectDir,
+			);
+
+			expect(result).toEqual([".claude/skills/foo/"]);
+		});
+
+		it("reports a linked folder above incoming agents once, in their place", async () => {
+			await symlink(realDir, join(projectDir, ".claude/agents/team"));
+
+			const result = await checkUnmanagedConflicts(
+				[".claude/agents/team/lead.md", ".claude/agents/team/qa.md"],
+				{},
+				projectDir,
+			);
+
+			expect(result).toEqual([".claude/agents/team"]);
+		});
+
+		it("leaves a link the manifest records to the collision check", async () => {
+			await symlink(realDir, join(projectDir, ".claude/skills/foo"));
+			const manifest: Manifest = {
+				"owner/repo-a": {
+					ref: "main",
+					commit: "abc123",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: [".claude/skills/foo/"],
+				},
+			};
+
+			const result = await checkUnmanagedConflicts(
+				[".claude/skills/foo/"],
+				manifest,
+				projectDir,
+			);
+
+			expect(result).toEqual([]);
+		});
 	});
 });

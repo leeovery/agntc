@@ -5,6 +5,7 @@ import { copyBareSkill } from "./copy-bare-skill.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
 import type { FoundPack } from "./discover.js";
 import { type DirEntry, readDirEntries } from "./fs-utils.js";
+import { assertNoLinkInTheWay } from "./install-paths.js";
 
 export interface CopyResult {
 	copiedFiles: string[];
@@ -106,6 +107,7 @@ async function copyAgents(
 	for (const relPath of agents) {
 		const target = agentTarget(relPath);
 		const dest = join(projectDir, target);
+		await assertNoLinkInTheWay(projectDir, target);
 		copiedFiles.push(target);
 		await mkdir(dirname(dest), { recursive: true });
 		await cp(join(agentsDir, relPath), dest);
@@ -126,6 +128,7 @@ async function copyHooks(
 	for (const entry of entries) {
 		const target = hookTarget(entry);
 		const dest = join(projectDir, target);
+		await assertNoLinkInTheWay(projectDir, target);
 		copiedFiles.push(target);
 		await mkdir(entry.isDirectory ? dest : dirname(dest), { recursive: true });
 		await cp(join(hooksDir, entry.name), dest, {
