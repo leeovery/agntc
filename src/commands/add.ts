@@ -25,7 +25,6 @@ import {
 	conflictPolicy,
 } from "../clear-conflicts.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
-import { computeIncomingFiles } from "../compute-incoming-files.js";
 import { copyItem } from "../copy-item.js";
 import { checkEscapingSymlinks, PathTraversalError } from "../copy-safety.js";
 import {
@@ -35,7 +34,12 @@ import {
 	StartPathError,
 } from "../discover.js";
 import { addBody, listingBody, type SourceJson } from "../documents.js";
-import type { SourceId } from "../entry-source.js";
+import {
+	keySuffix,
+	localItemPath,
+	localRootOf,
+	type SourceId,
+} from "../entry-source.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
@@ -46,18 +50,21 @@ import {
 	itemPath,
 	type KeyedItem,
 	keyItems,
+	pathLabel,
 } from "../install-item.js";
 import { promptForItems } from "../item-menu.js";
 import {
 	addEntry,
 	buildManifestEntry,
 	type Manifest,
+	type ManifestEntry,
 	readManifest,
 	removeEntry,
 	writeManifest,
 } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import {
+	agntcCommand,
 	commandTitle,
 	projectScope,
 	type Scope,
@@ -411,7 +418,12 @@ async function installItems(
 	let manifest = installed;
 	const outcomes: ItemOutcome[] = [];
 	const cleared: ClearedItem[] = [];
-	const ctx = { policy, ui, source: sourceIdOfFetched(src) };
+	const ctx = {
+		policy,
+		ui,
+		source: sourceIdOfFetched(src),
+		scope: scope.name,
+	};
 
 	for (const keyed of items) {
 		const checked = await checkItem(keyed, src, manifest, installRoot, ctx);
@@ -481,6 +493,7 @@ interface CheckContext {
 	ui: Ui;
 	/** Where the items come from, for what a pack absorbs. */
 	source: SourceId;
+	scope: ScopeName;
 }
 
 /** An item clear to copy, with the loose skills it takes over. */
@@ -498,32 +511,31 @@ interface CheckedItem {
 }
 
 /**
- * Clears an item for copying: the symlink-escape scan, then whatever files are
- * in its way, under the conflict policy. Files recorded under the item's own
- * key count as its own, so a reinstall doesn't trip either check, and so do a
- * pack's loose skills from its own source, which it absorbs.
+ * Clears an item for copying: its key, the symlink-escape scan, then whatever
+ * files are in its way, under the conflict policy. Files recorded under the
+ * item's own key count as its own, so a reinstall doesn't trip either check,
+ * and so do a pack's loose skills from its own source, which it absorbs.
  */
 async function checkItem(
 	keyed: KeyedItem,
 	src: FetchedSource,
 	manifest: Manifest,
 	installRoot: string,
-	{ policy, ui, source }: CheckContext,
+	{ policy, ui, source, scope }: CheckContext,
 ): Promise<CheckedItem> {
 	const identity = identify(keyed, src.rootName);
-	const symlinkCheck = await checkEscapingSymlinks(
-		join(src.root, identity.path),
-		src.root,
-	);
-	if (!symlinkCheck.ok) {
+	const refusal =
+		keyTaken(keyed, src, manifest, scope) ??
+		(await escapingSymlink(keyed, src));
+	if (refusal !== null) {
 		return {
 			manifest,
-			outcome: { ...identity, status: "failed", reason: symlinkCheck.message },
+			outcome: { ...identity, status: "failed", reason: refusal },
 			absorbs: [],
 		};
 	}
 
-	const incoming = await computeIncomingFiles(keyed.item, src.root);
+	const incoming = keyed.claims.map(({ target }) => target);
 	const absorbs =
 		keyed.item.kind === "pack"
 			? claimFiles(incoming, manifest, keyed.key, source).absorbed
@@ -549,6 +561,56 @@ async function checkItem(
 				: { ...identity, status: "skipped", ...conflicts.stop },
 		absorbs,
 	};
+}
+
+/**
+ * Why the item can't install under its key: the entry already there isn't an
+ * earlier install of it, being another type or from another path. Replacing
+ * that entry is the user's call: remove it, then add.
+ */
+function keyTaken(
+	{ key, item }: KeyedItem,
+	src: FetchedSource,
+	manifest: Manifest,
+	scope: ScopeName,
+): string | null {
+	const holder = manifest[key];
+	if (holder === undefined) {
+		return null;
+	}
+	const type = holder.type ?? "skill";
+	const from = installedFrom(key, holder);
+	if (type === item.kind && from === sourcePathOf(item, src)) {
+		return null;
+	}
+	const remove = agntcCommand(scope, "remove", [key]);
+	return `${key} is already installed from ${pathLabel(from, src.rootName)}, as a ${type}; to replace it: ${remove}, then add again`;
+}
+
+/** Where an entry's item comes from: a local entry's folder, else its path in the repo. */
+function installedFrom(key: string, entry: ManifestEntry): string {
+	if (entry.commit !== null) {
+		return entry.sourceSubpath || keySuffix(key);
+	}
+	const root = localRootOf(key, entry);
+	return join(root, localItemPath(key, entry, root));
+}
+
+/** Where an item comes from, as {@link installedFrom} gives it for an entry. */
+function sourcePathOf(item: InstallItem, src: FetchedSource): string {
+	const path = itemPath(item);
+	return src.commit === null ? join(src.root, path) : path;
+}
+
+async function escapingSymlink(
+	{ item }: KeyedItem,
+	src: FetchedSource,
+): Promise<string | null> {
+	const check = await checkEscapingSymlinks(
+		join(src.root, itemPath(item)),
+		src.root,
+	);
+	return check.ok ? null : check.message;
 }
 
 interface InstalledItem {

@@ -50,10 +50,17 @@ vi.mock("../../src/copy-item.js", async (importOriginal) => ({
 	copyItem: vi.fn(),
 }));
 
+vi.mock("../../src/copy-pack.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/copy-pack.js")>();
+	return { ...actual, listAgentFiles: vi.fn(actual.listAgentFiles) };
+});
+
 import * as p from "@clack/prompts";
 import { resolveCollisions } from "../../src/collision-resolve.js";
 import { addCommand, runAdd } from "../../src/commands/add.js";
 import { copyItem } from "../../src/copy-item.js";
+import { listAgentFiles } from "../../src/copy-pack.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
@@ -77,6 +84,7 @@ const mockResolveCollisions = vi.mocked(resolveCollisions);
 const mockResolveUnmanaged = vi.mocked(resolveUnmanagedConflicts);
 const mockNuke = vi.mocked(nukeManifestFiles);
 const mockCopyItem = vi.mocked(copyItem);
+const mockListAgentFiles = vi.mocked(listAgentFiles);
 const mockMultiselect = vi.mocked(p.multiselect);
 const mockCancel = vi.mocked(p.cancel);
 const mockOutro = vi.mocked(p.outro);
@@ -710,6 +718,180 @@ describe("add command", () => {
 		});
 	});
 
+	describe("a key another item holds", () => {
+		const SKILL_FOO = {
+			"skills/foo/SKILL.md": "skill",
+			"foo/agntc.json": PACK,
+			"foo/skills/bar/SKILL.md": "pack",
+			"tools/SKILL.md": "",
+		};
+		const HELD_BY_SKILL =
+			"owner/repo/foo is already installed from skills/foo, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again";
+		const HELD_BY_PACK =
+			"owner/repo/foo is already installed from foo, as a pack; to replace it: npx agntc remove owner/repo/foo, then add again";
+
+		beforeEach(async () => {
+			await upstream(SKILL_FOO);
+		});
+
+		it("refuses a pack whose key a loose skill from another path holds, removing nothing", async () => {
+			await runAdd("owner/repo", { skill: ["foo"] });
+			const before = await manifest();
+
+			const code = await exitCode(runAdd("owner/repo/foo"));
+
+			expect(code).toBe(1);
+			expect(logged("error")).toEqual([`foo: failed — ${HELD_BY_SKILL}`]);
+			expect(
+				await readFile(
+					join(projectDir, ".claude/skills/foo/SKILL.md"),
+					"utf-8",
+				),
+			).toBe("skill");
+			expect(await installed(".claude/skills/bar")).toBe(false);
+			expect(await manifest()).toEqual(before);
+			expect(mockResolveCollisions).not.toHaveBeenCalled();
+		});
+
+		it("refuses a loose skill whose key a pack holds, removing nothing", async () => {
+			await runAdd("owner/repo/foo");
+			const before = await manifest();
+
+			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+
+			expect(code).toBe(1);
+			expect(logged("error")).toEqual([`skills/foo: failed — ${HELD_BY_PACK}`]);
+			expect(
+				await readFile(
+					join(projectDir, ".claude/skills/bar/SKILL.md"),
+					"utf-8",
+				),
+			).toBe("pack");
+			expect(await installed(".claude/skills/foo")).toBe(false);
+			expect(await manifest()).toEqual(before);
+		});
+
+		it("refuses it with --overwrite too, which replaces files in the way, not entries", async () => {
+			await runAdd("owner/repo/foo");
+			const before = await manifest();
+
+			const code = await exitCode(
+				runAdd("owner/repo", { skill: ["foo"], overwrite: true }),
+			);
+
+			expect(code).toBe(1);
+			expect(await manifest()).toEqual(before);
+		});
+
+		it("reinstalls the same loose skill from the same path", async () => {
+			await runAdd("owner/repo", { skill: ["foo"] });
+			await upstream({ "skills/foo/SKILL.md": "skill v2" });
+
+			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+
+			expect(code).toBeNull();
+			expect(
+				await readFile(
+					join(projectDir, ".claude/skills/foo/SKILL.md"),
+					"utf-8",
+				),
+			).toBe("skill v2");
+			expect((await manifest())["owner/repo/foo"]).toMatchObject({
+				type: "skill",
+				sourceSubpath: "skills/foo",
+				commit: SHA,
+			});
+		});
+
+		it("without a terminal stops that item and installs the rest, exiting 1", async () => {
+			await seedManifest({
+				"owner/repo/foo": installedEntry([".claude/skills/bar/"], "pack"),
+			});
+
+			const run = await runMachine(addCommand, [
+				"owner/repo",
+				"--skill",
+				"foo",
+				"tools",
+			]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document.ok).toBe(false);
+			expect(run.document.items).toEqual([
+				{
+					key: "owner/repo/foo",
+					type: "skill",
+					path: "skills/foo",
+					status: "failed",
+					reason: HELD_BY_PACK,
+				},
+				expect.objectContaining({
+					key: "owner/repo/tools",
+					status: "installed",
+				}),
+			]);
+			expect(Object.keys(await manifest()).sort()).toEqual([
+				"owner/repo/foo",
+				"owner/repo/tools",
+			]);
+		});
+
+		describe("held by a legacy entry", () => {
+			const legacy = (fields: object) => ({
+				ref: null,
+				commit: "old",
+				installedAt: "2026-01-01T00:00:00.000Z",
+				cloneUrl: null,
+				files: [".claude/skills/bar/"],
+				...fields,
+			});
+
+			it("reinstalls a v1 plugin at the pack's path as that pack", async () => {
+				await seedManifest({
+					"owner/repo/foo": legacy({ type: "plugin" }),
+				} as unknown as Manifest);
+
+				const code = await exitCode(runAdd("owner/repo/foo"));
+
+				expect(code).toBeNull();
+				expect((await manifest())["owner/repo/foo"]).toMatchObject({
+					type: "pack",
+					commit: SHA,
+				});
+			});
+
+			it("refuses a skill whose key a v1 plugin holds, which reads as a pack", async () => {
+				await seedManifest({
+					"owner/repo/foo": legacy({ type: "plugin" }),
+				} as unknown as Manifest);
+
+				const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+
+				expect(code).toBe(1);
+				expect(logged("error")).toEqual([
+					`skills/foo: failed — ${HELD_BY_PACK}`,
+				]);
+			});
+
+			it("reinstalls an untyped entry over one skill folder as that skill", async () => {
+				await seedManifest({
+					"owner/repo/foo": legacy({
+						files: [".claude/skills/foo/"],
+						sourceSubpath: "skills/foo",
+					}),
+				} as unknown as Manifest);
+
+				const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+
+				expect(code).toBeNull();
+				expect((await manifest())["owner/repo/foo"]).toMatchObject({
+					type: "skill",
+					commit: SHA,
+				});
+			});
+		});
+	});
+
 	describe("a pack and the loose skills from its own source", () => {
 		const PACKED = installedEntry([".claude/skills/api/"], "pack");
 		const API_NOTE =
@@ -848,6 +1030,24 @@ describe("add command", () => {
 			for (const entry of Object.values(await manifest())) {
 				expect(entry).not.toHaveProperty("localRoot");
 			}
+		});
+
+		it("reads a pack's agents/ once to work out the files it claims", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/s/SKILL.md": "",
+				"p/agents/reviewer.md": "",
+			});
+
+			await runAdd("owner/repo/p");
+
+			expect(mockListAgentFiles).toHaveBeenCalledExactlyOnceWith(
+				join(cloneDir, "p", "agents"),
+			);
+			expect((await manifest())["owner/repo/p"]?.files).toEqual([
+				".claude/skills/s/",
+				".claude/agents/reviewer.md",
+			]);
 		});
 
 		it("asks about a collision with another entry and installs once it's resolved", async () => {
