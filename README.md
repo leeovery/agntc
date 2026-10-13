@@ -2,49 +2,32 @@
 
 # agntc
 
-**Agent skills and knowledge installer for AI coding agents**
+**Agent skills installer for Claude**
 
-A CLI that installs AI skills, agents, and hooks from git repos into projects,
-<br>with multi-agent support and manifest-based tracking.
+A CLI that installs Claude skills, agents and hooks from git repos into projects,
+<br>with version constraints and manifest-based tracking.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-3178C6.svg)](https://www.typescriptlang.org)
 
-[Install](#install) · [Quick Start](#quick-start) · [Commands](#commands) · [Plugin Types](#plugin-types) · [Why agntc?](#why-agntc)
+[Install](#install) · [Quick Start](#quick-start) · [Commands](#commands) · [Skills and Packs](#skills-and-packs) · [Without a Terminal](#without-a-terminal)
 
 </div>
 
 ---
 
-agntc is a standalone CLI for installing shareable AI capabilities (skills, agents, hooks) from git repositories into any project. It works with multiple AI coding agents (Claude, Codex, Cursor) through a driver architecture — same source repo, different target directories per agent.
+agntc installs skills from git repositories, yours or anyone else's, into a project's `.claude/` folder, or into `~/.claude/` with `-g`. Point it at a repo and it finds every skill inside, however the repo is laid out. Everything it installs is tracked in a manifest, so you can update, remove and list installs without manual bookkeeping.
 
-Everything is tracked in a manifest file, so you can update, remove, and list installed plugins without manual bookkeeping.
+agntc targets Claude only.
 
 ## Why agntc?
 
-Skills and agents are scattered across repos with no standard installation method. Current approaches have problems:
-
-- **Manual copy** — tedious, no version tracking, easy to forget what came from where
-- **npm postinstall** — tied to Node.js projects, couples plugin lifecycle to package manager
-- **git submodules** — heavyweight, nested repo complexity, merge conflicts
-- **[Vercel skills](https://github.com/vercel-labs/skills)** — skills only, no agents or hooks, telemetry
-
-agntc sits in between: simple `add` command, manifest tracking, multi-agent routing, and support for all asset types.
-
-### Key differences
-
-| | agntc | Vercel skills | Manual | npm postinstall |
-|---|---|---|---|---|
-| Skills | Yes | Yes | Yes | Yes |
-| Agents | Yes | No | Yes | Yes |
-| Hooks | Yes | No | Yes | Yes |
-| Multi-asset plugins | Yes | No | No | No |
-| Collections | Yes | No | No | No |
-| Version tracking | Manifest | Manifest | None | package.json |
-| File-level tracking | Yes | No | No | No |
-| Update command | Yes | Yes | No | Rebuild |
-| Non-Node projects | Yes | Yes | Yes | No |
-| Telemetry | No | Yes | No | No |
+- **Any repo layout.** Skills are found by walking the repo, not by a fixed folder convention.
+- **Packs.** A set of skills plus agents and hooks installs, updates and removes as one entry.
+- **Versions.** Semver tags are resolved and constrained, so `update` stays within the range you chose.
+- **File-level tracking.** Every installed path is recorded, so updates and removals are clean.
+- **Safe copies.** Path traversal and symlinks are checked before anything is written, and agntc never writes or deletes through a symlink it finds in the destination.
+- **Scriptable.** Without a terminal it never waits on a prompt and prints JSON.
 
 ## Install
 
@@ -65,286 +48,264 @@ npm install -g agntc
 ## Quick Start
 
 ```bash
-npx agntc@latest init                        # scaffold a new plugin
-npx agntc@latest add owner/repo              # install latest, auto-constrain to ^major
-npx agntc@latest add owner/repo@^1.0         # install with semver constraint
-npx agntc@latest add owner/repo@v2.0.0       # pin to exact tag
-npx agntc@latest list                        # see installed + update status
-npx agntc@latest update                      # update all (respects constraints)
-npx agntc@latest remove owner/repo           # remove plugin
+npx agntc@latest add owner/repo                    # find what's in the repo; menu if more than one thing
+npx agntc@latest add owner/repo --skill go python  # install named skills
+npx agntc@latest add owner/repo/laravel            # install from a path in the repo
+npx agntc@latest add owner/repo@^1.0               # install with a semver constraint
+npx agntc@latest add -g owner/repo                 # install into ~/.claude/
+npx agntc@latest list                              # see installs + update status
+npx agntc@latest update                            # update all (respects constraints)
+npx agntc@latest remove owner/repo/go              # remove one install
+npx agntc@latest init skill                        # scaffold a new skill
 ```
+
+## Skills and Packs
+
+A **skill** is a folder with a `SKILL.md`. Everything inside the folder belongs to it, including any `agents/` folder of its own. A skill installs to `.claude/skills/<folder-name>/`.
+
+A **pack** is a set of skills, optionally with agents and hooks, that installs, updates and removes as one entry. A pack is always declared, never inferred from folder shape:
+
+- the author declares it with `{"type": "pack"}` in the folder's `agntc.json`, or
+- the user declares it with `--pack` when adding.
+
+A pack holds every skill found inside it, plus the `.md` files in its own top-level `agents/` and everything in its own top-level `hooks/`. Its skills install flat, like any other skill.
+
+| Asset | Installs to |
+|---|---|
+| skills | `.claude/skills/<folder-name>/` |
+| agents (`.md` files) | `.claude/agents/` |
+| hooks | `.claude/hooks/` |
+
+Agents and hooks install only as part of a pack. A folder with `agents/` or `hooks/` that isn't a pack gets a notice naming the `--pack` line that would install them.
 
 ## Commands
 
-### `init`
-
-Scaffold a new agntc plugin for authoring. Interactive type and agent selection.
-
-```bash
-npx agntc@latest init
-```
-
-| Type | Scaffolded Structure |
-|---|---|
-| Skill | `agntc.json`, `SKILL.md` |
-| Plugin | `agntc.json`, `skills/my-skill/SKILL.md`, `agents/`, `hooks/` |
-| Collection | `my-plugin/` subdirectory with full plugin structure |
-
-If `agntc.json` already exists, offers to reconfigure (overwrites config) or cancel.
-
 ### `add`
 
-Install plugins from git repos or local paths. Interactive agent and plugin selection.
+Install skills and packs from a git repo or local path.
 
 ```bash
-npx agntc@latest add <source>
+npx agntc@latest add <source> [options]
 ```
 
 | Source Format | Example | Notes |
 |---|---|---|
 | GitHub shorthand | `owner/repo` | Auto-resolves latest semver tag, applies `^` constraint |
+| With a path | `owner/repo/skills/go` | Search starts at that folder |
 | With constraint | `owner/repo@^1.0`, `owner/repo@~2.1` | Resolves best match within range |
-| Exact tag | `owner/repo@v2.0.0` | Pin to specific version, no constraint |
-| HTTPS URL | `https://github.com/owner/repo` | Any git host |
+| Exact tag | `owner/repo@v2.0.0` | Pin to a specific version, no constraint |
+| HTTPS URL | `https://gitlab.com/org/repo` | Any git host |
 | SSH URL | `git@github.com:owner/repo.git` | For SSH auth |
-| Local path | `./my-plugin`, `~/dev/plugin` | Local development |
-| Direct path | `https://github.com/owner/repo/tree/main/plugin-name` | Collection shortcut |
+| Tree URL | `https://github.com/owner/repo/tree/main/laravel` | Branch plus path |
+| Local path | `./my-skills`, `~/dev/skills` | Local development |
+
+**How a source is searched.** agntc walks down from the path you added, the repo root unless you gave `owner/repo/path`:
+
+- a folder with `SKILL.md` is a skill and isn't entered;
+- a folder declaring a pack is recorded and isn't entered;
+- any other folder is descended into, up to 5 levels, so category folders like `skills/frontend/` need no configuration.
+
+Hidden folders, `node_modules`, `dist`, `build` and `vendor` are skipped. Packs don't nest. A skill's identity is its folder name.
+
+**Choosing what to install.**
+
+- One thing found installs without a menu.
+- Several give a menu: one line per pack, loose skills shown by path. The menu never splits a pack.
+- `--skill <names...>` installs the named skills, matching folder name or frontmatter `name`, anywhere in the source, including inside a pack. A skill taken out of a pack installs on its own, with a note naming the pack and what's left out. A name found twice is refused, listing the paths.
+- `--pack` installs the added path as one pack. It's refused on a single skill and on a path that contains packs.
+- `--all` installs everything the menu would list.
+- `--list` shows what the source holds and installs nothing: packs with their skill counts, skills with their path and description. It combines with `--pack` only.
+
+`--pack`, `--skill` and `--all` don't combine. `--plugin` still works as an alias for `--pack`, with a note that it's been renamed.
 
 ```bash
-npx agntc@latest add leeovery/agentic-workflows     # auto-constrain ^latest
-npx agntc@latest add leeovery/agentic-workflows@^1.0              # semver constraint
-npx agntc@latest add leeovery/agentic-workflows@v1.0.0            # exact tag
-npx agntc@latest add ./local-plugin
-npx agntc@latest add https://gitlab.com/org/repo
+npx agntc@latest add leeovery/agentic-workflows                 # auto-constrain ^latest
+npx agntc@latest add leeovery/agentic-skills --list             # see what's there
+npx agntc@latest add leeovery/agentic-skills --skill go         # one skill
+npx agntc@latest add leeovery/agentic-skills/laravel            # a declared pack, by path
+npx agntc@latest add owner/skills-repo/tools --pack             # bundle a folder as one pack
+npx agntc@latest add ./local-skills --all
 ```
 
-The tool detects plugin type from the repo's directory structure (no `agntc.json` required), checks for conflicts, and copies assets to agent-specific directories. Agent selection:
+**Files in the way.** If an install would land on files another install owns, or files agntc didn't install, agntc asks before replacing them. `--overwrite` replaces them without asking. Without a terminal and without `--overwrite`, that item stops and the rest install.
 
-- A unit that **declares** `agents` shows a multiselect filtered to those agents (detected ones pre-selected). When it declares a single agent that's detected locally, selection is auto-skipped.
-- A unit with **no usable `agents`** declaration (configless, empty, or malformed) offers all supported agents (`claude`, `codex`, `cursor`), with detected ones pre-ticked.
-
-**`--plugin` flag** — forces a `skills/`-only source to install as a single bundled plugin instead of the default collection menu. It's a hard error against any non-bundleable structure (a bare skill, or a member-dirs collection).
-
-```bash
-npx agntc@latest add owner/bare-skill-repo               # configless, no agntc.json needed
-npx agntc@latest add owner/skills-repo --plugin          # bundle a skills-only repo as one plugin
-```
+A skill already installed as part of a pack from the same repo isn't installed again on its own; agntc says so. Installing a pack takes over loose skills from its own repo without asking.
 
 **Version constraint behaviour:**
-- Bare `owner/repo` — if the remote has semver tags, the latest is resolved and a `^major.minor.patch` constraint is auto-applied
-- `@^1.0` / `@~2.1` — explicit semver range; the best matching tag is installed
-- `@v2.0.0` — exact tag pin, no constraint stored
-- If no semver tags exist on the remote, the default branch HEAD is used with no constraint
+- Bare `owner/repo`: if the remote has semver tags, the latest is resolved and a `^major.minor.patch` constraint is auto-applied. On 0.x the caret locks the minor.
+- `@^1.0` / `@~2.1`: explicit semver range; the best matching tag is installed.
+- `@v2.0.0`: exact tag pin, no constraint stored.
+- If no semver tags exist on the remote, the default branch HEAD is used with no constraint.
 
 ### `remove`
 
-Remove installed plugins and their files.
+Remove installs and their files.
 
 ```bash
-npx agntc@latest remove [key]
+npx agntc@latest remove [key] [-y]
 ```
 
 | Mode | Command | Behaviour |
 |---|---|---|
-| Interactive | `npx agntc@latest remove` | Pick from installed plugins |
-| Standalone | `npx agntc@latest remove owner/repo` | Remove the plugin |
-| Collection (all) | `npx agntc@latest remove owner/repo` | Remove all from collection |
-| Collection (one) | `npx agntc@latest remove owner/repo/name` | Remove specific plugin |
+| Interactive | `npx agntc@latest remove` | Pick from installs |
+| One install | `npx agntc@latest remove owner/repo/go` | Remove that skill or pack |
+| Whole repo | `npx agntc@latest remove owner/repo` | Remove everything installed from the repo |
 
-```bash
-npx agntc@latest remove                           # interactive picker
-npx agntc@latest remove leeovery/claude-workflows
-npx agntc@latest remove leeovery/agent-skills/go
-```
-
-Always confirms before deleting files.
+Asks for confirmation before deleting files; `-y` skips it.
 
 ### `update`
 
-Check remote state and re-install plugins when newer versions exist.
+Check remote state and reinstall when newer versions exist.
 
 ```bash
-npx agntc@latest update [key]
+npx agntc@latest update [key] [-y]
 ```
 
-| Mode | Command | Behaviour |
-|---|---|---|
-| Update all | `npx agntc@latest update` | Update all installed |
-| Specific plugin | `npx agntc@latest update owner/repo` | Update one (or all from collection) |
-| Collection plugin | `npx agntc@latest update owner/repo/name` | Update specific |
+Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved ref and copies again. Constrained installs update to the best match within their range. Tag-pinned installs show newer tags but don't auto-upgrade. Every check runs before any file is deleted; if the new tree can't be installed, or other files are in the way of it, the update aborts with the existing install left intact and prints the remedy.
 
-```bash
-npx agntc@latest update                           # update all
-npx agntc@latest update leeovery/claude-workflows
-```
+- **Packs are re-walked.** Skills added upstream arrive; skills removed upstream go.
+- **Moved skills are followed.** A loose skill whose folder moved is found again when exactly one skill in the repo has its name. New skills are never picked up for loose skills; install the folder as a pack for that.
+- **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
+- **Packs absorb loose skills.** When a pack now holds a skill you installed on its own from the same repo, the pack takes it over and the loose entry goes.
 
-Uses nuke-and-reinstall: deletes existing files, re-clones at the resolved ref, re-copies for the same agents. Constrained plugins update to the best match within their constraint range. Tag-pinned plugins show available newer tags but don't auto-upgrade.
-
-**Update-all is grouped and streamed.** Manifest entries whose version intent points at the same tree — the members of a collection, or several plugins pinned the same way — are grouped by `(clone URL, version intent)`, checked once, and cloned once per group (a 10-member collection clones once, not ten times). Progress streams under a group header per repo with a per-member outcome line beneath, then a trailing summary:
+**Update-all is grouped and streamed.** Installs from the same repo at the same version intent are checked once and cloned once per group. Progress streams under a header per group, then a trailing summary:
 
 ```
-◒ Checking for updates…
-◒ Updating leeovery/agent-skills  v1.2.3 -> v1.3.0  (3 members)
-   ✓ go     → claude
-   ✓ python → claude
-   ✓ rust   → claude, codex  (codex support removed by plugin author)
+◒ Checking for updates...
+◒ Updating leeovery/agentic-skills  v1.2.3 -> v1.3.0  (3 members)
+   ✓ go
+   ✓ python
+   ✓ laravel
 ✓ leeovery/standalone-tool: Updated v1.4.0 -> v1.5.0
 
-leeovery/agent-skills: 4 up to date
+leeovery/agentic-skills: 4 up to date
 Newer versions outside constraints:
-  leeovery/pinned-plugin  v2.1.0 -> v3.0.0 available. To upgrade: npx agntc add leeovery/pinned-plugin
+  leeovery/agentic-workflows  v1.4.0 -> v2.0.0 available. To upgrade: npx agntc add leeovery/agentic-workflows --pack
 ```
 
-- **Version moves render in tags** when both the old and new refs are genuine semver tags and the ref moved (`v1.2.3 -> v1.3.0`); branch / HEAD-tracked / untagged updates fall back to short commit hashes.
-- **The trailing summary collapses to one line per group** — up-to-date counts, newer-tags notices, check failures, and out-of-constraint footers each print once per group rather than once per member. A group can split: behind members update under the header while already-current siblings collapse into the up-to-date count.
-- **Out-of-constraint versions are actionable.** A gated major (or 0.x-minor) bump prints the current→newest move plus the exact re-add command, matched to how you pinned: a caret/constrained user gets bare `npx agntc add owner/repo` (re-establishes caret tracking at the new major); an exact-pin user gets `npx agntc add owner/repo@<newest>`. These are informative, not errors — exit stays 0. A batch that hits a dead remote or a stuck constraint warns and still exits 0; only an aborted, blocked, or failed install trips a non-zero exit.
-
-Single-key `update <key>` and the `list` update / change-version actions are unchanged — one clone per invocation.
+- **Version moves render in tags** when both refs are semver tags and the ref moved; branch and HEAD-tracked updates show short commit hashes.
+- **The trailing summary collapses to one line per group** for up-to-date, newer-tags, check-failed and no-matching-version installs.
+- **Newer versions print the command to reach them.** A major bump (or a 0.x minor bump) outside your constraint prints a bare re-add, which re-establishes the caret at the new major; a tag-pinned install with newer tags prints a re-add at `@<newest>`. The command matches what you installed: its path, `--pack` for a pack, and several loose skills from one repo on one `--skill` line. These are informative and exit 0.
+- A dead remote or a stuck constraint warns and exits 0. An aborted, blocked or failed install exits non-zero.
 
 ### `list`
 
-Interactive management dashboard with update status and inline actions.
+Interactive dashboard with update status and inline actions.
 
 ```bash
 npx agntc@latest list
 ```
 
-Shows all installed plugins with status indicators:
+Each install is listed with its key and version; the highlighted one shows its status: `✓ up to date`, `↑ update available`, `⚑ newer tags`, `● local`, `✗ check failed` or `✗ no matching version`.
 
-```
-  leeovery/claude-technical-workflows@v2.1.6    ✓ Up to date
-  leeovery/agent-skills/go                      ↑ Update available
-  leeovery/agent-skills/python@v1.0             ⚑ Newer tags available
-  leeovery/my-plugin@v1.2.0 (^1.0)             ↑ Constrained update available
-  leeovery/other-plugin                         ✗ Check failed
+Select an install for a detail view with actions: Update, Remove, Change version, Back. The detail view shows the constraint and any version outside it. "Change version" lets you pick any tag and strips the constraint (pins to that tag).
 
-  Done
-```
+### `init`
 
-Select a plugin for detail view with actions: Update, Remove, Change version, Back.
+Scaffold a skill or a pack in the current directory.
 
-The detail view shows constraint info when applicable and flags out-of-constraint versions. "Change version" lets you pick any available tag and strips the constraint (pins to exact tag).
-
-## Plugin Types
-
-agntc detects plugin type from directory structure, not from configuration fields
-or the presence of `agntc.json` (which is optional — shown below as `← optional`).
-
-### Bare Skill
-
-`SKILL.md` at root:
-
-```
-my-skill/
-  SKILL.md
-  references/
-    cheatsheet.md
-  agntc.json          ← optional {"agents": ["claude"]}
+```bash
+npx agntc@latest init [skill|pack] [-y]
 ```
 
-### Multi-Asset Plugin
+| Type | Scaffolded |
+|---|---|
+| `skill` | `SKILL.md` with `name` and `description` frontmatter |
+| `pack` | `agntc.json` (`{"type": "pack"}`), `skills/my-skill/SKILL.md`, `agents/my-agent.md`, `hooks/my-hook.sh` |
 
-A `skills/` dir plus one or more of `agents/` / `hooks/`:
+At a terminal, `init` asks for the type when it isn't given and confirms before writing; `-y` skips the confirmation. Without a terminal, it needs both the type and `-y`, and refuses naming them otherwise.
+
+## Global Installs
+
+`-g` (`--global`) on `add`, `remove`, `update` and `list` installs into `~/.claude/` (skills, agents and hooks) with the manifest at `~/.agntc/manifest.json`.
+
+```bash
+npx agntc@latest add -g leeovery/agentic-skills --skill go
+npx agntc@latest update -g
+npx agntc@latest list -g
+```
+
+Each command works within one scope: `update` without `-g` never touches global installs, and `update -g` never touches the project. Re-add and remove commands agntc prints carry `-g` for global installs.
+
+A skill in `~/.claude/skills` that agntc didn't install, such as one another tool set up, counts as files in the way: `--overwrite` replaces it, and without a terminal or `--overwrite` that item stops. A symlink found there is unlinked as a link, never followed.
+
+## Without a Terminal
+
+agntc is safe to run from an AI agent, a script or CI. When stdin or stdout isn't a terminal, it never waits on a prompt:
+
+- **Output is JSON.** One document per command on stdout, with `ok`, `command`, `scope` (`"project"` or `"global"`), the command's result, `warnings` and `notes`. Errors are JSON too, with a non-zero exit. `--json` forces this at a terminal.
+- **Every question is answered by a flag, or the command stops.** It exits non-zero and the error names the flags that would answer it:
+
+| Question | Flag | Without it |
+|---|---|---|
+| What to install | `--skill`, `--pack`, `--all`, or a path to one skill or pack | `add` refuses, listing what it found |
+| Replace files in the way | `--overwrite` | That item stops, the rest install |
+| Confirm `remove` | `-y` | `remove` refuses |
+| Remove what's gone upstream | `update -y` | Kept and reported |
+| What to remove | `remove <key>` | `remove` refuses |
+
+```bash
+npx agntc add owner/repo --list --json
+npx agntc add owner/repo --skill go python --overwrite
+npx agntc remove owner/repo/go -y
+```
+
+## Authoring
+
+`agntc.json` is optional. A repo of skill folders needs no configuration: `SKILL.md` makes a skill, and identity is the folder name. Descriptions in `SKILL.md` frontmatter are shown in the menu and `--list`.
+
+Declare a pack when its skills, agents and hooks belong together:
 
 ```
-my-plugin/
+laravel/
+  agntc.json          ← {"type": "pack"}
   skills/
-    planning/SKILL.md
-    review/SKILL.md
+    eloquent/SKILL.md
+    testing/SKILL.md
   agents/
-    executor.md
+    reviewer.md       ← installs to .claude/agents/reviewer.md
   hooks/
-    pre-commit.sh
-  agntc.json          ← optional {"agents": ["claude"]}
+    pre-commit.sh     ← installs to .claude/hooks/pre-commit.sh
 ```
 
-### Collection
-
-Multiple installable member units in one repo. Membership is structural — each child
-dir that itself resolves to a unit (has `SKILL.md`, or its own asset dirs) is a member:
-
-```
-my-collection/
-  README.md
-  go/                 ← bare-skill member
-    SKILL.md
-    agntc.json        ← optional {"agents": ["claude", "codex", "cursor"]}
-  python/             ← bare-skill member
-    SKILL.md
-  complex-tool/       ← plugin member
-    skills/
-    agents/
-```
-
-A repo whose root holds only `skills/` is treated as a collection menu of those inner
-skills by default (Vercel-compatible); pass `--plugin` (or set `type: "plugin"`) to
-bundle it as a single plugin instead.
-
-Installing from a collection presents a multiselect of available members. Config-bearing
-and configless members can coexist in the same collection.
-
-## Plugin Configuration
-
-`agntc.json` is **optional**. Type, identity, and installability are derived from
-directory structure alone — so any skill, plugin, or collection installs straight
-from a bare git repo with no config at all. When present, `agntc.json` lives inside
-an installable unit (a bare skill, a plugin, or each collection member — never the
-collection container) and carries only author intent that structure can't express:
-
-```json
-{
-  "agents": ["claude", "codex", "cursor"],
-  "type": "plugin"
-}
-```
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `agents` | `string[]` | No | Restricts which agents this unit targets (a hard ceiling). Absent/empty/malformed → all agents offered. |
-| `type` | `"plugin"` | No | Bundle disambiguator for the one ambiguous shape (a `skills/`-only repo). Any other value is ignored. |
-
-Valid agents: `claude`, `codex`, `cursor`. Unknown values are warned but ignored.
-Config *presence* never signals type, and config reading is lenient — a missing,
-malformed, or empty `agntc.json` is treated as "no usable config", never an error.
-A well-formed `type` that contradicts an unambiguous structure (e.g. `type: "plugin"`
-on a collection) is a hard error.
-
-Installed units never carry `agntc.json` on disk — it's an install-time input, stripped from the destination.
-
-## Supported Agents
-
-| Agent | Skills | Agents | Hooks |
-|---|---|---|---|
-| Claude | `.claude/skills/` | `.claude/agents/` | `.claude/hooks/` |
-| Codex | `.agents/skills/` | — | — |
-| Cursor | `.cursor/skills/` | — | — |
-
-Adding new agents is config-only — implement a driver with detection and routing.
+- `agntc.json` carries only `type`. `"pack"` declares a pack; the old `"plugin"` is read as `"pack"`. Malformed or missing config is ignored.
+- A folder with both `SKILL.md` and a pack declaration is treated as a skill, with a warning.
+- Only `.md` files under a pack's `agents/` install as agents, hidden ones aside. Every entry in its `hooks/` installs.
+- A user can still take one skill out of your pack with `--skill`; it installs on its own.
+- `agntc.json` is never copied into an install.
 
 ## Manifest
 
-Tracks installations at `.agntc/manifest.json`:
+Tracks installs at `.agntc/manifest.json` (or `~/.agntc/manifest.json` with `-g`):
 
 ```json
 {
-  "leeovery/claude-technical-workflows": {
-    "ref": "v2.1.6",
+  "leeovery/agentic-skills/laravel": {
+    "ref": "v1.3.0",
     "commit": "abc123f",
-    "installedAt": "2026-02-09T14:30:00Z",
-    "agents": ["claude"],
+    "installedAt": "2026-10-13T14:30:00Z",
     "files": [
-      ".claude/skills/technical-planning/",
-      ".claude/agents/task-executor.md"
+      ".claude/skills/eloquent/",
+      ".claude/agents/reviewer.md"
     ],
-    "type": "plugin",
-    "constraint": "^2.1.6"
+    "type": "pack",
+    "cloneUrl": "https://github.com/leeovery/agentic-skills.git",
+    "constraint": "^1.3.0"
   }
 }
 ```
 
-The `files` array enables clean removal and nuke-and-reinstall updates. The optional `constraint` field stores the semver range for constrained updates.
+A pack is keyed by its path in the repo; a loose skill by its folder name, with `sourceSubpath` recording where it lives when the key doesn't spell it. The `files` array drives removal and nuke-and-reinstall. `type` is `"skill"` or `"pack"`, and `update` replays it rather than re-detecting.
 
-The optional `type` field (`"skill"` | `"plugin"`) records the resolved type so `update` replays it (re-installing the same kind) instead of blindly re-detecting — `update` validates the re-cloned tree still supports that type *before* deleting anything (derive-before-delete), and aborts with the install left intact if it doesn't. Legacy manifests without `type` backfill it from the recorded `files` on the next read. A skills-only collection member may also carry an internal `sourceSubpath` recording where in the repo to re-copy it from.
+## Upgrading from 0.x
+
+v2 is a breaking release.
+
+- **Claude only.** Codex and Cursor support is gone, along with the agent prompt and `agents` in `agntc.json`. Installs made for several agents move to `.claude/` on their next `update`; the `.agents/skills` and `.cursor/skills` copies are removed.
+- **Plugins are packs.** Manifest entries of type `plugin` are read as packs, and config `"type": "plugin"` still declares a pack. An old plugin entry whose folder is a single skill reinstalls as a skill.
+- **Packs must be declared.** Folder shape no longer makes a plugin: a folder with `agents/` or `hooks/` but no `{"type": "pack"}` is searched for skills, and its agents and hooks aren't installed. Use `--pack`, or ask the author to declare it.
+- **Collections are gone.** A repo with several things in it gives a menu.
+- `--plugin` is now `--pack`; the old flag still works.
 
 ## License
 
