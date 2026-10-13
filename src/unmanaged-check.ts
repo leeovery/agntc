@@ -1,4 +1,8 @@
-import { inspectInstallPath, withoutTrailingSlash } from "./install-paths.js";
+import {
+	inspectInstallPath,
+	installPathMatcher,
+	withoutTrailingSlash,
+} from "./install-paths.js";
 import type { Manifest } from "./manifest.js";
 
 /**
@@ -17,14 +21,14 @@ export async function checkUnmanagedConflicts(
 	manifest: Manifest,
 	installRoot: string,
 ): Promise<string[]> {
-	const tracked = new Set(
+	const isTracked = installPathMatcher(
 		Object.values(manifest).flatMap((entry) => entry.files),
 	);
 	const conflicts = new Set<string>();
 
 	for (const file of incomingFiles) {
 		const inTheWay = await findInTheWay(installRoot, file);
-		if (inTheWay !== null && !tracked.has(inTheWay)) {
+		if (inTheWay !== null && !isTracked(inTheWay)) {
 			conflicts.add(inTheWay);
 		}
 	}

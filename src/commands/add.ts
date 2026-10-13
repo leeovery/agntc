@@ -47,6 +47,7 @@ import {
 	keyItems,
 	pathLabel,
 } from "../install-item.js";
+import { installPathMatcher } from "../install-paths.js";
 import { promptForItems } from "../item-menu.js";
 import {
 	addEntry,
@@ -536,12 +537,12 @@ async function checkItem(
 		keyed.item.kind === "pack"
 			? claimFiles(incoming, manifest, keyed.key, source).absorbed
 			: [];
-	const absorbed = new Set(
+	const isAbsorbed = installPathMatcher(
 		absorbs.flatMap((key) => manifest[key]?.files ?? []),
 	);
 	const conflicts = await clearConflicts(
 		{
-			incomingFiles: incoming.filter((file) => !absorbed.has(file)),
+			incomingFiles: incoming.filter((file) => !isAbsorbed(file)),
 			manifest,
 			key: keyed.key,
 			projectDir: installRoot,
