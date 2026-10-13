@@ -156,3 +156,7 @@ npm run build
 ```
 
 Output: `dist/cli.js`
+
+## Changelog
+
+`CHANGELOG.md` belongs to mint: `mint release` writes each version's entry from the changes since the last tag. Never edit it by hand, and never add an `[Unreleased]` section.
