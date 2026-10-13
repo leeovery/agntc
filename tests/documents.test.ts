@@ -150,6 +150,74 @@ describe("updateBody", () => {
 		});
 	});
 
+	it("reports an entry an update moved at its new key, naming the key it had and its check there", () => {
+		const outcome: PluginOutcome = {
+			status: "updated",
+			key: "owner/repo/foo",
+			previousKey: "owner/repo",
+			summary: "",
+			newEntry: makeEntry({ ref: "v1.1.0", commit: NEW, type: "skill" }),
+			notes: [],
+			absorbed: [],
+		};
+		const check: UpdateCheckResult = {
+			status: "constrained-update-available",
+			tag: "v1.1.0",
+			commit: NEW,
+			latestOverall: "v2.0.0",
+		};
+
+		expect(
+			updateBody(before, [outcome], new Map([["owner/repo", check]])).items,
+		).toEqual([
+			{
+				key: "owner/repo/foo",
+				previousKey: "owner/repo",
+				type: "skill",
+				status: "updated",
+				ref: "v1.1.0",
+				commit: NEW,
+				constraint: null,
+				previousRef: "v1.0.0",
+				previousCommit: OLD,
+				latestOutsideConstraint: "v2.0.0",
+			},
+		]);
+	});
+
+	it("reports an entry moved and then absorbed at its new key, naming the key it had", () => {
+		const outcome: PluginOutcome = {
+			status: "absorbed",
+			key: "owner/repo/foo",
+			previousKey: "owner/repo",
+			into: "owner/repo/tools",
+			summary: "owner/repo/foo is now part of the pack owner/repo/tools",
+		};
+
+		expect(updateBody(before, [outcome], new Map()).items).toEqual([
+			expect.objectContaining({
+				key: "owner/repo/foo",
+				previousKey: "owner/repo",
+				status: "absorbed",
+			}),
+		]);
+	});
+
+	it("names no previous key for an entry whose key stayed", () => {
+		const outcome: PluginOutcome = {
+			status: "updated",
+			key: "owner/repo",
+			summary: "",
+			newEntry: makeEntry({ ref: "v1.1.0", commit: NEW }),
+			notes: [],
+			absorbed: [],
+		};
+
+		expect(
+			updateBody(before, [outcome], new Map()).items[0],
+		).not.toHaveProperty("previousKey");
+	});
+
 	it("names nothing newer when the constraint holds the latest", () => {
 		const check: UpdateCheckResult = {
 			status: "constrained-up-to-date",

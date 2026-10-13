@@ -455,6 +455,39 @@ describe("executeChangeVersionAction", () => {
 		});
 	});
 
+	describe("a root skill that moved at the chosen version", () => {
+		it("moves the entry to the key add gives it, the old key gone in the same write", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({
+				ref: "v1.0.0",
+				files: [".claude/skills/repo/"],
+			});
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			primeSuccessfulReinstall();
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/repo"));
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				changed: true,
+				message: "Changed owner/repo/repo to v2.0.0",
+				newEntry: { ref: "v2.0.0", sourceSubpath: "skills/repo" },
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/repo/repo": result.newEntry },
+			);
+		});
+	});
+
 	describe("copy-failed", () => {
 		it("removes entry from manifest and returns changed: false with recovery hint", async () => {
 			const key = "owner/repo";

@@ -5,16 +5,13 @@ import {
 	cloneRepoOnce,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	recordReinstall,
 	runPipeline,
 } from "./clone-reinstall.js";
 import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
-import {
-	addEntry,
-	type Manifest,
-	type ManifestEntry,
-	removeEntry,
-} from "./manifest.js";
+import type { Manifest, ManifestEntry } from "./manifest.js";
+import { removeEntry } from "./manifest.js";
 import type { Scope, ScopeName } from "./scope.js";
 import {
 	deriveCloneUrlFromKey,
@@ -102,6 +99,10 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
  * An entry found gone upstream starts as `gone-kept`, which is true until its
  * removal is settled; `-y` or a yes turns it into `gone-removed`. An entry a
  * pack took over during the run ends as `absorbed`.
+ *
+ * `key` is where the entry is recorded once the outcome is applied. A
+ * reinstall `add` would key differently moves the entry, and `previousKey`
+ * names the key it had ({@link keyBefore}).
  */
 export type PluginOutcome =
 	| ({
@@ -126,11 +127,25 @@ export type PluginOutcome =
 	| { status: "constrained-no-match"; key: string }
 	| { status: "gone-kept"; key: string; summary: string; flags?: string[] }
 	| { status: "gone-removed"; key: string; summary: string }
-	| { status: "absorbed"; key: string; into: string; summary: string };
+	| {
+			status: "absorbed";
+			key: string;
+			into: string;
+			summary: string;
+			previousKey?: string;
+	  };
 
 interface Reinstalled {
 	notes: string[];
 	absorbed: string[];
+	previousKey?: string;
+}
+
+/** The key an outcome's entry had when the run started. */
+export function keyBefore(outcome: PluginOutcome): string {
+	return (
+		("previousKey" in outcome ? outcome.previousKey : undefined) ?? outcome.key
+	);
 }
 
 /**
@@ -170,10 +185,14 @@ function absorbedBy(outcome: PluginOutcome): string[] {
 		: [];
 }
 
-/** The outcome of a loose skill entry the pack whose outcome is `pack` took over. */
+/**
+ * The outcome of a loose skill entry the pack whose outcome is `pack` took
+ * over. `from` is the key the entry had when the run started.
+ */
 export function absorbedOutcome(
 	key: string,
 	pack: PluginOutcome,
+	from: string = key,
 ): PluginOutcome {
 	const into = pack.key;
 	return {
@@ -183,14 +202,16 @@ export function absorbedOutcome(
 		summary: isSuccessOutcome(pack)
 			? `${key} is now part of the pack ${into}`
 			: `${key} was removed — the pack ${into} took it over, then failed to install`,
+		...(from !== key ? { previousKey: from } : {}),
 	};
 }
 
 /**
- * Folds one outcome into the manifest: a reinstall records its new entry, a
- * copy failure or a removal drops the entry, and both a reinstall and a copy
- * failure drop the loose skills a pack took over. Anything else leaves the
- * manifest as it was, same object included.
+ * Folds one outcome into the manifest: a reinstall records its new entry,
+ * under the key it moved to when it moved, a copy failure or a removal drops
+ * the entry, and both a reinstall and a copy failure drop the loose skills a
+ * pack took over. Anything else leaves the manifest as it was, same object
+ * included.
  */
 export function applyOutcome(
 	manifest: Manifest,
@@ -198,7 +219,12 @@ export function applyOutcome(
 ): Manifest {
 	const rest = absorbedBy(outcome).reduce(removeEntry, manifest);
 	if (isSuccessOutcome(outcome)) {
-		return addEntry(rest, outcome.key, outcome.newEntry);
+		return recordReinstall(
+			rest,
+			keyBefore(outcome),
+			outcome.key,
+			outcome.newEntry,
+		);
 	}
 	if (outcome.status === "copy-failed" || outcome.status === "gone-removed") {
 		return removeEntry(rest, outcome.key);
@@ -208,7 +234,7 @@ export function applyOutcome(
 
 /**
  * Gives every entry a pack took over during the run an `absorbed` outcome, in
- * place of whatever it got before.
+ * place of whatever it got before, keeping the key it moved from.
  */
 export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
 	const takenBy = new Map<string, PluginOutcome>();
@@ -217,9 +243,14 @@ export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
 			takenBy.set(looseKey, outcome);
 		}
 	}
+	const startedAs = new Map(
+		outcomes.map((outcome) => [outcome.key, keyBefore(outcome)]),
+	);
 	return [
 		...outcomes.filter((outcome) => !takenBy.has(outcome.key)),
-		...[...takenBy].map(([key, pack]) => absorbedOutcome(key, pack)),
+		...[...takenBy].map(([key, pack]) =>
+			absorbedOutcome(key, pack, startedAs.get(key)),
+		),
 	];
 }
 
@@ -238,7 +269,9 @@ export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
  * member's pre-update `entry.ref` as the move's old ref. It is consulted only on
  * the git-update arm; the local (`refreshed`) and failure arms ignore it.
  *
- * A `gone` result maps to an unsettled `gone-kept`: nothing was touched yet.
+ * A success is keyed where the reinstall recorded it, with the member's key as
+ * `previousKey` when that moved. A `gone` result maps to an unsettled
+ * `gone-kept`: nothing was touched yet.
  */
 export function mapReinstallResultToOutcome(
 	key: string,
@@ -277,13 +310,20 @@ export function mapReinstallResultToOutcome(
 		});
 	}
 
-	const reinstalled = { notes: result.notes, absorbed: result.absorbed };
+	const reinstalled = {
+		notes: result.notes,
+		absorbed: result.absorbed,
+		...(result.key !== key ? { previousKey: key } : {}),
+	};
 
 	if (entry.commit === null) {
 		return {
 			status: "refreshed",
-			key,
-			summary: renderUpdateOutcomeSummary({ type: "local-update", key }),
+			key: result.key,
+			summary: renderUpdateOutcomeSummary({
+				type: "local-update",
+				key: result.key,
+			}),
 			newEntry: result.manifestEntry,
 			...reinstalled,
 		};
@@ -291,10 +331,10 @@ export function mapReinstallResultToOutcome(
 
 	return {
 		status: "updated",
-		key,
+		key: result.key,
 		summary: renderUpdateOutcomeSummary({
 			type: "git-update",
-			key,
+			key: result.key,
 			oldRef: entry.ref,
 			newRef,
 			oldCommit: entry.commit,

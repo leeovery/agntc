@@ -30,7 +30,7 @@ src/
   config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`; declaresPack (`pack` or legacy `plugin`)
   choose-items.ts           # Flags -> Selection; chooseItems decides install / menu / refuse; stray notices; --list lines
   item-menu.ts              # The add multiselect
-  install-item.ts           # InstallItem (skill | pack); keyItems assigns keys, refuses target and key clashes
+  install-item.ts           # InstallItem (skill | pack); keyItem, the one key rule add and update share; keyItems refuses target and key clashes
   asset-targets.ts          # Claude asset routing (.claude/skills|agents|hooks), skillTarget
   copy-item.ts              # Copy dispatch: skill vs pack
   copy-bare-skill.ts        # Copy of one skill folder through planCopy/writeCopy (drops top-level agntc.json and .git at any depth)
@@ -46,9 +46,9 @@ src/
   unmanaged-check.ts        # Incoming files agntc didn't install (links found by lstat)
   unmanaged-resolve.ts      # Prompt for unmanaged files
   absorb.ts                 # A pack taking over loose skills from its own source; skills already in an installed pack
-  entry-source.ts           # SourceId / isSameSource; recordedSubpath; reAddCommand + groupReAddCommands (path, --pack, --skill line)
+  entry-source.ts           # SourceId / isSameSource; sourceKeyOf (the source key add gives an entry's source); reAddCommand + groupReAddCommands (path, --pack, --skill line)
   gone-upstream.ts          # settleGone: -y removes, terminal asks (default no), machine keeps + reports
-  clone-reinstall.ts        # Shared clone-and-reinstall (singletons); cloneRepoOnce primitive + runPipeline for the grouped path; abort/blocked messages
+  clone-reinstall.ts        # Shared clone-and-reinstall (singletons); cloneRepoOnce primitive + runPipeline for the grouped path; recordReinstall (an entry and its key move in one write); abort/blocked messages
   nuke-reinstall-pipeline.ts# Derive-before-delete replay (pack re-walk, moved skill, gone) + nuke-and-reinstall
   manifest.ts               # Read/write .agntc/manifest.json; legacy normalization on read
   git-clone.ts              # Shallow clone with retry
@@ -88,7 +88,7 @@ src/
 - **Strays.** A non-pack folder with qualifying `agents/`/`hooks/` gets a notice with the `--pack` line that would install them. Agents and hooks install only as part of a pack.
 - **Declaring.** Author: `{"type": "pack"}` (legacy `"plugin"` reads as pack). User: `--pack` bundles the added path; refused on a single skill or a path containing packs.
 - **Choosing.** One offered item installs without a menu; several give a menu (packs by path, then loose skills by path; never splits a pack). `--skill` matches folder or frontmatter name anywhere, packs included; a skill taken from a pack installs loose with a note. Duplicate names are refused, listing paths. `--skill`/`--pack`/`--all` are mutually exclusive; `--list` combines only with `--pack`. Skills an installed pack from the same source holds are left out with a note.
-- **Keys.** Root item → source key; loose skill → `<source>/<folder name>` (+ `sourceSubpath` when the path differs); pack → `<source>/<path>`. `keyItems` refuses two items claiming one install path, then two sharing a key.
+- **Keys.** Root item → source key; loose skill → `<source>/<folder name>` (+ `sourceSubpath` when the path differs); pack → `<source>/<path>` (`keyItem`). `keyItems` refuses two items claiming one install path, then two sharing a key.
 - **Identity = folder basename** throughout; frontmatter is display and `--skill` matching only.
 - **Copy-safety** (`copy-safety.ts`, `install-paths.ts`, `nuke-files.ts`): path-traversal + symlink-escape guards before any copy on `add` and `update`; never write or delete through a symlink in the destination (a link in the way is unlinked as a link); recorded paths outside the install root are refused. Shared `.claude/<asset>` roots are not checked.
 - **Links in a source.** A link at or above an item's path blocks it (`add` refuses the start path; `update` blocks before removing anything). A copy never follows a link; each is read from where it sits: out of the clone or local root → refused before anything is removed; to something inside the item the filters keep → a relative link; to the item itself, above it or elsewhere in the source → an absolute link into a local source, left out of a clone (deleted once copied); to something the filters drop → left out. A link at the top of a pack's `hooks/` never installs. Sockets, FIFOs and devices are left out. A local source resolves to its real folder.
@@ -117,7 +117,8 @@ Claude only. Paths are relative to the install root (project dir, or `~` with `-
 Nuke-and-reinstall: delete manifest `files`, re-clone, re-copy. Constrained entries resolve best match within constraint range.
 
 - **Replays the recorded `type`.** A pack re-walks its path (`forcePack`), so additions arrive and removals go; a pack path that is now a single skill reinstalls as a skill (with a note). A loose skill re-copies from its path; if `SKILL.md` is gone there, a whole-source walk follows it when exactly one skill has its name (note + new `sourceSubpath`), aborts when several do.
-- **Derive-before-delete.** Replay, files in the way (other entries' and unmanaged), and the symlink-escape scan all run before any file is removed. Irreconcilable change or files in the way → abort that entry, install intact, loud message with the `remove` + re-add (`--overwrite` when files are in the way) remedy.
+- **Keyed as `add` keys it.** The replayed item is keyed by `keyItem` under the entry's source key (`sourceKeyOf`: `owner/repo`, or the local root). When that isn't the entry's key — a pack path now a single skill, a root skill moved below the root, a skill moved to the root, a skill still keyed by a pack's path, a pack recorded by name with a path — the entry moves to that key with `add`'s `sourceSubpath`, the old key dropped in the same manifest write (`recordReinstall`, on every writer), and one note names both (`…, now keyed <new>`). A new key another entry holds aborts the entry before anything is removed (`takenKey`; remedy: `remove <new>` then `update <old>`). The out-of-constraint footer prints its commands for entries as the run left them.
+- **Derive-before-delete.** Replay, the new key, files in the way (other entries' and unmanaged), and the symlink-escape scan all run before any file is removed. Irreconcilable change or files in the way → abort that entry, install intact, loud message with the `remove` + re-add (`--overwrite` when files are in the way) remedy.
 - **Gone upstream.** Nothing left for a skill (or a pack's path gone/empty) → `settleGone`: `-y` removes, a terminal asks (default no; kept entries are asked again next run), machine mode keeps and reports (`gone-kept`, flags `-y`). Never a failure.
 - **Absorption.** A pack's new files landing on loose skill entries from its own source take them over (files removed, entries dropped, `absorbed` outcome). Packs update before skills in key mode and in each group.
 - **Re-add commands** (`entry-source.ts`) carry the recorded path and `--pack`; a group's loose skills share one `--skill` line. The source is GitHub shorthand only for a GitHub HTTPS clone URL; other hosts and SSH print the clone URL.
@@ -140,6 +141,7 @@ All-mode is a group-first pipeline (`update-groups.ts`); the three singleton ent
 
 - **One JSON document per command** on stdout: `{ ok, command, scope?, error?, ...body, warnings, notes }`; `ok` is true exactly when the exit code is 0. Errors are documents too, exit 1. `scope` (`"project" | "global"`) appears on the four commands that take `-g`, not on `init`.
 - **A question is a flag or a stop.** A prompt reached in machine mode fails the command. Callers check `ui.mode` first and fail with `{ flags }` naming the answer: menu → `--skill`/`--pack`/`--all` (document still carries the listing); files in the way → that item stops with `flags: ["--overwrite"]`, the rest install, exit 1; `remove` confirmation → `-y`; `remove` without a key → `<key>`; gone upstream → kept, reported, exit 0; `init` → type + `-y`.
+- **`update` items name a moved key.** An entry the update moved to the key `add` gives it reports that key as `key` and the one it had as `previousKey`.
 - **`remove` reports per key.** The document carries `removed` (entries with their files) and `failed` (entries with a `reason`). `remove` tries every key; a key whose files can't be removed stays recorded, so whatever is left stays tracked, and the command exits 1.
 - `warn`/`note` reach both modes; `intro`/`outro`/`log`/`spinner`/`box` are terminal-only; `report(body)` sets the document body.
 

@@ -46,6 +46,7 @@ import {
 	groupEntriesForUpdate,
 	groupTargetFacets,
 	isSuccessOutcome,
+	keyBefore,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
 	packsFirst,
@@ -166,7 +167,7 @@ async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
 		);
 	}
 	const checks = new Map(
-		updates.map((update) => [update.outcome.key, update.check]),
+		updates.map((update) => [keyBefore(update.outcome), update.check]),
 	);
 	ui.report(updateBody(manifest, outcomes, checks));
 	if (failed) {
@@ -208,11 +209,32 @@ async function updateKey(
 	run: UpdateRun,
 ): Promise<KeyUpdate> {
 	const check = await checkForUpdate(member.key, member.entry);
+	const outcome = await settleKey(member, check, installed, run);
 	return {
-		outcome: await settleKey(member, check, installed, run),
+		outcome,
 		check,
-		outOfConstraint: extractOutOfConstraint(member, check, run.scope.name),
+		outOfConstraint: extractOutOfConstraint(
+			memberAfter(member, [outcome]),
+			check,
+			run.scope.name,
+		),
 	};
+}
+
+/**
+ * A member as the run left it: reinstalled, under the key it moved to, so a
+ * command printed for it installs onto that entry.
+ */
+function memberAfter(
+	member: GroupMember,
+	outcomes: PluginOutcome[],
+): GroupMember {
+	const reinstalled = outcomes.find(
+		(outcome) => keyBefore(outcome) === member.key,
+	);
+	return reinstalled !== undefined && isSuccessOutcome(reinstalled)
+		? { key: reinstalled.key, entry: reinstalled.newEntry }
+		: member;
 }
 
 async function settleKey(
@@ -300,9 +322,12 @@ async function reinstallKey(
 	}
 	ui.outro(
 		entry.commit === null
-			? renderLocalUpdateSummary({ key, copiedFiles: result.copiedFiles })
+			? renderLocalUpdateSummary({
+					key: result.key,
+					copiedFiles: result.copiedFiles,
+				})
 			: renderGitUpdateSummary({
-					key,
+					key: result.key,
 					oldRef: entry.ref,
 					newRef: result.manifestEntry.ref,
 					oldCommit: entry.commit,
@@ -433,10 +458,15 @@ interface NonActionedGroup {
 	outcomes: PluginOutcome[];
 }
 
+/** A group with the target its one resolution probe found. */
+interface ResolvedGroup {
+	group: EntryGroup;
+	target: GroupTarget;
+}
+
 interface CategorizedGroups {
 	updatableGroups: UpdatableGroup[];
 	nonActionedGroups: NonActionedGroup[];
-	outOfConstraintInfo: OutOfConstraintInfo[];
 	/** Each grouped member's own check result, by key. */
 	checks: Map<string, UpdateCheckResult>;
 	/**
@@ -466,10 +496,15 @@ async function runAllUpdates(run: UpdateRun): Promise<void> {
 
 	const spin = ui.spinner();
 	spin.start("Checking for updates...");
-	const targets = await Promise.all(groups.map(resolveGroupTarget));
+	const resolved = await Promise.all(
+		groups.map(async (group) => ({
+			group,
+			target: await resolveGroupTarget(group),
+		})),
+	);
 	spin.stop("Update checks complete.");
 
-	const categorized = categorizeGroups(groups, targets, scope.name);
+	const categorized = categorizeGroups(resolved);
 
 	// Actioned work streams in manifest order as each unit lands; only the
 	// non-actioned categories wait for the trailing summary.
@@ -499,7 +534,13 @@ async function runAllUpdates(run: UpdateRun): Promise<void> {
 			);
 		}
 	}
-	renderOutOfConstraintOutput(categorized.outOfConstraintInfo, ui);
+	renderOutOfConstraintOutput(
+		resolved.flatMap(
+			(group) =>
+				groupOutOfConstraintInfo(group, groups, outcomes, scope.name) ?? [],
+		),
+		ui,
+	);
 
 	ui.report(
 		updateBody(
@@ -532,40 +573,23 @@ function inManifestOrder(
 	manifest: Manifest,
 ): PluginOutcome[] {
 	const position = new Map(Object.keys(manifest).map((key, i) => [key, i]));
-	return [...outcomes].sort(
-		(a, b) => (position.get(a.key) ?? 0) - (position.get(b.key) ?? 0),
-	);
+	const at = (outcome: PluginOutcome) => position.get(keyBefore(outcome)) ?? 0;
+	return [...outcomes].sort((a, b) => at(a) - at(b));
 }
 
 /**
  * Categorizes every group's members against its shared resolved target, splitting
- * each group into its updating subset and per-member non-actioned outcomes, and
- * collecting out-of-constraint info along the way.
+ * each group into its updating subset and per-member non-actioned outcomes.
  */
-function categorizeGroups(
-	groups: EntryGroup[],
-	targets: GroupTarget[],
-	scope: ScopeName,
-): CategorizedGroups {
+function categorizeGroups(resolved: ResolvedGroup[]): CategorizedGroups {
 	const updatableGroups: UpdatableGroup[] = [];
 	const nonActionedGroups: NonActionedGroup[] = [];
-	const outOfConstraintInfo: OutOfConstraintInfo[] = [];
 	const checks = new Map<string, UpdateCheckResult>();
 	let hasNotableCategory = false;
 
-	for (let i = 0; i < groups.length; i++) {
-		const group = groups[i]!;
-		const target = targets[i]!;
+	for (const { group, target } of resolved) {
 		const updating: GroupMember[] = [];
 		const nonActioned: PluginOutcome[] = [];
-
-		// One out-of-constraint footer info PER GROUP — an N-member
-		// group collapses to a single line, keyed by the group label; two
-		// distinct-intent groups of one repo keep separate @intent lines.
-		const groupInfo = groupOutOfConstraintInfo(group, target, groups, scope);
-		if (groupInfo !== null) {
-			outOfConstraintInfo.push(groupInfo);
-		}
 
 		for (const member of group.members) {
 			const result = categorizeMember(member.entry, target);
@@ -598,7 +622,6 @@ function categorizeGroups(
 	return {
 		updatableGroups,
 		nonActionedGroups,
-		outOfConstraintInfo,
 		checks,
 		hasNotableCategory,
 	};
@@ -611,24 +634,26 @@ function categorizeGroups(
  * !== null iff out of constraint), and collapses to a SINGLE info keyed by its
  * {@link groupLabel} — so an N-member group yields one footer line, not N,
  * while two distinct-intent groups of one repo keep their own @intent lines.
- * The line carries the group's re-add commands ({@link groupReAddCommands}).
+ * The line carries the group's re-add commands ({@link groupReAddCommands}),
+ * for its members as the run's `outcomes` left them.
  */
 function groupOutOfConstraintInfo(
-	group: EntryGroup,
-	target: GroupTarget,
+	{ group, target }: ResolvedGroup,
 	groups: EntryGroup[],
+	outcomes: PluginOutcome[],
 	scope: ScopeName,
 ): OutOfConstraintInfo | null {
 	if (target.kind !== "constrained" || target.latestOverall === null) {
 		return null;
 	}
+	const members = group.members.map((member) => memberAfter(member, outcomes));
 	return {
 		label: groupLabel(group, groups),
 		// POST-BUMP current for every member: the group's resolved
 		// best-within-constraint tag (the version this run lands the group on).
 		current: target.tag,
 		latestOverall: target.latestOverall,
-		commands: groupReAddCommands(group.members, scope),
+		commands: groupReAddCommands(members, scope),
 	};
 }
 

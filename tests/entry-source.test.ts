@@ -5,9 +5,9 @@ import {
 	localItemPath,
 	localRootOf,
 	reAddCommand,
-	recordedSubpath,
 	type SourceId,
 	sourceIdOf,
+	sourceKeyOf,
 } from "../src/entry-source.js";
 import { parseSource } from "../src/source-parser.js";
 import { makeEntry } from "./helpers/factories.js";
@@ -521,59 +521,26 @@ describe("isSameSource", () => {
 	});
 });
 
-describe("recordedSubpath", () => {
-	it("omits a remote path the key alone leads to", () => {
-		expect(
-			recordedSubpath("owner/repo/go", makeEntry(), "/tmp/clone", "go"),
-		).toBeUndefined();
+describe("sourceKeyOf", () => {
+	it("is the repo a remote key starts with, as add keys a remote source", async () => {
+		const added = await parseSource("owner/repo/packs/tools");
+
+		expect(sourceKeyOf("owner/repo/packs/tools", makeEntry())).toBe(
+			added.manifestKey,
+		);
+		expect(sourceKeyOf("owner/repo", makeEntry())).toBe("owner/repo");
 	});
 
-	it("records a remote path the key doesn't lead to", () => {
-		expect(
-			recordedSubpath("owner/repo/go", makeEntry(), "/tmp/clone", "lang/go"),
-		).toBe("lang/go");
-	});
-
-	it("omits a local path that is the key's own folder", () => {
-		expect(recordedSubpath("/src/go", local(), "/src/go", "")).toBeUndefined();
-	});
-
-	it("records a local path relative to the folder the key sits in", () => {
-		expect(
-			recordedSubpath(
-				"/src/repo/go",
-				local({ sourceSubpath: "go" }),
-				"/src/repo",
-				"lang/go",
-			),
-		).toBe("lang/go");
-	});
-
-	it("records a local path below a key with no recorded path, so the key's folder leads to it", () => {
-		expect(recordedSubpath("/src/go", local(), "/src/go", "skills/go")).toBe(
-			"go/skills/go",
+	it("is a local entry's recorded root, which add keys a local source by", () => {
+		expect(sourceKeyOf("/src/repo/go", local({ localRoot: "/src/repo" }))).toBe(
+			"/src/repo",
 		);
 	});
 
-	describe("for a local entry with its root recorded", () => {
-		const entry = local({ localRoot: "/src/repo" });
-
-		it("omits a path the key leads to from the root", () => {
-			expect(
-				recordedSubpath("/src/repo/go", entry, "/src/repo", "go"),
-			).toBeUndefined();
-		});
-
-		it("records a path relative to the root", () => {
-			expect(
-				recordedSubpath("/src/repo/go", entry, "/src/repo", "lang/go"),
-			).toBe("lang/go");
-		});
-
-		it("records a root skill's new path relative to the root, not above it", () => {
-			expect(
-				recordedSubpath("/src/repo", entry, "/src/repo", "skills/repo"),
-			).toBe("skills/repo");
-		});
+	it("is a local entry's derived root when none is recorded", () => {
+		expect(
+			sourceKeyOf("/src/repo/go", local({ sourceSubpath: "skills/go" })),
+		).toBe("/src/repo");
+		expect(sourceKeyOf("/src/repo/go", local())).toBe("/src/repo/go");
 	});
 });

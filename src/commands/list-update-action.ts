@@ -3,11 +3,12 @@ import {
 	failureMessage,
 	isCloneReinstallFailure,
 	prepareReinstall,
+	recordReinstall,
 } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { addEntry, removeEntry, writeManifest } from "../manifest.js";
+import { removeEntry, writeManifest } from "../manifest.js";
 import type { Scope } from "../scope.js";
 import type { Ui } from "../ui.js";
 import type { VersionOverrides } from "../version-resolve.js";
@@ -57,12 +58,15 @@ export async function executeUpdateAction(
 		}
 
 		const rest = result.absorbed.reduce(removeEntry, manifest);
-		await writeManifest(scope.root, addEntry(rest, key, result.manifestEntry));
+		await writeManifest(
+			scope.root,
+			recordReinstall(rest, key, result.key, result.manifestEntry),
+		);
 
 		return {
 			success: true,
 			newEntry: result.manifestEntry,
-			message: isLocal ? `Refreshed ${key}` : `Updated ${key}`,
+			message: isLocal ? `Refreshed ${result.key}` : `Updated ${result.key}`,
 			notes: result.notes,
 		};
 	} catch (err) {

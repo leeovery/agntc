@@ -20,13 +20,15 @@ import {
 	PackConflictError,
 	StartPathError,
 } from "./discover.js";
-import { reAddCommand, recordedSubpath, sourceIdOf } from "./entry-source.js";
+import { reAddCommand, sourceIdOf, sourceKeyOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { pathExists, relativePosix } from "./fs-utils.js";
 import {
 	type InstallItem,
+	type ItemKey,
 	isEmptyPack,
 	itemPath,
+	keyItem,
 	pathLabel,
 } from "./install-item.js";
 import {
@@ -64,6 +66,11 @@ export interface NukeReinstallOptions {
 
 interface NukeReinstallSuccess {
 	status: "success";
+	/**
+	 * The key the entry is recorded under now: the one `add` gives the replayed
+	 * item, which differs from the old key when the item is keyed differently.
+	 */
+	key: string;
 	entry: ManifestEntry;
 	copiedFiles: string[];
 	/** What the user should hear about how the entry was reinstalled. */
@@ -104,6 +111,8 @@ interface NukeReinstallAborted {
 	reason: string;
 	/** What stopped it was files in the way, which an add with --overwrite replaces. */
 	inTheWay?: true;
+	/** What stopped it was another entry holding the key the item moves to. */
+	takenKey?: string;
 }
 
 /**
@@ -135,30 +144,29 @@ export type NukeReinstallResult =
 
 /** What the re-cloned source now offers for an entry, decided before any delete. */
 type Replay =
-	| {
-			ok: true;
-			item: InstallItem;
-			/** What the reinstalled entry records, which moves when its skill did. */
-			sourceSubpath: string | undefined;
-			note?: string;
-	  }
+	| { ok: true; item: InstallItem; note?: string }
 	| { ok: false; reason: string }
 	| { ok: false; gone: true };
 
 const GONE: Replay = { ok: false, gone: true };
 
-/** A replay cleared by every pre-flight check, with the loose skills it absorbs. */
+/**
+ * A replay cleared by every pre-flight check, with where `add` would record
+ * its item and the loose skills it absorbs.
+ */
 interface ClearedReplay {
 	status: "cleared";
 	replay: Extract<Replay, { ok: true }>;
+	keyed: ItemKey;
 	absorbed: string[];
 }
 
 /**
- * Reinstalls an entry from a re-cloned source, replaying its recorded type.
- * Every check — a symlink on the recorded path, what the source still holds,
- * what is in the way of the files it would install, and the symlink-escape
- * scan — runs before any file is removed.
+ * Reinstalls an entry from a re-cloned source, replaying its recorded type,
+ * under the key `add` would give what it replays to. Every check — a symlink
+ * on the recorded path, what the source still holds, whether that key is
+ * free, what is in the way of the files it would install, and the
+ * symlink-escape scan — runs before any file is removed.
  */
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
@@ -178,7 +186,7 @@ async function clearReplay(
 	| NukeReinstallBlocked
 	| NukeReinstallGone
 > {
-	const { cloneRoot, existingEntry } = options;
+	const { key, cloneRoot, existingEntry } = options;
 	const link = await linkOnRecordedPath(options);
 	if (link !== null) {
 		return { status: "blocked", reason: link };
@@ -193,6 +201,15 @@ async function clearReplay(
 			: { status: "aborted", reason: replay.reason };
 	}
 
+	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
+	if (keyed.key !== key && keyed.key in options.installed) {
+		return {
+			status: "aborted",
+			reason: `it would move to ${keyed.key}, which is already installed`,
+			takenKey: keyed.key,
+		};
+	}
+
 	const way = await inTheWayOf(replay.item, options);
 	if (way.clashes.size > 0 || way.unmanaged.length > 0) {
 		return { status: "aborted", reason: inTheWayReason(way), inTheWay: true };
@@ -205,14 +222,15 @@ async function clearReplay(
 	if (!symlinkCheck.ok) {
 		return { status: "blocked", reason: symlinkCheck.message };
 	}
-	return { status: "cleared", replay, absorbed: way.absorbed };
+	return { status: "cleared", replay, keyed, absorbed: way.absorbed };
 }
 
 async function reinstall(
 	options: NukeReinstallOptions,
-	{ replay, absorbed }: ClearedReplay,
+	cleared: ClearedReplay,
 ): Promise<NukeReinstallResult> {
 	const { key, cloneRoot, existingEntry, installed, scope } = options;
+	const { replay, keyed, absorbed } = cleared;
 
 	try {
 		await nukeManifestFiles(scope.root, [
@@ -231,34 +249,47 @@ async function reinstall(
 	try {
 		({ copiedFiles } = await copyItem(replay.item, source, scope.root));
 	} catch (err: unknown) {
-		return copyFailed(options, err, absorbed);
+		return copyFailed(options, err, cleared);
 	}
 
 	return {
 		status: "success",
-		entry: buildReplayedEntry(options, copiedFiles, replay),
+		key: keyed.key,
+		entry: replayedEntry(options, cleared, copiedFiles),
 		copiedFiles,
 		notes: [
-			...(replay.note !== undefined ? [replay.note] : []),
-			...absorbed.map((looseKey) => absorptionNote(key, looseKey)),
+			...replayNotes(key, keyed.key, replay.note),
+			...absorbed.map((looseKey) => absorptionNote(keyed.key, looseKey)),
 		],
 		absorbed,
 	};
+}
+
+/** The replay's note and the key the entry moved to, told as one note. */
+function replayNotes(
+	key: string,
+	newKey: string,
+	note: string | undefined,
+): string[] {
+	if (newKey === key) {
+		return note === undefined ? [] : [note];
+	}
+	return [
+		note === undefined
+			? `${key} is now keyed ${newKey}`
+			: `${note}, now keyed ${newKey}`,
+	];
 }
 
 /** A skill whose recorded path no longer holds one is looked for by name. */
 async function deriveSkillReplay(
 	options: NukeReinstallOptions,
 ): Promise<Replay> {
-	const { key, sourceDir, existingEntry } = options;
+	const { key, sourceDir } = options;
 	const path = startPathOf(options);
 	const name = memberName(key);
 	if (await pathExists(join(sourceDir, "SKILL.md"))) {
-		return {
-			ok: true,
-			item: skillAt(path, name),
-			sourceSubpath: existingEntry.sourceSubpath,
-		};
+		return { ok: true, item: skillAt(path, name) };
 	}
 	return followMovedSkill(options, path, name);
 }
@@ -273,7 +304,7 @@ async function followMovedSkill(
 	oldPath: string,
 	name: string,
 ): Promise<Replay> {
-	const { key, cloneRoot, existingEntry } = options;
+	const { key, cloneRoot } = options;
 	const rootName = sourceRootName(options);
 	const { skills, packs } = await discover(cloneRoot, { rootName });
 	const matches = [...skills, ...packs.flatMap((pack) => pack.skills)]
@@ -295,7 +326,6 @@ async function followMovedSkill(
 	return {
 		ok: true,
 		item: skillAt(newPath, name),
-		sourceSubpath: recordedSubpath(key, existingEntry, cloneRoot, newPath),
 		note: `${key} moved from ${label(oldPath)} to ${label(newPath)}`,
 	};
 }
@@ -309,10 +339,9 @@ async function followMovedSkill(
 async function derivePackReplay(
 	options: NukeReinstallOptions,
 ): Promise<Replay> {
-	const { key, cloneRoot, existingEntry } = options;
+	const { key, cloneRoot } = options;
 	const startPath = startPathOf(options);
 	const rootName = memberName(key);
-	const { sourceSubpath } = existingEntry;
 
 	try {
 		const { packs } = await discover(cloneRoot, {
@@ -328,13 +357,12 @@ async function derivePackReplay(
 		if (clashes.length > 0) {
 			return { ok: false, reason: clashes.map(describeClash).join("; ") };
 		}
-		return { ok: true, item: { kind: "pack", pack }, sourceSubpath };
+		return { ok: true, item: { kind: "pack", pack } };
 	} catch (err) {
 		if (err instanceof PackConflictError && err.conflict === "single-skill") {
 			return {
 				ok: true,
 				item: skillAt(startPath, rootName),
-				sourceSubpath,
 				note: `${key} is a single skill — reinstalled as a skill`,
 			};
 		}
@@ -421,31 +449,39 @@ function skillAt(path: string, name: string): InstallItem {
 	return { kind: "skill", skill: { name, path } };
 }
 
-function buildReplayedEntry(
-	options: NukeReinstallOptions,
-	copiedFiles: string[],
-	replay: Extract<Replay, { ok: true }>,
+/** The entry recorded for the replayed item, holding `files`. */
+function replayedEntry(
+	{ existingEntry, newRef, newCommit }: NukeReinstallOptions,
+	{ replay, keyed }: ClearedReplay,
+	files: string[],
 ): ManifestEntry {
-	const { existingEntry, newRef, newCommit } = options;
 	return buildManifestEntry({
 		ref: newRef ?? existingEntry.ref,
 		commit: newCommit ?? existingEntry.commit,
-		files: copiedFiles,
+		files,
 		type: replay.item.kind,
 		cloneUrl: existingEntry.cloneUrl ?? null,
 		constraint: existingEntry.constraint,
-		sourceSubpath: replay.sourceSubpath,
+		sourceSubpath: keyed.sourceSubpath,
 		localRoot: existingEntry.localRoot,
 	});
 }
 
+/** The remedy installs the item as replayed, under the key `add` gives it. */
 function copyFailed(
-	{ key, existingEntry, scope }: NukeReinstallOptions,
+	options: NukeReinstallOptions,
 	err: unknown,
-	absorbed: string[],
+	cleared: ClearedReplay,
 ): NukeReinstallCopyFailed {
+	const { key, scope } = options;
+	const { keyed, absorbed } = cleared;
 	const takenOver =
 		absorbed.length > 0 ? `, and ${takenOverRemoved(absorbed)}` : "";
+	const reAdd = reAddCommand(
+		keyed.key,
+		replayedEntry(options, cleared, []),
+		scope.name,
+	);
 	return {
 		status: "copy-failed",
 		errorMessage: errorMessage(err),
@@ -453,6 +489,6 @@ function copyFailed(
 		recoveryHint:
 			`Update failed for ${key} after removing old files${takenOver}. ` +
 			`It is currently uninstalled. ` +
-			`Run \`${reAddCommand(key, existingEntry, scope.name)}\` to install it again.`,
+			`Run \`${reAdd}\` to install it again.`,
 	};
 }

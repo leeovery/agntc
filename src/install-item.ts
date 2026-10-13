@@ -12,12 +12,16 @@ export type InstallItem =
 	| { kind: "skill"; skill: FoundSkill }
 	| { kind: "pack"; pack: FoundPack };
 
-/** An item with the manifest key it installs under. */
-export interface KeyedItem {
-	item: InstallItem;
+/** The manifest key an item installs under, and the path recorded beside it. */
+export interface ItemKey {
 	key: string;
 	/** The item's repo-relative path, recorded only when the key doesn't spell it. */
 	sourceSubpath?: string;
+}
+
+/** An item with the manifest key it installs under. */
+export interface KeyedItem extends ItemKey {
+	item: InstallItem;
 	/** The install paths copying the item would claim. */
 	claims: Claim[];
 }
@@ -45,10 +49,9 @@ export function isEmptyPack(pack: FoundPack): boolean {
 }
 
 /**
- * Keys each item under the source key: a root item takes the source key, a
- * skill appends its folder name and a pack its repo-relative path. Refuses,
- * naming the paths, when two items would install to one place or, failing
- * that, share a key. `root` is the source root the items' paths are relative to.
+ * Keys each item under the source key ({@link keyItem}). Refuses, naming the
+ * paths, when two items would install to one place or, failing that, share a
+ * key. `root` is the source root the items' paths are relative to.
  */
 export async function keyItems(
 	items: InstallItem[],
@@ -57,9 +60,11 @@ export async function keyItems(
 	root: string,
 ): Promise<KeyItemsResult> {
 	const keyed = await Promise.all(
-		items.map(async (item) =>
-			toKeyedItem(item, sourceKey, await computeClaims(item, root)),
-		),
+		items.map(async (item) => ({
+			item,
+			...keyItem(item, sourceKey),
+			claims: await computeClaims(item, root),
+		})),
 	);
 	const targetClashes = findTargetClashLines(keyed);
 	const clashes =
@@ -70,18 +75,16 @@ export async function keyItems(
 	return { ok: true, items: keyed };
 }
 
-function toKeyedItem(
-	item: InstallItem,
-	sourceKey: string,
-	claims: Claim[],
-): KeyedItem {
+/**
+ * The key `add` gives an item from the source keyed `sourceKey`: a root item
+ * takes the source key, a skill appends its folder name and a pack its path.
+ */
+export function keyItem(item: InstallItem, sourceKey: string): ItemKey {
 	const path = itemPath(item);
 	const suffix = itemKeySuffix(item);
 	return {
-		item,
 		key: suffix === "" ? sourceKey : `${sourceKey}/${suffix}`,
 		...(path !== suffix ? { sourceSubpath: path } : {}),
-		claims,
 	};
 }
 

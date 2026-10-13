@@ -72,6 +72,7 @@ import {
 	failureMessage,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	recordReinstall,
 } from "../src/clone-reinstall.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPack } from "../src/copy-pack.js";
@@ -768,6 +769,35 @@ describe("cloneAndReinstall", () => {
 				status: "success",
 				notes: ["owner/repo/swift is a single skill — reinstalled as a skill"],
 				manifestEntry: { type: "skill" },
+			});
+		});
+
+		it("hands back the key add gives what it reinstalled, when that moved", async () => {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single skill", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/swift/"],
+			});
+
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/packs/swift",
+					entry: makeEntry({ type: "pack" }),
+					scope: projectScope("/fake/project"),
+				},
+				interactiveUi,
+				{},
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/swift",
+				manifestEntry: { type: "skill", sourceSubpath: "packs/swift" },
 			});
 		});
 
@@ -1667,6 +1697,7 @@ describe("isCloneReinstallFailure", () => {
 	it("returns false for a success result", () => {
 		const result: CloneReinstallResult = {
 			status: "success",
+			key: "owner/repo",
 			manifestEntry: makeEntry(),
 			copiedFiles: [".claude/skills/my-skill/"],
 			notes: [],
@@ -1907,6 +1938,68 @@ describe("buildAbortMessage", () => {
 		).toContain(
 			"replace them: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack --overwrite",
 		);
+	});
+});
+
+describe("buildAbortMessage for a key another entry holds", () => {
+	it.each([
+		[
+			"project",
+			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then npx agntc update owner/repo/packs/foo",
+		],
+		[
+			"global",
+			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove -g owner/repo/foo then npx agntc update -g owner/repo/packs/foo",
+		],
+	] as const)("names both keys and frees the taken one, in %s scope", (scope, message) => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/packs/foo",
+				makeEntry({ type: "pack" }),
+				{
+					reason: "it would move to owner/repo/foo, which is already installed",
+					takenKey: "owner/repo/foo",
+				},
+				scope,
+			),
+		).toBe(message);
+	});
+});
+
+describe("recordReinstall", () => {
+	const manifest: Manifest = {
+		"owner/repo/a": makeEntry(),
+		"owner/repo/old": makeEntry(),
+		"owner/repo/z": makeEntry(),
+	};
+	const entry = makeEntry({ commit: REMOTE_SHA });
+
+	it("records the entry over the one it replaces, in its place, when its key stays", () => {
+		const next = recordReinstall(
+			manifest,
+			"owner/repo/old",
+			"owner/repo/old",
+			entry,
+		);
+
+		expect(Object.keys(next)).toEqual(Object.keys(manifest));
+		expect(next["owner/repo/old"]).toBe(entry);
+	});
+
+	it("records the entry under its new key and drops the old one", () => {
+		const next = recordReinstall(
+			manifest,
+			"owner/repo/old",
+			"owner/repo/new",
+			entry,
+		);
+
+		expect(Object.keys(next)).toEqual([
+			"owner/repo/a",
+			"owner/repo/z",
+			"owner/repo/new",
+		]);
+		expect(next["owner/repo/new"]).toBe(entry);
 	});
 });
 

@@ -7,6 +7,7 @@ import {
 	type InstallItem,
 	isEmptyPack,
 	itemLabel,
+	keyItem,
 	keyItems,
 } from "../src/install-item.js";
 
@@ -213,6 +214,20 @@ describe("keyItems", () => {
 				{ key: "owner/repo/lint" },
 			]);
 		});
+	});
+});
+
+describe("keyItem", () => {
+	it("gives one item the key and recorded path keyItems gives it", async () => {
+		const items = [
+			skill("skills/react/hooks"),
+			pack("plugins/nuxt"),
+			skill(""),
+		];
+
+		expect(items.map((item) => keyItem(item, "owner/repo"))).toEqual(
+			await keysOf(items),
+		);
 	});
 });
 

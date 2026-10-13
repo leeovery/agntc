@@ -3,11 +3,12 @@ import {
 	failureMessage,
 	isCloneReinstallFailure,
 	prepareReinstall,
+	recordReinstall,
 } from "../clone-reinstall.js";
 import { fetchRemoteTags } from "../git-utils.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { addEntry, removeEntry, writeManifest } from "../manifest.js";
+import { removeEntry, writeManifest } from "../manifest.js";
 import type { Scope } from "../scope.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
 import type { Ui } from "../ui.js";
@@ -107,12 +108,15 @@ export async function executeChangeVersionAction(
 
 	const finalEntry = stripConstraint(result.manifestEntry);
 	const rest = result.absorbed.reduce(removeEntry, manifest);
-	await writeManifest(scope.root, addEntry(rest, key, finalEntry));
+	await writeManifest(
+		scope.root,
+		recordReinstall(rest, key, result.key, finalEntry),
+	);
 
 	return {
 		changed: true,
 		newEntry: finalEntry,
-		message: `Changed ${key} to ${selectedTag}`,
+		message: `Changed ${result.key} to ${selectedTag}`,
 		notes: result.notes,
 	};
 }

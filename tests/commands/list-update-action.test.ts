@@ -467,6 +467,48 @@ describe("executeUpdateAction", () => {
 		});
 	});
 
+	describe("a root skill that moved upstream", () => {
+		it("moves the entry to the key add gives it, the old key gone in the same write", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/repo/"],
+			});
+			const other = makeEntry({ files: [".claude/skills/other/"] });
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/repo"));
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/repo/"],
+			});
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry, "owner/other": other },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				message: "Updated owner/repo/repo",
+				notes: [
+					"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+				],
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/other": other, "owner/repo/repo": result.newEntry },
+			);
+			expect(result.newEntry).toMatchObject({ sourceSubpath: "skills/repo" });
+		});
+	});
+
 	describe("an entry gone upstream", () => {
 		const key = "owner/repo/go";
 		const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });

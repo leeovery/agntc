@@ -165,6 +165,7 @@ Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved 
 
 - **Packs are re-walked.** Skills added upstream arrive; skills removed upstream go.
 - **Moved skills are followed.** A loose skill whose folder moved is found again when exactly one skill in the repo has its name. New skills are never picked up for loose skills; install the folder as a pack for that.
+- **Keys follow what's installed.** When an install comes back as something `add` would key differently, such as a pack whose folder is now a single skill or a skill that moved out of the repo root, it moves to that key and a note names both. If another install already has that key, the update stops and says how to free it.
 - **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
 - **Packs absorb loose skills.** When a pack now holds a skill you installed on its own from the same repo, the pack takes it over and the loose entry goes.
 
@@ -302,7 +303,7 @@ A pack is keyed by its path in the repo; a loose skill by its folder name, with 
 v2 is a breaking release.
 
 - **Claude only.** Codex and Cursor support is gone, along with the agent prompt and `agents` in `agntc.json`. Installs made for several agents move to `.claude/` on their next `update`; the `.agents/skills` and `.cursor/skills` copies are removed.
-- **Plugins are packs.** Manifest entries of type `plugin` are read as packs, and config `"type": "plugin"` still declares a pack. An old plugin entry whose folder is a single skill reinstalls as a skill.
+- **Plugins are packs.** Manifest entries of type `plugin` are read as packs, and config `"type": "plugin"` still declares a pack. An old plugin entry whose folder is a single skill reinstalls as a skill. An old entry keyed differently from how `add` keys it now, such as a plugin recorded by name with its path beside it, moves to that key on its next update.
 - **Packs must be declared.** Folder shape no longer makes a plugin: a folder with `agents/` or `hooks/` but no `{"type": "pack"}` is searched for skills, and its agents and hooks aren't installed. Use `--pack`, or ask the author to declare it.
 - **Collections are gone.** A repo with several things in it gives a menu.
 - `--plugin` is now `--pack`; the old flag still works.

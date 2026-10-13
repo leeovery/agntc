@@ -63,6 +63,7 @@ import {
 	groupEntriesForUpdate,
 	groupTargetFacets,
 	isSuccessOutcome,
+	keyBefore,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
 	packsFirst,
@@ -148,9 +149,13 @@ describe("isSuccessOutcome", () => {
 });
 
 describe("mapReinstallResultToOutcome success", () => {
-	function successResult(manifestEntry: ManifestEntry): CloneReinstallResult {
+	function successResult(
+		manifestEntry: ManifestEntry,
+		key: string,
+	): CloneReinstallResult {
 		return {
 			status: "success",
+			key,
 			manifestEntry,
 			copiedFiles: manifestEntry.files,
 			notes: [],
@@ -165,7 +170,7 @@ describe("mapReinstallResultToOutcome success", () => {
 		const outcome = mapReinstallResultToOutcome(
 			"owner/repo/a",
 			entry,
-			successResult(newEntry),
+			successResult(newEntry, "owner/repo/a"),
 			"v1.1.0",
 			"project",
 		);
@@ -187,7 +192,7 @@ describe("mapReinstallResultToOutcome success", () => {
 		const outcome = mapReinstallResultToOutcome(
 			"/local/path",
 			entry,
-			successResult(newEntry),
+			successResult(newEntry, "/local/path"),
 			null,
 			"project",
 		);
@@ -206,7 +211,7 @@ describe("mapReinstallResultToOutcome success", () => {
 		const notes = ["owner/repo/a now includes b, installed on its own before"];
 		const newEntry = makeEntry({ commit: SHA_TGT });
 		const result = {
-			...successResult(newEntry),
+			...successResult(newEntry, "owner/repo/a"),
 			notes,
 			absorbed: ["owner/repo/b"],
 		};
@@ -229,6 +234,47 @@ describe("mapReinstallResultToOutcome success", () => {
 				"project",
 			),
 		).toMatchObject({ status: "refreshed", notes, absorbed: ["owner/repo/b"] });
+	});
+
+	it("keys a reinstall that moved where it went, naming the key it had", () => {
+		const entry = makeEntry({ ref: "v1.0.0", commit: SHA_CUR });
+		const newEntry = makeEntry({ ref: "v1.1.0", commit: SHA_TGT });
+
+		const outcome = mapReinstallResultToOutcome(
+			"owner/repo/packs/foo",
+			entry,
+			successResult(newEntry, "owner/repo/foo"),
+			"v1.1.0",
+			"project",
+		);
+
+		expect(outcome).toEqual({
+			status: "updated",
+			key: "owner/repo/foo",
+			previousKey: "owner/repo/packs/foo",
+			summary: "owner/repo/foo: Updated v1.0.0 -> v1.1.0",
+			newEntry,
+			notes: [],
+			absorbed: [],
+		});
+		expect(keyBefore(outcome)).toBe("owner/repo/packs/foo");
+	});
+
+	it("keys a local reinstall that moved where it went, naming the key it had", () => {
+		const outcome = mapReinstallResultToOutcome(
+			"/src/kit/packs/foo",
+			makeEntry({ commit: null }),
+			successResult(makeEntry({ commit: null }), "/src/kit/foo"),
+			null,
+			"project",
+		);
+
+		expect(outcome).toMatchObject({
+			status: "refreshed",
+			key: "/src/kit/foo",
+			previousKey: "/src/kit/packs/foo",
+			summary: "/src/kit/foo: Refreshed from local path",
+		});
 	});
 
 	it("maps gone to a gone-kept outcome, since nothing was touched yet", () => {
@@ -334,6 +380,27 @@ describe("applyOutcome", () => {
 		expect(next["owner/repo/pack"]).toBe(newEntry);
 	});
 
+	it("moves a reinstall that went to a new key there, the old key gone in the same manifest", () => {
+		const newEntry = makeEntry({ commit: SHA_TGT });
+
+		const next = applyOutcome(manifest, {
+			status: "updated",
+			key: "owner/repo/moved",
+			previousKey: "owner/repo/loose",
+			summary: "s",
+			newEntry,
+			notes: [],
+			absorbed: [],
+		});
+
+		expect(Object.keys(next)).toEqual([
+			"owner/repo/pack",
+			"owner/repo/other",
+			"owner/repo/moved",
+		]);
+		expect(next["owner/repo/moved"]).toBe(newEntry);
+	});
+
 	it("drops an entry removed as gone upstream", () => {
 		const next = applyOutcome(manifest, {
 			status: "gone-removed",
@@ -407,6 +474,39 @@ describe("withAbsorptions", () => {
 		expect(outcomes.map((outcome) => outcome.key)).toEqual([
 			"owner/repo/pack",
 			"owner/repo/loose",
+		]);
+	});
+
+	it("keeps the key an entry moved from when a pack takes it over after the move", () => {
+		const outcomes = withAbsorptions([
+			{
+				status: "updated",
+				key: "owner/repo/foo",
+				previousKey: "owner/repo/packs/foo",
+				summary: "s",
+				newEntry: makeEntry(),
+				notes: [],
+				absorbed: [],
+			},
+			{
+				status: "updated",
+				key: "owner/repo/packs",
+				summary: "s",
+				newEntry: makeEntry({ type: "pack" }),
+				notes: [],
+				absorbed: ["owner/repo/foo"],
+			},
+		]);
+
+		expect(outcomes).toEqual([
+			expect.objectContaining({ key: "owner/repo/packs" }),
+			{
+				status: "absorbed",
+				key: "owner/repo/foo",
+				previousKey: "owner/repo/packs/foo",
+				into: "owner/repo/packs",
+				summary: "owner/repo/foo is now part of the pack owner/repo/packs",
+			},
 		]);
 	});
 

@@ -3,7 +3,7 @@ import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
-import { removeEntry, writeManifest } from "./manifest.js";
+import { addEntry, removeEntry, writeManifest } from "./manifest.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
@@ -83,6 +83,8 @@ export async function prepareReinstall(
 
 interface CloneReinstallSuccess {
 	status: "success";
+	/** The key `manifestEntry` goes under: the entry's own, or the one `add` now gives it. */
+	key: string;
 	manifestEntry: ManifestEntry;
 	copiedFiles: string[];
 	/** What the user should hear about how the entry was reinstalled. */
@@ -221,6 +223,8 @@ export interface CloneReinstallAborted {
 	reason: string;
 	/** What stopped it was files in the way, which an add with --overwrite replaces. */
 	inTheWay?: true;
+	/** What stopped it was another entry holding the key the item moves to. */
+	takenKey?: string;
 }
 
 /** Why an update aborted, as {@link buildAbortMessage} reports it. */
@@ -256,16 +260,26 @@ export type CloneReinstallResult =
  * can't be replayed for the entry, that the existing install is unchanged,
  * and the manual remedy built from the entry. Files in the way are cleared by
  * hand or replaced by an add with --overwrite, which update doesn't take; any
- * other abort migrates by remove+add. Distinct from the copy-failed report,
- * which tells the user the unit is currently uninstalled and to re-run update —
- * here nothing was touched.
+ * other abort migrates by remove+add. A key taken by another entry is freed
+ * by removing that entry, after which update moves this one there: an add
+ * would refuse the taken key too. Distinct from the copy-failed report, which
+ * tells the user the unit is currently uninstalled and to re-run update — here
+ * nothing was touched.
  */
 export function buildAbortMessage(
 	key: string,
 	entry: ManifestEntry,
-	{ reason, inTheWay }: AbortCause,
+	{ reason, inTheWay, takenKey }: AbortCause,
 	scope: ScopeName,
 ): string {
+	if (takenKey !== undefined) {
+		return (
+			`${key} can't be updated: ${reason}. The existing install is ` +
+			`unchanged. To replace that entry with it: ` +
+			`${agntcCommand(scope, "remove", [takenKey])} then ` +
+			`${agntcCommand(scope, "update", [key])}`
+		);
+	}
 	const reAdd = reAddCommand(key, entry, scope);
 	const remove = agntcCommand(scope, "remove", [key]);
 	if (inTheWay) {
@@ -433,6 +447,24 @@ export async function cloneAndReinstall(
 	}
 }
 
+/**
+ * `manifest` with a reinstalled entry under `key`, the key `add` gives it, in
+ * place of the entry at `from`: an entry whose key moved leaves its old key in
+ * the same write.
+ */
+export function recordReinstall(
+	manifest: Manifest,
+	from: string,
+	key: string,
+	entry: ManifestEntry,
+): Manifest {
+	return addEntry(
+		from === key ? manifest : removeEntry(manifest, from),
+		key,
+		entry,
+	);
+}
+
 /** A copy failure removed the files of the entry and of what it took over, so their entries go. */
 async function handleCopyFailedRemoval(
 	result: CloneReinstallResult,
@@ -493,6 +525,7 @@ export async function runPipeline(
 		case "success":
 			return {
 				status: "success",
+				key: pipelineResult.key,
 				manifestEntry: pipelineResult.entry,
 				copiedFiles: pipelineResult.copiedFiles,
 				notes: pipelineResult.notes,

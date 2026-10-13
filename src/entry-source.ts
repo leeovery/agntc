@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { isContained } from "./copy-safety.js";
 import { relativePosix } from "./fs-utils.js";
 import type { ManifestEntry } from "./manifest.js";
@@ -10,6 +10,7 @@ import {
 	localSourceRoot,
 	locateSource,
 	memberName,
+	repoFromKey,
 } from "./source-parser.js";
 
 /**
@@ -101,24 +102,12 @@ function localKeyPath(key: string, root: string): string {
 }
 
 /**
- * The `sourceSubpath` that leads update to `path`, a folder relative to the
- * root the entry's source was walked from. Omitted when the key alone leads
- * there.
+ * The key `add` gives the source an entry was added from, which its items are
+ * keyed under: the `owner/repo` a remote key starts with, or a local entry's
+ * folder ({@link localRootOf}).
  */
-export function recordedSubpath(
-	key: string,
-	entry: ManifestEntry,
-	walkRoot: string,
-	path: string,
-): string | undefined {
-	if (entry.commit !== null) {
-		return path === keySubpath(key) ? undefined : path;
-	}
-	if (entry.localRoot !== undefined) {
-		return path === localKeyPath(key, entry.localRoot) ? undefined : path;
-	}
-	const dir = join(walkRoot, path);
-	return dir === key ? undefined : relativePosix(dirname(key), dir);
+export function sourceKeyOf(key: string, entry: ManifestEntry): string {
+	return entry.commit === null ? localRootOf(key, entry) : repoFromKey(key);
 }
 
 /**

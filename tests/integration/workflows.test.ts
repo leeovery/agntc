@@ -844,7 +844,7 @@ describe("integration: core workflows", () => {
 			expect(saved["owner/reshaped-skill"]!.files).toEqual(entry.files);
 		});
 
-		it("(d3) follows a skill that moved within its source and records where it went", async () => {
+		it("(d3) follows a skill that moved within its source, keyed and recorded as add would", async () => {
 			const skillDir = join(sourceDir, "moving-skill");
 			await createFile(skillDir, "SKILL.md");
 			const copyResult = await copyBareSkill({
@@ -877,9 +877,10 @@ describe("integration: core workflows", () => {
 
 			expect(result.status).toBe("success");
 			if (result.status !== "success") throw new Error("unexpected");
+			expect(result.key).toBe("owner/moving-skill/moving-skill");
 			expect(result.entry.sourceSubpath).toBe("skills/moving-skill");
 			expect(result.notes).toEqual([
-				"owner/moving-skill moved from moving-skill to skills/moving-skill",
+				"owner/moving-skill moved from moving-skill to skills/moving-skill, now keyed owner/moving-skill/moving-skill",
 			]);
 			expect(
 				await fileExists(
