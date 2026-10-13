@@ -1484,7 +1484,7 @@ describe("add command", () => {
 				"p (pack · 1 skill)\ntools/a (Does A)",
 			);
 			expect(logged("warn")).toEqual([
-				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo@v1.0.0 --pack",
+				"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
 			]);
 			expect(mockOutro).toHaveBeenCalledWith(
 				"owner/repo@v1.0.0 holds 1 pack and 1 skill",
@@ -1692,7 +1692,7 @@ describe("add command", () => {
 
 			expect(run.document.warnings).toEqual([
 				expect.stringMatching(/^Ignoring malformed agntc\.json/),
-				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo --pack",
+				"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
 			]);
 			expect(run.document.notes).toEqual([
 				"a is part of the pack p — installed on its own, without b",

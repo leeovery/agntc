@@ -124,12 +124,14 @@ export function chooseItems(
 	};
 }
 
-/** One notice per folder whose agents or hooks won't be installed, with the `--pack` line that would. */
+/** One notice per folder whose agents or hooks won't be installed, with the `--pack` line that would where there is one. */
 export function strayNotices(
 	discovery: Discovery,
 	ctx: ChoiceContext,
 ): string[] {
-	return discovery.strays.map((stray) => strayNotice(stray, ctx));
+	return discovery.strays.map((stray) =>
+		strayNotice(stray, discovery.packs, ctx),
+	);
 }
 
 function decide(
@@ -288,13 +290,32 @@ function nothingToInstall(discovery: Discovery, ctx: ChoiceContext): string {
 	return `nothing to install — ${joinWithAnd(labels)} ${labels.length === 1 ? "has" : "have"} no skills, agents or hooks`;
 }
 
-function strayNotice(stray: StrayAssets, ctx: ChoiceContext): string {
+/**
+ * Gives the `--pack` line that would install a stray's agents and hooks, unless
+ * its folder holds packs, which `--pack` refuses to bundle.
+ */
+function strayNotice(
+	stray: StrayAssets,
+	packs: FoundPack[],
+	ctx: ChoiceContext,
+): string {
+	const label = pathLabel(stray.path, ctx.rootName);
 	const dirs = joinWithAnd(stray.assetDirs.map((dir) => `${dir}/`));
+	const held = packs.filter((pack) => isWithin(pack.path, stray.path));
+	if (held.length > 0) {
+		const paths = held.map((pack) => pack.path).join(", ");
+		return `${label} has ${dirs} that won't be installed — it contains packs (${paths}), so --pack can't bundle it`;
+	}
 	const command = agntcCommand(ctx.scope, "add", [
 		locateSource(ctx.source, stray.path, ctx.version),
 		"--pack",
 	]);
-	return `${pathLabel(stray.path, ctx.rootName)} has ${dirs} that won't be installed — to install them as a pack: ${command}`;
+	return `${label} has ${dirs} that won't be installed — to install them as a pack: ${command}`;
+}
+
+/** Whether `path` is below `folder`, both relative to the source root. */
+function isWithin(path: string, folder: string): boolean {
+	return folder === "" || path.startsWith(`${folder}/`);
 }
 
 /**
