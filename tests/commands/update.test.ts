@@ -6514,7 +6514,7 @@ describe("a key naming several entries", () => {
 		});
 	});
 
-	it("carries on past a group whose check fails, and exits 0 as all-mode does", async () => {
+	it("carries on past a group whose check fails, then exits 1 as a single key does", async () => {
 		const unchecked = skill("a");
 		arrangeBehind({ "owner/one/a": unchecked, "owner/two/b": skill("b") });
 		mockResolveGroupTarget.mockImplementation(async ({ cloneUrl }) =>
@@ -6525,7 +6525,8 @@ describe("a key naming several entries", () => {
 
 		const err = await runUpdate("owner").catch((e) => e);
 
-		expect(err).toBeUndefined();
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect((err as ExitSignal).code).toBe(1);
 		expect(mockCloneSource).toHaveBeenCalledOnce();
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
 			"owner/one/a": unchecked,
@@ -6550,9 +6551,9 @@ describe("a key naming several entries", () => {
 
 		const run = await runMachine(updateCommand, ["owner"]);
 
-		expect(run.exitCode).toBe(0);
+		expect(run.exitCode).toBe(1);
 		expect(run.document).toEqual({
-			ok: true,
+			ok: false,
 			command: "update",
 			scope: "project",
 			items: [
@@ -6580,6 +6581,68 @@ describe("a key naming several entries", () => {
 			notes: [],
 		});
 		expect(clackCalls(p)).toEqual([]);
+	});
+
+	describe("exits 1 on a dead remote however many entries the key names", () => {
+		function arrangeDeadRemote(manifest: Manifest): void {
+			arrangeBehind(manifest);
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: "network timeout",
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "check-failed",
+				reason: "network timeout",
+			});
+		}
+
+		it("one entry", async () => {
+			arrangeDeadRemote({ "owner/repo/a": skill("a") });
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toMatchObject({ ok: false });
+		});
+
+		it("two entries", async () => {
+			arrangeDeadRemote({
+				"owner/repo/a": skill("a"),
+				"owner/repo/b": skill("b"),
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toMatchObject({ ok: false });
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("but not without a key", async () => {
+			arrangeDeadRemote({
+				"owner/repo/a": skill("a"),
+				"owner/repo/b": skill("b"),
+			});
+
+			const run = await runMachine(updateCommand, []);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({ ok: true });
+		});
+	});
+
+	it("exits 1 when no tag satisfies a constraint the key's entries share", async () => {
+		const constrained = { ref: "v1.0.0", constraint: "^1.0.0" };
+		arrangeBehind({
+			"owner/repo/a": skill("a", constrained),
+			"owner/repo/b": skill("b", constrained),
+		});
+		mockResolveGroupTarget.mockResolvedValue({ kind: "constrained-no-match" });
+
+		const err = await runUpdate("owner/repo").catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect((err as ExitSignal).code).toBe(1);
 	});
 
 	it("a key naming one entry by prefix keeps the single-key path", async () => {
@@ -7026,6 +7089,59 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
 		expect(Object.keys(written)).toEqual([PACK_KEY]);
+	});
+
+	describe("when the loose entry's own group comes before the pack's", () => {
+		function arrangeSkillGroupFirst(): void {
+			arrangeTakeover({
+				"owner/repo/a": looseA({ ref: "main" }),
+				[PACK_KEY]: packEntry(),
+			});
+		}
+
+		const ABSORBED = {
+			key: "owner/repo/a",
+			type: "skill",
+			status: "absorbed",
+			ref: "main",
+			commit: INSTALLED_SHA,
+			constraint: null,
+			message: "owner/repo/a is now part of the pack owner/repo/tools",
+		};
+
+		it.each([
+			["all-mode", []],
+			["a key naming both", ["owner/repo"]],
+		])("%s runs the pack first and never clones or copies the skill", async (_mode, args) => {
+			arrangeSkillGroupFirst();
+
+			const run = await runMachine(updateCommand, args);
+
+			expect(run.exitCode).toBe(0);
+			expect(mockCloneSource).toHaveBeenCalledOnce();
+			expect(mockCopyPack).toHaveBeenCalledOnce();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockWriteManifest).toHaveBeenLastCalledWith("/fake/project", {
+				[PACK_KEY]: expect.objectContaining({ commit: REMOTE_SHA }),
+			});
+			// The document stays in manifest order.
+			expect(run.document.items).toEqual([
+				ABSORBED,
+				expect.objectContaining({ key: PACK_KEY, status: "updated" }),
+			]);
+		});
+
+		it("streams the pack's line, never an Updated line for the skill", async () => {
+			const handle = captureSpinner();
+			arrangeSkillGroupFirst();
+
+			await runUpdate("owner/repo");
+
+			expect(stopTexts(handle)).toEqual([
+				expect.stringMatching(/^owner\/repo\/tools: Updated/),
+			]);
+			expect(mockLog.success).not.toHaveBeenCalled();
+		});
 	});
 
 	it("reports the loose entry as absorbed into the pack, with the pack's note", async () => {
