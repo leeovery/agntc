@@ -50,6 +50,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Approving the replacement of files in the way now removes them first, so an install replaces a folder instead of merging into it.
 - Conflict checks run before an earlier install's files are removed, so a skipped item keeps its install and entry.
 - An `add` whose chosen items would install to the same place is refused before anything is copied, naming the paths.
+- An HTTPS URL with a path after the repo, such as `https://github.com/owner/repo/skills`, cloned the wrong repository (`repo/skills`); the first two segments now name the repo and the rest is the start path. SSH URLs take a path the same way.
+- Re-add commands printed for a source on another host, or added over SSH, named a GitHub repo; they now name the clone URL.
+- Hidden files in a pack's `hooks/`, such as `.DS_Store`, are no longer installed.
 
 ## [0.4.0] - 2026-07-22
 

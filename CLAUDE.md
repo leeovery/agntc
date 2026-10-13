@@ -24,10 +24,10 @@ src/
   ui.ts                     # Ui interface: interactiveUi (clack) and MachineUi (JSON document); every word and prompt goes through it
   documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
   scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
-  source-parser.ts          # Parse owner/repo[/path], URLs, local paths, tree URLs; key<->source-dir (repoFromKey, memberName, deriveCloneUrlFromKey, resolveGuardedSourceDir)
+  source-parser.ts          # Parse owner/repo[/path], HTTPS/SSH URLs[/path], local paths, tree URLs; key<->source-dir (repoFromKey, keySubpath, memberName, deriveCloneUrlFromKey, resolveGuardedSourceDir); addSourceFor/locateSource build the source a printed add command takes
   discover.ts               # Deep walk: skills, declared packs, strays; matchSkills for --skill; PackConflictError / StartPathError
   frontmatter.ts            # SKILL.md frontmatter read (name, description); display + --skill matching only
-  config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`
+  config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`; declaresPack (`pack` or legacy `plugin`)
   choose-items.ts           # Flags -> Selection; chooseItems decides install / menu / refuse; stray notices; --list lines
   item-menu.ts              # The add multiselect
   install-item.ts           # InstallItem (skill | pack); keyItems assigns keys, refuses target and key clashes
@@ -119,7 +119,7 @@ Nuke-and-reinstall: delete manifest `files`, re-clone, re-copy. Constrained entr
 - **Derive-before-delete.** Replay, files in the way (other entries' and unmanaged), and the symlink-escape scan all run before any file is removed. Irreconcilable change or files in the way → abort that entry, install intact, loud message with the `remove` + re-add (`--overwrite` when files are in the way) remedy.
 - **Gone upstream.** Nothing left for a skill (or a pack's path gone/empty) → `settleGone`: `-y` removes, a terminal asks (default no; kept entries are asked again next run), machine mode keeps and reports (`gone-kept`, flags `-y`). Never a failure.
 - **Absorption.** A pack's new files landing on loose skill entries from its own source take them over (files removed, entries dropped, `absorbed` outcome). Packs update before skills in key mode and in each group.
-- **Re-add commands** (`entry-source.ts`) carry the recorded path and `--pack`; a group's loose skills share one `--skill` line.
+- **Re-add commands** (`entry-source.ts`) carry the recorded path and `--pack`; a group's loose skills share one `--skill` line. The source is GitHub shorthand only for a GitHub HTTPS clone URL; other hosts and SSH print the clone URL.
 - **Legacy entries.** `type: "plugin"` reads as `pack`; missing `type` derives from recorded `files`; per-agent `agents` is dropped; files recorded under `.agents/skills`/`.cursor/skills` are deleted on update and reinstalled under `.claude/`. Persisted on next write.
 - **Per-entry granularity:** one entry aborting doesn't stop siblings. Command exits non-zero if any entry aborted/errored (partial success). Single-key mode stops at the first failure.
 

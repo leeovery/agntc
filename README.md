@@ -94,12 +94,12 @@ npx agntc@latest add <source> [options]
 | With a path | `owner/repo/skills/go` | Search starts at that folder |
 | With constraint | `owner/repo@^1.0`, `owner/repo@~2.1` | Resolves best match within range |
 | Exact tag | `owner/repo@v2.0.0` | Pin to a specific version, no constraint |
-| HTTPS URL | `https://gitlab.com/org/repo` | Any git host |
-| SSH URL | `git@github.com:owner/repo.git` | For SSH auth |
+| HTTPS URL | `https://gitlab.com/org/repo`, `https://gitlab.com/org/repo/skills/go` | Any git host; a path after the repo works as in shorthand |
+| SSH URL | `git@github.com:owner/repo.git`, `git@gitlab.com:org/repo/skills/go` | For SSH auth; takes a path the same way |
 | Tree URL | `https://github.com/owner/repo/tree/main/laravel` | Branch plus path |
 | Local path | `./my-skills`, `~/dev/skills` | Local development |
 
-**How a source is searched.** agntc walks down from the path you added, the repo root unless you gave `owner/repo/path`:
+**How a source is searched.** agntc walks down from the path you added, the repo root unless you gave a path after the repo:
 
 - a folder with `SKILL.md` is a skill and isn't entered;
 - a folder declaring a pack is recorded and isn't entered;
