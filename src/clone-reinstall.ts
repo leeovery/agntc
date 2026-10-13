@@ -7,6 +7,7 @@ import { addEntry, removeEntry, writeManifest } from "./manifest.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
+	type NukeReinstallResult,
 } from "./nuke-reinstall-pipeline.js";
 import { agntcCommand, type Scope, type ScopeName } from "./scope.js";
 import {
@@ -97,9 +98,7 @@ interface CloneReinstallSuccess {
  * Nothing the entry installs is left in its source. Nothing was touched; the
  * caller decides whether to remove it.
  */
-interface CloneReinstallGone {
-	status: "gone";
-}
+type CloneReinstallGone = Extract<NukeReinstallResult, { status: "gone" }>;
 
 /**
  * A copy failure has already removed the entry's files, and those of the loose
@@ -218,19 +217,10 @@ export function failureMessage(
  * `status` alone, keeping it separate from the `status: "failed"` reasons
  * (notably copy-failed, which removes the entry) without a redundant second tag.
  */
-export interface CloneReinstallAborted {
-	status: "aborted";
-	reason: string;
-	/** What stopped it was files in the way, which an add with --overwrite replaces. */
-	inTheWay?: true;
-	/** What stopped it was another entry holding the key the item moves to. */
-	takenKey?: string;
-	/**
-	 * The item as the replay found it, under the key `add` gives it: set when
-	 * the abort came after a replay, for a remedy that adds it again.
-	 */
-	replayed?: { key: string; entry: ManifestEntry };
-}
+export type CloneReinstallAborted = Extract<
+	NukeReinstallResult,
+	{ status: "aborted" }
+>;
 
 /** Why an update aborted, as {@link buildAbortMessage} reports it. */
 export type AbortCause = Omit<CloneReinstallAborted, "status">;
@@ -248,10 +238,10 @@ export type AbortCause = Omit<CloneReinstallAborted, "status">;
  * {@link reason} carries the offending symlink; {@link buildCopySafetyMessage}
  * assembles the user-facing report.
  */
-export interface CloneReinstallBlocked {
-	status: "blocked";
-	reason: string;
-}
+export type CloneReinstallBlocked = Extract<
+	NukeReinstallResult,
+	{ status: "blocked" }
+>;
 
 export type CloneReinstallResult =
 	| CloneReinstallSuccess
@@ -476,7 +466,22 @@ export function recordReinstall(
 	);
 }
 
-/** A copy failure removed the files of the entry and of what it took over, so their entries go. */
+/**
+ * `manifest` after a copy failure for the entry under `key`: the failure
+ * removed its files and those of the loose skills it took over, `absorbed`,
+ * so their entries go too.
+ */
+export function recordCopyFailure(
+	manifest: Manifest,
+	key: string,
+	absorbed: string[],
+): Manifest {
+	return [key, ...absorbed].reduce(
+		(rest, removed) => removeEntry(rest, removed),
+		manifest,
+	);
+}
+
 async function handleCopyFailedRemoval(
 	result: CloneReinstallResult,
 	options: CloneAndReinstallOptions,
@@ -486,10 +491,9 @@ async function handleCopyFailedRemoval(
 		result.failureReason === "copy-failed" &&
 		options.manifest !== undefined
 	) {
-		const removed = [options.key, ...result.absorbed];
 		await writeManifest(
 			options.scope.root,
-			removed.reduce((rest, key) => removeEntry(rest, key), options.manifest),
+			recordCopyFailure(options.manifest, options.key, result.absorbed),
 		);
 	}
 	return result;

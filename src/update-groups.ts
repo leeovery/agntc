@@ -5,6 +5,7 @@ import {
 	cloneRepoOnce,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	recordCopyFailure,
 	recordReinstall,
 	runPipeline,
 } from "./clone-reinstall.js";
@@ -12,6 +13,7 @@ import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry } from "./manifest.js";
+import { type SourceWalk, sourceWalk } from "./nuke-reinstall-pipeline.js";
 import type { Scope, ScopeName } from "./scope.js";
 import {
 	deriveCloneUrlFromKey,
@@ -217,17 +219,19 @@ export function applyOutcome(
 	manifest: Manifest,
 	outcome: PluginOutcome,
 ): Manifest {
-	const rest = absorbedBy(outcome).reduce(removeEntry, manifest);
 	if (isSuccessOutcome(outcome)) {
 		return recordReinstall(
-			rest,
+			outcome.absorbed.reduce(removeEntry, manifest),
 			keyBefore(outcome),
 			outcome.key,
 			outcome.newEntry,
 		);
 	}
-	if (outcome.status === "copy-failed" || outcome.status === "gone-removed") {
-		return removeEntry(rest, outcome.key);
+	if (outcome.status === "copy-failed") {
+		return recordCopyFailure(manifest, outcome.key, outcome.absorbed);
+	}
+	if (outcome.status === "gone-removed") {
+		return removeEntry(manifest, outcome.key);
 	}
 	return manifest;
 }
@@ -420,6 +424,12 @@ export function groupTargetFacets(
 	}
 }
 
+/** A group's one clone, with the walk its members share for moved skills. */
+interface SharedClone {
+	root: string;
+	walk: SourceWalk;
+}
+
 /**
  * Reinstalls a single group member from the shared clone, fully isolated in its
  * own try/catch so one member's throw can never abort its siblings. Obtains its
@@ -433,7 +443,7 @@ export function groupTargetFacets(
  */
 async function reinstallMember(
 	member: GroupMember,
-	tempDir: string,
+	clone: SharedClone,
 	facets: GroupTargetFacets,
 	scope: Scope,
 	installed: Manifest,
@@ -449,7 +459,11 @@ async function reinstallMember(
 	// Sharing this value with the grouped header keeps the collapsed
 	// group-of-one wording identical to the grouped multi-member wording.
 	try {
-		const guarded = resolveGuardedSourceDir(tempDir, key, entry.sourceSubpath);
+		const guarded = resolveGuardedSourceDir(
+			clone.root,
+			key,
+			entry.sourceSubpath,
+		);
 		if (!guarded.ok) {
 			return mapReinstallResultToOutcome(
 				key,
@@ -470,7 +484,8 @@ async function reinstallMember(
 			installed,
 			scope,
 			sourceDir: guarded.sourceDir,
-			cloneRoot: tempDir,
+			cloneRoot: clone.root,
+			walk: clone.walk,
 			newRef: cloneRef,
 			newCommit: commit,
 		});
@@ -492,6 +507,7 @@ async function reinstallMember(
  * via {@link cloneRepoOnce}, then reinstalls each updating `member` sequentially
  * from that shared clone through the clone-agnostic reinstall half
  * ({@link runPipeline}), returning one {@link PluginOutcome} per member.
+ * Members whose skill moved share one walk of the clone to find it.
  *
  * `members` is the group's updating subset (categorized `update-available` /
  * `constrained-update-available`); the clone is taken from the group's first
@@ -546,8 +562,9 @@ export async function processGroupUpdate(
 	}
 
 	try {
+		const clone = { root: tempDir, walk: sourceWalk(tempDir) };
 		const reinstall = (member: GroupMember, current: Manifest) =>
-			reinstallMember(member, tempDir, facets, scope, current);
+			reinstallMember(member, clone, facets, scope, current);
 		return {
 			cloneFailed: false,
 			outcomes: await reinstallInTurn(members, installed, reinstall),

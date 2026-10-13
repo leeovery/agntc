@@ -71,6 +71,7 @@ import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
 	type NukeReinstallResult,
+	sourceWalk,
 } from "../src/nuke-reinstall-pipeline.js";
 import { globalScope, projectScope } from "../src/scope.js";
 import { checkUnmanagedConflicts } from "../src/unmanaged-check.js";
@@ -785,6 +786,35 @@ describe("executeNukeAndReinstall", () => {
 			await executeNukeAndReinstall(makeOptions(MEMBER));
 
 			expect(callOrder).toEqual(["walk", "nuke"]);
+		});
+
+		it("follows a moved skill through the walk it is given", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "go", path: "lang/go" }),
+			);
+			const walk = sourceWalk("/tmp/clone");
+			await walk("repo");
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ ...MEMBER, walk }),
+			);
+
+			expect(mockDiscover).toHaveBeenCalledTimes(1);
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { sourceSubpath: "lang/go" },
+			});
+		});
+
+		it("walks on its own when given no walk, sharing nothing with another reinstall", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "go", path: "lang/go" }),
+			);
+
+			await executeNukeAndReinstall(makeOptions(MEMBER));
+			await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(mockDiscover).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -1578,5 +1608,60 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.status).toBe("success");
 		});
+	});
+});
+
+describe("sourceWalk", () => {
+	it("walks a source once for every ask under one root name", async () => {
+		mockDiscover.mockResolvedValue(looseSkills({ name: "go", path: "go" }));
+		const walk = sourceWalk("/tmp/clone");
+
+		const [first, second] = await Promise.all([walk("repo"), walk("repo")]);
+
+		expect(mockDiscover).toHaveBeenCalledTimes(1);
+		expect(mockDiscover).toHaveBeenCalledWith("/tmp/clone", {
+			rootName: "repo",
+		});
+		expect(second).toBe(first);
+	});
+
+	it("walks again under another root name, which names a skill at the root", async () => {
+		mockDiscover.mockImplementation(async (_root, { rootName }) =>
+			looseSkills({ name: rootName, path: "" }),
+		);
+		const walk = sourceWalk("/tmp/clone");
+
+		const repo = await walk("repo");
+		const folder = await walk("folder");
+
+		expect(mockDiscover).toHaveBeenCalledTimes(2);
+		expect(repo.map((skill) => skill.name)).toEqual(["repo"]);
+		expect(folder.map((skill) => skill.name)).toEqual(["folder"]);
+	});
+
+	it("shares nothing between two walks of one source", async () => {
+		mockDiscover.mockResolvedValue(looseSkills());
+
+		await sourceWalk("/tmp/clone")("repo");
+		await sourceWalk("/tmp/clone")("repo");
+
+		expect(mockDiscover).toHaveBeenCalledTimes(2);
+	});
+
+	it("lists every skill, loose or in a pack, and none can be changed", async () => {
+		mockDiscover.mockResolvedValue({
+			packs: [foundPack()],
+			skills: [{ name: "go", path: "go" }],
+			strays: [],
+		});
+
+		const skills = await sourceWalk("/tmp/clone")("repo");
+
+		expect(skills).toEqual([
+			{ name: "go", path: "go" },
+			{ name: "api", path: "laravel/skills/api" },
+		]);
+		expect(Object.isFrozen(skills)).toBe(true);
+		expect(skills.every((skill) => Object.isFrozen(skill))).toBe(true);
 	});
 });
