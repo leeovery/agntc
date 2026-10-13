@@ -225,6 +225,11 @@ export interface CloneReinstallAborted {
 	inTheWay?: true;
 	/** What stopped it was another entry holding the key the item moves to. */
 	takenKey?: string;
+	/**
+	 * The item as the replay found it, under the key `add` gives it: set when
+	 * the abort came after a replay, for a remedy that adds it again.
+	 */
+	replayed?: { key: string; entry: ManifestEntry };
 }
 
 /** Why an update aborted, as {@link buildAbortMessage} reports it. */
@@ -258,18 +263,20 @@ export type CloneReinstallResult =
 /**
  * The user-facing report for a derive-before-delete abort: why the source
  * can't be replayed for the entry, that the existing install is unchanged,
- * and the manual remedy built from the entry. Files in the way are cleared by
- * hand or replaced by an add with --overwrite, which update doesn't take; any
- * other abort migrates by remove+add. A key taken by another entry is freed
- * by removing that entry, after which update moves this one there: an add
- * would refuse the taken key too. Distinct from the copy-failed report, which
- * tells the user the unit is currently uninstalled and to re-run update — here
- * nothing was touched.
+ * and the manual remedy. Its remove names the entry as installed; its re-add
+ * installs the item as replayed when the abort came after a replay, else the
+ * entry as recorded. Files in the way are cleared by hand or replaced by an
+ * add with --overwrite, which update doesn't take; any other abort migrates
+ * by remove+add. A key taken by another entry is freed by removing that
+ * entry, after which update moves this one there: an add would refuse the
+ * taken key too. Distinct from the copy-failed report, which tells the user
+ * the unit is currently uninstalled and to re-run update — here nothing was
+ * touched.
  */
 export function buildAbortMessage(
 	key: string,
 	entry: ManifestEntry,
-	{ reason, inTheWay, takenKey }: AbortCause,
+	{ reason, inTheWay, takenKey, replayed }: AbortCause,
 	scope: ScopeName,
 ): string {
 	if (takenKey !== undefined) {
@@ -280,7 +287,11 @@ export function buildAbortMessage(
 			`${agntcCommand(scope, "update", [key])}`
 		);
 	}
-	const reAdd = reAddCommand(key, entry, scope);
+	const reAdd = reAddCommand(
+		replayed?.key ?? key,
+		replayed?.entry ?? entry,
+		scope,
+	);
 	const remove = agntcCommand(scope, "remove", [key]);
 	if (inTheWay) {
 		return (

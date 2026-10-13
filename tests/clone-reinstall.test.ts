@@ -1888,6 +1888,28 @@ describe("buildAbortMessage", () => {
 		expect(msg).not.toContain("--pack");
 	});
 
+	it("re-adds the item as replayed, under its new key, while removing the entry as installed", () => {
+		const msg = buildAbortMessage(
+			"owner/repo/packs/foo",
+			makeEntry({ type: "pack" }),
+			{
+				reason:
+					"files agntc didn't install are in the way: .claude/skills/foo/",
+				inTheWay: true,
+				replayed: {
+					key: "owner/repo/foo",
+					entry: makeEntry({ type: "skill", sourceSubpath: "packs/foo" }),
+				},
+			},
+			"project",
+		);
+
+		expect(msg).toContain(
+			"replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo --overwrite",
+		);
+		expect(msg).not.toContain("--pack");
+	});
+
 	it("points files in the way at clearing them, or at a re-add with --overwrite", () => {
 		const msg = buildAbortMessage(
 			"owner/repo/laravel",

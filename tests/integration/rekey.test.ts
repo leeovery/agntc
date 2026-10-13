@@ -171,11 +171,19 @@ async function push(
 	head = NEW_SHA;
 }
 
-/** Runs a printed `npx agntc add …` line, as a user pasting it would. */
-async function runPrinted(command: string): Promise<MachineRun> {
+/**
+ * Runs a printed `npx agntc add|remove …` line as a user pasting it would.
+ * `answers` are the flags that stand in for what a terminal would ask.
+ */
+async function runPrinted(
+	command: string,
+	...answers: string[]
+): Promise<MachineRun> {
 	const [npx, agntc, verb, ...args] = command.split(" ");
-	expect([npx, agntc, verb]).toEqual(["npx", "agntc", "add"]);
-	return runMachine(addCommand, args);
+	expect([npx, agntc]).toEqual(["npx", "agntc"]);
+	const printed = verb === "remove" ? removeCommand : addCommand;
+	expect(printed.name()).toBe(verb);
+	return runMachine(printed, [...args, ...answers]);
 }
 
 /** Running `command` installs onto the entries it was printed for, under the same keys. */
@@ -524,9 +532,63 @@ describe("absorption around a moved entry", () => {
 	});
 });
 
-describe("a local pack whose path is now a single skill", () => {
-	it("moves to the key an add of the folder it was added from gives it", async () => {
-		const source = join(testDir, "kit");
+describe("a pack re-typed as a skill with files in its way", () => {
+	it("prints a remedy that, run in order, installs it under its new key", async () => {
+		await repo("owner/repo", {
+			"packs/foo/agntc.json": PACK,
+			"packs/foo/skills/a/SKILL.md": "a v1",
+		});
+		await add("owner/repo/packs/foo");
+		await push("owner/repo", { "packs/foo/SKILL.md": "foo v2" });
+		await write(projectDir, { ".claude/skills/foo/SKILL.md": "mine" });
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		const [item] = run.document.items as Array<{ message: string }>;
+		const remedy =
+			/replace them: (npx agntc remove .+) then (npx agntc add .+)$/
+				.exec(item?.message ?? "")
+				?.slice(1);
+		expect(remedy).toEqual([
+			"npx agntc remove owner/repo/packs/foo",
+			"npx agntc add owner/repo/packs/foo --overwrite",
+		]);
+		expect(await installed(".claude/skills/a/SKILL.md")).toBe(true);
+
+		const [remove = "", reAdd = ""] = remedy ?? [];
+		expect((await runPrinted(remove, "-y")).exitCode).toBe(0);
+		const added = await runPrinted(reAdd);
+
+		expect(added.exitCode).toBe(0);
+		expect(added.document.items).toEqual([
+			expect.objectContaining({ key: "owner/repo/foo", status: "installed" }),
+		]);
+		expect(await savedManifest()).toEqual({
+			"owner/repo/foo": expect.objectContaining({
+				type: "skill",
+				sourceSubpath: "packs/foo",
+			}),
+		});
+		expect(
+			await readFile(join(projectDir, ".claude/skills/foo/SKILL.md"), "utf-8"),
+		).toBe("foo v2");
+	});
+});
+
+describe("a local source's printed re-add commands", () => {
+	let source: string;
+
+	beforeEach(() => {
+		source = join(testDir, "kit");
+	});
+
+	async function expectReAddLands(key: string): Promise<void> {
+		const { entry } = await saved(key);
+		await expectLandsOnEntries(reAddCommand(key, entry, "project"), [key]);
+	}
+
+	it("land on a pack re-typed as a skill and moved to its new key", async () => {
 		await write(source, {
 			"packs/foo/agntc.json": PACK,
 			"packs/foo/skills/a/SKILL.md": "a v1",
@@ -549,8 +611,34 @@ describe("a local pack whose path is now a single skill", () => {
 			sourceSubpath: "packs/foo",
 			localRoot: source,
 		});
-		await expectLandsOnEntries(`npx agntc add ${source}`, [
-			join(source, "foo"),
-		]);
+		expect(
+			reAddCommand(
+				join(source, "foo"),
+				(await saved(join(source, "foo"))).entry,
+				"project",
+			),
+		).toBe(`npx agntc add ${source} --skill foo`);
+		await expectReAddLands(join(source, "foo"));
+	});
+
+	it("land on a loose skill added from its root with its path recorded", async () => {
+		await write(source, {
+			"skills/foo/SKILL.md": "foo",
+			"skills/bar/SKILL.md": "bar",
+		});
+		await add(source, "--skill", "foo");
+
+		await expectReAddLands(join(source, "foo"));
+	});
+
+	it("land on a pack added from its root", async () => {
+		await write(source, {
+			"packs/tools/agntc.json": PACK,
+			"packs/tools/skills/a/SKILL.md": "a",
+			"skills/bar/SKILL.md": "bar",
+		});
+		await add(source, "--all");
+
+		await expectReAddLands(join(source, "packs/tools"));
 	});
 });

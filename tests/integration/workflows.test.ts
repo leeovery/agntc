@@ -928,6 +928,7 @@ describe("integration: core workflows", () => {
 				reason:
 					"files agntc didn't install are in the way: .claude/skills/review/",
 				inTheWay: true,
+				replayed: expect.objectContaining({ key: "owner/growing-pack" }),
 			});
 			expect(
 				await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),

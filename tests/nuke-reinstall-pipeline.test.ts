@@ -938,9 +938,38 @@ describe("executeNukeAndReinstall", () => {
 				status: "aborted",
 				reason: "it would move to owner/repo/foo, which is already installed",
 				takenKey: "owner/repo/foo",
+				replayed: {
+					key: "owner/repo/foo",
+					entry: expect.objectContaining({
+						type: "skill",
+						sourceSubpath: "packs/foo",
+						files: [],
+					}),
+				},
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("carries the skill it now is, under its new key, when files are in its way", async () => {
+			mockCheckUnmanaged.mockResolvedValue([".claude/skills/foo/"]);
+
+			const result = await executeNukeAndReinstall(retypedOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"files agntc didn't install are in the way: .claude/skills/foo/",
+				inTheWay: true,
+				replayed: {
+					key: "owner/repo/foo",
+					entry: expect.objectContaining({
+						type: "skill",
+						sourceSubpath: "packs/foo",
+					}),
+				},
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 
 		it("tells a copy failure to install it again as the skill it now is", async () => {
@@ -1012,6 +1041,7 @@ describe("executeNukeAndReinstall", () => {
 				reason:
 					"files agntc didn't install are in the way: .claude/skills/queues/",
 				inTheWay: true,
+				replayed: expect.objectContaining({ key: PACK_KEY }),
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyPack).not.toHaveBeenCalled();
@@ -1033,6 +1063,7 @@ describe("executeNukeAndReinstall", () => {
 				reason:
 					"files of other/tools/queues are in the way: .claude/skills/queues/",
 				inTheWay: true,
+				replayed: expect.objectContaining({ key: PACK_KEY }),
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
@@ -1369,6 +1400,8 @@ describe("executeNukeAndReinstall", () => {
 			const result = await executeNukeAndReinstall(
 				makeOptions({
 					key: "/src/repo/my-skill",
+					sourceDir: "/src/repo/my-skill",
+					cloneRoot: "/src/repo",
 					existingEntry: makeEntry({
 						type: "skill",
 						commit: null,
@@ -1379,6 +1412,7 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "success",
+				key: "/src/repo/my-skill",
 				entry: { localRoot: "/src/repo" },
 			});
 		});
@@ -1392,11 +1426,13 @@ describe("executeNukeAndReinstall", () => {
 			const result = await executeNukeAndReinstall(
 				makeOptions({
 					key: "/src/my-skill",
+					sourceDir: "/src/my-skill",
+					cloneRoot: "/src/my-skill",
 					existingEntry: makeEntry({ type: "skill", commit: null }),
 				}),
 			);
 
-			expect(result.status).toBe("success");
+			expect(result).toMatchObject({ status: "success", key: "/src/my-skill" });
 			if (result.status !== "success") return;
 			expect(result.entry).not.toHaveProperty("localRoot");
 		});

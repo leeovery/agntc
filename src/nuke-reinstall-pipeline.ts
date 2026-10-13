@@ -113,6 +113,11 @@ interface NukeReinstallAborted {
 	inTheWay?: true;
 	/** What stopped it was another entry holding the key the item moves to. */
 	takenKey?: string;
+	/**
+	 * The item as the replay found it, under the key `add` gives it: set when
+	 * the abort came after a replay, for a remedy that adds it again.
+	 */
+	replayed?: { key: string; entry: ManifestEntry };
 }
 
 /**
@@ -150,14 +155,15 @@ type Replay =
 
 const GONE: Replay = { ok: false, gone: true };
 
-/**
- * A replay cleared by every pre-flight check, with where `add` would record
- * its item and the loose skills it absorbs.
- */
-interface ClearedReplay {
-	status: "cleared";
+/** A replay, with where `add` would record its item. */
+interface KeyedReplay {
 	replay: Extract<Replay, { ok: true }>;
 	keyed: ItemKey;
+}
+
+/** A replay cleared by every pre-flight check, with the loose skills it absorbs. */
+interface ClearedReplay extends KeyedReplay {
+	status: "cleared";
 	absorbed: string[];
 }
 
@@ -202,17 +208,24 @@ async function clearReplay(
 	}
 
 	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
+	const replayed = replayedAs(options, { replay, keyed });
 	if (keyed.key !== key && keyed.key in options.installed) {
 		return {
 			status: "aborted",
 			reason: `it would move to ${keyed.key}, which is already installed`,
 			takenKey: keyed.key,
+			replayed,
 		};
 	}
 
 	const way = await inTheWayOf(replay.item, options);
 	if (way.clashes.size > 0 || way.unmanaged.length > 0) {
-		return { status: "aborted", reason: inTheWayReason(way), inTheWay: true };
+		return {
+			status: "aborted",
+			reason: inTheWayReason(way),
+			inTheWay: true,
+			replayed,
+		};
 	}
 
 	const symlinkCheck = await checkEscapingSymlinks(
@@ -449,10 +462,24 @@ function skillAt(path: string, name: string): InstallItem {
 	return { kind: "skill", skill: { name, path } };
 }
 
+/**
+ * The replayed item as the entry it would be, under the key `add` gives it:
+ * what a remedy that adds it again installs.
+ */
+function replayedAs(
+	options: NukeReinstallOptions,
+	keyedReplay: KeyedReplay,
+): { key: string; entry: ManifestEntry } {
+	return {
+		key: keyedReplay.keyed.key,
+		entry: replayedEntry(options, keyedReplay, []),
+	};
+}
+
 /** The entry recorded for the replayed item, holding `files`. */
 function replayedEntry(
 	{ existingEntry, newRef, newCommit }: NukeReinstallOptions,
-	{ replay, keyed }: ClearedReplay,
+	{ replay, keyed }: KeyedReplay,
 	files: string[],
 ): ManifestEntry {
 	return buildManifestEntry({
@@ -474,14 +501,11 @@ function copyFailed(
 	cleared: ClearedReplay,
 ): NukeReinstallCopyFailed {
 	const { key, scope } = options;
-	const { keyed, absorbed } = cleared;
+	const { absorbed } = cleared;
 	const takenOver =
 		absorbed.length > 0 ? `, and ${takenOverRemoved(absorbed)}` : "";
-	const reAdd = reAddCommand(
-		keyed.key,
-		replayedEntry(options, cleared, []),
-		scope.name,
-	);
+	const replayed = replayedAs(options, cleared);
+	const reAdd = reAddCommand(replayed.key, replayed.entry, scope.name);
 	return {
 		status: "copy-failed",
 		errorMessage: errorMessage(err),
