@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-13
+
+**Breaking:** agntc now installs for Claude only, and a pack (formerly a plugin) must be declared with `{"type": "pack"}` or `--pack`; folder shape no longer makes one. Existing installs keep working: multi-agent installs move to `.claude/` on their next `update`, and plugin entries are read as packs.
+
+✨ Added
+- `add` walks the source to find skills: up to 5 levels deep, through plain category folders, skipping hidden folders, `node_modules`, `dist`, `build` and `vendor`.
+- `owner/repo/path` sources start the search at a folder in the repo.
+- Packs: a set of skills, optionally with agents and hooks, that installs, updates and removes as one entry. Declared by the author with `{"type": "pack"}` in `agntc.json`, or by the user with `--pack`.
+- A source holding several things shows a menu with one line per pack and each loose skill by path; one thing installs without a menu.
+- `--skill <names...>` installs skills by folder or frontmatter name, including a skill inside a pack, which installs on its own with a note naming what's left out. A name found twice is refused, listing its paths.
+- `--all` installs everything the menu would list; `--list` shows what a source holds, with skill counts and descriptions, and installs nothing.
+- A folder whose `agents/` or `hooks/` won't be installed gets a notice with the `--pack` command that would install them.
+- `update` re-walks each pack, so skills added upstream arrive and removed ones go.
+- `update` follows a loose skill whose folder moved upstream when exactly one skill has its name.
+- `update` asks whether to remove a skill or pack that's gone upstream; no keeps it at its last version and asks again next time. `update -y` removes without asking.
+- A pack takes over loose skills from its own repo on `add` and `update`, and `--skill` on a skill an installed pack already holds does nothing and says so.
+- `-g`/`--global` on `add`, `remove`, `update` and `list` installs into `~/.claude/` with the manifest at `~/.agntc/manifest.json`. Each command stays within one scope, and printed re-add and remove commands carry `-g`.
+- Without a terminal, every command prints one JSON document on stdout and never waits on a prompt; a question it can't ask stops the command and names the flag that answers it. `--json` forces JSON at a terminal.
+- `add --overwrite` replaces files in the way without asking; `remove -y` removes without confirmation.
+- `init skill` and `init pack` scaffold a skill or a pack directly; `-y` skips the confirmation.
+
+🔧 Changed
+- "Plugin" is now "pack". `--plugin` still works as an alias for `--pack`, with a note; config `"type": "plugin"` and manifest `plugin` entries are read as packs.
+- Agents and hooks install only as part of a pack, and only `.md` files from a pack's `agents/` install as agents.
+- A repo with several things in it gives a menu instead of being a collection, and picked items are no longer forced into plugins.
+- Skills always install flat as `.claude/skills/<folder>`, including a pack's skills.
+- Installs made for Codex or Cursor move to `.claude/` on their next `update`.
+- Re-add commands in update output carry the install's path and `--pack`, and several loose skills from one repo share one `--skill` line.
+- `init` scaffolds a skill (`SKILL.md` only) or a pack (`agntc.json`, `skills/`, `agents/`, `hooks/`).
+
+🗑️ Removed
+- Codex and Cursor support: their drivers, `.agents/skills` and `.cursor/skills` routing, agent detection and the agent prompt.
+- The `agents` key in `agntc.json` (now ignored) and the per-agent list in manifest entries.
+- Collections, and plugin detection from folder shape.
+
+🐛 Fixed
+- Skills carrying an `agents/openai.yaml` were installed as plugins with their `SKILL.md` dropped; they now install as skills.
+- A stray `.claude/agents/openai.yaml` copied by such an install is removed on its next update.
+- Re-add advice printed by `update` dropped `--plugin`; it now carries `--pack`.
+- A skill removed upstream aborted every update; it now asks whether to remove it.
+- Removing, updating or rolling back an install no longer follows a symlink in the destination: a link is unlinked as a link, and agntc won't write through one.
+- A hand-edited manifest path or key using `..` can no longer delete or read outside the project or the clone.
+- Approving the replacement of files in the way now removes them first, so an install replaces a folder instead of merging into it.
+- Conflict checks run before an earlier install's files are removed, so a skipped item keeps its install and entry.
+- An `add` whose chosen items would install to the same place is refused before anything is copied, naming the paths.
+- An HTTPS URL with a path after the repo, such as `https://github.com/owner/repo/skills`, cloned the wrong repository (`repo/skills`); the first two segments now name the repo and the rest is the start path. SSH URLs take a path the same way.
+- Re-add commands printed for a source on another host, or added over SSH, named a GitHub repo; they now name the clone URL.
+- Hidden files in a pack's `hooks/`, such as `.DS_Store`, are no longer installed.
+- A constrained update recorded an annotated tag's object sha as the commit; it now records the commit the tag points at.
+- `update` no longer copies through a symlink at or above an install's path in the source; the entry is blocked and left intact.
+- A local source that is a symlink to a folder now installs from the folder it links to.
+- Symlinks inside an installed skill or hook were rewritten to point into the temp clone, which is deleted after the copy. A link within what's installed now stays a relative link. A link elsewhere in a local source links there absolutely; from a remote source it is left out, as is a link at the top of a pack's `hooks/`.
+- An `https://user@host/...` URL no longer reads the login as a version.
+- Adding the same `owner/repo` from another host no longer silently replaces an install; it is refused with the remove-then-add remedy. HTTPS and SSH of one repo still count as one source.
+- Printed commands quote versions holding `^` or `~`, so they paste into zsh with extended globbing.
+- `remove` carries on past a key whose files can't be removed, keeps that key recorded, and exits 1; before, it stopped part way with earlier keys deleted but still recorded.
+- An approved overwrite replaces a real folder where an agent or hook file installs, instead of failing the whole add.
+
 ## [0.4.0] - 2026-07-22
 
 ✨ Added
