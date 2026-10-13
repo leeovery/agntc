@@ -54,10 +54,10 @@ export class SymlinkEscapeError extends Error {
  * Recursive pre-flight scan that rejects any symlink in `unitDir` whose target
  * resolves outside `cloneRoot` (the boundary). Read-only: no filesystem writes.
  *
- * `unitDir` is the tree to copy (bare-skill dir, plugin/unit dir, or member
+ * `unitDir` is the tree to copy (bare-skill dir, pack dir, or member
  * subdir); `cloneRoot` is the containment boundary. A symlink may legitimately
  * point anywhere inside the clone (e.g. a sibling unit dir in a multi-dir
- * plugin), so the boundary is the clone root, NOT the unit dir.
+ * pack), so the boundary is the clone root, NOT the unit dir.
  *
  * Symlinks are detected (dirent.isSymbolicLink) but never followed: symlinked
  * directories are validated and NOT descended into, so symlink-to-dir cycles
@@ -66,7 +66,7 @@ export class SymlinkEscapeError extends Error {
  * any depth.
  *
  * Target containment is evaluated LEXICALLY via path.resolve (no realpath/stat
- * on the target): this both implements the spec's broken-link semantics
+ * on the target): this both implements broken-link semantics
  * (a dangling link is judged by where it points lexically) and avoids
  * following symlink chains. Throws {@link SymlinkEscapeError} on the FIRST
  * escaping symlink (fail fast). Pure: throw only, no logging or process.exit.

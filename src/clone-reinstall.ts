@@ -388,8 +388,8 @@ export async function cloneAndReinstall(
 		const newCommit = options.newCommit ?? cloneResult.commit;
 		// Guard + source-dir resolution for the re-cloned tree is authored once in
 		// resolveGuardedSourceDir, composed identically by the group orchestrator's
-		// reinstallMember. It runs the cycle-9 source-dir rule (prefer the recorded
-		// sourceSubpath, else the key-derived dir) behind the analysis-10-2 lexical
+		// reinstallMember. It runs the source-dir rule (prefer the recorded
+		// sourceSubpath, else the key-derived dir) behind the lexical
 		// containment guard, gated BEFORE the join is first read (readConfig +
 		// derive-before-delete in runPipeline both read at the joined path). A
 		// recorded subpath that lexically escapes the clone (e.g. `../evil`) is

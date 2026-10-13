@@ -89,7 +89,7 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
 }
 
 /**
- * Per-plugin outcome of an all-mode update, collected across the run for the
+ * Per-entry outcome of an all-mode update, collected across the run for the
  * trailing summary and the `hasFailedOutcome` exit-code decision. Shared by the
  * local path (`processLocalUpdate`) and the grouped orchestrator
  * ({@link processGroupUpdate}) so both emit the identical shape.
@@ -310,8 +310,8 @@ export function mapReinstallResultToOutcome(
  * `outcomes` array is the SAME per-member model on both arms — one
  * {@link PluginOutcome} per attempted member — and is the only thing exit
  * accounting and manifest persistence read. `cloneFailed` is a pure DISPLAY
- * signal layered over Phase 1's N-outcome fan-out (task 1-7): when true, the
- * streaming layer (task 2-6) renders one enumerated grouped line naming the
+ * signal layered over the N-outcome fan-out: when true, the
+ * streaming layer renders one enumerated grouped line naming the
  * affected members instead of N per-member lines, and `reason` carries the
  * group's single shared clone-failure message. It does NOT change the outcomes
  * array (still N `failed` outcomes) or the exit.
@@ -406,7 +406,7 @@ async function reinstallMember(
 	// or `null` for HEAD), which equals this member's own `ref` by the grouping
 	// invariant. The clone ref (`cloneRef`) stays SEPARATE below — a branch/HEAD
 	// group clones the stored ref (`undefined` override) yet displays its intent.
-	// Sharing this value with the grouped header (task 3-1) keeps the collapsed
+	// Sharing this value with the grouped header keeps the collapsed
 	// group-of-one wording identical to the grouped multi-member wording.
 	try {
 		const guarded = resolveGuardedSourceDir(tempDir, key, entry.sourceSubpath);
@@ -469,7 +469,7 @@ async function reinstallMember(
  * trip `hasFailedOutcome` → non-zero exit, matching today's per-entry accounting.
  *
  * The return is an additive {@link GroupUpdateResult} wrapper: `cloneFailed` is a
- * DISPLAY-only discriminator (task 2-6) letting the streaming layer render one
+ * DISPLAY-only discriminator letting the streaming layer render one
  * enumerated grouped line for a clone-fatal group instead of N per-member lines;
  * the `outcomes` array is unchanged on both arms — still N `failed` outcomes on
  * clone failure — so exit accounting and manifest persistence are untouched.

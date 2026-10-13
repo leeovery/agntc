@@ -4,7 +4,7 @@ import type { EntryGroup } from "./update-groups.js";
 import { formatVersionMove, isVersionTag } from "./version-resolve.js";
 
 // The tag-vs-hash version-move rule is authored ONCE in version-resolve.ts (the
-// neutral, cycle-free home of isVersionTag). Re-exported here so the Phase 2
+// neutral, cycle-free home of isVersionTag). Re-exported here so
 // callers/tests keep importing `formatVersionMove` from update-render.js while
 // the decision logic lives in exactly one place.
 export { formatVersionMove };
@@ -12,7 +12,7 @@ export { formatVersionMove };
 /**
  * The `owner/repo` a group installs from, taken from its first member key.
  * Every member of a group shares one repo, and a member key is `owner/repo`
- * for a standalone or `owner/repo/<member>` for a collection member — the
+ * for a standalone or `owner/repo/<member>` for an entry from a multi-item repo — the
  * first two segments are the repo either way, so the member suffix is stripped.
  */
 export function repoOf(group: EntryGroup): string {
@@ -20,7 +20,7 @@ export function repoOf(group: EntryGroup): string {
 }
 
 /**
- * The single human label a group's repo shows across all three Phase 2 display
+ * The single human label a group's repo shows across all three display
  * surfaces — the streamed group header, the collapsed trailing summary, and the
  * out-of-constraint footer — so all three render verbatim the same string.
  *
@@ -44,7 +44,7 @@ export function groupLabel(group: EntryGroup, groups: EntryGroup[]): string {
 
 /**
  * The collapsed trailing line for a group's up-to-date members — one count, not
- * one line per member (task 2-5). `count` is the number of members categorized
+ * one line per member. `count` is the number of members categorized
  * (constrained-)up-to-date in this group, i.e. the members that did NOT stream
  * under the group header (the genuine-state split). `label` is the {@link
  * groupLabel}, so a multi-group repo disambiguates by its `@intent` suffix.
@@ -74,7 +74,7 @@ export function formatNewerTagsLine(
 
 /**
  * The collapsed trailing line for a check-failed group — one line carrying the
- * group's single shared probe reason (task 2-5). A group's resolution probe is
+ * group's single shared probe reason. A group's resolution probe is
  * one network round-trip, so a failure is group-level: it count-collapses rather
  * than enumerating the members.
  */
@@ -84,7 +84,7 @@ export function formatCheckFailedLine(label: string, reason: string): string {
 
 /**
  * The collapsed trailing line for a constrained-no-match group — one line
- * carrying the group's single shared constraint (task 2-5). The constraint is a
+ * carrying the group's single shared constraint. The constraint is a
  * group-level intent, so this count-collapses rather than enumerating members.
  */
 export function formatConstrainedNoMatchLine(
@@ -95,7 +95,7 @@ export function formatConstrainedNoMatchLine(
 }
 
 /**
- * The one grouped line a group-fatal clone failure renders (task 2-6). Unlike the
+ * The one grouped line a group-fatal clone failure renders. Unlike the
  * other trailing collapses — which count-collapse a group-level result — this one
  * ENUMERATES the affected member basenames alongside the count, because the clone
  * is the group's single fatal action and naming the members it took down is the
@@ -116,7 +116,7 @@ export function formatCloneFailureLine(
  * <label>  <old> -> <new>  (N members)` when every updating member shares one
  * installed commit, or `Updating <label> -> <new>  (N members)` (resolved target
  * only) when their installed commits diverge — the shared "old" is then not
- * representable and moves to each member line (task 2-3).
+ * representable and moves to each member line.
  *
  * The move tokens speak in semver TAGS where the shared {@link formatVersionMove}
  * rule fires (both refs genuine tags AND the ref moved) and short hashes
@@ -131,11 +131,11 @@ export function formatCloneFailureLine(
  * from those same installed commits and threads it in as `divergent`, the single
  * source of truth shared with the per-member renderer so the header-move /
  * member-move XOR cannot drift. Keying shared-vs-divergent on the installed
- * COMMIT (not ref) covers both an atomically-added constrained collection (shared
+ * COMMIT (not ref) covers both an atomically-added constrained group (shared
  * old) and members at different tags or branch/HEAD commits (divergent old)
  * uniformly. For the divergent target-only header, the resolved target renders as
  * its tag when it is one, else the short new hash. `members` is generic — a
- * collection can hold plugin members, not only skills.
+ * group can hold packs, not only skills.
  */
 export function formatGroupHeader(input: {
 	label: string;
@@ -171,7 +171,7 @@ export interface MemberLine {
 
 /**
  * Every per-member outcome the streamed group block renders, discriminated on
- * `kind`. A `success` carries — only in the divergent-old case (task 2-2), where
+ * `kind`. A `success` carries — only in the divergent-old case, where
  * the header could not carry a shared old — its own `move`. The three loud
  * non-success variants carry their already-assembled `message` /
  * `recoveryHint` (built upstream by {@link buildAbortMessage} /
@@ -196,8 +196,7 @@ export type MemberLineInput =
 /**
  * Maps a member outcome to its exact streamed line and clack log level — the
  * glyph (✓/✗) is supplied by the level (`p.log.success/error`), NOT embedded in
- * `text`, matching today's summary convention. Task 2-4 dispatches via
- * `p.log[level](text)`.
+ * `text`, matching today's summary convention.
  *
  * A success renders the bare `<name>`, with the {@link formatVersionMove} as a
  * trailing parenthetical in the divergent-old case only. The loud non-success
