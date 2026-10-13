@@ -706,7 +706,7 @@ describe("cloneAndReinstall", () => {
 			});
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/Users/lee/Code/skills/skills/react/hooks",
-				"/Users/lee/Code/skills",
+				{ root: "/Users/lee/Code/skills", local: true },
 			);
 		});
 
@@ -1108,7 +1108,7 @@ describe("cloneAndReinstall", () => {
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone",
-					"/tmp/agntc-clone",
+					{ root: "/tmp/agntc-clone", local: false },
 				);
 			});
 
@@ -1139,7 +1139,7 @@ describe("cloneAndReinstall", () => {
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone/go",
-					"/tmp/agntc-clone",
+					{ root: "/tmp/agntc-clone", local: false },
 				);
 			});
 
@@ -1167,7 +1167,10 @@ describe("cloneAndReinstall", () => {
 					{},
 				);
 
-				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, key);
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, {
+					root: key,
+					local: true,
+				});
 			});
 
 			it("escaping symlink blocks before nuke (install intact, no copy, non-zero pre-flight failure)", async () => {

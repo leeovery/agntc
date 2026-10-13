@@ -1016,7 +1016,7 @@ describe("integration: core workflows", () => {
 			let aborted = false;
 			let copied = false;
 			try {
-				await scanForEscapingSymlinks(skillDir, sourceDir);
+				await scanForEscapingSymlinks(skillDir, remote(sourceDir));
 				// Only reached if the gate passed — would proceed to copy.
 				await copyBareSkill({
 					sourceDir: skillDir,
@@ -1055,7 +1055,7 @@ describe("integration: core workflows", () => {
 			await symlink(join(skillDir, "real.txt"), join(skillDir, "alias.txt"));
 
 			// Should not throw.
-			await scanForEscapingSymlinks(skillDir, sourceDir);
+			await scanForEscapingSymlinks(skillDir, remote(sourceDir));
 		});
 	});
 

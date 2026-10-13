@@ -95,22 +95,24 @@ export class SymlinkEscapeError extends Error {
 
 /**
  * Pre-flight that refuses, before anything is written or removed, every link
- * a copy of `unitDir` could read that leads out of `cloneRoot`: those in it,
- * and those in a folder elsewhere in the clone it would copy in a link's place.
+ * a copy of `unitDir` from `source` could read that leads out of its root:
+ * those in it, and, from a clone, those in a folder elsewhere in it that the
+ * copy would bring in a link's place. A local source links to such a folder,
+ * so it isn't read.
  *
  * `unitDir` is the tree to copy (bare-skill dir, pack dir, or member subdir);
- * `cloneRoot` is the boundary, as a link may point anywhere inside the clone.
+ * the source root is the boundary, as a link may point anywhere inside it.
  *
- * It plans a clone's copy keeping everything, for a local source too, so it
- * reads all any copy of the tree could, with the copy's rules: no link is
- * followed, and a dangling one is judged by where it points. Throws
+ * It plans the copy `source` gets, keeping everything, so it reads all any
+ * copy of the tree could, with the copy's rules: no link is followed, and a
+ * dangling one is judged by where it points. Throws
  * {@link SymlinkEscapeError} on the first escaping link. Read-only.
  */
 export async function scanForEscapingSymlinks(
 	unitDir: string,
-	cloneRoot: string,
+	source: CopySource,
 ): Promise<void> {
-	await planCopy(unitDir, { root: cloneRoot, local: false }, () => true);
+	await planCopy(unitDir, source, () => true);
 }
 
 /**
@@ -120,14 +122,14 @@ export async function scanForEscapingSymlinks(
  * narrowed to `{ ok: false, message }` (the error's message verbatim); any
  * other error RETHROWS unchanged. Success resolves to `{ ok: true }`. The
  * scan boundary semantics are unchanged — callers pass the same `unitDir` /
- * `cloneRoot` arguments they would to {@link scanForEscapingSymlinks}.
+ * `source` arguments they would to {@link scanForEscapingSymlinks}.
  */
 export async function checkEscapingSymlinks(
 	unitDir: string,
-	cloneRoot: string,
+	source: CopySource,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
 	try {
-		await scanForEscapingSymlinks(unitDir, cloneRoot);
+		await scanForEscapingSymlinks(unitDir, source);
 		return { ok: true };
 	} catch (err) {
 		if (err instanceof SymlinkEscapeError) {

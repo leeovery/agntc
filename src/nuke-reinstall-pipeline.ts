@@ -230,7 +230,7 @@ async function clearReplay(
 
 	const symlinkCheck = await checkEscapingSymlinks(
 		join(cloneRoot, itemPath(replay.item)),
-		cloneRoot,
+		{ root: cloneRoot, local: existingEntry.commit === null },
 	);
 	if (!symlinkCheck.ok) {
 		return { status: "blocked", reason: symlinkCheck.message };

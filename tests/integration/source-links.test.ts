@@ -482,6 +482,56 @@ describe("symlinks in what a source installs", () => {
 		);
 	});
 
+	describe("a link to a folder beside the skill holding a link out of the source", () => {
+		const files = {
+			"skills/foo/SKILL.md": "v1",
+			"shared/guide.md": "guide",
+		};
+		const links = () => ({
+			"skills/foo/shared": "../../shared",
+			"shared/leak": join(testDir, "outside"),
+		});
+
+		it("adds and updates a local skill, linking the folder absolutely without reading it", async () => {
+			const source = join(testDir, "code", "repo");
+			await write(source, files);
+			await link(source, links());
+
+			const added = await add(source);
+			const updated = await update();
+
+			expect([added.exitCode, updated.exitCode]).toEqual([0, 0]);
+			expect(added.document.items).toEqual([
+				expect.objectContaining({ status: "installed" }),
+			]);
+			expect(updated.document.items).toEqual([
+				expect.objectContaining({ status: "refreshed" }),
+			]);
+			expect(
+				await readlink(join(projectDir, ".claude/skills/foo/shared")),
+			).toBe(join(source, "shared"));
+		});
+
+		it("refuses to add a remote skill, installing nothing", async () => {
+			await publish(files, links());
+
+			const { exitCode, document } = await add("owner/repo");
+
+			expect(exitCode).toBe(1);
+			expect(document.items).toEqual([
+				expect.objectContaining({
+					key: "owner/repo/foo",
+					status: "failed",
+					reason: expect.stringContaining(
+						'symlink "shared/leak" points outside the clone',
+					),
+				}),
+			]);
+			expect(await linkInstalled(".claude/skills/foo")).toBe(false);
+			expect(await readManifest(projectDir)).toEqual({});
+		});
+	});
+
 	it("never installs a link at the top of a pack's hooks/, on add or update", async () => {
 		await publish(LINTED_PACK, LINT_LINK);
 		const added = await add("owner/repo/tools");
