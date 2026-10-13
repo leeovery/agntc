@@ -322,8 +322,8 @@ async function reinstallKey(
 /**
  * An abort or a block leaves the install intact and says why; a copy failure
  * has already removed it, and a removal failure leaves what's left of it
- * recorded. A local entry's clone failure is its source path failing the
- * containment guard, and says nothing more.
+ * recorded. A remote clone failure closes the run after the spinner's "Clone
+ * failed"; a local entry's is its source path failing the containment guard.
  */
 function reportKeyFailure(
 	key: string,
@@ -331,18 +331,17 @@ function reportKeyFailure(
 	failure: CloneReinstallFailure,
 	{ scope, ui }: UpdateRun,
 ): void {
-	const cancelUnlessLocal = (message: string) => {
-		if (entry.commit !== null) {
-			ui.cancel(message);
-		}
-	};
+	const reportCloneFailed = (message: string) =>
+		entry.commit === null
+			? ui.log.error(`${key}: ${message}`)
+			: ui.cancel(message);
 	mapCloneFailure<void>(failure, {
 		onCopyFailed: (message) => ui.log.error(message),
 		onRemoveFailed: (message) => ui.log.error(`${key}: ${message}`),
 		onAborted: (abort) =>
 			ui.log.error(buildAbortMessage(key, entry, abort, scope.name)),
 		onBlocked: (reason) => ui.log.error(buildCopySafetyMessage(key, reason)),
-		onCloneFailed: cancelUnlessLocal,
+		onCloneFailed: reportCloneFailed,
 	});
 }
 

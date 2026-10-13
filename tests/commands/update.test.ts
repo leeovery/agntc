@@ -2931,9 +2931,11 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo").catch(() => {});
 
+			expect(mockCancel).toHaveBeenCalledOnce();
 			expect(mockCancel).toHaveBeenCalledWith(
 				expect.stringContaining("git clone failed"),
 			);
+			expect(mockLog.error).not.toHaveBeenCalled();
 		});
 	});
 
@@ -4262,6 +4264,27 @@ describe("update command", () => {
 				LOCAL_KEY,
 				"/fake/project",
 			);
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("says why when its recorded path leads outside its folder", async () => {
+			setupLocalBase();
+			mockReadManifestOrExit.mockResolvedValue({
+				[LOCAL_KEY]: {
+					...LOCAL_ENTRY,
+					localRoot: LOCAL_KEY,
+					sourceSubpath: "../x",
+				},
+			});
+
+			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+
+			expect((err as ExitSignal).code).toBe(1);
+			expect(mockLog.error).toHaveBeenCalledTimes(1);
+			expect(mockLog.error).toHaveBeenCalledWith(
+				expect.stringMatching(new RegExp(`^${LOCAL_KEY}: .*"\\.\\./x"`)),
+			);
+			expect(mockCancel).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 	});
