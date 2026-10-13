@@ -57,6 +57,7 @@ import {
 	resolveGroupTarget,
 } from "../src/update-check.js";
 import {
+	absorbedOutcome,
 	applyOutcome,
 	type EntryGroup,
 	failedOutcome,
@@ -407,6 +408,25 @@ describe("applyOutcome", () => {
 		expect(next["owner/repo/moved"]).toBe(newEntry);
 	});
 
+	it("leaves one entry under a key a pack moved onto, the loose skill it took over there dropped", () => {
+		const newEntry = makeEntry({ type: "pack", commit: SHA_TGT });
+
+		const next = applyOutcome(manifest, {
+			status: "updated",
+			key: "owner/repo/loose",
+			previousKey: "owner/repo/pack",
+			summary: "s",
+			newEntry,
+			notes: [],
+			absorbed: ["owner/repo/loose"],
+		});
+
+		expect(next).toEqual({
+			"owner/repo/other": manifest["owner/repo/other"],
+			"owner/repo/loose": newEntry,
+		});
+	});
+
 	it("drops an entry removed as gone upstream", () => {
 		const next = applyOutcome(manifest, {
 			status: "gone-removed",
@@ -483,7 +503,7 @@ describe("withAbsorptions", () => {
 		]);
 	});
 
-	it("keeps the key an entry moved from when a pack takes it over after the move", () => {
+	it("reports an entry a pack took over after it moved under the key it started the run with", () => {
 		const outcomes = withAbsorptions([
 			{
 				status: "updated",
@@ -508,10 +528,38 @@ describe("withAbsorptions", () => {
 			expect.objectContaining({ key: "owner/repo/packs" }),
 			{
 				status: "absorbed",
-				key: "owner/repo/foo",
-				previousKey: "owner/repo/packs/foo",
+				key: "owner/repo/packs/foo",
 				into: "owner/repo/packs",
-				summary: "owner/repo/foo is now part of the pack owner/repo/packs",
+				summary:
+					"owner/repo/packs/foo is now part of the pack owner/repo/packs",
+			},
+		]);
+	});
+
+	it("keeps a pack that moved onto the key of the entry it took over, beside that entry's absorbed outcome", () => {
+		const pack: PluginOutcome = {
+			status: "updated",
+			key: "owner/repo/packs/tools",
+			previousKey: "owner/repo/tools",
+			summary: "s",
+			newEntry: makeEntry({ type: "pack" }),
+			notes: [],
+			absorbed: ["owner/repo/packs/tools"],
+		};
+
+		const outcomes = withAbsorptions([
+			pack,
+			absorbedOutcome("owner/repo/packs/tools", pack),
+		]);
+
+		expect(outcomes).toEqual([
+			pack,
+			{
+				status: "absorbed",
+				key: "owner/repo/packs/tools",
+				into: "owner/repo/packs/tools",
+				summary:
+					"owner/repo/packs/tools is now part of the pack owner/repo/packs/tools",
 			},
 		]);
 	});

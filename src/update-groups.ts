@@ -98,7 +98,8 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
  *
  * An entry found gone upstream starts as `gone-kept`, which is true until its
  * removal is settled; `-y` or a yes turns it into `gone-removed`. An entry a
- * pack took over during the run ends as `absorbed`.
+ * pack took over during the run ends as `absorbed`, under the key it had when
+ * the run started: it is recorded nowhere once the run ends.
  *
  * `key` is where the entry is recorded once the outcome is applied. A
  * reinstall `add` would key differently moves the entry, and `previousKey`
@@ -127,13 +128,7 @@ export type PluginOutcome =
 	| { status: "constrained-no-match"; key: string }
 	| { status: "gone-kept"; key: string; summary: string; flags?: string[] }
 	| { status: "gone-removed"; key: string; summary: string }
-	| {
-			status: "absorbed";
-			key: string;
-			into: string;
-			summary: string;
-			previousKey?: string;
-	  };
+	| { status: "absorbed"; key: string; into: string; summary: string };
 
 interface Reinstalled {
 	notes: string[];
@@ -179,20 +174,19 @@ export function isSuccessOutcome(
  * The loose skill entries a pack took over. Their files are removed before
  * the pack is copied, so they are taken over whether or not the copy worked.
  */
-function absorbedBy(outcome: PluginOutcome): string[] {
+export function absorbedBy(outcome: PluginOutcome): string[] {
 	return isSuccessOutcome(outcome) || outcome.status === "copy-failed"
 		? outcome.absorbed
 		: [];
 }
 
 /**
- * The outcome of a loose skill entry the pack whose outcome is `pack` took
- * over. `from` is the key the entry had when the run started.
+ * The outcome of a loose skill entry, keyed `key` when the run started, that
+ * the pack whose outcome is `pack` took over.
  */
 export function absorbedOutcome(
 	key: string,
 	pack: PluginOutcome,
-	from: string = key,
 ): PluginOutcome {
 	const into = pack.key;
 	return {
@@ -202,7 +196,6 @@ export function absorbedOutcome(
 		summary: isSuccessOutcome(pack)
 			? `${key} is now part of the pack ${into}`
 			: `${key} was removed — the pack ${into} took it over, then failed to install`,
-		...(from !== key ? { previousKey: from } : {}),
 	};
 }
 
@@ -234,23 +227,25 @@ export function applyOutcome(
 
 /**
  * Gives every entry a pack took over during the run an `absorbed` outcome, in
- * place of whatever it got before, keeping the key it moved from.
+ * place of whatever it got before, under the key it had when the run started.
+ * `outcomes` are in the order the run made them: a pack takes over the entry
+ * recorded under a key at that point, which may be one an earlier reinstall
+ * moved there, and may move onto that key itself.
  */
 export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
 	const takenBy = new Map<string, PluginOutcome>();
+	const startedAs = new Map<string, string>();
 	for (const outcome of outcomes) {
 		for (const looseKey of absorbedBy(outcome)) {
-			takenBy.set(looseKey, outcome);
+			takenBy.set(startedAs.get(looseKey) ?? looseKey, outcome);
+		}
+		if (isSuccessOutcome(outcome)) {
+			startedAs.set(outcome.key, keyBefore(outcome));
 		}
 	}
-	const startedAs = new Map(
-		outcomes.map((outcome) => [outcome.key, keyBefore(outcome)]),
-	);
 	return [
-		...outcomes.filter((outcome) => !takenBy.has(outcome.key)),
-		...[...takenBy].map(([key, pack]) =>
-			absorbedOutcome(key, pack, startedAs.get(key)),
-		),
+		...outcomes.filter((outcome) => !takenBy.has(keyBefore(outcome))),
+		...[...takenBy].map(([key, pack]) => absorbedOutcome(key, pack)),
 	];
 }
 

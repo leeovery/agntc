@@ -162,6 +162,26 @@ async function add(...args: string[]): Promise<void> {
 	expect(run.exitCode).toBe(0);
 }
 
+/**
+ * Records `entries` as installed at the old commit, from `owner/repo`, with
+ * `files` on disk: entries an older agntc wrote, which `add` can't make now.
+ */
+async function recorded(
+	entries: Record<string, Partial<ManifestEntry>>,
+	files: Record<string, string>,
+): Promise<void> {
+	const base = {
+		ref: null,
+		commit: OLD_SHA,
+		installedAt: "2026-10-01T00:00:00.000Z",
+		cloneUrl: "https://github.com/owner/repo.git",
+	};
+	const manifest = Object.fromEntries(
+		Object.entries(entries).map(([key, entry]) => [key, { ...base, ...entry }]),
+	);
+	await write(projectDir, { ...files, ".agntc/manifest.json": manifest });
+}
+
 /** Moves upstream to the new commit, holding `files`. */
 async function push(
 	name: string,
@@ -486,39 +506,38 @@ describe("absorption around a moved entry", () => {
 		expect(Object.keys(await savedManifest())).toEqual(["owner/tools/bundle"]);
 	});
 
-	it("a pack updating later takes over an entry this run moved, reporting the key it moved from", async () => {
+	it("a pack updating later takes over an entry this run moved, reporting it as the run found it", async () => {
 		await repo("owner/repo", {
 			"packs/agntc.json": PACK,
 			"packs/foo/SKILL.md": "foo v2",
 			"packs/skills/z/SKILL.md": "z v2",
 		});
 		head = NEW_SHA;
-		const entry = {
-			ref: null,
-			commit: OLD_SHA,
-			installedAt: "2026-10-01T00:00:00.000Z",
-			cloneUrl: "https://github.com/owner/repo.git",
-			type: "pack",
-		};
-		await write(projectDir, {
-			".claude/skills/a/SKILL.md": "a v1",
-			".claude/skills/z/SKILL.md": "z v1",
-			".agntc/manifest.json": {
-				"owner/repo/packs/foo": { ...entry, files: [".claude/skills/a/"] },
-				"owner/repo/packs": { ...entry, files: [".claude/skills/z/"] },
+		await recorded(
+			{
+				"owner/repo/packs/foo": { type: "pack", files: [".claude/skills/a/"] },
+				"owner/repo/packs": { type: "pack", files: [".claude/skills/z/"] },
 			},
-		});
+			{
+				".claude/skills/a/SKILL.md": "a v1",
+				".claude/skills/z/SKILL.md": "z v1",
+			},
+		);
 
 		const run = await runMachine(updateCommand, []);
 
 		expect(run.exitCode).toBe(0);
 		expect(run.document.items).toEqual([
-			expect.objectContaining({
-				key: "owner/repo/foo",
-				previousKey: "owner/repo/packs/foo",
+			{
+				key: "owner/repo/packs/foo",
+				type: "pack",
+				ref: null,
+				commit: OLD_SHA,
+				constraint: null,
 				status: "absorbed",
-				message: "owner/repo/foo is now part of the pack owner/repo/packs",
-			}),
+				message:
+					"owner/repo/packs/foo is now part of the pack owner/repo/packs",
+			},
 			expect.objectContaining({ key: "owner/repo/packs", status: "updated" }),
 		]);
 		const manifest = await savedManifest();
@@ -640,5 +659,130 @@ describe("a local source's printed re-add commands", () => {
 		await add(source, "--all");
 
 		await expectReAddLands(join(source, "packs/tools"));
+	});
+});
+
+describe("a pack moving onto the key of a loose skill it takes over", () => {
+	/**
+	 * A pack recorded by name, `owner/repo/tools`, whose path keys it
+	 * `owner/repo/packs/tools`: the key of a loose skill from its repo whose
+	 * files it now holds. `looseRef` decides whether the two share a group.
+	 */
+	async function arrange(looseRef: string | null): Promise<void> {
+		await repo("owner/repo", {
+			"packs/tools/agntc.json": PACK,
+			"packs/tools/skills/a/SKILL.md": "a v2",
+			"packs/tools/skills/tools/SKILL.md": "tools v2",
+		});
+		head = NEW_SHA;
+		await recorded(
+			{
+				"owner/repo/tools": {
+					type: "pack",
+					sourceSubpath: "packs/tools",
+					files: [".claude/skills/a/"],
+				},
+				"owner/repo/packs/tools": {
+					type: "skill",
+					ref: looseRef,
+					files: [".claude/skills/tools/"],
+				},
+			},
+			{
+				".claude/skills/a/SKILL.md": "a v1",
+				".claude/skills/tools/SKILL.md": "tools v1",
+			},
+		);
+	}
+
+	async function expectTakenOver(run: MachineRun): Promise<void> {
+		expect(run.exitCode).toBe(0);
+		expect(run.document.items).toEqual([
+			expect.objectContaining({
+				key: "owner/repo/packs/tools",
+				previousKey: "owner/repo/tools",
+				type: "pack",
+				status: "updated",
+			}),
+			expect.objectContaining({
+				key: "owner/repo/packs/tools",
+				type: "skill",
+				status: "absorbed",
+			}),
+		]);
+		expect(await savedManifest()).toEqual({
+			"owner/repo/packs/tools": expect.objectContaining({
+				type: "pack",
+				commit: NEW_SHA,
+				files: [".claude/skills/a/", ".claude/skills/tools/"],
+			}),
+		});
+		expect(
+			await readFile(
+				join(projectDir, ".claude/skills/tools/SKILL.md"),
+				"utf-8",
+			),
+		).toBe("tools v2");
+	}
+
+	it("by key, takes it over and moves onto its key", async () => {
+		await arrange(null);
+
+		await expectTakenOver(
+			await runMachine(updateCommand, ["owner/repo/tools"]),
+		);
+	});
+
+	it.each([
+		{ where: "in its group", looseRef: null },
+		{ where: "in a later group", looseRef: "main" },
+	])("in all-mode, with the skill $where, takes it over and leaves it out", async ({
+		looseRef,
+	}) => {
+		await arrange(looseRef);
+
+		await expectTakenOver(await runMachine(updateCommand, []));
+	});
+});
+
+describe("a skill named by its folder where its key says otherwise", () => {
+	const KEY = "owner/repo/my-plugin";
+
+	it.each([
+		{ was: "a pack recorded by name, now a single skill", type: "pack" },
+		{ was: "a skill recorded under that name", type: "skill" },
+	] as const)("$was installs under its folder and the key add gives it", async ({
+		type,
+	}) => {
+		await repo("owner/repo", { "plugins/foo/SKILL.md": "foo v2" });
+		head = NEW_SHA;
+		await recorded(
+			{
+				[KEY]: {
+					type,
+					sourceSubpath: "plugins/foo",
+					files: [".claude/skills/my-plugin/"],
+				},
+			},
+			{ ".claude/skills/my-plugin/SKILL.md": "v1" },
+		);
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(await savedManifest()).toEqual({
+			"owner/repo/foo": expect.objectContaining({
+				type: "skill",
+				sourceSubpath: "plugins/foo",
+				files: [".claude/skills/foo/"],
+			}),
+		});
+		expect(await installed(".claude/skills/foo/SKILL.md")).toBe(true);
+		expect(await installed(".claude/skills/my-plugin")).toBe(false);
+		const { key, entry } = await saved("owner/repo/foo");
+		expect(reAddCommand(key, entry, "project")).toBe(
+			"npx agntc add owner/repo/plugins/foo",
+		);
+		await expectLandsOnEntries(reAddCommand(key, entry, "project"), [key]);
 	});
 });

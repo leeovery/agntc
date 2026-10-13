@@ -39,6 +39,7 @@ import {
 	resolveGroupTarget,
 } from "../update-check.js";
 import {
+	absorbedBy,
 	applyOutcome,
 	type EntryGroup,
 	failedOutcome,
@@ -733,8 +734,9 @@ type GroupWorkItem = Extract<WorkItem, { kind: "group" }>;
  * reinstalls without a spinner ({@link streamLocalWork}). Per-unit manifest
  * persistence still happens BEFORE that unit's lines stream, and the
  * working manifest is threaded so each write is cumulative (matching disk at
- * group boundaries). A member an earlier unit's pack absorbed is no longer in
- * it, so it is left out, and a unit left with no members doesn't run.
+ * group boundaries). A member an earlier unit's pack absorbed is left out,
+ * even when that pack moved onto its key, and a unit left with no members
+ * doesn't run.
  */
 async function streamActionedWork(
 	work: WorkItem[],
@@ -745,7 +747,7 @@ async function streamActionedWork(
 	const outcomes: PluginOutcome[] = [];
 	let workingManifest: Manifest = { ...manifest };
 	for (const item of work) {
-		const live = stillInstalled(item, workingManifest);
+		const live = stillInstalled(item, new Set(outcomes.flatMap(absorbedBy)));
 		if (live === null) {
 			continue;
 		}
@@ -760,11 +762,19 @@ async function streamActionedWork(
 	return outcomes;
 }
 
-function stillInstalled(item: WorkItem, manifest: Manifest): WorkItem | null {
+/**
+ * `item` without the members `takenOver` names. A member not yet reached is
+ * still under the key it started with, so a key a pack took over names it,
+ * whatever that key holds now.
+ */
+function stillInstalled(
+	item: WorkItem,
+	takenOver: Set<string>,
+): WorkItem | null {
 	if (item.kind === "local") {
-		return item.key in manifest ? item : null;
+		return takenOver.has(item.key) ? null : item;
 	}
-	const updating = item.updating.filter(({ key }) => key in manifest);
+	const updating = item.updating.filter(({ key }) => !takenOver.has(key));
 	return updating.length === 0 ? null : { ...item, updating };
 }
 

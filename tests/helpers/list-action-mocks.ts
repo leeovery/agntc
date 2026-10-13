@@ -105,6 +105,19 @@ export function setupListActionMocks(): ListActionMocks {
 	return handles;
 }
 
+/** What a pack's re-walk finds: the pack at `path`, holding a skill per name. */
+export function packAt(path: string, ...names: string[]): Discovery {
+	const skills = names.map((name) => ({
+		name,
+		path: `${path}/skills/${name}`,
+	}));
+	return {
+		packs: [{ name: basename(path), path, skills, assetDirs: [] }],
+		skills: [],
+		strays: [],
+	};
+}
+
 /** What a re-walk finds: a loose skill at each path, named for its folder. */
 export function looseSkillsAt(...paths: string[]): Discovery {
 	return {

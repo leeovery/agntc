@@ -95,6 +95,7 @@ import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
 	looseSkillsAt,
+	packAt,
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
@@ -106,6 +107,7 @@ const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
+const mockCopyPack = mocks.copyPack;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
 const mockDiscover = mocks.discover;
@@ -478,12 +480,55 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toMatchObject({
 				changed: true,
+				key: "owner/repo/repo",
 				message: "Changed owner/repo/repo to v2.0.0",
 				newEntry: { ref: "v2.0.0", sourceSubpath: "skills/repo" },
 			});
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
 				"/fake/project",
 				{ "owner/repo/repo": result.newEntry },
+			);
+		});
+	});
+
+	describe("a pack moving onto the key of a loose skill it takes over", () => {
+		it("records the pack alone under that key, the skill dropped in the same write", async () => {
+			const key = "owner/repo/tools";
+			const entry = makeEntry({
+				type: "pack",
+				ref: "v1.0.0",
+				sourceSubpath: "packs/tools",
+				files: [".claude/skills/a/"],
+			});
+			const loose = makeEntry({
+				ref: "v1.0.0",
+				files: [".claude/skills/tools/"],
+			});
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			primeSuccessfulReinstall();
+			mockDiscover.mockResolvedValue(packAt("packs/tools", "a", "tools"));
+			mockCopyPack.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/", ".claude/skills/tools/"],
+				assetCounts: { skills: 2 },
+			});
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry, "owner/repo/packs/tools": loose },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				changed: true,
+				key: "owner/repo/packs/tools",
+				newEntry: { type: "pack", ref: "v2.0.0" },
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/repo/packs/tools": result.newEntry },
 			);
 		});
 	});
@@ -537,6 +582,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: false,
+				key,
 				message: "couldn't remove its old files: EACCES",
 				notes: [],
 			});
@@ -567,6 +613,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: false,
+				key,
 				message: "/Users/lee/Code/skills: path does not exist",
 				notes: [],
 			});
@@ -687,6 +734,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: true,
+				key,
 				message:
 					"Kept owner/repo/go — it's gone upstream; update will ask again",
 				notes: [],
@@ -708,6 +756,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: true,
+				key,
 				message: "Removed owner/repo/go — it's gone upstream",
 				notes: [],
 			});
@@ -737,6 +786,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: false,
+				key,
 				message:
 					"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
 				notes: [],

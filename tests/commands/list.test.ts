@@ -359,6 +359,7 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("update");
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
+				key: "owner/skill",
 				message: "Updated owner/skill",
 				notes: [],
 			});
@@ -413,6 +414,7 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("change-version");
 			mockExecuteChangeVersionAction.mockResolvedValueOnce({
 				changed: true,
+				key: "owner/skill",
 				message: "Changed owner/skill to v1.1.0",
 				notes: [],
 			});
@@ -441,6 +443,54 @@ describe("runListLoop", () => {
 			expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
 			expect(mockReadManifest).toHaveBeenCalledTimes(2);
 			expect(mockSelect).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("an action that moves the entry to a new key", () => {
+		it.each([
+			"update",
+			"change-version",
+		] as const)("%s: the detail view follows the entry to that key", async (action) => {
+			const oldKey = "owner/repo/packs/foo";
+			const newKey = "owner/repo/foo";
+			const moved = makeEntry({ type: "skill", sourceSubpath: "packs/foo" });
+			const before: Manifest = { [oldKey]: makeEntry({ type: "pack" }) };
+			const after: Manifest = { [newKey]: moved };
+			const status: UpdateCheckResult = {
+				status: "update-available",
+				remoteCommit: "def456",
+			};
+			mockReadManifestOrExit.mockResolvedValueOnce(before);
+			mockCheckAll.mockResolvedValueOnce(new Map([[oldKey, status]]));
+			mockSelect.mockResolvedValueOnce(oldKey);
+			mockReadManifest.mockResolvedValueOnce(before);
+			mockRenderDetailView.mockResolvedValueOnce(action);
+			const result = { key: newKey, message: `Moved ${newKey}`, notes: [] };
+			if (action === "update") {
+				mockExecuteUpdateAction.mockResolvedValueOnce({
+					success: true,
+					...result,
+				});
+			} else {
+				mockExecuteChangeVersionAction.mockResolvedValueOnce({
+					changed: true,
+					...result,
+				});
+			}
+			mockReadManifest.mockResolvedValueOnce(after);
+			mockCheckForUpdate.mockResolvedValueOnce({ status: "up-to-date" });
+			mockRenderDetailView.mockResolvedValueOnce("back");
+			mockReadManifestOrExit.mockResolvedValueOnce(after);
+			mockCheckAll.mockResolvedValueOnce(setupCheckResults([newKey]));
+			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+
+			await runListLoop();
+
+			expect(mockCheckForUpdate).toHaveBeenCalledExactlyOnceWith(newKey, moved);
+			expect(mockRenderDetailView).toHaveBeenLastCalledWith(
+				{ key: newKey, entry: moved, updateStatus: { status: "up-to-date" } },
+				expect.anything(),
+			);
 		});
 	});
 
@@ -475,6 +525,7 @@ describe("runListLoop", () => {
 			arrangeOneAction("update");
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
+				key: "owner/repo/laravel",
 				message: "Updated owner/repo/laravel",
 				notes: [NOTE],
 			});
@@ -491,6 +542,7 @@ describe("runListLoop", () => {
 			arrangeOneAction("change-version");
 			mockExecuteChangeVersionAction.mockResolvedValueOnce({
 				changed: true,
+				key: "owner/repo/laravel",
 				message: "Changed owner/repo/laravel to v2.0.0",
 				notes: [NOTE],
 			});
@@ -570,6 +622,7 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("update");
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: false,
+				key: "owner/skill",
 				message: "Clone failed",
 				notes: [],
 			});
@@ -661,6 +714,7 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("update");
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
+				key: "owner/skill",
 				message: "Updated owner/skill",
 				notes: [],
 			});
@@ -716,6 +770,7 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("update");
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
+				key: "owner/skill",
 				message: "Updated owner/skill",
 				notes: [],
 			});
@@ -764,6 +819,7 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("update");
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
+				key: "owner/skill",
 				message: "Updated owner/skill",
 				notes: [],
 			});
@@ -1041,6 +1097,7 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("update");
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
+				key: "owner/skill",
 				message: "Updated owner/skill",
 				notes: [],
 			});

@@ -17,6 +17,7 @@ import { checkEscapingSymlinks, inspectSourcePath } from "./copy-safety.js";
 import {
 	comparePaths,
 	discover,
+	folderName,
 	PackConflictError,
 	StartPathError,
 } from "./discover.js";
@@ -170,8 +171,8 @@ interface ClearedReplay extends KeyedReplay {
 /**
  * Reinstalls an entry from a re-cloned source, replaying its recorded type,
  * under the key `add` would give what it replays to. Every check — a symlink
- * on the recorded path, what the source still holds, whether that key is
- * free, what is in the way of the files it would install, and the
+ * on the recorded path, what the source still holds, what is in the way of
+ * the files it would install, whether that key is free, and the
  * symlink-escape scan — runs before any file is removed.
  */
 export async function executeNukeAndReinstall(
@@ -209,7 +210,8 @@ async function clearReplay(
 
 	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
 	const replayed = replayedAs(options, { replay, keyed });
-	if (keyed.key !== key && keyed.key in options.installed) {
+	const way = await inTheWayOf(replay.item, options);
+	if (isKeyTaken(keyed.key, options, way)) {
 		return {
 			status: "aborted",
 			reason: `it would move to ${keyed.key}, which is already installed`,
@@ -217,8 +219,6 @@ async function clearReplay(
 			replayed,
 		};
 	}
-
-	const way = await inTheWayOf(replay.item, options);
 	if (way.clashes.size > 0 || way.unmanaged.length > 0) {
 		return {
 			status: "aborted",
@@ -294,13 +294,16 @@ function replayNotes(
 	];
 }
 
-/** A skill whose recorded path no longer holds one is looked for by name. */
+/**
+ * A skill is named by its folder, as `add` names it, and one whose recorded
+ * path no longer holds it is looked for by that name.
+ */
 async function deriveSkillReplay(
 	options: NukeReinstallOptions,
 ): Promise<Replay> {
-	const { key, sourceDir } = options;
+	const { sourceDir } = options;
 	const path = startPathOf(options);
-	const name = memberName(key);
+	const name = folderName(path, sourceRootName(options));
 	if (await pathExists(join(sourceDir, "SKILL.md"))) {
 		return { ok: true, item: skillAt(path, name) };
 	}
@@ -354,7 +357,7 @@ async function derivePackReplay(
 ): Promise<Replay> {
 	const { key, cloneRoot } = options;
 	const startPath = startPathOf(options);
-	const rootName = memberName(key);
+	const rootName = sourceRootName(options);
 
 	try {
 		const { packs } = await discover(cloneRoot, {
@@ -375,7 +378,7 @@ async function derivePackReplay(
 		if (err instanceof PackConflictError && err.conflict === "single-skill") {
 			return {
 				ok: true,
-				item: skillAt(startPath, rootName),
+				item: skillAt(startPath, folderName(startPath, rootName)),
 				note: `${key} is a single skill — reinstalled as a skill`,
 			};
 		}
@@ -415,6 +418,18 @@ async function inTheWayOf(
 		...claims,
 		unmanaged: await checkUnmanagedConflicts(incoming, installed, scope.root),
 	};
+}
+
+/**
+ * Another entry holds `newKey`, the key the entry moves to: one the item takes
+ * over frees it, its entry dropped in the same write.
+ */
+function isKeyTaken(
+	newKey: string,
+	{ key, installed }: NukeReinstallOptions,
+	{ absorbed }: InTheWay,
+): boolean {
+	return newKey !== key && newKey in installed && !absorbed.includes(newKey);
 }
 
 function inTheWayReason({ clashes, unmanaged }: InTheWay): string {

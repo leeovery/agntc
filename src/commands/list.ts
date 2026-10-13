@@ -117,24 +117,26 @@ export async function runListLoop(
 		// redundant network round-trip (and no silent pause) on entry. Only re-check
 		// (with a spinner) on later renders, after an action may have changed it.
 		let firstRender = true;
+		// An update can move the entry to the key `add` gives it; the view follows.
+		let key = selectedKey;
 
 		while (true) {
 			const freshManifest = await readManifest(scope.root);
-			const freshEntry = freshManifest[selectedKey];
+			const freshEntry = freshManifest[key];
 			if (!freshEntry) break;
 
-			let freshStatus = firstRender ? checkResults.get(selectedKey) : undefined;
+			let freshStatus = firstRender ? checkResults.get(key) : undefined;
 			if (!freshStatus) {
 				const checkSpin = ui.spinner();
 				checkSpin.start("Checking for updates...");
-				freshStatus = await checkForUpdate(selectedKey, freshEntry);
+				freshStatus = await checkForUpdate(key, freshEntry);
 				checkSpin.stop("Update check complete.");
 			}
 			firstRender = false;
 
 			const action = await renderDetailView(
 				{
-					key: selectedKey,
+					key,
 					entry: freshEntry,
 					updateStatus: freshStatus,
 				},
@@ -145,7 +147,7 @@ export async function runListLoop(
 
 			if (action === "remove") {
 				const result = await executeRemoveAction(
-					selectedKey,
+					key,
 					freshEntry,
 					freshManifest,
 					scope,
@@ -165,13 +167,14 @@ export async function runListLoop(
 						? { newRef: freshStatus.tag, newCommit: freshStatus.commit }
 						: undefined;
 				const result = await executeUpdateAction(
-					selectedKey,
+					key,
 					freshEntry,
 					freshManifest,
 					scope,
 					ui,
 					overrides,
 				);
+				key = result.key;
 				if (result.success) {
 					reportNotes(result.notes, ui);
 					ui.log.success(result.message);
@@ -183,12 +186,13 @@ export async function runListLoop(
 
 			if (action === "change-version") {
 				const result = await executeChangeVersionAction(
-					selectedKey,
+					key,
 					freshEntry,
 					freshManifest,
 					scope,
 					ui,
 				);
+				key = result.key;
 				if (result.changed) {
 					reportNotes(result.notes, ui);
 					ui.log.success(result.message);

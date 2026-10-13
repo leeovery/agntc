@@ -309,7 +309,6 @@ function updateItem(
 			return {
 				...entryJson(outcome.key, before),
 				status: outcome.status,
-				...moved,
 				message: outcome.summary,
 				...details,
 			};

@@ -165,7 +165,7 @@ Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved 
 
 - **Packs are re-walked.** Skills added upstream arrive; skills removed upstream go.
 - **Moved skills are followed.** A loose skill whose folder moved is found again when exactly one skill in the repo has its name. New skills are never picked up for loose skills; install the folder as a pack for that.
-- **Keys follow what's installed.** When an install comes back as something `add` would key differently, such as a pack whose folder is now a single skill or a skill that moved out of the repo root, it moves to that key and a note names both. If another install already has that key, the update stops and says how to free it.
+- **Keys follow what's installed.** When an install comes back as something `add` would key differently, such as a pack whose folder is now a single skill or a skill that moved out of the repo root, it moves to that key and a note names both. If another install already has that key, the update stops and says how to free it, unless that install is a loose skill the pack takes over.
 - **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
 - **Packs absorb loose skills.** When a pack now holds a skill you installed on its own from the same repo, the pack takes it over and the loose entry goes.
 

@@ -192,21 +192,24 @@ describe("updateBody", () => {
 		]);
 	});
 
-	it("reports an entry moved and then absorbed at its new key, naming the key it had", () => {
+	it("reports an absorbed entry as one record: the key and entry the run started with, no move", () => {
 		const outcome: PluginOutcome = {
 			status: "absorbed",
-			key: "owner/repo/foo",
-			previousKey: "owner/repo",
+			key: "owner/repo",
 			into: "owner/repo/tools",
-			summary: "owner/repo/foo is now part of the pack owner/repo/tools",
+			summary: "owner/repo is now part of the pack owner/repo/tools",
 		};
 
 		expect(updateBody(before, [outcome], new Map()).items).toEqual([
-			expect.objectContaining({
-				key: "owner/repo/foo",
-				previousKey: "owner/repo",
+			{
+				key: "owner/repo",
+				type: "pack",
+				ref: "v1.0.0",
+				commit: OLD,
+				constraint: "^1.0.0",
 				status: "absorbed",
-			}),
+				message: "owner/repo is now part of the pack owner/repo/tools",
+			},
 		]);
 	});
 
