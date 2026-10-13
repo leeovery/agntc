@@ -115,22 +115,6 @@ export async function runUpdate(
 		yes: options.yes === true,
 		ui,
 	};
-	if (key === undefined) {
-		await runAllUpdates(run);
-		return;
-	}
-	await runKeyUpdates(key, run);
-}
-
-/**
- * Updates the entries a key names one at a time, packs first, stopping at the
- * first that fails. Each is recorded as it finishes, so what changed before a
- * failure, or a throw, stays recorded. An entry a pack absorbed on the way is
- * skipped.
- */
-async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
-	const { scope, ui } = run;
-
 	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
@@ -139,37 +123,46 @@ async function runKeyUpdates(key: string, run: UpdateRun): Promise<void> {
 		return;
 	}
 
-	const targets = resolveTargetKeys(key, manifest, ui).map((targetKey) => ({
-		key: targetKey,
-		entry: manifest[targetKey]!,
-	}));
-	const updates: KeyUpdate[] = [];
-	let current = manifest;
-	for (const target of packsFirst(targets)) {
-		if (!(target.key in current)) {
-			continue;
-		}
-		const update = await updateKey(target, current, run);
-		updates.push(update);
-		current = await persistUnitOutcomes(scope.root, current, [update.outcome]);
-		if (KEY_FAILURES.has(update.outcome.status)) {
-			break;
-		}
+	if (key === undefined) {
+		await runGroupedUpdates(manifest, manifest, run);
+		return;
 	}
-
-	const outcomes = withAbsorptions(updates.map((update) => update.outcome));
-
-	const failed = outcomes.some((outcome) => KEY_FAILURES.has(outcome.status));
-	if (!failed) {
-		renderOutOfConstraintOutput(
-			updates.flatMap((update) => update.outOfConstraint ?? []),
-			ui,
-		);
+	const targets = pick(manifest, resolveTargetKeys(key, manifest, ui));
+	const [only, ...others] = Object.entries(targets);
+	if (only !== undefined && others.length === 0) {
+		await runKeyUpdate({ key: only[0], entry: only[1] }, manifest, run);
+		return;
 	}
-	const checks = new Map(
-		updates.map((update) => [keyBefore(update.outcome), update.check]),
+	await runGroupedUpdates(manifest, targets, run);
+}
+
+/** The entries of `manifest` recorded under `keys`, in manifest order. */
+function pick(manifest: Manifest, keys: string[]): Manifest {
+	const wanted = new Set(keys);
+	return Object.fromEntries(
+		Object.entries(manifest).filter(([key]) => wanted.has(key)),
 	);
-	ui.report(updateBody(manifest, outcomes, checks));
+}
+
+/**
+ * Updates the one entry a key names. It is recorded once it finishes, so what
+ * changed before a failure stays recorded.
+ */
+async function runKeyUpdate(
+	member: GroupMember,
+	manifest: Manifest,
+	run: UpdateRun,
+): Promise<void> {
+	const { scope, ui } = run;
+	const update = await updateKey(member, manifest, run);
+	await persistUnitOutcomes(scope.root, manifest, [update.outcome]);
+
+	const failed = KEY_FAILURES.has(update.outcome.status);
+	if (!failed && update.outOfConstraint !== null) {
+		renderOutOfConstraintOutput([update.outOfConstraint], ui);
+	}
+	const checks = new Map([[keyBefore(update.outcome), update.check]]);
+	ui.report(updateBody(manifest, withAbsorptions([update.outcome]), checks));
 	if (failed) {
 		throw new ExitSignal(1);
 	}
@@ -478,20 +471,22 @@ interface CategorizedGroups {
 	hasNotableCategory: boolean;
 }
 
-async function runAllUpdates(run: UpdateRun): Promise<void> {
+/**
+ * Updates the `selected` entries of `manifest` group-first: every entry when
+ * no key is given, and the entries a key names when it names several. Entries
+ * sharing a repo and version intent resolve and clone once; each local entry
+ * reinstalls on its own. The whole manifest is threaded and written per unit,
+ * so entries outside `selected` stay recorded as they were.
+ */
+async function runGroupedUpdates(
+	manifest: Manifest,
+	selected: Manifest,
+	run: UpdateRun,
+): Promise<void> {
 	const { scope, ui } = run;
 
-	const manifest = await readManifestOrExit(scope.root, ui);
-
-	const entries = Object.entries(manifest);
-
-	if (entries.length === 0) {
-		ui.outro("No skills or packs installed.");
-		ui.report(updateBody(manifest, [], new Map()));
-		return;
-	}
-
-	const groups = groupEntriesForUpdate(manifest);
+	const entries = Object.entries(selected);
+	const groups = groupEntriesForUpdate(selected);
 	const localEntries = entries.filter(([, entry]) => entry.commit === null);
 
 	const spin = ui.spinner();
