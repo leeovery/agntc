@@ -25,12 +25,8 @@ import {
 	conflictPolicy,
 } from "../clear-conflicts.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
-import { copyItem } from "../copy-item.js";
-import {
-	type CopySource,
-	checkEscapingSymlinks,
-	PathTraversalError,
-} from "../copy-safety.js";
+import { checkItemLinks, copyItem } from "../copy-item.js";
+import { type CopySource, PathTraversalError } from "../copy-safety.js";
 import {
 	type Discovery,
 	discover,
@@ -652,10 +648,7 @@ async function escapingSymlink(
 	{ item }: KeyedItem,
 	src: FetchedSource,
 ): Promise<string | null> {
-	const check = await checkEscapingSymlinks(
-		join(src.root, itemPath(item)),
-		copySourceOf(src),
-	);
+	const check = await checkItemLinks(item, copySourceOf(src));
 	return check.ok ? null : check.message;
 }
 

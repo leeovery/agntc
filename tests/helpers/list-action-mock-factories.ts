@@ -87,9 +87,15 @@ export function mockUnmanagedCheckModule() {
 	};
 }
 
-/** Factory body for `vi.mock("../../src/copy-bare-skill.js", ...)`. */
-export function mockCopyBareSkillModule() {
+/**
+ * Factory body for `vi.mock("../../src/copy-bare-skill.js", ...)`. Keeps the
+ * real skill unit update's symlink-escape pre-flight plans with.
+ */
+export async function mockCopyBareSkillModule(
+	importOriginal: () => Promise<typeof import("../../src/copy-bare-skill.js")>,
+): Promise<typeof import("../../src/copy-bare-skill.js")> {
 	return {
+		...(await importOriginal()),
 		copyBareSkill: vi.fn(),
 	};
 }

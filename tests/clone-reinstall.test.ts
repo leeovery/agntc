@@ -36,7 +36,8 @@ vi.mock("../src/fs-utils.js", async (importOriginal) => ({
 	pathExists: vi.fn(),
 }));
 
-vi.mock("../src/copy-pack.js", () => ({
+vi.mock("../src/copy-pack.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/copy-pack.js")>()),
 	copyPack: vi.fn(),
 }));
 
@@ -45,7 +46,8 @@ vi.mock("../src/discover.js", async (importOriginal) => ({
 	discover: vi.fn(),
 }));
 
-vi.mock("../src/copy-bare-skill.js", () => ({
+vi.mock("../src/copy-bare-skill.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/copy-bare-skill.js")>()),
 	copyBareSkill: vi.fn(),
 }));
 
@@ -707,6 +709,7 @@ describe("cloneAndReinstall", () => {
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/Users/lee/Code/skills/skills/react/hooks",
 				{ root: "/Users/lee/Code/skills", local: true },
+				expect.any(Function),
 			);
 		});
 
@@ -1109,6 +1112,7 @@ describe("cloneAndReinstall", () => {
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone",
 					{ root: "/tmp/agntc-clone", local: false },
+					expect.any(Function),
 				);
 			});
 
@@ -1140,6 +1144,7 @@ describe("cloneAndReinstall", () => {
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone/go",
 					{ root: "/tmp/agntc-clone", local: false },
+					expect.any(Function),
 				);
 			});
 
@@ -1167,10 +1172,11 @@ describe("cloneAndReinstall", () => {
 					{},
 				);
 
-				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, {
-					root: key,
-					local: true,
-				});
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					key,
+					{ root: key, local: true },
+					expect.any(Function),
+				);
 			});
 
 			it("escaping symlink blocks before nuke (install intact, no copy, non-zero pre-flight failure)", async () => {

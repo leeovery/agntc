@@ -16,12 +16,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeIncomingFiles } from "../src/compute-incoming-files.js";
+import { checkItemLinks } from "../src/copy-item.js";
 import { copyPack, listAgentFiles } from "../src/copy-pack.js";
-import {
-	type CopySource,
-	checkEscapingSymlinks,
-	SymlinkEscapeError,
-} from "../src/copy-safety.js";
+import { type CopySource, SymlinkEscapeError } from "../src/copy-safety.js";
 import type { FoundPack } from "../src/discover.js";
 
 let base: string;
@@ -371,6 +368,16 @@ describe("copyPack", () => {
 			return [...paths].sort();
 		}
 
+		const SKILL_AND_HOOKS = pack({
+			skills: [{ name: "a", path: "laravel/skills/a" }],
+			assetDirs: ["hooks"],
+		});
+
+		/** The symlink-escape pre-flight `add` and `update` run on the pack. */
+		function preflight(found: FoundPack) {
+			return checkItemLinks({ kind: "pack", pack: found }, remote(root));
+		}
+
 		it.each([
 			["a clone", remote],
 			["a local source", local],
@@ -524,10 +531,7 @@ describe("copyPack", () => {
 			await symlink("../../..", join(root, "laravel/hooks/lint/up"));
 			await symlink("../..", join(root, "laravel/hooks/up"));
 
-			const check = await checkEscapingSymlinks(
-				join(root, "laravel"),
-				remote(root),
-			);
+			const check = await preflight(HOOKS);
 			const result = await copyFromCloneThenDelete();
 
 			expect(check).toEqual({ ok: true });
@@ -544,18 +548,8 @@ describe("copyPack", () => {
 			});
 			await symlink("../../../..", join(root, "laravel/hooks/lint/leak"));
 
-			const check = await checkEscapingSymlinks(
-				join(root, "laravel"),
-				remote(root),
-			);
-			const copy = copyPack(
-				pack({
-					skills: [{ name: "a", path: "laravel/skills/a" }],
-					assetDirs: ["hooks"],
-				}),
-				remote(root),
-				projectDir,
-			);
+			const check = await preflight(SKILL_AND_HOOKS);
+			const copy = copyPack(SKILL_AND_HOOKS, remote(root), projectDir);
 
 			expect(check.ok).toBe(false);
 			await expect(copy).rejects.toBeInstanceOf(SymlinkEscapeError);
@@ -574,27 +568,13 @@ describe("copyPack", () => {
 				join(root, "laravel/hooks/lint/lib"),
 			);
 			await symlink("../../..", join(root, "scripts/lib/leak"));
+			const refusal = `symlink "scripts/lib/leak" points outside the clone (target: ../../..)`;
 
-			const check = await checkEscapingSymlinks(
-				join(root, "laravel"),
-				remote(root),
-			);
-			const copy = copyPack(
-				pack({
-					skills: [{ name: "a", path: "laravel/skills/a" }],
-					assetDirs: ["hooks"],
-				}),
-				remote(root),
-				projectDir,
-			);
+			const check = await preflight(SKILL_AND_HOOKS);
+			const copy = copyPack(SKILL_AND_HOOKS, remote(root), projectDir);
 
-			expect(check).toEqual({
-				ok: false,
-				message: `symlink "hooks/lint/lib/leak" points outside the clone (target: ../../..)`,
-			});
-			await expect(copy).rejects.toThrow(
-				`symlink "lib/leak" points outside the clone (target: ../../..)`,
-			);
+			expect(check).toEqual({ ok: false, message: refusal });
+			await expect(copy).rejects.toThrow(refusal);
 			expect(await installed(".claude/skills/a")).toBe(false);
 			expect(await installed(".claude/hooks/lint")).toBe(false);
 		});

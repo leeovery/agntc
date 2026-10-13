@@ -532,6 +532,32 @@ describe("symlinks in what a source installs", () => {
 		});
 	});
 
+	it("adds and updates a pack whose links out of the clone sit only where its copy never reads", async () => {
+		const files = (api: string) => ({
+			"tools/agntc.json": PACK,
+			"tools/skills/api/SKILL.md": api,
+			"shared-docs/guide.md": "",
+		});
+		const links = {
+			"tools/docs": "../shared-docs",
+			"shared-docs/img": "/usr/share/pixmaps",
+		};
+		await publish(files("v1"), links);
+
+		const added = await add("owner/repo/tools");
+		await publish(files("v2"), links);
+		const updated = await update();
+
+		expect([added.exitCode, updated.exitCode]).toEqual([0, 0]);
+		expect(updated.document.items).toEqual([
+			expect.objectContaining({ key: "owner/repo/tools", status: "updated" }),
+		]);
+		expect((await readManifest(projectDir))["owner/repo/tools"]?.files).toEqual(
+			[".claude/skills/api/"],
+		);
+		expect(await installedText(".claude/skills/api/SKILL.md")).toBe("v2");
+	});
+
 	it("never installs a link at the top of a pack's hooks/, on add or update", async () => {
 		await publish(LINTED_PACK, LINT_LINK);
 		const added = await add("owner/repo/tools");

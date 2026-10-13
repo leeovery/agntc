@@ -11,14 +11,31 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { copyItem } from "../src/copy-item.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../src/copy-safety.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
+	return {
+		...actual,
+		planCopy: vi.fn(actual.planCopy),
+		checkEscapingSymlinks: vi.fn(actual.checkEscapingSymlinks),
+	};
+});
+
+import { checkItemLinks, copyItem } from "../src/copy-item.js";
+import {
+	type CopySource,
+	checkEscapingSymlinks,
+	planCopy,
+} from "../src/copy-safety.js";
+import type { InstallItem } from "../src/install-item.js";
 
 let base: string;
 let root: string;
 let projectDir: string;
 
 beforeEach(async () => {
+	vi.clearAllMocks();
 	base = await mkdtemp(join(tmpdir(), "agntc-copy-item-"));
 	root = join(base, "source");
 	projectDir = join(base, "project");
@@ -86,11 +103,17 @@ describe("copyItem", () => {
 			await symlink("../../shared", join(root, "skills/swift/shared"));
 		});
 
-		it("is left out from a clone", async () => {
+		it("is copied in its place from a clone", async () => {
 			await copyItem(SWIFT, { root, local: false }, projectDir);
 
 			expect(await installed(".claude/skills/swift/SKILL.md")).toBe(true);
 			expect(await linked(".claude/skills/swift/shared")).toBe(false);
+			expect(
+				await readFile(
+					join(projectDir, ".claude/skills/swift/shared/guide.md"),
+					"utf-8",
+				),
+			).toBe("guide");
 		});
 
 		it("links absolutely into a local source", async () => {
@@ -144,5 +167,71 @@ describe("copyItem", () => {
 			copiedFiles: [".claude/skills/a/", ".claude/agents/x.md"],
 			assetCounts: { skills: 1, agents: 1 },
 		});
+	});
+});
+
+describe("checkItemLinks", () => {
+	const CLONE = (): CopySource => ({ root, local: false });
+
+	/** Pack `p`, holding the named skills, its agents and its hooks. */
+	function pack(...skills: string[]): InstallItem {
+		return {
+			kind: "pack",
+			pack: {
+				name: "p",
+				path: "p",
+				skills: skills.map((name) => ({ name, path: `p/skills/${name}` })),
+				assetDirs: ["agents", "hooks"],
+			},
+		};
+	}
+
+	it.each<[string, InstallItem]>([
+		["a skill", { kind: "skill", skill: { name: "a", path: "p/skills/a" } }],
+		["a pack", pack("a", "b")],
+	])("plans for %s the very folders and filters its copy plans", async (_kind, item) => {
+		await tree({
+			"p/skills/a/SKILL.md": "",
+			"p/skills/b/SKILL.md": "",
+			"p/agents/x.md": "",
+			"p/hooks/pre.sh": "",
+			"p/hooks/lint/run.sh": "",
+			"p/docs/guide.md": "",
+		});
+
+		await checkItemLinks(item, CLONE());
+		await copyItem(item, CLONE(), projectDir);
+
+		const checked = vi
+			.mocked(checkEscapingSymlinks)
+			.mock.calls.map(([dir, , keep]) => ({ dir, keep }));
+		const copied = vi.mocked(planCopy).mock.calls.map(([unit]) => unit);
+		expect(checked.length).toBeGreaterThan(0);
+		expect(checked).toEqual(copied);
+	});
+
+	it("passes a pack whose links out of the clone sit only where its copy never reads", async () => {
+		await tree({
+			"p/skills/a/SKILL.md": "",
+			"p/agents/x.md": "",
+			"p/hooks/lint/run.sh": "",
+			"shared-docs/guide.md": "",
+		});
+		await symlink("/usr/share/pixmaps", join(root, "shared-docs/img"));
+		await symlink("../shared-docs", join(root, "p/docs"));
+		await symlink("../../shared-docs", join(root, "p/agents/team"));
+		await symlink("../../../shared-docs", join(root, "p/hooks/lint/.docs"));
+		await symlink("../shared-docs", join(root, "p/skills/a/.git"));
+
+		const check = await checkItemLinks(pack("a"), CLONE());
+		const { copiedFiles } = await copyItem(pack("a"), CLONE(), projectDir);
+
+		expect(check).toEqual({ ok: true });
+		expect(copiedFiles).toEqual([
+			".claude/skills/a/",
+			".claude/agents/x.md",
+			".claude/hooks/lint/",
+			".claude/hooks/lint/run.sh",
+		]);
 	});
 });

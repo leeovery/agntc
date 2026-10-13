@@ -12,8 +12,8 @@ import {
 	findTargetClashes,
 	skillClaims,
 } from "./compute-incoming-files.js";
-import { copyItem } from "./copy-item.js";
-import { checkEscapingSymlinks, inspectSourcePath } from "./copy-safety.js";
+import { checkItemLinks, copyItem } from "./copy-item.js";
+import { type CopySource, inspectSourcePath } from "./copy-safety.js";
 import {
 	comparePaths,
 	discover,
@@ -27,7 +27,6 @@ import {
 	type InstallItem,
 	type ItemKey,
 	isEmptyPack,
-	itemPath,
 	keyItem,
 	pathLabel,
 } from "./install-item.js";
@@ -165,6 +164,8 @@ interface KeyedReplay {
 interface ClearedReplay extends KeyedReplay {
 	status: "cleared";
 	absorbed: string[];
+	/** What the item's copy reads from: what the symlink-escape scan checked. */
+	source: CopySource;
 }
 
 /**
@@ -228,22 +229,20 @@ async function clearReplay(
 		};
 	}
 
-	const symlinkCheck = await checkEscapingSymlinks(
-		join(cloneRoot, itemPath(replay.item)),
-		{ root: cloneRoot, local: existingEntry.commit === null },
-	);
+	const source = { root: cloneRoot, local: existingEntry.commit === null };
+	const symlinkCheck = await checkItemLinks(replay.item, source);
 	if (!symlinkCheck.ok) {
 		return { status: "blocked", reason: symlinkCheck.message };
 	}
-	return { status: "cleared", replay, keyed, absorbed: way.absorbed };
+	return { status: "cleared", replay, keyed, absorbed: way.absorbed, source };
 }
 
 async function reinstall(
 	options: NukeReinstallOptions,
 	cleared: ClearedReplay,
 ): Promise<NukeReinstallResult> {
-	const { key, cloneRoot, existingEntry, installed, scope } = options;
-	const { replay, keyed, absorbed } = cleared;
+	const { key, existingEntry, installed, scope } = options;
+	const { replay, keyed, absorbed, source } = cleared;
 
 	try {
 		await nukeManifestFiles(scope.root, [
@@ -257,7 +256,6 @@ async function reinstall(
 		};
 	}
 
-	const source = { root: cloneRoot, local: existingEntry.commit === null };
 	let copiedFiles: string[];
 	try {
 		({ copiedFiles } = await copyItem(replay.item, source, scope.root));

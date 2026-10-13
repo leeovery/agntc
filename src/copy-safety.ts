@@ -95,41 +95,41 @@ export class SymlinkEscapeError extends Error {
 
 /**
  * Pre-flight that refuses, before anything is written or removed, every link
- * a copy of `unitDir` from `source` could read that leads out of its root:
- * those in it, and, from a clone, those in a folder elsewhere in it that the
- * copy would bring in a link's place. A local source links to such a folder,
- * so it isn't read.
+ * the copy of one folder could read that leads out of the source root: those
+ * in it the filter keeps, and, from a clone, those in a folder elsewhere it
+ * would bring in a link's place. A local source links to such a folder, so it
+ * isn't read.
  *
- * `unitDir` is the tree to copy (bare-skill dir, pack dir, or member subdir);
- * the source root is the boundary, as a link may point anywhere inside it.
- *
- * It plans the copy `source` gets, keeping everything, so it reads all any
- * copy of the tree could, with the copy's rules: no link is followed, and a
- * dangling one is judged by where it points. Throws
- * {@link SymlinkEscapeError} on the first escaping link. Read-only.
+ * It plans that very copy, `dir` from `source` kept by `keep`, so it reads
+ * what the copy reads and no more: no link is followed, and a dangling one is
+ * judged by where it points. Throws {@link SymlinkEscapeError} on the first
+ * escaping link. Read-only.
  */
 export async function scanForEscapingSymlinks(
-	unitDir: string,
+	dir: string,
 	source: CopySource,
+	keep: CopyFilter,
 ): Promise<void> {
-	await planCopy(unitDir, source, () => true);
+	await planCopy({ dir, keep }, source);
 }
+
+/** What the symlink-escape pre-flight found: nothing, or the escaping link. */
+export type EscapeCheck = { ok: true } | { ok: false; message: string };
 
 /**
  * Scan-and-narrow wrapper around {@link scanForEscapingSymlinks}: runs the
  * symlink-escape pre-flight and maps the outcome to a discriminated result so
  * callers own only their distinct surfacing. A {@link SymlinkEscapeError} is
  * narrowed to `{ ok: false, message }` (the error's message verbatim); any
- * other error RETHROWS unchanged. Success resolves to `{ ok: true }`. The
- * scan boundary semantics are unchanged — callers pass the same `unitDir` /
- * `source` arguments they would to {@link scanForEscapingSymlinks}.
+ * other error RETHROWS unchanged. Success resolves to `{ ok: true }`.
  */
 export async function checkEscapingSymlinks(
-	unitDir: string,
+	dir: string,
 	source: CopySource,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+	keep: CopyFilter,
+): Promise<EscapeCheck> {
 	try {
-		await scanForEscapingSymlinks(unitDir, source);
+		await scanForEscapingSymlinks(dir, source, keep);
 		return { ok: true };
 	} catch (err) {
 		if (err instanceof SymlinkEscapeError) {
@@ -141,18 +141,14 @@ export async function checkEscapingSymlinks(
 
 /**
  * Where a link leads, resolved from where it sits without following it, so a
- * dangling link is judged the same way. One leading out of `cloneRoot` throws,
- * naming the link by `path`, where it sits in the copy.
+ * dangling link is judged the same way. One leading out of `root` throws,
+ * naming the link by where it sits below `root`.
  */
-async function containedTarget(
-	linkPath: string,
-	cloneRoot: string,
-	path: string,
-): Promise<string> {
-	const written = await readlink(linkPath);
-	const target = resolve(dirname(linkPath), written);
-	if (!isContained(cloneRoot, target)) {
-		throw new SymlinkEscapeError(path, written);
+async function containedTarget(link: string, root: string): Promise<string> {
+	const written = await readlink(link);
+	const target = resolve(dirname(link), written);
+	if (!isContained(root, target)) {
+		throw new SymlinkEscapeError(relativePosix(root, link), written);
 	}
 	return target;
 }
@@ -178,6 +174,12 @@ export type CopyStep =
 /** Whether a copy keeps what sits at a `/`-joined path below the folder it copies. */
 export type CopyFilter = (path: string) => boolean;
 
+/** A folder a copy plans, and the filter it plans it with. */
+export interface CopyUnit {
+	dir: string;
+	keep: CopyFilter;
+}
+
 interface Plan {
 	/** The folder links are judged against: the one copied, or a target copied in a link's place. */
 	unit: string;
@@ -192,9 +194,9 @@ interface Plan {
 }
 
 /**
- * Plans copying the folder `dir` without following a link. Folders and
- * regular files copy; sockets, FIFOs and devices are left out. A link, read
- * from where it sits:
+ * Plans copying the folder `dir`, kept by `keep`, without following a link.
+ * Folders and regular files copy; sockets, FIFOs and devices are left out. A
+ * link, read from where it sits:
  * - out of the source root throws {@link SymlinkEscapeError};
  * - to something inside `dir` the filter keeps stays a link, made relative;
  * - to something inside `dir` the filter drops is left out;
@@ -207,9 +209,8 @@ interface Plan {
  * brings in is filtered as if it sat at the link's path.
  */
 export async function planCopy(
-	dir: string,
+	{ dir, keep }: CopyUnit,
 	{ root, local }: CopySource,
-	keep: CopyFilter,
 ): Promise<CopyStep[]> {
 	const unit = resolve(dir);
 	const plan: Plan = {
@@ -267,7 +268,7 @@ async function planFolder(
 
 /** Plans what the link at `path` in the copy is written as, if anything. */
 async function planLink(plan: Plan, link: string, path: string): Promise<void> {
-	const target = await containedTarget(link, plan.root, path);
+	const target = await containedTarget(link, plan.root);
 	if (target !== plan.unit && isContained(plan.unit, target)) {
 		const inside = posix.join(plan.at, relativePosix(plan.unit, target));
 		if (plan.keep(inside)) {

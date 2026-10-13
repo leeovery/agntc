@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkFileCollisions } from "../../src/collision-check.js";
 import { computeIncomingFiles } from "../../src/compute-incoming-files.js";
-import { copyBareSkill } from "../../src/copy-bare-skill.js";
+import { copyBareSkill, skillUnit } from "../../src/copy-bare-skill.js";
 import { copyItem } from "../../src/copy-item.js";
 import {
 	type CopySource,
@@ -1016,7 +1016,11 @@ describe("integration: core workflows", () => {
 			let aborted = false;
 			let copied = false;
 			try {
-				await scanForEscapingSymlinks(skillDir, remote(sourceDir));
+				await scanForEscapingSymlinks(
+					skillDir,
+					remote(sourceDir),
+					skillUnit(skillDir).keep,
+				);
 				// Only reached if the gate passed — would proceed to copy.
 				await copyBareSkill({
 					sourceDir: skillDir,
@@ -1055,7 +1059,11 @@ describe("integration: core workflows", () => {
 			await symlink(join(skillDir, "real.txt"), join(skillDir, "alias.txt"));
 
 			// Should not throw.
-			await scanForEscapingSymlinks(skillDir, remote(sourceDir));
+			await scanForEscapingSymlinks(
+				skillDir,
+				remote(sourceDir),
+				skillUnit(skillDir).keep,
+			);
 		});
 	});
 

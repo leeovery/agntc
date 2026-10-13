@@ -1385,14 +1385,16 @@ describe("processGroupUpdate", () => {
 			installedOf(members),
 		);
 
-		expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(`${CLONE_DIR}/a`, {
-			root: CLONE_DIR,
-			local: false,
-		});
-		expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(`${CLONE_DIR}/b`, {
-			root: CLONE_DIR,
-			local: false,
-		});
+		expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+			`${CLONE_DIR}/a`,
+			{ root: CLONE_DIR, local: false },
+			expect.any(Function),
+		);
+		expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+			`${CLONE_DIR}/b`,
+			{ root: CLONE_DIR, local: false },
+			expect.any(Function),
+		);
 	});
 
 	it("fans a clone-fatal rejection out to one failed outcome per member and skips cleanupTempDir", async () => {
