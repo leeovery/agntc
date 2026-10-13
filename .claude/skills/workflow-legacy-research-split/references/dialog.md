@@ -14,18 +14,10 @@ Drive the per-source iteration: read source, identify themes, early sanity gate,
 
 #### Otherwise
 
-Pop the next name from `remaining`. Set `current_source = name`.
+Pop the next name from `remaining`. Set `current_source = name`, then fetch its opening and emit the DISPLAY section verbatim per its marker:
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`▪ Processing {current_source}`**
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Working on {current_source}.md.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render legacy-split-display {work_unit} --variant processing --source {current_source}
 ```
 
 → Proceed to **B. Read Source**.
@@ -270,45 +262,27 @@ node .claude/skills/workflow-engine/scripts/engine.cjs render legacy-split-displ
 node .claude/skills/workflow-legacy-research-split/scripts/apply.cjs {work_unit} {current_source}
 ```
 
-Parse the JSON output.
+Parse the JSON output. Write `.workflows/.cache/{work_unit}/legacy-split/apply.json` with the Write tool — the source, and the JSON exactly as it came back under `result`:
+
+```json
+{"source": "{current_source}", "result": {…apply.cjs's JSON…}}
+```
+
+Fetch the outcome — the themes landed and any knowledge-base cleanup warnings (cleanup is best-effort, so the index may need reconciling), or the stage the apply stopped at with its recovery — and emit its DISPLAY sections verbatim per their markers:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render legacy-split-display --variant apply --file .workflows/.cache/{work_unit}/legacy-split/apply.json
+```
 
 #### If `ok` is true
 
 Increment `applied_count`.
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Applied {current_source}: {applied.themes} new file(s).
-```
-
-If the response includes `kb_warnings`, render them — KB cleanup is best-effort and the user should know the index needs reconciling:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> ⚑ Knowledge-base cleanup reported warnings:
-@foreach(w in kb_warnings)
-> - {w}
-@endforeach
->
-> The next start brings the knowledge base up to date.
-```
 
 → Return to **A. Iterate**.
 
 #### If `ok` is false
 
 Increment `errored_count`.
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Apply failed for {current_source} at stage "{stage}":
-  {error}
-
-Recovery: {recovery_hint}
-```
 
 → Return to **A. Iterate**.
 
@@ -320,13 +294,7 @@ Remove the cache subdirectory (if it exists):
 rm -rf .workflows/.cache/{work_unit}/legacy-split/{current_source}
 ```
 
-Increment `abandoned_count`.
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Skipping {current_source}. Source file and manifest unchanged.
-```
+Increment `abandoned_count`, then say `Skipping {current_source}. Source file and manifest unchanged.`
 
 → Return to **A. Iterate**.
 
@@ -388,18 +356,10 @@ User specifies `kebab_name`, summary, description, and the content for the new c
 
 ## P. Remove a Theme
 
-User specifies `theme_name`. Confirm before destructive removal:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Removing "{theme_name}" drops its drafted content — gone unless another theme has already reabsorbed it.
-```
-
-Fetch the gate and emit its `MENU: legacy split remove gate` section verbatim per its marker:
+User specifies `theme_name`. Confirm before destructive removal — fetch the gate — what the removal drops above the confirm — and emit its DISPLAY and MENU sections, each verbatim per its marker:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs render legacy-split-gate --variant remove
+node .claude/skills/workflow-engine/scripts/engine.cjs render legacy-split-gate --variant remove --theme {theme_name}
 ```
 
 **STOP.** Wait for user response.

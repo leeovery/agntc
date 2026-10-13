@@ -11,7 +11,7 @@ This reference defines how to surface findings from background agents. Findings 
 - `agent_type` — `review` | `synthesis` — human-readable name used in user-facing messages, and the row kind this invocation surfaces
 - `work_unit`, `phase`, `topic` — the agent store address
 
-**Lane declaration** — the calling reference's **Lanes** section, already in context, owns this phase's lane semantics: the walked lane's name and heading, and what approving each batch lane does. A caller with no **Lanes** section is all-walk; its raises render under `Needs A Decision`. A batched lane the declaration doesn't carry is walked — a report can only batch what its caller knows how to land.
+**Lane declaration** — the calling reference's **Lanes** section, already in context, owns this phase's lane semantics: the walked lane's name, and what approving each batch lane does. A caller with no **Lanes** section is all-walk. A batched lane the declaration doesn't carry is walked — a report can only batch what its caller knows how to land.
 
 ## The Core Rules
 
@@ -73,13 +73,7 @@ Re-classify before anything renders, in the one permitted direction (core rule 5
 node .claude/skills/workflow-engine/scripts/engine.cjs agent ack {work_unit} {phase} {topic} {id} --clean
 ```
 
-The engine incorporates the row. No menu needed — append this single line at the end of your current turn, above the gate where one is waiting on the user:
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Background {agent_type} returned — nothing new beyond what we've already covered.
-```
+The engine incorporates the row. No menu needed — at the end of your current turn, above the gate where one is waiting on the user, say `Background {agent_type} returned — nothing new beyond what we've already covered.`
 
 → Return to caller.
 
@@ -103,13 +97,7 @@ Consult the natural-breaks checklist. Route on the row's `announced` flag.
 
 **If `announced` is `false`:**
 
-Append this one-line parenthetical at the end of your current turn, above the gate where one is waiting on the user, then record it:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-*(Background {agent_type} just returned — I'll raise it when we pause.)*
-```
+At the end of your current turn, above the gate where one is waiting on the user, say `*(Background {agent_type} just returned — I'll raise it when we pause.)*`, then record it:
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs agent announce {work_unit} {phase} {topic} {id}
@@ -129,10 +117,10 @@ Route on the row's `surfaced` list: empty means the user has not yet opted in; n
 
 **If `surfaced` is empty (first time at a break):**
 
-Render the announce menu. `shape` is the lane split in one clause, in lane order, each lane's count carrying that lane's own phrase — apply *need nothing from you*, decide *need a scan*, the walk *need a call*, route *belong elsewhere* (e.g. *3 need nothing from you, 5 need a scan, 6 need a call, 2 belong elsewhere*); name only lanes that have findings, and never lend one lane another's phrase — a decide count announced as needing a call reads as decisions still owed when the calls are already made. Do not describe individual findings, do not summarise, do not preview. Write the payload to the topic's cache directory with the Write tool (`{"agent_type": "…", "count": N, "shape": "…"}`), then render it, emitting the section verbatim per its marker:
+Render the announce menu. `shape` is the lane split in one clause, in lane order, each lane's count carrying that lane's own phrase — apply *need nothing from you*, decide *need a scan*, the walk *need a call*, route *belong elsewhere* (e.g. *3 need nothing from you, 5 need a scan, 6 need a call, 2 belong elsewhere*); name only lanes that have findings, and never lend one lane another's phrase — a decide count announced as needing a call reads as decisions still owed when the calls are already made. Do not describe individual findings, do not summarise, do not preview. Write the payload to the topic's cache directory with the Write tool (`{"shape": "…"}` — the agent and its finding count come off the row), then render it, emitting the section verbatim per its marker:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs render finding-announce {work_unit}.{phase}.{topic} --file .workflows/.cache/{work_unit}/{phase}/{topic}/announce.json
+node .claude/skills/workflow-engine/scripts/engine.cjs render finding-announce {work_unit}.{phase}.{topic} --id {id} --file .workflows/.cache/{work_unit}/{phase}/{topic}/announce.json
 ```
 
 After emitting the menu, record the announce — skip the call when the row already reads `announced: true`:
@@ -199,18 +187,10 @@ The lane emptied — every one applied, or every one promoted out.
 
 #### Otherwise
 
-Emit the lane marker on this drain's first screen only — later screens and re-renders skip it:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`▪ No Decision Needed`**
-```
-
-Digest the report — never read it out. Write the payload to the topic's cache directory with the Write tool (`{"lane": "apply", "items": [{"title": "…", "detail": "…"}], "remaining": N}`, one entry per remaining `apply` finding — up to five, `remaining` counting the lane's findings beyond this screen — in the order they should read: `title` is the report's own claim, `detail` is one or two sentences saying what the fix is and which decision determines it), then render it:
+Digest the report — never read it out. Write the payload to the topic's cache directory with the Write tool (`{"lane": "apply", "items": [{"title": "…", "detail": "…"}], "remaining": N}`, one entry per remaining `apply` finding — up to five, `remaining` counting the lane's findings beyond this screen — in the order they should read: `title` is the report's own claim, `detail` is one or two sentences saying what the fix is and which decision determines it), then render it — `--first` on this drain's first screen alone, never on a later screen or a re-render:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs render finding-batch {work_unit}.{phase}.{topic} --file .workflows/.cache/{work_unit}/{phase}/{topic}/batch-apply.json
+node .claude/skills/workflow-engine/scripts/engine.cjs render finding-batch {work_unit}.{phase}.{topic} --file .workflows/.cache/{work_unit}/{phase}/{topic}/batch-apply.json [--first]
 ```
 
 Emit the call's DISPLAY and MENU sections, each verbatim per its marker — except on a re-entry after an answered question that changed nothing, where the list on screen is still current: emit the MENU section alone. A re-entry whose screen did change (a promotion left survivors) rewrites the payload and re-renders both sections, renumbered.
@@ -261,18 +241,10 @@ The lane emptied — every one documented, or every one pulled out.
 
 #### Otherwise
 
-Emit the lane marker on this drain's first screen only — later screens and re-renders skip it:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`▪ Decided From the Record`**
-```
-
-Digest the report — never read it out. Write the payload to the topic's cache directory with the Write tool (`{"lane": "decide", "items": [{"title": "…", "detail": "…"}], "remaining": N}`, one entry per remaining `decide` finding — up to five, `remaining` counting the lane's findings beyond this screen — in the order they should read: `title` states the call itself as a decision, `detail` is one or two sentences naming the problem and what determined the call), then render it:
+Digest the report — never read it out. Write the payload to the topic's cache directory with the Write tool (`{"lane": "decide", "items": [{"title": "…", "detail": "…"}], "remaining": N}`, one entry per remaining `decide` finding — up to five, `remaining` counting the lane's findings beyond this screen — in the order they should read: `title` states the call itself as a decision, `detail` is one or two sentences naming the problem and what determined the call), then render it — `--first` on this drain's first screen alone, never on a later screen or a re-render:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs render finding-batch {work_unit}.{phase}.{topic} --file .workflows/.cache/{work_unit}/{phase}/{topic}/batch-decide.json
+node .claude/skills/workflow-engine/scripts/engine.cjs render finding-batch {work_unit}.{phase}.{topic} --file .workflows/.cache/{work_unit}/{phase}/{topic}/batch-decide.json [--first]
 ```
 
 Emit the call's DISPLAY and MENU sections, each verbatim per its marker — except on a re-entry after an answered question that changed nothing, where the list on screen is still current: emit the MENU section alone. A re-entry whose screen did change (a pull left survivors) rewrites the payload and re-renders both sections, renumbered.
@@ -332,12 +304,12 @@ This section runs once per invocation and then exits. It never waits in-protocol
 
 4. Raise it in the current turn, then stop — one raise per turn. The raise proposes and never lands: whatever its firmness, nothing is documented until the user has replied, and the next finding waits until this one's outcome is documented — the write-up turn picks it up (below).
 
-When this row's `surfaced` list holds no walked finding yet, the raise opens with the walked lane's declared heading as sub-step chrome, so the shift out of the batches is visible. A walk already under way — including one resumed from an earlier session — opens with its bridge instead, never a repeated heading:
+When this row's `surfaced` list holds no walked finding yet, the raise opens with the walk's heading as sub-step chrome, so the shift out of the batches is visible. A walk already under way — including one resumed from an earlier session — opens with its bridge instead, never a repeated heading:
 
 > *Output the next fenced block as markdown (not a code block):*
 
 ```
-**`▪ {lane_heading}`**
+**`▪ Needs A Decision`**
 ```
 
 After this, control belongs to the conversation. The user will engage (or reject, or redirect) naturally. Handle their response as normal discussion — not as protocol-driven routing. Their reply calibrates what comes next: the depth the opener held back — the report's full case, the derivation, the costs — enters as responses, each piece when the direction on the table calls for it. A reply that shows the problem didn't land is re-grounded simpler — a different analogy, a smaller example — never the same explanation again, louder. A finding's outcome is an engagement decision point: before it is documented, follow **G. Sibling consult at cross-topic decision points** in **[knowledge-usage.md](../../workflow-shared/references/knowledge-usage.md)** — both its triggers apply here. An engagement ends resolved or rejected (**Rejecting a raise** below). A resolution is documented and committed, the commit subject carrying `({id} {finding})`, e.g. `(review-003 F2)`; a rejection writes nothing *into the artifact*, so no commit of its own carries it — a dismissal's manifest push rides the session's next topic-scoped commit. Either close is a natural break: re-enter **A. Check for Results** in the same turn, so the next raise follows while the context is warm. When the raise was the row's last — its surface response said nothing remains — there is no re-entry to make: the closing turn closes the drain as **D**'s drained exit prescribes.
@@ -375,18 +347,10 @@ The user just declined it — re-rendering now would re-ask. The next natural br
 
 #### Otherwise
 
-Emit the lane marker on this drain's first screen only — later screens and re-renders skip it:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-**`▪ Belongs Elsewhere`**
-```
-
-Judge each finding's `landing_phase` per **Judging the Landing Phase** in **[sending-a-message.md](../../workflow-shared/references/sending-a-message.md)**. Write the payload with the Write tool (`{"lane": "route", "items": [{"title": "…", "target": "…", "detail": "…"}], "remaining": N}`, one entry per remaining finding — up to five, `remaining` counting the lane's findings beyond this screen: `title` is the report's own claim, `target` is the owning topic — or, when no topic on the map owns the finding, the new kebab-case name the report proposed (the landing creates the topic; say so in `detail`), `detail` is why it is theirs and which mailbox it lands in), then render it:
+Judge each finding's `landing_phase` per **Judging the Landing Phase** in **[sending-a-message.md](../../workflow-shared/references/sending-a-message.md)**. Write the payload with the Write tool (`{"lane": "route", "items": [{"title": "…", "target": "…", "detail": "…"}], "remaining": N}`, one entry per remaining finding — up to five, `remaining` counting the lane's findings beyond this screen: `title` is the report's own claim, `target` is the owning topic — or, when no topic on the map owns the finding, the new kebab-case name the report proposed (the landing creates the topic; say so in `detail`), `detail` is why it is theirs and which mailbox it lands in), then render it — `--first` on this drain's first screen alone, never on a later screen or a re-render:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs render finding-batch {work_unit}.{phase}.{topic} --file .workflows/.cache/{work_unit}/{phase}/{topic}/batch-route.json
+node .claude/skills/workflow-engine/scripts/engine.cjs render finding-batch {work_unit}.{phase}.{topic} --file .workflows/.cache/{work_unit}/{phase}/{topic}/batch-route.json [--first]
 ```
 
 Emit the call's DISPLAY and MENU sections, each verbatim per its marker — except on a re-entry after an answered question that changed nothing, where the list on screen is still current: emit the MENU section alone. A re-entry whose screen did change (a kept finding left survivors) rewrites the payload and re-renders both sections, renumbered.

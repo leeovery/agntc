@@ -4,6 +4,8 @@
 
 ---
 
+The caller provides `work_unit`.
+
 At the beginning of these phases, a focused query against the knowledge base catches prior work that might otherwise surface as a correction ten minutes into the session. One invocation, one interpretation step — if nothing comes back, proceed as normal.
 
 This is **not** a speculative dump. It is a focused check using the best context currently available. When the starting context offers multiple distinct angles (e.g. investigation has both symptoms and a subsystem name), batch them in a single invocation rather than running them serially.
@@ -55,13 +57,7 @@ No prior context found. Proceed to the next step silently — no delay, no user 
 
 → Load **[knowledge-usage.md](knowledge-usage.md)** for **C. Reading the results** and follow its instructions, weighing each result against the current topic. Most results are context — one or two may be directly relevant.
 
-Briefly acknowledge surfaced context to the user before the main session starts:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Surfaced prior context from the knowledge base — incorporating into this phase. {One short line naming the most relevant piece, e.g. "auth-flow decided on UUID identity (spec, 2026-03-15)."}
-```
+Briefly acknowledge surfaced context to the user before the main session starts — say, as a blockquote, `Surfaced prior context from the knowledge base — incorporating into this phase. {the most relevant piece in one line, e.g. auth-flow decided on UUID identity (spec, 2026-03-15).}`
 
 Carry the context forward into the phase. Do not dump the full result list to the user — summarise only if the user asks, or if a result materially changes how this phase should start.
 

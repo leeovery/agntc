@@ -43,23 +43,15 @@ This dispatch and every re-invocation of the grapher below run in the background
 
 ## B. Review and Approve
 
+The `no-changes` and `complete` branches write the grapher's report to `.workflows/.cache/{work_unit}/planning/{topic}/task-graph.json` with the Write tool before their render.
+
 #### If `STATUS` is `no-changes`
 
-The natural task order is already correct.
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-I've analyzed all {M} tasks and the natural execution order is already correct — no explicit dependencies or priorities are needed.
-
-{notes from agent output}
-```
+The natural task order is already correct. Write the grapher's `NOTES` as the payload — `{"notes": "…"}` — then render and emit each section verbatim per its marker:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs render dependency-approval-gate {work_unit}.planning.{topic} --variant graph
+node .claude/skills/workflow-engine/scripts/engine.cjs render dependency-approval-gate {work_unit}.planning.{topic} --variant graph --file .workflows/.cache/{work_unit}/planning/{topic}/task-graph.json
 ```
-
-Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 
@@ -85,17 +77,7 @@ node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "pl
 
 #### If `STATUS` is `blocked`
 
-No changes were applied.
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-The dependency analysis found a circular dependency:
-
-{cycle chain from agent output}
-
-This must be resolved before continuing. The cycle usually means two tasks each assume the other is done first — one needs to be restructured or the dependency removed.
-```
+No changes were applied. In your own words, say the dependency analysis found a circular dependency, quote the grapher's `CYCLES` chain, and say it must be resolved before continuing — usually two tasks each assume the other is done first, so one is restructured or the dependency removed.
 
 **STOP.** Wait for user response.
 
@@ -105,27 +87,17 @@ Adjust based on user direction — options include adjusting task scope, merging
 
 #### If `STATUS` is `complete`
 
-Dependencies and priorities have already been written to the task files.
+Dependencies and priorities have already been written to the task files. Write the grapher's `DEPENDENCIES` and `PRIORITIES` as the payload, one row per line without its leading dash, and its `NOTES` only where it has any:
 
-> *Output the next fenced block as markdown (not a code block):*
-
+```json
+{"dependencies": ["{internal_id} depends on {internal_id} — {reason}"], "priorities": ["{internal_id}: {priority} — {reason}"], "notes": "…"}
 ```
-I've analyzed and applied dependencies and priorities across all {M} tasks:
 
-**Dependencies** ({count} relationships):
-{dependency list from agent output}
-
-**Priorities**:
-{priority list from agent output}
-
-{any notes from agent output}
-```
+Render and emit each section verbatim per its marker:
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs render dependency-approval-gate {work_unit}.planning.{topic} --variant updated-graph
+node .claude/skills/workflow-engine/scripts/engine.cjs render dependency-approval-gate {work_unit}.planning.{topic} --variant updated-graph --file .workflows/.cache/{work_unit}/planning/{topic}/task-graph.json
 ```
-
-Emit the call's MENU section verbatim per its marker.
 
 **STOP.** Wait for user response.
 

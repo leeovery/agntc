@@ -12,11 +12,7 @@ Process findings from a review agent interactively with the user. The agent writ
 
 #### If `STATUS` is `clean`
 
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-{Review type} review complete — no findings.
-```
+Say `{review_type:(titlecase)} review complete — no findings.`
 
 → Return to caller.
 
@@ -160,11 +156,7 @@ The numbered options render recommended-first, so the number the user typed inde
 1. Apply the chosen option to the plan — the fix follows from the choice, so it lands without a second gate — with the `task_map` upkeep of the auto flow above.
 2. Update the tracking file: set resolution to "Fixed", record which option was chosen in Notes.
 3. Commit the tracking file and any plan changes.
-4. > *Output the next fenced block as a text code block (```text fence):*
-
-   ```text
-   Finding {N} of {total}: {Brief Title} — {chosen option, one clause}.
-   ```
+4. Say `Finding {n} of {total}: {title} — {chosen option, one clause}.`
 
 **If pending findings remain:**
 
@@ -197,11 +189,7 @@ Work the point through in conversation — a challenge, an adjustment, or a decl
 2. Keep `task_map` current in ONE call for the whole finding (same commands as the auto flow above).
 3. Update the tracking file: set resolution to "Fixed", add any discussion notes.
 4. Commit the tracking file and any plan changes — ensures progress survives context refresh.
-5. > *Output the next fenced block as a text code block (```text fence):*
-
-   ```text
-   Finding {N} of {total}: {Brief Title} — fixed.
-   ```
+5. Say `Finding {n} of {total}: {title} — fixed.`
 
 **If pending findings remain:**
 
@@ -230,10 +218,6 @@ Work the point through in conversation — a challenge, an adjustment, or a decl
 
 1. **Mark the tracking file complete** — `node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.planning.{topic} tracking.{file stem} complete`.
 2. **Commit** the tracking file and any plan changes.
-3. > *Output the next fenced block as a text code block (```text fence):*
-
-   ```text
-   {Review type} review complete — {N} findings processed.
-   ```
+3. Say `{review_type:(titlecase)} review complete — {N} finding(s) processed.`, `{N}` the count of **A**'s summary items.
 
 → Return to caller.

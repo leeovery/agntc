@@ -107,53 +107,52 @@ Ensure clean code before analysis. Run `git status` and set aside every `.workfl
 
 #### Otherwise
 
-Categorize the dirty code files:
-
-- **Implementation files** (files touched by `impl({work_unit}):` commits) — name these in the checkpoint commit automatically.
-- **Unexpected files** (files not touched during implementation) — present to the user:
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Pre-analysis checkpoint — unexpected files detected:
-- {file} ({status: modified/untracked})
-- ...
-```
+The checkpoint is a code commit — name the files, and the engine confines the commit to them. Read which dirty code files are which: the call's DATA names the `implementation_files` (touched by `impl({work_unit}):` commits) and the `unexpected_files` (not touched during implementation).
 
 ```bash
 node .claude/skills/workflow-engine/scripts/engine.cjs render checkpoint-files-gate {work_unit}.implementation.{topic}
 ```
 
-Emit the call's MENU section verbatim per its marker.
+**If `unexpected_files` is empty:**
+
+The response carries no gate. Name the `implementation_files`:
+
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs commit --paths {implementation_files} -m "impl({work_unit}): pre-analysis checkpoint" --for {work_unit} implementation/{topic}
+```
+
+→ Proceed to **C. Dispatch Analysis Agents**.
+
+**If `unexpected_files` has entries:**
+
+Emit the call's DISPLAY and MENU sections verbatim per their markers.
 
 **STOP.** Wait for user response.
-
-The checkpoint is a code commit — name the files, and the engine confines the commit to them.
 
 **If `yes`:**
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs commit --paths {implementation and unexpected files} -m "impl({work_unit}): pre-analysis checkpoint" --for {work_unit} implementation/{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs commit --paths {implementation_files and unexpected_files} -m "impl({work_unit}): pre-analysis checkpoint" --for {work_unit} implementation/{topic}
 ```
 
 → Proceed to **C. Dispatch Analysis Agents**.
 
 **If `skip`:**
 
-Name only the implementation files; the unexpected ones stay uncommitted, and come back in the response's `left_dirty`.
+Name only the `implementation_files`, and make no commit where there are none. The unexpected ones stay uncommitted, and come back in the response's `left_dirty`.
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs commit --paths {implementation files} -m "impl({work_unit}): pre-analysis checkpoint" --for {work_unit} implementation/{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs commit --paths {implementation_files} -m "impl({work_unit}): pre-analysis checkpoint" --for {work_unit} implementation/{topic}
 ```
 
 → Proceed to **C. Dispatch Analysis Agents**.
 
 **If comment:**
 
-Confirm your reading of the comment with the person before anything acts on it, then name the implementation files plus the ones the user specified.
+Confirm your reading of the comment with the person before anything acts on it, then name the `implementation_files` plus the ones the user specified.
 
 ```bash
-node .claude/skills/workflow-engine/scripts/engine.cjs commit --paths {implementation files and the named ones} -m "impl({work_unit}): pre-analysis checkpoint" --for {work_unit} implementation/{topic}
+node .claude/skills/workflow-engine/scripts/engine.cjs commit --paths {implementation_files and the named ones} -m "impl({work_unit}): pre-analysis checkpoint" --for {work_unit} implementation/{topic}
 ```
 
 → Proceed to **C. Dispatch Analysis Agents**.
@@ -217,11 +216,7 @@ node .claude/skills/workflow-engine/scripts/engine.cjs commit {work_unit} -m "im
    node .claude/skills/workflow-engine/scripts/engine.cjs manifest set {work_unit}.implementation.{topic} staging.c{N}.tasks.{n} pending
    ```
 
-   An entry an earlier run already settled — its corrigendum present in the specification, or its proposal already in the staging file — is skipped; a proposal already in the staging file whose `staging.c{N}` row is missing is a crashed landing — initialise the row and move on, never re-append. When at least one correction landed — nothing when none did, never a per-correction recap — fetch and emit the `DISPLAY: spec corrections` section verbatim per its marker:
-
-   ```bash
-   node .claude/skills/workflow-engine/scripts/engine.cjs render spec-corrections --count {count}
-   ```
+   An entry an earlier run already settled — its corrigendum present in the specification, or its proposal already in the staging file — is skipped; a proposal already in the staging file whose `staging.c{N}` row is missing is a crashed landing — initialise the row and move on, never re-append. When at least one correction landed — nothing when none did, never a per-correction recap — say `{count} spec correction(s) recorded.`
 
    **Otherwise:** nothing to settle — continue.
 2. **Apply the comment corrections** — each `## Comment Corrections` entry with the Edit tool: its OLD text replaced by its NEW text at the named file, verbatim; an empty NEW deletes the comment. A correction whose NEW text is already in place was applied by an earlier run — skip it silently; one whose OLD text is otherwise absent is dropped — name the dropped ones in one line. Commit the files a correction changed as a code commit; nothing when none changed:

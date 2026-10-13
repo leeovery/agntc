@@ -128,11 +128,7 @@ Adjust the target, landing phase, or message content per the user's feedback; th
 
 Summarise conversationally — do not dump a diff. One short paragraph or a handful of bullets describing what was added, removed, or corrected and why.
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Document review complete. {N} gap(s) captured, {M} correction(s) applied. Proceeding to the final compliance check.
-```
+Then say, as a blockquote, `Document review complete. {N} gap(s) captured, {M} correction(s) applied. Proceeding to the final compliance check.`
 
 → Return to caller.
 

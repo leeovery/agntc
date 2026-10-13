@@ -43,13 +43,7 @@ Create the specification file at `.workflows/{work_unit}/specification/{topic}/s
 ## Working Notes
 ```
 
-Confirm the spec was written:
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Specification written: .workflows/{work_unit}/specification/{topic}/specification.md
-```
+Say ``Specification written: `.workflows/{work_unit}/specification/{topic}/specification.md` ``.
 
 → On return, proceed to **B. Register in Manifest**.
 

@@ -44,38 +44,15 @@ Initialise `applied_count = 0`, `abandoned_count = 0`, `errored_count = 0`.
 node .claude/skills/workflow-legacy-research-split/scripts/detect.cjs {work_unit}
 ```
 
-Parse `qualifying_sources`, `unsplittable`, and `stranded_sentinels` from the JSON output.
+Parse `qualifying_sources` from the JSON output.
 
-Surface detect's advisories before routing on the qualifying set. Both are informational — neither blocks the qualifying flow.
+Fetch the scan's display — the interrupted splits a crashed apply left (detection excludes them, so they surface only here and need manual recovery), the sources whose names the split can't process, then the qualifying sources, each present only where the scan found its kind. The two advisories are informational — neither blocks the qualifying flow.
 
-**If `stranded_sentinels` is non-empty:** a prior apply crashed mid-split, leaving these items marked in-progress. Detection excludes them, so they surface only here and need manual recovery.
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-  ⚑ Interrupted split(s) detected — a prior apply crashed mid-flight.
-    Clear each, then reopen the epic via /workflow-start to retry:
-
-@foreach(name in stranded_sentinels)
-    • {name}
-@endforeach
-
-    Per-item recovery is under "Recovery from Interrupted Apply"
-    at the end of this skill.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render legacy-split-display {work_unit} --variant sources
 ```
 
-**If `unsplittable` is non-empty:** one or more migration-seeded sources carry names the split can't process — the engine rejects dots and slashes in map paths.
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-  ⚑ Unsplittable source(s) — rename each on the discovery map to a
-    kebab name, then reopen the epic to split:
-
-@foreach(src in unsplittable)
-    • {src.name} — {src.reason}
-@endforeach
-```
+Emit the call's DISPLAY sections verbatim per their markers.
 
 #### If `qualifying_sources` is empty
 
@@ -83,17 +60,7 @@ Surface detect's advisories before routing on the qualifying set. Both are infor
 
 #### Otherwise
 
-Set `remaining = qualifying_sources` (an ordered queue). Display the list.
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Qualifying source files (in-progress, migration-seeded):
-
-@foreach(name in qualifying_sources)
-  • {name}.md
-@endforeach
-```
+Set `remaining = qualifying_sources` (an ordered queue).
 
 → Proceed to **Step 2**.
 
@@ -121,60 +88,10 @@ Load **[dialog.md](references/dialog.md)** and follow its instructions as writte
 
 ## Step 3: Conclude
 
-> *Output the next fenced block as markdown (not a code block):*
+Fetch the split's conclusion from the session's tallies and emit its DISPLAY section verbatim per its marker:
 
-```
-**`□ Legacy Split Complete`**
-```
-
-Evaluate the branches below in order — error reporting takes precedence over clean outcomes.
-
-#### If `errored_count > 0`
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> {errored_count} source file(s) aborted mid-apply; {applied_count} decomposed; {abandoned_count} skipped. See "Recovery from Interrupted Apply" below to clear stuck sentinels before you reopen the epic via /workflow-start.
-```
-
-→ Return to caller.
-
-#### If `applied_count == 0` and `abandoned_count == 0`
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> No legacy source files needed decomposition.
-```
-
-→ Return to caller.
-
-#### If `applied_count > 0` and `abandoned_count == 0`
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Legacy broad research files decomposed. The discovery map now reflects topic-scoped items.
-```
-
-→ Return to caller.
-
-#### If `applied_count > 0` and `abandoned_count > 0`
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> {applied_count} source file(s) decomposed; {abandoned_count} skipped. Skipped files remain on the map and can be revisited next time you open the epic via /workflow-start.
-```
-
-→ Return to caller.
-
-#### If `applied_count == 0` and `abandoned_count > 0`
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> No source files decomposed — every qualifying file was skipped. They remain on the map and can be revisited next time you open the epic via /workflow-start.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render legacy-split-display --variant complete --applied {applied_count} --abandoned {abandoned_count} --errored {errored_count}
 ```
 
 → Return to caller.

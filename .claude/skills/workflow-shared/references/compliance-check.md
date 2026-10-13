@@ -55,8 +55,6 @@ Surface to the user:
 
 ```text
 Compliance Check — Issues Found
-
-{number} issue(s) detected during self-check.
 ```
 
 For each issue, explain:

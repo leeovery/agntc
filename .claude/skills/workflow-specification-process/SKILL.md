@@ -27,11 +27,7 @@ The source material is the specification item's `sources` — an epic grouping's
 
 **If source material seems incomplete or unclear:**
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-I have the source material, but {concern}. Should I proceed as-is, or is there additional material I should review?
-```
+In your own words, say what in the source material is incomplete or unclear, and ask whether to proceed as-is or whether there is additional material to review.
 
 **STOP.** Wait for user response.
 
@@ -296,16 +292,10 @@ Load **[compliance-check.md](../workflow-shared/references/compliance-check.md)*
 
 ## Step 8: Assess Cross-Cutting & Conclude
 
-> *Output the next fenced block as markdown (not a code block):*
+Fetch the step's opening and emit its DISPLAY section verbatim per its marker:
 
-```
-**`□ Conclude`**
-```
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Wrapping up. Final assessment, sign-off, and @if(work_type is cross-cutting) closure — the pipeline completes here @else handover to the planning phase @endif.
+```bash
+node .claude/skills/workflow-engine/scripts/engine.cjs render step-opening {work_unit}.specification.{topic} --step conclude
 ```
 
 Load **[spec-completion.md](references/spec-completion.md)** and follow its instructions as written.

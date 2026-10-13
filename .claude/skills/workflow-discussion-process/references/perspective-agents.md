@@ -86,12 +86,7 @@ RESTATEMENT: {one sentence}
 SUMMARY: {1 sentence}
 ```
 
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-Dispatched 2 perspective agents: {lens A}, {lens B}.
-Results will be surfaced when available.
-```
+Say `Dispatched 2 perspective agents: {Lens A}, {Lens B}. Results will be surfaced when available.`
 
 The discussion continues — do not wait for agents to return.
 

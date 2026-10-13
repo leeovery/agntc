@@ -60,11 +60,7 @@ node .claude/skills/workflow-engine/scripts/engine.cjs commit --roadmap -m "docs
 
 #### If changes were made
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Document review complete. {N} correction(s) applied to the session log.
-```
+Say, as a blockquote, `Document review complete. {N} correction(s) applied to the session log.`
 
 → Return to caller.
 

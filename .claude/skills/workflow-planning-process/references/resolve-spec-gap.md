@@ -293,11 +293,7 @@ Emit them verbatim per their markers — the blocker naming what is owed, its gu
 
 **If `yes`:**
 
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Paused with the gap in {landed_topic}'s mailbox — planning resumes once {landed_topic} has decided it and the specification has been brought into line.
-```
+Say, as a blockquote, `Paused with the gap in {landed_topic}'s mailbox — planning resumes once {landed_topic} has decided it and the specification has been brought into line.`
 
 Invoke `/workflow-bridge {work_unit} planning none paused`.
 

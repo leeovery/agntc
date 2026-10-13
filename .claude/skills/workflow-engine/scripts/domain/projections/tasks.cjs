@@ -6,13 +6,12 @@
 // prose point that displays them. The `engine task` verbs answer with their
 // one-line JSON only; a gate's section is fetched by its own render call.
 // Deterministic: same state, same string. Conversational content (reviewer
-// findings, executor summaries, the blocked-task list) never renders here —
-// it stays with the session.
+// findings, executor summaries) never renders here — it stays with the
+// session.
 //
-//   render blocked-tasks → MENU: blocked tasks   (static — the blocked-task
-//                          list is plan-format state the engine never reads;
-//                          the session renders the list, this menu carries
-//                          the decision)
+//   render blocked-tasks → DISPLAY: blocked tasks + MENU: blocked tasks (the
+//                          blocked-task list is plan-format state the engine
+//                          never reads, so it rides the session's payload)
 //   render task-gate     → MENU: task gate       (task_gate_mode gated)
 //                          DISPLAY: task gate auto-approved (auto or bounded)
 //   render fix-gate      → MENU: fix gate        (gated or threshold reached;
@@ -35,9 +34,26 @@
 // the action that follows in the same turn.
 // ---------------------------------------------------------------------------
 
-const { section, CONTINUE_INSTRUCTION, timedInstruction, menu, cmdOption, promptOption, MENU_INSTRUCTION, AUTO_GATE_CLAUSE } = require('./surfaces.cjs');
+const { section, CONTINUE_INSTRUCTION, timedInstruction, emitAs, menu, cmdOption, promptOption, treeList, MENU_INSTRUCTION, AUTO_GATE_CLAUSE } = require('./surfaces.cjs');
 
-/** The blocked-tasks stop menu. Static by design. @returns {string} */
+/** @typedef {{id: string, name: string, blockers: {id: string, status: string}[]}} BlockedTask */
+
+/**
+ * The blocked-task list above the stop menu: each open task beneath its id,
+ * what blocks it hanging off it with the blocker's status.
+ * @param {BlockedTask[]} tasks
+ * @returns {string}
+ */
+function blockedTasksDisplay(tasks) {
+  const n = tasks.length;
+  const lines = [`No ready tasks remain, but ${n} ${n === 1 ? 'task is' : 'tasks are'} still open — blocked:`];
+  for (const task of tasks) {
+    lines.push('', `  ${task.id}: ${task.name}`, treeList(task.blockers.map((b) => `Blocked by ${b.id} [${b.status}]`), { indent: '  ' }));
+  }
+  return section('DISPLAY: blocked tasks', emitAs('text'), lines.join('\n'));
+}
+
+/** The blocked-tasks stop menu. @returns {string} */
 function blockedTasksMenu() {
   return section(
     'MENU: blocked tasks',
@@ -132,20 +148,6 @@ function cycleLimitDisplay(total, limit) {
   );
 }
 
-/**
- * The one-line confirmation that a pass corrected the specification — the
- * count is the session's (it landed the corrigenda), so it rides the call.
- * @param {number} count
- * @returns {string}
- */
-function specCorrectionsDisplay(count) {
-  return section(
-    'DISPLAY: spec corrections',
-    CONTINUE_INSTRUCTION,
-    `${count} spec correction${count === 1 ? '' : 's'} recorded.`,
-  );
-}
-
 /** The analysis cycle-limit gate menu. Static by design. @returns {string} */
 function cycleGateMenu() {
   return section(
@@ -158,4 +160,4 @@ function cycleGateMenu() {
   );
 }
 
-module.exports = { blockedTasksMenu, taskGateSection, fixGateSection, cycleLimitDisplay, specCorrectionsDisplay, cycleGateMenu };
+module.exports = { blockedTasksDisplay, blockedTasksMenu, taskGateSection, fixGateSection, cycleLimitDisplay, cycleGateMenu };

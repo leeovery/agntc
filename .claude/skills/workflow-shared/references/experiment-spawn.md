@@ -76,13 +76,7 @@ The conversation continues with `{id}` queued — as after `later`, the session 
 
 **If `result` is `leave`:**
 
-Everything is already committed; invoke the pipeline bridge as a pause:
-
-> *Output the next fenced block as markdown (not a code block):*
-
-```
-> Paused with {id} queued — the closing ceremony is skipped, and this conversation concludes once the evidence lands.
-```
+Everything is already committed, and the pipeline bridge takes the session as a pause. Say, as a blockquote, `Paused with {id} queued — the closing ceremony is skipped, and this conversation concludes once the evidence lands.`
 
 Invoke `/workflow-bridge {work_unit} {phase} none paused`.
 

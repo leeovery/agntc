@@ -56,13 +56,7 @@ Any depth. A path the user offers — a screenshot of the failure, a log, an exp
 
 ## Asking the User
 
-Any depth. When blocked on something only the user knows — reproduction fails, expected behaviour is ambiguous, environment context is missing — ask directly rather than guessing or working around the gap:
-
-> *Output the next fenced block as a text code block (```text fence):*
-
-```text
-{the specific question, with what was tried and why it blocks the trace}
-```
+Any depth. When blocked on something only the user knows — reproduction fails, expected behaviour is ambiguous, environment context is missing — ask directly rather than guessing or working around the gap. In your own words, ask the specific question, with what was tried and why it blocks the trace.
 
 **STOP.** Wait for user response.
 
