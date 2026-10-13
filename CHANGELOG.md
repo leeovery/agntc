@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A constrained update recorded an annotated tag's object sha as the commit; it now records the commit the tag points at.
 - `update` no longer copies through a symlink at or above an install's path in the source; the entry is blocked and left intact.
 - A local source that is a symlink to a folder now installs from the folder it links to.
+- Symlinks inside an installed skill or hook were rewritten to point into the temp clone, which is deleted after the copy. A link within what's installed now stays a relative link, and a link to elsewhere in the repo installs as the file or folder it points at.
 - An `https://user@host/...` URL no longer reads the login as a version.
 - Adding the same `owner/repo` from another host no longer silently replaces an install; it is refused with the remove-then-add remedy. HTTPS and SSH of one repo still count as one source.
 - Printed commands quote versions holding `^` or `~`, so they paste into zsh with extended globbing.

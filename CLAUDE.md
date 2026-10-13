@@ -33,12 +33,12 @@ src/
   install-item.ts           # InstallItem (skill | pack); keyItems assigns keys, refuses target and key clashes
   asset-targets.ts          # Claude asset routing (.claude/skills|agents|hooks), skillTarget
   copy-item.ts              # Copy dispatch: skill vs pack
-  copy-bare-skill.ts        # Recursive copy of one skill folder (strips agntc.json and .git)
+  copy-bare-skill.ts        # Copy of one skill folder through planCopy/writeCopy (drops top-level agntc.json and .git at any depth)
   copy-pack.ts              # Copy a pack: skills flat, agents/*.md, hooks/*; rollback on failure
   copy-rollback.ts          # Link-safe rollback of a partial copy
-  copy-safety.ts            # Pre-flight path-traversal + symlink-escape guards (clone-root boundary)
+  copy-safety.ts            # Path-traversal guard; inspectSourcePath (lstat each segment of a source path); planCopy/writeCopy, the link-safe copy whose plan is also the symlink pre-flight (clone-root boundary)
   compute-incoming-files.ts # Files an item would install; claims + target clashes
-  install-paths.ts          # lstat-only inspection of install paths; assertNoLinkInTheWay; contained-path checks
+  install-paths.ts          # lstat-only inspection of install paths; assertNoLinkInTheWay; contained-path checks; installPathMatcher (paths equal with or without a trailing slash)
   nuke-files.ts             # nukeManifestFiles: strict removal of recorded paths (recursion from the trailing slash); removePathsInTheWay: on-disk removal for approved replacements. Neither follows links; both refuse paths outside the root
   clear-conflicts.ts        # Files in the way under a ConflictPolicy (overwrite | ask | stop)
   collision-check.ts        # Incoming files owned by other entries
@@ -73,7 +73,7 @@ src/
 - `InstallItem`: `{ kind: "skill", skill } | { kind: "pack", pack }`; `KeyedItem` adds the manifest key and `sourceSubpath?`
 - `ConflictPolicy`: `overwrite | ask | stop` — `--overwrite`, else ask at a terminal, else stop the item
 - `ManifestEntry`: Per-entry tracking (ref, commit, installedAt, files, `type?: "skill" | "pack"`, cloneUrl, constraint?, `sourceSubpath?`, `localRoot?` — the folder a local entry was added from)
-- `SourceId`: `remote(cloneUrl) | local(root, exact)` — what "the same source" means for absorption. Remote matches on clone URL; two recorded local roots match only when equal (a checkout nested in another is its own source); a legacy derived root matches when either holds the other
+- `SourceId`: `remote(cloneUrl) | local(root, exact)` — what "the same source" means for absorption and for `add`'s key check. Remote matches on the repo the clone URL names (`host/owner/repo`; protocol, login, port and `.git` aside, so HTTPS and SSH of one repo match); two recorded local roots match only when equal (a checkout nested in another is its own source); a legacy derived root matches when either holds the other
 - `UpdateCheckResult`: Union of update statuses including constrained variants
 - `EntryGroup`: All-mode update group — non-local entries sharing `(cloneUrl, versionIntent = constraint ?? ref)`, resolved and cloned once
 - `GroupTarget`: Per-group resolved target (`constrained | branch | head | tag | check-failed | constrained-no-match`) that each member categorizes against via `categorizeMember`
@@ -91,6 +91,7 @@ src/
 - **Keys.** Root item → source key; loose skill → `<source>/<folder name>` (+ `sourceSubpath` when the path differs); pack → `<source>/<path>`. `keyItems` refuses two items claiming one install path, then two sharing a key.
 - **Identity = folder basename** throughout; frontmatter is display and `--skill` matching only.
 - **Copy-safety** (`copy-safety.ts`, `install-paths.ts`, `nuke-files.ts`): path-traversal + symlink-escape guards before any copy on `add` and `update`; never write or delete through a symlink in the destination (a link in the way is unlinked as a link); recorded paths outside the install root are refused. Shared `.claude/<asset>` roots are not checked.
+- **Links in a source.** A link at or above an item's path blocks it (`add` refuses the start path; `update` blocks before removing anything). Copies are planned (`planCopy`), then written: a link to something the copy holds stays a relative link; a link to anything else in the clone is replaced by what it points at; a link out of the clone, directly or through another link, is refused; dangling links to nothing copied, sockets, FIFOs and devices are left out. A local source resolves to its real folder.
 
 ## Asset Routing
 
