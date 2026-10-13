@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
 	type ChoiceContext,
 	chooseItems,
+	menuOption,
+	offeredItems,
+	optionLine,
 	type Selection,
 	selectionFromFlags,
+	unansweredMenu,
 } from "../src/choose-items.js";
 import type {
 	Discovery,
@@ -91,6 +95,78 @@ describe("selectionFromFlags", () => {
 				ok: false,
 				message: "--skill, --pack and --all can't be combined",
 			},
+		);
+	});
+
+	it("takes --list alone or with --pack", () => {
+		expect(selectionFromFlags({ list: true })).toEqual({
+			ok: true,
+			selection: { kind: "auto" },
+		});
+		expect(selectionFromFlags({ list: true, pack: true })).toEqual({
+			ok: true,
+			selection: { kind: "pack" },
+		});
+	});
+
+	it.each([
+		[{ skill: ["a"] }, "--skill and --list can't be combined"],
+		[{ all: true }, "--all and --list can't be combined"],
+	])("refuses --list with %o", (flags, message) => {
+		expect(selectionFromFlags({ list: true, ...flags })).toEqual({
+			ok: false,
+			message,
+		});
+	});
+});
+
+describe("offeredItems", () => {
+	it("is every pack worth installing, then every loose skill, each by path", () => {
+		const items = offeredItems(
+			found({
+				packs: [pack("z", { assetDirs: ["hooks"] }), pack("empty")],
+				skills: [skill("b"), skill("a")],
+			}),
+		);
+
+		expect(items.map((item) => item.kind)).toEqual(["pack", "skill", "skill"]);
+		expect(
+			items.map((item) =>
+				item.kind === "pack" ? item.pack.path : item.skill.path,
+			),
+		).toEqual(["z", "a", "b"]);
+	});
+});
+
+describe("optionLine", () => {
+	it("puts the hint after the label, when there is one", () => {
+		expect(
+			optionLine(menuOption({ kind: "pack", pack: LARAVEL }, "repo")),
+		).toBe("laravel (pack · 2 skills)");
+		expect(
+			optionLine(
+				menuOption({ kind: "skill", skill: skill("tools/a") }, "repo"),
+			),
+		).toBe("tools/a");
+	});
+});
+
+describe("unansweredMenu", () => {
+	it("names the flags and the path that answer it, then lists what it would have offered", () => {
+		const options = [
+			menuOption({ kind: "pack", pack: LARAVEL }, "repo"),
+			menuOption(
+				{ kind: "skill", skill: skill("a", { description: "Does A\nmore" }) },
+				"repo",
+			),
+		];
+
+		expect(unansweredMenu(options)).toBe(
+			[
+				"found more than one thing to install — name what to install with --skill, --pack or --all, or add the path to one skill or pack:",
+				"  laravel (pack · 2 skills)",
+				"  a (Does A)",
+			].join("\n"),
 		);
 	});
 });

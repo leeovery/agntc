@@ -1,7 +1,7 @@
-import * as p from "@clack/prompts";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { writeManifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
+import type { Ui } from "../ui.js";
 
 export interface RemoveActionResult {
 	removed: boolean;
@@ -13,16 +13,17 @@ export async function executeRemoveAction(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
+	ui: Ui,
 ): Promise<RemoveActionResult> {
 	for (const file of entry.files) {
-		p.log.message(`  ${file}`);
+		ui.log.message(`  ${file}`);
 	}
 
-	const confirmed = await p.confirm({
+	const confirmed = await ui.confirm({
 		message: `Remove ${key}? ${entry.files.length} file(s) will be deleted.`,
 	});
 
-	if (p.isCancel(confirmed) || confirmed !== true) {
+	if (!confirmed) {
 		return { removed: false, message: "Cancelled" };
 	}
 

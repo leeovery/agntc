@@ -7,6 +7,7 @@ import {
 import { errorMessage } from "../errors.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, writeManifest } from "../manifest.js";
+import type { Ui } from "../ui.js";
 import type { VersionOverrides } from "../version-resolve.js";
 
 export interface UpdateActionResult {
@@ -21,16 +22,7 @@ export async function executeUpdateAction(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
-	overrides?: VersionOverrides,
-): Promise<UpdateActionResult> {
-	return runUpdate(key, entry, manifest, projectDir, overrides);
-}
-
-async function runUpdate(
-	key: string,
-	entry: ManifestEntry,
-	manifest: Manifest,
-	projectDir: string,
+	ui: Ui,
 	overrides?: VersionOverrides,
 ): Promise<UpdateActionResult> {
 	const isLocal = entry.commit === null;
@@ -47,7 +39,7 @@ async function runUpdate(
 			};
 		}
 
-		const result = await cloneAndReinstall(prepared.options);
+		const result = await cloneAndReinstall(prepared.options, ui);
 
 		if (isCloneReinstallFailure(result)) {
 			return { success: false, message: failureMessage(result, key) };

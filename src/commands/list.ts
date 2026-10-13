@@ -1,14 +1,15 @@
-import * as p from "@clack/prompts";
 import { Command } from "commander";
-import { withExitSignal } from "../exit-signal.js";
+import { commandAction, jsonOption } from "../command-action.js";
+import { listBody } from "../documents.js";
 import {
 	type Manifest,
 	type ManifestEntry,
 	readManifest,
 	readManifestOrExit,
 } from "../manifest.js";
+import { interactiveUi, type Ui } from "../ui.js";
 import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
-import { checkAllForUpdates } from "../update-check-all.js";
+import { checkAllForUpdates, checkResultFor } from "../update-check-all.js";
 import { executeChangeVersionAction } from "./list-change-version-action.js";
 import { renderDetailView } from "./list-detail.js";
 import { executeRemoveAction } from "./list-remove-action.js";
@@ -45,56 +46,53 @@ function formatStatusHint(result: UpdateCheckResult): string {
 async function showListView(
 	manifest: Manifest,
 	checkResults: Map<string, UpdateCheckResult>,
+	ui: Ui,
 ): Promise<string | null> {
-	const entries = Object.entries(manifest);
+	const options = Object.entries(manifest).map(([key, entry]) => ({
+		value: key,
+		label: formatLabel(key, entry),
+		hint: formatStatusHint(checkResultFor(checkResults, key)),
+	}));
 
-	const options = entries.map(([key, entry]) => {
-		const result = checkResults.get(key) ?? {
-			status: "check-failed" as const,
-			reason: "unknown",
-		};
-		return {
-			value: key,
-			label: formatLabel(key, entry),
-			hint: formatStatusHint(result),
-		};
-	});
-
-	const selected = await p.select<string>({
+	return ui.select<string>({
 		message: "Select a plugin to manage  (Esc when done)",
 		options,
 	});
-
-	if (p.isCancel(selected)) {
-		return null;
-	}
-
-	return selected;
 }
 
-export async function runListLoop(): Promise<void> {
-	p.intro("agntc list");
+/** The dashboard at a terminal; in machine mode, one document of every entry and its update status. */
+export async function runList(ui: Ui = interactiveUi): Promise<void> {
+	if (ui.mode === "machine") {
+		const manifest = await readManifestOrExit(process.cwd(), ui);
+		ui.report(listBody(manifest, await checkAllForUpdates(manifest)));
+		return;
+	}
+	await runListLoop(ui);
+}
+
+export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
+	ui.intro("agntc list");
 
 	const projectDir = process.cwd();
 
 	while (true) {
-		const manifest = await readManifestOrExit(projectDir);
+		const manifest = await readManifestOrExit(projectDir, ui);
 
 		const entries = Object.entries(manifest);
 
 		if (entries.length === 0) {
-			p.outro(
+			ui.outro(
 				"No plugins installed. Run npx agntc add owner/repo to get started.",
 			);
 			return;
 		}
 
-		const spin = p.spinner();
+		const spin = ui.spinner();
 		spin.start("Checking for updates...");
 		const checkResults = await checkAllForUpdates(manifest);
 		spin.stop("Update checks complete.");
 
-		const selectedKey = await showListView(manifest, checkResults);
+		const selectedKey = await showListView(manifest, checkResults, ui);
 
 		if (selectedKey === null) {
 			return;
@@ -117,18 +115,21 @@ export async function runListLoop(): Promise<void> {
 
 			let freshStatus = firstRender ? checkResults.get(selectedKey) : undefined;
 			if (!freshStatus) {
-				const checkSpin = p.spinner();
+				const checkSpin = ui.spinner();
 				checkSpin.start("Checking for updates...");
 				freshStatus = await checkForUpdate(selectedKey, freshEntry);
 				checkSpin.stop("Update check complete.");
 			}
 			firstRender = false;
 
-			const action = await renderDetailView({
-				key: selectedKey,
-				entry: freshEntry,
-				updateStatus: freshStatus,
-			});
+			const action = await renderDetailView(
+				{
+					key: selectedKey,
+					entry: freshEntry,
+					updateStatus: freshStatus,
+				},
+				ui,
+			);
 
 			if (action === "back") break;
 
@@ -138,9 +139,10 @@ export async function runListLoop(): Promise<void> {
 					freshEntry,
 					freshManifest,
 					projectDir,
+					ui,
 				);
 				if (result.removed) {
-					p.log.success(result.message);
+					ui.log.success(result.message);
 				}
 				break;
 			}
@@ -155,13 +157,14 @@ export async function runListLoop(): Promise<void> {
 					freshEntry,
 					freshManifest,
 					projectDir,
+					ui,
 					overrides,
 				);
 				if (result.success) {
-					reportNote(result.note);
-					p.log.success(result.message);
+					reportNote(result.note, ui);
+					ui.log.success(result.message);
 				} else {
-					p.log.error(result.message);
+					ui.log.error(result.message);
 				}
 				continue;
 			}
@@ -172,28 +175,26 @@ export async function runListLoop(): Promise<void> {
 					freshEntry,
 					freshManifest,
 					projectDir,
+					ui,
 				);
 				if (result.changed) {
-					reportNote(result.note);
-					p.log.success(result.message);
+					reportNote(result.note, ui);
+					ui.log.success(result.message);
 				} else if (result.message !== "Cancelled") {
-					p.log.error(result.message);
+					ui.log.error(result.message);
 				}
 			}
 		}
 	}
 }
 
-function reportNote(note: string | undefined): void {
+function reportNote(note: string | undefined, ui: Ui): void {
 	if (note !== undefined) {
-		p.log.info(note);
+		ui.note(note);
 	}
 }
 
 export const listCommand = new Command("list")
 	.description("List installed plugins")
-	.action(
-		withExitSignal(async () => {
-			await runListLoop();
-		}),
-	);
+	.addOption(jsonOption())
+	.action(commandAction("list", (ui) => runList(ui)));

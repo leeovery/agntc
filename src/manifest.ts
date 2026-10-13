@@ -1,10 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import * as p from "@clack/prompts";
 import { identifyAssetType, targetDir } from "./asset-targets.js";
 import { errorMessage, isNodeError } from "./errors.js";
-import { ExitSignal } from "./exit-signal.js";
+import type { Ui } from "./ui.js";
 
 /** What an entry installed: one skill, or a pack of skills, agents and hooks. */
 export type EntryType = "skill" | "pack";
@@ -157,7 +156,7 @@ export async function writeManifest(
 	const dirPath = join(projectDir, AGNTC_DIR);
 	await mkdir(dirPath, { recursive: true });
 
-	const content = JSON.stringify(manifest, null, 2) + "\n";
+	const content = `${JSON.stringify(manifest, null, 2)}\n`;
 	const tempPath = join(dirPath, `.manifest-${randomUUID()}.tmp`);
 
 	await writeFile(tempPath, content, "utf-8");
@@ -179,9 +178,11 @@ export function removeEntry(manifest: Manifest, key: string): Manifest {
 
 export async function readManifestOrExit(
 	projectDir: string,
+	ui: Ui,
 ): Promise<Manifest> {
-	return readManifest(projectDir).catch((err: unknown) => {
-		p.log.error(`Failed to read manifest: ${errorMessage(err)}`);
-		throw new ExitSignal(1);
-	});
+	return readManifest(projectDir).catch((err: unknown) =>
+		ui.fail(`Failed to read manifest: ${errorMessage(err)}`, {
+			style: "error",
+		}),
+	);
 }

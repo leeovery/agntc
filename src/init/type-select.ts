@@ -1,9 +1,9 @@
-import { isCancel, select } from "@clack/prompts";
+import type { Ui } from "../ui.js";
 
 export type InitType = "skill" | "plugin" | "collection";
 
-export async function selectInitType(): Promise<InitType | null> {
-	const result = await select<InitType>({
+export async function selectInitType(ui: Ui): Promise<InitType | null> {
+	return ui.select<InitType>({
 		message: "What are you creating?",
 		options: [
 			{
@@ -23,10 +23,4 @@ export async function selectInitType(): Promise<InitType | null> {
 			},
 		],
 	});
-
-	if (isCancel(result)) {
-		return null;
-	}
-
-	return result;
 }

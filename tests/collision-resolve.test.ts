@@ -18,8 +18,12 @@ vi.mock("../src/nuke-files.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { resolveCollisions } from "../src/collision-resolve.js";
+import {
+	removeCollidingEntries,
+	resolveCollisions,
+} from "../src/collision-resolve.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
+import { interactiveUi } from "../src/ui.js";
 
 const mockedNote = vi.mocked(p.note);
 const mockedSelect = vi.mocked(p.select);
@@ -41,7 +45,12 @@ describe("resolveCollisions", () => {
 		};
 		const collisions = new Map<string, string[]>();
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(true);
 		expect(result.updatedManifest).toEqual(manifest);
@@ -69,7 +78,12 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(true);
 		// repo-a should be removed from manifest
@@ -100,7 +114,12 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(false);
 		// Manifest unchanged
@@ -138,7 +157,12 @@ describe("resolveCollisions", () => {
 		mockedSelect.mockResolvedValueOnce("remove");
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(true);
 		expect(result.updatedManifest["owner/repo-a"]).toBeUndefined();
@@ -180,7 +204,12 @@ describe("resolveCollisions", () => {
 		mockedSelect.mockResolvedValueOnce("remove");
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		// Cancel stops everything
 		expect(result.resolved).toBe(false);
@@ -215,7 +244,12 @@ describe("resolveCollisions", () => {
 		// Clack returns symbol when user presses Ctrl+C
 		mockedSelect.mockResolvedValueOnce(Symbol("cancel") as unknown as string);
 
-		const result = await resolveCollisions(collisions, manifest, "/project");
+		const result = await resolveCollisions(
+			collisions,
+			manifest,
+			"/project",
+			interactiveUi,
+		);
 
 		expect(result.resolved).toBe(false);
 		expect(mockedNuke).not.toHaveBeenCalled();
@@ -239,7 +273,7 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		expect(mockedNote).toHaveBeenCalledWith(
 			"  - .claude/skills/skill-a/\n  - .claude/agents/executor.md",
@@ -266,7 +300,7 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		const call = mockedSelect.mock.calls[0]!;
 		const { message } = call[0] as { message: string };
@@ -297,7 +331,7 @@ describe("resolveCollisions", () => {
 		mockedSelect.mockResolvedValueOnce("remove");
 		mockedSelect.mockResolvedValueOnce("remove");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		expect(mockedNote).toHaveBeenCalledTimes(2);
 		expect(mockedNote).toHaveBeenNthCalledWith(
@@ -327,7 +361,7 @@ describe("resolveCollisions", () => {
 
 		mockedSelect.mockResolvedValueOnce("cancel");
 
-		await resolveCollisions(collisions, manifest, "/project");
+		await resolveCollisions(collisions, manifest, "/project", interactiveUi);
 
 		// Verify the options passed to select do NOT include "install-anyway"
 		const call = mockedSelect.mock.calls[0]!;
@@ -336,5 +370,49 @@ describe("resolveCollisions", () => {
 		expect(values).not.toContain("install-anyway");
 		expect(values).toContain("remove");
 		expect(values).toContain("cancel");
+	});
+});
+
+describe("removeCollidingEntries", () => {
+	const entry = (files: string[]) => ({
+		ref: "main",
+		commit: "abc123",
+		installedAt: "2026-01-15T10:00:00.000Z",
+		files,
+	});
+
+	it("deletes each named entry's files and drops it from the manifest, asking nothing", async () => {
+		const manifest: Manifest = {
+			"owner/repo-a": entry([".claude/skills/a/"]),
+			"owner/repo-b": entry([".claude/skills/b/"]),
+			"owner/repo-c": entry([".claude/skills/c/"]),
+		};
+
+		const result = await removeCollidingEntries(
+			["owner/repo-a", "owner/repo-b"],
+			manifest,
+			"/project",
+		);
+
+		expect(result).toEqual({ "owner/repo-c": manifest["owner/repo-c"] });
+		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/a/"]);
+		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/b/"]);
+		expect(mockedSelect).not.toHaveBeenCalled();
+		expect(mockedNote).not.toHaveBeenCalled();
+	});
+
+	it("passes over a key the manifest no longer holds", async () => {
+		const manifest: Manifest = {
+			"owner/repo-a": entry([".claude/skills/a/"]),
+		};
+
+		const result = await removeCollidingEntries(
+			["owner/gone"],
+			manifest,
+			"/project",
+		);
+
+		expect(result).toEqual(manifest);
+		expect(mockedNuke).not.toHaveBeenCalled();
 	});
 });

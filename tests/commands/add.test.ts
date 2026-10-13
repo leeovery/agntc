@@ -31,7 +31,8 @@ vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
 }));
 
-vi.mock("../../src/collision-resolve.js", () => ({
+vi.mock("../../src/collision-resolve.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/collision-resolve.js")>()),
 	resolveCollisions: vi.fn(),
 }));
 
@@ -58,7 +59,9 @@ import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
 import type { EntryType, Manifest, ManifestEntry } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { interactiveUi } from "../../src/ui.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const actualNuke = await vi.importActual<
 	typeof import("../../src/nuke-files.js")
@@ -647,9 +650,10 @@ describe("add command", () => {
 
 			await runAdd("owner/repo/p");
 
-			expect(mockResolveUnmanaged).toHaveBeenCalledWith([
-				{ pluginKey: "owner/repo/p", files: [".claude/agents/x.md"] },
-			]);
+			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
+				[{ pluginKey: "owner/repo/p", files: [".claude/agents/x.md"] }],
+				interactiveUi,
+			);
 			expect(mockNuke).not.toHaveBeenCalled();
 			expect(
 				await readFile(join(projectDir, ".claude/skills/s/SKILL.md"), "utf-8"),
@@ -763,9 +767,10 @@ describe("add command", () => {
 
 			await runAdd("owner/repo");
 
-			expect(mockResolveUnmanaged).toHaveBeenCalledWith([
-				{ pluginKey: "owner/repo/a", files: [".claude/skills/a/"] },
-			]);
+			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
+				[{ pluginKey: "owner/repo/a", files: [".claude/skills/a/"] }],
+				interactiveUi,
+			);
 			expect(
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
 			).toBe("mine");
@@ -842,6 +847,391 @@ describe("add command", () => {
 				spin.start.mock.calls.map(([text]) => text),
 			);
 			expect(started).toEqual(["Cloning repository..."]);
+		});
+	});
+	describe("--overwrite", () => {
+		beforeEach(async () => {
+			await upstream({ "a/SKILL.md": "new" });
+		});
+
+		it("replaces another entry's files without asking, removing that entry", async () => {
+			await write(projectDir, { ".claude/skills/a/SKILL.md": "theirs" });
+			await seedManifest({
+				"other/repo": installedEntry([
+					".claude/skills/a/",
+					".claude/skills/z/",
+				]),
+			});
+
+			await runAdd("owner/repo", { overwrite: true });
+
+			expect(mockResolveCollisions).not.toHaveBeenCalled();
+			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+			expect(
+				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
+			).toBe("new");
+		});
+
+		it("replaces files agntc didn't install without asking", async () => {
+			await write(projectDir, { ".claude/skills/a/SKILL.md": "mine" });
+
+			await runAdd("owner/repo", { overwrite: true });
+
+			expect(mockResolveUnmanaged).not.toHaveBeenCalled();
+			expect(
+				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
+			).toBe("new");
+			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+		});
+
+		it("replaces another entry's files without a terminal", async () => {
+			await write(projectDir, { ".claude/skills/a/SKILL.md": "theirs" });
+			await seedManifest({
+				"other/repo": installedEntry([".claude/skills/a/"]),
+			});
+
+			const run = await runMachine(addCommand, ["owner/repo", "--overwrite"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({
+				ok: true,
+				items: [{ key: "owner/repo/a", status: "installed" }],
+			});
+			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+			expect(
+				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
+			).toBe("new");
+		});
+
+		it("replaces files agntc didn't install without a terminal", async () => {
+			await write(projectDir, { ".claude/skills/a/SKILL.md": "mine" });
+
+			const run = await runMachine(addCommand, ["owner/repo", "--overwrite"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({
+				ok: true,
+				items: [{ key: "owner/repo/a", status: "installed" }],
+			});
+			expect(mockResolveUnmanaged).not.toHaveBeenCalled();
+			expect(
+				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
+			).toBe("new");
+		});
+
+		describe("left off, without a terminal", () => {
+			beforeEach(async () => {
+				await upstream({ "b/SKILL.md": "" });
+			});
+
+			it("stops an item whose files belong to another entry, naming the flag, and installs the rest", async () => {
+				await write(projectDir, { ".claude/skills/a/SKILL.md": "theirs" });
+				await seedManifest({
+					"other/repo": installedEntry([".claude/skills/a/"]),
+				});
+
+				const run = await runMachine(addCommand, ["owner/repo", "--all"]);
+
+				expect(run.exitCode).toBe(1);
+				expect(run.document.ok).toBe(false);
+				expect(run.document.items).toEqual([
+					{
+						key: "owner/repo/a",
+						type: "skill",
+						path: "a",
+						status: "skipped",
+						reason: "files in the way belong to other/repo: .claude/skills/a/",
+						flags: ["--overwrite"],
+					},
+					expect.objectContaining({
+						key: "owner/repo/b",
+						status: "installed",
+					}),
+				]);
+				expect(mockResolveCollisions).not.toHaveBeenCalled();
+				expect(Object.keys(await manifest()).sort()).toEqual([
+					"other/repo",
+					"owner/repo/b",
+				]);
+				expect(
+					await readFile(
+						join(projectDir, ".claude/skills/a/SKILL.md"),
+						"utf-8",
+					),
+				).toBe("theirs");
+			});
+
+			it("stops an item whose files agntc didn't install, naming the flag, and installs the rest", async () => {
+				await write(projectDir, { ".claude/skills/a/SKILL.md": "mine" });
+
+				const run = await runMachine(addCommand, ["owner/repo", "--all"]);
+
+				expect(run.exitCode).toBe(1);
+				expect(run.document.items).toEqual([
+					{
+						key: "owner/repo/a",
+						type: "skill",
+						path: "a",
+						status: "skipped",
+						reason:
+							"files in the way weren't installed by agntc: .claude/skills/a/",
+						flags: ["--overwrite"],
+					},
+					expect.objectContaining({
+						key: "owner/repo/b",
+						status: "installed",
+					}),
+				]);
+				expect(mockResolveUnmanaged).not.toHaveBeenCalled();
+				expect(
+					await readFile(
+						join(projectDir, ".claude/skills/a/SKILL.md"),
+						"utf-8",
+					),
+				).toBe("mine");
+			});
+		});
+	});
+
+	describe("--list", () => {
+		beforeEach(async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/s/SKILL.md": "",
+				"p/hooks/h.sh": "",
+				"tools/a/SKILL.md": "---\ndescription: Does A\n---\n",
+				"agents/x.md": "",
+			});
+		});
+
+		it("shows each pack with its skill count and each skill with its description, installing nothing", async () => {
+			await runAdd("owner/repo@v1.0.0", { list: true });
+
+			expect(mockCloneSource).toHaveBeenCalledWith(
+				expect.objectContaining({ ref: "v1.0.0" }),
+			);
+			expect(mockLog.message).toHaveBeenCalledWith(
+				"p (pack · 1 skill)\ntools/a (Does A)",
+			);
+			expect(logged("warn")).toEqual([
+				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo@v1.0.0 --pack",
+			]);
+			expect(mockOutro).toHaveBeenCalledWith(
+				"owner/repo@v1.0.0 holds 1 pack and 1 skill",
+			);
+			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(await installed(".agntc")).toBe(false);
+			expect(await installed(".claude")).toBe(false);
+		});
+
+		it("prints the listing as one document without a terminal", async () => {
+			mockFetchRemoteTags.mockResolvedValue(["v1.2.0"]);
+
+			const run = await runMachine(addCommand, ["owner/repo", "--list"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "add",
+				source: "owner/repo",
+				ref: "v1.2.0",
+				commit: SHA,
+				constraint: "^1.2.0",
+				packs: [
+					{
+						name: "p",
+						path: "p",
+						skillCount: 1,
+						skills: [{ name: "s", path: "p/skills/s", description: null }],
+						assetDirs: ["hooks"],
+					},
+				],
+				skills: [{ name: "a", path: "tools/a", description: "Does A" }],
+				strays: [{ path: "", assetDirs: ["agents"] }],
+				warnings: [],
+				notes: [],
+			});
+			expect(clackCalls(p)).toEqual([]);
+			expect(await installed(".claude")).toBe(false);
+		});
+
+		it("reads only the path given", async () => {
+			const run = await runMachine(addCommand, ["owner/repo/tools", "--list"]);
+
+			expect(run.document).toMatchObject({
+				source: "owner/repo",
+				packs: [],
+				skills: [{ name: "a", path: "tools/a" }],
+				strays: [],
+			});
+		});
+
+		it("reads the path as one pack with --pack", async () => {
+			const run = await runMachine(addCommand, [
+				"owner/repo/tools",
+				"--list",
+				"--pack",
+			]);
+
+			expect(run.document).toMatchObject({
+				packs: [{ name: "tools", path: "tools", skillCount: 1 }],
+				skills: [],
+			});
+		});
+
+		it.each([
+			[{ skill: ["a"] }, "--skill and --list can't be combined"],
+			[{ all: true }, "--all and --list can't be combined"],
+		])("refuses %o alongside it before reading the source", async (flags, message) => {
+			const code = await exitCode(
+				runAdd("owner/repo", { list: true, ...flags }),
+			);
+
+			expect(code).toBe(1);
+			expect(cancelled()).toEqual([message]);
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("without a terminal", () => {
+		it("prints one document of what it installed, and never touches clack", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/s/SKILL.md": "",
+				"a/SKILL.md": "",
+			});
+			mockFetchRemoteTags.mockResolvedValue(["v1.2.0"]);
+
+			const run = await runMachine(addCommand, ["owner/repo", "--all"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "add",
+				source: "owner/repo",
+				ref: "v1.2.0",
+				commit: SHA,
+				constraint: "^1.2.0",
+				items: [
+					{
+						key: "owner/repo/p",
+						type: "pack",
+						path: "p",
+						status: "installed",
+						files: [".claude/skills/s/"],
+					},
+					{
+						key: "owner/repo/a",
+						type: "skill",
+						path: "a",
+						status: "installed",
+						files: [".claude/skills/a/"],
+					},
+				],
+				warnings: [],
+				notes: [],
+			});
+			expect(clackCalls(p)).toEqual([]);
+		});
+
+		it("installs the one thing found without asking", async () => {
+			await upstream({ "a/SKILL.md": "" });
+
+			const run = await runMachine(addCommand, ["owner/repo"]);
+
+			expect(run.document.ok).toBe(true);
+			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+		});
+
+		it("refuses to guess when several things are found, naming the flags and listing what was found", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/s/SKILL.md": "",
+				"a/SKILL.md": "---\ndescription: Does A\n---\n",
+			});
+
+			const run = await runMachine(addCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document.error).toEqual({
+				message:
+					"owner/repo: found more than one thing to install — name what to install with --skill, --pack or --all, or add the path to one skill or pack:\n  p (pack · 1 skill)\n  a (Does A)",
+				flags: ["--skill", "--pack", "--all"],
+			});
+			expect(run.document).toMatchObject({
+				ok: false,
+				packs: [{ name: "p", path: "p", skillCount: 1 }],
+				skills: [{ name: "a", path: "a", description: "Does A" }],
+			});
+			expect(clackCalls(p)).toEqual([]);
+			expect(await installed(".agntc")).toBe(false);
+		});
+
+		it("reports each item when some install and some fail, exiting 1", async () => {
+			await upstream({ "good/SKILL.md": "", "bad/SKILL.md": "" });
+			await write(testDir, { "secret.txt": "" });
+			await symlink(join(testDir, "secret.txt"), join(upstreamDir, "bad/leak"));
+
+			const run = await runMachine(addCommand, ["owner/repo", "--all"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document.ok).toBe(false);
+			expect(run.document.items).toEqual([
+				{
+					key: "owner/repo/bad",
+					type: "skill",
+					path: "bad",
+					status: "failed",
+					reason: expect.stringMatching(/^symlink "leak"/),
+				},
+				expect.objectContaining({
+					key: "owner/repo/good",
+					status: "installed",
+				}),
+			]);
+		});
+
+		it("prints an error document when the clone fails", async () => {
+			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
+
+			const run = await runMachine(addCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "add",
+				error: { message: "git clone failed" },
+				warnings: [],
+				notes: [],
+			});
+		});
+
+		it("carries stray notices and malformed config warnings as warnings, and notes as notes", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/a/SKILL.md": "",
+				"p/skills/b/SKILL.md": "",
+				"x/agntc.json": "{not json",
+				"agents/x.md": "",
+			});
+
+			const run = await runMachine(addCommand, ["owner/repo", "--skill", "a"]);
+
+			expect(run.document.warnings).toEqual([
+				expect.stringMatching(/^Ignoring malformed agntc\.json/),
+				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo --pack",
+			]);
+			expect(run.document.notes).toEqual([
+				"a is part of the pack p — installed on its own, without b",
+			]);
+		});
+
+		it("notes that --plugin is now --pack", async () => {
+			await upstream({ "skills/a/SKILL.md": "" });
+
+			const run = await runMachine(addCommand, ["owner/repo", "--plugin"]);
+
+			expect(run.document.notes).toEqual(["--plugin is now --pack"]);
 		});
 	});
 });

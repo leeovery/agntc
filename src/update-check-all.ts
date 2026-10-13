@@ -3,6 +3,14 @@ import type { Manifest } from "./manifest.js";
 import type { UpdateCheckResult } from "./update-check.js";
 import { checkForUpdate } from "./update-check.js";
 
+/** A key's result from {@link checkAllForUpdates}, read as failed when missing. */
+export function checkResultFor(
+	checks: Map<string, UpdateCheckResult>,
+	key: string,
+): UpdateCheckResult {
+	return checks.get(key) ?? { status: "check-failed", reason: "unknown" };
+}
+
 export async function checkAllForUpdates(
 	manifest: Manifest,
 ): Promise<Map<string, UpdateCheckResult>> {

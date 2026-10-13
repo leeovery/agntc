@@ -26,6 +26,8 @@ export interface SelectionFlags {
 	pack?: boolean;
 	plugin?: boolean;
 	all?: boolean;
+	/** Show what the source holds instead of installing. */
+	list?: boolean;
 }
 
 export type SelectionResult =
@@ -58,7 +60,10 @@ export interface Choice {
 	outcome: ChoiceOutcome;
 }
 
-/** Turns the add flags into a selection, refusing any two that clash. */
+/**
+ * Turns the add flags into a selection, refusing any two that clash. `--list`
+ * shows what `add` would read, so of the selectors it takes only `--pack`.
+ */
 export function selectionFromFlags(flags: SelectionFlags): SelectionResult {
 	const packFlag = flags.pack ? "--pack" : flags.plugin ? "--plugin" : null;
 	const given = [
@@ -66,9 +71,13 @@ export function selectionFromFlags(flags: SelectionFlags): SelectionResult {
 		packFlag,
 		flags.all ? "--all" : null,
 	].filter((flag) => flag !== null);
+	const [selector] = given;
 
 	if (given.length > 1) {
-		return { ok: false, message: `${joinWithAnd(given)} can't be combined` };
+		return clash(given);
+	}
+	if (flags.list && selector !== undefined && selector !== packFlag) {
+		return clash([selector, "--list"]);
 	}
 	if (flags.skill !== undefined) {
 		return { ok: true, selection: { kind: "skills", names: flags.skill } };
@@ -77,6 +86,10 @@ export function selectionFromFlags(flags: SelectionFlags): SelectionResult {
 		return { ok: true, selection: { kind: "pack" } };
 	}
 	return { ok: true, selection: { kind: flags.all ? "all" : "auto" } };
+}
+
+function clash(flags: string[]): SelectionResult {
+	return { ok: false, message: `${joinWithAnd(flags)} can't be combined` };
 }
 
 /**
@@ -89,9 +102,17 @@ export function chooseItems(
 	ctx: ChoiceContext,
 ): Choice {
 	return {
-		strayNotices: discovery.strays.map((stray) => strayNotice(stray, ctx)),
+		strayNotices: strayNotices(discovery, ctx),
 		outcome: decide(discovery, selection, ctx),
 	};
+}
+
+/** One notice per folder whose agents or hooks won't be installed, with the `--pack` line that would. */
+export function strayNotices(
+	discovery: Discovery,
+	ctx: ChoiceContext,
+): string[] {
+	return discovery.strays.map((stray) => strayNotice(stray, ctx));
 }
 
 function decide(
@@ -146,14 +167,14 @@ function chooseSkills(
 }
 
 function chooseAll(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
-	const items = candidates(discovery);
+	const items = offeredItems(discovery);
 	return items.length === 0
 		? refuse(nothingToInstall(discovery, ctx))
 		: install(items);
 }
 
 function chooseAuto(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
-	const items = candidates(discovery);
+	const items = offeredItems(discovery);
 	const [only] = items;
 	if (only === undefined) {
 		return refuse(nothingToInstall(discovery, ctx));
@@ -167,8 +188,11 @@ function chooseAuto(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
 	};
 }
 
-/** Every pack worth installing, by path, then every loose skill, by path. */
-function candidates(discovery: Discovery): InstallItem[] {
+/**
+ * Every pack worth installing, by path, then every loose skill, by path: what
+ * the menu offers, `--all` installs and `--list` shows.
+ */
+export function offeredItems(discovery: Discovery): InstallItem[] {
 	const packs = discovery.packs
 		.filter((pack) => !isEmptyPack(pack))
 		.sort(byPath)
@@ -179,13 +203,27 @@ function candidates(discovery: Discovery): InstallItem[] {
 	return [...packs, ...skills];
 }
 
-function menuOption(item: InstallItem, rootName: string): MenuOption {
+export function menuOption(item: InstallItem, rootName: string): MenuOption {
 	const label = itemLabel(item, rootName);
 	const hint =
 		item.kind === "pack"
 			? `pack · ${pluralize(item.pack.skills.length, "skill")}`
 			: item.skill.description?.split("\n")[0]?.trim();
 	return { value: item, label, ...(hint ? { hint } : {}) };
+}
+
+/** A menu option as one line of text, for when there's no menu to show it in. */
+export function optionLine({ label, hint }: MenuOption): string {
+	return hint === undefined ? label : `${label} (${hint})`;
+}
+
+/** Why a menu can't stand in for a person, listing what it would have offered. */
+export function unansweredMenu(options: MenuOption[]): string {
+	const found = options.map((option) => `  ${optionLine(option)}`);
+	return [
+		"found more than one thing to install — name what to install with --skill, --pack or --all, or add the path to one skill or pack:",
+		...found,
+	].join("\n");
 }
 
 function nothingToInstall(discovery: Discovery, ctx: ChoiceContext): string {

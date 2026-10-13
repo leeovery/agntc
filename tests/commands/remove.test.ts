@@ -30,9 +30,11 @@ vi.mock("../../src/nuke-files.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { runRemove } from "../../src/commands/remove.js";
+import { removeCommand, runRemove } from "../../src/commands/remove.js";
 import { readManifestOrExit, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { interactiveUi } from "../../src/ui.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockWriteManifest = vi.mocked(writeManifest);
@@ -535,7 +537,10 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo");
 
-			expect(mockReadManifestOrExit).toHaveBeenCalledWith("/fake/project");
+			expect(mockReadManifestOrExit).toHaveBeenCalledWith(
+				"/fake/project",
+				interactiveUi,
+			);
 		});
 	});
 
@@ -979,6 +984,146 @@ describe("remove command", () => {
 			await runRemove("owner/repo");
 
 			expect(mockLog.info).not.toHaveBeenCalled();
+		});
+	});
+	describe("-y", () => {
+		const manifest: Manifest = {
+			"owner/repo/go": {
+				ref: "v1.0.0",
+				commit: "def456",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/go/"],
+				type: "skill",
+				cloneUrl: null,
+			},
+			"other/plugin": {
+				ref: null,
+				commit: "xyz789",
+				installedAt: "2026-01-15T10:00:00.000Z",
+				files: [".claude/skills/other/"],
+				cloneUrl: null,
+			},
+		};
+
+		beforeEach(() => {
+			mockReadManifestOrExit.mockResolvedValue(manifest);
+		});
+
+		it("is taken as -y and --yes", () => {
+			const option = removeCommand.options.find((o) => o.long === "--yes");
+			expect(option?.short).toBe("-y");
+		});
+
+		it("removes without asking at a terminal", async () => {
+			await runRemove("owner/repo/go", { yes: true });
+
+			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockOutro).toHaveBeenCalledWith(
+				"Removed owner/repo/go — 1 file(s)",
+			);
+		});
+
+		it("removes without a terminal, printing one document of what went", async () => {
+			const run = await runMachine(removeCommand, ["owner/repo/go", "-y"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "remove",
+				removed: [
+					{
+						key: "owner/repo/go",
+						type: "skill",
+						ref: "v1.0.0",
+						commit: "def456",
+						constraint: null,
+						files: [".claude/skills/go/"],
+					},
+				],
+				warnings: [],
+				notes: [],
+			});
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+				"other/plugin": manifest["other/plugin"],
+			});
+			expect(clackCalls(p)).toEqual([]);
+		});
+
+		it("left off without a terminal, refuses before deleting anything, naming -y", async () => {
+			const run = await runMachine(removeCommand, ["owner/repo/go"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "remove",
+				error: {
+					message: "removing owner/repo/go deletes 1 file(s) — confirm with -y",
+					flags: ["-y"],
+				},
+				warnings: [],
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(clackCalls(p)).toEqual([]);
+		});
+	});
+
+	describe("without a terminal", () => {
+		it("refuses with no key, naming the key argument, since it can't show the list", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": {
+					ref: null,
+					commit: "abc123",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: [".claude/skills/my-skill/"],
+				},
+			});
+
+			const run = await runMachine(removeCommand, ["-y"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document.error).toEqual({
+				message:
+					"remove needs the key of what to remove without a terminal: npx agntc remove <key>",
+				flags: ["<key>"],
+			});
+			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("prints an error document for a key that isn't installed", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": {
+					ref: null,
+					commit: "abc123",
+					installedAt: "2026-01-15T10:00:00.000Z",
+					files: [".claude/skills/my-skill/"],
+				},
+			});
+
+			const run = await runMachine(removeCommand, ["nope/repo", "-y"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "remove",
+				error: { message: "Plugin nope/repo is not installed." },
+				warnings: [],
+				notes: [],
+			});
+		});
+
+		it("reports nothing removed when nothing is installed", async () => {
+			mockReadManifestOrExit.mockResolvedValue({});
+
+			const run = await runMachine(removeCommand, []);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({ ok: true, removed: [] });
 		});
 	});
 });

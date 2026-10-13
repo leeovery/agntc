@@ -26,6 +26,7 @@ import * as p from "@clack/prompts";
 import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
 import { writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { interactiveUi } from "../../src/ui.js";
 
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
@@ -47,7 +48,13 @@ describe("executeRemoveAction", () => {
 			const manifest: Manifest = { "owner/repo": entry };
 			mockConfirm.mockResolvedValue(false);
 
-			await executeRemoveAction("owner/repo", entry, manifest, "/fake/project");
+			await executeRemoveAction(
+				"owner/repo",
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockLog.message).toHaveBeenCalledWith(
 				"  .claude/skills/my-skill/",
@@ -66,7 +73,13 @@ describe("executeRemoveAction", () => {
 			const manifest: Manifest = { "owner/repo": entry };
 			mockConfirm.mockResolvedValue(false);
 
-			await executeRemoveAction("owner/repo", entry, manifest, "/fake/project");
+			await executeRemoveAction(
+				"owner/repo",
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockConfirm).toHaveBeenCalledWith({
 				message: "Remove owner/repo? 3 file(s) will be deleted.",
@@ -93,6 +106,7 @@ describe("executeRemoveAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.removed).toBe(true);
@@ -118,6 +132,7 @@ describe("executeRemoveAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.removed).toBe(true);
@@ -136,6 +151,7 @@ describe("executeRemoveAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.removed).toBe(false);
@@ -156,6 +172,7 @@ describe("executeRemoveAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.removed).toBe(false);
@@ -177,7 +194,13 @@ describe("executeRemoveAction", () => {
 			};
 			mockConfirm.mockResolvedValue(true);
 
-			await executeRemoveAction("owner/repo", entry, manifest, "/fake/project");
+			await executeRemoveAction(
+				"owner/repo",
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
 				"other/plugin": otherEntry,
@@ -192,7 +215,13 @@ describe("executeRemoveAction", () => {
 			const manifest: Manifest = { "owner/repo": entry };
 			mockConfirm.mockResolvedValue(true);
 
-			await executeRemoveAction("owner/repo", entry, manifest, "/fake/project");
+			await executeRemoveAction(
+				"owner/repo",
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
 		});
@@ -209,6 +238,7 @@ describe("executeRemoveAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.message).toBe("Removed owner/repo");
@@ -226,6 +256,7 @@ describe("executeRemoveAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.message).toBe("Cancelled");

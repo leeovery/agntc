@@ -30,15 +30,23 @@ export function formatAssetCounts(counts: AssetCounts): string {
 		.join(", ");
 }
 
-/** What became of one item `add` set out to install. */
-export type ItemOutcome =
-	| {
-			label: string;
-			status: "installed";
-			kind: "skill" | "pack";
-			assetCounts: AssetCounts;
-	  }
-	| { label: string; status: "skipped" | "failed"; reason: string };
+/** Which item an add outcome is about. */
+export interface ItemIdentity {
+	label: string;
+	key: string;
+	kind: "skill" | "pack";
+	path: string;
+}
+
+/**
+ * What became of one item `add` set out to install. A skipped item carrying
+ * `flags` was stopped for want of them, with no terminal to ask.
+ */
+export type ItemOutcome = ItemIdentity &
+	(
+		| { status: "installed"; assetCounts: AssetCounts; files: string[] }
+		| { status: "skipped" | "failed"; reason: string; flags?: string[] }
+	);
 
 interface AddSummaryInput {
 	sourceKey: string;

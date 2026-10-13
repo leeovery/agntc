@@ -1,7 +1,8 @@
-import * as p from "@clack/prompts";
 import { Command } from "commander";
 import { type AssetType, identifyAssetType } from "../asset-targets.js";
-import { ExitSignal, withExitSignal } from "../exit-signal.js";
+import { commandAction, jsonOption } from "../command-action.js";
+import { removeBody } from "../documents.js";
+import { ExitSignal } from "../exit-signal.js";
 import {
 	type Manifest,
 	readManifestOrExit,
@@ -10,27 +11,33 @@ import {
 import { nukeManifestFiles } from "../nuke-files.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
 import { renderRemoveSummary } from "../summary.js";
+import { interactiveUi, type Ui } from "../ui.js";
 
-async function selectPluginsInteractive(manifest: Manifest): Promise<string[]> {
-	const entries = Object.entries(manifest);
+export interface RemoveOptions {
+	/** Remove without asking for confirmation. */
+	yes?: boolean;
+}
 
-	const options = entries.map(([key, entry]) => ({
+interface Targets {
+	keys: string[];
+	summaryLabel: string;
+}
+
+async function selectPluginsInteractive(
+	manifest: Manifest,
+	ui: Ui,
+): Promise<string[]> {
+	const options = Object.entries(manifest).map(([key, entry]) => ({
 		value: key,
 		label: key,
 		hint: entry.ref ?? "HEAD",
 	}));
 
-	const result = await p.multiselect<string>({
+	return ui.multiselect<string>({
 		message: "Select plugins to remove",
 		options,
 		required: false,
 	});
-
-	if (p.isCancel(result)) {
-		return [];
-	}
-
-	return result;
 }
 
 interface FileGroup {
@@ -73,99 +80,129 @@ function groupFilesByType(files: string[]): FileGroup[] {
 	return result;
 }
 
-export async function runRemove(key?: string): Promise<void> {
-	p.intro("agntc remove");
+export async function runRemove(
+	key?: string,
+	options: RemoveOptions = {},
+	ui: Ui = interactiveUi,
+): Promise<void> {
+	ui.intro("agntc remove");
 
 	const projectDir = process.cwd();
 
-	const manifest = await readManifestOrExit(projectDir);
+	const manifest = await readManifestOrExit(projectDir, ui);
 
-	const entries = Object.entries(manifest);
-
-	if (entries.length === 0) {
-		p.outro("No plugins installed.");
+	if (Object.keys(manifest).length === 0) {
+		ui.outro("No plugins installed.");
+		ui.report(removeBody([], manifest));
 		return;
 	}
 
-	let targetKeys: string[];
-	let summaryLabel: string;
+	const targets =
+		key !== undefined
+			? targetsForKey(key, manifest, ui)
+			: await pickTargets(manifest, ui);
 
-	if (key !== undefined) {
-		targetKeys = resolveTargetKeys(key, manifest);
-		summaryLabel = targetKeys.length === 1 ? targetKeys[0]! : key;
-	} else {
-		const selected = await selectPluginsInteractive(manifest);
-		if (selected.length === 0) {
-			p.cancel("Cancelled");
-			throw new ExitSignal(0);
-		}
-		targetKeys = selected;
-		summaryLabel =
-			targetKeys.length === 1
-				? targetKeys[0]!
-				: `${targetKeys.length} plugin(s)`;
-	}
+	const allFiles = targets.keys.flatMap((k) => manifest[k]?.files ?? []);
 
-	// Gather all files across target plugins
-	const allFiles = targetKeys.flatMap((k) => manifest[k]?.files ?? []);
-
-	// List affected plugins for collection prefix matches
-	if (key !== undefined && targetKeys.length > 1) {
-		for (const k of targetKeys) {
-			p.log.info(k);
+	if (key !== undefined && targets.keys.length > 1) {
+		for (const k of targets.keys) {
+			ui.log.info(k);
 		}
 	}
 
-	// Group files by type
-	const grouped = groupFilesByType(allFiles);
-	for (const group of grouped) {
-		p.log.message(group.header);
+	for (const group of groupFilesByType(allFiles)) {
+		ui.log.message(group.header);
 		for (const file of group.files) {
-			p.log.message(`  ${file}`);
+			ui.log.message(`  ${file}`);
 		}
 	}
 
-	// Confirm
-	const confirmed = await p.confirm({
-		message: `Remove ${summaryLabel}? ${allFiles.length} file(s) will be deleted.`,
-	});
+	await confirmRemoval(targets.summaryLabel, allFiles.length, options, ui);
 
-	if (p.isCancel(confirmed) || confirmed !== true) {
-		p.cancel("Cancelled");
-		throw new ExitSignal(0);
-	}
-
-	// Nuke files per target plugin
-	for (const k of targetKeys) {
+	for (const k of targets.keys) {
 		const entry = manifest[k];
 		if (entry) {
 			await nukeManifestFiles(projectDir, entry.files);
 		}
 	}
 
-	// Remove entries from manifest and write
 	const updated: Manifest = {};
-	for (const [k, v] of entries) {
-		if (!targetKeys.includes(k)) {
+	for (const [k, v] of Object.entries(manifest)) {
+		if (!targets.keys.includes(k)) {
 			updated[k] = v;
 		}
 	}
 	await writeManifest(projectDir, updated);
 
-	// Summary
-	p.outro(
+	ui.outro(
 		renderRemoveSummary({
-			summaryLabel,
+			summaryLabel: targets.summaryLabel,
 			fileCount: allFiles.length,
 		}),
 	);
+	ui.report(removeBody(targets.keys, manifest));
+}
+
+function targetsForKey(key: string, manifest: Manifest, ui: Ui): Targets {
+	const keys = resolveTargetKeys(key, manifest, ui);
+	return { keys, summaryLabel: labelFor(keys, key) };
+}
+
+async function pickTargets(manifest: Manifest, ui: Ui): Promise<Targets> {
+	if (ui.mode === "machine") {
+		ui.fail(
+			"remove needs the key of what to remove without a terminal: npx agntc remove <key>",
+			{ flags: ["<key>"] },
+		);
+	}
+	const keys = await selectPluginsInteractive(manifest, ui);
+	if (keys.length === 0) {
+		ui.cancel("Cancelled");
+		throw new ExitSignal(0);
+	}
+	return { keys, summaryLabel: labelFor(keys, `${keys.length} plugin(s)`) };
+}
+
+/** A lone key names itself; several go by `several`. */
+function labelFor(keys: string[], several: string): string {
+	const [only] = keys;
+	return keys.length === 1 && only !== undefined ? only : several;
+}
+
+/** `-y` answers the question; without it, machine mode refuses before anything is deleted. */
+async function confirmRemoval(
+	summaryLabel: string,
+	fileCount: number,
+	options: RemoveOptions,
+	ui: Ui,
+): Promise<void> {
+	if (options.yes) {
+		return;
+	}
+	if (ui.mode === "machine") {
+		ui.fail(
+			`removing ${summaryLabel} deletes ${fileCount} file(s) — confirm with -y`,
+			{ flags: ["-y"] },
+		);
+	}
+	const confirmed = await ui.confirm({
+		message: `Remove ${summaryLabel}? ${fileCount} file(s) will be deleted.`,
+	});
+	if (!confirmed) {
+		ui.cancel("Cancelled");
+		throw new ExitSignal(0);
+	}
 }
 
 export const removeCommand = new Command("remove")
 	.description("Remove installed plugins")
 	.argument("[key]", "Plugin key to remove (owner/repo or owner/repo/plugin)")
+	.option("-y, --yes", "Remove without asking for confirmation")
+	.addOption(jsonOption())
 	.action(
-		withExitSignal(async (key?: string) => {
-			await runRemove(key);
-		}),
+		commandAction(
+			"remove",
+			(ui, key: string | undefined, options: RemoveOptions) =>
+				runRemove(key, options, ui),
+		),
 	);

@@ -10,6 +10,7 @@ vi.mock("@clack/prompts", () => ({
 import { multiselect } from "@clack/prompts";
 import type { MenuOption } from "../src/choose-items.js";
 import { promptForItems } from "../src/item-menu.js";
+import { interactiveUi } from "../src/ui.js";
 
 const mockMultiselect = vi.mocked(multiselect);
 
@@ -33,7 +34,7 @@ describe("promptForItems", () => {
 	it("offers every option with its label and hint, nothing preselected and none required", async () => {
 		mockMultiselect.mockResolvedValue([]);
 
-		await promptForItems(OPTIONS);
+		await promptForItems(OPTIONS, interactiveUi);
 
 		expect(mockMultiselect).toHaveBeenCalledWith({
 			message: "Select what to install",
@@ -48,12 +49,14 @@ describe("promptForItems", () => {
 	it("returns the picked items", async () => {
 		mockMultiselect.mockResolvedValue([1]);
 
-		expect(await promptForItems(OPTIONS)).toEqual([OPTIONS[1]!.value]);
+		expect(await promptForItems(OPTIONS, interactiveUi)).toEqual([
+			OPTIONS[1]!.value,
+		]);
 	});
 
 	it("returns nothing when cancelled", async () => {
 		mockMultiselect.mockResolvedValue(CANCEL);
 
-		expect(await promptForItems(OPTIONS)).toEqual([]);
+		expect(await promptForItems(OPTIONS, interactiveUi)).toEqual([]);
 	});
 });

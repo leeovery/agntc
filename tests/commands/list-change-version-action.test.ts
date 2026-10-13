@@ -72,6 +72,7 @@ import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
+import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
 	REMOTE_SHA,
@@ -130,7 +131,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockSelect).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -152,7 +159,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockSelect).toHaveBeenCalledWith(
 				expect.objectContaining({ maxItems: 15 }),
@@ -171,6 +184,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -187,7 +201,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockFetchRemoteTags).toHaveBeenCalledTimes(1);
 		});
@@ -208,6 +228,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -228,6 +249,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(mockConfirm).toHaveBeenCalled();
@@ -249,6 +271,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -272,6 +295,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(true);
@@ -294,7 +318,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -320,6 +350,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -339,7 +370,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -361,6 +398,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -377,7 +415,13 @@ describe("executeChangeVersionAction", () => {
 			mockSelect.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
-			await executeChangeVersionAction(key, entry, manifest, "/fake/project");
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				manifest,
@@ -408,6 +452,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -442,6 +487,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -480,6 +526,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(false);
@@ -515,6 +562,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(true);
@@ -537,6 +585,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.changed).toBe(true);

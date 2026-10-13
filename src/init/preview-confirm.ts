@@ -1,4 +1,4 @@
-import { confirm, isCancel, note } from "@clack/prompts";
+import type { Ui } from "../ui.js";
 import type { InitType } from "./type-select.js";
 
 const filesByType: Record<InitType, string[]> = {
@@ -14,18 +14,13 @@ const filesByType: Record<InitType, string[]> = {
 	],
 };
 
-export async function previewAndConfirm(options: {
-	type: InitType;
-}): Promise<boolean> {
+export async function previewAndConfirm(
+	options: { type: InitType },
+	ui: Ui,
+): Promise<boolean> {
 	const files = filesByType[options.type];
 
-	note(files.map((f) => `  ${f}`).join("\n"), "This will create:");
+	ui.box(files.map((f) => `  ${f}`).join("\n"), "This will create:");
 
-	const result = await confirm({ message: "Proceed?" });
-
-	if (isCancel(result) || result === false) {
-		return false;
-	}
-
-	return true;
+	return ui.confirm({ message: "Proceed?" });
 }

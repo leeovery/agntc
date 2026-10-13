@@ -28,12 +28,14 @@ vi.mock("../../src/init/scaffold-collection.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { runInit } from "../../src/commands/init.js";
+import { initCommand, runInit } from "../../src/commands/init.js";
 import { previewAndConfirm } from "../../src/init/preview-confirm.js";
 import { scaffoldCollection } from "../../src/init/scaffold-collection.js";
 import { scaffoldPlugin } from "../../src/init/scaffold-plugin.js";
 import { scaffoldSkill } from "../../src/init/scaffold-skill.js";
 import { selectInitType } from "../../src/init/type-select.js";
+import { interactiveUi } from "../../src/ui.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const mockIntro = vi.mocked(p.intro);
 const mockOutro = vi.mocked(p.outro);
@@ -75,7 +77,10 @@ describe("runInit", () => {
 
 		await runInit();
 
-		expect(mockPreviewAndConfirm).toHaveBeenCalledWith({ type: "skill" });
+		expect(mockPreviewAndConfirm).toHaveBeenCalledWith(
+			{ type: "skill" },
+			interactiveUi,
+		);
 	});
 
 	it("completes skill scaffolding end-to-end", async () => {
@@ -182,5 +187,23 @@ describe("runInit", () => {
 		expect(mockOutro).toHaveBeenCalledWith(
 			expect.stringContaining("Done. Add your skills, agents, and hooks."),
 		);
+	});
+});
+
+describe("init without a terminal", () => {
+	it("refuses, saying it needs a terminal, before asking anything", async () => {
+		const run = await runMachine(initCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document).toEqual({
+			ok: false,
+			command: "init",
+			error: { message: "agntc init needs a terminal" },
+			warnings: [],
+			notes: [],
+		});
+		expect(mockSelectInitType).not.toHaveBeenCalled();
+		expect(mockScaffoldSkill).not.toHaveBeenCalled();
+		expect(clackCalls(p)).toEqual([]);
 	});
 });

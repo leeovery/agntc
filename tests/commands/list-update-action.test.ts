@@ -68,6 +68,7 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 import { stat } from "node:fs/promises";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
+import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
 	REMOTE_SHA,
@@ -106,6 +107,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(true);
@@ -142,6 +144,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(true);
@@ -171,6 +174,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(false);
@@ -195,7 +199,13 @@ describe("executeUpdateAction", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await executeUpdateAction(key, entry, manifest, "/fake/project");
+			await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -216,6 +226,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(false);
@@ -245,6 +256,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(true);
@@ -277,6 +289,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(false);
@@ -302,6 +315,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(false);
@@ -334,6 +348,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(false);
@@ -370,6 +385,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(false);
@@ -405,6 +421,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 				{ newRef: "v1.2.0", newCommit: overrideCommit },
 			);
 
@@ -435,6 +452,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 
 			expect(result.success).toBe(true);

@@ -1,7 +1,7 @@
-import * as p from "@clack/prompts";
 import { identifyAssetType } from "../asset-targets.js";
 import type { ManifestEntry } from "../manifest.js";
 import { formatRefLabel } from "../summary.js";
+import type { Ui } from "../ui.js";
 import {
 	hasOutOfConstraintVersion,
 	type UpdateCheckResult,
@@ -86,6 +86,7 @@ function getActions(
 
 export async function renderDetailView(
 	input: DetailViewInput,
+	ui: Ui,
 ): Promise<DetailAction> {
 	const { key, entry, updateStatus } = input;
 
@@ -95,22 +96,22 @@ export async function renderDetailView(
 		? ` (${updateStatus.latestOverall} available outside constraint)`
 		: "";
 
-	p.log.info(`Plugin: ${key}`);
-	p.log.info(`Ref: ${formatRefLabel(entry.ref, entry.commit)}`);
+	ui.log.info(`Plugin: ${key}`);
+	ui.log.info(`Ref: ${formatRefLabel(entry.ref, entry.commit)}`);
 	if (entry.constraint) {
-		p.log.info(`Constraint: ${entry.constraint}${outOfConstraint}`);
+		ui.log.info(`Constraint: ${entry.constraint}${outOfConstraint}`);
 	}
-	p.log.info(`Commit: ${formatCommit(entry)}`);
-	p.log.info(`Installed: ${formatDate(entry.installedAt)}`);
+	ui.log.info(`Commit: ${formatCommit(entry)}`);
+	ui.log.info(`Installed: ${formatDate(entry.installedAt)}`);
 
 	// One compact counts line — no raw file-path dump.
 	const assetSummary = formatAssetCounts(computeAssetCounts(entry.files));
 	if (assetSummary.length > 0) {
-		p.log.info(`Assets: ${assetSummary}`);
+		ui.log.info(`Assets: ${assetSummary}`);
 	}
 
 	if (updateStatus.status === "constrained-no-match") {
-		p.log.error(
+		ui.log.error(
 			`No matching version found for constraint "${entry.constraint}"`,
 		);
 	}
@@ -121,14 +122,10 @@ export async function renderDetailView(
 		isVersionTag(entry.ref) && updateStatus.status !== "check-failed";
 	const actions = getActions(updateStatus, canChangeVersion);
 
-	const selected = await p.select<DetailAction>({
+	const selected = await ui.select<DetailAction>({
 		message: "Action",
 		options: actions,
 	});
 
-	if (p.isCancel(selected)) {
-		return "back";
-	}
-
-	return selected;
+	return selected ?? "back";
 }

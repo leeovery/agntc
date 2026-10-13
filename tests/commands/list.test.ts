@@ -34,7 +34,8 @@ vi.mock("../../src/manifest.js", () => ({
 	addEntry: vi.fn(),
 }));
 
-vi.mock("../../src/update-check-all.js", () => ({
+vi.mock("../../src/update-check-all.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/update-check-all.js")>()),
 	checkAllForUpdates: vi.fn(),
 }));
 
@@ -59,14 +60,16 @@ vi.mock("../../src/commands/list-change-version-action.js", () => ({
 }));
 
 import * as p from "@clack/prompts";
-import { runListLoop } from "../../src/commands/list.js";
+import { listCommand, runListLoop } from "../../src/commands/list.js";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { renderDetailView } from "../../src/commands/list-detail.js";
 import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { readManifest, readManifestOrExit } from "../../src/manifest.js";
+import { interactiveUi } from "../../src/ui.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { checkAllForUpdates } from "../../src/update-check-all.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const mockReadManifest = vi.mocked(readManifest);
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
@@ -552,11 +555,14 @@ describe("runListLoop", () => {
 
 			await runListLoop();
 
-			expect(mockRenderDetailView).toHaveBeenCalledWith({
-				key: "owner/skill",
-				entry,
-				updateStatus,
-			});
+			expect(mockRenderDetailView).toHaveBeenCalledWith(
+				{
+					key: "owner/skill",
+					entry,
+					updateStatus,
+				},
+				interactiveUi,
+			);
 		});
 	});
 
@@ -603,6 +609,7 @@ describe("runListLoop", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 				undefined,
 			);
 		});
@@ -657,6 +664,7 @@ describe("runListLoop", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 				{ newRef: "v1.3.0", newCommit: constrainedCommit },
 			);
 		});
@@ -695,9 +703,9 @@ describe("runListLoop", () => {
 
 			await runListLoop();
 
-			// 5th arg should be undefined (no overrides for non-constrained)
+			// 6th arg should be undefined (no overrides for non-constrained)
 			const callArgs = mockExecuteUpdateAction.mock.calls[0]!;
-			expect(callArgs[4]).toBeUndefined();
+			expect(callArgs[5]).toBeUndefined();
 		});
 
 		it("passes fresh entry and manifest to executeRemoveAction", async () => {
@@ -729,6 +737,7 @@ describe("runListLoop", () => {
 				entry,
 				manifest,
 				"/fake/project",
+				interactiveUi,
 			);
 		});
 	});
@@ -937,18 +946,26 @@ describe("runListLoop", () => {
 			await runListLoop();
 
 			// First detail render: original entry with update-available status
-			expect(mockRenderDetailView).toHaveBeenNthCalledWith(1, {
-				key: "owner/skill",
-				entry: originalEntry,
-				updateStatus: { status: "update-available", remoteCommit: "def456" },
-			});
+			expect(mockRenderDetailView).toHaveBeenNthCalledWith(
+				1,
+				{
+					key: "owner/skill",
+					entry: originalEntry,
+					updateStatus: { status: "update-available", remoteCommit: "def456" },
+				},
+				interactiveUi,
+			);
 
 			// Second detail render: updated entry with fresh status
-			expect(mockRenderDetailView).toHaveBeenNthCalledWith(2, {
-				key: "owner/skill",
-				entry: updatedEntry,
-				updateStatus: newUpdateStatus,
-			});
+			expect(mockRenderDetailView).toHaveBeenNthCalledWith(
+				2,
+				{
+					key: "owner/skill",
+					entry: updatedEntry,
+					updateStatus: newUpdateStatus,
+				},
+				interactiveUi,
+			);
 		});
 	});
 
@@ -980,6 +997,122 @@ describe("runListLoop", () => {
 			await runListLoop();
 
 			expect(mockLog.success).not.toHaveBeenCalled();
+		});
+	});
+});
+
+describe("list without a terminal", () => {
+	it("prints every entry with its update status as one document, with no dashboard", async () => {
+		const manifest: Manifest = {
+			"owner/branch": makeEntry({ ref: "main", commit: "a1", type: "skill" }),
+			"owner/caret": makeEntry({
+				ref: "v1.0.0",
+				commit: "b1",
+				constraint: "^1.0.0",
+				type: "pack",
+			}),
+			"owner/pinned": makeEntry({ ref: "v2.0.0", commit: "c1" }),
+			"owner/broken": makeEntry({ ref: null, commit: "d1" }),
+		};
+		mockReadManifestOrExit.mockResolvedValue(manifest);
+		mockCheckAll.mockResolvedValue(
+			new Map<string, UpdateCheckResult>([
+				["owner/branch", { status: "update-available", remoteCommit: "a2" }],
+				[
+					"owner/caret",
+					{
+						status: "constrained-update-available",
+						tag: "v1.4.0",
+						commit: "b2",
+						latestOverall: "v2.1.0",
+					},
+				],
+				["owner/pinned", { status: "newer-tags", tags: ["v2.1.0", "v2.2.0"] }],
+				["owner/broken", { status: "check-failed", reason: "network down" }],
+			]),
+		);
+
+		const run = await runMachine(listCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document).toEqual({
+			ok: true,
+			command: "list",
+			entries: [
+				{
+					key: "owner/branch",
+					type: "skill",
+					ref: "main",
+					commit: "a1",
+					constraint: null,
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "update-available",
+					availableRef: "main",
+					availableCommit: "a2",
+				},
+				{
+					key: "owner/caret",
+					type: "pack",
+					ref: "v1.0.0",
+					commit: "b1",
+					constraint: "^1.0.0",
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "constrained-update-available",
+					availableRef: "v1.4.0",
+					availableCommit: "b2",
+					latestOutsideConstraint: "v2.1.0",
+				},
+				{
+					key: "owner/pinned",
+					type: "skill",
+					ref: "v2.0.0",
+					commit: "c1",
+					constraint: null,
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "newer-tags",
+					newerTags: ["v2.1.0", "v2.2.0"],
+				},
+				{
+					key: "owner/broken",
+					type: "skill",
+					ref: null,
+					commit: "d1",
+					constraint: null,
+					installedAt: "2026-02-01T00:00:00.000Z",
+					status: "check-failed",
+					reason: "network down",
+				},
+			],
+			warnings: [],
+			notes: [],
+		});
+		expect(clackCalls(p)).toEqual([]);
+		expect(mockRenderDetailView).not.toHaveBeenCalled();
+	});
+
+	it("prints no entries when nothing is installed", async () => {
+		mockReadManifestOrExit.mockResolvedValue({});
+		mockCheckAll.mockResolvedValue(new Map());
+
+		const run = await runMachine(listCommand, []);
+
+		expect(run.document).toMatchObject({ ok: true, entries: [] });
+	});
+
+	it("prints an error document when the manifest can't be read", async () => {
+		mockReadManifestOrExit.mockImplementation(async (_, ui) =>
+			ui.fail("Failed to read manifest: bad json", { style: "error" }),
+		);
+
+		const run = await runMachine(listCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document).toEqual({
+			ok: false,
+			command: "list",
+			error: { message: "Failed to read manifest: bad json" },
+			warnings: [],
+			notes: [],
 		});
 	});
 });

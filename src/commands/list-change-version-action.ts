@@ -1,4 +1,3 @@
-import * as p from "@clack/prompts";
 import {
 	cloneAndReinstall,
 	failureMessage,
@@ -9,6 +8,7 @@ import { fetchRemoteTags } from "../git-utils.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { addEntry, writeManifest } from "../manifest.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
+import type { Ui } from "../ui.js";
 
 export interface ChangeVersionResult {
 	changed: boolean;
@@ -32,11 +32,12 @@ export async function executeChangeVersionAction(
 	entry: ManifestEntry,
 	manifest: Manifest,
 	projectDir: string,
+	ui: Ui,
 ): Promise<ChangeVersionResult> {
 	// Fetching the full tag list is a network round-trip (git ls-remote) — show a
 	// spinner so the pause before the version list isn't silent.
 	const url = deriveCloneUrlFromKey(key, entry.cloneUrl);
-	const spin = p.spinner();
+	const spin = ui.spinner();
 	spin.start("Fetching available versions...");
 	let tags: string[];
 	try {
@@ -57,17 +58,15 @@ export async function executeChangeVersionAction(
 		...(tag === entry.ref ? { hint: "current" } : {}),
 	}));
 
-	const selected = await p.select({
+	const selectedTag = await ui.select({
 		message: "Select a version",
 		options,
 		maxItems: MAX_VISIBLE_VERSIONS,
 	});
 
-	if (p.isCancel(selected)) {
+	if (selectedTag === null) {
 		return { changed: false, message: "Cancelled" };
 	}
-
-	const selectedTag = selected as string;
 
 	if (selectedTag === entry.ref) {
 		return { changed: false, message: "Already on this version" };
@@ -75,10 +74,10 @@ export async function executeChangeVersionAction(
 
 	// Changing version re-installs (nuke + re-copy) and pins to the exact tag
 	// (dropping any constraint) — confirm before mutating anything.
-	const confirmed = await p.confirm({
+	const confirmed = await ui.confirm({
 		message: `Change ${key} to ${selectedTag}? This re-installs it at the new version.`,
 	});
-	if (p.isCancel(confirmed) || !confirmed) {
+	if (!confirmed) {
 		return { changed: false, message: "Cancelled" };
 	}
 
@@ -93,7 +92,7 @@ export async function executeChangeVersionAction(
 		};
 	}
 
-	const result = await cloneAndReinstall(prepared.options);
+	const result = await cloneAndReinstall(prepared.options, ui);
 
 	if (isCloneReinstallFailure(result)) {
 		return { changed: false, message: failureMessage(result, key) };

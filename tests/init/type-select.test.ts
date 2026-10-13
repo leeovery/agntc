@@ -7,6 +7,7 @@ vi.mock("@clack/prompts", () => ({
 
 import * as p from "@clack/prompts";
 import { selectInitType } from "../../src/init/type-select.js";
+import { interactiveUi } from "../../src/ui.js";
 
 const mockSelect = vi.mocked(p.select);
 
@@ -18,7 +19,7 @@ describe("selectInitType", () => {
 	it("renders three options: Skill, Plugin, Collection", async () => {
 		mockSelect.mockResolvedValue("skill");
 
-		await selectInitType();
+		await selectInitType(interactiveUi);
 
 		expect(mockSelect).toHaveBeenCalledOnce();
 		const call = mockSelect.mock.calls[0]![0];
@@ -34,7 +35,7 @@ describe("selectInitType", () => {
 	it("uses prompt message 'What are you creating?'", async () => {
 		mockSelect.mockResolvedValue("skill");
 
-		await selectInitType();
+		await selectInitType(interactiveUi);
 
 		const call = mockSelect.mock.calls[0]![0];
 		expect(call.message).toBe("What are you creating?");
@@ -43,7 +44,7 @@ describe("selectInitType", () => {
 	it("returns 'skill' when Skill is selected", async () => {
 		mockSelect.mockResolvedValue("skill");
 
-		const result = await selectInitType();
+		const result = await selectInitType(interactiveUi);
 
 		expect(result).toBe("skill");
 	});
@@ -51,7 +52,7 @@ describe("selectInitType", () => {
 	it("returns 'plugin' when Plugin is selected", async () => {
 		mockSelect.mockResolvedValue("plugin");
 
-		const result = await selectInitType();
+		const result = await selectInitType(interactiveUi);
 
 		expect(result).toBe("plugin");
 	});
@@ -59,7 +60,7 @@ describe("selectInitType", () => {
 	it("returns 'collection' when Collection is selected", async () => {
 		mockSelect.mockResolvedValue("collection");
 
-		const result = await selectInitType();
+		const result = await selectInitType(interactiveUi);
 
 		expect(result).toBe("collection");
 	});
@@ -67,7 +68,7 @@ describe("selectInitType", () => {
 	it("returns null when user cancels", async () => {
 		mockSelect.mockResolvedValue(Symbol("cancel"));
 
-		const result = await selectInitType();
+		const result = await selectInitType(interactiveUi);
 
 		expect(result).toBeNull();
 	});
@@ -75,7 +76,7 @@ describe("selectInitType", () => {
 	it("passes correct hint for each option", async () => {
 		mockSelect.mockResolvedValue("skill");
 
-		await selectInitType();
+		await selectInitType(interactiveUi);
 
 		const call = mockSelect.mock.calls[0]![0];
 		const hints = call.options.map((o: { hint?: string }) => o.hint);

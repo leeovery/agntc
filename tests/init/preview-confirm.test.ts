@@ -8,6 +8,7 @@ vi.mock("@clack/prompts", () => ({
 
 import * as p from "@clack/prompts";
 import { previewAndConfirm } from "../../src/init/preview-confirm.js";
+import { interactiveUi } from "../../src/ui.js";
 
 const mockConfirm = vi.mocked(p.confirm);
 const mockNote = vi.mocked(p.note);
@@ -20,7 +21,7 @@ describe("previewAndConfirm", () => {
 	it("displays SKILL.md for skill type", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "skill" });
+		await previewAndConfirm({ type: "skill" }, interactiveUi);
 
 		expect(mockNote).toHaveBeenCalledOnce();
 		const message = mockNote.mock.calls[0]![0]!;
@@ -30,7 +31,7 @@ describe("previewAndConfirm", () => {
 	it("preview message includes 'This will create:'", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "skill" });
+		await previewAndConfirm({ type: "skill" }, interactiveUi);
 
 		const title = mockNote.mock.calls[0]![1];
 		expect(title).toBe("This will create:");
@@ -39,7 +40,7 @@ describe("previewAndConfirm", () => {
 	it("returns true when user confirms", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		const result = await previewAndConfirm({ type: "skill" });
+		const result = await previewAndConfirm({ type: "skill" }, interactiveUi);
 
 		expect(result).toBe(true);
 	});
@@ -47,7 +48,7 @@ describe("previewAndConfirm", () => {
 	it("returns false when user declines", async () => {
 		mockConfirm.mockResolvedValue(false);
 
-		const result = await previewAndConfirm({ type: "skill" });
+		const result = await previewAndConfirm({ type: "skill" }, interactiveUi);
 
 		expect(result).toBe(false);
 	});
@@ -55,7 +56,7 @@ describe("previewAndConfirm", () => {
 	it("returns false when user cancels", async () => {
 		mockConfirm.mockResolvedValue(Symbol("cancel"));
 
-		const result = await previewAndConfirm({ type: "skill" });
+		const result = await previewAndConfirm({ type: "skill" }, interactiveUi);
 
 		expect(result).toBe(false);
 	});
@@ -63,7 +64,7 @@ describe("previewAndConfirm", () => {
 	it("builds plugin preview lines matching spec tree format", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "plugin" });
+		await previewAndConfirm({ type: "plugin" }, interactiveUi);
 
 		expect(mockNote).toHaveBeenCalledOnce();
 		const message = mockNote.mock.calls[0]![0]!;
@@ -89,7 +90,7 @@ describe("previewAndConfirm", () => {
 			return Promise.resolve(true);
 		});
 
-		await previewAndConfirm({ type: "plugin" });
+		await previewAndConfirm({ type: "plugin" }, interactiveUi);
 
 		expect(callOrder).toEqual(["note", "confirm"]);
 	});
@@ -97,7 +98,7 @@ describe("previewAndConfirm", () => {
 	it("cancelling plugin confirm returns false", async () => {
 		mockConfirm.mockResolvedValue(Symbol("cancel"));
 
-		const result = await previewAndConfirm({ type: "plugin" });
+		const result = await previewAndConfirm({ type: "plugin" }, interactiveUi);
 
 		expect(result).toBe(false);
 	});
@@ -105,7 +106,7 @@ describe("previewAndConfirm", () => {
 	it("builds collection preview lines with my-plugin/ at root", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "collection" });
+		await previewAndConfirm({ type: "collection" }, interactiveUi);
 
 		expect(mockNote).toHaveBeenCalledOnce();
 		const message = mockNote.mock.calls[0]![0]!;
@@ -117,7 +118,7 @@ describe("previewAndConfirm", () => {
 	it("preview shows correct 2-space indentation", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "collection" });
+		await previewAndConfirm({ type: "collection" }, interactiveUi);
 
 		const message = mockNote.mock.calls[0]![0]!;
 		expect(message).toBe(
@@ -135,7 +136,10 @@ describe("previewAndConfirm", () => {
 	it("cancelling collection confirm returns false", async () => {
 		mockConfirm.mockResolvedValue(Symbol("cancel"));
 
-		const result = await previewAndConfirm({ type: "collection" });
+		const result = await previewAndConfirm(
+			{ type: "collection" },
+			interactiveUi,
+		);
 
 		expect(result).toBe(false);
 	});
@@ -143,7 +147,7 @@ describe("previewAndConfirm", () => {
 	it("asks 'Proceed?' via confirm prompt", async () => {
 		mockConfirm.mockResolvedValue(true);
 
-		await previewAndConfirm({ type: "skill" });
+		await previewAndConfirm({ type: "skill" }, interactiveUi);
 
 		expect(mockConfirm).toHaveBeenCalledOnce();
 		const call = mockConfirm.mock.calls[0]![0];

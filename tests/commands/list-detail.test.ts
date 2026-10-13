@@ -25,6 +25,7 @@ import {
 	type DetailViewInput,
 	renderDetailView,
 } from "../../src/commands/list-detail.js";
+import { interactiveUi } from "../../src/ui.js";
 
 const mockSelect = vi.mocked(p.select);
 const mockLog = vi.mocked(p.log);
@@ -52,7 +53,7 @@ describe("renderDetailView", () => {
 		it("displays plugin key", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ key: "acme/toolkit" }));
+			await renderDetailView(makeInput({ key: "acme/toolkit" }), interactiveUi);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Plugin: acme/toolkit");
 		});
@@ -60,7 +61,10 @@ describe("renderDetailView", () => {
 		it("displays ref as tag value when ref is set", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { ref: "v2.3.1" } }));
+			await renderDetailView(
+				makeInput({ entry: { ref: "v2.3.1" } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Ref: v2.3.1");
 		});
@@ -70,6 +74,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: { ref: null, commit: "abc1234567890def" } }),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Ref: HEAD");
@@ -78,7 +83,10 @@ describe("renderDetailView", () => {
 		it("displays ref as local when ref and commit are both null", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { ref: null, commit: null } }));
+			await renderDetailView(
+				makeInput({ entry: { ref: null, commit: null } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Ref: local");
 		});
@@ -88,6 +96,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: { commit: "abc1234567890def" } }),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Commit: abc1234");
@@ -96,7 +105,10 @@ describe("renderDetailView", () => {
 		it("displays em dash when commit is null", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { commit: null } }));
+			await renderDetailView(
+				makeInput({ entry: { commit: null } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Commit: \u2014");
 		});
@@ -106,6 +118,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: { installedAt: "2026-02-10T14:22:33.000Z" } }),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Installed: 2026-02-10");
@@ -116,6 +129,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: { files: [".claude/skills/a/SKILL.md"] } }),
+				interactiveUi,
 			);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
@@ -126,7 +140,10 @@ describe("renderDetailView", () => {
 		it("displays constraint line when entry has constraint", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { constraint: "^1.0.0" } }));
+			await renderDetailView(
+				makeInput({ entry: { constraint: "^1.0.0" } }),
+				interactiveUi,
+			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Constraint: ^1.0.0");
 		});
@@ -134,7 +151,7 @@ describe("renderDetailView", () => {
 		it("does not display constraint line when entry has no constraint", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput());
+			await renderDetailView(makeInput(), interactiveUi);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			const constraintLines = infoCalls.filter((line) =>
@@ -154,6 +171,7 @@ describe("renderDetailView", () => {
 						files: [".claude/skills/a/SKILL.md", ".claude/skills/b/SKILL.md"],
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
@@ -172,6 +190,7 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills, 1 hook");
@@ -186,6 +205,7 @@ describe("renderDetailView", () => {
 						files: [".claude/agents/agent-a.md"],
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 agent");
@@ -194,7 +214,10 @@ describe("renderDetailView", () => {
 		it("omits the assets line when the entry has no files", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ entry: { files: [] } }));
+			await renderDetailView(
+				makeInput({ entry: { files: [] } }),
+				interactiveUi,
+			);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls.some((line) => line.startsWith("Assets:"))).toBe(false);
@@ -211,6 +234,7 @@ describe("renderDetailView", () => {
 						files: [".claude/skills/a/SKILL.md", ".claude/hooks/lint.sh"],
 					},
 				}),
+				interactiveUi,
 			);
 
 			const messages = mockLog.message.mock.calls.map((c) => c[0] as string);
@@ -239,6 +263,7 @@ describe("renderDetailView", () => {
 					entry: headEntry,
 					updateStatus: { status: "update-available", remoteCommit: "def456" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -253,6 +278,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: headEntry, updateStatus: { status: "local" } }),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -267,6 +293,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(
 				makeInput({ entry: headEntry, updateStatus: { status: "up-to-date" } }),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -283,6 +310,7 @@ describe("renderDetailView", () => {
 					entry: headEntry,
 					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -299,6 +327,7 @@ describe("renderDetailView", () => {
 					entry: headEntry,
 					updateStatus: { status: "constrained-no-match" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -317,6 +346,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v2.0.0" },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -334,6 +364,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -356,6 +387,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -377,6 +409,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -394,6 +427,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "constrained-no-match" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -411,6 +445,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "check-failed", reason: "timeout" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -427,6 +462,7 @@ describe("renderDetailView", () => {
 					entry: { ref: null, commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -443,6 +479,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "main", commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -465,6 +502,7 @@ describe("renderDetailView", () => {
 						remoteCommit: "b".repeat(40),
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -485,6 +523,7 @@ describe("renderDetailView", () => {
 					entry: { ref: "v4", commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
+				interactiveUi,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -503,6 +542,7 @@ describe("renderDetailView", () => {
 					entry: { constraint: "^1.0.0" },
 					updateStatus: { status: "constrained-no-match" },
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.error).toHaveBeenCalledWith(
@@ -521,6 +561,7 @@ describe("renderDetailView", () => {
 						latestOverall: "v2.0.0",
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
@@ -539,6 +580,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
@@ -561,6 +603,7 @@ describe("renderDetailView", () => {
 						latestOverall: "v2.0.0",
 					},
 				}),
+				interactiveUi,
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith(
@@ -581,6 +624,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
+				interactiveUi,
 			);
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
@@ -595,7 +639,7 @@ describe("renderDetailView", () => {
 		it("returns selected action value", async () => {
 			mockSelect.mockResolvedValue("remove");
 
-			const result = await renderDetailView(makeInput());
+			const result = await renderDetailView(makeInput(), interactiveUi);
 
 			expect(result).toBe("remove");
 		});
@@ -603,7 +647,7 @@ describe("renderDetailView", () => {
 		it("cancel returns back", async () => {
 			mockSelect.mockResolvedValue(Symbol("cancel"));
 
-			const result = await renderDetailView(makeInput());
+			const result = await renderDetailView(makeInput(), interactiveUi);
 
 			expect(result).toBe("back");
 		});
@@ -613,7 +657,7 @@ describe("renderDetailView", () => {
 		it("uses Action as the select message", async () => {
 			mockSelect.mockResolvedValue("back");
 
-			await renderDetailView(makeInput());
+			await renderDetailView(makeInput(), interactiveUi);
 
 			const selectCall = mockSelect.mock.calls[0]![0];
 			expect(selectCall.message).toBe("Action");

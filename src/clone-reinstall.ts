@@ -1,4 +1,3 @@
-import * as p from "@clack/prompts";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
@@ -10,6 +9,7 @@ import {
 	localSourceRoot,
 	resolveGuardedSourceDir,
 } from "./source-parser.js";
+import type { Ui } from "./ui.js";
 
 export interface CloneAndReinstallOptions {
 	key: string;
@@ -284,6 +284,7 @@ export async function cloneRepoOnce(input: {
 
 export async function cloneAndReinstall(
 	options: CloneAndReinstallOptions,
+	ui: Ui,
 ): Promise<CloneReinstallResult> {
 	const { key, entry, projectDir } = options;
 
@@ -316,7 +317,7 @@ export async function cloneAndReinstall(
 	let tempDir: string | undefined;
 
 	try {
-		const spin = p.spinner();
+		const spin = ui.spinner();
 		spin.start("Cloning repository...");
 
 		let cloneResult: CloneResult;

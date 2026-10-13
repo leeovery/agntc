@@ -46,10 +46,17 @@ function run(args: string[]): {
 	}
 }
 
+// execFileSync pipes stdin and stdout, so every subcommand here runs without a
+// terminal and answers with one JSON document.
+function runPiped(args: string[]) {
+	const result = run(args);
+	return { ...result, document: JSON.parse(result.stdout) };
+}
+
 beforeAll(() => {
 	execSync("npm run build", { cwd: ROOT, stdio: "pipe" });
 	cwd = mkdtempSync(join(tmpdir(), "agntc-cli-test-"));
-});
+}, 60_000);
 
 afterAll(() => {
 	if (cwd) rmSync(cwd, { recursive: true, force: true });
@@ -84,31 +91,40 @@ describe("agntc add", () => {
 	});
 
 	it("exits non-zero with malformed source (bare repo name)", () => {
-		const { stdout, exitCode } = run(["add", "repo"]);
+		const { document, exitCode } = runPiped(["add", "repo"]);
 		expect(exitCode).not.toBe(0);
-		expect(stdout).toContain("owner/repo");
+		expect(document).toMatchObject({ ok: false, command: "add" });
+		expect(document.error.message).toContain("owner/repo");
 	});
 });
 
 describe("agntc list", () => {
-	it("exits 0 and outputs placeholder message", () => {
-		const { stdout, exitCode } = run(["list"]);
+	it("exits 0 and prints what's installed as JSON", () => {
+		const { document, exitCode } = runPiped(["list"]);
 		expect(exitCode).toBe(0);
-		expect(stdout.length).toBeGreaterThan(0);
+		expect(document).toEqual({
+			ok: true,
+			command: "list",
+			entries: [],
+			warnings: [],
+			notes: [],
+		});
 	});
 });
 
 describe("agntc remove", () => {
-	it("exits 0 with no key argument (interactive mode)", () => {
-		const { exitCode } = run(["remove"]);
+	it("exits 0 with no key argument and nothing installed", () => {
+		const { document, exitCode } = runPiped(["remove"]);
 		expect(exitCode).toBe(0);
+		expect(document).toMatchObject({ ok: true, removed: [] });
 	});
 });
 
 describe("agntc update", () => {
 	it("exits 0 with no key argument (all-plugins mode)", () => {
-		const { exitCode } = run(["update"]);
+		const { document, exitCode } = runPiped(["update"]);
 		expect(exitCode).toBe(0);
+		expect(document).toMatchObject({ ok: true, items: [] });
 	});
 });
 
@@ -120,9 +136,14 @@ describe("agntc init", () => {
 		expect(stdout).toContain("Scaffold a new agntc plugin");
 	});
 
-	it("exits with code 0", () => {
-		const { exitCode } = run(["init"]);
-		expect(exitCode).toBe(0);
+	it("refuses without a terminal", () => {
+		const { document, exitCode } = runPiped(["init"]);
+		expect(exitCode).not.toBe(0);
+		expect(document).toMatchObject({
+			ok: false,
+			command: "init",
+			error: { message: "agntc init needs a terminal" },
+		});
 	});
 
 	it("rejects extra arguments", () => {
@@ -158,9 +179,10 @@ describe("banner", () => {
 		expect(run(["--help"]).stdout).toContain("agent skills installer");
 	});
 
-	it("shows on a subcommand (always-on)", () => {
-		// list exits 0 even with no manifest; its output should carry the banner
-		expect(run(["list"]).stdout).toContain("agent skills installer");
+	it("is suppressed on a subcommand without a terminal, leaving stdout one JSON document", () => {
+		const { stdout } = run(["list"]);
+		expect(stdout).not.toContain("agent skills installer");
+		expect(() => JSON.parse(stdout)).not.toThrow();
 	});
 
 	it("is suppressed for --version (clean for scripts)", () => {

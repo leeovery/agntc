@@ -78,6 +78,7 @@ import {
 	failureMemberLine,
 	runUpdate,
 	streamGroupMemberLines,
+	updateCommand,
 } from "../../src/commands/update.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPack } from "../../src/copy-pack.js";
@@ -137,7 +138,9 @@ const mockLog = vi.mocked(p.log);
 const mockCancel = vi.mocked(p.cancel);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 
+import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
+import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
@@ -1657,7 +1660,14 @@ describe("update command", () => {
 				successOutcome("owner/repo/b"),
 			];
 
-			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", true);
+			streamGroupMemberLines(
+				item,
+				outcomes,
+				REMOTE_SHA,
+				"v1.3.0",
+				true,
+				interactiveUi,
+			);
 
 			// Caller says divergent → each member line carries its own tag move.
 			expect(mockLog.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
@@ -1672,7 +1682,14 @@ describe("update command", () => {
 				successOutcome("owner/repo/b"),
 			];
 
-			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", false);
+			streamGroupMemberLines(
+				item,
+				outcomes,
+				REMOTE_SHA,
+				"v1.3.0",
+				false,
+				interactiveUi,
+			);
 
 			// Caller says shared → the move stays on the header, member lines are bare.
 			expect(mockLog.success).toHaveBeenCalledWith("a");
@@ -5968,5 +5985,285 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		// No warn glyph for the collapsed failure.
 		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
+	});
+});
+
+describe("update without a terminal", () => {
+	function targetsByKey(targets: Record<string, GroupTarget>): void {
+		mockResolveGroupTarget.mockImplementation(async ({ members: [first] }) => {
+			const target = first && targets[first.key];
+			if (!target) throw new Error(`no target for ${first?.key}`);
+			return target;
+		});
+	}
+
+	it("prints one document of every entry, a move carrying both ends, and never touches clack", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/caret": makeEntry({
+				type: "skill",
+				ref: "v1.0.0",
+				commit: INSTALLED_SHA,
+				constraint: "^1.0.0",
+				files: [".claude/skills/caret/"],
+			}),
+			"owner/pinned": makeEntry({ ref: "v3.0.0", commit: INSTALLED_SHA }),
+		});
+		targetsByKey({
+			"owner/caret": {
+				kind: "constrained",
+				tag: "v1.1.0",
+				commit: REMOTE_SHA,
+				latestOverall: "v2.0.0",
+			},
+			"owner/pinned": { kind: "tag", tag: "v3.0.0", newerTags: ["v3.1.0"] },
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/caret/"],
+		});
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document).toEqual({
+			ok: true,
+			command: "update",
+			items: [
+				{
+					key: "owner/caret",
+					type: "skill",
+					status: "updated",
+					ref: "v1.1.0",
+					commit: REMOTE_SHA,
+					constraint: "^1.0.0",
+					previousRef: "v1.0.0",
+					previousCommit: INSTALLED_SHA,
+					latestOutsideConstraint: "v2.0.0",
+				},
+				{
+					key: "owner/pinned",
+					type: "skill",
+					status: "newer-tags",
+					ref: "v3.0.0",
+					commit: INSTALLED_SHA,
+					constraint: null,
+					newerTags: ["v3.1.0"],
+				},
+			],
+			warnings: [],
+			notes: [],
+		});
+		expect(clackCalls(p)).toEqual([]);
+	});
+
+	it("reports each entry when one fails, exiting 1", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/a": makeEntry({ commit: INSTALLED_SHA }),
+			"owner/b": makeEntry({ commit: INSTALLED_SHA }),
+		});
+		targetsByKey({
+			"owner/a": { kind: "head", resolvedSha: REMOTE_SHA },
+			"owner/b": { kind: "head", resolvedSha: REMOTE_SHA },
+		});
+		mockCloneSource
+			.mockRejectedValueOnce(new Error("network down"))
+			.mockResolvedValueOnce({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/b/"],
+		});
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document.ok).toBe(false);
+		expect(run.document.items).toEqual([
+			{
+				key: "owner/a",
+				type: "skill",
+				status: "failed",
+				ref: null,
+				commit: INSTALLED_SHA,
+				constraint: null,
+				message: "owner/a: Failed — network down",
+			},
+			expect.objectContaining({ key: "owner/b", status: "updated" }),
+		]);
+	});
+
+	it("reports a check that failed with its reason, and stays ok as all-mode does", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/a": makeEntry({ commit: INSTALLED_SHA }),
+		});
+		targetsByKey({ "owner/a": { kind: "check-failed", reason: "timeout" } });
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document).toMatchObject({
+			ok: true,
+			items: [{ key: "owner/a", status: "check-failed", reason: "timeout" }],
+		});
+	});
+
+	it("carries a reinstall's note as a note", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/swift": makeEntry({
+				type: "pack",
+				files: [".claude/agents/openai.yaml"],
+			}),
+		});
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockDiscover.mockRejectedValue(
+			new PackConflictError("single skill", "single-skill"),
+		);
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/swift/"],
+		});
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.document.notes).toEqual([
+			"owner/repo/swift is a single skill — reinstalled as a skill",
+		]);
+		expect(run.document.items).toEqual([
+			expect.objectContaining({ key: "owner/repo/swift", type: "skill" }),
+		]);
+	});
+
+	describe("for one key", () => {
+		it("prints the entry it updated", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ ref: null, commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/repo/"],
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "update",
+				items: [
+					{
+						key: "owner/repo",
+						type: "skill",
+						status: "updated",
+						ref: null,
+						commit: REMOTE_SHA,
+						constraint: null,
+						previousRef: null,
+						previousCommit: INSTALLED_SHA,
+					},
+				],
+				warnings: [],
+				notes: [],
+			});
+			expect(clackCalls(p)).toEqual([]);
+		});
+
+		it("reports a failed check and exits 1, as at a terminal", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: "network timeout",
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toMatchObject({
+				ok: false,
+				items: [
+					{
+						key: "owner/repo",
+						status: "check-failed",
+						reason: "network timeout",
+					},
+				],
+			});
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("prints an error document for a key that isn't installed", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"other/plugin": makeEntry(),
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toEqual({
+				ok: false,
+				command: "update",
+				error: { message: "Plugin owner/repo is not installed." },
+				warnings: [],
+				notes: [],
+			});
+		});
+	});
+});
+
+describe("single-key update stopping at a failure", () => {
+	it("still records the entries it updated before the failure", async () => {
+		const goEntry = makeEntry({
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/go/"],
+		});
+		const tsEntry = makeEntry({
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/ts/"],
+		});
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/repo/go": goEntry,
+			"owner/repo/ts": tsEntry,
+		});
+		mockCheckForUpdate
+			.mockResolvedValueOnce({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			})
+			.mockResolvedValueOnce({ status: "check-failed", reason: "timeout" });
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/go/"],
+		});
+
+		const err = await runUpdate("owner/repo").catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect((err as ExitSignal).code).toBe(1);
+		expect(mockWriteManifest).toHaveBeenCalledTimes(1);
+		expect(mockWriteManifest).toHaveBeenCalledWith(expect.any(String), {
+			"owner/repo/go": expect.objectContaining({ commit: REMOTE_SHA }),
+			"owner/repo/ts": tsEntry,
+		});
 	});
 });

@@ -22,6 +22,7 @@ vi.mock("../src/git-clone.js", async (importOriginal) => ({
 import { cloneAndReinstall } from "../src/clone-reinstall.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import type { ManifestEntry } from "../src/manifest.js";
+import { interactiveUi } from "../src/ui.js";
 import type { GroupTarget } from "../src/update-check.js";
 import { type EntryGroup, processGroupUpdate } from "../src/update-groups.js";
 import { makeEntry } from "./helpers/factories.js";
@@ -49,11 +50,14 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			sourceSubpath: ESCAPING_SUBPATH,
 		});
 
-		const result = await cloneAndReinstall({
-			key: "owner/repo/evil",
-			entry,
-			projectDir: "/fake/project",
-		});
+		const result = await cloneAndReinstall(
+			{
+				key: "owner/repo/evil",
+				entry,
+				projectDir: "/fake/project",
+			},
+			interactiveUi,
+		);
 
 		expect(result).toEqual({
 			status: "failed",
@@ -99,14 +103,17 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 	});
 
 	it("both entry points surface the identical containment error for the same escaping subpath", async () => {
-		const singleton = await cloneAndReinstall({
-			key: "owner/repo/evil",
-			entry: makeEntry({
-				files: [".claude/skills/evil/"],
-				sourceSubpath: ESCAPING_SUBPATH,
-			}),
-			projectDir: "/fake/project",
-		});
+		const singleton = await cloneAndReinstall(
+			{
+				key: "owner/repo/evil",
+				entry: makeEntry({
+					files: [".claude/skills/evil/"],
+					sourceSubpath: ESCAPING_SUBPATH,
+				}),
+				projectDir: "/fake/project",
+			},
+			interactiveUi,
+		);
 
 		const member = {
 			key: "owner/repo/evil",

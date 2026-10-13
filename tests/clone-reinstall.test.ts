@@ -100,6 +100,7 @@ const mockPathExists = vi.mocked(pathExists);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
+import { interactiveUi } from "../src/ui.js";
 import { makeEntry } from "./helpers/factories.js";
 
 const REMOTE_SHA = "b".repeat(40);
@@ -135,11 +136,14 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("success");
 			if (result.status === "success") {
@@ -170,11 +174,14 @@ describe("cloneAndReinstall", () => {
 				return { copiedFiles: [".claude/skills/my-skill/"] };
 			});
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(callOrder).toEqual(["clone", "nuke", "copy"]);
 		});
@@ -190,11 +197,14 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -208,11 +218,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockPathExists.mockResolvedValue(false);
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -232,11 +245,14 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(mockSpinner.start).toHaveBeenCalledWith("Cloning repository...");
 			expect(mockSpinner.stop).toHaveBeenCalledWith("Cloned successfully");
@@ -256,11 +272,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockPathExists.mockResolvedValue(false);
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("aborted");
 			if (result.status === "aborted") {
@@ -281,11 +300,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockPathExists.mockResolvedValue(false);
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("aborted");
 			if (result.status === "aborted") {
@@ -306,11 +328,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockPathExists.mockResolvedValue(false);
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
@@ -328,12 +353,15 @@ describe("cloneAndReinstall", () => {
 			});
 			mockPathExists.mockResolvedValue(false);
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-				manifest,
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+					manifest,
+				},
+				interactiveUi,
+			);
 
 			expect(mockRemoveEntry).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -351,11 +379,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockPathExists.mockResolvedValue(false);
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -372,11 +403,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockPathExists.mockResolvedValue(false);
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo/go",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/go",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("aborted");
 			expect(mockPathExists).toHaveBeenCalledWith(
@@ -406,11 +440,14 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo/go",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/go",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("success");
 			// Derive-before-delete checked the RELOCATED source, not the key-derived dir.
@@ -448,11 +485,14 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo/go",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/go",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("success");
 			expect(mockPathExists).toHaveBeenCalledWith(
@@ -477,11 +517,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("failed");
 			if (result.status === "failed") {
@@ -500,12 +543,15 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-				manifest,
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+					manifest,
+				},
+				interactiveUi,
+			);
 
 			expect(mockRemoveEntry).toHaveBeenCalledWith(manifest, "owner/repo");
 			expect(mockWriteManifest).toHaveBeenCalledWith(
@@ -523,11 +569,14 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
@@ -539,11 +588,14 @@ describe("cloneAndReinstall", () => {
 
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("failed");
 			if (result.status === "failed") {
@@ -557,11 +609,14 @@ describe("cloneAndReinstall", () => {
 
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-			});
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
@@ -580,12 +635,15 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key,
-				entry,
-				projectDir: "/fake/project",
-				sourceDir: key,
-			});
+			const result = await cloneAndReinstall(
+				{
+					key,
+					entry,
+					projectDir: "/fake/project",
+					sourceDir: key,
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("success");
 			if (result.status === "success") {
@@ -607,12 +665,15 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/hooks/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "/Users/lee/Code/skills/hooks",
-				entry,
-				projectDir: "/fake/project",
-				sourceDir: "/Users/lee/Code/skills",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "/Users/lee/Code/skills/hooks",
+					entry,
+					projectDir: "/fake/project",
+					sourceDir: "/Users/lee/Code/skills",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("success");
 			expect(mockCopyBareSkill).toHaveBeenCalledWith({
@@ -636,12 +697,15 @@ describe("cloneAndReinstall", () => {
 				throw new PathTraversalError("../evil");
 			});
 
-			const result = await cloneAndReinstall({
-				key: "/Users/lee/Code/skills/evil",
-				entry,
-				projectDir: "/fake/project",
-				sourceDir: "/Users/lee/Code/skills",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "/Users/lee/Code/skills/evil",
+					entry,
+					projectDir: "/fake/project",
+					sourceDir: "/Users/lee/Code/skills",
+				},
+				interactiveUi,
+			);
 
 			expect(result).toMatchObject({
 				status: "failed",
@@ -664,14 +728,17 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/swift/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo/swift",
-				entry: makeEntry({
-					type: "pack",
-					files: [".claude/agents/openai.yaml"],
-				}),
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/swift",
+					entry: makeEntry({
+						type: "pack",
+						files: [".claude/agents/openai.yaml"],
+					}),
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result).toMatchObject({
 				status: "success",
@@ -689,11 +756,14 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/repo/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry: makeEntry({ type: "skill" }),
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry: makeEntry({ type: "skill" }),
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result).not.toHaveProperty("note");
 		});
@@ -711,12 +781,15 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo",
-				entry,
-				projectDir: "/fake/project",
-				newRef: "v2.0.0",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry,
+					projectDir: "/fake/project",
+					newRef: "v2.0.0",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("success");
 			if (result.status === "success") {
@@ -739,11 +812,14 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall({
-				key: "owner/repo/go",
-				entry,
-				projectDir: "/fake/project",
-			});
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/go",
+					entry,
+					projectDir: "/fake/project",
+				},
+				interactiveUi,
+			);
 
 			expect(result.status).toBe("success");
 			// The recorded-skill validation gate reads the subdir
@@ -765,11 +841,14 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				await cloneAndReinstall({
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-				});
+				await cloneAndReinstall(
+					{
+						key: "owner/repo",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone",
@@ -792,11 +871,14 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/go/"],
 				});
 
-				await cloneAndReinstall({
-					key: "owner/repo/go",
-					entry,
-					projectDir: "/fake/project",
-				});
+				await cloneAndReinstall(
+					{
+						key: "owner/repo/go",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone/go",
@@ -817,12 +899,15 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-plugin/"],
 				});
 
-				await cloneAndReinstall({
-					key,
-					entry,
-					projectDir: "/fake/project",
-					sourceDir: key,
-				});
+				await cloneAndReinstall(
+					{
+						key,
+						entry,
+						projectDir: "/fake/project",
+						sourceDir: key,
+					},
+					interactiveUi,
+				);
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, key);
 			});
@@ -842,11 +927,14 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				const result = await cloneAndReinstall({
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-				});
+				const result = await cloneAndReinstall(
+					{
+						key: "owner/repo",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(result.status).toBe("blocked");
 				if (result.status === "blocked") {
@@ -873,12 +961,15 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				await cloneAndReinstall({
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-					manifest,
-				});
+				await cloneAndReinstall(
+					{
+						key: "owner/repo",
+						entry,
+						projectDir: "/fake/project",
+						manifest,
+					},
+					interactiveUi,
+				);
 
 				expect(mockRemoveEntry).not.toHaveBeenCalled();
 				expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -911,11 +1002,14 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				const result = await cloneAndReinstall({
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-				});
+				const result = await cloneAndReinstall(
+					{
+						key: "owner/repo",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(result.status).toBe("blocked");
 				if (result.status !== "blocked") return;
@@ -943,11 +1037,14 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				await cloneAndReinstall({
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-				});
+				await cloneAndReinstall(
+					{
+						key: "owner/repo",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
 			});
@@ -972,11 +1069,14 @@ describe("cloneAndReinstall", () => {
 					throw new PathTraversalError("../evil");
 				});
 
-				const result = await cloneAndReinstall({
-					key: "owner/repo/evil",
-					entry,
-					projectDir: "/fake/project",
-				});
+				const result = await cloneAndReinstall(
+					{
+						key: "owner/repo/evil",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
 					"/tmp/agntc-clone",
@@ -1013,12 +1113,15 @@ describe("cloneAndReinstall", () => {
 					throw new PathTraversalError("../evil");
 				});
 
-				await cloneAndReinstall({
-					key: "owner/repo/evil",
-					entry,
-					projectDir: "/fake/project",
-					manifest,
-				});
+				await cloneAndReinstall(
+					{
+						key: "owner/repo/evil",
+						entry,
+						projectDir: "/fake/project",
+						manifest,
+					},
+					interactiveUi,
+				);
 
 				expect(mockRemoveEntry).not.toHaveBeenCalled();
 				expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -1042,11 +1145,14 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/go/"],
 				});
 
-				const result = await cloneAndReinstall({
-					key: "owner/repo/go",
-					entry,
-					projectDir: "/fake/project",
-				});
+				const result = await cloneAndReinstall(
+					{
+						key: "owner/repo/go",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				// Guard invoked against the clone root with the recorded subpath.
 				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
@@ -1075,11 +1181,14 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				const result = await cloneAndReinstall({
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-				});
+				const result = await cloneAndReinstall(
+					{
+						key: "owner/repo",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(result.status).toBe("success");
 				expect(mockNukeManifestFiles).toHaveBeenCalled();
@@ -1098,11 +1207,14 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil", "../escape"),
 				);
 
-				await cloneAndReinstall({
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-				});
+				await cloneAndReinstall(
+					{
+						key: "owner/repo",
+						entry,
+						projectDir: "/fake/project",
+					},
+					interactiveUi,
+				);
 
 				expect(mockNukeManifestFiles).toHaveBeenCalledTimes(0);
 				expect(mockCopyBareSkill).toHaveBeenCalledTimes(0);

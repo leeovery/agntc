@@ -1,12 +1,13 @@
-import { isCancel, multiselect } from "@clack/prompts";
 import type { MenuOption } from "./choose-items.js";
 import type { InstallItem } from "./install-item.js";
+import type { Ui } from "./ui.js";
 
 /** Asks which items to install. A cancel picks nothing. */
 export async function promptForItems(
 	options: MenuOption[],
+	ui: Ui,
 ): Promise<InstallItem[]> {
-	const picked = await multiselect<number>({
+	const picked = await ui.multiselect<number>({
 		message: "Select what to install",
 		options: options.map(({ label, hint }, index) => ({
 			value: index,
@@ -15,9 +16,6 @@ export async function promptForItems(
 		})),
 		required: false,
 	});
-	if (isCancel(picked)) {
-		return [];
-	}
 	return options
 		.filter((_, index) => picked.includes(index))
 		.map(({ value }) => value);
