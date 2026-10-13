@@ -1,4 +1,4 @@
-import type { Stats } from "node:fs";
+import type { Dirent } from "node:fs";
 import {
 	copyFile,
 	lstat,
@@ -153,9 +153,13 @@ async function containedTarget(link: string, root: string): Promise<string> {
 	return target;
 }
 
-/** Whether a `/`-joined path is a `.git` or lies below one: history, never content. */
+/**
+ * Whether a `/`-joined path is a `.git` or lies below one: history, never
+ * content. Any letter case counts, as a filesystem that ignores case reads
+ * `.GIT` as `.git`.
+ */
 export function inGitFolder(path: string): boolean {
-	return path.split("/").includes(".git");
+	return path.split("/").some((name) => name.toLowerCase() === ".git");
 }
 
 /** What an item is copied from: the root its paths sit below, and its kind. */
@@ -199,7 +203,8 @@ interface Plan {
  * link, read from where it sits:
  * - out of the source root throws {@link SymlinkEscapeError};
  * - to something inside `dir` the filter keeps stays a link, made relative;
- * - to something inside `dir` the filter drops is left out;
+ * - to something inside `dir` the filter drops, or below a folder it drops,
+ *   is left out;
  * - to `dir` itself or above it is an absolute link into a local source,
  *   which stays, and is left out of a clone, which is deleted once copied;
  * - elsewhere in the source is an absolute link into a local source, and in
@@ -271,7 +276,7 @@ async function planLink(plan: Plan, link: string, path: string): Promise<void> {
 	const target = await containedTarget(link, plan.root);
 	if (target !== plan.unit && isContained(plan.unit, target)) {
 		const inside = posix.join(plan.at, relativePosix(plan.unit, target));
-		if (plan.keep(inside)) {
+		if (keepsTheWay(plan.keep, inside)) {
 			const relativeTarget = relative(dirname(link), target) || ".";
 			plan.steps.push({ kind: "link", path, target: relativeTarget });
 		}
@@ -283,41 +288,64 @@ async function planLink(plan: Plan, link: string, path: string): Promise<void> {
 }
 
 /**
+ * Whether the filter keeps a path and every folder above it, as a copy only
+ * reaches what lies in the folders it keeps.
+ */
+function keepsTheWay(keep: CopyFilter, path: string): boolean {
+	const names = path.split("/");
+	return names.every((_, index) => keep(names.slice(0, index + 1).join("/")));
+}
+
+/**
  * Copies what a link elsewhere in a clone leads to in the link's place: a
  * regular file, or a folder whose own links are judged against it and are
  * never copied in their turn, so a chain or a cycle of links stops there.
- * A target in `.git`, itself a link or below one, or neither a file nor a
- * folder is left out.
+ * A target in `.git`, itself a link or below one, not named as listed on
+ * disk, or neither a file nor a folder is left out.
  */
 async function materialise(
 	plan: Plan,
 	target: string,
 	path: string,
 ): Promise<void> {
-	const stats = await linkFreeStats(plan.root, target);
-	if (stats?.isDirectory()) {
+	const entry = await listedEntry(plan.root, target);
+	if (entry?.isDirectory()) {
 		plan.steps.push({ kind: "dir", path });
 		const inner = { ...plan, unit: target, at: path, materialises: false };
 		await planFolder(inner, target, path);
-	} else if (stats?.isFile()) {
+	} else if (entry?.isFile()) {
 		plan.steps.push({ kind: "file", path, from: target });
 	}
 }
 
 /**
- * What sits at `target` below `root`, from `lstat`, when no folder on the way
- * to it is a link and it's out of `.git`; null otherwise.
+ * The entry `target` names below `root`, when it's out of `.git`, each name
+ * on the way to it is listed in its folder exactly as written, and every
+ * folder on the way is a real one; null otherwise. Exact names keep the checks
+ * made on the target's path true of what is read where a filesystem ignores
+ * case: `SKILLS` there would read the folder above the item, and `.GIT` the
+ * clone's history.
  */
-async function linkFreeStats(
+async function listedEntry(
 	root: string,
 	target: string,
-): Promise<Stats | null> {
-	if (inGitFolder(relativePosix(root, target))) {
+): Promise<Dirent | null> {
+	const path = relativePosix(root, target);
+	if (inGitFolder(path)) {
 		return null;
 	}
-	const above = await inspectSourcePath(
-		root,
-		relativePosix(root, dirname(target)),
-	);
-	return above.kind === "directory" ? lstat(target).catch(() => null) : null;
+	let folder = root;
+	let entry: Dirent | null = null;
+	for (const name of path.split("/")) {
+		if (entry !== null && !entry.isDirectory()) {
+			return null;
+		}
+		const entries = await readdir(folder, { withFileTypes: true });
+		entry = entries.find((listed) => listed.name === name) ?? null;
+		if (entry === null) {
+			return null;
+		}
+		folder = join(folder, name);
+	}
+	return entry;
 }

@@ -511,6 +511,45 @@ describe("copyBareSkill", () => {
 			expect(await installedNames("shared")).toEqual(["guide.md"]);
 		});
 
+		it.each([
+			".GIT",
+			".Git",
+		])("never copies a .git in a link's place through a link spelling it %s, to the clone's or one spelled so", async (spelling) => {
+			await tree(clone, {
+				".git/config": "url = https://token@host/repo",
+				[`vendor/${spelling}/config`]: "",
+			});
+			await link(skill, {
+				config: `../../${spelling}/config`,
+				history: `../../${spelling}`,
+				vendored: `../../vendor/${spelling}`,
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("leaves out a link naming its target in another case than the folder lists it, so it never reads the folder above the skill", async () => {
+			await link(skill, {
+				skills: "../../SKILLS",
+				"guide.md": "../../SHARED/guide.md",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("leaves out a link into a folder the skill drops, though what it names lies below it", async () => {
+			await tree(skill, { "agntc.json/data": "data" });
+			await symlink("agntc.json/data", join(skill, "data"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
 		it("drops agntc.json only at the skill's top, from what it copies in a link's place too", async () => {
 			await tree(clone, {
 				"shared/agntc.json": "{}",
@@ -664,6 +703,22 @@ describe("copyBareSkill", () => {
 
 			expect(await fileExists(installed(".env.example"))).toBe(true);
 			expect(await fileExists(installed(".config/settings.json"))).toBe(true);
+		});
+
+		it("drops a .git spelled in any case from the skill's own content, keeping .github", async () => {
+			await tree(skill, {
+				".GIT/config": "",
+				"ref/.Git/HEAD": "",
+				".github/workflows/ci.yml": "",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual([".github", "SKILL.md", "ref"]);
+			expect(await installedNames("ref")).toEqual(["a.md"]);
+			expect(await fileExists(installed(".github/workflows/ci.yml"))).toBe(
+				true,
+			);
 		});
 
 		it("skips a FIFO without blocking", async () => {

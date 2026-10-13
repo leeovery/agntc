@@ -469,6 +469,7 @@ describe("copyPack", () => {
 				join(root, "laravel/hooks/lint/lib"),
 			);
 			await symlink("util.sh", join(root, "scripts/lib/alias.sh"));
+			await symlink(".cache/state", join(root, "scripts/lib/state"));
 			await symlink("../.hidden", join(root, "scripts/lib/hidden"));
 			await symlink(
 				"../../../scripts/.hidden/x.sh",
