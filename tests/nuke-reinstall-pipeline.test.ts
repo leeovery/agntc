@@ -677,7 +677,7 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/tmp/clone/lang/go",
-				"/tmp/clone",
+				{ root: "/tmp/clone", local: false },
 			);
 		});
 
@@ -1459,7 +1459,7 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/tmp/clone/go",
-				"/tmp/clone",
+				{ root: "/tmp/clone", local: false },
 			);
 		});
 

@@ -1,4 +1,5 @@
 import { type Mock, vi } from "vitest";
+import type { CopySource } from "../../src/copy-safety.js";
 
 /**
  * The narrowed result of the production `checkEscapingSymlinks` wrapper.
@@ -34,7 +35,7 @@ interface CopySafetyMock {
 	inspectSourcePath: Mock;
 	checkEscapingSymlinks: (
 		unitDir: string,
-		cloneRoot: string,
+		source: CopySource,
 	) => Promise<CheckResult>;
 }
 
@@ -62,10 +63,10 @@ export function mockCopySafety(
 		inspectSourcePath: vi.fn(async () => ({ kind: "directory" })),
 		checkEscapingSymlinks: async (
 			unitDir: string,
-			cloneRoot: string,
+			source: CopySource,
 		): Promise<CheckResult> => {
 			try {
-				await scanForEscapingSymlinks(unitDir, cloneRoot);
+				await scanForEscapingSymlinks(unitDir, source);
 				return { ok: true };
 			} catch (err) {
 				if (err instanceof SymlinkEscapeError) {

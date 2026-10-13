@@ -524,7 +524,10 @@ describe("copyPack", () => {
 			await symlink("../../..", join(root, "laravel/hooks/lint/up"));
 			await symlink("../..", join(root, "laravel/hooks/up"));
 
-			const check = await checkEscapingSymlinks(join(root, "laravel"), root);
+			const check = await checkEscapingSymlinks(
+				join(root, "laravel"),
+				remote(root),
+			);
 			const result = await copyFromCloneThenDelete();
 
 			expect(check).toEqual({ ok: true });
@@ -541,7 +544,10 @@ describe("copyPack", () => {
 			});
 			await symlink("../../../..", join(root, "laravel/hooks/lint/leak"));
 
-			const check = await checkEscapingSymlinks(join(root, "laravel"), root);
+			const check = await checkEscapingSymlinks(
+				join(root, "laravel"),
+				remote(root),
+			);
 			const copy = copyPack(
 				pack({
 					skills: [{ name: "a", path: "laravel/skills/a" }],
@@ -569,7 +575,10 @@ describe("copyPack", () => {
 			);
 			await symlink("../../..", join(root, "scripts/lib/leak"));
 
-			const check = await checkEscapingSymlinks(join(root, "laravel"), root);
+			const check = await checkEscapingSymlinks(
+				join(root, "laravel"),
+				remote(root),
+			);
 			const copy = copyPack(
 				pack({
 					skills: [{ name: "a", path: "laravel/skills/a" }],

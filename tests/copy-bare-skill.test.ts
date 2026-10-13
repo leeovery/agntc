@@ -17,7 +17,11 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
-import { type CopySource, SymlinkEscapeError } from "../src/copy-safety.js";
+import {
+	type CopySource,
+	checkEscapingSymlinks,
+	SymlinkEscapeError,
+} from "../src/copy-safety.js";
 
 let testDir: string;
 let sourceDir: string;
@@ -526,21 +530,33 @@ describe("copyBareSkill", () => {
 			);
 		});
 
-		it("refuses a link out of the clone in a folder it would copy in a link's place, writing nothing", async () => {
-			await tree(testDir, { "outside/secret.md": "secret" });
-			await symlink(
-				join(testDir, "outside/secret.md"),
-				join(clone, "shared/leak"),
-			);
-			await symlink("../../shared", join(skill, "shared"));
+		describe("a link to a folder elsewhere holding a link out of the source", () => {
+			const SECRET = () => join(testDir, "outside/secret.md");
 
-			await expect(copyFoo(remote(clone))).rejects.toThrow(
-				new SymlinkEscapeError(
-					"shared/leak",
-					join(testDir, "outside/secret.md"),
-				),
-			);
-			expect(await fileExists(join(projectDir, INSTALLED))).toBe(false);
+			beforeEach(async () => {
+				await tree(testDir, { "outside/secret.md": "secret" });
+				await symlink(SECRET(), join(clone, "shared/leak"));
+				await symlink("../../shared", join(skill, "shared"));
+			});
+
+			it("is refused from a clone, by the pre-flight and by the copy, writing nothing", async () => {
+				const refusal = new SymlinkEscapeError("shared/leak", SECRET());
+
+				const check = await checkEscapingSymlinks(skill, remote(clone));
+
+				expect(check).toEqual({ ok: false, message: refusal.message });
+				await expect(copyFoo(remote(clone))).rejects.toThrow(refusal);
+				expect(await fileExists(join(projectDir, INSTALLED))).toBe(false);
+			});
+
+			it("passes the pre-flight from a local source and installs as an absolute link", async () => {
+				const check = await checkEscapingSymlinks(skill, local(clone));
+
+				await copyFoo(local(clone));
+
+				expect(check).toEqual({ ok: true });
+				expect(await readlink(installed("shared"))).toBe(join(clone, "shared"));
+			});
 		});
 
 		it("links a local skill's link to its own folder, above it or elsewhere in the source absolutely into the source", async () => {
