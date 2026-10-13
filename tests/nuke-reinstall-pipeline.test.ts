@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ManifestEntry } from "../src/manifest.js";
 import { makeEntry } from "./helpers/factories.js";
 
-vi.mock("../src/fs-utils.js", () => ({
+vi.mock("../src/fs-utils.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/fs-utils.js")>()),
 	pathExists: vi.fn(),
 }));
 
@@ -9,7 +11,8 @@ vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../src/copy-pack.js", () => ({
+vi.mock("../src/copy-pack.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/copy-pack.js")>()),
 	copyPack: vi.fn(),
 }));
 
@@ -32,6 +35,10 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	};
 });
 
+vi.mock("../src/unmanaged-check.js", () => ({
+	checkUnmanagedConflicts: vi.fn(),
+}));
+
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPack } from "../src/copy-pack.js";
 import {
@@ -43,6 +50,7 @@ import {
 	type Discovery,
 	discover,
 	type FoundPack,
+	type FoundSkill,
 	PackConflictError,
 	StartPathError,
 } from "../src/discover.js";
@@ -52,8 +60,10 @@ import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
 } from "../src/nuke-reinstall-pipeline.js";
+import { checkUnmanagedConflicts } from "../src/unmanaged-check.js";
 
 const mockPathExists = vi.mocked(pathExists);
+const mockCheckUnmanaged = vi.mocked(checkUnmanagedConflicts);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPack = vi.mocked(copyPack);
 const mockDiscover = vi.mocked(discover);
@@ -69,9 +79,14 @@ function makeOptions(
 		sourceDir: "/tmp/source",
 		cloneRoot: "/tmp/source",
 		existingEntry: makeEntry({ type: "skill" }),
+		installed: {},
 		projectDir: "/fake/project",
 		...overrides,
 	};
+}
+
+function looseSkills(...skills: FoundSkill[]): Discovery {
+	return { packs: [], skills, strays: [] };
 }
 
 function foundPack(overrides: Partial<FoundPack> = {}): FoundPack {
@@ -95,6 +110,7 @@ beforeEach(() => {
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 	mockDiscover.mockResolvedValue(onlyPack(foundPack()));
 	mockCopyPack.mockResolvedValue({ copiedFiles: [], assetCounts: {} });
+	mockCheckUnmanaged.mockResolvedValue([]);
 });
 
 describe("executeNukeAndReinstall", () => {
@@ -266,8 +282,9 @@ describe("executeNukeAndReinstall", () => {
 					type: "pack",
 					files: [".claude/skills/kept/", ".claude/skills/added/"],
 				},
+				notes: [],
+				absorbed: [],
 			});
-			expect(result).not.toHaveProperty("note");
 		});
 
 		it("re-walks before removing anything", async () => {
@@ -318,7 +335,9 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockCopyPack).not.toHaveBeenCalled();
 			expect(result).toMatchObject({
 				status: "success",
-				note: "owner/repo/laravel is a single skill — reinstalled as a skill",
+				notes: [
+					"owner/repo/laravel is a single skill — reinstalled as a skill",
+				],
 				entry: { type: "skill", files: [".claude/skills/laravel/"] },
 			});
 		});
@@ -355,7 +374,6 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toEqual({
 				status: "aborted",
-				recordedType: "pack",
 				reason: "its folder now contains packs",
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -363,32 +381,36 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 
-		it("aborts, leaving the install intact, when the re-walk finds nothing", async () => {
+		it("is gone upstream, leaving the install intact, when the re-walk finds nothing", async () => {
 			mockDiscover.mockResolvedValue(onlyPack(foundPack({ skills: [] })));
 
 			const result = await executeNukeAndReinstall(packOptions());
 
-			expect(result).toEqual({
-				status: "aborted",
-				recordedType: "pack",
-				reason: "it no longer holds any skills, agents or hooks",
-			});
+			expect(result).toEqual({ status: "gone" });
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 
-		it("aborts, naming the path, when its path is missing", async () => {
+		it("still reinstalls a pack left with only agents or hooks", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(foundPack({ skills: [], assetDirs: ["hooks"] })),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result.status).toBe("success");
+		});
+
+		it("is gone upstream, leaving the install intact, when its path is missing", async () => {
 			mockDiscover.mockRejectedValue(
 				new StartPathError('path "laravel" not found in source'),
 			);
 
 			const result = await executeNukeAndReinstall(packOptions());
 
-			expect(result).toEqual({
-				status: "aborted",
-				recordedType: "pack",
-				reason: 'path "laravel" not found in source',
-			});
+			expect(result).toEqual({ status: "gone" });
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
 		});
 
 		it("lets any other walk error through", async () => {
@@ -401,36 +423,191 @@ describe("executeNukeAndReinstall", () => {
 		});
 	});
 
-	describe("derive-before-delete abort (recorded skill, SKILL.md gone)", () => {
-		it("returns aborted and does NOT nuke or copy when SKILL.md is absent", async () => {
+	describe("a skill whose recorded path no longer holds one", () => {
+		const MEMBER = {
+			key: "owner/repo/go",
+			sourceDir: "/tmp/clone/skills/go",
+			cloneRoot: "/tmp/clone",
+			existingEntry: makeEntry({
+				type: "skill",
+				files: [".claude/skills/go/"],
+				sourceSubpath: "skills/go",
+			}),
+		};
+
+		beforeEach(() => {
 			mockPathExists.mockResolvedValue(false);
-
-			const result = await executeNukeAndReinstall(makeOptions());
-
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") return;
-			expect(result.recordedType).toBe("skill");
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockCopyBareSkill).not.toHaveBeenCalled();
-			expect(mockCopyPack).not.toHaveBeenCalled();
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/go/"],
+			});
 		});
 
-		it("validation runs BEFORE nukeManifestFiles (abort -> nuke count 0)", async () => {
-			const callOrder: string[] = [];
-			mockPathExists.mockImplementation(async () => {
-				callOrder.push("validate");
-				return false;
-			});
-			mockNukeManifestFiles.mockImplementation(async () => {
-				callOrder.push("nuke");
-				return { removed: [], skipped: [] };
-			});
+		it("re-walks the whole source from its root, named after the repo", async () => {
+			mockDiscover.mockResolvedValue(looseSkills());
 
-			const result = await executeNukeAndReinstall(makeOptions());
+			await executeNukeAndReinstall(makeOptions(MEMBER));
 
-			expect(result.status).toBe("aborted");
-			expect(callOrder).toEqual(["validate"]);
+			expect(mockPathExists).toHaveBeenCalledWith(
+				"/tmp/clone/skills/go/SKILL.md",
+			);
+			expect(mockDiscover).toHaveBeenCalledWith("/tmp/clone", {
+				rootName: "repo",
+			});
+		});
+
+		it("follows the one skill of that name, recording its new path and a note", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills(
+					{ name: "go", path: "lang/go" },
+					{ name: "rust", path: "lang/rust" },
+				),
+			);
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith({
+				sourceDir: "/tmp/clone/lang/go",
+				projectDir: "/fake/project",
+				skillName: "go",
+			});
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { type: "skill", sourceSubpath: "lang/go" },
+				notes: ["owner/repo/go moved from skills/go to lang/go"],
+			});
+		});
+
+		it("follows a skill that moved into a pack, installing it on its own", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						path: "tools",
+						skills: [{ name: "go", path: "tools/skills/go" }],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(mockCopyPack).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ sourceDir: "/tmp/clone/tools/skills/go" }),
+			);
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { type: "skill", sourceSubpath: "tools/skills/go" },
+			});
+		});
+
+		it("drops the recorded path when the skill moved to where its key points", async () => {
+			mockDiscover.mockResolvedValue(looseSkills({ name: "go", path: "go" }));
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") return;
+			expect(result.entry).not.toHaveProperty("sourceSubpath");
+		});
+
+		it("follows a root skill that moved below the root, naming the old path after the repo", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "repo", path: "skills/repo" }),
+			);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ cloneRoot: "/tmp/clone", sourceDir: "/tmp/clone" }),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { sourceSubpath: "skills/repo" },
+				notes: ["owner/repo moved from repo to skills/repo"],
+			});
+		});
+
+		it("scans the folder it follows for escaping symlinks", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "go", path: "lang/go" }),
+			);
+
+			await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+				"/tmp/clone/lang/go",
+				"/tmp/clone",
+			);
+		});
+
+		it("matches on folder name only, not a frontmatter name", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "golang", path: "golang", frontmatterName: "go" }),
+			);
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(result).toEqual({ status: "gone" });
+		});
+
+		it("is gone upstream when no skill has its name, touching nothing", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "rust", path: "rust" }),
+			);
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(result).toEqual({ status: "gone" });
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
+		});
+
+		it("aborts, touching nothing, when several skills now have its name, listing their paths", async () => {
+			mockDiscover.mockResolvedValue({
+				packs: [
+					foundPack({
+						path: "tools",
+						skills: [{ name: "go", path: "tools/go" }],
+					}),
+				],
+				skills: [{ name: "go", path: "lang/go" }],
+				strays: [],
+			});
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("records a moved local skill's path from the folder its key sits in", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "go", path: "lang/go" }),
+			);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "/src/kit/go",
+					sourceDir: "/src/kit/go",
+					cloneRoot: "/src/kit/go",
+					existingEntry: makeEntry({ type: "skill", commit: null }),
+				}),
+			);
+
+			expect(mockDiscover).toHaveBeenCalledWith("/src/kit/go", {
+				rootName: "go",
+			});
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { sourceSubpath: "go/lang/go" },
+			});
 		});
 
 		it("on success validation runs before nuke (ordering: validate then nuke then copy)", async () => {
@@ -453,47 +630,213 @@ describe("executeNukeAndReinstall", () => {
 			expect(callOrder).toEqual(["validate", "nuke", "copy"]);
 		});
 
-		it("aborts before the symlink scan, which can't read a vanished folder", async () => {
-			mockPathExists.mockResolvedValue(false);
+		it("re-walks for a moved skill before removing anything", async () => {
+			const callOrder: string[] = [];
+			mockDiscover.mockImplementation(async () => {
+				callOrder.push("walk");
+				return looseSkills({ name: "go", path: "lang/go" });
+			});
+			mockNukeManifestFiles.mockImplementation(async () => {
+				callOrder.push("nuke");
+				return { removed: [], skipped: [] };
+			});
 
-			const result = await executeNukeAndReinstall(makeOptions());
+			await executeNukeAndReinstall(makeOptions(MEMBER));
 
-			expect(result.status).toBe("aborted");
-			expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
-		});
-
-		it("abort result names recorded-vs-current cause in reason", async () => {
-			mockPathExists.mockResolvedValue(false);
-
-			const result = await executeNukeAndReinstall(makeOptions());
-
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") return;
-			expect(result.recordedType).toBe("skill");
-			expect(typeof result.reason).toBe("string");
-			expect(result.reason.length).toBeGreaterThan(0);
-			expect(result.reason).toContain("SKILL.md");
+			expect(callOrder).toEqual(["walk", "nuke"]);
 		});
 	});
 
-	describe("member entry whose subdir vanished", () => {
-		it("aborts identically when its own subdir lacks SKILL.md", async () => {
-			mockPathExists.mockResolvedValue(false);
+	describe("what is in the way of the replayed item", () => {
+		const PACK_KEY = "owner/repo/laravel";
+		const PACK_ENTRY = makeEntry({
+			type: "pack",
+			files: [".claude/skills/api/"],
+		});
+
+		function packOptions(installed: Record<string, ManifestEntry>) {
+			return makeOptions({
+				key: PACK_KEY,
+				sourceDir: "/tmp/clone/laravel",
+				cloneRoot: "/tmp/clone",
+				existingEntry: PACK_ENTRY,
+				installed: { [PACK_KEY]: PACK_ENTRY, ...installed },
+			});
+		}
+
+		beforeEach(() => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						skills: [
+							{ name: "api", path: "laravel/skills/api" },
+							{ name: "queues", path: "laravel/skills/queues" },
+						],
+					}),
+				),
+			);
+			mockCopyPack.mockResolvedValue({
+				copiedFiles: [".claude/skills/api/", ".claude/skills/queues/"],
+				assetCounts: { skills: 2 },
+			});
+		});
+
+		it("checks every path the item would claim against the installed entries", async () => {
+			const installed = { [PACK_KEY]: PACK_ENTRY };
+
+			await executeNukeAndReinstall(packOptions({}));
+
+			expect(mockCheckUnmanaged).toHaveBeenCalledWith(
+				[".claude/skills/api/", ".claude/skills/queues/"],
+				installed,
+				"/fake/project",
+			);
+		});
+
+		it("aborts, touching nothing, when files agntc didn't install sit at a new skill's target", async () => {
+			mockCheckUnmanaged.mockResolvedValue([".claude/skills/queues/"]);
+
+			const result = await executeNukeAndReinstall(packOptions({}));
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"files agntc didn't install are in the way: .claude/skills/queues/",
+				inTheWay: true,
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
+		it("aborts, naming the entry, when a different source's entry records a new skill's target", async () => {
+			const other = makeEntry({
+				type: "skill",
+				files: [".claude/skills/queues/"],
+				cloneUrl: "https://github.com/other/tools.git",
+			});
 
 			const result = await executeNukeAndReinstall(
-				makeOptions({
-					key: "owner/repo/go",
-					sourceDir: "/tmp/source/go",
-					existingEntry: makeEntry({
+				packOptions({ "other/tools/queues": other }),
+			);
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"files of other/tools/queues are in the way: .claude/skills/queues/",
+				inTheWay: true,
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("absorbs a loose skill from its own source: removes its files, reports it, notes it", async () => {
+			const loose = makeEntry({
+				type: "skill",
+				files: [".claude/skills/queues/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				packOptions({ "owner/repo/queues": loose }),
+			);
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/api/", ".claude/skills/queues/"],
+			);
+			expect(result).toMatchObject({
+				status: "success",
+				absorbed: ["owner/repo/queues"],
+				notes: [
+					"owner/repo/laravel now includes queues, installed on its own before",
+				],
+			});
+		});
+
+		it("removes the absorbed skill's files before copying the pack over them", async () => {
+			const callOrder: string[] = [];
+			mockNukeManifestFiles.mockImplementation(async (_dir, files) => {
+				callOrder.push(`nuke ${files.join(",")}`);
+				return { removed: [], skipped: [] };
+			});
+			mockCopyPack.mockImplementation(async () => {
+				callOrder.push("copy");
+				return { copiedFiles: [], assetCounts: {} };
+			});
+
+			await executeNukeAndReinstall(
+				packOptions({
+					"owner/repo/queues": makeEntry({
 						type: "skill",
-						files: [".claude/skills/go/"],
+						files: [".claude/skills/queues/"],
 					}),
 				}),
 			);
 
-			expect(result.status).toBe("aborted");
-			expect(mockPathExists).toHaveBeenCalledWith("/tmp/source/go/SKILL.md");
+			expect(callOrder).toEqual([
+				"nuke .claude/skills/api/,.claude/skills/queues/",
+				"copy",
+			]);
+		});
+
+		it("still reports what it took over when the copy then fails, naming it in the hint", async () => {
+			mockCopyPack.mockRejectedValue(new Error("disk full"));
+
+			const result = await executeNukeAndReinstall(
+				packOptions({
+					"owner/repo/queues": makeEntry({
+						type: "skill",
+						files: [".claude/skills/queues/"],
+					}),
+				}),
+			);
+
+			expect(result).toEqual({
+				status: "copy-failed",
+				errorMessage: "disk full",
+				absorbed: ["owner/repo/queues"],
+				recoveryHint:
+					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc update owner/repo/laravel` to retry installation.",
+			});
+		});
+
+		it("treats a same-source pack's files as a clash, not something to absorb", async () => {
+			const sibling = makeEntry({
+				type: "pack",
+				files: [".claude/skills/queues/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				packOptions({ "owner/repo/jobs": sibling }),
+			);
+
+			expect(result).toMatchObject({ status: "aborted", inTheWay: true });
+		});
+
+		it("never absorbs into a skill: a same-source loose skill at its target clashes", async () => {
+			const sameName = makeEntry({
+				type: "skill",
+				files: [".claude/skills/repo/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ installed: { "owner/repo/repo": sameName } }),
+			);
+
+			expect(result).toMatchObject({
+				status: "aborted",
+				reason: "files of owner/repo/repo are in the way: .claude/skills/repo/",
+			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("reinstalls over the entry's own recorded files", async () => {
+			const result = await executeNukeAndReinstall(
+				packOptions({
+					"owner/repo/laravel-copy": makeEntry({ files: [".claude/other/"] }),
+				}),
+			);
+
+			expect(result.status).toBe("success");
+			expect(result).toMatchObject({ absorbed: [], notes: [] });
 		});
 	});
 

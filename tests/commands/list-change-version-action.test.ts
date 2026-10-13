@@ -49,11 +49,13 @@ vi.mock("../../src/nuke-files.js", async () => {
 	return mockNukeFilesModule();
 });
 
-vi.mock("../../src/copy-pack.js", async () => {
+vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 	const { mockCopyPackModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockCopyPackModule();
+	return mockCopyPackModule(
+		importOriginal<typeof import("../../src/copy-pack.js")>,
+	);
 });
 
 vi.mock("../../src/copy-bare-skill.js", async () => {
@@ -61,6 +63,22 @@ vi.mock("../../src/copy-bare-skill.js", async () => {
 		"../helpers/list-action-mock-factories.js"
 	);
 	return mockCopyBareSkillModule();
+});
+
+vi.mock("../../src/discover.js", async (importOriginal) => {
+	const { mockDiscoverModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockDiscoverModule(
+		importOriginal<typeof import("../../src/discover.js")>,
+	);
+});
+
+vi.mock("../../src/unmanaged-check.js", async () => {
+	const { mockUnmanagedCheckModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockUnmanagedCheckModule();
 });
 
 // File-specific: change-version always fetches the full remote tag list.
@@ -75,6 +93,7 @@ import { fetchRemoteTags } from "../../src/git-utils.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
+	looseSkillsAt,
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
@@ -88,6 +107,7 @@ const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
+const mockDiscover = mocks.discover;
 // File-specific handles for the change-version flow.
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockSelect = vi.mocked(p.select);
@@ -479,8 +499,9 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			// Recorded skill's SKILL.md is gone in the re-clone → abort.
+			// The recorded SKILL.md is gone and two skills now carry its name → abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
 
 			const result = await executeChangeVersionAction(
 				key,
@@ -491,14 +512,101 @@ describe("executeChangeVersionAction", () => {
 			);
 
 			expect(result.changed).toBe(false);
-			expect(result.message).toContain("installed as a skill");
-			expect(result.message).toContain("unchanged");
-			expect(result.message).toContain("npx agntc remove owner/repo");
-			expect(result.message).toContain("npx agntc add owner/repo");
+			expect(result.message).toBe(
+				"owner/repo was installed as a skill and can't be updated (its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo). The existing install is unchanged. To migrate: npx agntc remove owner/repo then npx agntc add owner/repo",
+			);
 			expect(result.newEntry).toBeUndefined();
 			// Install intact: no nuke, no manifest write.
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("an entry gone upstream at the chosen version", () => {
+		const key = "owner/repo/go";
+		const entry = makeEntry({
+			type: "skill",
+			ref: "v1.0.0",
+			files: [".claude/skills/go/"],
+		});
+		const other = makeEntry({ files: [".claude/skills/other/"] });
+		const manifest: Manifest = { [key]: entry, "owner/other": other };
+
+		function arrangeGone(removeIt: boolean): void {
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/other"));
+			// The first confirm is the version change itself.
+			mockConfirm.mockResolvedValueOnce(true).mockResolvedValueOnce(removeIt);
+		}
+
+		it("asks whether to remove it, no by default, after the change is confirmed", async () => {
+			arrangeGone(false);
+
+			await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
+
+			expect(mockConfirm).toHaveBeenCalledTimes(2);
+			expect(mockConfirm).toHaveBeenLastCalledWith({
+				message: "owner/repo/go is gone upstream — remove it?",
+				initialValue: false,
+			});
+		});
+
+		it("keeps it on no: nothing removed or written", async () => {
+			arrangeGone(false);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: true,
+				message:
+					"Kept owner/repo/go — it's gone upstream; update will ask again",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("removes its files and its entry on yes", async () => {
+			arrangeGone(true);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: true,
+				message: "Removed owner/repo/go — it's gone upstream",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/go/"],
+			);
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/other": other },
+			);
 		});
 	});
 

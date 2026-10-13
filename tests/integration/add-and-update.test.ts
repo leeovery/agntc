@@ -42,7 +42,6 @@ vi.mock("../../src/update-check.js", async (importOriginal) => ({
 import * as p from "@clack/prompts";
 import { runAdd } from "../../src/commands/add.js";
 import { runUpdate } from "../../src/commands/update.js";
-import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
 import type { Manifest } from "../../src/manifest.js";
@@ -440,37 +439,128 @@ describe("integration: add and update", () => {
 			);
 		});
 
-		it("aborts an entry whose path is gone, leaving it installed, while its sibling updates", async () => {
-			await repo("owner/repo", { "kept/SKILL.md": "v2" });
-			await write(projectDir, {
-				".claude/skills/kept/SKILL.md": "v1",
-				".claude/skills/gone/SKILL.md": "v1",
-			});
-			await writeV1Manifest({
-				"owner/repo/kept": v1Entry({
-					type: "skill",
-					files: [".claude/skills/kept/"],
-				}),
-				"owner/repo/gone": v1Entry({
-					type: "plugin",
-					files: [".claude/skills/gone/"],
-				}),
+		describe("with an entry whose path is gone upstream", () => {
+			async function arrangeGone(): Promise<void> {
+				await repo("owner/repo", { "kept/SKILL.md": "v2" });
+				await write(projectDir, {
+					".claude/skills/kept/SKILL.md": "v1",
+					".claude/skills/gone/SKILL.md": "v1",
+				});
+				await writeV1Manifest({
+					"owner/repo/kept": v1Entry({
+						type: "skill",
+						files: [".claude/skills/kept/"],
+					}),
+					"owner/repo/gone": v1Entry({
+						type: "plugin",
+						files: [".claude/skills/gone/"],
+					}),
+				});
+			}
+
+			async function keptUpdated(): Promise<void> {
+				const manifest = await savedManifest();
+				expect(manifest["owner/repo/kept"]).toMatchObject({ commit: NEW_SHA });
+				expect(
+					await readFile(
+						join(projectDir, ".claude/skills/kept/SKILL.md"),
+						"utf-8",
+					),
+				).toBe("v2");
+			}
+
+			it("asks, and on no leaves it installed while its sibling updates", async () => {
+				await arrangeGone();
+				vi.mocked(p.confirm).mockResolvedValue(false);
+
+				const err = await runUpdate().catch((error: unknown) => error);
+
+				expect(err).toBeUndefined();
+				expect(p.confirm).toHaveBeenCalledExactlyOnceWith({
+					message: "owner/repo/gone is gone upstream — remove it?",
+					initialValue: false,
+				});
+				expect(await installed(".claude/skills/gone/SKILL.md")).toBe(true);
+				expect(await savedManifest()).toHaveProperty("owner/repo/gone");
+				await keptUpdated();
 			});
 
-			const err = await runUpdate().catch((error: unknown) => error);
+			it("on yes removes its files and its entry while its sibling updates", async () => {
+				await arrangeGone();
+				vi.mocked(p.confirm).mockResolvedValue(true);
 
-			expect(err).toBeInstanceOf(ExitSignal);
-			expect((err as ExitSignal).code).toBe(1);
-			expect(await installed(".claude/skills/gone/SKILL.md")).toBe(true);
+				const err = await runUpdate().catch((error: unknown) => error);
+
+				expect(err).toBeUndefined();
+				expect(await installed(".claude/skills/gone")).toBe(false);
+				expect(await savedManifest()).not.toHaveProperty("owner/repo/gone");
+				await keptUpdated();
+			});
+		});
+	});
+
+	describe("a pack and the loose skills from its own source", () => {
+		it("adding the pack takes over a loose skill it now holds, without asking", async () => {
+			await repo("owner/repo", {
+				"skills/api/SKILL.md": "v1",
+				"skills/jobs/SKILL.md": "v1",
+			});
+			await runAdd("owner/repo", { skill: ["api", "jobs"] });
+			await repo("owner/repo", {
+				"laravel/agntc.json": PACK,
+				"laravel/skills/api/SKILL.md": "v2",
+				"laravel/skills/models/SKILL.md": "v2",
+				"skills/jobs/SKILL.md": "v1",
+			});
+
+			await runAdd("owner/repo/laravel");
+
 			const manifest = await savedManifest();
-			expect(manifest["owner/repo/gone"]).toMatchObject({ commit: OLD_SHA });
-			expect(manifest["owner/repo/kept"]).toMatchObject({ commit: NEW_SHA });
+			expect(Object.keys(manifest).sort()).toEqual([
+				"owner/repo/jobs",
+				"owner/repo/laravel",
+			]);
+			expect(manifest["owner/repo/laravel"]!.files).toEqual([
+				".claude/skills/api/",
+				".claude/skills/models/",
+			]);
 			expect(
 				await readFile(
-					join(projectDir, ".claude/skills/kept/SKILL.md"),
+					join(projectDir, ".claude/skills/api/SKILL.md"),
 					"utf-8",
 				),
 			).toBe("v2");
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"owner/repo/laravel now includes api, installed on its own before",
+			);
+			expect(p.select).not.toHaveBeenCalled();
+			expect(p.confirm).not.toHaveBeenCalled();
+		});
+
+		it("--skill on a skill an installed pack from the source holds says so and installs the rest", async () => {
+			await repo("owner/repo", {
+				"laravel/agntc.json": PACK,
+				"laravel/skills/api/SKILL.md": "",
+				"skills/other/SKILL.md": "",
+			});
+			await runAdd("owner/repo/laravel");
+
+			const err = await runAdd("owner/repo", {
+				skill: ["api", "other"],
+			}).catch((error: unknown) => error);
+
+			expect(err).toBeUndefined();
+			expect(Object.keys(await savedManifest())).toEqual([
+				"owner/repo/laravel",
+				"owner/repo/other",
+			]);
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"api is already installed as part of the pack owner/repo/laravel",
+			);
+			expect(mockLog.info).not.toHaveBeenCalledWith(
+				expect.stringContaining("installed on its own"),
+			);
+			expect(mockLog.error).not.toHaveBeenCalled();
 		});
 	});
 });

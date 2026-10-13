@@ -1,6 +1,12 @@
 import { basename, join } from "node:path";
 import { Command, Option } from "commander";
 import {
+	absorptionNote,
+	claimFiles,
+	skillsInInstalledPacks,
+	takenOverRemoved,
+} from "../absorb.js";
+import {
 	type ChoiceContext,
 	type ChoiceOutcome,
 	chooseItems,
@@ -29,6 +35,7 @@ import {
 	StartPathError,
 } from "../discover.js";
 import { addBody, listingBody, type SourceJson } from "../documents.js";
+import type { SourceId } from "../entry-source.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../git-clone.js";
@@ -158,9 +165,10 @@ export async function runAdd(
 			await listSource(src, selection.selection, ui);
 			return;
 		}
-		const items = await pickItems(src, selection.selection, ui);
+		const installed = await readManifest(process.cwd());
+		const items = await pickItems(src, selection.selection, installed, ui);
 		const policy = conflictPolicy(options.overwrite === true, ui.mode);
-		await installItems(items, src, policy, ui);
+		await installItems(items, src, installed, policy, ui);
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			throw err;
@@ -227,12 +235,22 @@ function describeSource(
 	};
 }
 
-function choiceContext(src: FetchedSource): ChoiceContext {
+function choiceContext(
+	src: FetchedSource,
+	packed?: ReadonlyMap<string, string>,
+): ChoiceContext {
 	return {
 		source: src.key,
 		rootName: src.rootName,
 		...(src.version !== undefined ? { version: src.version } : {}),
+		...(packed !== undefined ? { packed } : {}),
 	};
+}
+
+function sourceIdOfFetched(src: FetchedSource): SourceId {
+	return src.cloneUrl === null
+		? { kind: "local", root: src.root }
+		: { kind: "remote", cloneUrl: src.cloneUrl };
 }
 
 function sourceJson(src: FetchedSource): SourceJson {
@@ -270,10 +288,16 @@ async function listSource(
 async function pickItems(
 	src: FetchedSource,
 	selection: Selection,
+	manifest: Manifest,
 	ui: Ui,
 ): Promise<KeyedItem[]> {
 	const discovery = await discoverSource(src, selection, ui);
-	const choice = chooseItems(discovery, selection, choiceContext(src));
+	const packed = skillsInInstalledPacks(
+		discovery,
+		manifest,
+		sourceIdOfFetched(src),
+	);
+	const choice = chooseItems(discovery, selection, choiceContext(src, packed));
 	for (const notice of choice.strayNotices) {
 		ui.warn(notice);
 	}
@@ -321,6 +345,9 @@ async function settle(
 			}
 			return outcome.items;
 		case "menu": {
+			for (const note of outcome.notes) {
+				ui.note(note);
+			}
 			if (ui.mode === "machine") {
 				const offered = outcome.options.map(({ value }) => value);
 				ui.report(listingBody(sourceJson(src), offered, discovery.strays));
@@ -356,41 +383,40 @@ function refuse(
 async function installItems(
 	items: KeyedItem[],
 	src: FetchedSource,
+	installed: Manifest,
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<void> {
 	const projectDir = process.cwd();
-	let manifest = await readManifest(projectDir);
+	let manifest = installed;
 	const outcomes: ItemOutcome[] = [];
-	const cleared: KeyedItem[] = [];
+	const cleared: ClearedItem[] = [];
+	const ctx = { policy, ui, source: sourceIdOfFetched(src) };
 
 	for (const keyed of items) {
-		const checked = await checkItem(keyed, src, manifest, projectDir, {
-			policy,
-			ui,
-		});
+		const checked = await checkItem(keyed, src, manifest, projectDir, ctx);
 		manifest = checked.manifest;
 		if (checked.outcome === null) {
-			cleared.push(keyed);
+			cleared.push({ keyed, absorbs: checked.absorbs });
 		} else {
 			outcomes.push(checked.outcome);
 		}
 	}
 
+	const notes: string[] = [];
 	if (cleared.length > 0) {
 		const spin = ui.spinner();
 		spin.start("Copying skill files...");
-		for (const keyed of cleared) {
-			const installed = await installKeyedItem(
-				keyed,
-				src,
-				manifest,
-				projectDir,
-			);
+		for (const item of cleared) {
+			const installed = await installKeyedItem(item, src, manifest, projectDir);
 			manifest = installed.manifest;
 			outcomes.push(installed.outcome);
+			notes.push(...installed.notes);
 		}
 		spin.stop("Copied successfully");
+	}
+	for (const note of notes) {
+		ui.note(note);
 	}
 
 	await writeManifest(projectDir, manifest);
@@ -419,23 +445,39 @@ function identify({ item, key }: KeyedItem, rootName: string): ItemIdentity {
 	};
 }
 
+interface CheckContext {
+	policy: ConflictPolicy;
+	ui: Ui;
+	/** Where the items come from, for what a pack absorbs. */
+	source: SourceId;
+}
+
+/** An item clear to copy, with the loose skills it takes over. */
+interface ClearedItem {
+	keyed: KeyedItem;
+	absorbs: string[];
+}
+
 interface CheckedItem {
 	manifest: Manifest;
 	/** Why the item won't be copied, or null when it's clear to copy. */
 	outcome: ItemOutcome | null;
+	/** The loose skills from its own source a pack takes over. */
+	absorbs: string[];
 }
 
 /**
  * Clears an item for copying: the symlink-escape scan, then whatever files are
  * in its way, under the conflict policy. Files recorded under the item's own
- * key count as its own, so a reinstall doesn't trip either check.
+ * key count as its own, so a reinstall doesn't trip either check, and so do a
+ * pack's loose skills from its own source, which it absorbs.
  */
 async function checkItem(
 	keyed: KeyedItem,
 	src: FetchedSource,
 	manifest: Manifest,
 	projectDir: string,
-	{ policy, ui }: { policy: ConflictPolicy; ui: Ui },
+	{ policy, ui, source }: CheckContext,
 ): Promise<CheckedItem> {
 	const identity = identify(keyed, src.rootName);
 	const symlinkCheck = await checkEscapingSymlinks(
@@ -446,12 +488,21 @@ async function checkItem(
 		return {
 			manifest,
 			outcome: { ...identity, status: "failed", reason: symlinkCheck.message },
+			absorbs: [],
 		};
 	}
 
+	const incoming = await computeIncomingFiles(keyed.item, src.root);
+	const absorbs =
+		keyed.item.kind === "pack"
+			? claimFiles(incoming, manifest, keyed.key, source).absorbed
+			: [];
+	const absorbed = new Set(
+		absorbs.flatMap((key) => manifest[key]?.files ?? []),
+	);
 	const conflicts = await clearConflicts(
 		{
-			incomingFiles: await computeIncomingFiles(keyed.item, src.root),
+			incomingFiles: incoming.filter((file) => !absorbed.has(file)),
 			manifest,
 			key: keyed.key,
 			projectDir,
@@ -465,20 +516,29 @@ async function checkItem(
 			conflicts.stop === null
 				? null
 				: { ...identity, status: "skipped", ...conflicts.stop },
+		absorbs,
 	};
 }
 
+interface InstalledItem {
+	manifest: Manifest;
+	outcome: ItemOutcome;
+	notes: string[];
+}
+
 /**
- * Removes the files of an earlier install under the item's key, then copies
- * the item. A failed copy drops the key's entry, since its files are gone. A
- * failed removal keeps the entry, so whatever is left stays tracked.
+ * Removes the files of an earlier install under the item's key and of the
+ * loose skills it absorbs, then copies the item. Once their files are removed
+ * the absorbed entries go, copy or no copy, and a failed copy drops the key's
+ * entry too. A failed removal keeps every entry, so whatever is left stays
+ * tracked.
  */
 async function installKeyedItem(
-	keyed: KeyedItem,
+	{ keyed, absorbs }: ClearedItem,
 	src: FetchedSource,
 	manifest: Manifest,
 	projectDir: string,
-): Promise<{ manifest: Manifest; outcome: ItemOutcome }> {
+): Promise<InstalledItem> {
 	const { item, key, sourceSubpath } = keyed;
 	const identity = identify(keyed, src.rootName);
 	const failed = (reason: string): ItemOutcome => ({
@@ -488,18 +548,21 @@ async function installKeyedItem(
 	});
 
 	const existing = manifest[key];
-	if (existing) {
+	const replaced = [key, ...absorbs].flatMap((k) => manifest[k]?.files ?? []);
+	if (replaced.length > 0) {
 		try {
-			await nukeManifestFiles(projectDir, existing.files);
+			await nukeManifestFiles(projectDir, replaced);
 		} catch (err) {
 			return {
 				manifest,
 				outcome: failed(
 					`couldn't remove its earlier install: ${errorMessage(err)}`,
 				),
+				notes: [],
 			};
 		}
 	}
+	const rest = absorbs.reduce(removeEntry, manifest);
 
 	try {
 		const { copiedFiles, assetCounts } = await copyItem(
@@ -517,21 +580,24 @@ async function installKeyedItem(
 			sourceSubpath,
 		});
 		return {
-			manifest: addEntry(manifest, key, entry),
+			manifest: addEntry(rest, key, entry),
 			outcome: {
 				...identity,
 				status: "installed",
 				assetCounts,
 				files: copiedFiles,
 			},
+			notes: absorbs.map((looseKey) => absorptionNote(key, looseKey)),
 		};
 	} catch (err) {
-		const reason = errorMessage(err);
+		const removed = [
+			...(existing ? ["its earlier install was removed"] : []),
+			...(absorbs.length > 0 ? [takenOverRemoved(absorbs)] : []),
+		];
 		return {
-			manifest: removeEntry(manifest, key),
-			outcome: failed(
-				existing ? `${reason}; its earlier install was removed` : reason,
-			),
+			manifest: removeEntry(rest, key),
+			outcome: failed([errorMessage(err), ...removed].join("; ")),
+			notes: [],
 		};
 	}
 }

@@ -143,6 +143,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("success");
@@ -181,6 +182,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(callOrder).toEqual(["clone", "nuke", "copy"]);
@@ -204,6 +206,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
@@ -216,7 +219,7 @@ describe("cloneAndReinstall", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockPathExists.mockResolvedValue(false);
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			await cloneAndReinstall(
 				{
@@ -225,6 +228,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
@@ -252,6 +256,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockSpinner.start).toHaveBeenCalledWith("Cloning repository...");
@@ -260,17 +265,29 @@ describe("cloneAndReinstall", () => {
 	});
 
 	describe("aborted status (derive-before-delete)", () => {
-		it("plumbs aborted up with recordedType and reason when recorded skill SKILL.md is gone", async () => {
-			const entry = makeEntry({
-				type: "skill",
-				files: [".claude/skills/my-skill/"],
-			});
-
+		/** The skill's SKILL.md is gone and two skills now carry its name. */
+		function arrangeAmbiguousMove(name = "repo"): void {
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
 			mockPathExists.mockResolvedValue(false);
+			mockDiscover.mockResolvedValue({
+				packs: [],
+				skills: [
+					{ name, path: `a/${name}` },
+					{ name, path: `b/${name}` },
+				],
+				strays: [],
+			});
+		}
+
+		it("plumbs aborted up with its reason when several skills now carry the moved skill's name", async () => {
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/my-skill/"],
+			});
+			arrangeAmbiguousMove();
 
 			const result = await cloneAndReinstall(
 				{
@@ -279,41 +296,14 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
-			expect(result.status).toBe("aborted");
-			if (result.status === "aborted") {
-				expect(result.recordedType).toBe("skill");
-				expect(result.reason).toContain("SKILL.md");
-			}
-		});
-
-		it("carries status 'aborted' (the single discriminator) alongside recordedType and reason", async () => {
-			const entry = makeEntry({
-				type: "skill",
-				files: [".claude/skills/my-skill/"],
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo",
 			});
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockPathExists.mockResolvedValue(false);
-
-			const result = await cloneAndReinstall(
-				{
-					key: "owner/repo",
-					entry,
-					projectDir: "/fake/project",
-				},
-				interactiveUi,
-			);
-
-			expect(result.status).toBe("aborted");
-			if (result.status === "aborted") {
-				expect(result.recordedType).toBe("skill");
-				expect(result.reason).toContain("SKILL.md");
-			}
 		});
 
 		it("does not nuke files when aborted", async () => {
@@ -321,12 +311,7 @@ describe("cloneAndReinstall", () => {
 				type: "skill",
 				files: [".claude/skills/my-skill/"],
 			});
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockPathExists.mockResolvedValue(false);
+			arrangeAmbiguousMove();
 
 			await cloneAndReinstall(
 				{
@@ -335,6 +320,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -346,12 +332,7 @@ describe("cloneAndReinstall", () => {
 				files: [".claude/skills/my-skill/"],
 			});
 			const manifest: Manifest = { "owner/repo": entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockPathExists.mockResolvedValue(false);
+			arrangeAmbiguousMove();
 
 			await cloneAndReinstall(
 				{
@@ -361,6 +342,7 @@ describe("cloneAndReinstall", () => {
 					manifest,
 				},
 				interactiveUi,
+				manifest,
 			);
 
 			expect(mockRemoveEntry).not.toHaveBeenCalled();
@@ -372,12 +354,7 @@ describe("cloneAndReinstall", () => {
 				type: "skill",
 				files: [".claude/skills/my-skill/"],
 			});
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockPathExists.mockResolvedValue(false);
+			arrangeAmbiguousMove();
 
 			await cloneAndReinstall(
 				{
@@ -386,22 +363,18 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
 
-		it("member subdir vanished aborts (recorded skill, own subdir lacks SKILL.md)", async () => {
+		it("member subdir vanished re-walks the clone and aborts on several matches", async () => {
 			const entry = makeEntry({
 				type: "skill",
 				files: [".claude/skills/go/"],
 			});
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockPathExists.mockResolvedValue(false);
+			arrangeAmbiguousMove("go");
 
 			const result = await cloneAndReinstall(
 				{
@@ -410,12 +383,16 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("aborted");
 			expect(mockPathExists).toHaveBeenCalledWith(
 				"/tmp/agntc-clone/go/SKILL.md",
 			);
+			expect(mockDiscover).toHaveBeenCalledWith("/tmp/agntc-clone", {
+				rootName: "repo",
+			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 
@@ -447,6 +424,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("success");
@@ -492,6 +470,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("success");
@@ -524,6 +503,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("failed");
@@ -551,6 +531,7 @@ describe("cloneAndReinstall", () => {
 					manifest,
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockRemoveEntry).toHaveBeenCalledWith(manifest, "owner/repo");
@@ -576,6 +557,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -595,6 +577,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("failed");
@@ -616,6 +599,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -643,6 +627,7 @@ describe("cloneAndReinstall", () => {
 					sourceDir: key,
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("success");
@@ -673,6 +658,7 @@ describe("cloneAndReinstall", () => {
 					sourceDir: "/Users/lee/Code/skills",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("success");
@@ -705,6 +691,7 @@ describe("cloneAndReinstall", () => {
 					sourceDir: "/Users/lee/Code/skills",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result).toMatchObject({
@@ -738,16 +725,17 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result).toMatchObject({
 				status: "success",
-				note: "owner/repo/swift is a single skill — reinstalled as a skill",
+				notes: ["owner/repo/swift is a single skill — reinstalled as a skill"],
 				manifestEntry: { type: "skill" },
 			});
 		});
 
-		it("carries no note on a plain reinstall", async () => {
+		it("carries no notes on a plain reinstall", async () => {
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -763,9 +751,168 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
-			expect(result).not.toHaveProperty("note");
+			expect(result).toMatchObject({ notes: [], absorbed: [] });
+		});
+	});
+
+	describe("pack absorbing a loose skill from its own source", () => {
+		it("reports the absorbed entry, removes its files and leaves dropping it to the caller", async () => {
+			const pack = makeEntry({ type: "pack", files: [".claude/skills/api/"] });
+			const loose = makeEntry({ files: [".claude/skills/queues/"] });
+			const manifest: Manifest = {
+				"owner/repo/laravel": pack,
+				"owner/repo/queues": loose,
+			};
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockResolvedValue({
+				packs: [
+					{
+						name: "laravel",
+						path: "laravel",
+						skills: [
+							{ name: "api", path: "laravel/api" },
+							{ name: "queues", path: "laravel/queues" },
+						],
+						assetDirs: [],
+					},
+				],
+				skills: [],
+				strays: [],
+			});
+			mockCopyPack.mockResolvedValue({
+				copiedFiles: [".claude/skills/api/", ".claude/skills/queues/"],
+				assetCounts: { skills: 2 },
+			});
+
+			const result = await cloneAndReinstall(
+				{ key: "owner/repo/laravel", entry: pack, projectDir: "/fake/project" },
+				interactiveUi,
+				manifest,
+			);
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/api/", ".claude/skills/queues/"],
+			);
+			expect(result).toMatchObject({
+				status: "success",
+				absorbed: ["owner/repo/queues"],
+				notes: [
+					"owner/repo/laravel now includes queues, installed on its own before",
+				],
+			});
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("drops the absorbed entry with the pack's when the copy then fails", async () => {
+			const pack = makeEntry({ type: "pack", files: [".claude/skills/api/"] });
+			const loose = makeEntry({ files: [".claude/skills/queues/"] });
+			const other = makeEntry({ files: [".claude/skills/other/"] });
+			const manifest: Manifest = {
+				"owner/repo/laravel": pack,
+				"owner/repo/queues": loose,
+				"other/repo": other,
+			};
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockResolvedValue({
+				packs: [
+					{
+						name: "laravel",
+						path: "laravel",
+						skills: [
+							{ name: "api", path: "laravel/api" },
+							{ name: "queues", path: "laravel/queues" },
+						],
+						assetDirs: [],
+					},
+				],
+				skills: [],
+				strays: [],
+			});
+			mockCopyPack.mockRejectedValue(new Error("disk full"));
+
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/laravel",
+					entry: pack,
+					projectDir: "/fake/project",
+					manifest,
+				},
+				interactiveUi,
+				manifest,
+			);
+
+			expect(result).toEqual({
+				status: "failed",
+				failureReason: "copy-failed",
+				message:
+					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc update owner/repo/laravel` to retry installation.",
+				absorbed: ["owner/repo/queues"],
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "other/repo": other },
+			);
+		});
+	});
+
+	describe("gone status", () => {
+		function arrangeGoneSkill(): void {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockPathExists.mockResolvedValue(false);
+			mockDiscover.mockResolvedValue({ packs: [], skills: [], strays: [] });
+		}
+
+		it("returns gone, touching nothing, when no skill of its name is left", async () => {
+			const entry = makeEntry({ type: "skill" });
+			const manifest: Manifest = { "owner/repo/go": entry };
+			arrangeGoneSkill();
+
+			const result = await cloneAndReinstall(
+				{ key: "owner/repo/go", entry, projectDir: "/fake/project", manifest },
+				interactiveUi,
+				manifest,
+			);
+
+			expect(result).toEqual({ status: "gone" });
+			expect(isCloneReinstallFailure(result)).toBe(false);
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
+		});
+
+		it("returns gone for a local entry whose folder no longer holds the skill", async () => {
+			mockPathExists.mockResolvedValue(false);
+			mockDiscover.mockResolvedValue({ packs: [], skills: [], strays: [] });
+
+			const result = await cloneAndReinstall(
+				{
+					key: "/src/kit",
+					entry: makeEntry({ type: "skill", commit: null }),
+					projectDir: "/fake/project",
+					sourceDir: "/src/kit",
+				},
+				interactiveUi,
+				{},
+			);
+
+			expect(result).toEqual({ status: "gone" });
+			expect(mockCloneSource).not.toHaveBeenCalled();
+			expect(mockDiscover).toHaveBeenCalledWith("/src/kit", {
+				rootName: "kit",
+			});
 		});
 	});
 
@@ -789,6 +936,7 @@ describe("cloneAndReinstall", () => {
 					newRef: "v2.0.0",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("success");
@@ -819,6 +967,7 @@ describe("cloneAndReinstall", () => {
 					projectDir: "/fake/project",
 				},
 				interactiveUi,
+				{},
 			);
 
 			expect(result.status).toBe("success");
@@ -848,6 +997,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
@@ -878,6 +1028,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
@@ -907,6 +1058,7 @@ describe("cloneAndReinstall", () => {
 						sourceDir: key,
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, key);
@@ -934,6 +1086,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(result.status).toBe("blocked");
@@ -969,6 +1122,7 @@ describe("cloneAndReinstall", () => {
 						manifest,
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockRemoveEntry).not.toHaveBeenCalled();
@@ -1009,6 +1163,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(result.status).toBe("blocked");
@@ -1044,6 +1199,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockAssertSubpathWithinClone).not.toHaveBeenCalled();
@@ -1076,6 +1232,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockAssertSubpathWithinClone).toHaveBeenCalledWith(
@@ -1121,6 +1278,7 @@ describe("cloneAndReinstall", () => {
 						manifest,
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockRemoveEntry).not.toHaveBeenCalled();
@@ -1152,6 +1310,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				// Guard invoked against the clone root with the recorded subpath.
@@ -1188,6 +1347,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(result.status).toBe("success");
@@ -1214,6 +1374,7 @@ describe("cloneAndReinstall", () => {
 						projectDir: "/fake/project",
 					},
 					interactiveUi,
+					{},
 				);
 
 				expect(mockNukeManifestFiles).toHaveBeenCalledTimes(0);
@@ -1307,8 +1468,8 @@ describe("mapCloneFailure", () => {
 		return {
 			onCloneFailed: (msg) => `clone-failed: ${msg}`,
 			onCopyFailed: (msg) => `copy-failed: ${msg}`,
-			onAborted: (recordedType, reason) =>
-				`aborted: ${recordedType} — ${reason}`,
+			onAborted: ({ reason, inTheWay }) =>
+				`aborted${inTheWay ? " (in the way)" : ""}: ${reason}`,
 			onBlocked: (reason) => `blocked: ${reason}`,
 			onUnknown: (msg) => `unknown: ${msg}`,
 		};
@@ -1342,18 +1503,20 @@ describe("mapCloneFailure", () => {
 		expect(result).toBe("unknown: something");
 	});
 
-	it("dispatches aborted (via status, no failureReason) to onAborted handler with recordedType and reason", () => {
+	it("dispatches aborted (via status, no failureReason) to onAborted handler with its cause", () => {
 		const result = mapCloneFailure(
-			{
-				status: "aborted",
-				recordedType: "skill",
-				reason: "SKILL.md is no longer present in the source",
-			},
+			{ status: "aborted", reason: "its folder now contains packs" },
 			makeHandlers(),
 		);
-		expect(result).toBe(
-			"aborted: skill — SKILL.md is no longer present in the source",
+		expect(result).toBe("aborted: its folder now contains packs");
+	});
+
+	it("passes on that files in the way caused the abort", () => {
+		const result = mapCloneFailure(
+			{ status: "aborted", reason: "files are in the way", inTheWay: true },
+			makeHandlers(),
 		);
+		expect(result).toBe("aborted (in the way): files are in the way");
 	});
 
 	it("dispatches blocked (via status, no failureReason) to onBlocked handler with reason", () => {
@@ -1399,10 +1562,14 @@ describe("isCloneReinstallFailure", () => {
 	it("returns true for an aborted result", () => {
 		const result: CloneReinstallResult = {
 			status: "aborted",
-			recordedType: "skill",
-			reason: "SKILL.md is no longer present in the source",
+			reason: "its folder now contains packs",
 		};
 		expect(isCloneReinstallFailure(result)).toBe(true);
+	});
+
+	it("returns false for a gone result, which is no failure", () => {
+		const result: CloneReinstallResult = { status: "gone" };
+		expect(isCloneReinstallFailure(result)).toBe(false);
 	});
 
 	it("returns true for a blocked result", () => {
@@ -1419,6 +1586,8 @@ describe("isCloneReinstallFailure", () => {
 			status: "success",
 			manifestEntry: makeEntry(),
 			copiedFiles: [".claude/skills/my-skill/"],
+			notes: [],
+			absorbed: [],
 		};
 		expect(isCloneReinstallFailure(result)).toBe(false);
 	});
@@ -1426,8 +1595,7 @@ describe("isCloneReinstallFailure", () => {
 	it("narrows result to the failure union accepted by mapCloneFailure", () => {
 		const result: CloneReinstallResult = {
 			status: "aborted",
-			recordedType: "skill",
-			reason: "SKILL.md is no longer present in the source",
+			reason: "its folder now contains packs",
 		};
 		// Type-level: after the guard, result must satisfy mapCloneFailure's param.
 		if (isCloneReinstallFailure(result)) {
@@ -1452,6 +1620,7 @@ describe("failureMessage", () => {
 				message: "network error",
 			},
 			"owner/repo",
+			makeEntry(),
 		);
 		expect(msg).toBe("network error");
 	});
@@ -1464,6 +1633,7 @@ describe("failureMessage", () => {
 				message: "disk full hint",
 			},
 			"owner/repo",
+			makeEntry(),
 		);
 		expect(msg).toBe("disk full hint");
 	});
@@ -1472,23 +1642,30 @@ describe("failureMessage", () => {
 		const msg = failureMessage(
 			{ status: "failed", failureReason: "unknown", message: "something" },
 			"owner/repo",
+			makeEntry(),
 		);
 		expect(msg).toBe("something");
 	});
 
 	it("returns buildAbortMessage output for aborted", () => {
-		const reason = "SKILL.md is no longer present in the source";
+		const reason = "its folder now contains packs";
+		const entry = makeEntry({ type: "pack" });
 		const msg = failureMessage(
-			{ status: "aborted", recordedType: "skill", reason },
+			{ status: "aborted", reason },
 			"owner/repo",
+			entry,
 		);
-		expect(msg).toBe(buildAbortMessage("owner/repo", "skill", reason));
+		expect(msg).toBe(buildAbortMessage("owner/repo", entry, { reason }));
 	});
 
 	it("returns buildCopySafetyMessage output for blocked", () => {
 		const reason =
 			'symlink "evil-link" points outside the clone (target: /etc/passwd)';
-		const msg = failureMessage({ status: "blocked", reason }, "owner/repo");
+		const msg = failureMessage(
+			{ status: "blocked", reason },
+			"owner/repo",
+			makeEntry(),
+		);
 		expect(msg).toBe(buildCopySafetyMessage("owner/repo", reason));
 	});
 });
@@ -1524,7 +1701,9 @@ describe("buildCopySafetyMessage", () => {
 		const msg = buildCopySafetyMessage("owner/repo", reason);
 		expect(msg.toLowerCase()).toContain("symlink");
 		// Guard against accidental reuse of the derive-before-delete framing.
-		expect(msg).not.toBe(buildAbortMessage("owner/repo", "skill", reason));
+		expect(msg).not.toBe(
+			buildAbortMessage("owner/repo", makeEntry(), { reason }),
+		);
 	});
 
 	it("mirrors the add path's identity-prefixed framing (key: <escape reason> ...)", () => {
@@ -1538,5 +1717,49 @@ describe("buildCopySafetyMessage", () => {
 		const updateMsg = buildCopySafetyMessage("owner/repo", escapeMessage);
 		expect(updateMsg.startsWith(addFraming)).toBe(true);
 		expect(updateMsg).toContain("points outside the clone");
+	});
+});
+
+describe("buildAbortMessage", () => {
+	it("names the recorded type and the cause, and keeps the install", () => {
+		const msg = buildAbortMessage(
+			"owner/repo/laravel",
+			makeEntry({ type: "pack" }),
+			{ reason: "its folder now contains packs" },
+		);
+
+		expect(msg).toBe(
+			"owner/repo/laravel was installed as a pack and can't be updated (its folder now contains packs). The existing install is unchanged. To migrate: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel --pack",
+		);
+	});
+
+	it("re-adds a skill from its recorded path, not its key", () => {
+		const msg = buildAbortMessage(
+			"owner/repo/go",
+			makeEntry({ type: "skill", sourceSubpath: "skills/go" }),
+			{ reason: "two skills are named go" },
+		);
+
+		expect(msg).toContain(
+			"npx agntc remove owner/repo/go then npx agntc add owner/repo/skills/go",
+		);
+		expect(msg).not.toContain("--pack");
+	});
+
+	it("points files in the way at clearing them, or at a re-add with --overwrite", () => {
+		const msg = buildAbortMessage(
+			"owner/repo/laravel",
+			makeEntry({ type: "pack" }),
+			{
+				reason:
+					"files agntc didn't install are in the way: .claude/skills/queues/",
+				inTheWay: true,
+			},
+		);
+
+		expect(msg).toBe(
+			"owner/repo/laravel can't be updated: files agntc didn't install are in the way: .claude/skills/queues/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel --pack --overwrite",
+		);
+		expect(msg).not.toContain("To migrate");
 	});
 });

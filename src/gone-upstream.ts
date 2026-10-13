@@ -1,0 +1,74 @@
+import {
+	type Manifest,
+	type ManifestEntry,
+	removeEntry,
+	writeManifest,
+} from "./manifest.js";
+import { nukeManifestFiles } from "./nuke-files.js";
+import type { Ui } from "./ui.js";
+
+export interface GoneOptions {
+	/** `-y`: remove without asking. */
+	yes: boolean;
+	ui: Ui;
+}
+
+/** What became of an entry whose source no longer holds it. */
+export interface GoneSettlement {
+	removed: boolean;
+	message: string;
+	/** The flags that would have removed it, when there was no terminal to ask. */
+	flags?: string[];
+}
+
+/**
+ * Removes or keeps an entry gone upstream: `-y` removes it, a terminal asks
+ * (no by default), and machine mode keeps it. Removing deletes its files; the
+ * caller drops its manifest entry.
+ */
+export async function settleGone(
+	key: string,
+	entry: ManifestEntry,
+	projectDir: string,
+	{ yes, ui }: GoneOptions,
+): Promise<GoneSettlement> {
+	if (!yes && ui.mode === "machine") {
+		return {
+			removed: false,
+			message: `Kept ${key} — it's gone upstream; -y removes it`,
+			flags: ["-y"],
+		};
+	}
+	const remove =
+		yes ||
+		(await ui.confirm({
+			message: `${key} is gone upstream — remove it?`,
+			initialValue: false,
+		}));
+	if (!remove) {
+		return {
+			removed: false,
+			message: `Kept ${key} — it's gone upstream; update will ask again`,
+		};
+	}
+	await nukeManifestFiles(projectDir, entry.files);
+	return { removed: true, message: `Removed ${key} — it's gone upstream` };
+}
+
+/**
+ * Settles an entry a `list` action found gone upstream. `list` only runs at a
+ * terminal, so it asks; a removal is recorded at once.
+ */
+export async function settleGoneInList(
+	key: string,
+	entry: ManifestEntry,
+	manifest: Manifest,
+	projectDir: string,
+	ui: Ui,
+): Promise<GoneSettlement> {
+	const settled = await settleGone(key, entry, projectDir, { yes: false, ui });
+	if (settled.removed) {
+		await writeManifest(projectDir, removeEntry(manifest, key));
+	}
+	return settled;
+}

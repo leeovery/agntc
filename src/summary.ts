@@ -193,12 +193,11 @@ export interface OutOfConstraintInfo {
 	current: string;
 	latestOverall: string;
 	/**
-	 * The BARE `owner/repo` for the re-add command — never the @intent label. A
-	 * bare `npx agntc add owner/repo` re-resolves the latest semver tag and
-	 * re-establishes caret at the new major, so the command jumps the boundary
-	 * regardless of the (possibly @intent-disambiguated) line prefix.
+	 * The re-add command of each entry the line covers, without a version: a
+	 * bare add re-resolves the latest semver tag and re-establishes caret at the
+	 * new major, so it jumps the boundary.
 	 */
-	repo: string;
+	commands: string[];
 }
 
 export function renderOutOfConstraintSection(
@@ -207,15 +206,24 @@ export function renderOutOfConstraintSection(
 	if (infos.length === 0) return [];
 
 	// One informative (non-error, exit-0) line per group: the actionable
-	// current->newer move plus the BARE re-add directive (the naming spec's
-	// canonical `npx agntc add <repo>` command form). The `label ?? key` prefix is
-	// unchanged from task 2-7 (all-mode sets label, single-key sets key); the
-	// command uses `repo` (bare owner/repo), never the @intent label.
+	// current->newer move plus the re-add commands. All-mode sets `label`,
+	// single-key sets `key`.
 	const lines: string[] = ["Newer versions outside constraints:"];
 	for (const info of infos) {
 		lines.push(
-			`  ${info.label ?? info.key}  ${info.current} -> ${info.latestOverall} available. To upgrade: npx agntc add ${info.repo}`,
+			`  ${info.label ?? info.key}  ${info.current} -> ${info.latestOverall} available. ${upgradeAdvice(info.commands)}`,
 		);
 	}
 	return lines;
+}
+
+/** `To upgrade: <command>`, or the commands one per line when there are several. */
+export function upgradeAdvice(commands: string[]): string {
+	const distinct = [...new Set(commands)];
+	if (distinct.length === 1) {
+		return `To upgrade: ${distinct[0]}`;
+	}
+	return ["To upgrade:", ...distinct.map((command) => `    ${command}`)].join(
+		"\n",
+	);
 }

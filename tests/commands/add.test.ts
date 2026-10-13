@@ -690,6 +690,112 @@ describe("add command", () => {
 		});
 	});
 
+	describe("a pack and the loose skills from its own source", () => {
+		const PACKED = installedEntry([".claude/skills/api/"], "pack");
+		const API_NOTE =
+			"api is already installed as part of the pack owner/repo/p";
+
+		it("drops a loose skill the pack took over even when the pack's copy then fails", async () => {
+			await upstream({ "p/agntc.json": PACK, "p/skills/api/SKILL.md": "new" });
+			await write(projectDir, { ".claude/skills/api/SKILL.md": "old" });
+			await seedManifest({
+				"owner/repo/api": installedEntry([".claude/skills/api/"]),
+			});
+			mockCopyItem.mockRejectedValue(new Error("disk full"));
+
+			const code = await exitCode(runAdd("owner/repo/p"));
+
+			expect(code).toBe(1);
+			expect(mockResolveCollisions).not.toHaveBeenCalled();
+			expect(await installed(".claude/skills/api")).toBe(false);
+			expect(await manifest()).toEqual({});
+			expect(logged("error")).toEqual([
+				"p: failed — disk full; the skill it took over was removed: owner/repo/api",
+			]);
+			expect(logged("info")).toEqual([]);
+		});
+
+		it("--skill on a skill the installed pack holds says so once and installs nothing, exiting 0", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/api/SKILL.md": "",
+				"p/skills/models/SKILL.md": "",
+			});
+			await seedManifest({ "owner/repo/p": PACKED });
+
+			const code = await exitCode(runAdd("owner/repo", { skill: ["api"] }));
+
+			expect(code).toBeNull();
+			expect(logged("info")).toEqual([API_NOTE]);
+			expect(mockCopyItem).not.toHaveBeenCalled();
+			expect(await manifest()).toEqual({ "owner/repo/p": PACKED });
+			expect(mockOutro).toHaveBeenCalledWith(
+				"Nothing installed from owner/repo",
+			);
+		});
+
+		it("--skill on such a skill and another installs the other, with only the one note for the first", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/api/SKILL.md": "",
+				"tools/SKILL.md": "",
+			});
+			await seedManifest({ "owner/repo/p": PACKED });
+
+			await runAdd("owner/repo", { skill: ["api", "tools"] });
+
+			expect(logged("info")).toEqual([API_NOTE]);
+			expect(Object.keys(await manifest())).toEqual([
+				"owner/repo/p",
+				"owner/repo/tools",
+			]);
+		});
+
+		it("leaves such a skill off the menu, noting it before the menu", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"skills/jobs/SKILL.md": "",
+				"skills/lint/SKILL.md": "",
+			});
+			await seedManifest({ "owner/repo/p": PACKED });
+			mockMultiselect.mockResolvedValue([0]);
+
+			await runAdd("owner/repo");
+
+			const [menu] = mockMultiselect.mock.calls[0]!;
+			expect(menu.options.map((option) => option.label)).toEqual([
+				"skills/jobs",
+				"skills/lint",
+			]);
+			expect(logged("info")).toEqual([API_NOTE]);
+			expect(mockLog.info.mock.invocationCallOrder[0]).toBeLessThan(
+				mockMultiselect.mock.invocationCallOrder[0]!,
+			);
+			expect(Object.keys(await manifest())).toEqual([
+				"owner/repo/p",
+				"owner/repo/jobs",
+			]);
+		});
+
+		it("without a terminal, reports the note and nothing installed, exiting 0", async () => {
+			await upstream({ "p/agntc.json": PACK, "p/skills/api/SKILL.md": "" });
+			await seedManifest({ "owner/repo/p": PACKED });
+
+			const run = await runMachine(addCommand, [
+				"owner/repo",
+				"--skill",
+				"api",
+			]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({
+				ok: true,
+				items: [],
+				notes: [API_NOTE],
+			});
+		});
+	});
+
 	describe("installing", () => {
 		it("records ref, commit, clone URL and constraint on every entry", async () => {
 			await upstream({

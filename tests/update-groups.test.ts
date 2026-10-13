@@ -48,7 +48,7 @@ import {
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { execGit, fetchRemoteTagRefs } from "../src/git-utils.js";
-import type { ManifestEntry } from "../src/manifest.js";
+import type { Manifest, ManifestEntry } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import {
 	categorizeMember,
@@ -56,6 +56,7 @@ import {
 	resolveGroupTarget,
 } from "../src/update-check.js";
 import {
+	applyOutcome,
 	type EntryGroup,
 	failedOutcome,
 	groupEntriesForUpdate,
@@ -63,7 +64,10 @@ import {
 	isSuccessOutcome,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
+	packsFirst,
 	processGroupUpdate,
+	reinstallInTurn,
+	withAbsorptions,
 } from "../src/update-groups.js";
 import { makeEntry, makeManifest } from "./helpers/factories.js";
 
@@ -134,6 +138,8 @@ describe("isSuccessOutcome", () => {
 			"aborted",
 			"blocked",
 			"constrained-no-match",
+			"gone-kept",
+			"gone-removed",
 		] as const) {
 			expect(isSuccessOutcome({ status, key: "k", summary: "s" })).toBe(false);
 		}
@@ -146,6 +152,8 @@ describe("mapReinstallResultToOutcome success", () => {
 			status: "success",
 			manifestEntry,
 			copiedFiles: manifestEntry.files,
+			notes: [],
+			absorbed: [],
 		};
 	}
 
@@ -165,6 +173,8 @@ describe("mapReinstallResultToOutcome success", () => {
 			key: "owner/repo/a",
 			summary: "owner/repo/a: Updated v1.0.0 -> v1.1.0",
 			newEntry,
+			notes: [],
+			absorbed: [],
 		});
 	});
 
@@ -184,13 +194,19 @@ describe("mapReinstallResultToOutcome success", () => {
 			key: "/local/path",
 			summary: "/local/path: Refreshed from local path",
 			newEntry,
+			notes: [],
+			absorbed: [],
 		});
 	});
 
-	it("carries the reinstall's note on a git or a local outcome", () => {
-		const note = "owner/repo/a is a single skill — reinstalled as a skill";
+	it("carries the reinstall's notes and absorbed keys on a git or a local outcome", () => {
+		const notes = ["owner/repo/a now includes b, installed on its own before"];
 		const newEntry = makeEntry({ commit: SHA_TGT });
-		const result = { ...successResult(newEntry), note };
+		const result = {
+			...successResult(newEntry),
+			notes,
+			absorbed: ["owner/repo/b"],
+		};
 
 		expect(
 			mapReinstallResultToOutcome(
@@ -199,7 +215,7 @@ describe("mapReinstallResultToOutcome success", () => {
 				result,
 				null,
 			),
-		).toMatchObject({ status: "updated", note });
+		).toMatchObject({ status: "updated", notes, absorbed: ["owner/repo/b"] });
 		expect(
 			mapReinstallResultToOutcome(
 				"/local/a",
@@ -207,7 +223,271 @@ describe("mapReinstallResultToOutcome success", () => {
 				result,
 				null,
 			),
-		).toMatchObject({ status: "refreshed", note });
+		).toMatchObject({ status: "refreshed", notes, absorbed: ["owner/repo/b"] });
+	});
+
+	it("maps gone to a gone-kept outcome, since nothing was touched yet", () => {
+		expect(
+			mapReinstallResultToOutcome(
+				"owner/repo/a",
+				makeEntry(),
+				{ status: "gone" },
+				null,
+			),
+		).toEqual({
+			status: "gone-kept",
+			key: "owner/repo/a",
+			summary: "Kept owner/repo/a — it's gone upstream",
+		});
+	});
+
+	it("maps a copy failure to copy-failed, carrying what the pack took over", () => {
+		expect(
+			mapReinstallResultToOutcome(
+				"owner/repo/laravel",
+				makeEntry({ type: "pack" }),
+				{
+					status: "failed",
+					failureReason: "copy-failed",
+					message: "hint",
+					absorbed: ["owner/repo/queues"],
+				},
+				null,
+			),
+		).toEqual({
+			status: "copy-failed",
+			key: "owner/repo/laravel",
+			summary: "hint",
+			absorbed: ["owner/repo/queues"],
+		});
+	});
+
+	it("builds an abort's summary from the entry, re-add command included", () => {
+		const entry = makeEntry({ type: "pack" });
+
+		const outcome = mapReinstallResultToOutcome(
+			"owner/repo/laravel",
+			entry,
+			{ status: "aborted", reason: "its folder now contains packs" },
+			null,
+		);
+
+		expect(outcome).toMatchObject({ status: "aborted" });
+		if (outcome.status !== "aborted") return;
+		expect(outcome.summary).toContain(
+			"npx agntc add owner/repo/laravel --pack",
+		);
+	});
+});
+
+describe("applyOutcome", () => {
+	const manifest = makeManifest({
+		"owner/repo/pack": makeEntry({ type: "pack" }),
+		"owner/repo/loose": makeEntry(),
+		"owner/repo/other": makeEntry(),
+	});
+
+	it("records a reinstall's new entry and drops the loose skills it absorbed", () => {
+		const newEntry = makeEntry({ type: "pack", commit: SHA_TGT });
+
+		const next = applyOutcome(manifest, {
+			status: "updated",
+			key: "owner/repo/pack",
+			summary: "s",
+			newEntry,
+			notes: [],
+			absorbed: ["owner/repo/loose"],
+		});
+
+		expect(Object.keys(next)).toEqual(["owner/repo/pack", "owner/repo/other"]);
+		expect(next["owner/repo/pack"]).toBe(newEntry);
+	});
+
+	it("drops an entry removed as gone upstream", () => {
+		const next = applyOutcome(manifest, {
+			status: "gone-removed",
+			key: "owner/repo/loose",
+			summary: "s",
+		});
+
+		expect(Object.keys(next)).toEqual(["owner/repo/pack", "owner/repo/other"]);
+	});
+
+	it("drops an entry whose copy failed, and the loose skills it took over before the copy", () => {
+		const next = applyOutcome(manifest, {
+			status: "copy-failed",
+			key: "owner/repo/pack",
+			summary: "s",
+			absorbed: ["owner/repo/loose"],
+		});
+
+		expect(Object.keys(next)).toEqual(["owner/repo/other"]);
+	});
+
+	it("leaves the manifest itself in place for everything else", () => {
+		for (const outcome of [
+			{ status: "gone-kept", key: "owner/repo/loose", summary: "s" },
+			{ status: "aborted", key: "owner/repo/loose", summary: "s" },
+			{ status: "up-to-date", key: "owner/repo/loose" },
+		] as const) {
+			expect(applyOutcome(manifest, outcome)).toBe(manifest);
+		}
+	});
+});
+
+describe("withAbsorptions", () => {
+	it("replaces what an absorbed entry got before with an absorbed outcome naming the pack", () => {
+		const outcomes = withAbsorptions([
+			{ status: "up-to-date", key: "owner/repo/loose" },
+			{
+				status: "updated",
+				key: "owner/repo/pack",
+				summary: "s",
+				newEntry: makeEntry(),
+				notes: [],
+				absorbed: ["owner/repo/loose"],
+			},
+		]);
+
+		expect(outcomes.map((outcome) => outcome.status)).toEqual([
+			"updated",
+			"absorbed",
+		]);
+		expect(outcomes[1]).toEqual({
+			status: "absorbed",
+			key: "owner/repo/loose",
+			into: "owner/repo/pack",
+			summary: "owner/repo/loose is now part of the pack owner/repo/pack",
+		});
+	});
+
+	it("adds an absorbed outcome for an entry that was skipped", () => {
+		const outcomes = withAbsorptions([
+			{
+				status: "updated",
+				key: "owner/repo/pack",
+				summary: "s",
+				newEntry: makeEntry(),
+				notes: [],
+				absorbed: ["owner/repo/loose"],
+			},
+		]);
+
+		expect(outcomes.map((outcome) => outcome.key)).toEqual([
+			"owner/repo/pack",
+			"owner/repo/loose",
+		]);
+	});
+
+	it("says an entry a pack took over was removed when the pack's copy then failed", () => {
+		const outcomes = withAbsorptions([
+			{
+				status: "copy-failed",
+				key: "owner/repo/pack",
+				summary: "s",
+				absorbed: ["owner/repo/loose"],
+			},
+		]);
+
+		expect(outcomes[1]).toEqual({
+			status: "absorbed",
+			key: "owner/repo/loose",
+			into: "owner/repo/pack",
+			summary:
+				"owner/repo/loose was removed — the pack owner/repo/pack took it over, then failed to install",
+		});
+	});
+});
+
+describe("packsFirst", () => {
+	it("puts packs ahead of loose skills, keeping each kind's order", () => {
+		const members = [
+			{ key: "a", entry: makeEntry({ type: "skill" }) },
+			{ key: "b", entry: makeEntry({ type: "pack" }) },
+			{ key: "c", entry: makeEntry() },
+			{ key: "d", entry: makeEntry({ type: "pack" }) },
+		];
+
+		expect(packsFirst(members).map((m) => m.key)).toEqual(["b", "d", "a", "c"]);
+	});
+});
+
+describe("reinstallInTurn", () => {
+	it("skips a member a pack before it absorbed, without reinstalling it", async () => {
+		const pack = { key: "owner/repo/pack", entry: makeEntry({ type: "pack" }) };
+		const loose = { key: "owner/repo/loose", entry: makeEntry() };
+		const reinstall = vi.fn(
+			async (member: { key: string }): Promise<PluginOutcome> => ({
+				status: "updated",
+				key: member.key,
+				summary: "s",
+				newEntry: makeEntry(),
+				notes: [],
+				absorbed: member.key === pack.key ? [loose.key] : [],
+			}),
+		);
+
+		const outcomes = await reinstallInTurn(
+			[pack, loose],
+			makeManifest({ [pack.key]: pack.entry, [loose.key]: loose.entry }),
+			reinstall,
+		);
+
+		expect(reinstall).toHaveBeenCalledOnce();
+		expect(outcomes.map((outcome) => outcome.status)).toEqual([
+			"updated",
+			"absorbed",
+		]);
+	});
+
+	it("skips a member a pack took over even when the pack's copy then failed", async () => {
+		const pack = { key: "owner/repo/pack", entry: makeEntry({ type: "pack" }) };
+		const loose = { key: "owner/repo/loose", entry: makeEntry() };
+		const reinstall = vi.fn(
+			async (): Promise<PluginOutcome> => ({
+				status: "copy-failed",
+				key: pack.key,
+				summary: "s",
+				absorbed: [loose.key],
+			}),
+		);
+
+		const outcomes = await reinstallInTurn(
+			[pack, loose],
+			makeManifest({ [pack.key]: pack.entry, [loose.key]: loose.entry }),
+			reinstall,
+		);
+
+		expect(reinstall).toHaveBeenCalledOnce();
+		expect(outcomes.map((outcome) => outcome.status)).toEqual([
+			"copy-failed",
+			"absorbed",
+		]);
+	});
+
+	it("reinstalls each member against the manifest the ones before it left", async () => {
+		const first = { key: "owner/repo/a", entry: makeEntry() };
+		const second = { key: "owner/repo/b", entry: makeEntry() };
+		const newEntry = makeEntry({ commit: SHA_TGT });
+		const seen: Array<Record<string, unknown>> = [];
+
+		await reinstallInTurn(
+			[first, second],
+			makeManifest({ [first.key]: first.entry, [second.key]: second.entry }),
+			async (member, current) => {
+				seen.push(current);
+				return {
+					status: "updated",
+					key: member.key,
+					summary: "s",
+					newEntry,
+					notes: [],
+					absorbed: [],
+				};
+			},
+		);
+
+		expect(seen[1]?.[first.key]).toBe(newEntry);
 	});
 });
 
@@ -678,6 +958,12 @@ describe("processGroupUpdate", () => {
 		};
 	}
 
+	function installedOf(
+		members: Array<{ key: string; entry: ManifestEntry }>,
+	): Manifest {
+		return Object.fromEntries(members.map(({ key, entry }) => [key, entry]));
+	}
+
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mockCloneSource.mockResolvedValue({
@@ -704,6 +990,7 @@ describe("processGroupUpdate", () => {
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
+			installedOf(members),
 		);
 		const { outcomes } = result;
 
@@ -773,6 +1060,7 @@ describe("processGroupUpdate", () => {
 			members,
 			target,
 			"/fake/project",
+			installedOf(members),
 		);
 		const { outcomes } = result;
 
@@ -818,6 +1106,7 @@ describe("processGroupUpdate", () => {
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
+			installedOf(members),
 		);
 
 		// The guard runs once per member (each carries its own sourceSubpath),
@@ -866,6 +1155,7 @@ describe("processGroupUpdate", () => {
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
+			installedOf(members),
 		);
 
 		const byKey = new Map(outcomes.map((o) => [o.key, o]));
@@ -896,6 +1186,7 @@ describe("processGroupUpdate", () => {
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
+			installedOf(members),
 		);
 
 		expect(mockCleanupTempDir).toHaveBeenCalledTimes(1);
@@ -913,6 +1204,7 @@ describe("processGroupUpdate", () => {
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
+			installedOf(members),
 		);
 
 		expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
@@ -940,6 +1232,7 @@ describe("processGroupUpdate", () => {
 			members,
 			BRANCH_TARGET,
 			"/fake/project",
+			installedOf(members),
 		);
 		const { outcomes } = result;
 
@@ -984,6 +1277,7 @@ describe("processGroupUpdate", () => {
 			[updatingA, updatingB],
 			BRANCH_TARGET,
 			"/fake/project",
+			installedOf([updatingA, updatingB, upToDate]),
 		);
 		const { outcomes } = result;
 

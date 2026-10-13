@@ -263,6 +263,7 @@ describe("integration: core workflows", () => {
 				sourceDir: skillDir,
 				cloneRoot: skillDir,
 				existingEntry: entry,
+				installed: { "owner/multi-agent-skill": entry },
 				projectDir,
 				newCommit: "v2hash",
 			});
@@ -329,6 +330,7 @@ describe("integration: core workflows", () => {
 				sourceDir: pluginDir,
 				cloneRoot: pluginDir,
 				existingEntry: entry,
+				installed: { "owner/codex-plugin": entry },
 				projectDir,
 				newCommit: "v2hash",
 			});
@@ -548,6 +550,7 @@ describe("integration: core workflows", () => {
 				),
 				cloneRoot: reclonedDir,
 				existingEntry: entry,
+				installed: { [key]: entry },
 				projectDir,
 				newCommit: "v2hash",
 			});
@@ -607,6 +610,7 @@ describe("integration: core workflows", () => {
 				sourceDir: updateSourceDir,
 				cloneRoot: reclonedDir,
 				existingEntry: entry,
+				installed: { [key]: entry },
 				projectDir,
 				newCommit: "v2hash",
 			});
@@ -727,13 +731,15 @@ describe("integration: core workflows", () => {
 				sourceDir: reshapedDir,
 				cloneRoot: reshapedDir,
 				existingEntry: entry,
+				installed: { "owner/reshaped-pack": entry },
 				projectDir,
 				newCommit: "v2hash",
 			});
 
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") throw new Error("unexpected");
-			expect(result.recordedType).toBe("pack");
+			expect(result).toEqual({
+				status: "aborted",
+				reason: "its folder now contains packs",
+			});
 
 			expect(
 				await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
@@ -749,7 +755,7 @@ describe("integration: core workflows", () => {
 			expect(savedEntry!.files).toEqual(entry.files);
 		});
 
-		it("(d2) aborts update when a recorded skill's source no longer has a root SKILL.md", async () => {
+		it("(d2) finds a recorded skill gone, install intact, when its source no longer holds a skill by its name", async () => {
 			const skillDir = join(sourceDir, "reshaped-skill");
 			await createFile(skillDir, "SKILL.md");
 
@@ -769,7 +775,7 @@ describe("integration: core workflows", () => {
 			const manifest = addEntry({}, "owner/reshaped-skill", entry);
 			await writeManifest(projectDir, manifest);
 
-			// Reshape: source now has asset dirs and NO root SKILL.md.
+			// Reshape: no root SKILL.md, and the only skill left has another name.
 			const reshapedDir = join(sourceDir, "reshaped-skill-v2");
 			await createFile(reshapedDir, "skills", "planning", "SKILL.md");
 
@@ -778,15 +784,14 @@ describe("integration: core workflows", () => {
 				sourceDir: reshapedDir,
 				cloneRoot: reshapedDir,
 				existingEntry: entry,
+				installed: { "owner/reshaped-skill": entry },
 				projectDir,
 				newCommit: "v2hash",
 			});
 
-			expect(result.status).toBe("aborted");
-			if (result.status !== "aborted") throw new Error("unexpected");
-			expect(result.recordedType).toBe("skill");
+			expect(result).toEqual({ status: "gone" });
 
-			// Install intact.
+			// Install intact: removing it is the caller's question to ask.
 			expect(
 				await fileExists(
 					join(projectDir, ".claude/skills/reshaped-skill/SKILL.md"),
@@ -798,6 +803,152 @@ describe("integration: core workflows", () => {
 			expect(saved["owner/reshaped-skill"]).toBeDefined();
 			expect(saved["owner/reshaped-skill"]!.commit).toBe("v1hash");
 			expect(saved["owner/reshaped-skill"]!.files).toEqual(entry.files);
+		});
+
+		it("(d3) follows a skill that moved within its source and records where it went", async () => {
+			const skillDir = join(sourceDir, "moving-skill");
+			await createFile(skillDir, "SKILL.md");
+			const copyResult = await copyBareSkill({
+				sourceDir: skillDir,
+				projectDir,
+			});
+			const entry: ManifestEntry = {
+				ref: "v1.0",
+				commit: "v1hash",
+				installedAt: new Date().toISOString(),
+				files: copyResult.copiedFiles,
+				type: "skill",
+				cloneUrl: null,
+			};
+
+			const movedDir = join(sourceDir, "moving-skill-v2");
+			await createFile(movedDir, "skills", "moving-skill", "SKILL.md");
+			await createFile(movedDir, "skills", "moving-skill", "notes.md");
+
+			const result = await executeNukeAndReinstall({
+				key: "owner/moving-skill",
+				sourceDir: movedDir,
+				cloneRoot: movedDir,
+				existingEntry: entry,
+				installed: { "owner/moving-skill": entry },
+				projectDir,
+				newCommit: "v2hash",
+			});
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") throw new Error("unexpected");
+			expect(result.entry.sourceSubpath).toBe("skills/moving-skill");
+			expect(result.notes).toEqual([
+				"owner/moving-skill moved from moving-skill to skills/moving-skill",
+			]);
+			expect(
+				await fileExists(
+					join(projectDir, ".claude/skills/moving-skill/notes.md"),
+				),
+			).toBe(true);
+		});
+
+		it("(d4) aborts a pack update, install intact, when a file agntc didn't install sits at a new skill's target", async () => {
+			const packDir = join(sourceDir, "growing-pack");
+			await createFile(packDir, "skills", "planning", "SKILL.md");
+			await createFile(packDir, "agents", "executor.md");
+			const copyResult = await copyItem(
+				await bundle(packDir, "growing-pack"),
+				packDir,
+				projectDir,
+			);
+			const entry: ManifestEntry = {
+				ref: null,
+				commit: "v1hash",
+				installedAt: new Date().toISOString(),
+				files: copyResult.copiedFiles,
+				type: "pack",
+				cloneUrl: null,
+			};
+
+			const grownDir = join(sourceDir, "growing-pack-v2");
+			await createFile(grownDir, "skills", "planning", "SKILL.md");
+			await createFile(grownDir, "skills", "review", "SKILL.md");
+			await createFile(grownDir, "agents", "executor.md");
+			await createFile(projectDir, ".claude", "skills", "review", "mine.md");
+
+			const result = await executeNukeAndReinstall({
+				key: "owner/growing-pack",
+				sourceDir: grownDir,
+				cloneRoot: grownDir,
+				existingEntry: entry,
+				installed: { "owner/growing-pack": entry },
+				projectDir,
+				newCommit: "v2hash",
+			});
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"files agntc didn't install are in the way: .claude/skills/review/",
+				inTheWay: true,
+			});
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/agents/executor.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/review/mine.md")),
+			).toBe(true);
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/review/SKILL.md")),
+			).toBe(false);
+		});
+
+		it("(d5) a pack update takes over a loose skill installed from the same source", async () => {
+			const looseDir = join(sourceDir, "repo-v1", "review");
+			await createFile(looseDir, "SKILL.md");
+			const loose = await copyBareSkill({ sourceDir: looseDir, projectDir });
+			const looseEntry: ManifestEntry = {
+				ref: null,
+				commit: "v1hash",
+				installedAt: new Date().toISOString(),
+				files: loose.copiedFiles,
+				type: "skill",
+				cloneUrl: null,
+			};
+			const packEntry: ManifestEntry = {
+				...looseEntry,
+				files: [],
+				type: "pack",
+			};
+
+			const repoDir = join(sourceDir, "repo-v2");
+			await createFile(repoDir, "tools", "skills", "planning", "SKILL.md");
+			await createFile(repoDir, "tools", "skills", "review", "SKILL.md");
+			await createFile(repoDir, "tools", "skills", "review", "added.md");
+			await createFile(repoDir, "tools", "agents", "executor.md");
+
+			const result = await executeNukeAndReinstall({
+				key: "owner/repo/tools",
+				sourceDir: join(repoDir, "tools"),
+				cloneRoot: repoDir,
+				existingEntry: packEntry,
+				installed: {
+					"owner/repo/review": looseEntry,
+					"owner/repo/tools": packEntry,
+				},
+				projectDir,
+				newCommit: "v2hash",
+			});
+
+			expect(result.status).toBe("success");
+			if (result.status !== "success") throw new Error("unexpected");
+			expect(result.absorbed).toEqual(["owner/repo/review"]);
+			expect(result.notes).toEqual([
+				"owner/repo/tools now includes review, installed on its own before",
+			]);
+			expect(result.copiedFiles).toContain(".claude/skills/review/");
+			expect(
+				await fileExists(join(projectDir, ".claude/skills/review/added.md")),
+			).toBe(true);
 		});
 	});
 
@@ -919,6 +1070,7 @@ describe("integration: core workflows", () => {
 				sourceDir: reclonedDir,
 				cloneRoot: reclonedDir,
 				existingEntry: entry,
+				installed: { "owner/guarded-skill": entry },
 				projectDir,
 				newCommit: "v2hash",
 			});

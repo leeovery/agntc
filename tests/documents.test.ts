@@ -45,6 +45,71 @@ describe("updateBody", () => {
 		}
 	});
 
+	it("reports an entry gone upstream and kept with its message and the flags that would remove it", () => {
+		const outcome: PluginOutcome = {
+			status: "gone-kept",
+			key: "owner/repo",
+			summary: "Kept owner/repo — it's gone upstream; -y removes it",
+			flags: ["-y"],
+		};
+
+		expect(updateBody(before, [outcome], new Map()).items).toEqual([
+			{
+				key: "owner/repo",
+				type: "pack",
+				status: "gone-kept",
+				ref: "v1.0.0",
+				commit: OLD,
+				constraint: "^1.0.0",
+				message: "Kept owner/repo — it's gone upstream; -y removes it",
+				flags: ["-y"],
+			},
+		]);
+	});
+
+	it("names no flags for an entry kept by answering no", () => {
+		const outcome: PluginOutcome = {
+			status: "gone-kept",
+			key: "owner/repo",
+			summary: "Kept owner/repo — it's gone upstream; update will ask again",
+		};
+
+		expect(
+			updateBody(before, [outcome], new Map()).items[0],
+		).not.toHaveProperty("flags");
+	});
+
+	it("reports an entry removed as gone, or absorbed into a pack, at its old entry with its message", () => {
+		const outcomes: PluginOutcome[] = [
+			{
+				status: "gone-removed",
+				key: "owner/repo",
+				summary: "Removed owner/repo — it's gone upstream",
+			},
+			{
+				status: "absorbed",
+				key: "owner/repo",
+				into: "owner/repo/tools",
+				summary: "owner/repo is now part of the pack owner/repo/tools",
+			},
+		];
+
+		expect(updateBody(before, outcomes, new Map()).items).toEqual([
+			expect.objectContaining({
+				status: "gone-removed",
+				ref: "v1.0.0",
+				commit: OLD,
+				message: "Removed owner/repo — it's gone upstream",
+			}),
+			expect.objectContaining({
+				status: "absorbed",
+				ref: "v1.0.0",
+				commit: OLD,
+				message: "owner/repo is now part of the pack owner/repo/tools",
+			}),
+		]);
+	});
+
 	it("reports a refreshed local entry at its new entry, with no move", () => {
 		const outcome: PluginOutcome = {
 			status: "refreshed",

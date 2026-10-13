@@ -8,7 +8,7 @@ import type { PluginOutcome } from "../../src/update-groups.js";
 
 vi.mock("@clack/prompts", async () => {
 	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack();
+	return mockClack({ confirm: vi.fn(), isCancel: vi.fn(() => false) });
 });
 
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
@@ -44,8 +44,13 @@ vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../../src/copy-pack.js", () => ({
+vi.mock("../../src/copy-pack.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/copy-pack.js")>()),
 	copyPack: vi.fn(),
+}));
+
+vi.mock("../../src/unmanaged-check.js", () => ({
+	checkUnmanagedConflicts: vi.fn(),
 }));
 
 vi.mock("../../src/discover.js", async (importOriginal) => ({
@@ -60,6 +65,7 @@ vi.mock("../../src/copy-bare-skill.js", () => ({
 vi.mock("node:fs/promises", () => ({
 	stat: vi.fn(),
 	access: vi.fn(),
+	readdir: vi.fn(async () => []),
 }));
 
 vi.mock("../../src/copy-safety.js", async (importOriginal) => {
@@ -101,6 +107,7 @@ import {
 	writeManifest,
 } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 import {
 	checkForUpdate,
 	type GroupTarget,
@@ -119,6 +126,7 @@ const mockCleanupTempDir = vi.mocked(cleanupTempDir);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPack = vi.mocked(copyPack);
 const mockDiscover = vi.mocked(discover);
+const mockCheckUnmanaged = vi.mocked(checkUnmanagedConflicts);
 
 const LARAVEL_PACK: FoundPack = {
 	name: "repo",
@@ -130,12 +138,25 @@ const LARAVEL_PACK: FoundPack = {
 function onlyPack(pack: FoundPack): Discovery {
 	return { packs: [pack], skills: [], strays: [] };
 }
+
+/**
+ * Arranges the re-walk a skill falls back to when its recorded path no longer
+ * holds one: it finds a loose skill at each path, named for its folder.
+ */
+function rewalkFinds(...paths: string[]): void {
+	mockDiscover.mockResolvedValue({
+		packs: [],
+		skills: paths.map((path) => ({ name: basename(path), path })),
+		strays: [],
+	});
+}
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockStat = vi.mocked(stat);
 const mockAccess = vi.mocked(access);
 const mockOutro = vi.mocked(p.outro);
 const mockLog = vi.mocked(p.log);
 const mockCancel = vi.mocked(p.cancel);
+const mockConfirm = vi.mocked(p.confirm);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 
 import { interactiveUi } from "../../src/ui.js";
@@ -214,6 +235,7 @@ beforeEach(() => {
 	mockAccess.mockResolvedValue(undefined);
 	// Default: no escaping symlink in the re-clone (copy-safety scan passes).
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
+	mockCheckUnmanaged.mockResolvedValue([]);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -990,13 +1012,15 @@ describe("update command", () => {
 					tempDir: "/tmp/clone-block",
 					commit: REMOTE_SHA,
 				});
-			// abort clone: recorded SKILL.md gone → derive gate aborts (others present).
+			// abort clone: recorded SKILL.md gone and two skills now carry its name →
+			// aborted (others present).
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-abort")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/abort", "y/abort");
 			// block clone: escaping symlink → copy-safety block (others clean).
 			mockScanForEscapingSymlinks.mockImplementation(
 				async (sourceDir: unknown) => {
@@ -1106,13 +1130,15 @@ describe("update command", () => {
 					tempDir: "/tmp/clone-bl",
 					commit: REMOTE_SHA,
 				});
-			// ab clone: SKILL.md gone → aborted (cf's present so it reaches copy).
+			// ab clone: SKILL.md gone and two skills now carry its name →
+			// aborted (cf's present so it reaches copy).
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-ab")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/ab", "y/ab");
 			// bl clone: escaping symlink → blocked.
 			mockScanForEscapingSymlinks.mockImplementation(
 				async (sourceDir: unknown) => {
@@ -1138,7 +1164,11 @@ describe("update command", () => {
 			// code 2 (error ✗).
 			const errorCalls = stopTexts(handle, 2);
 			expect(errorCalls.some((m) => m.includes("owner/cf"))).toBe(true);
-			expect(errorCalls.some((m) => m.includes("owner/ab"))).toBe(true);
+			expect(
+				errorCalls.some((m) =>
+					m.includes("owner/ab was installed as a skill and can't be updated"),
+				),
+			).toBe(true);
 			expect(errorCalls.some((m) => m.includes("owner/bl"))).toBe(true);
 			expect(mockRemoveEntry).toHaveBeenCalledWith(
 				expect.anything(),
@@ -1340,13 +1370,14 @@ describe("update command", () => {
 				tempDir: "/tmp/clone",
 				commit: REMOTE_SHA,
 			});
-			// c's recorded SKILL.md is gone from the re-clone → derive gate aborts.
+			// c's recorded SKILL.md is gone and two skills now carry its name → aborted.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.endsWith("/c/SKILL.md")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/c", "y/c");
 			// b's re-copy throws → copy-failed; a succeeds; c never reaches copy.
 			mockCopyBareSkill.mockImplementation(
 				async (opts: { sourceDir: string }) => {
@@ -1749,11 +1780,15 @@ describe("update command", () => {
 			);
 		});
 
-		it("collapses newer-tags to one line per group including the repo-level agntc add command", async () => {
+		it("collapses newer-tags to one line per group: its loose skills on one --skill command, each pack on its own", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo/a": member("a", { ref: "v1.0" }),
-				"owner/repo/b": member("b", { ref: "v1.0" }),
-				"owner/repo/c": member("c", { ref: "v1.0" }),
+				"owner/repo/zeta": member("zeta", {
+					ref: "v1.0",
+					sourceSubpath: "skills/zeta",
+				}),
+				"owner/repo/web": member("web", { ref: "v1.0", type: "pack" }),
+				"owner/repo/alpha": member("alpha", { ref: "v1.0" }),
+				"owner/repo/tools": member("tools", { ref: "v1.0", type: "pack" }),
 			});
 			// One exact-pin group; the shared tag target reports newer tags for all.
 			mockResolveGroupTarget.mockResolvedValue({
@@ -1765,28 +1800,25 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// ONE newer-tags line for the whole group, with the repo-level add command.
 			expect(infoCalls).toContain(
-				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
+				[
+					"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+					"    npx agntc add owner/repo@v3.0 --skill alpha zeta",
+					"    npx agntc add owner/repo/web@v3.0 --pack",
+					"    npx agntc add owner/repo/tools@v3.0 --pack",
+				].join("\n"),
 			);
-			// Not 3 near-identical per-member newer-tags lines.
+			// Not one near-identical newer-tags line per member.
 			expect(
 				infoCalls.filter((m) => m.includes("newer tags available")),
 			).toHaveLength(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
-		it("all-mode collapses an exact-pin collection to one repo-level npx agntc add owner/repo@<newest> newer-tags line", async () => {
-			// Regression-lock (task 4-2): an exact-pin collection — members sharing
-			// one UNCONSTRAINED tag ref (constraint undefined) — collapses to exactly
-			// ONE trailing newer-tags line whose command is REPO-LEVEL
-			// (`npx agntc add owner/repo@v3.0`, task 2-5 formatNewerTagsLine), never N
-			// per-member lines and never a member-scoped `owner/repo/<member>@…`.
+		it("an exact-pin member's newer-tags command re-adds that member at the newest tag, never the bare repo", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": member("a", { ref: "v1.0" }),
-				"owner/repo/b": member("b", { ref: "v1.0" }),
 			});
-			// One exact-pin group; its shared tag target reports newer tags [.., v3.0].
 			mockResolveGroupTarget.mockResolvedValue({
 				kind: "tag",
 				tag: "v1.0",
@@ -1796,17 +1828,10 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// Exactly ONE collapsed line for the group, carrying the repo-level @newest
-			// re-add command.
 			expect(infoCalls).toContain(
-				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo/a@v3.0",
 			);
-			expect(
-				infoCalls.filter((m) => m.includes("newer tags available")),
-			).toHaveLength(1);
-			// Repo-level, NOT member-scoped: no `owner/repo/<member>@…` command leaks
-			// into the collapsed line.
-			expect(infoCalls.some((m) => /owner\/repo\/\w+@/.test(m))).toBe(false);
+			expect(infoCalls.some((m) => m.includes("add owner/repo@"))).toBe(false);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -2242,8 +2267,9 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			// Recorded skill's SKILL.md is gone in the re-clone -> derive gate aborts.
+			// The recorded SKILL.md is gone and two skills now carry its name -> aborted.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("a/repo", "b/repo");
 			return entry;
 		}
 
@@ -2317,17 +2343,18 @@ describe("update command", () => {
 				status: "update-available",
 				remoteCommit: REMOTE_SHA,
 			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			// repo-a's SKILL.md gone -> abort; repo-b's present -> succeeds.
+			mockCloneSource
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
+				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
+			// repo-a's SKILL.md is gone and two skills now carry its name -> aborted;
+			// repo-b's is present -> succeeds.
 			mockAccess.mockImplementation(async (path: unknown) => {
-				if (typeof path === "string" && path.includes("/skill-a/")) {
+				if (typeof path === "string" && path.includes("/clone-a/")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/repo-a", "y/repo-a");
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -2342,6 +2369,7 @@ describe("update command", () => {
 				"owner/repo-a",
 			);
 			const writeCalls = mockWriteManifest.mock.calls;
+			expect(writeCalls.length).toBeGreaterThan(0);
 			for (const call of writeCalls) {
 				const written = call[1] as Manifest;
 				// aborted entry stays exactly as it was, never removed.
@@ -2366,6 +2394,7 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("a/repo", "b/repo");
 
 			// All-updates abort exits non-zero after rendering the loud summary;
 			// catch so the summary assertions below still run.
@@ -2558,13 +2587,15 @@ describe("update command", () => {
 					tempDir: "/tmp/agntc-clone-b",
 					commit: REMOTE_SHA,
 				});
-			// repo-a's recorded SKILL.md is gone -> derive gate aborts; repo-b stays.
+			// repo-a's recorded SKILL.md is gone and two skills now carry its name ->
+			// aborted; repo-b stays.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/agntc-clone-a/")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/repo-a", "y/repo-a");
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
@@ -2696,8 +2727,10 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			// Both recorded skills are gone in the re-clone -> both abort.
+			// Both recorded skills are gone and each name now matches two skills ->
+			// both abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("x/repo-a", "y/repo-a", "x/repo-b", "y/repo-b");
 
 			await runUpdate().catch(() => {});
 
@@ -2708,6 +2741,12 @@ describe("update command", () => {
 			const msgB = errorCalls.find((m) => m.includes("owner/repo-b"));
 			expect(msgA).toBeDefined();
 			expect(msgB).toBeDefined();
+			expect(msgA).toContain(
+				"2 skills are now named repo-a: x/repo-a, y/repo-a",
+			);
+			expect(msgB).toContain(
+				"2 skills are now named repo-b: x/repo-b, y/repo-b",
+			);
 			expect(msgA).toContain("npx agntc remove owner/repo-a");
 			expect(msgB).toContain("npx agntc remove owner/repo-b");
 		});
@@ -2734,6 +2773,7 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("x/repo-a", "y/repo-a", "x/repo-b", "y/repo-b");
 
 			const err = await runUpdate().catch((e) => e);
 
@@ -2767,6 +2807,7 @@ describe("update command", () => {
 				commit: REMOTE_SHA,
 			});
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds("x/repo-a", "y/repo-a");
 
 			const err = await runUpdate().catch((e) => e);
 
@@ -3364,14 +3405,15 @@ describe("update command", () => {
 			mockCloneSource
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-a", commit: REMOTE_SHA })
 				.mockResolvedValueOnce({ tempDir: "/tmp/clone-b", commit: REMOTE_SHA });
-			// repo-a's recorded SKILL.md is gone in its re-clone -> derive-before-delete
-			// abort (install intact, entry untouched); repo-b clean.
+			// repo-a's recorded SKILL.md is gone and two skills now carry its name ->
+			// derive-before-delete abort (install intact, entry untouched); repo-b clean.
 			mockAccess.mockImplementation(async (path: unknown) => {
 				if (typeof path === "string" && path.includes("/clone-a/")) {
 					throw new Error("ENOENT");
 				}
 				return undefined;
 			});
+			rewalkFinds("x/repo-a", "y/repo-a");
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/b/"],
 			});
@@ -5578,11 +5620,14 @@ describe("update command", () => {
 				files: [`.claude/skills/${name}/`],
 			});
 
-		it("renders one footer line per group for a constrained N-member collection (not N lines)", async () => {
+		it("renders one footer line per group for a constrained mixed collection: one bare --skill command for its loose skills, one per pack", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": constrainedMember("a"),
-				"owner/repo/b": constrainedMember("b"),
-				"owner/repo/c": constrainedMember("c"),
+				"owner/repo/b": {
+					...constrainedMember("b"),
+					sourceSubpath: "skills/b",
+				},
+				"owner/repo/tools": { ...constrainedMember("tools"), type: "pack" },
 			});
 			// ONE constrained group whose shared target is out of constraint
 			// (latestOverall set) and at the members' installed tag (all up to date).
@@ -5597,15 +5642,19 @@ describe("update command", () => {
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			// ONE footer line for the whole collection: current = group target.tag,
-			// keyed by the group label, bare owner/repo command.
+			// keyed by the group label, the group's bare re-add commands.
 			expect(infoCalls).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				[
+					"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade:",
+					"    npx agntc add owner/repo --skill a b",
+					"    npx agntc add owner/repo/tools --pack",
+				].join("\n"),
 			);
 			// Not N near-identical per-member footer lines.
 			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
 		});
 
-		it("a multi-group repo renders two @intent-prefixed footer lines, each with the bare owner/repo command", async () => {
+		it("a multi-group repo renders two @intent-prefixed footer lines, each with its member's bare re-add command", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					ref: "v1.2.3",
@@ -5641,18 +5690,18 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// Two footer lines: prefix disambiguated by @intent, command stays the
-			// BARE owner/repo. current = each group's own target.tag.
+			// Two footer lines: prefix disambiguated by @intent, command stays bare
+			// (no @intent). current = each group's own target.tag.
 			expect(infoCalls).toContain(
-				"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/a",
 			);
 			expect(infoCalls).toContain(
-				"  owner/repo@^2.0.0  v2.0.0 -> v3.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo@^2.0.0  v2.0.0 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/b",
 			);
 			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(2);
 		});
 
-		it("all-mode footer names the group target tag as current and the bare npx agntc add owner/repo command", async () => {
+		it("all-mode footer names the group target tag as current and the group's bare --skill re-add command", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": constrainedMember("a"),
 				"owner/repo/b": constrainedMember("b"),
@@ -5668,11 +5717,11 @@ describe("update command", () => {
 
 			// The footer is the ONLY info output on this all-up-to-date path, so the
 			// exact two lines pin the actionable wording verbatim: current = group
-			// target.tag (v1.2.3), bare owner/repo command, no (constraint: ...) tail.
+			// target.tag (v1.2.3), a bare --skill command, no (constraint: ...) tail.
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toEqual([
 				"Newer versions outside constraints:",
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			]);
 			// No (constraint: ...) tail survives the reword.
 			const footer = infoCalls.join("\n");
@@ -5696,7 +5745,7 @@ describe("update command", () => {
 			// The footer does not feed hasFailedOutcome, so all-mode exit stays 0.
 			expect(allModeErr).toBeUndefined();
 			expect(mockLog.info.mock.calls.map((c) => c[0] as string)).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			);
 
 			// Single-key path: constrained-up-to-date, out of constraint — also exit 0.
@@ -5764,7 +5813,7 @@ describe("update command", () => {
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
-		it("a caret entry with an out-of-constraint major emits the bare npx agntc add owner/repo footer instead", async () => {
+		it("a caret entry with an out-of-constraint major emits the bare re-add footer instead", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": caretMember("a"),
 				"owner/repo/b": caretMember("b"),
@@ -5779,12 +5828,11 @@ describe("update command", () => {
 			await runUpdate();
 
 			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			// The caret out-of-constraint footer (task 4-1): current -> newer with the
-			// BARE repo-level re-add command (no @ suffix), collapsed to one line for
-			// the whole group.
+			// The caret out-of-constraint footer: current -> newer with the group's
+			// BARE re-add command (no @ suffix), collapsed to one line for the group.
 			expect(infoCalls).toContain("Newer versions outside constraints:");
 			expect(infoCalls).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			);
 			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
 		});
@@ -6265,5 +6313,547 @@ describe("single-key update stopping at a failure", () => {
 			"owner/repo/go": expect.objectContaining({ commit: REMOTE_SHA }),
 			"owner/repo/ts": tsEntry,
 		});
+	});
+});
+
+describe("an entry gone upstream", () => {
+	const GONE_KEY = "owner/repo/go";
+
+	function goneEntry(): ManifestEntry {
+		return makeEntry({
+			type: "skill",
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/go/"],
+		});
+	}
+
+	function looseEntry(name: string): ManifestEntry {
+		return makeEntry({
+			type: "skill",
+			commit: INSTALLED_SHA,
+			files: [`.claude/skills/${name}/`],
+		});
+	}
+
+	/** go's SKILL.md is gone from the source and nothing named go turns up anywhere. */
+	function arrangeGone(manifest: Manifest = { [GONE_KEY]: goneEntry() }): void {
+		mockReadManifestOrExit.mockResolvedValue(manifest);
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockAccess.mockImplementation(async (path: unknown) => {
+			if (typeof path === "string" && path.endsWith("/go/SKILL.md")) {
+				throw new Error("ENOENT");
+			}
+			return undefined;
+		});
+		rewalkFinds("skills/other");
+	}
+
+	function recordOrder(): string[] {
+		const order: string[] = [];
+		mockNukeManifestFiles.mockImplementation(async () => {
+			order.push("nuke");
+			return { removed: [], skipped: [] };
+		});
+		mockWriteManifest.mockImplementation(async () => {
+			order.push("write");
+		});
+		return order;
+	}
+
+	describe("for one key at a terminal", () => {
+		it("asks whether to remove it, no by default", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			await runUpdate(GONE_KEY);
+
+			expect(mockConfirm).toHaveBeenCalledExactlyOnceWith({
+				message: "owner/repo/go is gone upstream — remove it?",
+				initialValue: false,
+			});
+		});
+
+		it("keeps its files and entry on no, says update will ask again, and exits 0", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			const err = await runUpdate(GONE_KEY).catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(mockLog.warn).toHaveBeenCalledWith(
+				"Kept owner/repo/go — it's gone upstream; update will ask again",
+			);
+		});
+
+		it("removes its files and then its entry on yes, and exits 0", async () => {
+			const other = looseEntry("other");
+			arrangeGone({ [GONE_KEY]: goneEntry(), "owner/other": other });
+			mockConfirm.mockResolvedValue(true);
+			const order = recordOrder();
+
+			const err = await runUpdate(GONE_KEY).catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/go/"],
+			);
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/other": other },
+			);
+			expect(order).toEqual(["nuke", "write"]);
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"Removed owner/repo/go — it's gone upstream",
+			);
+		});
+
+		it("removes it without asking under -y", async () => {
+			arrangeGone();
+
+			await runUpdate(GONE_KEY, { yes: true });
+
+			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
+		});
+
+		it("treats a local entry the same way, its folder standing in for the repo", async () => {
+			const localKey = "/Users/lee/Code/go";
+			const localEntry: ManifestEntry = {
+				ref: null,
+				commit: null,
+				installedAt: "2026-02-01T00:00:00.000Z",
+				files: [".claude/skills/go/"],
+				cloneUrl: null,
+				type: "skill",
+			};
+			mockReadManifestOrExit.mockResolvedValue({ [localKey]: localEntry });
+			mockCheckForUpdate.mockResolvedValue({ status: "local" });
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			rewalkFinds();
+			mockConfirm.mockResolvedValue(true);
+
+			const err = await runUpdate(localKey).catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockDiscover).toHaveBeenCalledWith(localKey, { rootName: "go" });
+			expect(mockConfirm).toHaveBeenCalledWith({
+				message: "/Users/lee/Code/go is gone upstream — remove it?",
+				initialValue: false,
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
+		});
+	});
+
+	describe("in all-mode at a terminal", () => {
+		it("asks only once the group's spinner has stopped, after the group's lines", async () => {
+			const handle = captureSpinner();
+			arrangeGone({ "owner/repo/a": looseEntry("a"), [GONE_KEY]: goneEntry() });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/"],
+			});
+			mockConfirm.mockResolvedValue(false);
+
+			await runUpdate();
+
+			const asked = mockConfirm.mock.invocationCallOrder[0]!;
+			const beforeAsking = (order: number[]) => order.filter((o) => o < asked);
+			// The check spinner and the group's spinner both started and stopped
+			// before the question, and no spinner starts after it.
+			expect(beforeAsking(handle.start.mock.invocationCallOrder)).toHaveLength(
+				2,
+			);
+			expect(beforeAsking(handle.stop.mock.invocationCallOrder)).toHaveLength(
+				2,
+			);
+			expect(handle.start).toHaveBeenCalledTimes(2);
+			expect(handle.stop).toHaveBeenLastCalledWith(
+				"Updating owner/repo  aaaaaaa -> bbbbbbb  (2 members)",
+			);
+			// a's member line is out before the question; the answer follows it.
+			expect(mockLog.success).toHaveBeenCalledWith("a");
+			expect(mockLog.success.mock.invocationCallOrder[0]).toBeLessThan(asked);
+			expect(mockLog.warn.mock.invocationCallOrder[0]).toBeGreaterThan(asked);
+		});
+
+		it("stops a group of one on its header before asking", async () => {
+			const handle = captureSpinner();
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			await runUpdate();
+
+			expect(handle.stop).toHaveBeenLastCalledWith("Updating owner/repo");
+			expect(handle.stop.mock.invocationCallOrder.at(-1)).toBeLessThan(
+				mockConfirm.mock.invocationCallOrder[0]!,
+			);
+		});
+
+		it("keeps it on no and exits 0 while its sibling updates", async () => {
+			const entryA = looseEntry("a");
+			const gone = goneEntry();
+			arrangeGone({ "owner/repo/a": entryA, [GONE_KEY]: gone });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/"],
+			});
+			mockConfirm.mockResolvedValue(false);
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+			expect(written[GONE_KEY]).toEqual(gone);
+			expect(written["owner/repo/a"]!.commit).toBe(REMOTE_SHA);
+			expect(mockLog.warn).toHaveBeenCalledWith(
+				"Kept owner/repo/go — it's gone upstream; update will ask again",
+			);
+		});
+
+		it("removes its files and then its entry on yes", async () => {
+			arrangeGone({ "owner/repo/a": looseEntry("a"), [GONE_KEY]: goneEntry() });
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/"],
+			});
+			mockConfirm.mockResolvedValue(true);
+
+			const err = await runUpdate().catch((e) => e);
+
+			expect(err).toBeUndefined();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+			expect(Object.keys(written)).toEqual(["owner/repo/a"]);
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"Removed owner/repo/go — it's gone upstream",
+			);
+		});
+
+		it("removes it without asking under -y", async () => {
+			arrangeGone();
+
+			await runUpdate(undefined, { yes: true });
+
+			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(mockWriteManifest).toHaveBeenLastCalledWith("/fake/project", {});
+		});
+	});
+
+	describe("without a terminal", () => {
+		const KEPT = {
+			key: GONE_KEY,
+			type: "skill",
+			status: "gone-kept",
+			ref: null,
+			commit: INSTALLED_SHA,
+			constraint: null,
+			message: "Kept owner/repo/go — it's gone upstream; -y removes it",
+			flags: ["-y"],
+		};
+
+		it("keeps it without -y, naming the flag that removes it, and exits 0", async () => {
+			arrangeGone();
+
+			const run = await runMachine(updateCommand, [GONE_KEY]);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toEqual({
+				ok: true,
+				command: "update",
+				items: [KEPT],
+				warnings: [],
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+			expect(clackCalls(p)).toEqual([]);
+		});
+
+		it("keeps it the same way in all-mode", async () => {
+			arrangeGone();
+
+			const run = await runMachine(updateCommand, []);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document).toMatchObject({ ok: true, items: [KEPT] });
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			["one key", [GONE_KEY, "-y"]],
+			["all-mode", ["--yes"]],
+		])("removes it under -y (%s) and reports it removed", async (_mode, args) => {
+			arrangeGone();
+
+			const run = await runMachine(updateCommand, args);
+
+			expect(run.exitCode).toBe(0);
+			expect(run.document.items).toEqual([
+				{
+					key: GONE_KEY,
+					type: "skill",
+					status: "gone-removed",
+					ref: null,
+					commit: INSTALLED_SHA,
+					constraint: null,
+					message: "Removed owner/repo/go — it's gone upstream",
+				},
+			]);
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/go/",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
+		});
+	});
+});
+
+describe("a pack taking over loose skills from its own source", () => {
+	const PACK_KEY = "owner/repo/tools";
+	const TOOLS: FoundPack = {
+		name: "tools",
+		path: "tools",
+		skills: [
+			{ name: "a", path: "tools/skills/a" },
+			{ name: "b", path: "tools/skills/b" },
+		],
+		assetDirs: [],
+	};
+	const NOTE = "owner/repo/tools now includes a, installed on its own before";
+
+	function packEntry(): ManifestEntry {
+		return makeEntry({
+			type: "pack",
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/b/"],
+		});
+	}
+
+	function looseA(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
+		return makeEntry({
+			type: "skill",
+			commit: INSTALLED_SHA,
+			files: [".claude/skills/a/"],
+			...overrides,
+		});
+	}
+
+	/** The pack now holds a as well as b. */
+	function arrangeTakeover(manifest: Manifest): void {
+		mockReadManifestOrExit.mockResolvedValue(manifest);
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockDiscover.mockResolvedValue(onlyPack(TOOLS));
+		mockCopyPack.mockResolvedValue({
+			copiedFiles: [".claude/skills/a/", ".claude/skills/b/"],
+			assetCounts: { skills: 2 },
+		});
+	}
+
+	it("all-mode updates the pack first, then skips the loose entry it took over in its group", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		await runUpdate();
+
+		expect(mockCloneSource).toHaveBeenCalledOnce();
+		expect(mockCopyPack).toHaveBeenCalledOnce();
+		expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+			"/fake/project",
+			[".claude/skills/b/", ".claude/skills/a/"],
+		);
+		const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+		expect(Object.keys(written)).toEqual([PACK_KEY]);
+		expect(written[PACK_KEY]!.files).toEqual([
+			".claude/skills/a/",
+			".claude/skills/b/",
+		]);
+		expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+	});
+
+	it("all-mode skips a taken-over loose entry whose own group comes after the pack's", async () => {
+		arrangeTakeover({
+			[PACK_KEY]: packEntry(),
+			"owner/repo/a": looseA({ ref: "main" }),
+		});
+
+		await runUpdate();
+
+		// Two groups (head and main), but only the pack's ever clones.
+		expect(mockCloneSource).toHaveBeenCalledOnce();
+		expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
+		expect(Object.keys(written)).toEqual([PACK_KEY]);
+	});
+
+	it("reports the loose entry as absorbed into the pack, with the pack's note", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(0);
+		expect(run.document.items).toEqual([
+			{
+				key: "owner/repo/a",
+				type: "skill",
+				status: "absorbed",
+				ref: null,
+				commit: INSTALLED_SHA,
+				constraint: null,
+				message: "owner/repo/a is now part of the pack owner/repo/tools",
+			},
+			expect.objectContaining({
+				key: PACK_KEY,
+				type: "pack",
+				status: "updated",
+			}),
+		]);
+		expect(run.document.notes).toEqual([NOTE]);
+	});
+
+	describe("when the pack's copy then fails", () => {
+		const LOOSE_MESSAGE =
+			"owner/repo/a was removed — the pack owner/repo/tools took it over, then failed to install";
+		const PACK_MESSAGE =
+			"Update failed for owner/repo/tools after removing old files, and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc update owner/repo/tools` to retry installation.";
+
+		it("all-mode drops the loose entry with the pack's, since its files are gone", async () => {
+			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+			mockCopyPack.mockRejectedValue(new Error("disk full"));
+
+			const run = await runMachine(updateCommand, []);
+
+			expect(run.exitCode).toBe(1);
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/b/", ".claude/skills/a/"],
+			);
+			expect(mockWriteManifest).toHaveBeenLastCalledWith("/fake/project", {});
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(run.document.items).toEqual([
+				{
+					key: "owner/repo/a",
+					type: "skill",
+					status: "absorbed",
+					ref: null,
+					commit: INSTALLED_SHA,
+					constraint: null,
+					message: LOOSE_MESSAGE,
+				},
+				{
+					key: PACK_KEY,
+					type: "pack",
+					status: "copy-failed",
+					ref: null,
+					commit: INSTALLED_SHA,
+					constraint: null,
+					message: PACK_MESSAGE,
+				},
+			]);
+			expect(run.document.notes).toEqual([]);
+		});
+
+		it("a key naming both drops the loose entry with the pack's", async () => {
+			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+			mockCopyPack.mockRejectedValue(new Error("disk full"));
+
+			const err = await runUpdate("owner/repo").catch((e) => e);
+
+			expect(err).toBeInstanceOf(ExitSignal);
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{},
+			);
+			expect(mockLog.error).toHaveBeenCalledWith(PACK_MESSAGE);
+		});
+	});
+
+	it("a key naming both updates the pack and skips the loose entry", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		await runUpdate("owner/repo");
+
+		expect(mockCheckForUpdate).toHaveBeenCalledExactlyOnceWith(
+			PACK_KEY,
+			expect.anything(),
+		);
+		expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
+			[PACK_KEY]: expect.objectContaining({ commit: REMOTE_SHA }),
+		});
+		expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+	});
+
+	it("aborts the pack, install intact, when its skills would land on another source's files", async () => {
+		const other = looseA();
+		arrangeTakeover({ [PACK_KEY]: packEntry(), "other/repo/a": other });
+		mockResolveGroupTarget.mockImplementation(async ({ members: [first] }) =>
+			first!.key === PACK_KEY
+				? { kind: "head", resolvedSha: REMOTE_SHA }
+				: { kind: "head", resolvedSha: INSTALLED_SHA },
+		);
+
+		const err = await runUpdate().catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockCopyPack).not.toHaveBeenCalled();
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+	});
+
+	it("names the other entry and its files when it aborts", async () => {
+		arrangeTakeover({ [PACK_KEY]: packEntry(), "other/repo/a": looseA() });
+
+		await runUpdate(PACK_KEY).catch(() => {});
+
+		expect(mockLog.error).toHaveBeenCalledWith(
+			"owner/repo/tools can't be updated: files of other/repo/a are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
+		);
+	});
+
+	it("aborts, install intact, when files agntc didn't install sit at a new skill's target", async () => {
+		arrangeTakeover({ [PACK_KEY]: packEntry() });
+		mockCheckUnmanaged.mockResolvedValue([".claude/skills/a/"]);
+
+		const err = await runUpdate(PACK_KEY).catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect(mockCheckUnmanaged).toHaveBeenCalledWith(
+			[".claude/skills/a/", ".claude/skills/b/"],
+			{ [PACK_KEY]: packEntry() },
+			"/fake/project",
+		);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockCopyPack).not.toHaveBeenCalled();
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+		expect(mockLog.error).toHaveBeenCalledWith(
+			"owner/repo/tools can't be updated: files agntc didn't install are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
+		);
 	});
 });

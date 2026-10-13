@@ -530,6 +530,7 @@ describe("chooseItems", () => {
 						hint: "Lints things.",
 					},
 				],
+				notes: [],
 			});
 		});
 
@@ -570,6 +571,138 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toEqual({
 				kind: "refuse",
 				message: "nothing to install — a and b have no skills, agents or hooks",
+			});
+		});
+	});
+
+	describe("a skill an installed pack from the source already holds", () => {
+		const API_NOTE =
+			"api is already installed as part of the pack owner/repo/laravel";
+		const packed: ChoiceContext = {
+			...ctx,
+			packed: new Map([
+				["laravel/skills/api", "owner/repo/laravel"],
+				["tools/api", "owner/repo/laravel"],
+			]),
+		};
+
+		it("--skill neither installs it nor says it installs on its own, only that the pack has it", () => {
+			const choice = chooseItems(
+				found({ packs: [LARAVEL] }),
+				{ kind: "skills", names: ["api", "models"] },
+				packed,
+			);
+
+			expect(choice.outcome).toEqual({
+				kind: "install",
+				items: [{ kind: "skill", skill: skill("laravel/skills/models") }],
+				notes: [
+					API_NOTE,
+					"models is part of the pack laravel — installed on its own, without its agents/hooks",
+				],
+			});
+		});
+
+		it("--skill on a sibling doesn't count it among what the sibling installs without", () => {
+			const choice = chooseItems(
+				found({ packs: [LARAVEL] }),
+				{ kind: "skills", names: ["models"] },
+				packed,
+			);
+
+			expect(choice.outcome).toMatchObject({
+				notes: [
+					"models is part of the pack laravel — installed on its own, without its agents/hooks",
+				],
+			});
+		});
+
+		it("--skill naming only skills the pack has installs nothing, with no refusal", () => {
+			const choice = chooseItems(
+				found({ packs: [LARAVEL] }),
+				{ kind: "skills", names: ["api"] },
+				packed,
+			);
+
+			expect(choice.outcome).toEqual({
+				kind: "install",
+				items: [],
+				notes: [API_NOTE],
+			});
+		});
+
+		it("--all leaves it out, saying so, and installs the rest", () => {
+			const choice = chooseItems(
+				found({ skills: [skill("tools/api"), skill("tools/lint")] }),
+				{ kind: "all" },
+				packed,
+			);
+
+			expect(choice.outcome).toEqual({
+				kind: "install",
+				items: [{ kind: "skill", skill: skill("tools/lint") }],
+				notes: [API_NOTE],
+			});
+		});
+
+		it("--all with only such skills installs nothing, with no refusal", () => {
+			const choice = chooseItems(
+				found({ skills: [skill("tools/api")] }),
+				{ kind: "all" },
+				packed,
+			);
+
+			expect(choice.outcome).toEqual({
+				kind: "install",
+				items: [],
+				notes: [API_NOTE],
+			});
+		});
+
+		it("leaves it off the menu, saying so, and still shows the menu", () => {
+			const choice = chooseItems(
+				found({ skills: [skill("tools/api"), skill("tools/lint")] }),
+				AUTO,
+				packed,
+			);
+
+			expect(choice.outcome).toEqual({
+				kind: "menu",
+				options: [
+					{
+						value: { kind: "skill", skill: skill("tools/lint") },
+						label: "tools/lint",
+					},
+				],
+				notes: [API_NOTE],
+			});
+		});
+
+		it("installs nothing when it is all a source offers", () => {
+			const choice = chooseItems(
+				found({ skills: [skill("tools/api")] }),
+				AUTO,
+				packed,
+			);
+
+			expect(choice.outcome).toEqual({
+				kind: "install",
+				items: [],
+				notes: [API_NOTE],
+			});
+		});
+
+		it("still offers the pack that holds it", () => {
+			const choice = chooseItems(
+				found({ packs: [LARAVEL], skills: [skill("tools/lint")] }),
+				AUTO,
+				packed,
+			);
+
+			expect(choice.outcome).toMatchObject({
+				kind: "menu",
+				options: [{ label: "laravel" }, { label: "tools/lint" }],
+				notes: [],
 			});
 		});
 	});

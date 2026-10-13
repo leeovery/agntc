@@ -1,7 +1,8 @@
+import { reAddCommand } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
-import type { EntryType, Manifest, ManifestEntry } from "./manifest.js";
+import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry, writeManifest } from "./manifest.js";
 import { executeNukeAndReinstall } from "./nuke-reinstall-pipeline.js";
 import {
@@ -83,15 +84,36 @@ interface CloneReinstallSuccess {
 	status: "success";
 	manifestEntry: ManifestEntry;
 	copiedFiles: string[];
-	/** Something the user should hear about how the entry was reinstalled. */
-	note?: string;
+	/** What the user should hear about how the entry was reinstalled. */
+	notes: string[];
+	/** Loose skill entries a pack took over: their files are gone, their entries are the caller's to drop. */
+	absorbed: string[];
 }
 
-export interface CloneReinstallFailed {
-	status: "failed";
-	failureReason: "clone-failed" | "copy-failed" | "unknown";
-	message: string;
+/**
+ * Nothing the entry installs is left in its source. Nothing was touched; the
+ * caller decides whether to remove it.
+ */
+interface CloneReinstallGone {
+	status: "gone";
 }
+
+/**
+ * A copy failure has already removed the entry's files, and those of the loose
+ * skills a pack took over: `absorbed` names those, whose entries go too.
+ */
+export type CloneReinstallFailed =
+	| {
+			status: "failed";
+			failureReason: "clone-failed" | "unknown";
+			message: string;
+	  }
+	| {
+			status: "failed";
+			failureReason: "copy-failed";
+			message: string;
+			absorbed: string[];
+	  };
 
 /**
  * The non-success clone-reinstall outcomes: the union {@link mapCloneFailure}
@@ -106,8 +128,8 @@ export type CloneReinstallFailure =
 
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
-	onCopyFailed: (msg: string) => T;
-	onAborted: (recordedType: EntryType, reason: string) => T;
+	onCopyFailed: (msg: string, absorbed: string[]) => T;
+	onAborted: (abort: AbortCause) => T;
 	onBlocked: (reason: string) => T;
 	onUnknown: (msg: string) => T;
 }
@@ -142,7 +164,7 @@ export function mapCloneFailure<T>(
 	handlers: CloneFailureHandlers<T>,
 ): T {
 	if (result.status === "aborted") {
-		return handlers.onAborted(result.recordedType, result.reason);
+		return handlers.onAborted(result);
 	}
 	if (result.status === "blocked") {
 		return handlers.onBlocked(result.reason);
@@ -151,7 +173,7 @@ export function mapCloneFailure<T>(
 		case "clone-failed":
 			return handlers.onCloneFailed(result.message);
 		case "copy-failed":
-			return handlers.onCopyFailed(result.message);
+			return handlers.onCopyFailed(result.message, result.absorbed);
 		case "unknown":
 			return handlers.onUnknown(result.message);
 	}
@@ -170,33 +192,36 @@ export function mapCloneFailure<T>(
 export function failureMessage(
 	result: CloneReinstallFailure,
 	key: string,
+	entry: ManifestEntry,
 ): string {
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
 		onCopyFailed: (msg) => msg,
 		onUnknown: (msg) => msg,
-		onAborted: (recordedType, reason) =>
-			buildAbortMessage(key, recordedType, reason),
+		onAborted: (abort) => buildAbortMessage(key, entry, abort),
 		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
 	});
 }
 
 /**
  * The unit's update was aborted by the derive-before-delete validation gate: the
- * re-cloned tree no longer supports the entry's recorded type, so no files were
- * removed and the existing install is left intact. Carries the structured cause
- * ({@link recordedType} + {@link reason}); the user-facing message and manual
- * remedy are assembled by the reporting layer. The distinct `status: "aborted"`
- * is the single discriminator: {@link mapCloneFailure} dispatches it via
- * `onAborted` on `status` alone, keeping it separate from the `status: "failed"`
- * reasons (notably copy-failed, which removes the entry) without a redundant
- * second tag.
+ * re-cloned tree can't be replayed for the entry, so no files were removed and
+ * the existing install is left intact. Carries the structured cause
+ * ({@link reason}); the user-facing message and manual remedy are assembled by
+ * the reporting layer. The distinct `status: "aborted"` is the single
+ * discriminator: {@link mapCloneFailure} dispatches it via `onAborted` on
+ * `status` alone, keeping it separate from the `status: "failed"` reasons
+ * (notably copy-failed, which removes the entry) without a redundant second tag.
  */
 export interface CloneReinstallAborted {
 	status: "aborted";
-	recordedType: EntryType;
 	reason: string;
+	/** What stopped it was files in the way, which an add with --overwrite replaces. */
+	inTheWay?: true;
 }
+
+/** Why an update aborted, as {@link buildAbortMessage} reports it. */
+export type AbortCause = Omit<CloneReinstallAborted, "status">;
 
 /**
  * The unit's update was blocked by the symlink-escape copy-safety pre-flight:
@@ -220,24 +245,35 @@ export type CloneReinstallResult =
 	| CloneReinstallSuccess
 	| CloneReinstallFailed
 	| CloneReinstallAborted
-	| CloneReinstallBlocked;
+	| CloneReinstallBlocked
+	| CloneReinstallGone;
 
 /**
- * The user-facing report for a derive-before-delete abort: names the recorded
- * type and how the current source structure diverges from it ({@link reason}),
- * affirms the existing install is unchanged, and states the manual remove+add
- * remedy. Distinct from the copy-failed report, which tells the user the unit is
- * currently uninstalled and to re-run update — here nothing was touched.
+ * The user-facing report for a derive-before-delete abort: why the source
+ * can't be replayed for the entry, that the existing install is unchanged,
+ * and the manual remedy built from the entry. Files in the way are cleared by
+ * hand or replaced by an add with --overwrite, which update doesn't take; any
+ * other abort migrates by remove+add. Distinct from the copy-failed report,
+ * which tells the user the unit is currently uninstalled and to re-run update —
+ * here nothing was touched.
  */
 export function buildAbortMessage(
 	key: string,
-	recordedType: EntryType,
-	reason: string,
+	entry: ManifestEntry,
+	{ reason, inTheWay }: AbortCause,
 ): string {
+	const reAdd = reAddCommand(key, entry);
+	if (inTheWay) {
+		return (
+			`${key} can't be updated: ${reason}. The existing install is ` +
+			`unchanged. Clear them and update again, or replace them: ` +
+			`npx agntc remove ${key} then ${reAdd} --overwrite`
+		);
+	}
 	return (
-		`${key} was installed as a ${recordedType}, but its source no longer ` +
-		`supports that type (${reason}). The existing install is unchanged. ` +
-		`To migrate: npx agntc remove ${key} then npx agntc add ${key}`
+		`${key} was installed as a ${entry.type ?? "skill"} and can't be ` +
+		`updated (${reason}). The existing install is unchanged. ` +
+		`To migrate: npx agntc remove ${key} then ${reAdd}`
 	);
 }
 
@@ -282,9 +318,14 @@ export async function cloneRepoOnce(input: {
 	return cloneSource(parsed);
 }
 
+/**
+ * `installed` is every entry the manifest holds, for what a pack's re-walk
+ * absorbs or clashes with.
+ */
 export async function cloneAndReinstall(
 	options: CloneAndReinstallOptions,
 	ui: Ui,
+	installed: Manifest,
 ): Promise<CloneReinstallResult> {
 	const { key, entry, projectDir } = options;
 
@@ -304,6 +345,7 @@ export async function cloneAndReinstall(
 		const result = await runPipeline({
 			key,
 			entry,
+			installed,
 			projectDir,
 			sourceDir: guarded.sourceDir,
 			cloneRoot: localRoot,
@@ -363,6 +405,7 @@ export async function cloneAndReinstall(
 		const result = await runPipeline({
 			key,
 			entry,
+			installed,
 			projectDir,
 			sourceDir,
 			// Clone mode: the clone temp dir is the containment boundary for the
@@ -385,6 +428,7 @@ export async function cloneAndReinstall(
 	}
 }
 
+/** A copy failure removed the files of the entry and of what it took over, so their entries go. */
 async function handleCopyFailedRemoval(
 	result: CloneReinstallResult,
 	options: CloneAndReinstallOptions,
@@ -394,9 +438,10 @@ async function handleCopyFailedRemoval(
 		result.failureReason === "copy-failed" &&
 		options.manifest !== undefined
 	) {
+		const removed = [options.key, ...result.absorbed];
 		await writeManifest(
 			options.projectDir,
-			removeEntry(options.manifest, options.key),
+			removed.reduce((rest, key) => removeEntry(rest, key), options.manifest),
 		);
 	}
 	return result;
@@ -405,6 +450,7 @@ async function handleCopyFailedRemoval(
 export interface PipelineInput {
 	key: string;
 	entry: ManifestEntry;
+	installed: Manifest;
 	projectDir: string;
 	sourceDir: string;
 	cloneRoot: string;
@@ -424,49 +470,31 @@ export interface PipelineInput {
 export async function runPipeline(
 	input: PipelineInput,
 ): Promise<CloneReinstallResult> {
-	const { key, entry, projectDir, sourceDir, cloneRoot, newRef, newCommit } =
-		input;
-
+	const { entry, ...rest } = input;
 	const pipelineResult = await executeNukeAndReinstall({
-		key,
-		sourceDir,
-		cloneRoot,
+		...rest,
 		existingEntry: entry,
-		projectDir,
-		newRef,
-		newCommit,
 	});
 
-	if (pipelineResult.status === "copy-failed") {
-		return {
-			status: "failed",
-			failureReason: "copy-failed",
-			message: pipelineResult.recoveryHint,
-		};
+	switch (pipelineResult.status) {
+		case "copy-failed":
+			return {
+				status: "failed",
+				failureReason: "copy-failed",
+				message: pipelineResult.recoveryHint,
+				absorbed: pipelineResult.absorbed,
+			};
+		case "success":
+			return {
+				status: "success",
+				manifestEntry: pipelineResult.entry,
+				copiedFiles: pipelineResult.copiedFiles,
+				notes: pipelineResult.notes,
+				absorbed: pipelineResult.absorbed,
+			};
+		default:
+			// Aborted, blocked and gone leave the entry intact: with no
+			// failureReason, handleCopyFailedRemoval never removes it.
+			return pipelineResult;
 	}
-
-	if (pipelineResult.status === "aborted") {
-		return {
-			status: "aborted",
-			recordedType: pipelineResult.recordedType,
-			reason: pipelineResult.reason,
-		};
-	}
-
-	// Symlink-escape copy-safety block: like aborted, the entry stays intact (no
-	// failureReason, so handleCopyFailedRemoval never removes it). Distinct status
-	// keeps it off the type-migration remedy.
-	if (pipelineResult.status === "blocked") {
-		return {
-			status: "blocked",
-			reason: pipelineResult.reason,
-		};
-	}
-
-	return {
-		status: "success",
-		manifestEntry: pipelineResult.entry,
-		copiedFiles: pipelineResult.copiedFiles,
-		...(pipelineResult.note !== undefined ? { note: pipelineResult.note } : {}),
-	};
 }

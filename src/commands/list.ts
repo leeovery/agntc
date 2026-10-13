@@ -161,7 +161,7 @@ export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
 					overrides,
 				);
 				if (result.success) {
-					reportNote(result.note, ui);
+					reportNotes(result.notes, ui);
 					ui.log.success(result.message);
 				} else {
 					ui.log.error(result.message);
@@ -178,7 +178,7 @@ export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
 					ui,
 				);
 				if (result.changed) {
-					reportNote(result.note, ui);
+					reportNotes(result.notes, ui);
 					ui.log.success(result.message);
 				} else if (result.message !== "Cancelled") {
 					ui.log.error(result.message);
@@ -188,8 +188,8 @@ export async function runListLoop(ui: Ui = interactiveUi): Promise<void> {
 	}
 }
 
-function reportNote(note: string | undefined, ui: Ui): void {
-	if (note !== undefined) {
+function reportNotes(notes: string[], ui: Ui): void {
+	for (const note of notes) {
 		ui.note(note);
 	}
 }

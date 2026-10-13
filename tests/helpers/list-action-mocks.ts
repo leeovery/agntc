@@ -1,11 +1,14 @@
 import { access } from "node:fs/promises";
+import { basename } from "node:path";
 import { beforeEach, type Mock, vi } from "vitest";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPack } from "../../src/copy-pack.js";
 import { scanForEscapingSymlinks } from "../../src/copy-safety.js";
+import { type Discovery, discover } from "../../src/discover.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { addEntry, removeEntry, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import { checkUnmanagedConflicts } from "../../src/unmanaged-check.js";
 
 /**
  * Shared non-hoisted test wiring for the two list-action test files
@@ -45,6 +48,8 @@ export interface ListActionMocks {
 	copyBareSkill: Mock;
 	access: Mock;
 	scanForEscapingSymlinks: Mock;
+	checkUnmanagedConflicts: Mock;
+	discover: Mock;
 }
 
 /**
@@ -71,6 +76,8 @@ export function setupListActionMocks(): ListActionMocks {
 		copyBareSkill: vi.mocked(copyBareSkill),
 		access: vi.mocked(access),
 		scanForEscapingSymlinks: vi.mocked(scanForEscapingSymlinks),
+		checkUnmanagedConflicts: vi.mocked(checkUnmanagedConflicts),
+		discover: vi.mocked(discover),
 	};
 
 	beforeEach(() => {
@@ -83,6 +90,8 @@ export function setupListActionMocks(): ListActionMocks {
 		handles.access.mockResolvedValue(undefined);
 		// Default: no escaping symlink in the re-clone (copy-safety scan passes).
 		handles.scanForEscapingSymlinks.mockResolvedValue(undefined);
+		// Default: nothing agntc didn't install sits where the update would copy.
+		handles.checkUnmanagedConflicts.mockResolvedValue([]);
 		handles.addEntry.mockImplementation((manifest, key, entry) => ({
 			...manifest,
 			[key]: entry,
@@ -94,4 +103,13 @@ export function setupListActionMocks(): ListActionMocks {
 	});
 
 	return handles;
+}
+
+/** What a re-walk finds: a loose skill at each path, named for its folder. */
+export function looseSkillsAt(...paths: string[]): Discovery {
+	return {
+		packs: [],
+		skills: paths.map((path) => ({ name: basename(path), path })),
+		strays: [],
+	};
 }

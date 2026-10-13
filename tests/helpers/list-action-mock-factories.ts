@@ -49,10 +49,41 @@ export function mockNukeFilesModule() {
 	};
 }
 
-/** Factory body for `vi.mock("../../src/copy-pack.js", ...)`. */
-export function mockCopyPackModule() {
+/**
+ * Factory body for `vi.mock("../../src/copy-pack.js", ...)`. Keeps the real
+ * target helpers update's in-the-way check predicts a pack's files with.
+ */
+export async function mockCopyPackModule(
+	importOriginal: () => Promise<typeof import("../../src/copy-pack.js")>,
+): Promise<typeof import("../../src/copy-pack.js")> {
 	return {
+		...(await importOriginal()),
 		copyPack: vi.fn(),
+	};
+}
+
+/**
+ * Factory body for `vi.mock("../../src/discover.js", ...)`. Keeps the real
+ * errors; `discover` itself is driven by each test, for the re-walk a skill
+ * falls back to when its recorded path no longer holds one.
+ */
+export async function mockDiscoverModule(
+	importOriginal: () => Promise<typeof import("../../src/discover.js")>,
+): Promise<typeof import("../../src/discover.js")> {
+	return {
+		...(await importOriginal()),
+		discover: vi.fn(),
+	};
+}
+
+/**
+ * Factory body for `vi.mock("../../src/unmanaged-check.js", ...)`. The files'
+ * `node:fs/promises` mock can't tell a missing file from a present one, so
+ * update's in-the-way check is driven directly.
+ */
+export function mockUnmanagedCheckModule() {
+	return {
+		checkUnmanagedConflicts: vi.fn(),
 	};
 }
 

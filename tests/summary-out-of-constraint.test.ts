@@ -16,7 +16,7 @@ describe("renderOutOfConstraintSection", () => {
 				key: "owner/plugin-a",
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
-				repo: "owner/plugin-a",
+				commands: ["npx agntc add owner/plugin-a"],
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
@@ -26,22 +26,43 @@ describe("renderOutOfConstraintSection", () => {
 		]);
 	});
 
-	// The all-mode footer disambiguates a multi-group repo by @intent on the PREFIX
-	// (info.label), but the re-add command is always the BARE owner/repo (info.repo)
-	// — a bare add re-resolves latest and re-establishes caret, never the @intent.
-	it("uses the Group label as the prefix but the bare owner/repo in the command for a multi-group repo", () => {
+	it("uses the Group label as the prefix and the entry-built command as given", () => {
 		const infos: OutOfConstraintInfo[] = [
 			{
 				label: "owner/repo@^1.2.3",
 				current: "v1.2.3",
 				latestOverall: "v3.0.0",
-				repo: "owner/repo",
+				commands: ["npx agntc add owner/repo/skills/a"],
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
 		expect(result).toEqual([
 			"Newer versions outside constraints:",
-			"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo",
+			"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/skills/a",
+		]);
+	});
+
+	it("lists a group's several re-add commands one per line, once each", () => {
+		const infos: OutOfConstraintInfo[] = [
+			{
+				label: "owner/repo",
+				current: "v1.2.3",
+				latestOverall: "v3.0.0",
+				commands: [
+					"npx agntc add owner/repo/a",
+					"npx agntc add owner/repo/tools --pack",
+					"npx agntc add owner/repo/a",
+				],
+			},
+		];
+		const result = renderOutOfConstraintSection(infos);
+		expect(result).toEqual([
+			"Newer versions outside constraints:",
+			[
+				"  owner/repo  v1.2.3 -> v3.0.0 available. To upgrade:",
+				"    npx agntc add owner/repo/a",
+				"    npx agntc add owner/repo/tools --pack",
+			].join("\n"),
 		]);
 	});
 
@@ -53,7 +74,7 @@ describe("renderOutOfConstraintSection", () => {
 				key: "owner/plugin-a",
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
-				repo: "owner/plugin-a",
+				commands: ["npx agntc add owner/plugin-a"],
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
@@ -69,7 +90,7 @@ describe("renderOutOfConstraintSection", () => {
 				key: "owner/plugin",
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
-				repo: "owner/plugin",
+				commands: ["npx agntc add owner/plugin"],
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);
@@ -87,13 +108,13 @@ describe("renderOutOfConstraintSection", () => {
 				label: "owner/repo-a",
 				current: "v1.3.0",
 				latestOverall: "v2.0.0",
-				repo: "owner/repo-a",
+				commands: ["npx agntc add owner/repo-a"],
 			},
 			{
 				label: "owner/repo-b",
 				current: "v2.1.0",
 				latestOverall: "v3.1.0",
-				repo: "owner/repo-b",
+				commands: ["npx agntc add owner/repo-b"],
 			},
 		];
 		const result = renderOutOfConstraintSection(infos);

@@ -215,8 +215,13 @@ export interface UpdateItemJson extends EntryJson, CheckDetailsJson {
 	status: PluginOutcome["status"];
 	previousRef?: string | null;
 	previousCommit?: string | null;
-	/** What a terminal showed for a failure, remedy included. */
+	/**
+	 * What a terminal showed for an entry that didn't simply update: a failure
+	 * with its remedy, or what became of an entry gone upstream or absorbed.
+	 */
 	message?: string;
+	/** The flags that would have settled what couldn't be asked without a terminal. */
+	flags?: string[];
 }
 
 /** `outcomes` in the order to report them; `before` is the manifest the run started from. */
@@ -256,10 +261,20 @@ function updateItem(
 				status: outcome.status,
 				...details,
 			};
+		case "gone-kept":
+			return {
+				...entryJson(outcome.key, before),
+				status: outcome.status,
+				message: outcome.summary,
+				...(outcome.flags !== undefined ? { flags: outcome.flags } : {}),
+				...details,
+			};
 		case "failed":
 		case "copy-failed":
 		case "aborted":
 		case "blocked":
+		case "gone-removed":
+		case "absorbed":
 			return {
 				...entryJson(outcome.key, before),
 				status: outcome.status,

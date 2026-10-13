@@ -9,7 +9,7 @@ import type { Manifest } from "../../src/manifest.js";
 // factory contents are delegated to the shared helper.
 vi.mock("@clack/prompts", async () => {
 	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack();
+	return mockClack({ confirm: vi.fn(), isCancel: vi.fn(() => false) });
 });
 
 vi.mock("../../src/manifest.js", async (importOriginal) => {
@@ -35,11 +35,13 @@ vi.mock("../../src/nuke-files.js", async () => {
 	return mockNukeFilesModule();
 });
 
-vi.mock("../../src/copy-pack.js", async () => {
+vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 	const { mockCopyPackModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockCopyPackModule();
+	return mockCopyPackModule(
+		importOriginal<typeof import("../../src/copy-pack.js")>,
+	);
 });
 
 vi.mock("../../src/copy-bare-skill.js", async () => {
@@ -47,6 +49,22 @@ vi.mock("../../src/copy-bare-skill.js", async () => {
 		"../helpers/list-action-mock-factories.js"
 	);
 	return mockCopyBareSkillModule();
+});
+
+vi.mock("../../src/discover.js", async (importOriginal) => {
+	const { mockDiscoverModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockDiscoverModule(
+		importOriginal<typeof import("../../src/discover.js")>,
+	);
+});
+
+vi.mock("../../src/unmanaged-check.js", async () => {
+	const { mockUnmanagedCheckModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockUnmanagedCheckModule();
 });
 
 // File-specific: this file also needs `stat` (local-path validation).
@@ -66,11 +84,13 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 });
 
 import { stat } from "node:fs/promises";
+import * as p from "@clack/prompts";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
+	looseSkillsAt,
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
@@ -84,6 +104,8 @@ const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
+const mockDiscover = mocks.discover;
+const mockConfirm = vi.mocked(p.confirm);
 // File-specific handle: local-path validation via fs.stat.
 const mockStat = vi.mocked(stat);
 
@@ -340,8 +362,9 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			// Recorded skill's SKILL.md is gone in the re-clone → abort.
+			// The recorded SKILL.md is gone and two skills now carry its name → abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
 
 			const result = await executeUpdateAction(
 				key,
@@ -352,14 +375,133 @@ describe("executeUpdateAction", () => {
 			);
 
 			expect(result.success).toBe(false);
-			expect(result.message).toContain("installed as a skill");
-			expect(result.message).toContain("unchanged");
-			expect(result.message).toContain("npx agntc remove owner/repo");
-			expect(result.message).toContain("npx agntc add owner/repo");
+			expect(result.message).toBe(
+				"owner/repo was installed as a skill and can't be updated (its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo). The existing install is unchanged. To migrate: npx agntc remove owner/repo then npx agntc add owner/repo",
+			);
 			expect(result.newEntry).toBeUndefined();
 			// Install intact: no nuke, no manifest write.
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("a skill that moved upstream", () => {
+		it("follows it, records its new path, and returns the move as a note", async () => {
+			const key = "owner/repo/go";
+			const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/go"));
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/go/"],
+			});
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry },
+				"/fake/project",
+				interactiveUi,
+			);
+
+			expect(result.success).toBe(true);
+			expect(result.newEntry!.sourceSubpath).toBe("skills/go");
+			expect(result.notes).toEqual([
+				"owner/repo/go moved from go to skills/go",
+			]);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ sourceDir: "/tmp/agntc-clone/skills/go" }),
+			);
+		});
+	});
+
+	describe("an entry gone upstream", () => {
+		const key = "owner/repo/go";
+		const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
+		const other = makeEntry({ files: [".claude/skills/other/"] });
+		const manifest: Manifest = { [key]: entry, "owner/other": other };
+
+		function arrangeGone(): void {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/other"));
+		}
+
+		it("asks whether to remove it, no by default", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
+
+			expect(mockConfirm).toHaveBeenCalledExactlyOnceWith({
+				message: "owner/repo/go is gone upstream — remove it?",
+				initialValue: false,
+			});
+		});
+
+		it("keeps it on no: nothing removed or written", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(false);
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				success: true,
+				message:
+					"Kept owner/repo/go — it's gone upstream; update will ask again",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("removes its files and then its entry on yes", async () => {
+			arrangeGone();
+			mockConfirm.mockResolvedValue(true);
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				manifest,
+				"/fake/project",
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				success: true,
+				message: "Removed owner/repo/go — it's gone upstream",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/go/"],
+			);
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/other": other },
+			);
+			expect(mockNukeManifestFiles.mock.invocationCallOrder[0]).toBeLessThan(
+				mockWriteManifest.mock.invocationCallOrder[0]!,
+			);
 		});
 	});
 

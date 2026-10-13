@@ -289,6 +289,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest returns updated entry, user picks "back"
@@ -342,6 +343,7 @@ describe("runListLoop", () => {
 			mockExecuteChangeVersionAction.mockResolvedValueOnce({
 				changed: true,
 				message: "Changed owner/skill to v1.1.0",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest, user picks "back"
@@ -403,7 +405,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/repo/laravel",
-				note: NOTE,
+				notes: [NOTE],
 			});
 
 			await runListLoop();
@@ -419,7 +421,7 @@ describe("runListLoop", () => {
 			mockExecuteChangeVersionAction.mockResolvedValueOnce({
 				changed: true,
 				message: "Changed owner/repo/laravel to v2.0.0",
-				note: NOTE,
+				notes: [NOTE],
 			});
 
 			await runListLoop();
@@ -498,6 +500,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: false,
 				message: "Clone failed",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest, user picks "back"
@@ -588,6 +591,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner loop iteration 2: re-read, back
@@ -642,6 +646,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner loop iteration 2: re-read, back
@@ -689,6 +694,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -930,6 +936,7 @@ describe("runListLoop", () => {
 			mockExecuteUpdateAction.mockResolvedValueOnce({
 				success: true,
 				message: "Updated owner/skill",
+				notes: [],
 			});
 
 			// Inner detail loop iteration 2: re-read manifest (returns updated), checkForUpdate, back

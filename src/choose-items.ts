@@ -10,6 +10,7 @@ import {
 	type InstallItem,
 	isEmptyPack,
 	itemLabel,
+	itemPath,
 	pathLabel,
 } from "./install-item.js";
 import { joinWithAnd, pluralize } from "./summary.js";
@@ -41,6 +42,11 @@ export interface ChoiceContext {
 	/** The `@ref` or `@constraint` the user gave, without the `@`. */
 	version?: string;
 	rootName: string;
+	/**
+	 * Discovered skill paths an installed pack from this source already holds,
+	 * each to that pack's key. Such a skill is never installed on its own.
+	 */
+	packed?: ReadonlyMap<string, string>;
 }
 
 export interface MenuOption {
@@ -49,9 +55,13 @@ export interface MenuOption {
 	hint?: string;
 }
 
+/**
+ * `install` with no items installs nothing and is not an error: everything
+ * asked for is already installed in a pack, as the notes say.
+ */
 export type ChoiceOutcome =
 	| { kind: "install"; items: InstallItem[]; notes: string[] }
-	| { kind: "menu"; options: MenuOption[] }
+	| { kind: "menu"; options: MenuOption[]; notes: string[] }
 	| { kind: "refuse"; message: string };
 
 export interface Choice {
@@ -159,33 +169,68 @@ function chooseSkills(
 		return refuse(problems.join("\n"));
 	}
 
-	const chosen = new Set(matched.map(({ skill }) => skill.path));
-	return install(
-		matched.map(({ skill }) => ({ kind: "skill", skill })),
-		matched.flatMap((match) => packedSkillNotes(match, chosen, ctx)),
+	const { items, notes } = withoutPacked(
+		matched.map(({ skill }): InstallItem => ({ kind: "skill", skill })),
+		ctx,
 	);
+	const installing = new Set(items.map(itemPath));
+	const present = new Set([...installing, ...(ctx.packed?.keys() ?? [])]);
+	const taken = matched.filter(({ skill }) => installing.has(skill.path));
+	return install(items, [
+		...notes,
+		...taken.flatMap((match) => packedSkillNotes(match, present, ctx)),
+	]);
 }
 
 function chooseAll(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
-	const items = offeredItems(discovery);
-	return items.length === 0
-		? refuse(nothingToInstall(discovery, ctx))
-		: install(items);
-}
-
-function chooseAuto(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
-	const items = offeredItems(discovery);
-	const [only] = items;
-	if (only === undefined) {
+	const offered = offeredItems(discovery);
+	if (offered.length === 0) {
 		return refuse(nothingToInstall(discovery, ctx));
 	}
-	if (items.length === 1) {
-		return install([only]);
+	const { items, notes } = withoutPacked(offered, ctx);
+	return install(items, notes);
+}
+
+/**
+ * Installs the one thing a source offers, else shows the menu. Whether there
+ * is a menu turns on what the source holds, so a skill already installed in a
+ * pack is left out of the menu rather than making the choice for the user.
+ */
+function chooseAuto(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
+	const offered = offeredItems(discovery);
+	if (offered.length === 0) {
+		return refuse(nothingToInstall(discovery, ctx));
+	}
+	const { items, notes } = withoutPacked(offered, ctx);
+	if (offered.length === 1 || items.length === 0) {
+		return install(items, notes);
 	}
 	return {
 		kind: "menu",
 		options: items.map((item) => menuOption(item, ctx.rootName)),
+		notes,
 	};
+}
+
+/** Leaves out each skill an installed pack already holds, saying so. */
+function withoutPacked(
+	items: InstallItem[],
+	ctx: ChoiceContext,
+): { items: InstallItem[]; notes: string[] } {
+	const kept: InstallItem[] = [];
+	const notes: string[] = [];
+	for (const item of items) {
+		const pack =
+			item.kind === "skill" ? ctx.packed?.get(item.skill.path) : undefined;
+		if (item.kind === "skill" && pack !== undefined) {
+			notes.push(
+				`${item.skill.name} is already installed as part of the pack ${pack}`,
+			);
+		} else {
+			kept.push(item);
+		}
+	}
+	return { items: kept, notes };
 }
 
 /**
@@ -243,24 +288,24 @@ function strayNotice(stray: StrayAssets, ctx: ChoiceContext): string {
 
 /**
  * Notes that a skill taken out of a pack installs on its own, naming what the
- * pack holds that isn't being installed alongside it.
+ * pack holds that isn't `present`: installed already, or alongside it.
  */
 function packedSkillNotes(
 	{ skill, pack }: SkillMatch,
-	chosen: Set<string>,
+	present: Set<string>,
 	ctx: ChoiceContext,
 ): string[] {
 	if (pack === undefined) {
 		return [];
 	}
 	const note = `${skill.name} is part of the pack ${pathLabel(pack.path, ctx.rootName)} — installed on its own`;
-	const leftOut = leftOutOf(pack, chosen);
+	const leftOut = leftOutOf(pack, present);
 	return [leftOut === "" ? note : `${note}, without ${leftOut}`];
 }
 
-function leftOutOf(pack: FoundPack, chosen: Set<string>): string {
+function leftOutOf(pack: FoundPack, present: Set<string>): string {
 	const otherSkills = pack.skills
-		.filter((skill) => !chosen.has(skill.path))
+		.filter((skill) => !present.has(skill.path))
 		.map((skill) => skill.name)
 		.join(", ");
 	const assets =

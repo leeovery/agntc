@@ -5,8 +5,9 @@ import {
 	prepareReinstall,
 } from "../clone-reinstall.js";
 import { errorMessage } from "../errors.js";
+import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { addEntry, writeManifest } from "../manifest.js";
+import { addEntry, removeEntry, writeManifest } from "../manifest.js";
 import type { Ui } from "../ui.js";
 import type { VersionOverrides } from "../version-resolve.js";
 
@@ -14,7 +15,7 @@ export interface UpdateActionResult {
 	success: boolean;
 	newEntry?: ManifestEntry;
 	message: string;
-	note?: string;
+	notes: string[];
 }
 
 export async function executeUpdateAction(
@@ -36,25 +37,40 @@ export async function executeUpdateAction(
 			return {
 				success: false,
 				message: `Path ${key} does not exist or is not a directory`,
+				notes: [],
 			};
 		}
 
-		const result = await cloneAndReinstall(prepared.options, ui);
+		const result = await cloneAndReinstall(prepared.options, ui, manifest);
 
+		if (result.status === "gone") {
+			const settled = await settleGoneInList(
+				key,
+				entry,
+				manifest,
+				projectDir,
+				ui,
+			);
+			return { success: true, message: settled.message, notes: [] };
+		}
 		if (isCloneReinstallFailure(result)) {
-			return { success: false, message: failureMessage(result, key) };
+			return {
+				success: false,
+				message: failureMessage(result, key, entry),
+				notes: [],
+			};
 		}
 
-		const updated = addEntry(manifest, key, result.manifestEntry);
-		await writeManifest(projectDir, updated);
+		const rest = result.absorbed.reduce(removeEntry, manifest);
+		await writeManifest(projectDir, addEntry(rest, key, result.manifestEntry));
 
 		return {
 			success: true,
 			newEntry: result.manifestEntry,
 			message: isLocal ? `Refreshed ${key}` : `Updated ${key}`,
-			...(result.note !== undefined ? { note: result.note } : {}),
+			notes: result.notes,
 		};
 	} catch (err) {
-		return { success: false, message: errorMessage(err) };
+		return { success: false, message: errorMessage(err), notes: [] };
 	}
 }

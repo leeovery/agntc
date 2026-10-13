@@ -43,6 +43,8 @@ export interface MultiselectPrompt<T> {
 
 export interface ConfirmPrompt {
 	message: string;
+	/** The answer the prompt starts on: yes unless given. */
+	initialValue?: boolean;
 }
 
 export interface FailOptions {

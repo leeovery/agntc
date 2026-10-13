@@ -353,19 +353,38 @@ describe("formatUpToDateLine", () => {
 });
 
 describe("formatNewerTagsLine", () => {
-	it("renders the pinned-ref notice plus the repo-level agntc add command", () => {
+	it("renders the pinned-ref notice plus the one member's re-add command inline", () => {
 		expect(
-			formatNewerTagsLine("owner/repo", "owner/repo", "v1.0", "v3.0"),
+			formatNewerTagsLine("owner/repo", "v1.0", "v3.0", [
+				"npx agntc add owner/repo@v3.0",
+			]),
 		).toBe(
 			"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
 		);
 	});
 
-	it("builds the add command from the bare repo target, not the @intent display label", () => {
+	it("keeps the @intent display label out of the commands", () => {
 		expect(
-			formatNewerTagsLine("owner/repo@main", "owner/repo", "v1.0", "v2.0"),
+			formatNewerTagsLine("owner/repo@main", "v1.0", "v2.0", [
+				"npx agntc add owner/repo/skills/a@v2.0",
+			]),
 		).toBe(
-			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo@v2.0",
+			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo/skills/a@v2.0",
+		);
+	});
+
+	it("lists several members' commands one per line", () => {
+		expect(
+			formatNewerTagsLine("owner/repo", "v1.0", "v2.0", [
+				"npx agntc add owner/repo/a@v2.0",
+				"npx agntc add owner/repo/tools@v2.0 --pack",
+			]),
+		).toBe(
+			[
+				"owner/repo: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade:",
+				"    npx agntc add owner/repo/a@v2.0",
+				"    npx agntc add owner/repo/tools@v2.0 --pack",
+			].join("\n"),
 		);
 	});
 });
