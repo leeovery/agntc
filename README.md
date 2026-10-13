@@ -233,7 +233,7 @@ A skill in `~/.claude/skills` that agntc didn't install, such as one another too
 
 agntc is safe to run from an AI agent, a script or CI. When stdin or stdout isn't a terminal, it never waits on a prompt:
 
-- **Output is JSON.** One document per command on stdout, with `ok`, `command`, `scope` (`"project"` or `"global"`), the command's result, `warnings` and `notes`. Errors are JSON too, with a non-zero exit. `--json` forces this at a terminal.
+- **Output is JSON.** One document per command on stdout, with `ok`, `command`, `scope` (`"project"` or `"global"`, on the commands that take `-g`), the command's result, `warnings` and `notes`. Errors are JSON too, with a non-zero exit. `--json` forces this at a terminal.
 - **Every question is answered by a flag, or the command stops.** It exits non-zero and the error names the flags that would answer it:
 
 | Question | Flag | Without it |

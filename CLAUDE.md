@@ -23,7 +23,7 @@ src/
   command-action.ts         # Commander action wrapper: resolves mode (resolveMode), runs with the matching Ui, writes the machine document, maps ExitSignal to exit code
   ui.ts                     # Ui interface: interactiveUi (clack) and MachineUi (JSON document); every word and prompt goes through it
   documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
-  scope.ts                  # -g: project vs global install root and manifest location
+  scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
   source-parser.ts          # Parse owner/repo[/path], URLs, local paths, tree URLs; key<->source-dir (repoFromKey, memberName, deriveCloneUrlFromKey, resolveGuardedSourceDir)
   discover.ts               # Deep walk: skills, declared packs, strays; matchSkills for --skill; PackConflictError / StartPathError
   frontmatter.ts            # SKILL.md frontmatter read (name, description); display + --skill matching only
@@ -72,8 +72,8 @@ src/
 - `Selection`: `auto | skills | pack | all`, from the add flags
 - `InstallItem`: `{ kind: "skill", skill } | { kind: "pack", pack }`; `KeyedItem` adds the manifest key and `sourceSubpath?`
 - `ConflictPolicy`: `overwrite | ask | stop` — `--overwrite`, else ask at a terminal, else stop the item
-- `ManifestEntry`: Per-entry tracking (ref, commit, installedAt, files, `type?: "skill" | "pack"`, cloneUrl, constraint?, `sourceSubpath?`)
-- `SourceId`: `remote(cloneUrl) | local(root)` — what "the same source" means for absorption
+- `ManifestEntry`: Per-entry tracking (ref, commit, installedAt, files, `type?: "skill" | "pack"`, cloneUrl, constraint?, `sourceSubpath?`, `localRoot?` — the folder a local entry was added from)
+- `SourceId`: `remote(cloneUrl) | local(root, exact)` — what "the same source" means for absorption. Remote matches on clone URL; two recorded local roots match only when equal (a checkout nested in another is its own source); a legacy derived root matches when either holds the other
 - `UpdateCheckResult`: Union of update statuses including constrained variants
 - `EntryGroup`: All-mode update group — non-local entries sharing `(cloneUrl, versionIntent = constraint ?? ref)`, resolved and cloned once
 - `GroupTarget`: Per-group resolved target (`constrained | branch | head | tag | check-failed | constrained-no-match`) that each member categorizes against via `categorizeMember`
@@ -137,7 +137,7 @@ All-mode is a group-first pipeline (`update-groups.ts`); the three singleton ent
 
 `--json`, or stdin/stdout not a TTY → `MachineUi`. Never clack, never waits.
 
-- **One JSON document per command** on stdout: `{ ok, command, scope, error?, ...body, warnings, notes }`; `ok` is true exactly when the exit code is 0. Errors are documents too, exit 1. `scope` is `"project" | "global"`.
+- **One JSON document per command** on stdout: `{ ok, command, scope?, error?, ...body, warnings, notes }`; `ok` is true exactly when the exit code is 0. Errors are documents too, exit 1. `scope` (`"project" | "global"`) appears on the four commands that take `-g`, not on `init`.
 - **A question is a flag or a stop.** A prompt reached in machine mode fails the command. Callers check `ui.mode` first and fail with `{ flags }` naming the answer: menu → `--skill`/`--pack`/`--all` (document still carries the listing); files in the way → that item stops with `flags: ["--overwrite"]`, the rest install, exit 1; `remove` confirmation → `-y`; `remove` without a key → `<key>`; gone upstream → kept, reported, exit 0; `init` → type + `-y`.
 - `warn`/`note` reach both modes; `intro`/`outro`/`log`/`spinner`/`box` are terminal-only; `report(body)` sets the document body.
 
