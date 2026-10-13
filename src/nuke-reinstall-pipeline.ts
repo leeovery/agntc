@@ -22,7 +22,7 @@ import {
 	PackConflictError,
 	StartPathError,
 } from "./discover.js";
-import { reAddCommand, sourceIdOf, sourceKeyOf } from "./entry-source.js";
+import { restoreCommand, sourceIdOf, sourceKeyOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { pathExists, relativePosix } from "./fs-utils.js";
 import {
@@ -544,7 +544,10 @@ function replayedEntry(
 	});
 }
 
-/** The remedy installs the item as replayed, under the key `add` gives it. */
+/**
+ * The remedy installs the item as replayed, under the key `add` gives it, at
+ * the version the replayed entry tracks.
+ */
 function copyFailed(
 	options: NukeReinstallOptions,
 	err: unknown,
@@ -555,7 +558,7 @@ function copyFailed(
 	const takenOver =
 		absorbed.length > 0 ? `, and ${takenOverRemoved(absorbed)}` : "";
 	const replayed = replayedAs(options, cleared);
-	const reAdd = reAddCommand(replayed.key, replayed.entry, scope.name);
+	const reAdd = restoreCommand(replayed.key, replayed.entry, scope.name);
 	return {
 		status: "copy-failed",
 		errorMessage: errorMessage(err),

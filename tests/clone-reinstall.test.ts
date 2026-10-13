@@ -2004,6 +2004,45 @@ describe("buildAbortMessage for a key another entry holds", () => {
 	});
 });
 
+describe("buildAbortMessage keeps the version the entry tracks", () => {
+	it("re-adds a constrained entry on its constraint", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				makeEntry({ type: "pack", ref: "v1.4.0", constraint: "^1.2.0" }),
+				{ reason: "files are in the way", inTheWay: true },
+				"project",
+			),
+		).toContain(
+			"replace them: npx agntc remove owner/repo/laravel then npx agntc add 'owner/repo/laravel@^1.2.0' --pack --overwrite",
+		);
+	});
+
+	it("re-adds an entry tracking a branch on that branch", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				makeEntry({ type: "pack", ref: "main" }),
+				{ reason: "its folder now contains packs" },
+				"project",
+			),
+		).toContain(
+			"To migrate: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel@main --pack",
+		);
+	});
+
+	it("re-adds an entry on HEAD bare", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				makeEntry({ type: "pack", ref: null }),
+				{ reason: "its folder now contains packs" },
+				"project",
+			),
+		).toMatch(/then npx agntc add owner\/repo\/laravel --pack$/);
+	});
+});
+
 describe("buildAbortMessage for a version change", () => {
 	const replayed = {
 		key: "owner/repo/foo",

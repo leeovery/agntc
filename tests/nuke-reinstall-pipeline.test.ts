@@ -1512,6 +1512,40 @@ describe("executeNukeAndReinstall", () => {
 			);
 		});
 
+		it.each([
+			{
+				tracks: "a constraint",
+				entry: { constraint: "^1.2.0", ref: "v1.2.3" },
+				newRef: "v1.4.0",
+				reAdd: "npx agntc add 'owner/repo@^1.2.0'",
+			},
+			{
+				tracks: "a branch",
+				entry: { ref: "main" },
+				newRef: undefined,
+				reAdd: "npx agntc add owner/repo@main",
+			},
+		])("keeps an entry tracking $tracks on it in the recovery's re-add", async ({
+			entry,
+			newRef,
+			reAdd,
+		}) => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					existingEntry: makeEntry({ type: "skill", ...entry }),
+					...(newRef !== undefined ? { newRef } : {}),
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				recoveryHint: expect.stringContaining(`Run \`${reAdd}\``),
+			});
+		});
+
 		it("confirms nuke was called before copy failed", async () => {
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));

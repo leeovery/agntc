@@ -598,6 +598,33 @@ describe("executeChangeVersionAction", () => {
 		});
 	});
 
+	describe("copy-failed on an entry with a constraint", () => {
+		it("tells the user to re-add the tag they picked, not the constraint the entry had", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result.changed).toBe(false);
+			expect(result.message).toContain(
+				"Run `npx agntc add owner/repo@v2.0.0` to install it again.",
+			);
+		});
+	});
+
 	describe("a removal that fails part way", () => {
 		it("returns changed: false with the reason, copying nothing and keeping the entry", async () => {
 			const key = "owner/repo";

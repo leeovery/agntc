@@ -1,4 +1,4 @@
-import { localItemPath, localRootOf, reAddCommand } from "./entry-source.js";
+import { localItemPath, localRootOf, restoreCommand } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
@@ -265,6 +265,7 @@ export type CloneReinstallResult =
  * the unit is currently uninstalled and to re-run update — here nothing was
  * touched.
  *
+ * The re-add keeps the version the entry tracks ({@link restoreCommand}).
  * `version` is the tag a version change asked for. An update follows the
  * entry's own constraint or pin, so it would never install that tag: the
  * remedy changes the version again instead, and its re-add pins that tag.
@@ -287,7 +288,7 @@ export function buildAbortMessage(
 			`${agntcCommand(scope, "remove", [takenKey])} then ${redo}`
 		);
 	}
-	const reAdd = reAddCommand(
+	const reAdd = restoreCommand(
 		replayed?.key ?? key,
 		replayed?.entry ?? entry,
 		scope,

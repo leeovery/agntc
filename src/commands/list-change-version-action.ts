@@ -90,7 +90,9 @@ export async function executeChangeVersionAction(
 		return unchanged(key, "Cancelled");
 	}
 
-	const prepared = await prepareReinstall(key, entry, scope, {
+	// The change pins the entry to the chosen tag, dropping its constraint, so
+	// it reinstalls as the entry it becomes: a recovery re-adds that tag.
+	const prepared = await prepareReinstall(key, stripConstraint(entry), scope, {
 		manifest,
 		newRef: selectedTag,
 	});
@@ -111,16 +113,21 @@ export async function executeChangeVersionAction(
 		);
 	}
 
-	const finalEntry = stripConstraint(result.manifestEntry);
 	await writeManifest(
 		scope.root,
-		recordReinstall(manifest, key, result.key, finalEntry, result.absorbed),
+		recordReinstall(
+			manifest,
+			key,
+			result.key,
+			result.manifestEntry,
+			result.absorbed,
+		),
 	);
 
 	return {
 		changed: true,
 		key: result.key,
-		newEntry: finalEntry,
+		newEntry: result.manifestEntry,
 		message: `Changed ${result.key} to ${selectedTag}`,
 		notes: result.notes,
 	};

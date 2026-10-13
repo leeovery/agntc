@@ -5,6 +5,7 @@ import {
 	localItemPath,
 	localRootOf,
 	reAddCommand,
+	restoreCommand,
 	type SourceId,
 	sourceIdOf,
 	sourceKeyOf,
@@ -163,6 +164,55 @@ describe("reAddCommand", () => {
 	it("re-adds a local pack with --pack", () => {
 		expect(reAddCommand("/src/tools", local({ type: "pack" }), "project")).toBe(
 			"npx agntc add /src/tools --pack",
+		);
+	});
+});
+
+describe("restoreCommand", () => {
+	const key = "owner/repo/go";
+
+	it("keeps a constrained entry on its constraint, which a bare add would replace with the newest caret", () => {
+		expect(
+			restoreCommand(
+				key,
+				makeEntry({ ref: "v1.4.0", constraint: "^1.2.0" }),
+				"project",
+			),
+		).toBe("npx agntc add 'owner/repo/go@^1.2.0'");
+	});
+
+	it("keeps an entry tracking a branch on that branch", () => {
+		expect(restoreCommand(key, makeEntry({ ref: "main" }), "project")).toBe(
+			"npx agntc add owner/repo/go@main",
+		);
+	});
+
+	it("keeps an entry pinned to a tag on that tag", () => {
+		expect(restoreCommand(key, makeEntry({ ref: "v1.0.0" }), "project")).toBe(
+			"npx agntc add owner/repo/go@v1.0.0",
+		);
+	});
+
+	it("adds an entry on HEAD bare", () => {
+		expect(restoreCommand(key, makeEntry({ ref: null }), "project")).toBe(
+			"npx agntc add owner/repo/go",
+		);
+	});
+
+	it("re-adds the tag a version change picked over what the entry tracks", () => {
+		expect(
+			restoreCommand(
+				key,
+				makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" }),
+				"project",
+				"v2.0.0",
+			),
+		).toBe("npx agntc add owner/repo/go@v2.0.0");
+	});
+
+	it("adds a local entry by its folder, which has no version", () => {
+		expect(restoreCommand("/src/repo/go", local(), "project")).toBe(
+			"npx agntc add /src/repo/go",
 		);
 	});
 });

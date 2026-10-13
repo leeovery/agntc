@@ -111,6 +111,23 @@ export function sourceKeyOf(key: string, entry: ManifestEntry): string {
 }
 
 /**
+ * The `npx agntc add …` line that puts an entry back as it was, for a remedy
+ * or a recovery: {@link reAddCommand} at `picked`, the tag a version change
+ * chose, else at the version the entry tracks: its constraint, else its tag
+ * or branch. One on HEAD is added bare. An upgrade line is not this: it moves
+ * past the constraint on purpose.
+ */
+export function restoreCommand(
+	key: string,
+	entry: ManifestEntry,
+	scope: ScopeName,
+	picked?: string,
+): string {
+	const version = picked ?? entry.constraint ?? entry.ref ?? undefined;
+	return reAddCommand(key, entry, scope, version);
+}
+
+/**
  * The `npx agntc add …` line that installs an entry again in `scope`: its repo
  * and recorded path, or its local folder, with `--pack` for a pack. `version`
  * pins a remote source to that tag.
