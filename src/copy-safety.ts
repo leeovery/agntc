@@ -1,4 +1,4 @@
-import { readdir, readlink } from "node:fs/promises";
+import { lstat, readdir, readlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 /**
@@ -41,6 +41,40 @@ export function assertSubpathWithinClone(
 	if (!isContained(cloneRoot, resolve(cloneRoot, subpath))) {
 		throw new PathTraversalError(subpath);
 	}
+}
+
+/** What a `/`-joined path below a source root leads to, found without following a link. */
+export type SourcePathState =
+	| { kind: "directory" }
+	| { kind: "missing" }
+	| { kind: "not-directory" }
+	/** A symlink at the path or at a folder above it, as a path below the root. */
+	| { kind: "link"; at: string };
+
+/**
+ * Walks a path below `root` one segment at a time with `lstat`, stopping at the
+ * first that is missing, a symlink or not a folder, so nothing reached through
+ * the path can lie behind a link: the deep walk never follows one either.
+ */
+export async function inspectSourcePath(
+	root: string,
+	path: string,
+): Promise<SourcePathState> {
+	let current = "";
+	for (const segment of path.split("/").filter(Boolean)) {
+		current = current === "" ? segment : `${current}/${segment}`;
+		const stats = await lstat(join(root, current)).catch(() => null);
+		if (stats === null) {
+			return { kind: "missing" };
+		}
+		if (stats.isSymbolicLink()) {
+			return { kind: "link", at: current };
+		}
+		if (!stats.isDirectory()) {
+			return { kind: "not-directory" };
+		}
+	}
+	return { kind: "directory" };
 }
 
 export class SymlinkEscapeError extends Error {

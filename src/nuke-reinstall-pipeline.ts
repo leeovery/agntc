@@ -13,7 +13,7 @@ import {
 	skillClaims,
 } from "./compute-incoming-files.js";
 import { copyItem } from "./copy-item.js";
-import { checkEscapingSymlinks } from "./copy-safety.js";
+import { checkEscapingSymlinks, inspectSourcePath } from "./copy-safety.js";
 import {
 	comparePaths,
 	discover,
@@ -107,9 +107,10 @@ interface NukeReinstallAborted {
 }
 
 /**
- * The source holds a symlink escaping the clone. Found before any file is
- * removed, so the existing install is left intact. Unlike an abort, the
- * remove+add remedy doesn't apply: it would trip the same guard.
+ * The source holds a symlink escaping the clone, or one at or above the
+ * entry's recorded path. Found before any file is removed, so the existing
+ * install is left intact. Unlike an abort, the remove+add remedy doesn't
+ * apply: it would trip the same guard.
  */
 interface NukeReinstallBlocked {
 	status: "blocked";
@@ -155,9 +156,9 @@ interface ClearedReplay {
 
 /**
  * Reinstalls an entry from a re-cloned source, replaying its recorded type.
- * Every check — what the source still holds, what is in the way of the files
- * it would install, and the symlink-escape scan — runs before any file is
- * removed.
+ * Every check — a symlink on the recorded path, what the source still holds,
+ * what is in the way of the files it would install, and the symlink-escape
+ * scan — runs before any file is removed.
  */
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
@@ -178,6 +179,10 @@ async function clearReplay(
 	| NukeReinstallGone
 > {
 	const { cloneRoot, existingEntry } = options;
+	const link = await linkOnRecordedPath(options);
+	if (link !== null) {
+		return { status: "blocked", reason: link };
+	}
 	const replay =
 		existingEntry.type === "pack"
 			? await derivePackReplay(options)
@@ -379,6 +384,21 @@ function inTheWayReason({ clashes, unmanaged }: InTheWay): string {
 			? [`files agntc didn't install are in the way: ${unmanaged.join(", ")}`]
 			: [];
 	return [...owned, ...unowned].join("; ");
+}
+
+/**
+ * Names a symlink at or above the recorded path, as `add` refuses one: the
+ * replay would read through it, out of the clone even, and a pack's walk
+ * would take it for a path that's gone.
+ */
+async function linkOnRecordedPath(
+	options: NukeReinstallOptions,
+): Promise<string | null> {
+	const path = startPathOf(options);
+	const state = await inspectSourcePath(options.cloneRoot, path);
+	return state.kind === "link"
+		? `symlink "${state.at}" is on the path to ${path} — agntc won't copy through it`
+		: null;
 }
 
 function startPathOf({ cloneRoot, sourceDir }: NukeReinstallOptions): string {

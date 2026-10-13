@@ -2,6 +2,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
+	realpath,
 	rename,
 	rm,
 	symlink,
@@ -21,7 +22,7 @@ let projectDir: string;
 let source: string;
 
 beforeEach(async () => {
-	testDir = await mkdtemp(join(tmpdir(), "agntc-local-root-"));
+	testDir = await realpath(await mkdtemp(join(tmpdir(), "agntc-local-root-")));
 	projectDir = join(testDir, "project");
 	source = join(testDir, "source");
 	await mkdir(projectDir, { recursive: true });

@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +21,9 @@ let projectDir: string;
 let source: string;
 
 beforeEach(async () => {
-	testDir = await mkdtemp(join(tmpdir(), "agntc-duplicate-targets-"));
+	testDir = await realpath(
+		await mkdtemp(join(tmpdir(), "agntc-duplicate-targets-")),
+	);
 	projectDir = join(testDir, "project");
 	source = join(testDir, "laravel");
 	await mkdir(projectDir, { recursive: true });

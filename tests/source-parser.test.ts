@@ -1,4 +1,10 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -1119,6 +1125,7 @@ describe("parseSource", () => {
 				`agntc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 			);
 			mkdirSync(testDir, { recursive: true });
+			testDir = realpathSync(testDir);
 		});
 
 		afterEach(() => {
@@ -1201,6 +1208,49 @@ describe("parseSource", () => {
 			await expect(parseSource(filePath)).rejects.toThrow(
 				`Path ${filePath} does not exist or is not a directory`,
 			);
+		});
+
+		describe("through a symlink", () => {
+			let real: string;
+
+			beforeEach(() => {
+				real = join(testDir, "code", "foo");
+				mkdirSync(real, { recursive: true });
+			});
+
+			it("is the folder a linked folder leads to", async () => {
+				const link = join(testDir, "foo");
+				symlinkSync(real, link);
+
+				const result = await parseSource(link);
+
+				expect(result).toMatchObject({ resolvedPath: real, manifestKey: real });
+			});
+
+			it("is the real folder below a linked parent", async () => {
+				mkdirSync(join(real, "skills"));
+				symlinkSync(join(testDir, "code"), join(testDir, "linked"));
+
+				const result = await parseSource(join(testDir, "linked/foo/skills"));
+
+				expect(result).toMatchObject({
+					resolvedPath: join(real, "skills"),
+					manifestKey: join(real, "skills"),
+				});
+			});
+
+			it.each([
+				["a missing folder", () => join(testDir, "gone")],
+				["a file", () => join(testDir, "somefile.txt")],
+			])("throws naming the path given for a link to %s", async (_target, to) => {
+				writeFileSync(join(testDir, "somefile.txt"), "content");
+				const link = join(testDir, "link");
+				symlinkSync(to(), link);
+
+				await expect(parseSource(link)).rejects.toThrow(
+					`Path ${link} does not exist or is not a directory`,
+				);
+			});
 		});
 
 		it("detects ./ prefix as local path", async () => {

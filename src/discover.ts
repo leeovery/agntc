@@ -1,8 +1,8 @@
 import type { Dirent } from "node:fs";
-import { lstat, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { declaresPack, readConfig } from "./config.js";
-import { assertSubpathWithinClone } from "./copy-safety.js";
+import { assertSubpathWithinClone, inspectSourcePath } from "./copy-safety.js";
 import { readSkillFrontmatter } from "./frontmatter.js";
 import { pathExists } from "./fs-utils.js";
 
@@ -186,25 +186,18 @@ async function resolveStartPath(root: string, given: string): Promise<string> {
 	return start;
 }
 
-/**
- * Checks each segment with `lstat` so a start path can't reach through a
- * symlinked directory, which the walk itself never follows either.
- */
+/** A start path can't reach through a symlinked directory. */
 async function assertRealDirectory(
 	root: string,
 	start: string,
 	given: string,
 ): Promise<void> {
-	let current = root;
-	for (const segment of start.split("/")) {
-		current = join(current, segment);
-		const stats = await lstat(current).catch(() => null);
-		if (stats === null) {
-			throw new StartPathError(`path "${given}" not found in source`);
-		}
-		if (!stats.isDirectory()) {
-			throw new StartPathError(`path "${given}" is not a directory in source`);
-		}
+	const { kind } = await inspectSourcePath(root, start);
+	if (kind === "missing") {
+		throw new StartPathError(`path "${given}" not found in source`);
+	}
+	if (kind !== "directory") {
+		throw new StartPathError(`path "${given}" is not a directory in source`);
 	}
 }
 

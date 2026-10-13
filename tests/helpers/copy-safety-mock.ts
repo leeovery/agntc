@@ -19,7 +19,9 @@ type SymlinkEscapeErrorCtor = abstract new (
  * The mocked subset of `src/copy-safety.js` produced by {@link mockCopySafety}.
  * `scanForEscapingSymlinks` is the per-test driver (`.mockResolvedValue` /
  * `.mockRejectedValue`); `checkEscapingSymlinks` mirrors the production
- * scan-and-narrow wrapper authored here exactly once.
+ * scan-and-narrow wrapper authored here exactly once. `inspectSourcePath`
+ * finds a real folder at every path unless a test says otherwise, so fake
+ * clone paths never reach the filesystem.
  *
  * `assertSubpathWithinClone` and the `SymlinkEscapeError` /
  * `PathTraversalError` classes are intentionally NOT supplied here: spread
@@ -29,6 +31,7 @@ type SymlinkEscapeErrorCtor = abstract new (
  */
 interface CopySafetyMock {
 	scanForEscapingSymlinks: Mock;
+	inspectSourcePath: Mock;
 	checkEscapingSymlinks: (
 		unitDir: string,
 		cloneRoot: string,
@@ -56,6 +59,7 @@ export function mockCopySafety(
 	const scanForEscapingSymlinks = vi.fn();
 	return {
 		scanForEscapingSymlinks,
+		inspectSourcePath: vi.fn(async () => ({ kind: "directory" })),
 		checkEscapingSymlinks: async (
 			unitDir: string,
 			cloneRoot: string,

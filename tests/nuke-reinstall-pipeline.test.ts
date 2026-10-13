@@ -1,4 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	mkdir,
+	mkdtemp,
+	realpath,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManifestEntry } from "../src/manifest.js";
 import { makeEntry } from "./helpers/factories.js";
 
@@ -43,6 +53,7 @@ import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPack } from "../src/copy-pack.js";
 import {
 	assertSubpathWithinClone,
+	inspectSourcePath,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
@@ -59,6 +70,7 @@ import { nukeManifestFiles } from "../src/nuke-files.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
+	type NukeReinstallResult,
 } from "../src/nuke-reinstall-pipeline.js";
 import { globalScope, projectScope } from "../src/scope.js";
 import { checkUnmanagedConflicts } from "../src/unmanaged-check.js";
@@ -71,6 +83,10 @@ const mockDiscover = vi.mocked(discover);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
+const mockInspectSourcePath = vi.mocked(inspectSourcePath);
+const actualCopySafety = await vi.importActual<
+	typeof import("../src/copy-safety.js")
+>("../src/copy-safety.js");
 
 function makeOptions(
 	overrides: Partial<NukeReinstallOptions> = {},
@@ -109,6 +125,7 @@ beforeEach(() => {
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockPathExists.mockResolvedValue(true);
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
+	mockInspectSourcePath.mockResolvedValue({ kind: "directory" });
 	mockDiscover.mockResolvedValue(onlyPack(foundPack()));
 	mockCopyPack.mockResolvedValue({ copiedFiles: [], assetCounts: {} });
 	mockCheckUnmanaged.mockResolvedValue([]);
@@ -153,7 +170,11 @@ describe("executeNukeAndReinstall", () => {
 			});
 
 			await executeNukeAndReinstall(
-				makeOptions({ key: "owner/repo", sourceDir: "/tmp/agntc-Xy12ab" }),
+				makeOptions({
+					key: "owner/repo",
+					sourceDir: "/tmp/agntc-Xy12ab",
+					cloneRoot: "/tmp/agntc-Xy12ab",
+				}),
 			);
 
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
@@ -174,6 +195,7 @@ describe("executeNukeAndReinstall", () => {
 				makeOptions({
 					key: "owner/repo/alpha",
 					sourceDir: "/tmp/agntc-Xy/skills/alpha",
+					cloneRoot: "/tmp/agntc-Xy",
 				}),
 			);
 
@@ -445,6 +467,92 @@ describe("executeNukeAndReinstall", () => {
 				"EACCES",
 			);
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("a symlink at or above the recorded path", () => {
+		let base: string;
+		let clone: string;
+
+		beforeEach(async () => {
+			mockInspectSourcePath.mockImplementation(
+				actualCopySafety.inspectSourcePath,
+			);
+			base = await realpath(
+				await mkdtemp(join(tmpdir(), "agntc-pipeline-link-")),
+			);
+			clone = join(base, "clone");
+			await mkdir(join(base, "outside/foo"), { recursive: true });
+			await writeFile(join(base, "outside/foo/SKILL.md"), "outside");
+			await mkdir(join(clone, "real/foo"), { recursive: true });
+			await writeFile(join(clone, "real/foo/SKILL.md"), "inside");
+		});
+
+		afterEach(async () => {
+			await rm(base, { recursive: true, force: true });
+		});
+
+		function skillOptions(): NukeReinstallOptions {
+			return makeOptions({
+				key: "owner/repo/foo",
+				sourceDir: join(clone, "skills/foo"),
+				cloneRoot: clone,
+				existingEntry: makeEntry({
+					type: "skill",
+					files: [".claude/skills/foo/"],
+					sourceSubpath: "skills/foo",
+				}),
+			});
+		}
+
+		function blockedOn(link: string, path: string): NukeReinstallResult {
+			return {
+				status: "blocked",
+				reason: `symlink "${link}" is on the path to ${path} — agntc won't copy through it`,
+			};
+		}
+
+		function expectNothingRead(): void {
+			expect(mockPathExists).not.toHaveBeenCalled();
+			expect(mockDiscover).not.toHaveBeenCalled();
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		}
+
+		it("blocks a skill reached through a folder linked outside the clone", async () => {
+			await symlink(join(base, "outside"), join(clone, "skills"));
+
+			const result = await executeNukeAndReinstall(skillOptions());
+
+			expect(result).toEqual(blockedOn("skills", "skills/foo"));
+			expectNothingRead();
+		});
+
+		it("blocks a skill whose own folder is a link, even one inside the clone", async () => {
+			await mkdir(join(clone, "skills"));
+			await symlink("../real/foo", join(clone, "skills/foo"));
+
+			const result = await executeNukeAndReinstall(skillOptions());
+
+			expect(result).toEqual(blockedOn("skills/foo", "skills/foo"));
+			expectNothingRead();
+		});
+
+		it("blocks a pack whose folder is a link, rather than calling it gone", async () => {
+			await symlink("real", join(clone, "tools"));
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/tools",
+					sourceDir: join(clone, "tools"),
+					cloneRoot: clone,
+					existingEntry: makeEntry({ type: "pack" }),
+				}),
+			);
+
+			expect(result).toEqual(blockedOn("tools", "tools"));
+			expectNothingRead();
 		});
 	});
 

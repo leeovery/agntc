@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { validRange } from "semver";
@@ -91,28 +91,16 @@ export async function parseSource(raw: string): Promise<ParsedSource> {
 	return result;
 }
 
+/**
+ * A local source is the real folder the path leads to, so a linked folder
+ * installs and is keyed as the folder it links to.
+ */
 async function parseLocalPath(input: string): Promise<LocalPathSource> {
-	let expanded = input;
-	if (expanded.startsWith("~")) {
-		expanded = homedir() + expanded.slice(1);
-	}
-
-	const resolvedPath = resolve(expanded);
-
-	try {
-		const stats = await stat(resolvedPath);
-		if (!stats.isDirectory()) {
-			throw new Error(
-				`Path ${resolvedPath} does not exist or is not a directory`,
-			);
-		}
-	} catch (err) {
-		if (err instanceof Error && err.message.startsWith("Path ")) {
-			throw err;
-		}
-		throw new Error(
-			`Path ${resolvedPath} does not exist or is not a directory`,
-		);
+	const expanded = input.startsWith("~") ? homedir() + input.slice(1) : input;
+	const path = resolve(expanded);
+	const resolvedPath = await realDirectory(path);
+	if (resolvedPath === null) {
+		throw new Error(`Path ${path} does not exist or is not a directory`);
 	}
 
 	return {
@@ -122,6 +110,15 @@ async function parseLocalPath(input: string): Promise<LocalPathSource> {
 		constraint: null,
 		manifestKey: resolvedPath,
 	};
+}
+
+async function realDirectory(path: string): Promise<string | null> {
+	try {
+		const real = await realpath(path);
+		return (await stat(real)).isDirectory() ? real : null;
+	} catch {
+		return null;
+	}
 }
 
 function hasTreePath(withoutProtocol: string): boolean {

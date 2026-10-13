@@ -3,8 +3,9 @@ import {
 	lstat,
 	mkdir,
 	mkdtemp,
-	readdir,
 	readFile,
+	readdir,
+	realpath,
 	rm,
 	symlink,
 	writeFile,
@@ -39,7 +40,7 @@ let projectSource: string;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
-	testDir = await mkdtemp(join(tmpdir(), "agntc-global-"));
+	testDir = await realpath(await mkdtemp(join(tmpdir(), "agntc-global-")));
 	home = join(testDir, "home");
 	projectDir = join(testDir, "project");
 	globalSource = join(testDir, "global-source");

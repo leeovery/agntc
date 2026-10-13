@@ -2,8 +2,9 @@ import {
 	lstat,
 	mkdir,
 	mkdtemp,
-	readdir,
 	readFile,
+	readdir,
+	realpath,
 	rm,
 	symlink,
 	writeFile,
@@ -27,7 +28,9 @@ let mine: string;
 const SKILL = ".claude/skills/foo";
 
 beforeEach(async () => {
-	testDir = await mkdtemp(join(tmpdir(), "agntc-symlink-guard-"));
+	testDir = await realpath(
+		await mkdtemp(join(tmpdir(), "agntc-symlink-guard-")),
+	);
 	projectDir = join(testDir, "project");
 	source = join(testDir, "source");
 	mine = join(testDir, "mine");
