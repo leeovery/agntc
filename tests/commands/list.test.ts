@@ -489,7 +489,12 @@ describe("runListLoop", () => {
 
 			expect(mockCheckForUpdate).toHaveBeenCalledExactlyOnceWith(newKey, moved);
 			expect(mockRenderDetailView).toHaveBeenLastCalledWith(
-				{ key: newKey, entry: moved, updateStatus: { status: "up-to-date" } },
+				{
+					key: newKey,
+					entry: moved,
+					updateStatus: { status: "up-to-date" },
+					installRoot: "/fake/project",
+				},
 				expect.anything(),
 			);
 		});
@@ -688,6 +693,7 @@ describe("runListLoop", () => {
 					key: "owner/skill",
 					entry,
 					updateStatus,
+					installRoot: "/fake/project",
 				},
 				interactiveUi,
 			);
@@ -901,6 +907,10 @@ describe("runListLoop", () => {
 				interactiveUi,
 			);
 			expect(mockReadManifest).toHaveBeenCalledWith("/home/lee");
+			expect(mockRenderDetailView).toHaveBeenCalledWith(
+				expect.objectContaining({ installRoot: "/home/lee" }),
+				interactiveUi,
+			);
 			expect(mockExecuteRemoveAction).toHaveBeenCalledWith(
 				"owner/skill",
 				entry,
@@ -1123,6 +1133,7 @@ describe("runListLoop", () => {
 					key: "owner/skill",
 					entry: originalEntry,
 					updateStatus: { status: "update-available", remoteCommit: "def456" },
+					installRoot: "/fake/project",
 				},
 				interactiveUi,
 			);
@@ -1134,6 +1145,7 @@ describe("runListLoop", () => {
 					key: "owner/skill",
 					entry: updatedEntry,
 					updateStatus: newUpdateStatus,
+					installRoot: "/fake/project",
 				},
 				interactiveUi,
 			);

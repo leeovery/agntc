@@ -1,8 +1,8 @@
 import { skillTarget } from "./asset-targets.js";
 import { checkFileCollisions } from "./collision-check.js";
-import type { Discovery } from "./discover.js";
+import type { Discovery, FoundPack } from "./discover.js";
 import { isSameSource, type SourceId, sourceIdOf } from "./entry-source.js";
-import { installPathMatcher } from "./install-paths.js";
+import { installPathMatcher, isInstalledSkill } from "./install-paths.js";
 import type { Manifest } from "./manifest.js";
 import { memberName } from "./source-parser.js";
 
@@ -15,22 +15,31 @@ export interface Claims {
 }
 
 /**
- * Sorts out whose files a pack keyed `key` would write over: loose skill
- * entries from its own source are absorbed, anything else clashes.
+ * Sorts out whose files `pack`, keyed `key`, would write over: a loose skill
+ * entry from its own source that only the pack's skills land on is absorbed,
+ * the pack now holding that skill; anything else clashes, a loose skill a
+ * support folder lands on included.
  */
 export function claimFiles(
+	pack: FoundPack,
 	incomingFiles: string[],
 	manifest: Manifest,
 	key: string,
 	source: SourceId,
 ): Claims {
+	const isSkillInstall = installPathMatcher(
+		pack.skills.map((skill) => skillTarget(skill.name)),
+	);
 	const claims: Claims = { absorbed: [], clashes: new Map() };
 	for (const [other, files] of checkFileCollisions(
 		incomingFiles,
 		manifest,
 		key,
 	)) {
-		if (isLooseSkillFrom(other, manifest, source)) {
+		if (
+			files.every(isSkillInstall) &&
+			isLooseSkillFrom(other, manifest, source)
+		) {
 			claims.absorbed.push(other);
 		} else {
 			claims.clashes.set(other, files);
@@ -65,20 +74,22 @@ export function takenOverRemoved(looseKeys: string[]): string {
 
 /**
  * Every discovered skill, loose or in a pack, that an installed pack from
- * `source` already holds: its path, to that pack's key.
+ * `source`, installed under `installRoot`, already holds: its path, to that
+ * pack's key.
  */
-export function skillsInInstalledPacks(
+export async function skillsInInstalledPacks(
 	discovery: Discovery,
 	manifest: Manifest,
 	source: SourceId,
-): Map<string, string> {
+	installRoot: string,
+): Promise<Map<string, string>> {
 	const packed = new Map<string, string>();
 	const skills = [
 		...discovery.skills,
 		...discovery.packs.flatMap((pack) => pack.skills),
 	];
 	for (const skill of skills) {
-		const pack = packHolding(skill.name, manifest, source);
+		const pack = await packHolding(skill.name, manifest, source, installRoot);
 		if (pack !== undefined) {
 			packed.set(skill.path, pack);
 		}
@@ -86,17 +97,25 @@ export function skillsInInstalledPacks(
 	return packed;
 }
 
-/** The installed pack from `source` that holds the skill `name`, if any. */
-function packHolding(
+/**
+ * The installed pack from `source` that holds the skill `name`, if any: one
+ * that installed `.claude/skills/<name>/` as a skill, not as a support folder.
+ */
+async function packHolding(
 	name: string,
 	manifest: Manifest,
 	source: SourceId,
-): string | undefined {
+	installRoot: string,
+): Promise<string | undefined> {
 	const target = skillTarget(name);
-	return Object.entries(manifest).find(
+	const holder = Object.entries(manifest).find(
 		([key, entry]) =>
 			entry.type === "pack" &&
 			installPathMatcher(entry.files)(target) &&
 			isSameSource(sourceIdOf(key, entry), source),
 	)?.[0];
+	if (holder === undefined || !(await isInstalledSkill(installRoot, name))) {
+		return undefined;
+	}
+	return holder;
 }

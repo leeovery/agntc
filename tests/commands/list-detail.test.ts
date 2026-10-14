@@ -1,4 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManifestEntry } from "../../src/manifest.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import { makeEntry } from "../helpers/factories.js";
@@ -31,6 +34,8 @@ import { interactiveUi } from "../../src/ui.js";
 const mockSelect = vi.mocked(p.select);
 const mockLog = vi.mocked(p.log);
 
+let installRoot: string;
+
 function makeInput(
 	overrides: {
 		key?: string;
@@ -42,11 +47,26 @@ function makeInput(
 		key: overrides.key ?? "owner/repo",
 		entry: makeEntry(overrides.entry),
 		updateStatus: overrides.updateStatus ?? { status: "up-to-date" },
+		installRoot,
 	};
 }
 
-beforeEach(() => {
+/** Writes empty files under the install root. */
+async function installedFiles(...paths: string[]): Promise<void> {
+	for (const path of paths) {
+		const full = join(installRoot, path);
+		await mkdir(dirname(full), { recursive: true });
+		await writeFile(full, "");
+	}
+}
+
+beforeEach(async () => {
 	vi.clearAllMocks();
+	installRoot = await mkdtemp(join(tmpdir(), "agntc-list-detail-"));
+});
+
+afterEach(async () => {
+	await rm(installRoot, { recursive: true, force: true });
 });
 
 describe("renderDetailView", () => {
@@ -187,12 +207,14 @@ describe("renderDetailView", () => {
 	describe("asset counts", () => {
 		it("displays asset counts on one line", async () => {
 			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/b/SKILL.md",
+			);
 
 			await renderDetailView(
 				makeInput({
-					entry: {
-						files: [".claude/skills/a/SKILL.md", ".claude/skills/b/SKILL.md"],
-					},
+					entry: { files: [".claude/skills/a/", ".claude/skills/b/"] },
 				}),
 				interactiveUi,
 			);
@@ -200,15 +222,39 @@ describe("renderDetailView", () => {
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
 		});
 
-		it("displays mixed asset types", async () => {
+		it("counts a skill folder once, however many of its paths are recorded", async () => {
 			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/SKILL.md");
 
 			await renderDetailView(
 				makeInput({
 					entry: {
 						files: [
+							".claude/skills/a/",
 							".claude/skills/a/SKILL.md",
-							".claude/skills/b/SKILL.md",
+							".claude/skills/a/refs/guide.md",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+		});
+
+		it("displays mixed asset types", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/b/SKILL.md",
+			);
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						files: [
+							".claude/skills/a/",
+							".claude/skills/b/",
 							".claude/hooks/pre-commit.sh",
 						],
 					},
@@ -217,6 +263,52 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills, 1 hook");
+		});
+
+		it("counts a pack's installed folders without a SKILL.md as support folders, worded as add words them", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/b/SKILL.md",
+				".claude/skills/shared/references/x.md",
+				".claude/skills/gates/.claude-plugin/plugin.json",
+				".claude/skills/rows/hooks/hooks.json",
+			);
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".claude/skills/a/",
+							".claude/skills/b/",
+							".claude/skills/gates/",
+							".claude/skills/rows/",
+							".claude/skills/shared/",
+							".claude/agents/x.md",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"Assets: 2 skills, 3 folders, 1 agent",
+			);
+		});
+
+		it("gives a pack's skill count even when it holds only support folders", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/shared/references/x.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: { type: "pack", files: [".claude/skills/shared/"] },
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 0 skills, 1 folder");
 		});
 
 		it("counts agent files", async () => {

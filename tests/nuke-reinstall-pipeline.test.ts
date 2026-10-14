@@ -1390,6 +1390,34 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 
+		it("aborts at a loose skill from its own source that a support folder lands on, absorbing nothing", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						supportFolders: [{ name: "queues", path: "laravel/skills/queues" }],
+					}),
+				),
+			);
+			const loose = makeEntry({
+				type: "skill",
+				files: [".claude/skills/queues/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				packOptions({ "owner/repo/queues": loose }),
+			);
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"files of owner/repo/queues are in the way: .claude/skills/queues/",
+				inTheWay: true,
+				replayed: expect.objectContaining({ key: PACK_KEY }),
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
 		it("treats a same-source pack's files as a clash, not something to absorb", async () => {
 			const sibling = makeEntry({
 				type: "pack",

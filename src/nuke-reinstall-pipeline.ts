@@ -461,8 +461,8 @@ interface InTheWay extends Claims {
 
 /**
  * Sorts out what sits at every path the item would claim, `incoming`. Only a
- * pack absorbs loose skills from its own source; any other entry's files
- * clash.
+ * pack absorbs loose skills from its own source, and only those its skills
+ * land on; any other entry's files clash.
  */
 async function inTheWayOf(
 	item: InstallItem,
@@ -471,7 +471,13 @@ async function inTheWayOf(
 ): Promise<InTheWay> {
 	const claims: Claims =
 		item.kind === "pack"
-			? claimFiles(incoming, installed, key, sourceIdOf(key, existingEntry))
+			? claimFiles(
+					item.pack,
+					incoming,
+					installed,
+					key,
+					sourceIdOf(key, existingEntry),
+				)
 			: {
 					absorbed: [],
 					clashes: checkFileCollisions(incoming, installed, key),

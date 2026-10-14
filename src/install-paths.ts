@@ -1,6 +1,7 @@
 import type { Stats } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { skillTarget } from "./asset-targets.js";
 import { isNodeError } from "./errors.js";
 
 /**
@@ -68,6 +69,25 @@ export async function inspectInstallPath(
 		state = { kind: "present", isDirectory: stats.isDirectory() };
 	}
 	return state;
+}
+
+/**
+ * Whether the installed `.claude/skills/<name>/` is a skill, holding its
+ * `SKILL.md`, rather than a pack's support folder, which holds none: the
+ * manifest records the two alike. No link is followed.
+ */
+export async function isInstalledSkill(
+	installRoot: string,
+	name: string,
+): Promise<boolean> {
+	if (!isSafeSegment(name)) {
+		return false;
+	}
+	const state = await inspectInstallPath(
+		installRoot,
+		`${skillTarget(name)}SKILL.md`,
+	);
+	return state.kind === "present" && !state.isDirectory;
 }
 
 /**

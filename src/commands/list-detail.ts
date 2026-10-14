@@ -1,7 +1,17 @@
-import { identifyAssetType } from "../asset-targets.js";
+import {
+	type AssetCounts,
+	type AssetType,
+	identifyAssetType,
+	targetDir,
+} from "../asset-targets.js";
 import { gitErrorCause } from "../errors.js";
+import { isInstalledSkill } from "../install-paths.js";
 import type { EntryType, ManifestEntry } from "../manifest.js";
-import { formatRefLabel } from "../summary.js";
+import {
+	formatAssetCounts,
+	formatPackCounts,
+	formatRefLabel,
+} from "../summary.js";
 import type { Ui } from "../ui.js";
 import {
 	hasOutOfConstraintVersion,
@@ -15,6 +25,8 @@ export interface DetailViewInput {
 	key: string;
 	entry: ManifestEntry;
 	updateStatus: UpdateCheckResult;
+	/** Where the entry is installed, which tells its skills from its support folders. */
+	installRoot: string;
 }
 
 const ENTRY_LABELS: Record<EntryType, string> = {
@@ -31,30 +43,67 @@ function formatDate(isoDate: string): string {
 	return isoDate.slice(0, 10);
 }
 
-interface AssetCounts {
-	skills: number;
-	agents: number;
-	hooks: number;
+/** What an entry's recorded files install; `other` counts files under no asset type. */
+interface EntryAssets {
+	counts: AssetCounts;
 	other: number;
 }
 
-function computeAssetCounts(files: string[]): AssetCounts {
-	const counts: AssetCounts = { skills: 0, agents: 0, hooks: 0, other: 0 };
-	for (const file of files) {
-		counts[identifyAssetType(file) ?? "other"]++;
-	}
-	return counts;
+/**
+ * Counts each `.claude/skills/<name>/` once: a skill when the install holds
+ * its `SKILL.md`, else a pack's support folder, as the manifest records the
+ * two alike. Agents and hooks count their recorded paths.
+ */
+async function countAssets(
+	files: string[],
+	installRoot: string,
+): Promise<EntryAssets> {
+	const folders = [...new Set(files.flatMap(skillFolderOf))];
+	const isSkill = await Promise.all(
+		folders.map((name) => isInstalledSkill(installRoot, name)),
+	);
+	const skills = isSkill.filter(Boolean).length;
+	const typed = (type: AssetType | null) =>
+		files.filter((file) => identifyAssetType(file) === type).length;
+	return {
+		counts: {
+			skills,
+			folders: folders.length - skills,
+			agents: typed("agents"),
+			hooks: typed("hooks"),
+		},
+		other: typed(null),
+	};
 }
 
-function formatAssetCounts(counts: AssetCounts): string {
-	const plural = (n: number, word: string) =>
-		`${n} ${word}${n === 1 ? "" : "s"}`;
-	const parts: string[] = [];
-	if (counts.skills > 0) parts.push(plural(counts.skills, "skill"));
-	if (counts.agents > 0) parts.push(plural(counts.agents, "agent"));
-	if (counts.hooks > 0) parts.push(plural(counts.hooks, "hook"));
-	if (counts.other > 0) parts.push(`${counts.other} other`);
-	return parts.join(", ");
+/** The `<name>` of a path in `.claude/skills/<name>/`, if it's in one. */
+function skillFolderOf(file: string): string[] {
+	if (identifyAssetType(file) !== "skills") {
+		return [];
+	}
+	const [name = ""] = file.slice(targetDir("skills").length + 1).split("/");
+	return name === "" ? [] : [name];
+}
+
+/**
+ * What the entry installs, on one line: a pack's counts as `add` words them,
+ * a skill's only those it has. Empty for an entry recording no files.
+ */
+async function assetSummary(
+	entry: ManifestEntry,
+	installRoot: string,
+): Promise<string> {
+	if (entry.files.length === 0) {
+		return "";
+	}
+	const { counts, other } = await countAssets(entry.files, installRoot);
+	const assets =
+		entry.type === "pack"
+			? formatPackCounts(counts)
+			: formatAssetCounts(counts);
+	return [assets, other > 0 ? `${other} other` : ""]
+		.filter((part) => part !== "")
+		.join(", ");
 }
 
 // `canChangeVersion` is decided by the caller from the installed ref (tag-based)
@@ -112,7 +161,7 @@ export async function renderDetailView(
 	input: DetailViewInput,
 	ui: Ui,
 ): Promise<DetailAction> {
-	const { key, entry, updateStatus } = input;
+	const { key, entry, updateStatus, installRoot } = input;
 
 	// The out-of-constraint version (when present) folds into the Constraint line
 	// rather than a separate trailing bullet.
@@ -129,9 +178,9 @@ export async function renderDetailView(
 	ui.log.info(`Installed: ${formatDate(entry.installedAt)}`);
 
 	// One compact counts line — no raw file-path dump.
-	const assetSummary = formatAssetCounts(computeAssetCounts(entry.files));
-	if (assetSummary.length > 0) {
-		ui.log.info(`Assets: ${assetSummary}`);
+	const assets = await assetSummary(entry, installRoot);
+	if (assets.length > 0) {
+		ui.log.info(`Assets: ${assets}`);
 	}
 
 	reportStatusProblem(entry, updateStatus, ui);

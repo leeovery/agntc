@@ -49,6 +49,7 @@ import { cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags, lsRemote } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
+import { MachineUi } from "../../src/ui.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
@@ -1067,6 +1068,107 @@ describe("integration: add and update", () => {
 				expect.stringContaining("installed on its own"),
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
+		});
+
+		describe("with a support folder named like a loose skill", () => {
+			const LARAVEL = {
+				"laravel/agntc.json": PACK,
+				"laravel/skills/api/SKILL.md": "",
+				"tools/shared/SKILL.md": "loose",
+			};
+			const WITH_SHARED = {
+				...LARAVEL,
+				"laravel/skills/shared/notes.md": "the pack's",
+			};
+
+			function looseText(): Promise<string> {
+				return readFile(
+					join(projectDir, ".claude/skills/shared/SKILL.md"),
+					"utf-8",
+				);
+			}
+
+			it("adding the pack stops at the loose skill as another install's files, taking nothing over", async () => {
+				await repo("owner/repo", WITH_SHARED);
+				await runAdd("owner/repo", { skill: ["shared"] });
+				const ui = new MachineUi("add", "project");
+
+				const err = await runAdd("owner/repo/laravel", {}, ui).catch(
+					(error: unknown) => error,
+				);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect(ui.document(1)).toMatchObject({
+					items: [
+						{
+							key: "owner/repo/laravel",
+							status: "skipped",
+							reason:
+								"files in the way belong to owner/repo/shared: .claude/skills/shared/",
+							flags: ["--overwrite"],
+						},
+					],
+					notes: [],
+				});
+				expect(Object.keys(await savedManifest())).toEqual([
+					"owner/repo/shared",
+				]);
+				expect(await looseText()).toBe("loose");
+			});
+
+			it("updating a pack that now ships it stops before removing anything, both left installed", async () => {
+				const v1 = await repo("owner/repo", LARAVEL);
+				mockCloneSource.mockImplementationOnce(async () => {
+					const tempDir = await mkdtemp(join(testDir, "clone-"));
+					await cp(v1, tempDir, { recursive: true });
+					return { tempDir, commit: OLD_SHA };
+				});
+				await runAdd("owner/repo/laravel");
+				await runAdd("owner/repo", { skill: ["shared"] });
+				const before = await savedManifest();
+				await repo("owner/repo", WITH_SHARED);
+
+				expect(await updateError("owner/repo/laravel")).toBeInstanceOf(
+					ExitSignal,
+				);
+
+				expect(mockLog.error).toHaveBeenCalledWith(
+					expect.stringContaining(
+						"files of owner/repo/shared are in the way: .claude/skills/shared/",
+					),
+				);
+				expect(await savedManifest()).toEqual(before);
+				expect(await looseText()).toBe("loose");
+				expect(await installed(".claude/skills/shared/notes.md")).toBe(false);
+				expect(mockLog.info).not.toHaveBeenCalledWith(
+					expect.stringContaining("now includes shared"),
+				);
+			});
+
+			it("updating a pack that now ships a skill of that name still takes the loose skill over", async () => {
+				const v1 = await repo("owner/repo", LARAVEL);
+				mockCloneSource.mockImplementationOnce(async () => {
+					const tempDir = await mkdtemp(join(testDir, "clone-"));
+					await cp(v1, tempDir, { recursive: true });
+					return { tempDir, commit: OLD_SHA };
+				});
+				await runAdd("owner/repo/laravel");
+				await runAdd("owner/repo", { skill: ["shared"] });
+				await repo("owner/repo", {
+					...LARAVEL,
+					"laravel/skills/shared/SKILL.md": "the pack's",
+				});
+
+				await runUpdate("owner/repo/laravel");
+
+				expect(Object.keys(await savedManifest())).toEqual([
+					"owner/repo/laravel",
+				]);
+				expect(await looseText()).toBe("the pack's");
+				expect(mockLog.info).toHaveBeenCalledWith(
+					"owner/repo/laravel now includes shared, installed on its own before",
+				);
+			});
 		});
 	});
 
