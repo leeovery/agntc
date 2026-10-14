@@ -8,16 +8,21 @@ export function errorMessage(err: unknown): string {
 
 const GIT_FATAL = "fatal: ";
 
+/** Lines git and ssh write around a failure that don't name it. */
+const NOT_THE_CAUSE = /^(warning:|hint:|cloning into)/i;
+
 /**
- * A git failure in one line for the terminal: the first line of its message
- * with git's `fatal: ` taken off. The advice git appends after it would read
- * a passing refusal as an access problem.
+ * A git failure in one line for the terminal: the first line that names it,
+ * with git's `fatal: ` taken off. Warnings, hints and progress before it are
+ * passed over, and so is the advice after it, which would read a passing
+ * refusal as an access problem. A message of nothing else gives its first line.
  */
 export function gitErrorCause(message: string): string {
+	const lines = message
+		.split("\n")
+		.map((part) => part.trim())
+		.filter((part) => part !== "");
 	const line =
-		message
-			.split("\n")
-			.map((part) => part.trim())
-			.find((part) => part !== "") ?? "";
+		lines.find((part) => !NOT_THE_CAUSE.test(part)) ?? lines[0] ?? "";
 	return line.startsWith(GIT_FATAL) ? line.slice(GIT_FATAL.length) : line;
 }

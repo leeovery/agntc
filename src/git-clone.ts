@@ -1,7 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { errorMessage } from "./errors.js";
-import { execGit, GIT_ATTEMPTS, withGitRetry } from "./git-utils.js";
+import {
+	execGit,
+	GIT_ATTEMPTS,
+	isFinalGitError,
+	withGitRetry,
+} from "./git-utils.js";
 import type { ParsedSource } from "./source-parser.js";
 import { resolveCloneUrl } from "./source-parser.js";
 
@@ -12,27 +17,16 @@ export interface CloneResult {
 
 const CLONE_TIMEOUT = 60_000;
 
-// HTTPS credential failures no retry can mend. An SSH "Permission denied" is
-// left out: a key refused once can be accepted on the next attempt.
-const AUTH_ERROR_PATTERNS = [
-	"Authentication",
-	"could not read Username",
-	"could not read Password",
-];
-
-function stderrOf(err: unknown): string {
-	return (err as { stderr?: string }).stderr ?? "";
-}
-
-function isAuthError(err: unknown): boolean {
-	const stderr = stderrOf(err);
-	return AUTH_ERROR_PATTERNS.some((pattern) => stderr.includes(pattern));
-}
-
+/**
+ * One clone attempt, into an emptied `tempDir`: git refuses a folder a
+ * failed attempt left files in, and that refusal would hide the real cause.
+ */
 async function cloneInto(
 	cloneArgs: string[],
 	tempDir: string,
 ): Promise<CloneResult> {
+	await rm(tempDir, { recursive: true, force: true });
+	await mkdir(tempDir, { mode: 0o700 });
 	await execGit(cloneArgs, { timeout: CLONE_TIMEOUT });
 	const { stdout } = await execGit(["-C", tempDir, "rev-parse", "HEAD"], {
 		timeout: CLONE_TIMEOUT,
@@ -41,8 +35,8 @@ async function cloneInto(
 }
 
 function cloneError(err: unknown): Error {
-	if (isAuthError(err)) {
-		return new Error(`git clone failed: ${stderrOf(err) || errorMessage(err)}`);
+	if (isFinalGitError(err)) {
+		return new Error(`git clone failed: ${errorMessage(err)}`);
 	}
 	return new Error(
 		`git clone failed after ${GIT_ATTEMPTS} attempts: ${errorMessage(err)}`,
@@ -60,7 +54,10 @@ export async function cloneSource(parsed: ParsedSource): Promise<CloneResult> {
 	cloneArgs.push(url, tempDir);
 
 	try {
-		return await withGitRetry(() => cloneInto(cloneArgs, tempDir), isAuthError);
+		return await withGitRetry(
+			() => cloneInto(cloneArgs, tempDir),
+			isFinalGitError,
+		);
 	} catch (err: unknown) {
 		await rm(tempDir, { recursive: true, force: true });
 		throw cloneError(err);

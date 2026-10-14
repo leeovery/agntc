@@ -419,6 +419,28 @@ describe("formatCheckFailedLine", () => {
 			"owner/repo: couldn't check for updates (repository 'https://github.com/owner/repo.git/' not found) — left untouched",
 		);
 	});
+
+	it("says a check that timed out timed out", () => {
+		expect(
+			formatCheckFailedLine(
+				"owner/repo",
+				"git ls-remote timed out after 15s\nCommand failed: git ls-remote https://github.com/owner/repo.git HEAD\n",
+			),
+		).toBe(
+			"owner/repo: couldn't check for updates (git ls-remote timed out after 15s) — left untouched",
+		);
+	});
+
+	it("names the refusal, not the known-hosts warning before it", () => {
+		expect(
+			formatCheckFailedLine(
+				"owner/repo",
+				`Warning: Permanently added 'github.com' (ED25519) to the list of known hosts.\n${SSH_REFUSAL}`,
+			),
+		).toBe(
+			"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+		);
+	});
 });
 
 describe("formatConstrainedNoMatchLine", () => {

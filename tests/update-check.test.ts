@@ -506,12 +506,12 @@ describe("checkForUpdate", () => {
 			expect(lsRemoteCalls()).toBe(2);
 		});
 
-		it("returns check-failed on timeout", async () => {
+		it("returns check-failed on a timeout, after one attempt, saying it timed out", async () => {
+			const nodeMessage = `Command failed: git ls-remote https://github.com/owner/repo.git HEAD\n`;
 			mockExecFile((_cmd, _args, _opts, cb) => {
-				const err = Object.assign(new Error("Command timed out"), {
+				const err = Object.assign(new Error(nodeMessage), {
 					killed: true,
 					signal: "SIGTERM",
-					stderr: "",
 				});
 				cb(err, "", "");
 			});
@@ -521,8 +521,9 @@ describe("checkForUpdate", () => {
 
 			expect(result).toEqual({
 				status: "check-failed",
-				reason: "Command timed out",
+				reason: `git ls-remote timed out after 15s\n${nodeMessage}`,
 			});
+			expect(lsRemoteCalls()).toBe(1);
 		});
 	});
 

@@ -75,6 +75,19 @@ function mockExecFileFailure(
 	);
 }
 
+/** The removals, folder creations and git commands, in the order they ran. */
+function callSequence(): string[] {
+	const calls = (name: string, mock: { invocationCallOrder: number[] }) =>
+		mock.invocationCallOrder.map((at) => ({ at, name }));
+	return [
+		...calls("rm", vi.mocked(fs.rm).mock),
+		...calls("mkdir", vi.mocked(fs.mkdir).mock),
+		...calls("git", vi.mocked(childProcess.execFile).mock),
+	]
+		.sort((a, b) => a.at - b.at)
+		.map(({ name }) => name);
+}
+
 function setupMocks(): void {
 	vi.mocked(os.tmpdir).mockReturnValue(FAKE_TMPDIR);
 	vi.mocked(fs.mkdtemp).mockResolvedValue(FAKE_TEMPDIR);
@@ -288,6 +301,45 @@ describe("cloneSource", () => {
 		expect(cloneCalls.length).toBe(1);
 	});
 
+	it("does not retry a clone its timeout killed, and says it timed out", async () => {
+		vi.mocked(childProcess.execFile).mockImplementation(((
+			_cmd: string,
+			args: string[],
+			_opts: unknown,
+			cb: (err: Error | null, stdout: string, stderr: string) => void,
+		) => {
+			const err = Object.assign(
+				new Error(`Command failed: git ${args.join(" ")}\n`),
+				{ killed: true, signal: "SIGTERM" },
+			);
+			cb(err, "", "");
+			return {};
+		}) as unknown as typeof childProcess.execFile);
+
+		const err = await runAndReject(makeParsed());
+
+		expect(err.message).toMatch(
+			/^git clone failed: git clone timed out after 60s\n/,
+		);
+		const cloneCalls = vi
+			.mocked(childProcess.execFile)
+			.mock.calls.filter((call) => (call[1] as string[]).includes("clone"));
+		expect(cloneCalls.length).toBe(1);
+	});
+
+	it("empties the temp dir before every attempt", async () => {
+		mockExecFileFailure("fatal: early EOF");
+
+		await runAndReject(makeParsed());
+
+		const attempt = ["rm", "mkdir", "git"];
+		expect(callSequence()).toEqual([...attempt, ...attempt, ...attempt, "rm"]);
+		for (const [path] of vi.mocked(fs.rm).mock.calls) {
+			expect(path).toBe(FAKE_TEMPDIR);
+		}
+		expect(fs.mkdir).toHaveBeenCalledWith(FAKE_TEMPDIR, { mode: 0o700 });
+	});
+
 	it("cleans up temp dir after failure", async () => {
 		mockExecFileFailure("fatal: repository not found");
 
@@ -306,7 +358,8 @@ describe("cloneSource", () => {
 		await vi.runAllTimersAsync();
 		await promise;
 
-		expect(fs.rm).not.toHaveBeenCalled();
+		// The one removal empties the folder before the clone; nothing after it.
+		expect(callSequence()).toEqual(["rm", "mkdir", "git", "git"]);
 	});
 
 	it("surfaces git error message in thrown error", async () => {
