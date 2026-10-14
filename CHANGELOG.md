@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-10-14
+
+✨ Added
+- Packs now install support folders — folders in a pack's top-level `skills/` that hold no skill (shared references, hook bundles) install whole to `.claude/skills/<name>/` beside its skills, including inside category folders.
+- `add --list`, the add menu, the install summary, and the `--json` listing show support folder counts and names (e.g. `2 skills, 3 folders, 1 agent`).
+- `list` detail view counts a pack's skills, support folders, agents and hooks the way `add` does, each once however many paths are recorded.
+
+🔧 Changed
+- Taking one skill out of a pack with `--skill` names the support folders left behind in its note.
+- A pack whose own folders would install to the same place is refused as it stands, with no "choose one" prompt, on both `add` and `update`.
+- Failed update checks print one line with the cause (`owner/repo: couldn't check for updates (…) — left untouched`) instead of git's full output; `--json` keeps the full error.
+- Copy-failure and abort messages in `update` name the member once instead of repeating its key.
+- Copy-failure recovery hints now include the cause of the failure.
+- `list` change-version reports why available versions couldn't be fetched instead of failing.
+- Remote git reads (tag lists, update probes) now retry up to three times, and SSH "Permission denied" is retried like other transient failures.
+- A clone that times out says so, and isn't retried.
+
+🐛 Fixed
+- `update` no longer deletes folders from `.claude/skills/` that the repo still holds but would stop installing — it stops, names them, and prints the `remove` + `add` that updates anyway.
+- A retried clone starts from an emptied folder, so a partial first attempt no longer hides the real error.
+- A pack's support folder landing on a loose skill from the same source now clashes instead of silently absorbing it, and a support folder no longer causes a skill of the same name to be left out of `--skill`.
+
 ## [0.5.1] - 2026-10-14
 
 ✨ Added
