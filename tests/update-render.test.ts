@@ -293,7 +293,7 @@ describe("formatMemberLine", () => {
 
 	it("copy-failed renders at error level as its recovery hint, which names the member", () => {
 		const message =
-			"Update failed for owner/repo/design after removing old files. It is currently uninstalled.";
+			"Update failed for owner/repo/design after removing old files (disk full). It is currently uninstalled.";
 
 		expect(formatMemberLine({ kind: "copy-failed", message })).toEqual({
 			level: "error",

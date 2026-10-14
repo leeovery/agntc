@@ -610,7 +610,7 @@ describe("executeChangeVersionAction", () => {
 	});
 
 	describe("copy-failed", () => {
-		it("removes entry from manifest and returns changed: false with recovery hint", async () => {
+		it("removes entry from manifest and returns changed: false with a recovery hint naming the copy error", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
@@ -620,7 +620,9 @@ describe("executeChangeVersionAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+			mockCopyBareSkill.mockRejectedValue(
+				new Error("ENOSPC: no space left on device, write"),
+			);
 
 			const result = await executeChangeVersionAction(
 				key,
@@ -631,7 +633,9 @@ describe("executeChangeVersionAction", () => {
 			);
 
 			expect(result.changed).toBe(false);
-			expect(result.message).toContain("npx agntc add owner/repo");
+			expect(result.message).toBe(
+				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled. Run `npx agntc add owner/repo@v1.1.0` to install it again.",
+			);
 			expect(mockWriteManifest).toHaveBeenCalledWith(
 				"/fake/project",
 				expect.not.objectContaining({ "owner/repo": expect.anything() }),

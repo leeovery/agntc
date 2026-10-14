@@ -931,7 +931,7 @@ describe("cloneAndReinstall", () => {
 				status: "failed",
 				failureReason: "copy-failed",
 				message:
-					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
 				absorbed: ["owner/repo/queues"],
 			});
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(

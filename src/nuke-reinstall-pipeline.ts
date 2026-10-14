@@ -25,7 +25,7 @@ import {
 } from "./discover.js";
 import { droppedButInSource } from "./dropped-folders.js";
 import { restoreCommand, sourceIdOf, sourceKeyOf } from "./entry-source.js";
-import { errorMessage } from "./errors.js";
+import { errorMessage, gitErrorCause } from "./errors.js";
 import { pathExists, relativePosix } from "./fs-utils.js";
 import {
 	type InstallItem,
@@ -577,8 +577,9 @@ function replayedEntry(
 }
 
 /**
- * The remedy installs the item as replayed, under the key `add` gives it, at
- * the version the replayed entry tracks.
+ * The hint names what went wrong, the error's first line, and its remedy
+ * installs the item as replayed, under the key `add` gives it, at the version
+ * the replayed entry tracks.
  */
 function copyFailed(
 	options: NukeReinstallOptions,
@@ -587,16 +588,19 @@ function copyFailed(
 ): NukeReinstallCopyFailed {
 	const { key, scope } = options;
 	const { absorbed } = cleared;
+	const message = errorMessage(err);
+	const cause = gitErrorCause(message);
+	const why = cause === "" ? "" : ` (${cause})`;
 	const takenOver =
 		absorbed.length > 0 ? `, and ${takenOverRemoved(absorbed)}` : "";
 	const replayed = replayedAs(options, cleared);
 	const reAdd = restoreCommand(replayed.key, replayed.entry, scope.name);
 	return {
 		status: "copy-failed",
-		errorMessage: errorMessage(err),
+		errorMessage: message,
 		absorbed,
 		recoveryHint:
-			`Update failed for ${key} after removing old files${takenOver}. ` +
+			`Update failed for ${key} after removing old files${why}${takenOver}. ` +
 			`It is currently uninstalled. ` +
 			`Run \`${reAdd}\` to install it again.`,
 	};

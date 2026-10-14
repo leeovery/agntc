@@ -1344,7 +1344,7 @@ describe("update command", () => {
 			// The single failure IS the spinner stop-frame at code 2 (error), carrying
 			// the copy-failed member line — no separate p.log.error beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
-				"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				"Update failed for owner/repo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 				2,
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
@@ -1403,7 +1403,7 @@ describe("update command", () => {
 			// One member line each, all under the one header, at the matching level.
 			expect(mockLog.success).toHaveBeenCalledWith("a");
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
+				"Update failed for owner/repo/b after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
 			);
 			expect(mockLog.error).toHaveBeenCalledWith(
 				expect.stringMatching(/^owner\/repo\/c was installed as a skill/),
@@ -4542,7 +4542,7 @@ describe("update command", () => {
 			);
 		});
 
-		it("logs recovery hint on copy failure", async () => {
+		it("logs a recovery hint naming the copy error on copy failure", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
 				files: [".claude/skills/my-skill/"],
@@ -4558,12 +4558,14 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+			mockCopyBareSkill.mockRejectedValue(
+				new Error("ENOSPC: no space left on device, write"),
+			);
 
 			await runUpdate("owner/repo").catch(() => {});
 
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("npx agntc add owner/repo"),
+				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 			);
 		});
 	});
@@ -5951,7 +5953,7 @@ describe("failureMemberLine (shared loud member-line rendering)", () => {
 	it.each([
 		{
 			status: "copy-failed",
-			summary: `Update failed for ${KEY} after removing old files. It is currently uninstalled. Run \`npx agntc add ${KEY}\` to install it again.`,
+			summary: `Update failed for ${KEY} after removing old files (disk full). It is currently uninstalled. Run \`npx agntc add ${KEY}\` to install it again.`,
 			absorbed: [],
 		},
 		{
@@ -7220,7 +7222,7 @@ describe("a pack taking over loose skills from its own source", () => {
 		const LOOSE_MESSAGE =
 			"owner/repo/a was removed — the pack owner/repo/tools took it over, then failed to install";
 		const PACK_MESSAGE =
-			"Update failed for owner/repo/tools after removing old files, and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc add owner/repo/tools --pack` to install it again.";
+			"Update failed for owner/repo/tools after removing old files (disk full), and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc add owner/repo/tools --pack` to install it again.";
 
 		it("all-mode drops the loose entry with the pack's, since its files are gone", async () => {
 			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });

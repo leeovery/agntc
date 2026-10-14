@@ -1210,7 +1210,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(result).toMatchObject({
 				status: "copy-failed",
 				recoveryHint:
-					"Update failed for owner/repo/packs/foo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
+					"Update failed for owner/repo/packs/foo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
 			});
 		});
 	});
@@ -1364,7 +1364,7 @@ describe("executeNukeAndReinstall", () => {
 				errorMessage: "disk full",
 				absorbed: ["owner/repo/queues"],
 				recoveryHint:
-					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
 			});
 		});
 
@@ -1840,8 +1840,37 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.errorMessage).toBe("ENOSPC: no space left on device");
 			expect(result.recoveryHint).toBe(
-				"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 			);
+		});
+
+		it("names a many-line error by its first line in the hint, keeping the whole of it beside", async () => {
+			const error =
+				"EACCES: permission denied, mkdir\n    at copy (copy.js:1:1)";
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockRejectedValue(new Error(error));
+
+			const result = await executeNukeAndReinstall(makeOptions());
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				errorMessage: error,
+				recoveryHint:
+					"Update failed for owner/repo after removing old files (EACCES: permission denied, mkdir). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			});
+		});
+
+		it("leaves the brackets out for an error that says nothing", async () => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockRejectedValue(new Error(""));
+
+			const result = await executeNukeAndReinstall(makeOptions());
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				recoveryHint:
+					"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			});
 		});
 
 		it.each([
