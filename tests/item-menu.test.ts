@@ -18,7 +18,13 @@ const OPTIONS: MenuOption[] = [
 	{
 		value: {
 			kind: "pack",
-			pack: { name: "p", path: "p", skills: [], assetDirs: ["hooks"] },
+			pack: {
+				name: "p",
+				path: "p",
+				skills: [],
+				supportFolders: [],
+				assetDirs: ["hooks"],
+			},
 		},
 		label: "p",
 		hint: "pack · 0 skills",

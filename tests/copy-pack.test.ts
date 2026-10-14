@@ -70,6 +70,7 @@ function pack(overrides: Partial<FoundPack> = {}): FoundPack {
 		name: "laravel",
 		path: "laravel",
 		skills: [],
+		supportFolders: [],
 		assetDirs: [],
 		...overrides,
 	};
@@ -295,6 +296,83 @@ describe("copyPack", () => {
 		expect(await installed(".claude/skills/a")).toBe(false);
 		expect(await installed(".claude/skills/missing")).toBe(false);
 		expect(await installed(".claude/agents/x.md")).toBe(false);
+	});
+
+	describe("support folders", () => {
+		const WITH_GATES = pack({
+			skills: [{ name: "a", path: "laravel/skills/a" }],
+			supportFolders: [{ name: "gates", path: "laravel/skills/gates" }],
+		});
+
+		it("copies each whole, as a skill folder: hidden content kept, .git and its top-level agntc.json dropped", async () => {
+			await tree({
+				"laravel/skills/a/SKILL.md": "",
+				"laravel/skills/gates/.claude-plugin/plugin.json": "{}",
+				"laravel/skills/gates/hooks/guard.ts": "",
+				"laravel/skills/gates/tests/guard.test.ts": "",
+				"laravel/skills/gates/README.md": "",
+				"laravel/skills/gates/agntc.json": "{}",
+				"laravel/skills/gates/.git/HEAD": "",
+				"laravel/skills/gates/hooks/.git/HEAD": "",
+			});
+
+			const result = await copyPack(WITH_GATES, remote(root), projectDir);
+
+			expect(result).toEqual({
+				copiedFiles: [".claude/skills/a/", ".claude/skills/gates/"],
+				assetCounts: { skills: 1, folders: 1 },
+			});
+			for (const path of [
+				".claude-plugin/plugin.json",
+				"hooks/guard.ts",
+				"tests/guard.test.ts",
+				"README.md",
+			]) {
+				expect(await installed(`.claude/skills/gates/${path}`)).toBe(true);
+			}
+			expect(await installed(".claude/skills/gates/agntc.json")).toBe(false);
+			expect(await installed(".claude/skills/gates/.git")).toBe(false);
+			expect(await installed(".claude/skills/gates/hooks/.git")).toBe(false);
+		});
+
+		it("rolls a copied support folder back when a later copy fails", async () => {
+			await tree({ "laravel/skills/gates/README.md": "" });
+
+			await expect(
+				copyPack(
+					pack({
+						supportFolders: [
+							{ name: "gates", path: "laravel/skills/gates" },
+							{ name: "missing", path: "laravel/skills/missing" },
+						],
+					}),
+					remote(root),
+					projectDir,
+				),
+			).rejects.toThrow();
+
+			expect(await installed(".claude/skills/gates")).toBe(false);
+			expect(await installed(".claude/skills/missing")).toBe(false);
+		});
+
+		it("are planned by the pre-flight, which refuses a link out of the clone in one as the copy does", async () => {
+			await tree({
+				"laravel/skills/a/SKILL.md": "",
+				"laravel/skills/gates/README.md": "",
+			});
+			await symlink("../../../..", join(root, "laravel/skills/gates/leak"));
+
+			const check = await checkItemLinks(
+				{ kind: "pack", pack: WITH_GATES },
+				remote(root),
+			);
+			const copy = copyPack(WITH_GATES, remote(root), projectDir);
+
+			expect(check).toMatchObject({ ok: false });
+			await expect(copy).rejects.toBeInstanceOf(SymlinkEscapeError);
+			expect(await installed(".claude/skills/a")).toBe(false);
+			expect(await installed(".claude/skills/gates")).toBe(false);
+		});
 	});
 
 	describe("a symlink in the way", () => {

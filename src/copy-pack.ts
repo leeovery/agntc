@@ -10,7 +10,7 @@ import {
 	planCopy,
 	writeCopy,
 } from "./copy-safety.js";
-import type { FoundPack } from "./discover.js";
+import { type FoundPack, skillFolders } from "./discover.js";
 import type { DirEntry } from "./fs-utils.js";
 import { assertNoLinkInTheWay } from "./install-paths.js";
 
@@ -20,10 +20,10 @@ export interface CopyResult {
 }
 
 /**
- * Copies a pack: each of its skills flat into `.claude/skills/<name>`, the
- * `.md` files of its top-level `agents/` into `.claude/agents/`, and its
- * top-level `hooks/` into `.claude/hooks/`. Everything copied so far is rolled
- * back if any copy fails.
+ * Copies a pack: each of its skills and support folders flat into
+ * `.claude/skills/<name>`, the `.md` files of its top-level `agents/` into
+ * `.claude/agents/`, and its top-level `hooks/` into `.claude/hooks/`.
+ * Everything copied so far is rolled back if any copy fails.
  */
 export async function copyPack(
 	pack: FoundPack,
@@ -32,15 +32,19 @@ export async function copyPack(
 ): Promise<CopyResult> {
 	const packDir = join(source.root, pack.path);
 	const copiedFiles: string[] = [];
-	const assetCounts: AssetCounts = { skills: pack.skills.length };
+	const folders = pack.supportFolders.length;
+	const assetCounts: AssetCounts = {
+		skills: pack.skills.length,
+		...(folders > 0 ? { folders } : {}),
+	};
 
 	try {
-		for (const skill of pack.skills) {
+		for (const folder of skillFolders(pack)) {
 			const result = await copyBareSkill({
-				sourceDir: join(source.root, skill.path),
+				sourceDir: join(source.root, folder.path),
 				source,
 				projectDir: installRoot,
-				skillName: skill.name,
+				skillName: folder.name,
 			});
 			copiedFiles.push(...result.copiedFiles);
 		}
@@ -69,23 +73,26 @@ export async function copyPack(
 
 /**
  * The folders copying a pack plans, each with the filter it's planned with:
- * its skills and its hook folders. Agents and hook files are copied as the
- * regular files they're listed as, so no link of theirs is read.
+ * its skills, its support folders and its hook folders. Agents and hook files
+ * are copied as the regular files they're listed as, so no link of theirs is
+ * read.
  */
 export async function packUnits(
 	pack: FoundPack,
 	root: string,
 ): Promise<CopyUnit[]> {
-	const skills = pack.skills.map((skill) => skillUnit(join(root, skill.path)));
+	const skillUnits = skillFolders(pack).map((folder) =>
+		skillUnit(join(root, folder.path)),
+	);
 	if (!pack.assetDirs.includes("hooks")) {
-		return skills;
+		return skillUnits;
 	}
 	const hooksDir = join(root, pack.path, "hooks");
 	const folders = (await listHookEntries(hooksDir)).filter(
 		(entry) => entry.isDirectory,
 	);
 	return [
-		...skills,
+		...skillUnits,
 		...folders.map((entry) => hookUnit(join(hooksDir, entry.name))),
 	];
 }

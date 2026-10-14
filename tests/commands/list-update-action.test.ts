@@ -69,6 +69,13 @@ vi.mock("../../src/unmanaged-check.js", async () => {
 	return mockUnmanagedCheckModule();
 });
 
+vi.mock("../../src/dropped-folders.js", async () => {
+	const { mockDroppedFoldersModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockDroppedFoldersModule();
+});
+
 // File-specific: this file also needs `stat` (local-path validation).
 vi.mock("node:fs/promises", () => ({
 	stat: vi.fn(),
@@ -110,6 +117,7 @@ const mockCopyPack = mocks.copyPack;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
 const mockDiscover = mocks.discover;
+const mockDroppedButInSource = mocks.droppedButInSource;
 const mockConfirm = vi.mocked(p.confirm);
 // File-specific handle: local-path validation via fs.stat.
 const mockStat = vi.mocked(stat);
@@ -326,7 +334,7 @@ describe("executeUpdateAction", () => {
 	});
 
 	describe("copy-failed — remote update", () => {
-		it("removes entry from manifest and returns failure with recovery hint", async () => {
+		it("removes entry from manifest and returns failure with a recovery hint naming the copy error", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
 			const manifest: Manifest = { [key]: entry };
@@ -335,7 +343,9 @@ describe("executeUpdateAction", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+			mockCopyBareSkill.mockRejectedValue(
+				new Error("ENOSPC: no space left on device, write"),
+			);
 
 			const result = await executeUpdateAction(
 				key,
@@ -346,7 +356,9 @@ describe("executeUpdateAction", () => {
 			);
 
 			expect(result.success).toBe(false);
-			expect(result.message).toContain("npx agntc add owner/repo");
+			expect(result.message).toBe(
+				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			);
 			expect(mockWriteManifest).toHaveBeenCalledWith(
 				"/fake/project",
 				expect.not.objectContaining({ "owner/repo": expect.anything() }),
@@ -435,6 +447,36 @@ describe("executeUpdateAction", () => {
 			expect(result.message).toContain(
 				"To migrate: npx agntc remove -g owner/repo then npx agntc add -g owner/repo",
 			);
+		});
+
+		it("names the folders it would remove that the source still has, and how to update anyway", async () => {
+			const key = "owner/repo/tools";
+			const entry = makeEntry({
+				type: "pack",
+				files: [".claude/skills/a/", ".claude/skills/workflow-shared/"],
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockResolvedValue(packAt("tools", "a"));
+			mockDroppedButInSource.mockResolvedValue(["workflow-shared"]);
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				success: false,
+				message:
+					"owner/repo/tools can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 	});
 

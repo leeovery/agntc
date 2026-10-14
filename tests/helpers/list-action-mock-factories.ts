@@ -88,6 +88,17 @@ export function mockUnmanagedCheckModule() {
 }
 
 /**
+ * Factory body for `vi.mock("../../src/dropped-folders.js", ...)`. The files'
+ * `node:fs/promises` mock can't list a source, so update's check for folders
+ * it would drop that the source still has is driven directly.
+ */
+export function mockDroppedFoldersModule() {
+	return {
+		droppedButInSource: vi.fn(),
+	};
+}
+
+/**
  * Factory body for `vi.mock("../../src/copy-bare-skill.js", ...)`. Keeps the
  * real skill unit update's symlink-escape pre-flight plans with.
  */

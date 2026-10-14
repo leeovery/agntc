@@ -2,6 +2,7 @@ import type {
 	FoundPack,
 	FoundSkill,
 	PackAssetDir,
+	SkillFolder,
 	StrayAssets,
 } from "./discover.js";
 import type { InstallItem } from "./install-item.js";
@@ -61,6 +62,7 @@ export interface ListedPackJson {
 	path: string;
 	skillCount: number;
 	skills: ListedSkillJson[];
+	supportFolders: SkillFolder[];
 	assetDirs: PackAssetDir[];
 }
 
@@ -96,6 +98,7 @@ function listedPack(pack: FoundPack): ListedPackJson {
 		path: pack.path,
 		skillCount: pack.skills.length,
 		skills: pack.skills.map(listedSkill),
+		supportFolders: pack.supportFolders,
 		assetDirs: pack.assetDirs,
 	};
 }

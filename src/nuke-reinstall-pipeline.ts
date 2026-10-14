@@ -21,9 +21,11 @@ import {
 	folderName,
 	PackConflictError,
 	StartPathError,
+	skillFolders,
 } from "./discover.js";
+import { droppedButInSource } from "./dropped-folders.js";
 import { restoreCommand, sourceIdOf, sourceKeyOf } from "./entry-source.js";
-import { errorMessage } from "./errors.js";
+import { errorMessage, gitErrorCause } from "./errors.js";
 import { pathExists, relativePosix } from "./fs-utils.js";
 import {
 	type InstallItem,
@@ -40,6 +42,7 @@ import {
 import { nukeManifestFiles } from "./nuke-files.js";
 import type { Scope } from "./scope.js";
 import { memberName, repoFromKey } from "./source-parser.js";
+import { joinWithAnd } from "./summary.js";
 import { checkUnmanagedConflicts } from "./unmanaged-check.js";
 
 export interface NukeReinstallOptions {
@@ -141,9 +144,10 @@ interface NukeReinstallRemoveFailed {
 }
 
 /**
- * The re-cloned tree can't be replayed for the entry, or files are in the way
- * of what it would install. Found before any file is removed, so the existing
- * install is left intact.
+ * The re-cloned tree can't be replayed for the entry, the replay would remove
+ * folders the source still has, or files are in the way of what it would
+ * install. Found before any file is removed, so the existing install is left
+ * intact.
  */
 interface NukeReinstallAborted {
 	status: "aborted";
@@ -152,6 +156,16 @@ interface NukeReinstallAborted {
 	inTheWay?: true;
 	/** What stopped it was another entry holding the key the item moves to. */
 	takenKey?: string;
+	/**
+	 * What stopped it was folders it would remove that are still in its
+	 * source, which a remove and add accept.
+	 */
+	stillInSource?: true;
+	/**
+	 * What stopped it was two of the source's folders installing to one place,
+	 * which neither update nor add can install, so there is no remedy to offer.
+	 */
+	sourceClash?: true;
 	/**
 	 * The item as the replay found it, under the key `add` gives it: set when
 	 * the abort came after a replay, for a remedy that adds it again.
@@ -189,7 +203,7 @@ export type NukeReinstallResult =
 /** What the re-cloned source now offers for an entry, decided before any delete. */
 type Replay =
 	| { ok: true; item: InstallItem; note?: string }
-	| { ok: false; reason: string }
+	| { ok: false; abort: Pick<NukeReinstallAborted, "reason" | "sourceClash"> }
 	| { ok: false; gone: true };
 
 const GONE: Replay = { ok: false, gone: true };
@@ -211,9 +225,10 @@ interface ClearedReplay extends KeyedReplay {
 /**
  * Reinstalls an entry from a re-cloned source, replaying its recorded type,
  * under the key `add` would give what it replays to. Every check — a symlink
- * on the recorded path, what the source still holds, what is in the way of
- * the files it would install, whether that key is free, and the
- * symlink-escape scan — runs before any file is removed.
+ * on the recorded path, what the source still holds, recorded folders it
+ * would remove that the source still has, what is in the way of the files it
+ * would install, whether that key is free, and the symlink-escape scan — runs
+ * before any file is removed.
  */
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
@@ -245,11 +260,26 @@ async function clearReplay(
 	if (!replay.ok) {
 		return "gone" in replay
 			? { status: "gone" }
-			: { status: "aborted", reason: replay.reason };
+			: { status: "aborted", ...replay.abort };
 	}
 
 	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
-	const way = await inTheWayOf(replay.item, options);
+	const incoming = await computeIncomingFiles(replay.item, cloneRoot);
+	const dropped = await droppedButInSource(
+		existingEntry.files,
+		incoming,
+		replay.item,
+		cloneRoot,
+	);
+	if (dropped.length > 0) {
+		return {
+			status: "aborted",
+			reason: droppedReason(dropped),
+			stillInSource: true,
+			replayed: replayedAs(options, { replay, keyed }),
+		};
+	}
+	const way = await inTheWayOf(replay.item, incoming, options);
 	if (isKeyTaken(keyed.key, options, way)) {
 		return {
 			status: "aborted",
@@ -371,7 +401,9 @@ async function followMovedSkill(
 	if (matches.length > 1) {
 		return {
 			ok: false,
-			reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.join(", ")}`,
+			abort: {
+				reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.join(", ")}`,
+			},
 		};
 	}
 	return {
@@ -382,10 +414,11 @@ async function followMovedSkill(
 }
 
 /**
- * Re-walks a pack so skills added upstream arrive and removed ones go. A path
- * that is now a single skill reinstalls as that skill; a path that is gone,
- * or holds nothing, is gone upstream. Two of its skills sharing a folder name
- * would install to one place, so the pack aborts.
+ * Re-walks a pack so skills and support folders added upstream arrive and
+ * removed ones go. A path that is now a single skill reinstalls as that
+ * skill; a path that is gone, or holds nothing, is gone upstream. Two of its
+ * skills or support folders sharing a folder name would install to one place,
+ * which no add could install either, so the pack aborts with no remedy.
  */
 async function derivePackReplay(
 	options: NukeReinstallOptions,
@@ -404,9 +437,15 @@ async function derivePackReplay(
 		if (pack === undefined || isEmptyPack(pack)) {
 			return GONE;
 		}
-		const clashes = findTargetClashes(skillClaims(pack.skills));
+		const clashes = findTargetClashes(skillClaims(skillFolders(pack)));
 		if (clashes.length > 0) {
-			return { ok: false, reason: clashes.map(describeClash).join("; ") };
+			return {
+				ok: false,
+				abort: {
+					reason: clashes.map(describeClash).join("; "),
+					sourceClash: true,
+				},
+			};
 		}
 		return { ok: true, item: { kind: "pack", pack } };
 	} catch (err) {
@@ -418,7 +457,7 @@ async function derivePackReplay(
 			};
 		}
 		if (err instanceof PackConflictError) {
-			return { ok: false, reason: "its folder now contains packs" };
+			return { ok: false, abort: { reason: "its folder now contains packs" } };
 		}
 		if (err instanceof StartPathError) {
 			return GONE;
@@ -434,17 +473,24 @@ interface InTheWay extends Claims {
 }
 
 /**
- * Sorts out what sits at every path the item would claim. Only a pack absorbs
- * loose skills from its own source; any other entry's files clash.
+ * Sorts out what sits at every path the item would claim, `incoming`. Only a
+ * pack absorbs loose skills from its own source, and only those its skills
+ * land on; any other entry's files clash.
  */
 async function inTheWayOf(
 	item: InstallItem,
-	{ key, cloneRoot, existingEntry, installed, scope }: NukeReinstallOptions,
+	incoming: string[],
+	{ key, existingEntry, installed, scope }: NukeReinstallOptions,
 ): Promise<InTheWay> {
-	const incoming = await computeIncomingFiles(item, cloneRoot);
 	const claims: Claims =
 		item.kind === "pack"
-			? claimFiles(incoming, installed, key, sourceIdOf(key, existingEntry))
+			? claimFiles(
+					item.pack,
+					incoming,
+					installed,
+					key,
+					sourceIdOf(key, existingEntry),
+				)
 			: {
 					absorbed: [],
 					clashes: checkFileCollisions(incoming, installed, key),
@@ -465,6 +511,11 @@ function isKeyTaken(
 	{ absorbed }: InTheWay,
 ): boolean {
 	return newKey !== key && newKey in installed && !absorbed.includes(newKey);
+}
+
+function droppedReason(names: string[]): string {
+	const are = names.length === 1 ? "is" : "are";
+	return `it would remove ${joinWithAnd(names)}, which ${are} still in the source but would no longer be installed`;
 }
 
 function inTheWayReason({ clashes, unmanaged }: InTheWay): string {
@@ -545,8 +596,9 @@ function replayedEntry(
 }
 
 /**
- * The remedy installs the item as replayed, under the key `add` gives it, at
- * the version the replayed entry tracks.
+ * The hint names what went wrong, the error's first line, and its remedy
+ * installs the item as replayed, under the key `add` gives it, at the version
+ * the replayed entry tracks.
  */
 function copyFailed(
 	options: NukeReinstallOptions,
@@ -555,16 +607,19 @@ function copyFailed(
 ): NukeReinstallCopyFailed {
 	const { key, scope } = options;
 	const { absorbed } = cleared;
+	const message = errorMessage(err);
+	const cause = gitErrorCause(message);
+	const why = cause === "" ? "" : ` (${cause})`;
 	const takenOver =
 		absorbed.length > 0 ? `, and ${takenOverRemoved(absorbed)}` : "";
 	const replayed = replayedAs(options, cleared);
 	const reAdd = restoreCommand(replayed.key, replayed.entry, scope.name);
 	return {
 		status: "copy-failed",
-		errorMessage: errorMessage(err),
+		errorMessage: message,
 		absorbed,
 		recoveryHint:
-			`Update failed for ${key} after removing old files${takenOver}. ` +
+			`Update failed for ${key} after removing old files${why}${takenOver}. ` +
 			`It is currently uninstalled. ` +
 			`Run \`${reAdd}\` to install it again.`,
 	};

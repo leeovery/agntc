@@ -53,6 +53,10 @@ vi.mock("../../src/unmanaged-check.js", () => ({
 	checkUnmanagedConflicts: vi.fn(),
 }));
 
+vi.mock("../../src/dropped-folders.js", () => ({
+	droppedButInSource: vi.fn(),
+}));
+
 vi.mock("../../src/discover.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/discover.js")>()),
 	discover: vi.fn(),
@@ -82,6 +86,10 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 import { access, stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import {
+	buildAbortMessage,
+	buildCopySafetyMessage,
+} from "../../src/clone-reinstall.js";
+import {
 	failureMemberLine,
 	runUpdate,
 	streamGroupMemberLines,
@@ -99,6 +107,7 @@ import {
 	type FoundPack,
 	PackConflictError,
 } from "../../src/discover.js";
+import { droppedButInSource } from "../../src/dropped-folders.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import {
 	addEntry,
@@ -128,11 +137,13 @@ const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPack = vi.mocked(copyPack);
 const mockDiscover = vi.mocked(discover);
 const mockCheckUnmanaged = vi.mocked(checkUnmanagedConflicts);
+const mockDroppedButInSource = vi.mocked(droppedButInSource);
 
 const LARAVEL_PACK: FoundPack = {
 	name: "repo",
 	path: "",
 	skills: [{ name: "new-skill", path: "skills/new-skill" }],
+	supportFolders: [],
 	assetDirs: ["agents"],
 };
 
@@ -163,6 +174,7 @@ const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 import { globalScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
+import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const INSTALLED_SHA = "a".repeat(40);
@@ -240,6 +252,7 @@ beforeEach(() => {
 	// Default: no escaping symlink in the re-clone (copy-safety scan passes).
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 	mockCheckUnmanaged.mockResolvedValue([]);
+	mockDroppedButInSource.mockResolvedValue([]);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -479,19 +492,9 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			// Should not throw (continues)
-			// Summary should mention the failure
-			const allLogCalls = [
-				...mockLog.warn.mock.calls.map((c) => c[0]),
-				...mockLog.message.mock.calls.map((c) => c[0]),
-				...mockLog.info.mock.calls.map((c) => c[0]),
-			];
-			const hasFailedNote = allLogCalls.some(
-				(msg) =>
-					typeof msg === "string" &&
-					(msg.includes("failed") || msg.includes("Failed")),
+			expect(mockLog.warn).toHaveBeenCalledWith(
+				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
-			expect(hasFailedNote).toBe(true);
 		});
 
 		it("all-plugins update emits no check-failed warning for a v4-branch entry resolving to a real status", async () => {
@@ -1341,7 +1344,7 @@ describe("update command", () => {
 			// The single failure IS the spinner stop-frame at code 2 (error), carrying
 			// the copy-failed member line — no separate p.log.error beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo: copy failed — Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				"Update failed for owner/repo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 				2,
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
@@ -1400,10 +1403,10 @@ describe("update command", () => {
 			// One member line each, all under the one header, at the matching level.
 			expect(mockLog.success).toHaveBeenCalledWith("a");
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"b: copy failed — Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
+				"Update failed for owner/repo/b after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
 			);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringMatching(/^c: owner\/repo\/c was installed as a skill/),
+				expect.stringMatching(/^owner\/repo\/c was installed as a skill/),
 			);
 		});
 
@@ -1857,11 +1860,31 @@ describe("update command", () => {
 			expect(err).toBeUndefined();
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 			// ONE collapsed line carrying the shared probe reason — no per-member enumeration.
-			expect(warnCalls).toContain(`owner/repo: check failed — ${REASON}`);
-			expect(warnCalls.filter((m) => m.includes("check failed"))).toHaveLength(
-				1,
+			expect(warnCalls).toContain(
+				`owner/repo: couldn't check for updates (${REASON}) — left untouched`,
 			);
+			expect(
+				warnCalls.filter((m) => m.includes("couldn't check for updates")),
+			).toHaveLength(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("collapses git's error in a check-failed group to its one-line cause", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"leeovery/agentic-workflows": member("agentic-workflows"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "check-failed",
+				reason: SSH_REFUSAL,
+			});
+
+			await runUpdate();
+
+			expect(mockLog.warn.mock.calls).toEqual([
+				[
+					"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+				],
+			]);
 		});
 
 		it("collapses a constrained-no-match group to one line with the shared constraint", async () => {
@@ -2027,8 +2050,26 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Update check failed for owner/repo: network timeout",
+				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
+		});
+
+		it("prints git's error as its one-line cause", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry(),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: SSH_REFUSAL,
+			});
+
+			await runUpdate("owner/repo").catch(() => undefined);
+
+			expect(mockLog.error.mock.calls).toEqual([
+				[
+					"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+				],
+			]);
 		});
 	});
 
@@ -3151,10 +3192,10 @@ describe("update command", () => {
 			// failure is one shared reason, never one line per member.
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 			const checkFailedLines = warnCalls.filter((m) =>
-				m.includes("check failed"),
+				m.includes("couldn't check for updates"),
 			);
 			expect(checkFailedLines).toEqual([
-				`owner/repo: check failed — ${PROBE_REASON}`,
+				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
 			]);
 		});
 
@@ -3226,7 +3267,9 @@ describe("update command", () => {
 
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 			// One group line keyed by the group label (task 2-5)...
-			expect(warnCalls).toContain(`owner/repo: check failed — ${PROBE_REASON}`);
+			expect(warnCalls).toContain(
+				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
+			);
 			// ...and the individual member keys never each surface a line.
 			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
 				expect(warnCalls.some((m) => m.startsWith(`${key}:`))).toBe(false);
@@ -3288,7 +3331,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Update check failed for owner/repo: network timeout",
+				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
 		});
 
@@ -3346,7 +3389,9 @@ describe("update command", () => {
 			expect(err).toBeUndefined();
 			// Surfaced via warn, NOT error.
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-			expect(warnCalls).toContain(`owner/repo-a: check failed — ${REASON}`);
+			expect(warnCalls).toContain(
+				`owner/repo-a: couldn't check for updates (${REASON}) — left untouched`,
+			);
 			expect(mockLog.error).not.toHaveBeenCalled();
 			// The check-failed group mutates no manifest state (probe failed before any
 			// clone); the succeeding sibling B still persists.
@@ -3647,7 +3692,7 @@ describe("update command", () => {
 				(c) => c[0] as string,
 			);
 			expect(warnCalls).toContain(
-				`owner/checkfail: check failed — ${CHECK_REASON}`,
+				`owner/checkfail: couldn't check for updates (${CHECK_REASON}) — left untouched`,
 			);
 			expect(warnCalls).toContain(
 				"owner/nomatch: no tags satisfy ^2.0 — left untouched",
@@ -4497,7 +4542,7 @@ describe("update command", () => {
 			);
 		});
 
-		it("logs recovery hint on copy failure", async () => {
+		it("logs a recovery hint naming the copy error on copy failure", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
 				files: [".claude/skills/my-skill/"],
@@ -4513,12 +4558,14 @@ describe("update command", () => {
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
 			});
-			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+			mockCopyBareSkill.mockRejectedValue(
+				new Error("ENOSPC: no space left on device, write"),
+			);
 
 			await runUpdate("owner/repo").catch(() => {});
 
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringContaining("npx agntc add owner/repo"),
+				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 			);
 		});
 	});
@@ -5899,65 +5946,35 @@ describe("update command", () => {
 describe("failureMemberLine (shared loud member-line rendering)", () => {
 	// The collapsed group-of-one path (collapsedMemberLine) and the streamed
 	// multi-member path (emitMemberLine) both route their loud outcomes
-	// through this ONE helper, differing only by the display `name` they supply
-	// (the collapsed path passes the FULL member key; the streamed path passes the
-	// member basename). Asserting the helper directly proves the three loud
-	// arms live in exactly one place and render identically — modulo that name —
-	// across both paths.
+	// through this ONE helper. Each outcome's message already names the member
+	// by its key, so the line is the message alone, never `<key>: <key> …`.
+	const KEY = "owner/repo/design";
 
-	it("renders copy-failed at error level with the recovery hint, honouring the passed name", () => {
-		const outcome: PluginOutcome = {
+	it.each([
+		{
 			status: "copy-failed",
-			key: "owner/repo/design",
-			summary: "re-run update",
+			summary: `Update failed for ${KEY} after removing old files (disk full). It is currently uninstalled. Run \`npx agntc add ${KEY}\` to install it again.`,
 			absorbed: [],
-		};
-
-		// Collapsed path name source: the full member key.
-		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
-			level: "error",
-			text: "owner/repo/design: copy failed — re-run update",
-		});
-		// Streamed path name source: the member basename. Same shape, only the
-		// name differs — proving the name is a parameter, not baked in.
-		expect(failureMemberLine(outcome, "design")).toEqual({
-			level: "error",
-			text: "design: copy failed — re-run update",
-		});
-	});
-
-	it("renders aborted at error level carrying the summary as the inline message", () => {
-		const outcome: PluginOutcome = {
+		},
+		{
 			status: "aborted",
-			key: "owner/repo/design",
-			summary: "recorded as skill but SKILL.md missing; run remove then add",
-		};
-
-		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
-			level: "error",
-			text: "owner/repo/design: recorded as skill but SKILL.md missing; run remove then add",
-		});
-		expect(failureMemberLine(outcome, "design")).toEqual({
-			level: "error",
-			text: "design: recorded as skill but SKILL.md missing; run remove then add",
-		});
-	});
-
-	it("renders blocked at error level carrying the summary as the inline message", () => {
-		const outcome: PluginOutcome = {
+			summary: buildAbortMessage(
+				KEY,
+				makeEntry({ type: "pack" }),
+				{ reason: "its folder now contains packs" },
+				"project",
+			),
+		},
+		{
 			status: "blocked",
-			key: "owner/repo/design",
-			summary: "symlink target escapes the clone",
-		};
+			summary: buildCopySafetyMessage(KEY, 'symlink "evil" points outside'),
+		},
+	] as const)("renders $status at error level as its message alone, which names the member", (fields) => {
+		const outcome = { key: KEY, ...fields } as PluginOutcome;
 
-		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
-			level: "error",
-			text: "owner/repo/design: symlink target escapes the clone",
-		});
-		expect(failureMemberLine(outcome, "design")).toEqual({
-			level: "error",
-			text: "design: symlink target escapes the clone",
-		});
+		const line = failureMemberLine(outcome);
+
+		expect(line).toEqual({ level: "error", text: fields.summary });
 	});
 
 	it("returns null for a bare `failed` — its rendering is NOT shared (each caller renders it itself)", () => {
@@ -5972,7 +5989,7 @@ describe("failureMemberLine (shared loud member-line rendering)", () => {
 			summary: "owner/repo: Failed — git clone failed",
 		};
 
-		expect(failureMemberLine(outcome, "owner/repo")).toBeNull();
+		expect(failureMemberLine(outcome)).toBeNull();
 	});
 });
 
@@ -6218,6 +6235,19 @@ describe("update without a terminal", () => {
 		});
 	});
 
+	it("keeps git's whole error in a failed check's reason", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/a": makeEntry({ commit: INSTALLED_SHA }),
+		});
+		targetsByKey({ "owner/a": { kind: "check-failed", reason: SSH_REFUSAL } });
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.document).toMatchObject({
+			items: [{ key: "owner/a", status: "check-failed", reason: SSH_REFUSAL }],
+		});
+	});
+
 	it("carries a reinstall's note as a note", async () => {
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/repo/swift": makeEntry({
@@ -6315,6 +6345,24 @@ describe("update without a terminal", () => {
 				],
 			});
 			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("keeps git's whole error in a failed check's reason", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: SSH_REFUSAL,
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.document).toMatchObject({
+				items: [
+					{ key: "owner/repo", status: "check-failed", reason: SSH_REFUSAL },
+				],
+			});
 		});
 
 		it("prints an error document for a key that isn't installed", async () => {
@@ -6533,7 +6581,7 @@ describe("a key naming several entries", () => {
 			"owner/two/b": updated("b"),
 		});
 		expect(mockLog.warn).toHaveBeenCalledWith(
-			"owner/one: check failed — network timeout",
+			"owner/one: couldn't check for updates (network timeout) — left untouched",
 		);
 	});
 
@@ -7016,6 +7064,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			{ name: "a", path: "tools/skills/a" },
 			{ name: "b", path: "tools/skills/b" },
 		],
+		supportFolders: [],
 		assetDirs: [],
 	};
 	const NOTE = "owner/repo/tools now includes a, installed on its own before";
@@ -7173,7 +7222,7 @@ describe("a pack taking over loose skills from its own source", () => {
 		const LOOSE_MESSAGE =
 			"owner/repo/a was removed — the pack owner/repo/tools took it over, then failed to install";
 		const PACK_MESSAGE =
-			"Update failed for owner/repo/tools after removing old files, and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc add owner/repo/tools --pack` to install it again.";
+			"Update failed for owner/repo/tools after removing old files (disk full), and the skill it took over was removed: owner/repo/a. It is currently uninstalled. Run `npx agntc add owner/repo/tools --pack` to install it again.";
 
 		it("all-mode drops the loose entry with the pack's, since its files are gone", async () => {
 			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
@@ -7222,9 +7271,7 @@ describe("a pack taking over loose skills from its own source", () => {
 				"/fake/project",
 				{},
 			);
-			expect(mockLog.error).toHaveBeenCalledWith(
-				`tools: copy failed — ${PACK_MESSAGE}`,
-			);
+			expect(mockLog.error).toHaveBeenCalledWith(PACK_MESSAGE);
 		});
 	});
 
@@ -7306,6 +7353,81 @@ describe("a pack taking over loose skills from its own source", () => {
 				"replace them: npx agntc remove -g owner/repo/tools then npx agntc add -g owner/repo/tools --pack --overwrite",
 			),
 		);
+	});
+});
+
+describe("a pack that would remove folders still in its source", () => {
+	const KEY = "owner/repo/tools";
+	const TOOLS: FoundPack = {
+		name: "tools",
+		path: "tools",
+		skills: [{ name: "a", path: "tools/skills/a" }],
+		supportFolders: [],
+		assetDirs: [],
+	};
+	const ENTRY = makeEntry({
+		type: "pack",
+		commit: INSTALLED_SHA,
+		files: [
+			".claude/skills/a/",
+			".claude/skills/workflow-shared/",
+			".claude/skills/workflow-gates/",
+		],
+	});
+	const MESSAGE =
+		"owner/repo/tools can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack";
+
+	beforeEach(() => {
+		mockReadManifestOrExit.mockResolvedValue({ [KEY]: ENTRY });
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockDiscover.mockResolvedValue(onlyPack(TOOLS));
+		mockDroppedButInSource.mockResolvedValue([
+			"workflow-shared",
+			"workflow-gates",
+		]);
+	});
+
+	it("by key, asks the source about what the pack would no longer write, before removing anything", async () => {
+		await runUpdate(KEY).catch(() => {});
+
+		expect(mockDroppedButInSource).toHaveBeenCalledExactlyOnceWith(
+			ENTRY.files,
+			[".claude/skills/a/"],
+			{ kind: "pack", pack: TOOLS },
+			"/tmp/agntc-clone",
+		);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockCopyPack).not.toHaveBeenCalled();
+	});
+
+	it("by key, names them and how to update anyway, leaving the install as recorded", async () => {
+		const err = await runUpdate(KEY).catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect(mockLog.error).toHaveBeenCalledWith(MESSAGE);
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+	});
+
+	it("in all-mode, reports it aborted with the same message, exiting 1", async () => {
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document.items).toEqual([
+			expect.objectContaining({
+				key: KEY,
+				status: "aborted",
+				message: MESSAGE,
+			}),
+		]);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockWriteManifest).not.toHaveBeenCalled();
 	});
 });
 

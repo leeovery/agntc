@@ -3,12 +3,13 @@ import {
 	cp,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	rm,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { CANCEL } = vi.hoisted(() => ({ CANCEL: Symbol("cancel") }));
@@ -31,7 +32,7 @@ vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 
 vi.mock("../../src/git-utils.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-utils.js")>()),
-	execGit: vi.fn(),
+	lsRemote: vi.fn(),
 	fetchRemoteTags: vi.fn(),
 }));
 
@@ -45,13 +46,14 @@ import { runAdd } from "../../src/commands/add.js";
 import { runUpdate } from "../../src/commands/update.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
-import { execGit, fetchRemoteTags } from "../../src/git-utils.js";
+import { fetchRemoteTags, lsRemote } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
+import { MachineUi } from "../../src/ui.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
-const mockExecGit = vi.mocked(execGit);
+const mockLsRemote = vi.mocked(lsRemote);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
 const mockMultiselect = vi.mocked(p.multiselect);
@@ -92,8 +94,8 @@ beforeEach(async () => {
 		kind: "head",
 		resolvedSha: NEW_SHA,
 	});
-	mockExecGit.mockImplementation(
-		lsRemote((ref) => (ref === "HEAD" ? NEW_SHA : undefined)),
+	mockLsRemote.mockImplementation(
+		remoteRefs((ref) => (ref === "HEAD" ? NEW_SHA : undefined)),
 	);
 });
 
@@ -144,9 +146,9 @@ async function savedManifest(): Promise<Manifest> {
 	return JSON.parse(raw) as Manifest;
 }
 
-/** `git ls-remote <url> <refs...>`: a line for each ref `shaOf` knows. */
-function lsRemote(shaOf: (ref: string) => string | undefined) {
-	return async ([, , ...refs]: string[]) => ({
+/** `ls-remote <url> <refs...>`: a line for each ref `shaOf` knows. */
+function remoteRefs(shaOf: (ref: string) => string | undefined) {
+	return async ([, ...refs]: string[]) => ({
 		stdout: refs
 			.flatMap((ref) => {
 				const sha = shaOf(ref);
@@ -586,6 +588,424 @@ describe("integration: add and update", () => {
 		});
 	});
 
+	describe("a pack whose skills/ holds support folders, shaped like agentic-workflows", () => {
+		const KEY = "leeovery/agentic-workflows";
+		const WORKFLOWS = {
+			"agntc.json": PACK,
+			"README.md": "",
+			"package.json": "{}",
+			"tests/engine.test.ts": "",
+			"agents/workflow-reviewer.md": "",
+			"skills/README.md": "",
+			"skills/workflow-start/SKILL.md": "",
+			"skills/workflow-start/references/routing.md": "",
+			"skills/workflow-planning-process/SKILL.md": "",
+			"skills/workflow-shared/references/casing-conventions.md": "v1",
+			"skills/workflow-shared/references/composing-a-raise.md": "",
+			"skills/workflow-gates/.claude-plugin/plugin.json": "{}",
+			"skills/workflow-gates/hooks/hooks.json": "{}",
+			"skills/workflow-gates/hooks/guard.ts": "",
+			"skills/workflow-gates/tests/guard.test.ts": "",
+			"skills/workflow-gates/README.md": "",
+			"skills/workflow-gates/tsconfig.json": "{}",
+		};
+		const SKILLS = [
+			".claude/skills/workflow-planning-process/SKILL.md",
+			".claude/skills/workflow-start/SKILL.md",
+			".claude/skills/workflow-start/references/routing.md",
+		];
+		const SHARED = [
+			".claude/skills/workflow-shared/references/casing-conventions.md",
+			".claude/skills/workflow-shared/references/composing-a-raise.md",
+		];
+		const GATES = [
+			".claude/skills/workflow-gates/.claude-plugin/plugin.json",
+			".claude/skills/workflow-gates/README.md",
+			".claude/skills/workflow-gates/hooks/guard.ts",
+			".claude/skills/workflow-gates/hooks/hooks.json",
+			".claude/skills/workflow-gates/tsconfig.json",
+		];
+
+		/** Every file under `.claude/`, install-root-relative and sorted. */
+		async function installedFiles(): Promise<string[]> {
+			const entries = await readdir(join(projectDir, ".claude"), {
+				recursive: true,
+				withFileTypes: true,
+			});
+			return entries
+				.filter((entry) => entry.isFile())
+				.map((entry) =>
+					relative(projectDir, join(entry.parentPath, entry.name)),
+				)
+				.sort();
+		}
+
+		function sharedText(): Promise<string> {
+			return readFile(
+				join(
+					projectDir,
+					".claude/skills/workflow-shared/references/casing-conventions.md",
+				),
+				"utf-8",
+			);
+		}
+
+		/** Upstream after a release: one support folder changed, one added, one trimmed. */
+		async function release(): Promise<void> {
+			const { "skills/workflow-gates/tests/guard.test.ts": _, ...kept } =
+				WORKFLOWS;
+			await repo(KEY, {
+				...kept,
+				"skills/workflow-shared/references/casing-conventions.md": "v2",
+				"skills/workflow-gates-rows/.claude-plugin/plugin.json": "{}",
+				"skills/workflow-gates-rows/hooks/hooks.json": "{}",
+			});
+		}
+
+		async function addAtOldCommit(): Promise<void> {
+			const dir = await repo(KEY, WORKFLOWS);
+			mockCloneSource.mockImplementationOnce(async () => {
+				const tempDir = await mkdtemp(join(testDir, "clone-"));
+				await cp(dir, tempDir, { recursive: true });
+				return { tempDir, commit: OLD_SHA };
+			});
+			await runAdd(KEY);
+		}
+
+		it("add installs its skills, its agents and every support folder whole, and nothing else", async () => {
+			await addAtOldCommit();
+
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates/tests/guard.test.ts",
+				].sort(),
+			);
+			expect(await savedManifest()).toEqual({
+				[KEY]: expect.objectContaining({
+					type: "pack",
+					commit: OLD_SHA,
+					files: [
+						".claude/skills/workflow-planning-process/",
+						".claude/skills/workflow-start/",
+						".claude/skills/workflow-gates/",
+						".claude/skills/workflow-shared/",
+						".claude/agents/workflow-reviewer.md",
+					],
+				}),
+			});
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"agentic-workflows (pack · 2 skills, 2 folders, 1 agent)",
+			);
+		});
+
+		it("update replaces each support folder whole, bringing in a new one", async () => {
+			await addAtOldCommit();
+			await release();
+
+			await runUpdate();
+
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates-rows/.claude-plugin/plugin.json",
+					".claude/skills/workflow-gates-rows/hooks/hooks.json",
+				].sort(),
+			);
+			expect(await sharedText()).toBe("v2");
+			expect((await savedManifest())[KEY]).toMatchObject({
+				type: "pack",
+				commit: NEW_SHA,
+				files: [
+					".claude/skills/workflow-planning-process/",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-gates-rows/",
+					".claude/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			});
+		});
+
+		it("update keeps the support folders a v1 manifest recorded, folder by folder and file by file", async () => {
+			await repo(KEY, WORKFLOWS);
+			await write(projectDir, {
+				".claude/agents/workflow-reviewer.md": "",
+				".claude/skills/workflow-start/SKILL.md": "",
+				".claude/skills/workflow-shared/references/casing-conventions.md": "v0",
+				".claude/skills/workflow-gates/README.md": "",
+			});
+			await write(join(projectDir, ".agntc"), {
+				"manifest.json": {
+					[KEY]: {
+						ref: null,
+						commit: OLD_SHA,
+						installedAt: "2026-01-15T10:00:00.000Z",
+						agents: ["claude"],
+						type: "plugin",
+						files: [
+							".claude/skills/workflow-start/",
+							".claude/skills/workflow-start/SKILL.md",
+							".claude/skills/workflow-shared/",
+							".claude/skills/workflow-shared/references/",
+							".claude/skills/workflow-shared/references/casing-conventions.md",
+							".claude/skills/workflow-gates/",
+							".claude/skills/workflow-gates/README.md",
+							".claude/agents/workflow-reviewer.md",
+						],
+					},
+				},
+			});
+
+			await runUpdate();
+
+			expect(await sharedText()).toBe("v1");
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates/tests/guard.test.ts",
+				].sort(),
+			);
+			expect((await savedManifest())[KEY]).toMatchObject({
+				type: "pack",
+				commit: NEW_SHA,
+				files: [
+					".claude/skills/workflow-planning-process/",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			});
+		});
+
+		it("update brings back the support folders a 0.5 manifest lost", async () => {
+			await repo(KEY, WORKFLOWS);
+			await write(projectDir, {
+				".claude/agents/workflow-reviewer.md": "",
+				".claude/skills/workflow-start/SKILL.md": "",
+				".claude/skills/workflow-planning-process/SKILL.md": "",
+			});
+			await write(join(projectDir, ".agntc"), {
+				"manifest.json": {
+					[KEY]: {
+						ref: null,
+						commit: OLD_SHA,
+						installedAt: "2026-10-13T10:00:00.000Z",
+						type: "pack",
+						cloneUrl: "https://github.com/leeovery/agentic-workflows.git",
+						files: [
+							".claude/skills/workflow-planning-process/",
+							".claude/skills/workflow-start/",
+							".claude/agents/workflow-reviewer.md",
+						],
+					},
+				},
+			});
+
+			await runUpdate();
+
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates/tests/guard.test.ts",
+				].sort(),
+			);
+			expect((await savedManifest())[KEY]).toMatchObject({
+				type: "pack",
+				commit: NEW_SHA,
+				files: [
+					".claude/skills/workflow-planning-process/",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			});
+		});
+
+		describe("installed by v1 for Claude and Codex", () => {
+			const V1_ENTRY = {
+				ref: null,
+				commit: OLD_SHA,
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude", "codex"],
+				type: "plugin",
+				files: [
+					".claude/skills/README.md",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-start/SKILL.md",
+					".claude/skills/workflow-shared/",
+					".claude/skills/workflow-shared/references/",
+					".claude/skills/workflow-shared/references/casing-conventions.md",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-gates/README.md",
+					".agents/skills/workflow-start/",
+					".agents/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			};
+
+			async function installV1(): Promise<void> {
+				await write(projectDir, {
+					".claude/skills/README.md": "",
+					".claude/skills/workflow-start/SKILL.md": "v0",
+					".claude/skills/workflow-shared/references/casing-conventions.md":
+						"v0",
+					".claude/skills/workflow-gates/README.md": "",
+					".agents/skills/workflow-start/SKILL.md": "v0",
+					".agents/skills/workflow-shared/references/casing-conventions.md":
+						"v0",
+					".claude/agents/workflow-reviewer.md": "",
+				});
+				await write(join(projectDir, ".agntc"), {
+					"manifest.json": { [KEY]: V1_ENTRY },
+				});
+			}
+
+			it("update replaces it without stopping: support folders kept, the loose README and Codex copies gone", async () => {
+				await repo(KEY, WORKFLOWS);
+				await installV1();
+
+				await runUpdate();
+
+				expect(mockLog.error).not.toHaveBeenCalled();
+				expect(await sharedText()).toBe("v1");
+				expect(await installedFiles()).toEqual(
+					[
+						".claude/agents/workflow-reviewer.md",
+						...SKILLS,
+						...SHARED,
+						...GATES,
+						".claude/skills/workflow-gates/tests/guard.test.ts",
+					].sort(),
+				);
+				expect(await installed(".agents/skills/workflow-start")).toBe(false);
+				expect(await installed(".agents/skills/workflow-shared")).toBe(false);
+				expect((await savedManifest())[KEY]).toMatchObject({
+					type: "pack",
+					commit: NEW_SHA,
+				});
+			});
+
+			describe("when upstream moved a support folder out of skills/", () => {
+				const MESSAGE =
+					"leeovery/agentic-workflows can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove leeovery/agentic-workflows then npx agntc add leeovery/agentic-workflows --pack";
+
+				beforeEach(async () => {
+					const {
+						"skills/workflow-shared/references/casing-conventions.md": _,
+						"skills/workflow-shared/references/composing-a-raise.md": __,
+						...rest
+					} = WORKFLOWS;
+					await repo(KEY, {
+						...rest,
+						"shared/workflow-shared/references/casing-conventions.md": "v2",
+					});
+					await installV1();
+				});
+
+				async function expectInstallIntact(): Promise<void> {
+					expect(await sharedText()).toBe("v0");
+					expect(
+						await readFile(
+							join(projectDir, ".claude/skills/workflow-start/SKILL.md"),
+							"utf-8",
+						),
+					).toBe("v0");
+					expect(await installed(".claude/skills/README.md")).toBe(true);
+					expect(await installed(".agents/skills/workflow-shared")).toBe(true);
+					expect(await savedManifest()).toEqual({ [KEY]: V1_ENTRY });
+				}
+
+				it("update by key stops before removing anything, naming the folder", async () => {
+					expect(await updateError(KEY)).toBeInstanceOf(ExitSignal);
+
+					expect(mockLog.error).toHaveBeenCalledWith(MESSAGE);
+					await expectInstallIntact();
+				});
+
+				it("update of everything stops it with the same message, the key printed once", async () => {
+					expect(await updateError()).toBeInstanceOf(ExitSignal);
+
+					const stops = vi
+						.mocked(p.spinner)
+						.mock.results.flatMap(({ value }) =>
+							value.stop.mock.calls.map(([text]: [string]) => text),
+						);
+					expect(stops).toContain(MESSAGE);
+					await expectInstallIntact();
+				});
+			});
+		});
+
+		describe("with a folder agntc didn't install where a support folder goes", () => {
+			const MINE = ".claude/skills/workflow-shared/mine.md";
+
+			async function readMine(): Promise<string> {
+				return readFile(join(projectDir, MINE), "utf-8");
+			}
+
+			it("add asks, and on cancel installs nothing and leaves it alone", async () => {
+				await repo(KEY, WORKFLOWS);
+				await write(projectDir, { [MINE]: "mine" });
+				vi.mocked(p.select).mockResolvedValue("cancel");
+
+				await runAdd(KEY);
+
+				expect(p.note).toHaveBeenCalledWith(
+					expect.stringContaining(".claude/skills/workflow-shared/"),
+					`Unmanaged files for "${KEY}"`,
+				);
+				expect(await readMine()).toBe("mine");
+				expect(await installed(".claude/skills/workflow-start")).toBe(false);
+				expect(await savedManifest()).toEqual({});
+			});
+
+			it("update aborts before removing anything, the install left intact", async () => {
+				await repo(KEY, WORKFLOWS);
+				await write(projectDir, {
+					".claude/skills/workflow-start/SKILL.md": "old",
+					[MINE]: "mine",
+				});
+				const entry = {
+					ref: null,
+					commit: OLD_SHA,
+					installedAt: "2026-10-13T10:00:00.000Z",
+					type: "pack",
+					cloneUrl: "https://github.com/leeovery/agentic-workflows.git",
+					files: [".claude/skills/workflow-start/"],
+				};
+				await write(join(projectDir, ".agntc"), {
+					"manifest.json": { [KEY]: entry },
+				});
+
+				expect(await updateError()).toBeInstanceOf(ExitSignal);
+
+				expect(await readMine()).toBe("mine");
+				expect(
+					await readFile(
+						join(projectDir, ".claude/skills/workflow-start/SKILL.md"),
+						"utf-8",
+					),
+				).toBe("old");
+				expect(await savedManifest()).toEqual({ [KEY]: entry });
+			});
+		});
+	});
+
 	describe("a pack and the loose skills from its own source", () => {
 		it("adding the pack takes over a loose skill it now holds, without asking", async () => {
 			await repo("owner/repo", {
@@ -649,6 +1069,107 @@ describe("integration: add and update", () => {
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
 		});
+
+		describe("with a support folder named like a loose skill", () => {
+			const LARAVEL = {
+				"laravel/agntc.json": PACK,
+				"laravel/skills/api/SKILL.md": "",
+				"tools/shared/SKILL.md": "loose",
+			};
+			const WITH_SHARED = {
+				...LARAVEL,
+				"laravel/skills/shared/notes.md": "the pack's",
+			};
+
+			function looseText(): Promise<string> {
+				return readFile(
+					join(projectDir, ".claude/skills/shared/SKILL.md"),
+					"utf-8",
+				);
+			}
+
+			it("adding the pack stops at the loose skill as another install's files, taking nothing over", async () => {
+				await repo("owner/repo", WITH_SHARED);
+				await runAdd("owner/repo", { skill: ["shared"] });
+				const ui = new MachineUi("add", "project");
+
+				const err = await runAdd("owner/repo/laravel", {}, ui).catch(
+					(error: unknown) => error,
+				);
+
+				expect(err).toBeInstanceOf(ExitSignal);
+				expect(ui.document(1)).toMatchObject({
+					items: [
+						{
+							key: "owner/repo/laravel",
+							status: "skipped",
+							reason:
+								"files in the way belong to owner/repo/shared: .claude/skills/shared/",
+							flags: ["--overwrite"],
+						},
+					],
+					notes: [],
+				});
+				expect(Object.keys(await savedManifest())).toEqual([
+					"owner/repo/shared",
+				]);
+				expect(await looseText()).toBe("loose");
+			});
+
+			it("updating a pack that now ships it stops before removing anything, both left installed", async () => {
+				const v1 = await repo("owner/repo", LARAVEL);
+				mockCloneSource.mockImplementationOnce(async () => {
+					const tempDir = await mkdtemp(join(testDir, "clone-"));
+					await cp(v1, tempDir, { recursive: true });
+					return { tempDir, commit: OLD_SHA };
+				});
+				await runAdd("owner/repo/laravel");
+				await runAdd("owner/repo", { skill: ["shared"] });
+				const before = await savedManifest();
+				await repo("owner/repo", WITH_SHARED);
+
+				expect(await updateError("owner/repo/laravel")).toBeInstanceOf(
+					ExitSignal,
+				);
+
+				expect(mockLog.error).toHaveBeenCalledWith(
+					expect.stringContaining(
+						"files of owner/repo/shared are in the way: .claude/skills/shared/",
+					),
+				);
+				expect(await savedManifest()).toEqual(before);
+				expect(await looseText()).toBe("loose");
+				expect(await installed(".claude/skills/shared/notes.md")).toBe(false);
+				expect(mockLog.info).not.toHaveBeenCalledWith(
+					expect.stringContaining("now includes shared"),
+				);
+			});
+
+			it("updating a pack that now ships a skill of that name still takes the loose skill over", async () => {
+				const v1 = await repo("owner/repo", LARAVEL);
+				mockCloneSource.mockImplementationOnce(async () => {
+					const tempDir = await mkdtemp(join(testDir, "clone-"));
+					await cp(v1, tempDir, { recursive: true });
+					return { tempDir, commit: OLD_SHA };
+				});
+				await runAdd("owner/repo/laravel");
+				await runAdd("owner/repo", { skill: ["shared"] });
+				await repo("owner/repo", {
+					...LARAVEL,
+					"laravel/skills/shared/SKILL.md": "the pack's",
+				});
+
+				await runUpdate("owner/repo/laravel");
+
+				expect(Object.keys(await savedManifest())).toEqual([
+					"owner/repo/laravel",
+				]);
+				expect(await looseText()).toBe("the pack's");
+				expect(mockLog.info).toHaveBeenCalledWith(
+					"owner/repo/laravel now includes shared, installed on its own before",
+				);
+			});
+		});
 	});
 
 	describe("an entry added at a branch", () => {
@@ -697,7 +1218,9 @@ describe("integration: add and update", () => {
 					? { kind: "head", resolvedSha }
 					: { kind: "branch", resolvedSha };
 			});
-			mockExecGit.mockImplementation(lsRemote((ref) => remote.get(ref)?.sha));
+			mockLsRemote.mockImplementation(
+				remoteRefs((ref) => remote.get(ref)?.sha),
+			);
 		});
 
 		it("stays on its branch across two updates while the branch moves", async () => {

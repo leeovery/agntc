@@ -1,6 +1,12 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { execGit } from "./git-utils.js";
+import { errorMessage } from "./errors.js";
+import {
+	execGit,
+	GIT_ATTEMPTS,
+	isFinalGitError,
+	withGitRetry,
+} from "./git-utils.js";
 import type { ParsedSource } from "./source-parser.js";
 import { resolveCloneUrl } from "./source-parser.js";
 
@@ -9,22 +15,32 @@ export interface CloneResult {
 	commit: string;
 }
 
-const MAX_ATTEMPTS = 3;
-const RETRY_DELAYS = [500, 1000];
+const CLONE_TIMEOUT = 60_000;
 
-const AUTH_ERROR_PATTERNS = [
-	"Authentication",
-	"Permission denied",
-	"could not read Username",
-	"could not read Password",
-];
-
-function isAuthError(stderr: string): boolean {
-	return AUTH_ERROR_PATTERNS.some((pattern) => stderr.includes(pattern));
+/**
+ * One clone attempt, into an emptied `tempDir`: git refuses a folder a
+ * failed attempt left files in, and that refusal would hide the real cause.
+ */
+async function cloneInto(
+	cloneArgs: string[],
+	tempDir: string,
+): Promise<CloneResult> {
+	await rm(tempDir, { recursive: true, force: true });
+	await mkdir(tempDir, { mode: 0o700 });
+	await execGit(cloneArgs, { timeout: CLONE_TIMEOUT });
+	const { stdout } = await execGit(["-C", tempDir, "rev-parse", "HEAD"], {
+		timeout: CLONE_TIMEOUT,
+	});
+	return { tempDir, commit: stdout.trim() };
 }
 
-function delay(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
+function cloneError(err: unknown): Error {
+	if (isFinalGitError(err)) {
+		return new Error(`git clone failed: ${errorMessage(err)}`);
+	}
+	return new Error(
+		`git clone failed after ${GIT_ATTEMPTS} attempts: ${errorMessage(err)}`,
+	);
 }
 
 export async function cloneSource(parsed: ParsedSource): Promise<CloneResult> {
@@ -37,37 +53,15 @@ export async function cloneSource(parsed: ParsedSource): Promise<CloneResult> {
 	}
 	cloneArgs.push(url, tempDir);
 
-	let lastError: Error | undefined;
-
-	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-		try {
-			await execGit(cloneArgs, { timeout: 60_000 });
-			const { stdout } = await execGit(["-C", tempDir, "rev-parse", "HEAD"], {
-				timeout: 60_000,
-			});
-			const commit = stdout.trim();
-			return { tempDir, commit };
-		} catch (err: unknown) {
-			lastError = err as Error;
-			const stderr = (err as { stderr?: string }).stderr ?? "";
-
-			if (isAuthError(stderr)) {
-				await rm(tempDir, { recursive: true, force: true });
-				throw new Error(
-					`git clone failed: ${stderr || (err as Error).message}`,
-				);
-			}
-
-			if (attempt < MAX_ATTEMPTS) {
-				await delay(RETRY_DELAYS[attempt - 1]!);
-			}
-		}
+	try {
+		return await withGitRetry(
+			() => cloneInto(cloneArgs, tempDir),
+			isFinalGitError,
+		);
+	} catch (err: unknown) {
+		await rm(tempDir, { recursive: true, force: true });
+		throw cloneError(err);
 	}
-
-	await rm(tempDir, { recursive: true, force: true });
-	throw new Error(
-		`git clone failed after ${MAX_ATTEMPTS} attempts: ${lastError?.message ?? "unknown error"}`,
-	);
 }
 
 export async function cleanupTempDir(path: string): Promise<void> {

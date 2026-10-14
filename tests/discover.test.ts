@@ -280,6 +280,7 @@ describe("discover", () => {
 							{ name: "a", path: "skills/a" },
 							{ name: "b", path: "skills/b" },
 						],
+						supportFolders: [],
 						assetDirs: ["agents", "hooks"],
 					},
 				],
@@ -338,6 +339,7 @@ describe("discover", () => {
 						name: "p",
 						path: "plugins/p",
 						skills: [{ name: "s", path: "plugins/p/skills/s" }],
+						supportFolders: [],
 						assetDirs: [],
 					},
 				],
@@ -373,6 +375,7 @@ describe("discover", () => {
 							{ name: "deep", path: "outer/inner/deep" },
 							{ name: "own", path: "outer/own" },
 						],
+						supportFolders: [],
 						assetDirs: [],
 					},
 				],
@@ -527,6 +530,173 @@ describe("discover", () => {
 		});
 	});
 
+	describe("pack supportFolders", () => {
+		async function packOf(spec: Record<string, string>): Promise<FoundPack> {
+			await tree({ "agntc.json": PACK, ...spec });
+			const [pack] = (await run()).packs;
+			if (pack === undefined) {
+				throw new Error("no pack found");
+			}
+			return pack;
+		}
+
+		it("records a folder in skills/ holding no skill, by its name and path", async () => {
+			const pack = await packOf({
+				...skillsAt("skills/start"),
+				"skills/workflow-shared/references/a.md": "",
+			});
+
+			expect(pack.skills).toEqual([{ name: "start", path: "skills/start" }]);
+			expect(pack.supportFolders).toEqual([
+				{ name: "workflow-shared", path: "skills/workflow-shared" },
+			]);
+		});
+
+		it("records a support folder whatever it holds, hidden folders included", async () => {
+			const pack = await packOf({
+				"skills/gates/.claude-plugin/plugin.json": "{}",
+				"skills/gates/hooks/guard.ts": "",
+				"skills/gates/README.md": "",
+			});
+
+			expect(pack.supportFolders).toEqual([
+				{ name: "gates", path: "skills/gates" },
+			]);
+		});
+
+		it("reads a category folder's folders the same way: its skills and its support folders", async () => {
+			const pack = await packOf({
+				...skillsAt("skills/review/pr"),
+				"skills/review/shared/notes.md": "",
+				"skills/top/x.md": "",
+			});
+
+			expect(paths(pack.skills)).toEqual(["skills/review/pr"]);
+			expect(pack.supportFolders).toEqual([
+				{ name: "shared", path: "skills/review/shared" },
+				{ name: "top", path: "skills/top" },
+			]);
+		});
+
+		it("reads nested categories down to their support folders", async () => {
+			const pack = await packOf({
+				...skillsAt("skills/a/b/s"),
+				"skills/a/b/lib/x.md": "",
+				"skills/a/docs/x.md": "",
+			});
+
+			expect(paths(pack.skills)).toEqual(["skills/a/b/s"]);
+			expect(paths(pack.supportFolders)).toEqual([
+				"skills/a/b/lib",
+				"skills/a/docs",
+			]);
+		});
+
+		it("records a folder the walk didn't reach a skill under", async () => {
+			const pack = await packOf(skillsAt("skills/a/b/c/d/s"));
+
+			expect(pack.skills).toEqual([]);
+			expect(pack.supportFolders).toEqual([{ name: "a", path: "skills/a" }]);
+		});
+
+		it.each([
+			["a hidden folder", "skills/.cache/x.md"],
+			["node_modules", "skills/node_modules/x/index.js"],
+			["dist", "skills/dist/x.js"],
+			["build", "skills/build/x.js"],
+			["vendor", "skills/vendor/x.php"],
+			["a loose file in skills/", "skills/README.md"],
+			["a loose file in a category", "skills/cat/README.md"],
+		])("leaves out %s", async (_, path) => {
+			const pack = await packOf({ ...skillsAt("skills/cat/s"), [path]: "" });
+
+			expect(pack.supportFolders).toEqual([]);
+		});
+
+		it("leaves out a link where a support folder would be", async () => {
+			await tree({ ".store/shared/x.md": "", ...skillsAt("skills/s") });
+			await symlink(join(root, ".store/shared"), join(root, "skills/shared"));
+
+			const pack = await packOf({});
+
+			expect(pack.supportFolders).toEqual([]);
+		});
+
+		it("reads nothing through a symlinked skills/ folder", async () => {
+			await tree({ ".store/shared/x.md": "" });
+			await symlink(join(root, ".store"), join(root, "skills"));
+
+			const pack = await packOf({ "agents/a.md": "" });
+
+			expect(pack.supportFolders).toEqual([]);
+		});
+
+		it("records none when skills/ is itself a skill", async () => {
+			const pack = await packOf({
+				"skills/SKILL.md": "",
+				"skills/references/x.md": "",
+			});
+
+			expect(paths(pack.skills)).toEqual(["skills"]);
+			expect(pack.supportFolders).toEqual([]);
+		});
+
+		it("records only folders in the pack's own top-level skills/", async () => {
+			const pack = await packOf({
+				...skillsAt("skills/s", "sub/skills/t"),
+				"docs/guide/x.md": "",
+				"tests/unit/x.ts": "",
+				"sub/skills/shared/x.md": "",
+				"agents/a.md": "",
+			});
+
+			expect(pack.supportFolders).toEqual([]);
+		});
+
+		it("records a nested pack's support folders by their repo-relative path", async () => {
+			await tree({
+				"tools/p/agntc.json": PACK,
+				...skillsAt("tools/p/skills/s"),
+				"tools/p/skills/shared/x.md": "",
+			});
+
+			const [pack] = (await run()).packs;
+
+			expect(pack?.supportFolders).toEqual([
+				{ name: "shared", path: "tools/p/skills/shared" },
+			]);
+		});
+
+		it("reads the skills/ of a folder bundled with --pack", async () => {
+			await tree({
+				...skillsAt("laravel/skills/api"),
+				"laravel/skills/shared/x.md": "",
+			});
+
+			const result = await run({ startPath: "laravel", forcePack: true });
+
+			expect(result.packs).toEqual([
+				{
+					name: "laravel",
+					path: "laravel",
+					skills: [{ name: "api", path: "laravel/skills/api" }],
+					supportFolders: [{ name: "shared", path: "laravel/skills/shared" }],
+					assetDirs: [],
+				},
+			]);
+		});
+
+		it("records none for a folder outside any pack", async () => {
+			await tree({ ...skillsAt("skills/s"), "skills/shared/x.md": "" });
+
+			expect(await run()).toEqual({
+				packs: [],
+				skills: [{ name: "s", path: "skills/s" }],
+				strays: [],
+			});
+		});
+	});
+
 	describe("strays", () => {
 		it("reports a plain folder with agents/ or hooks/ while its skills stay loose", async () => {
 			await tree({
@@ -604,6 +774,7 @@ describe("discover", () => {
 						name: "p",
 						path: "plugins/p",
 						skills: [{ name: "s", path: "plugins/p/skills/s" }],
+						supportFolders: [],
 						assetDirs: ["agents"],
 					},
 				],
@@ -756,6 +927,7 @@ describe("discover", () => {
 							{ name: "a", path: "skills/a" },
 							{ name: "b", path: "skills/b" },
 						],
+						supportFolders: [],
 						assetDirs: ["agents", "hooks"],
 					},
 				],
@@ -774,6 +946,7 @@ describe("discover", () => {
 					name: "laravel",
 					path: "laravel",
 					skills: [{ name: "a", path: "laravel/skills/a" }],
+					supportFolders: [],
 					assetDirs: [],
 				},
 			]);
@@ -781,7 +954,15 @@ describe("discover", () => {
 
 		it("returns an empty pack for an empty folder", async () => {
 			expect(await run({ forcePack: true })).toEqual({
-				packs: [{ name: "repo", path: "", skills: [], assetDirs: [] }],
+				packs: [
+					{
+						name: "repo",
+						path: "",
+						skills: [],
+						supportFolders: [],
+						assetDirs: [],
+					},
+				],
 				skills: [],
 				strays: [],
 			});
@@ -798,7 +979,7 @@ describe("matchSkills", () => {
 	}
 
 	function pack(path: string, skills: FoundSkill[]): FoundPack {
-		return { name: path, path, skills, assetDirs: [] };
+		return { name: path, path, skills, supportFolders: [], assetDirs: [] };
 	}
 
 	function discovery(skills: FoundSkill[], packs: FoundPack[] = []): Discovery {
@@ -883,6 +1064,19 @@ describe("matchSkills", () => {
 		const result = matchSkills(discovery([skill("a")]), ["a", "nope", "gone"]);
 
 		expect(result.missing).toEqual(["nope", "gone"]);
+	});
+
+	it("never matches a pack's support folder, which isn't a skill", () => {
+		const packed = {
+			...pack("p", [skill("p/skills/a")]),
+			supportFolders: [{ name: "shared", path: "p/skills/shared" }],
+		};
+
+		expect(matchSkills(discovery([], [packed]), ["shared"])).toEqual({
+			matched: [],
+			missing: ["shared"],
+			ambiguous: [],
+		});
 	});
 
 	it("keeps matched in wanted order", () => {

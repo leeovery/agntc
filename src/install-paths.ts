@@ -1,6 +1,7 @@
 import type { Stats } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { isSafeSegment, skillTarget } from "./asset-targets.js";
 import { isNodeError } from "./errors.js";
 
 /**
@@ -34,11 +35,6 @@ export function installPathMatcher(
 	return (path) => normalised.has(withoutTrailingSlash(path));
 }
 
-/** A single folder or file name: not empty, `.` or `..`, and holding no `/`. */
-export function isSafeSegment(name: string): boolean {
-	return name !== "" && name !== "." && name !== ".." && !name.includes("/");
-}
-
 /**
  * A relative path made only of safe segments, a trailing slash aside, so it
  * can only name something strictly below the root it's joined to.
@@ -68,6 +64,40 @@ export async function inspectInstallPath(
 		state = { kind: "present", isDirectory: stats.isDirectory() };
 	}
 	return state;
+}
+
+/**
+ * Whether the installed `.claude/skills/<name>/` is a skill rather than a
+ * pack's support folder: the manifest records the two alike. Only a real
+ * folder found holding no `SKILL.md` that isn't a folder is a support folder.
+ * A `SKILL.md` that is a link is a skill's, and whatever the probe can't tell
+ * without following a link (a link at the folder, a folder that's gone, a
+ * path it can't read) counts as a skill, as it did before support folders.
+ */
+export async function isInstalledSkill(
+	installRoot: string,
+	name: string,
+): Promise<boolean> {
+	if (!isSafeSegment(name)) {
+		return true;
+	}
+	const supportFolder = await holdsNoSkillFile(installRoot, name).catch(
+		() => false,
+	);
+	return !supportFolder;
+}
+
+async function holdsNoSkillFile(
+	installRoot: string,
+	name: string,
+): Promise<boolean> {
+	const folder = skillTarget(name);
+	const skillFile = await inspectInstallPath(installRoot, `${folder}SKILL.md`);
+	if (skillFile.kind !== "missing") {
+		return skillFile.kind === "present" && skillFile.isDirectory;
+	}
+	const state = await inspectInstallPath(installRoot, folder);
+	return state.kind === "present" && state.isDirectory;
 }
 
 /**

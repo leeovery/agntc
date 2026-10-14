@@ -134,6 +134,26 @@ describe("renderAddSummary", () => {
 		expect(result.installed).toEqual(["repo (pack · 0 skills, 2 agents)"]);
 	});
 
+	it("counts a pack's support folders after its skills", () => {
+		const result = renderAddSummary({
+			sourceKey: "owner/repo",
+			ref: "main",
+			commit: "abc123",
+			outcomes: [
+				{
+					...item("repo", "pack"),
+					status: "installed",
+					assetCounts: { skills: 23, folders: 3, agents: 1 },
+					files: [],
+				},
+			],
+		});
+
+		expect(result.installed).toEqual([
+			"repo (pack · 23 skills, 3 folders, 1 agent)",
+		]);
+	});
+
 	it("lists skipped and failed items with their reasons", () => {
 		const result = renderAddSummary({
 			sourceKey: "owner/repo",

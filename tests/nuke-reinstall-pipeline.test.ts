@@ -7,7 +7,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManifestEntry } from "../src/manifest.js";
 import { makeEntry } from "./helpers/factories.js";
@@ -89,6 +89,14 @@ const mockInspectSourcePath = vi.mocked(inspectSourcePath);
 const actualCopySafety = await vi.importActual<
 	typeof import("../src/copy-safety.js")
 >("../src/copy-safety.js");
+const { discover: actualDiscover } =
+	await vi.importActual<typeof import("../src/discover.js")>(
+		"../src/discover.js",
+	);
+const { pathExists: actualPathExists } =
+	await vi.importActual<typeof import("../src/fs-utils.js")>(
+		"../src/fs-utils.js",
+	);
 
 function makeOptions(
 	overrides: Partial<NukeReinstallOptions> = {},
@@ -113,6 +121,7 @@ function foundPack(overrides: Partial<FoundPack> = {}): FoundPack {
 		name: "laravel",
 		path: "laravel",
 		skills: [{ name: "api", path: "laravel/skills/api" }],
+		supportFolders: [],
 		assetDirs: [],
 		...overrides,
 	};
@@ -447,6 +456,44 @@ describe("executeNukeAndReinstall", () => {
 				status: "aborted",
 				reason:
 					"laravel/skills/a/lint and laravel/tools/lint would both install to .claude/skills/lint",
+				sourceClash: true,
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
+		it("still reinstalls a pack left with only support folders", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						skills: [],
+						supportFolders: [{ name: "shared", path: "laravel/skills/shared" }],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result.status).toBe("success");
+		});
+
+		it("aborts, leaving the install intact, when a skill and a support folder share a folder name", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						skills: [{ name: "shared", path: "laravel/skills/cat/shared" }],
+						supportFolders: [{ name: "shared", path: "laravel/skills/shared" }],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"laravel/skills/cat/shared and laravel/skills/shared would both install to .claude/skills/shared",
+				sourceClash: true,
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyPack).not.toHaveBeenCalled();
@@ -639,6 +686,23 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				entry: { type: "skill", sourceSubpath: "tools/skills/go" },
 			});
+		});
+
+		it("never follows a pack's support folder of that name, which isn't a skill", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						path: "tools",
+						skills: [],
+						supportFolders: [{ name: "go", path: "tools/skills/go" }],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(result).toEqual({ status: "gone" });
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 
 		it("drops the recorded path when the skill moved to where its key points", async () => {
@@ -1148,7 +1212,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(result).toMatchObject({
 				status: "copy-failed",
 				recoveryHint:
-					"Update failed for owner/repo/packs/foo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
+					"Update failed for owner/repo/packs/foo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
 			});
 		});
 	});
@@ -1302,7 +1366,7 @@ describe("executeNukeAndReinstall", () => {
 				errorMessage: "disk full",
 				absorbed: ["owner/repo/queues"],
 				recoveryHint:
-					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
 			});
 		});
 
@@ -1325,6 +1389,34 @@ describe("executeNukeAndReinstall", () => {
 				reason:
 					"couldn't remove its old files: EISDIR: illegal operation on a directory",
 			});
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
+		it("aborts at a loose skill from its own source that a support folder lands on, absorbing nothing", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						supportFolders: [{ name: "queues", path: "laravel/skills/queues" }],
+					}),
+				),
+			);
+			const loose = makeEntry({
+				type: "skill",
+				files: [".claude/skills/queues/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				packOptions({ "owner/repo/queues": loose }),
+			);
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"files of owner/repo/queues are in the way: .claude/skills/queues/",
+				inTheWay: true,
+				replayed: expect.objectContaining({ key: PACK_KEY }),
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 
@@ -1367,6 +1459,305 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.status).toBe("success");
 			expect(result).toMatchObject({ absorbed: [], notes: [] });
+		});
+	});
+
+	describe("a recorded skills folder the reinstall wouldn't write", () => {
+		let clone: string;
+
+		beforeEach(async () => {
+			clone = await realpath(
+				await mkdtemp(join(tmpdir(), "agntc-pipeline-dropped-")),
+			);
+			mockDiscover.mockImplementation(actualDiscover);
+			mockPathExists.mockImplementation(actualPathExists);
+		});
+
+		afterEach(async () => {
+			await rm(clone, { recursive: true, force: true });
+		});
+
+		async function upstream(...files: string[]): Promise<void> {
+			for (const file of files) {
+				await mkdir(dirname(join(clone, file)), { recursive: true });
+				await writeFile(join(clone, file), "");
+			}
+		}
+
+		function packOptions(files: string[]): NukeReinstallOptions {
+			return makeOptions({
+				key: "owner/repo/tools",
+				sourceDir: join(clone, "tools"),
+				cloneRoot: clone,
+				existingEntry: makeEntry({ type: "pack", files }),
+			});
+		}
+
+		function skillOptions(
+			key: string,
+			sourceSubpath: string,
+			files: string[],
+		): NukeReinstallOptions {
+			return makeOptions({
+				key,
+				sourceDir: join(clone, sourceSubpath),
+				cloneRoot: clone,
+				existingEntry: makeEntry({ type: "skill", sourceSubpath, files }),
+			});
+		}
+
+		function expectNothingRemoved(): void {
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		}
+
+		it("aborts, removing nothing, when a pack would drop folders its source still has outside anything it installs", async () => {
+			await upstream(
+				"tools/skills/api/SKILL.md",
+				"tools/shared/workflow-shared/references/casing.md",
+				"tools/lib/deep/workflow-gates/hooks.json",
+			);
+
+			const result = await executeNukeAndReinstall(
+				packOptions([
+					".claude/skills/api/",
+					".claude/skills/workflow-shared/",
+					".claude/skills/workflow-shared/references/casing.md",
+					".claude/skills/workflow-gates/",
+				]),
+			);
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed",
+				stillInSource: true,
+				replayed: {
+					key: "owner/repo/tools",
+					entry: expect.objectContaining({ type: "pack", files: [] }),
+				},
+			});
+			expectNothingRemoved();
+		});
+
+		it("names a single folder it would drop as one", async () => {
+			await upstream("tools/skills/api/SKILL.md", "tools/docs/shared/a.md");
+
+			const result = await executeNukeAndReinstall(
+				packOptions([".claude/skills/api/", ".claude/skills/shared/"]),
+			);
+
+			expect(result).toMatchObject({
+				status: "aborted",
+				reason:
+					"it would remove shared, which is still in the source but would no longer be installed",
+			});
+			expectNothingRemoved();
+		});
+
+		it("aborts on a namesake holding a skill the pack doesn't install", async () => {
+			await upstream(
+				"tools/skills/api/SKILL.md",
+				"tools/a/b/c/d/frontend/react/SKILL.md",
+			);
+
+			const result = await executeNukeAndReinstall(
+				packOptions([".claude/skills/api/", ".claude/skills/frontend/"]),
+			);
+
+			expect(result).toMatchObject({ status: "aborted", stillInSource: true });
+			expectNothingRemoved();
+		});
+
+		it.each([
+			["hooks/", "tools/hooks/lint/run.sh"],
+			["agents/", "tools/agents/lint/notes.md"],
+		])("lets a folder go whose namesake is in the pack's own %s, which installs by its own rules", async (_, file) => {
+			await upstream("tools/skills/api/SKILL.md", file);
+			const files = [".claude/skills/api/", ".claude/skills/lint/"];
+
+			const result = await executeNukeAndReinstall(packOptions(files));
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it.each([
+			["aborts on", 5, "tools/a/b/c/d/lint/a.md", "aborted"],
+			["looks no further than", 6, "tools/a/b/c/d/e/lint/a.md", "success"],
+		])("%s a namesake %i folders below the pack, as deep as discovery reads", async (_, __, file, status) => {
+			await upstream("tools/skills/api/SKILL.md", file);
+
+			const result = await executeNukeAndReinstall(
+				packOptions([".claude/skills/api/", ".claude/skills/lint/"]),
+			);
+
+			expect(result.status).toBe(status);
+		});
+
+		it("lets a category folder go when the pack installs the skills it holds", async () => {
+			await upstream(
+				"tools/skills/frontend/react/SKILL.md",
+				"tools/skills/frontend/vue/SKILL.md",
+			);
+			const files = [
+				".claude/skills/frontend/",
+				".claude/skills/frontend/react/SKILL.md",
+			];
+
+			const result = await executeNukeAndReinstall(packOptions(files));
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it("lets a folder go when its name is gone from the pack, even if the repo has it elsewhere", async () => {
+			await upstream("tools/skills/api/SKILL.md", "elsewhere/models/a.md");
+			const files = [".claude/skills/api/", ".claude/skills/models/"];
+
+			const result = await executeNukeAndReinstall(packOptions(files));
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it("never counts a hidden namesake, or one in a folder the walk skips", async () => {
+			await upstream(
+				"tools/skills/api/SKILL.md",
+				"tools/.cache/models/a.md",
+				"tools/node_modules/models/a.md",
+				"tools/dist/models/a.md",
+			);
+
+			const result = await executeNukeAndReinstall(
+				packOptions([".claude/skills/api/", ".claude/skills/models/"]),
+			);
+
+			expect(result.status).toBe("success");
+		});
+
+		it("never checks agents, hooks, legacy skill roots or loose files in .claude/skills", async () => {
+			await upstream(
+				"tools/skills/api/SKILL.md",
+				"tools/agents/helpers/notes.txt",
+				"tools/lib/a.sh",
+				"tools/docs/extra/a.md",
+				"tools/docs/notes/a.md",
+			);
+			const files = [
+				".claude/skills/api/",
+				".claude/agents/helpers/",
+				".claude/hooks/lib/",
+				".agents/skills/extra/",
+				".cursor/skills/extra/",
+				".claude/skills/notes",
+			];
+
+			const result = await executeNukeAndReinstall(packOptions(files));
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it.each([
+			["a skill", "tools/skills/api/models/a.md"],
+			["a support folder", "tools/skills/shared/models/a.md"],
+		])("lets a folder go whose namesake installs inside %s the pack installs", async (_, nested) => {
+			await upstream(
+				"tools/skills/api/SKILL.md",
+				"tools/skills/shared/README.md",
+				nested,
+			);
+			const files = [".claude/skills/api/", ".claude/skills/models/"];
+
+			const result = await executeNukeAndReinstall(packOptions(files));
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it("lets a pack re-typed as a single skill drop its old skills, which install inside it", async () => {
+			await upstream("tools/SKILL.md", "tools/skills/a/SKILL.md");
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/tools/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				packOptions([".claude/skills/a/"]),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { type: "skill", files: [".claude/skills/tools/"] },
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/a/",
+			]);
+		});
+
+		it("lets a loose skill drop a folder whose namesake installs inside its skill folder", async () => {
+			await upstream("skills/foo/SKILL.md", "skills/foo/helpers/a.md");
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+			});
+			const files = [".claude/skills/foo/", ".claude/skills/helpers/"];
+
+			const result = await executeNukeAndReinstall(
+				skillOptions("owner/repo/foo", "skills/foo", files),
+			);
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it("looks for a loose skill's dropped folder in its skill folder alone", async () => {
+			await upstream("plugins/foo/SKILL.md", "docs/my-plugin/a.md");
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				skillOptions("owner/repo/my-plugin", "plugins/foo", [
+					".claude/skills/my-plugin/",
+				]),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/foo",
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/my-plugin/",
+			]);
+		});
+
+		it("never stops on a folder it writes again, whatever namesakes it holds", async () => {
+			await upstream("tools/skills/api/SKILL.md", "tools/skills/api/api/a.md");
+
+			const result = await executeNukeAndReinstall(
+				packOptions([".claude/skills/api/"]),
+			);
+
+			expect(result.status).toBe("success");
 		});
 	});
 
@@ -1508,8 +1899,37 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.errorMessage).toBe("ENOSPC: no space left on device");
 			expect(result.recoveryHint).toBe(
-				"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 			);
+		});
+
+		it("names a many-line error by its first line in the hint, keeping the whole of it beside", async () => {
+			const error =
+				"EACCES: permission denied, mkdir\n    at copy (copy.js:1:1)";
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockRejectedValue(new Error(error));
+
+			const result = await executeNukeAndReinstall(makeOptions());
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				errorMessage: error,
+				recoveryHint:
+					"Update failed for owner/repo after removing old files (EACCES: permission denied, mkdir). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			});
+		});
+
+		it("leaves the brackets out for an error that says nothing", async () => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockRejectedValue(new Error(""));
+
+			const result = await executeNukeAndReinstall(makeOptions());
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				recoveryHint:
+					"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			});
 		});
 
 		it.each([
@@ -1849,5 +2269,19 @@ describe("sourceWalk", () => {
 		]);
 		expect(Object.isFrozen(skills)).toBe(true);
 		expect(skills.every((skill) => Object.isFrozen(skill))).toBe(true);
+	});
+
+	it("never lists a pack's support folders, which aren't skills", async () => {
+		mockDiscover.mockResolvedValue(
+			onlyPack(
+				foundPack({
+					supportFolders: [{ name: "shared", path: "laravel/skills/shared" }],
+				}),
+			),
+		);
+
+		const skills = await sourceWalk("/tmp/clone")("repo");
+
+		expect(skills).toEqual([{ name: "api", path: "laravel/skills/api" }]);
 	});
 });

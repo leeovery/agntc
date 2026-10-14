@@ -258,12 +258,14 @@ export type CloneReinstallResult =
  * and the manual remedy. Its remove names the entry as installed; its re-add
  * installs the item as replayed when the abort came after a replay, else the
  * entry as recorded. Files in the way are cleared by hand or replaced by an
- * add with --overwrite, which update doesn't take; any other abort migrates
- * by remove+add. A key taken by another entry is freed by removing that
- * entry, after which update moves this one there: an add would refuse the
- * taken key too. Distinct from the copy-failed report, which tells the user
- * the unit is currently uninstalled and to re-run update — here nothing was
- * touched.
+ * add with --overwrite, which update doesn't take. Folders it would remove
+ * that the source still has are named, and a remove+add updates it anyway,
+ * without them. Two of the source's folders installing to one place get no
+ * remedy: an add would refuse them too. A key taken by another entry is freed
+ * by removing that entry, after which update moves this one there: an add
+ * would refuse the taken key too. Any other abort migrates by remove+add.
+ * Distinct from the copy-failed report, which tells the user the unit is
+ * currently uninstalled and to re-run update — here nothing was touched.
  *
  * The re-add keeps the version the entry tracks ({@link restoreCommand}).
  * `version` is the tag a version change asked for. An update follows the
@@ -273,10 +275,23 @@ export type CloneReinstallResult =
 export function buildAbortMessage(
 	key: string,
 	entry: ManifestEntry,
-	{ reason, inTheWay, takenKey, replayed }: AbortCause,
+	{
+		reason,
+		inTheWay,
+		takenKey,
+		stillInSource,
+		sourceClash,
+		replayed,
+	}: AbortCause,
 	scope: ScopeName,
 	version?: string,
 ): string {
+	if (sourceClash) {
+		return (
+			`${key} can't be updated: in its source, ${reason}, so it can't be ` +
+			`installed as it stands. The existing install is left as it is.`
+		);
+	}
 	const again =
 		version === undefined ? "update again" : `change it to ${version} again`;
 	if (takenKey !== undefined) {
@@ -300,6 +315,12 @@ export function buildAbortMessage(
 			`${key} can't be updated: ${reason}. The existing install is ` +
 			`unchanged. Clear them and ${again}, or replace them: ` +
 			`${remove} then ${reAdd} --overwrite`
+		);
+	}
+	if (stillInSource) {
+		return (
+			`${key} can't be updated: ${reason}. The existing install is ` +
+			`unchanged. To update it anyway: ${remove} then ${reAdd}`
 		);
 	}
 	return (

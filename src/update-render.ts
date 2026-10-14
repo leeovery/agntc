@@ -1,3 +1,4 @@
+import { gitErrorCause } from "./errors.js";
 import { repoFromKey } from "./source-parser.js";
 import { upgradeAdvice } from "./summary.js";
 import type { EntryGroup } from "./update-groups.js";
@@ -73,13 +74,13 @@ export function formatNewerTagsLine(
 }
 
 /**
- * The collapsed trailing line for a check-failed group — one line carrying the
- * group's single shared probe reason. A group's resolution probe is
- * one network round-trip, so a failure is group-level: it count-collapses rather
- * than enumerating the members.
+ * The one line a failed update check prints: the collapsed trailing line for a
+ * check-failed group (its one probe's reason, never one line per member), and
+ * the single-key failure. `label` names the group or the key. The reason is cut
+ * to its cause ({@link gitErrorCause}); a machine document keeps it whole.
  */
 export function formatCheckFailedLine(label: string, reason: string): string {
-	return `${label}: check failed — ${reason}`;
+	return `${label}: couldn't check for updates (${gitErrorCause(reason)}) — left untouched`;
 }
 
 /**
@@ -170,54 +171,29 @@ export interface MemberLine {
 }
 
 /**
- * Every per-member outcome the streamed group block renders, discriminated on
- * `kind`. A `success` carries — only in the divergent-old case, where
- * the header could not carry a shared old — its own `move`. The three loud
- * non-success variants carry their already-assembled `message` /
- * `recoveryHint` (built upstream by {@link buildAbortMessage} /
- * {@link buildCopySafetyMessage} / the copy-failed recovery hint), so the
- * wording lives at one source and merely rides the line here.
+ * A member that updated, as the streamed group block renders it. It carries —
+ * only in the divergent-old case, where the header could not carry a shared
+ * old — its own `move`.
  */
-export type MemberLineInput =
-	| {
-			kind: "success";
-			name: string;
-			move?: {
-				oldRef: string | null;
-				newRef: string | null;
-				oldCommit: string;
-				newCommit: string;
-			} | null;
-	  }
-	| { kind: "copy-failed"; name: string; recoveryHint: string }
-	| { kind: "aborted"; name: string; message: string }
-	| { kind: "blocked"; name: string; message: string };
+export interface MemberLineInput {
+	kind: "success";
+	name: string;
+	move?: {
+		oldRef: string | null;
+		newRef: string | null;
+		oldCommit: string;
+		newCommit: string;
+	} | null;
+}
 
 /**
- * Maps a member outcome to its exact streamed line and clack log level — the
- * glyph (✓/✗) is supplied by the level (`p.log.success/error`), NOT embedded in
- * `text`, matching today's summary convention.
- *
- * A success renders the bare `<name>`, with the {@link formatVersionMove} as a
- * trailing parenthetical in the divergent-old case only. The loud non-success
- * variants ride their inline message.
+ * Maps an updated member to its exact streamed line and clack log level — the
+ * glyph (✓) is supplied by the level (`p.log.success`), NOT embedded in
+ * `text`, matching today's summary convention: the bare `<name>`, with the
+ * {@link formatVersionMove} as a trailing parenthetical in the divergent-old
+ * case only.
  */
 export function formatMemberLine(input: MemberLineInput): MemberLine {
-	switch (input.kind) {
-		case "success": {
-			const suffix = input.move ? `  (${formatVersionMove(input.move)})` : "";
-			return { level: "success", text: `${input.name}${suffix}` };
-		}
-		case "copy-failed":
-			return {
-				level: "error",
-				text: `${input.name}: copy failed — ${input.recoveryHint}`,
-			};
-		// aborted and blocked share one line shape (`<name>: <message>`); the
-		// difference — recorded-type remove+add remedy vs none — lives in the
-		// pre-built message, not here.
-		case "aborted":
-		case "blocked":
-			return { level: "error", text: `${input.name}: ${input.message}` };
-	}
+	const suffix = input.move ? `  (${formatVersionMove(input.move)})` : "";
+	return { level: "success", text: `${input.name}${suffix}` };
 }

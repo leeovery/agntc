@@ -266,7 +266,7 @@ async function settleKey(
 		case "constrained-up-to-date":
 			return reportUpToDate(key, ui);
 		case "check-failed":
-			ui.log.error(`Update check failed for ${key}: ${check.reason}`);
+			ui.log.error(formatCheckFailedLine(key, check.reason));
 			return { status: "check-failed", key };
 		case "newer-tags":
 			reportNewerTags(member, check.tags, run);
@@ -955,13 +955,10 @@ async function settleGoneMembers(
  * The ONE outcome→{@link MemberLine} mapping shared by the collapsed group-of-one
  * path ({@link collapsedMemberLine}) and the streamed multi-member path
  * ({@link emitMemberLine}) for the loud statuses that render IDENTICALLY on
- * both — copy-failed / aborted / blocked. Each rides its already-assembled
- * summary/hint through {@link formatMemberLine}, so a new such status is a
+ * both — copy-failed / aborted / blocked. Each is its already-assembled
+ * summary (built by {@link buildAbortMessage} / {@link buildCopySafetyMessage}
+ * / the copy-failed recovery hint) at error level, so a new such status is a
  * single-site change here and the two paths cannot drift apart.
- *
- * `name` is a PARAMETER so each caller keeps its own name source: the collapsed
- * path passes the FULL member key (`outcome.key`); the streamed path passes the
- * member basename.
  *
  * Returns `null` for a bare `failed` (and any other non-loud status): that
  * fallback is deliberately NOT shared, because the two paths reach red by
@@ -971,29 +968,14 @@ async function settleGoneMembers(
  * {@link renderFailedOutcome}. Both render `failed` at ERROR (red ✗) — uniform
  * severity across layouts — so each caller keeps its own bare-`failed` rendering.
  */
-export function failureMemberLine(
-	outcome: PluginOutcome,
-	name: string,
-): MemberLine | null {
+export function failureMemberLine(outcome: PluginOutcome): MemberLine | null {
 	switch (outcome.status) {
+		// Each summary already names the member by its key, so the line doesn't
+		// name it again.
 		case "copy-failed":
-			return formatMemberLine({
-				kind: "copy-failed",
-				name,
-				recoveryHint: outcome.summary,
-			});
 		case "aborted":
-			return formatMemberLine({
-				kind: "aborted",
-				name,
-				message: outcome.summary,
-			});
 		case "blocked":
-			return formatMemberLine({
-				kind: "blocked",
-				name,
-				message: outcome.summary,
-			});
+			return { level: "error", text: outcome.summary };
 		default:
 			return null;
 	}
@@ -1005,17 +987,16 @@ export function failureMemberLine(
  * the `spin.stop` code at the call site (`error` → 2, else → 0). A success
  * reuses the interim {@link renderUpdateOutcomeSummary} text (full key, any
  * `/member` suffix, matching {@link streamCollapsedOutcome}); the loud failure
- * variants defer to the shared {@link failureMemberLine} at the full member
- * key; a bare
- * `failed` (clone fan-out / defensive throw) is not a shared-format status (the
- * helper returns null) and rides its inline summary at error level.
+ * variants defer to the shared {@link failureMemberLine}; a bare `failed`
+ * (clone fan-out / defensive throw) is not a shared-format status (the helper
+ * returns null) and rides its inline summary at error level.
  */
 function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
 	if (isSuccessOutcome(outcome)) {
 		return { level: "success", text: outcome.summary };
 	}
 	return (
-		failureMemberLine(outcome, outcome.key) ?? {
+		failureMemberLine(outcome) ?? {
 			level: "error",
 			// A bare `failed` (clone fan-out / defensive throw) is the sole
 			// non-shared-format status that reaches this fallback; the non-actioned
@@ -1029,7 +1010,7 @@ function collapsedMemberLine(outcome: PluginOutcome): MemberLine {
  * Streams one local group-of-one: reinstalls without cloning and with
  * NO spinner, persists its manifest, then emits its single collapsed
  * line — `<key>: Refreshed from local path` on success, else its
- * {@link formatMemberLine} failure line (name = the full key).
+ * {@link failureMemberLine}.
  */
 async function streamLocalWork(
 	item: Extract<WorkItem, { kind: "local" }>,
@@ -1050,8 +1031,8 @@ async function streamLocalWork(
  * or a local entry to a single streamed line: a success reuses the interim
  * {@link renderUpdateOutcomeSummary} text (`<key>: Updated …` / `<key>: Refreshed
  * from local path`, full key preserving any `/member` suffix); a failure
- * renders its {@link formatMemberLine} line with the full member key. No group
- * header and no `(N members)`.
+ * renders its {@link failureMemberLine}. No group header and no
+ * `(N members)`.
  */
 function streamCollapsedOutcome(outcome: PluginOutcome, ui: Ui): void {
 	if (isSuccessOutcome(outcome)) {
@@ -1062,12 +1043,12 @@ function streamCollapsedOutcome(outcome: PluginOutcome, ui: Ui): void {
 }
 
 /**
- * Emits one {@link formatMemberLine} line per attempted member (member order),
- * named by the basename of the key its outcome left it under, each dispatched
- * at its own severity level. The version move rides each member line only
- * when the group is divergent-old — the header then
- * carried the target only; the shared-old common case leaves the move
- * on the header. The divergent-old decision is NOT derived here: the caller
+ * Emits one line per attempted member (member order), an updated one named
+ * by the basename of the key its outcome left it under
+ * ({@link formatMemberLine}), each dispatched at its own severity level. The
+ * version move rides each member line only when the group is divergent-old —
+ * the header then carried the target only; the shared-old common case leaves
+ * the move on the header. The divergent-old decision is NOT derived here: the caller
  * ({@link streamGroupWork}) computes it ONCE and supplies it as `divergent`, the
  * same boolean it threads into {@link formatGroupHeader}, so the header-move /
  * member-move XOR is a single source of truth and cannot drift.
@@ -1096,11 +1077,11 @@ export function streamGroupMemberLines(
 }
 
 /**
- * Maps one member outcome to its {@link formatMemberLine} line and dispatches it
- * via `ui.log[level]`. A success renders the member name plus the optional
- * divergent-old `move`; the loud variants (copy-failed/aborted/blocked) defer to
- * the shared {@link failureMemberLine} at the member basename — the same
- * rendering the collapsed path uses. A `failed` outcome — now only a per-member defensive throw
+ * Maps one member outcome to its line and dispatches it via `ui.log[level]`.
+ * A success renders the member name plus the optional divergent-old `move`
+ * ({@link formatMemberLine}); the loud variants (copy-failed/aborted/blocked) defer to
+ * the shared {@link failureMemberLine} — the same rendering the collapsed path
+ * uses. A `failed` outcome — now only a per-member defensive throw
  * or a per-member subpath-traversal reject, the GROUP-FATAL clone fan-out being
  * intercepted upstream by {@link streamGroupWork} as one enumerated line — is not a shared-format status (the helper returns null), so it falls
  * back to the {@link renderFailedOutcome} render at ERROR (red ✗) — uniform with
@@ -1123,7 +1104,7 @@ function emitMemberLine(
 		return;
 	}
 
-	const line = failureMemberLine(outcome, name);
+	const line = failureMemberLine(outcome);
 	if (line === null) {
 		renderFailedOutcome(outcome, ui);
 		return;

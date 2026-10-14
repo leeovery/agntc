@@ -53,7 +53,7 @@ import {
 import { discover } from "../src/discover.js";
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
-import { execGit, fetchRemoteTagRefs } from "../src/git-utils.js";
+import { fetchRemoteTagRefs, lsRemote } from "../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { projectScope } from "../src/scope.js";
@@ -977,7 +977,7 @@ describe("resolveGroupTarget / categorizeMember", () => {
 			latestOverall: null,
 		});
 		expect(fetchRemoteTagRefs).toHaveBeenCalledTimes(1);
-		expect(execGit).not.toHaveBeenCalled();
+		expect(lsRemote).not.toHaveBeenCalled();
 	});
 
 	it("categorizes a member at the target tag as up-to-date while a behind sibling is constrained-update-available (one shared target)", async () => {
@@ -1017,7 +1017,7 @@ describe("resolveGroupTarget / categorizeMember", () => {
 	});
 
 	it("branch members at divergent installed commits all advance to one resolved HEAD sha", async () => {
-		vi.mocked(execGit).mockResolvedValue({
+		vi.mocked(lsRemote).mockResolvedValue({
 			stdout: `${SHA_RESOLVED}\trefs/heads/main\n`,
 			stderr: "",
 		});
@@ -1042,11 +1042,11 @@ describe("resolveGroupTarget / categorizeMember", () => {
 			remoteCommit: SHA_RESOLVED,
 		});
 		expect(categorizeMember(atHead, target)).toEqual({ status: "up-to-date" });
-		expect(execGit).toHaveBeenCalledTimes(1);
+		expect(lsRemote).toHaveBeenCalledTimes(1);
 	});
 
 	it("exact-pin group resolves the newer-tags list once; category is not keyed on a resolved commit", async () => {
-		vi.mocked(execGit).mockResolvedValue({
+		vi.mocked(lsRemote).mockResolvedValue({
 			stdout: `${SHA_TGT}\trefs/tags/v1.3.0\n`,
 			stderr: "",
 		});

@@ -1,10 +1,18 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertNoLinkInTheWay,
 	inspectInstallPath,
+	isInstalledSkill,
 	withoutTrailingSlash,
 } from "../src/install-paths.js";
 
@@ -140,5 +148,67 @@ describe("assertNoLinkInTheWay", () => {
 		await expect(
 			assertNoLinkInTheWay(projectDir, ".claude/skills/foo/"),
 		).rejects.toThrow(".claude/skills/foo/refs/shared is a symlink");
+	});
+});
+
+describe("isInstalledSkill", () => {
+	async function folder(name: string, files: string[] = []): Promise<void> {
+		await mkdir(join(projectDir, ".claude/skills", name), { recursive: true });
+		for (const file of files) {
+			await writeFile(join(projectDir, ".claude/skills", name, file), "");
+		}
+	}
+
+	it("is a skill when its folder holds a SKILL.md file", async () => {
+		await folder("api", ["SKILL.md"]);
+
+		expect(await isInstalledSkill(projectDir, "api")).toBe(true);
+	});
+
+	it("is a support folder when its real folder holds no SKILL.md, or only a folder of that name", async () => {
+		await folder("refs", ["guide.md"]);
+		await folder("odd");
+		await mkdir(join(projectDir, ".claude/skills/odd/SKILL.md"));
+
+		expect(await isInstalledSkill(projectDir, "refs")).toBe(false);
+		expect(await isInstalledSkill(projectDir, "odd")).toBe(false);
+	});
+
+	it("is a skill when its SKILL.md is a link, whether or not the link leads anywhere", async () => {
+		await folder("linked");
+		await link(".claude/skills/linked/SKILL.md", join(elsewhere, "SKILL.md"));
+		await folder("dangling");
+		await link(".claude/skills/dangling/SKILL.md", join(base, "gone"));
+
+		expect(await isInstalledSkill(projectDir, "linked")).toBe(true);
+		expect(await isInstalledSkill(projectDir, "dangling")).toBe(true);
+	});
+
+	it("is a skill when the folder is a link, which it never follows", async () => {
+		await mkdir(join(elsewhere, "notes"));
+		await link(".claude/skills/shared", join(elsewhere, "notes"));
+
+		expect(await isInstalledSkill(projectDir, "shared")).toBe(true);
+	});
+
+	it("is a skill when the folder is gone", async () => {
+		expect(await isInstalledSkill(projectDir, "gone")).toBe(true);
+	});
+
+	it("is a skill, without throwing, when the folder can't be read", async () => {
+		await folder("locked", ["guide.md"]);
+		const locked = join(projectDir, ".claude/skills/locked");
+		await chmod(locked, 0o000);
+
+		try {
+			expect(await isInstalledSkill(projectDir, "locked")).toBe(true);
+		} finally {
+			await chmod(locked, 0o755);
+		}
+	});
+
+	it("is a skill, without throwing, for a name too long to probe or not one safe segment", async () => {
+		expect(await isInstalledSkill(projectDir, "x".repeat(300))).toBe(true);
+		expect(await isInstalledSkill(projectDir, "..")).toBe(true);
 	});
 });

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkForUpdate } from "../src/update-check.js";
 import { makeEntry } from "./helpers/factories.js";
-import { buildTagsOutput, mockExecFile } from "./helpers/git-mocks.js";
+import {
+	buildTagsOutput,
+	mockExecFile,
+	mockExecFileFailingFirst,
+	SSH_REFUSAL,
+	settle,
+} from "./helpers/git-mocks.js";
 
 vi.mock("node:child_process");
 
@@ -13,9 +19,11 @@ const SHA_E = "e".repeat(40);
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	vi.useFakeTimers();
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
 
@@ -253,11 +261,36 @@ describe("checkForUpdate — constrained entries", () => {
 				constraint: "^1.0",
 			});
 
-			const result = await checkForUpdate("owner/repo", entry);
+			const result = await settle(checkForUpdate("owner/repo", entry));
 
 			expect(result).toEqual({
 				status: "check-failed",
 				reason: "network error",
+			});
+		});
+
+		it("passes when the tag list succeeds on its second attempt", async () => {
+			mockExecFileFailingFirst(
+				1,
+				SSH_REFUSAL,
+				buildTagsOutput([
+					{ sha: SHA_B, tag: "v1.0.0" },
+					{ sha: SHA_C, tag: "v1.1.0" },
+				]),
+			);
+			const entry = makeEntry({
+				ref: "v1.0.0",
+				commit: SHA_B,
+				constraint: "^1.0",
+			});
+
+			const result = await settle(checkForUpdate("owner/repo", entry));
+
+			expect(result).toEqual({
+				status: "constrained-update-available",
+				tag: "v1.1.0",
+				commit: SHA_C,
+				latestOverall: null,
 			});
 		});
 	});

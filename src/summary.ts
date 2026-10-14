@@ -30,6 +30,16 @@ export function formatAssetCounts(counts: AssetCounts): string {
 		.join(", ");
 }
 
+/** A pack's counts, skills always first: `2 skills, 3 folders, 1 agent`. */
+export function formatPackCounts({
+	skills = 0,
+	...assets
+}: AssetCounts): string {
+	return [pluralize(skills, "skill"), formatAssetCounts(assets)]
+		.filter((part) => part !== "")
+		.join(", ");
+}
+
 /** Which item an add outcome is about. */
 export interface ItemIdentity {
 	label: string;
@@ -95,11 +105,7 @@ function installedLine(
 	if (outcome.kind === "skill") {
 		return outcome.label;
 	}
-	const { skills = 0, ...assets } = outcome.assetCounts;
-	const counts = [pluralize(skills, "skill"), formatAssetCounts(assets)]
-		.filter((part) => part !== "")
-		.join(", ");
-	return `${outcome.label} (pack · ${counts})`;
+	return `${outcome.label} (pack · ${formatPackCounts(outcome.assetCounts)})`;
 }
 
 interface GitUpdateSummaryInput {

@@ -1,6 +1,17 @@
-import { identifyAssetType } from "../asset-targets.js";
+import {
+	type AssetCounts,
+	hookEntryName,
+	identifyAssetType,
+	skillFolderName,
+} from "../asset-targets.js";
+import { gitErrorCause } from "../errors.js";
+import { isInstalledSkill } from "../install-paths.js";
 import type { EntryType, ManifestEntry } from "../manifest.js";
-import { formatRefLabel } from "../summary.js";
+import {
+	formatAssetCounts,
+	formatPackCounts,
+	formatRefLabel,
+} from "../summary.js";
 import type { Ui } from "../ui.js";
 import {
 	hasOutOfConstraintVersion,
@@ -14,6 +25,8 @@ export interface DetailViewInput {
 	key: string;
 	entry: ManifestEntry;
 	updateStatus: UpdateCheckResult;
+	/** Where the entry is installed, which tells its skills from its support folders. */
+	installRoot: string;
 }
 
 const ENTRY_LABELS: Record<EntryType, string> = {
@@ -30,30 +43,87 @@ function formatDate(isoDate: string): string {
 	return isoDate.slice(0, 10);
 }
 
-interface AssetCounts {
-	skills: number;
-	agents: number;
-	hooks: number;
+/** What an entry's recorded files install; `other` counts files under no asset type. */
+interface EntryAssets {
+	counts: AssetCounts;
 	other: number;
 }
 
-function computeAssetCounts(files: string[]): AssetCounts {
-	const counts: AssetCounts = { skills: 0, agents: 0, hooks: 0, other: 0 };
-	for (const file of files) {
-		counts[identifyAssetType(file) ?? "other"]++;
-	}
-	return counts;
+/**
+ * Counts what an entry installs as `add` counts it, however many of its paths
+ * are recorded: each `.claude/skills/<name>/` once, each top-level entry of
+ * `.claude/hooks/` once, and each agent `.md` file. A pack's skills folder is
+ * a skill or a support folder by what the install holds
+ * ({@link isInstalledSkill}), as the manifest records the two alike; a skill
+ * entry's is a skill by definition.
+ */
+async function countAssets(
+	entry: ManifestEntry,
+	installRoot: string,
+): Promise<EntryAssets> {
+	const { files } = entry;
+	const folders = distinct(files.map(skillFolderName));
+	const skills =
+		entry.type === "pack"
+			? await countInstalledSkills(folders, installRoot)
+			: folders.length;
+	return {
+		counts: {
+			skills,
+			folders: folders.length - skills,
+			agents: files.filter(isAgentFile).length,
+			hooks: distinct(files.map(hookEntryName)).length,
+		},
+		other: files.filter((file) => identifyAssetType(file) === null).length,
+	};
 }
 
-function formatAssetCounts(counts: AssetCounts): string {
-	const plural = (n: number, word: string) =>
-		`${n} ${word}${n === 1 ? "" : "s"}`;
-	const parts: string[] = [];
-	if (counts.skills > 0) parts.push(plural(counts.skills, "skill"));
-	if (counts.agents > 0) parts.push(plural(counts.agents, "agent"));
-	if (counts.hooks > 0) parts.push(plural(counts.hooks, "hook"));
-	if (counts.other > 0) parts.push(`${counts.other} other`);
-	return parts.join(", ");
+async function countInstalledSkills(
+	folders: string[],
+	installRoot: string,
+): Promise<number> {
+	const isSkill = await Promise.all(
+		folders.map((name) => isInstalledSkill(installRoot, name)),
+	);
+	return isSkill.filter(Boolean).length;
+}
+
+function distinct(names: (string | null)[]): string[] {
+	return [...new Set(names.filter((name) => name !== null))];
+}
+
+/** An agent as `add` installs one: a `.md` file in `.claude/agents/`. */
+function isAgentFile(file: string): boolean {
+	return identifyAssetType(file) === "agents" && file.endsWith(".md");
+}
+
+/**
+ * What the entry installs, on one line: a pack's counts as `add` words them,
+ * once it records something in `.claude/`; otherwise, a skill's included,
+ * only the counts it has. Empty for an entry recording no files.
+ */
+async function assetSummary(
+	entry: ManifestEntry,
+	installRoot: string,
+): Promise<string> {
+	if (entry.files.length === 0) {
+		return "";
+	}
+	const { counts, other } = await countAssets(entry, installRoot);
+	const assets = usesPackWording(entry)
+		? formatPackCounts(counts)
+		: formatAssetCounts(counts);
+	return [assets, other > 0 ? `${other} other` : ""]
+		.filter((part) => part !== "")
+		.join(", ");
+}
+
+/** A legacy pack recording only paths outside `.claude/` has no counts to word. */
+function usesPackWording(entry: ManifestEntry): boolean {
+	return (
+		entry.type === "pack" &&
+		entry.files.some((file) => identifyAssetType(file) !== null)
+	);
 }
 
 // `canChangeVersion` is decided by the caller from the installed ref (tag-based)
@@ -89,11 +159,29 @@ function getActions(
 	return actions;
 }
 
+/** Why the view offers no update: no version in range, or a check that failed. */
+function reportStatusProblem(
+	entry: ManifestEntry,
+	updateStatus: UpdateCheckResult,
+	ui: Ui,
+): void {
+	if (updateStatus.status === "constrained-no-match") {
+		ui.log.error(
+			`No matching version found for constraint "${entry.constraint}"`,
+		);
+	}
+	if (updateStatus.status === "check-failed") {
+		ui.log.warn(
+			`Couldn't check for updates (${gitErrorCause(updateStatus.reason)})`,
+		);
+	}
+}
+
 export async function renderDetailView(
 	input: DetailViewInput,
 	ui: Ui,
 ): Promise<DetailAction> {
-	const { key, entry, updateStatus } = input;
+	const { key, entry, updateStatus, installRoot } = input;
 
 	// The out-of-constraint version (when present) folds into the Constraint line
 	// rather than a separate trailing bullet.
@@ -110,16 +198,12 @@ export async function renderDetailView(
 	ui.log.info(`Installed: ${formatDate(entry.installedAt)}`);
 
 	// One compact counts line — no raw file-path dump.
-	const assetSummary = formatAssetCounts(computeAssetCounts(entry.files));
-	if (assetSummary.length > 0) {
-		ui.log.info(`Assets: ${assetSummary}`);
+	const assets = await assetSummary(entry, installRoot);
+	if (assets.length > 0) {
+		ui.log.info(`Assets: ${assets}`);
 	}
 
-	if (updateStatus.status === "constrained-no-match") {
-		ui.log.error(
-			`No matching version found for constraint "${entry.constraint}"`,
-		);
-	}
+	reportStatusProblem(entry, updateStatus, ui);
 
 	// A tag-pinned install (ref parses as a version) can switch to any other tag,
 	// but only when we can actually reach the remote to list them.

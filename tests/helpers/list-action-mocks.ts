@@ -5,6 +5,7 @@ import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPack } from "../../src/copy-pack.js";
 import { scanForEscapingSymlinks } from "../../src/copy-safety.js";
 import { type Discovery, discover } from "../../src/discover.js";
+import { droppedButInSource } from "../../src/dropped-folders.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { addEntry, removeEntry, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
@@ -50,6 +51,7 @@ export interface ListActionMocks {
 	scanForEscapingSymlinks: Mock;
 	checkUnmanagedConflicts: Mock;
 	discover: Mock;
+	droppedButInSource: Mock;
 }
 
 /**
@@ -78,6 +80,7 @@ export function setupListActionMocks(): ListActionMocks {
 		scanForEscapingSymlinks: vi.mocked(scanForEscapingSymlinks),
 		checkUnmanagedConflicts: vi.mocked(checkUnmanagedConflicts),
 		discover: vi.mocked(discover),
+		droppedButInSource: vi.mocked(droppedButInSource),
 	};
 
 	beforeEach(() => {
@@ -92,6 +95,8 @@ export function setupListActionMocks(): ListActionMocks {
 		handles.scanForEscapingSymlinks.mockResolvedValue(undefined);
 		// Default: nothing agntc didn't install sits where the update would copy.
 		handles.checkUnmanagedConflicts.mockResolvedValue([]);
+		// Default: the update drops no folder its source still has.
+		handles.droppedButInSource.mockResolvedValue([]);
 		handles.addEntry.mockImplementation((manifest, key, entry) => ({
 			...manifest,
 			[key]: entry,
@@ -112,7 +117,9 @@ export function packAt(path: string, ...names: string[]): Discovery {
 		path: `${path}/skills/${name}`,
 	}));
 	return {
-		packs: [{ name: basename(path), path, skills, assetDirs: [] }],
+		packs: [
+			{ name: basename(path), path, skills, supportFolders: [], assetDirs: [] },
+		],
 		skills: [],
 		strays: [],
 	};

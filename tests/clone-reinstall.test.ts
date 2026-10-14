@@ -849,6 +849,7 @@ describe("cloneAndReinstall", () => {
 							{ name: "api", path: "laravel/api" },
 							{ name: "queues", path: "laravel/queues" },
 						],
+						supportFolders: [],
 						assetDirs: [],
 					},
 				],
@@ -906,6 +907,7 @@ describe("cloneAndReinstall", () => {
 							{ name: "api", path: "laravel/api" },
 							{ name: "queues", path: "laravel/queues" },
 						],
+						supportFolders: [],
 						assetDirs: [],
 					},
 				],
@@ -929,7 +931,7 @@ describe("cloneAndReinstall", () => {
 				status: "failed",
 				failureReason: "copy-failed",
 				message:
-					"Update failed for owner/repo/laravel after removing old files, and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
 				absorbed: ["owner/repo/queues"],
 			});
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
@@ -1252,6 +1254,7 @@ describe("cloneAndReinstall", () => {
 							name: "repo",
 							path: "",
 							skills: [{ name: "my-skill", path: "skills/my-skill" }],
+							supportFolders: [],
 							assetDirs: [],
 						},
 					],
@@ -1884,6 +1887,24 @@ describe("buildAbortMessage", () => {
 		);
 	});
 
+	it("offers no re-add when two of the source's folders install to one place, which add would refuse too", () => {
+		const msg = buildAbortMessage(
+			"owner/repo/laravel",
+			makeEntry({ type: "pack" }),
+			{
+				reason:
+					"laravel/skills/back/refs and laravel/skills/front/refs would both install to .claude/skills/refs",
+				sourceClash: true,
+			},
+			"project",
+			"v2.0.0",
+		);
+
+		expect(msg).toBe(
+			"owner/repo/laravel can't be updated: in its source, laravel/skills/back/refs and laravel/skills/front/refs would both install to .claude/skills/refs, so it can't be installed as it stands. The existing install is left as it is.",
+		);
+	});
+
 	it("re-adds a skill from its recorded path, not its key", () => {
 		const msg = buildAbortMessage(
 			"owner/repo/go",
@@ -2001,6 +2022,44 @@ describe("buildAbortMessage for a key another entry holds", () => {
 				scope,
 			),
 		).toBe(message);
+	});
+});
+
+describe("buildAbortMessage for folders still in the source", () => {
+	const cause = {
+		reason:
+			"it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed",
+		stillInSource: true,
+		replayed: {
+			key: "owner/repo",
+			entry: makeEntry({ type: "pack", ref: "v1.4.0", constraint: "^1.2.0" }),
+		},
+	} as const;
+	const entry = makeEntry({
+		type: "pack",
+		ref: "v1.3.0",
+		constraint: "^1.2.0",
+	});
+
+	it.each([
+		[
+			"project",
+			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo then npx agntc add 'owner/repo@^1.2.0' --pack",
+		],
+		[
+			"global",
+			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove -g owner/repo then npx agntc add -g 'owner/repo@^1.2.0' --pack",
+		],
+	] as const)("names the folders and updates it anyway by a remove and re-add, in %s scope", (scope, message) => {
+		expect(buildAbortMessage("owner/repo", entry, cause, scope)).toBe(message);
+	});
+
+	it("re-adds at the tag a version change picked", () => {
+		expect(
+			buildAbortMessage("owner/repo", entry, cause, "project", "v2.0.0"),
+		).toBe(
+			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo then npx agntc add owner/repo@v2.0.0 --pack",
+		);
 	});
 });
 

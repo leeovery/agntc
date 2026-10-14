@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { listBody, removeBody, updateBody } from "../src/documents.js";
+import {
+	listBody,
+	listingBody,
+	removeBody,
+	updateBody,
+} from "../src/documents.js";
+import type { InstallItem } from "../src/install-item.js";
 import type { Manifest } from "../src/manifest.js";
 import type { UpdateCheckResult } from "../src/update-check.js";
 import type { PluginOutcome } from "../src/update-groups.js";
@@ -264,6 +270,42 @@ describe("listBody", () => {
 			availableRef: null,
 			availableCommit: NEW,
 		});
+	});
+});
+
+describe("listingBody", () => {
+	it("carries each pack's support folders by name and path", () => {
+		const source = {
+			source: "owner/repo",
+			ref: null,
+			commit: OLD,
+			constraint: null,
+		};
+		const item: InstallItem = {
+			kind: "pack",
+			pack: {
+				name: "repo",
+				path: "",
+				skills: [{ name: "start", path: "skills/start" }],
+				supportFolders: [
+					{ name: "workflow-shared", path: "skills/workflow-shared" },
+				],
+				assetDirs: ["agents"],
+			},
+		};
+
+		expect(listingBody(source, [item], []).packs).toEqual([
+			{
+				name: "repo",
+				path: "",
+				skillCount: 1,
+				skills: [{ name: "start", path: "skills/start", description: null }],
+				supportFolders: [
+					{ name: "workflow-shared", path: "skills/workflow-shared" },
+				],
+				assetDirs: ["agents"],
+			},
+		]);
 	});
 });
 

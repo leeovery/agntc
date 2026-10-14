@@ -27,6 +27,60 @@ export function mockExecFile(
 	);
 }
 
+/**
+ * Fails the first `failures` git calls with `stderr`, then answers each with
+ * `stdout`, or with what `stdout` gives for its args.
+ */
+export function mockExecFileFailingFirst(
+	failures: number,
+	stderr: string,
+	stdout: string | ((args: readonly string[]) => string) = "",
+): void {
+	let calls = 0;
+	mockExecFile((_cmd, args, _opts, cb) => {
+		calls++;
+		if (calls <= failures) {
+			cb(Object.assign(new Error(stderr), { stderr }), "", stderr);
+			return;
+		}
+		cb(null, typeof stdout === "string" ? stdout : stdout(args), "");
+	});
+}
+
+// Taken before any test fakes the timers, so it always yields to real I/O.
+const realSetImmediate = setImmediate;
+
+/**
+ * Settles `promise` while fake timers run, so a retry's waits pass at once.
+ * Between rounds it lets real I/O finish, as a wait a retry schedules after
+ * real file work isn't pending until that work is done.
+ */
+export async function settle<T>(promise: Promise<T>): Promise<T | Error> {
+	let done = false;
+	const caught = promise
+		.catch((err: Error) => err)
+		.finally(() => {
+			done = true;
+		});
+	while (!done) {
+		await vi.runAllTimersAsync();
+		if (!done) {
+			await new Promise((resolve) => realSetImmediate(resolve));
+		}
+	}
+	return caught;
+}
+
+/** git's stderr when an SSH remote refuses the key: the cause, then git's advice. */
+export const SSH_REFUSAL = [
+	"git@github.com: Permission denied (publickey).",
+	"fatal: Could not read from remote repository.",
+	"",
+	"Please make sure you have the correct access rights",
+	"and the repository exists.",
+	"",
+].join("\n");
+
 export function buildTagsOutput(
 	tags: Array<{ sha: string; tag: string }>,
 ): string {

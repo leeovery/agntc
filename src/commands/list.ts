@@ -139,6 +139,7 @@ export async function runListLoop(
 					key,
 					entry: freshEntry,
 					updateStatus: freshStatus,
+					installRoot: scope.root,
 				},
 				ui,
 			);

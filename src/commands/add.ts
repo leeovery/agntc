@@ -189,7 +189,7 @@ export async function runAdd(
 			src,
 			selection.selection,
 			installed,
-			scope.name,
+			scope,
 			ui,
 		);
 		const policy = conflictPolicy(options.overwrite === true, ui.mode);
@@ -321,19 +321,20 @@ async function pickItems(
 	src: FetchedSource,
 	selection: Selection,
 	manifest: Manifest,
-	scope: ScopeName,
+	scope: Scope,
 	ui: Ui,
 ): Promise<KeyedItem[]> {
 	const discovery = await discoverSource(src, selection, ui);
-	const packed = skillsInInstalledPacks(
+	const packed = await skillsInInstalledPacks(
 		discovery,
 		manifest,
 		sourceIdOfFetched(src),
+		scope.root,
 	);
 	const choice = chooseItems(
 		discovery,
 		selection,
-		choiceContext(src, scope, packed),
+		choiceContext(src, scope.name, packed),
 	);
 	for (const notice of choice.strayNotices) {
 		ui.warn(notice);
@@ -571,7 +572,8 @@ async function checkItem(
 	const incoming = keyed.claims.map(({ target }) => target);
 	const absorbs =
 		keyed.item.kind === "pack"
-			? claimFiles(incoming, manifest, keyed.key, source).absorbed
+			? claimFiles(keyed.item.pack, incoming, manifest, keyed.key, source)
+					.absorbed
 			: [];
 	const isAbsorbed = installPathMatcher(
 		absorbs.flatMap((key) => manifest[key]?.files ?? []),

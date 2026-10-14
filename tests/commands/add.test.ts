@@ -700,6 +700,24 @@ describe("add command", () => {
 			]);
 			expect(await installed(".claude")).toBe(false);
 		});
+
+		it("refuses a pack whose own support folders would install to one place, offering no choice", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/front/react/SKILL.md": "",
+				"p/skills/front/refs/x.md": "",
+				"p/skills/back/node/SKILL.md": "",
+				"p/skills/back/refs/x.md": "",
+			});
+
+			const code = await exitCode(runAdd("owner/repo"));
+
+			expect(code).toBe(1);
+			expect(cancelled()).toEqual([
+				"owner/repo: p can't be installed as it stands: p/skills/back/refs and p/skills/front/refs would both install to .claude/skills/refs",
+			]);
+			expect(await installed(".claude")).toBe(false);
+		});
 	});
 
 	describe("reinstalling under the same key", () => {
@@ -1027,6 +1045,12 @@ describe("add command", () => {
 		const API_NOTE =
 			"api is already installed as part of the pack owner/repo/p";
 
+		/** The pack `owner/repo/p`, installed with its skill api. */
+		async function installPacked(): Promise<void> {
+			await write(projectDir, { ".claude/skills/api/SKILL.md": "" });
+			await seedManifest({ "owner/repo/p": PACKED });
+		}
+
 		it("drops a loose skill the pack took over even when the pack's copy then fails", async () => {
 			await upstream({ "p/agntc.json": PACK, "p/skills/api/SKILL.md": "new" });
 			await write(projectDir, { ".claude/skills/api/SKILL.md": "old" });
@@ -1053,7 +1077,7 @@ describe("add command", () => {
 				"p/skills/api/SKILL.md": "",
 				"p/skills/models/SKILL.md": "",
 			});
-			await seedManifest({ "owner/repo/p": PACKED });
+			await installPacked();
 
 			const code = await exitCode(runAdd("owner/repo", { skill: ["api"] }));
 
@@ -1072,7 +1096,7 @@ describe("add command", () => {
 				"p/skills/api/SKILL.md": "",
 				"tools/SKILL.md": "",
 			});
-			await seedManifest({ "owner/repo/p": PACKED });
+			await installPacked();
 
 			await runAdd("owner/repo", { skill: ["api", "tools"] });
 
@@ -1089,7 +1113,7 @@ describe("add command", () => {
 				"skills/jobs/SKILL.md": "",
 				"skills/lint/SKILL.md": "",
 			});
-			await seedManifest({ "owner/repo/p": PACKED });
+			await installPacked();
 			mockMultiselect.mockResolvedValue([0]);
 
 			await runAdd("owner/repo");
@@ -1109,9 +1133,48 @@ describe("add command", () => {
 			]);
 		});
 
+		it("--skill on a skill named like the installed pack's support folder isn't left out: the pack's folder is in its way", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/api/SKILL.md": "",
+				"p/skills/shared/notes.md": "",
+				"tools/shared/SKILL.md": "",
+			});
+			const pack = installedEntry(
+				[".claude/skills/api/", ".claude/skills/shared/"],
+				"pack",
+			);
+			await write(projectDir, {
+				".claude/skills/api/SKILL.md": "",
+				".claude/skills/shared/notes.md": "",
+			});
+			await seedManifest({ "owner/repo/p": pack });
+
+			const run = await runMachine(addCommand, [
+				"owner/repo",
+				"--skill",
+				"shared",
+			]);
+
+			expect(run.exitCode).toBe(1);
+			expect(run.document).toMatchObject({
+				notes: [],
+				items: [
+					{
+						key: "owner/repo/shared",
+						status: "skipped",
+						reason:
+							"files in the way belong to owner/repo/p: .claude/skills/shared/",
+						flags: ["--overwrite"],
+					},
+				],
+			});
+			expect(await manifest()).toEqual({ "owner/repo/p": pack });
+		});
+
 		it("without a terminal, reports the note and nothing installed, exiting 0", async () => {
 			await upstream({ "p/agntc.json": PACK, "p/skills/api/SKILL.md": "" });
-			await seedManifest({ "owner/repo/p": PACKED });
+			await installPacked();
 
 			const run = await runMachine(addCommand, [
 				"owner/repo",
@@ -1615,6 +1678,7 @@ describe("add command", () => {
 						path: "p",
 						skillCount: 1,
 						skills: [{ name: "s", path: "p/skills/s", description: null }],
+						supportFolders: [],
 						assetDirs: ["hooks"],
 					},
 				],

@@ -70,6 +70,7 @@ import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { checkAllForUpdates } from "../../src/update-check-all.js";
+import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const mockReadManifest = vi.mocked(readManifest);
@@ -488,7 +489,12 @@ describe("runListLoop", () => {
 
 			expect(mockCheckForUpdate).toHaveBeenCalledExactlyOnceWith(newKey, moved);
 			expect(mockRenderDetailView).toHaveBeenLastCalledWith(
-				{ key: newKey, entry: moved, updateStatus: { status: "up-to-date" } },
+				{
+					key: newKey,
+					entry: moved,
+					updateStatus: { status: "up-to-date" },
+					installRoot: "/fake/project",
+				},
 				expect.anything(),
 			);
 		});
@@ -687,6 +693,7 @@ describe("runListLoop", () => {
 					key: "owner/skill",
 					entry,
 					updateStatus,
+					installRoot: "/fake/project",
 				},
 				interactiveUi,
 			);
@@ -900,6 +907,10 @@ describe("runListLoop", () => {
 				interactiveUi,
 			);
 			expect(mockReadManifest).toHaveBeenCalledWith("/home/lee");
+			expect(mockRenderDetailView).toHaveBeenCalledWith(
+				expect.objectContaining({ installRoot: "/home/lee" }),
+				interactiveUi,
+			);
 			expect(mockExecuteRemoveAction).toHaveBeenCalledWith(
 				"owner/skill",
 				entry,
@@ -1122,6 +1133,7 @@ describe("runListLoop", () => {
 					key: "owner/skill",
 					entry: originalEntry,
 					updateStatus: { status: "update-available", remoteCommit: "def456" },
+					installRoot: "/fake/project",
 				},
 				interactiveUi,
 			);
@@ -1133,6 +1145,7 @@ describe("runListLoop", () => {
 					key: "owner/skill",
 					entry: updatedEntry,
 					updateStatus: newUpdateStatus,
+					installRoot: "/fake/project",
 				},
 				interactiveUi,
 			);
@@ -1259,6 +1272,25 @@ describe("list without a terminal", () => {
 		});
 		expect(clackCalls(p)).toEqual([]);
 		expect(mockRenderDetailView).not.toHaveBeenCalled();
+	});
+
+	it("keeps git's whole error in a failed check's reason", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/broken": makeEntry({ commit: "d1" }),
+		});
+		mockCheckAll.mockResolvedValue(
+			new Map<string, UpdateCheckResult>([
+				["owner/broken", { status: "check-failed", reason: SSH_REFUSAL }],
+			]),
+		);
+
+		const run = await runMachine(listCommand, []);
+
+		expect(run.document).toMatchObject({
+			entries: [
+				{ key: "owner/broken", status: "check-failed", reason: SSH_REFUSAL },
+			],
+		});
 	});
 
 	it("prints no entries when nothing is installed", async () => {

@@ -8,9 +8,16 @@ import { pathExists } from "./fs-utils.js";
 
 export type PackAssetDir = "agents" | "hooks";
 
-export interface FoundSkill {
+/**
+ * A folder that installs whole as `.claude/skills/<name>/`: `name` is its
+ * basename, `path` its repo-relative path.
+ */
+export interface SkillFolder {
 	name: string;
 	path: string;
+}
+
+export interface FoundSkill extends SkillFolder {
 	frontmatterName?: string;
 	description?: string;
 }
@@ -19,6 +26,11 @@ export interface FoundPack {
 	name: string;
 	path: string;
 	skills: FoundSkill[];
+	/**
+	 * The folders in the pack's own top-level `skills/` that hold no skill,
+	 * each installed whole beside its skills.
+	 */
+	supportFolders: SkillFolder[];
 	assetDirs: PackAssetDir[];
 }
 
@@ -78,9 +90,11 @@ export class StartPathError extends Error {
 	}
 }
 
-const MAX_DEPTH = 5;
+/** How many folders below where it starts the walk reads. */
+export const MAX_DEPTH = 5;
 const SKIPPED_DIRS = new Set(["node_modules", "dist", "build", "vendor"]);
-const PACK_ASSET_DIRS: readonly PackAssetDir[] = ["agents", "hooks"];
+/** A pack's own top-level folders that install by their own rules. */
+export const PACK_ASSET_DIRS: readonly PackAssetDir[] = ["agents", "hooks"];
 const ASSET_FILE_TESTS: Record<PackAssetDir, (entry: Dirent) => boolean> = {
 	agents: (entry) => entry.isFile() && entry.name.endsWith(".md"),
 	hooks: (entry) => entry.isFile(),
@@ -166,6 +180,11 @@ export function matchSkills(
 	return result;
 }
 
+/** Every folder a pack installs into `.claude/skills/`: its skills, then its support folders. */
+export function skillFolders(pack: FoundPack): SkillFolder[] {
+	return [...pack.skills, ...pack.supportFolders];
+}
+
 function allSkills(discovery: Discovery): SkillMatch[] {
 	const loose = discovery.skills.map((skill) => ({ skill }));
 	const packed = discovery.packs.flatMap((pack) =>
@@ -229,12 +248,57 @@ function onlyPack(pack: FoundPack): Discovery {
 async function toFoundPack(ctx: Context, path: string): Promise<FoundPack> {
 	const { skills } = await walk(ctx, path, "pack");
 	const abs = absolute(ctx, path);
+	const entries = await readEntries(abs);
 	return {
 		name: folderName(path, ctx.rootName),
 		path,
 		skills: await toFoundSkills(ctx, skills),
-		assetDirs: await qualifyingAssetDirs(abs, await readEntries(abs)),
+		supportFolders: await findSupportFolders(ctx, path, entries, skills),
+		assetDirs: await qualifyingAssetDirs(abs, entries),
 	};
+}
+
+/**
+ * The folders in a pack's own top-level `skills/` holding none of the skills
+ * the pack's walk found. A folder holding one is a category, read the same
+ * way, so a folder the walk didn't reach a skill under is a support folder.
+ * Loose files, links, hidden folders and the walk's skipped names are left out.
+ */
+async function findSupportFolders(
+	ctx: Context,
+	packPath: string,
+	packEntries: Dirent[],
+	skillPaths: string[],
+): Promise<SkillFolder[]> {
+	const skillsDir = joinPath(packPath, "skills");
+	const hasSkillsDir = packEntries.some(
+		(entry) => entry.name === "skills" && entry.isDirectory(),
+	);
+	if (!hasSkillsDir || skillPaths.includes(skillsDir)) {
+		return [];
+	}
+	const found = await supportFoldersIn(ctx, skillsDir, skillPaths);
+	return found.sort((a, b) => comparePaths(a.path, b.path));
+}
+
+async function supportFoldersIn(
+	ctx: Context,
+	dir: string,
+	skillPaths: string[],
+): Promise<SkillFolder[]> {
+	const found: SkillFolder[] = [];
+	for (const entry of await walkableFolders(absolute(ctx, dir))) {
+		const path = joinPath(dir, entry.name);
+		if (skillPaths.includes(path)) {
+			continue;
+		}
+		if (skillPaths.some((skill) => skill.startsWith(`${path}/`))) {
+			found.push(...(await supportFoldersIn(ctx, path, skillPaths)));
+		} else {
+			found.push({ name: entry.name, path });
+		}
+	}
+	return found;
 }
 
 async function toFoundSkills(
@@ -393,6 +457,14 @@ async function readEntries(dir: string): Promise<Dirent[]> {
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * The folders in `dir` the walk would enter: real folders, neither hidden nor
+ * one of the names it skips. A folder that can't be listed holds none.
+ */
+export async function walkableFolders(dir: string): Promise<Dirent[]> {
+	return (await readEntries(dir)).filter(isWalkable);
 }
 
 function isWalkable(entry: Dirent): boolean {

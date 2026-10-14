@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	absorptionNote,
 	claimFiles,
 	skillsInInstalledPacks,
 	takenOverRemoved,
 } from "../src/absorb.js";
-import type { Discovery } from "../src/discover.js";
+import type { Discovery, FoundPack } from "../src/discover.js";
 import type { SourceId } from "../src/entry-source.js";
 import type { Manifest } from "../src/manifest.js";
 import { makeEntry } from "./helpers/factories.js";
@@ -23,12 +26,40 @@ const skill = (name: string, overrides = {}) =>
 	});
 
 describe("claimFiles", () => {
-	const incoming = [".claude/skills/a/", ".claude/skills/b/"];
+	/** Pack `tools`, holding the skills a and b and the support folder shared. */
+	const TOOLS: FoundPack = {
+		name: "tools",
+		path: "tools",
+		skills: [
+			{ name: "a", path: "tools/skills/a" },
+			{ name: "b", path: "tools/skills/b" },
+		],
+		supportFolders: [{ name: "shared", path: "tools/skills/shared" }],
+		assetDirs: [],
+	};
+	const incoming = [
+		".claude/skills/a/",
+		".claude/skills/b/",
+		".claude/skills/shared/",
+	];
+
+	function claim(manifest: Manifest) {
+		return claimFiles(TOOLS, incoming, manifest, "owner/repo/tools", REPO);
+	}
+
+	it("clashes with a loose skill from its own source that a support folder lands on", () => {
+		const manifest: Manifest = { "owner/repo/shared": skill("shared") };
+
+		expect(claim(manifest)).toEqual({
+			absorbed: [],
+			clashes: new Map([["owner/repo/shared", [".claude/skills/shared/"]]]),
+		});
+	});
 
 	it("absorbs a loose skill from the pack's own source", () => {
 		const manifest: Manifest = { "owner/repo/a": skill("a") };
 
-		expect(claimFiles(incoming, manifest, "owner/repo/tools", REPO)).toEqual({
+		expect(claim(manifest)).toEqual({
 			absorbed: ["owner/repo/a"],
 			clashes: new Map(),
 		});
@@ -39,9 +70,7 @@ describe("claimFiles", () => {
 			"owner/repo/a": makeEntry({ files: [".claude/skills/a/"] }),
 		};
 
-		expect(
-			claimFiles(incoming, manifest, "owner/repo/tools", REPO).absorbed,
-		).toEqual(["owner/repo/a"]);
+		expect(claim(manifest).absorbed).toEqual(["owner/repo/a"]);
 	});
 
 	it("absorbs a loose skill added over SSH into a pack from the same repo over HTTPS", () => {
@@ -49,15 +78,13 @@ describe("claimFiles", () => {
 			"owner/repo/a": skill("a", { cloneUrl: "git@github.com:owner/repo.git" }),
 		};
 
-		expect(
-			claimFiles(incoming, manifest, "owner/repo/tools", REPO).absorbed,
-		).toEqual(["owner/repo/a"]);
+		expect(claim(manifest).absorbed).toEqual(["owner/repo/a"]);
 	});
 
 	it("clashes with a loose skill from another source, naming the files", () => {
 		const manifest: Manifest = { "other/repo/a": skill("a") };
 
-		expect(claimFiles(incoming, manifest, "owner/repo/tools", REPO)).toEqual({
+		expect(claim(manifest)).toEqual({
 			absorbed: [],
 			clashes: new Map([["other/repo/a", [".claude/skills/a/"]]]),
 		});
@@ -71,7 +98,7 @@ describe("claimFiles", () => {
 			}),
 		};
 
-		expect(claimFiles(incoming, manifest, "owner/repo/tools", REPO)).toEqual({
+		expect(claim(manifest)).toEqual({
 			absorbed: [],
 			clashes: new Map([["owner/repo/other", [".claude/skills/b/"]]]),
 		});
@@ -86,7 +113,7 @@ describe("claimFiles", () => {
 			"owner/repo/c": skill("c"),
 		};
 
-		expect(claimFiles(incoming, manifest, "owner/repo/tools", REPO)).toEqual({
+		expect(claim(manifest)).toEqual({
 			absorbed: [],
 			clashes: new Map(),
 		});
@@ -116,10 +143,29 @@ describe("takenOverRemoved", () => {
 });
 
 describe("skillsInInstalledPacks", () => {
+	let installRoot: string;
+
+	beforeEach(async () => {
+		installRoot = await mkdtemp(join(tmpdir(), "agntc-absorb-"));
+		for (const file of ["a/SKILL.md", "b/SKILL.md", "shared/notes.md"]) {
+			const path = join(installRoot, ".claude/skills", file);
+			await mkdir(dirname(path), { recursive: true });
+			await writeFile(path, "");
+		}
+	});
+
+	afterEach(async () => {
+		await rm(installRoot, { recursive: true, force: true });
+	});
+
 	const manifest: Manifest = {
 		"owner/repo/tools": makeEntry({
 			type: "pack",
-			files: [".claude/skills/a/", ".claude/agents/x.md"],
+			files: [
+				".claude/skills/a/",
+				".claude/skills/shared/",
+				".claude/agents/x.md",
+			],
 		}),
 		"owner/repo/b": skill("b"),
 	};
@@ -129,18 +175,24 @@ describe("skillsInInstalledPacks", () => {
 				name: "tools",
 				path: "tools",
 				skills: [{ name: "a", path: "tools/skills/a" }],
+				supportFolders: [{ name: "shared", path: "tools/skills/shared" }],
 				assetDirs: ["agents"],
 			},
 		],
 		skills: [
 			{ name: "a", path: "skills/a" },
 			{ name: "b", path: "skills/b" },
+			{ name: "shared", path: "other/shared" },
 		],
 		strays: [],
 	};
 
-	it("maps each skill, loose or in a pack, that an installed pack from the source holds to that pack", () => {
-		expect(skillsInInstalledPacks(discovery, manifest, REPO)).toEqual(
+	function packed(source: SourceId = REPO) {
+		return skillsInInstalledPacks(discovery, manifest, source, installRoot);
+	}
+
+	it("maps each skill, loose or in a pack, that an installed pack from the source holds to that pack", async () => {
+		expect(await packed()).toEqual(
 			new Map([
 				["skills/a", "owner/repo/tools"],
 				["tools/skills/a", "owner/repo/tools"],
@@ -148,18 +200,31 @@ describe("skillsInInstalledPacks", () => {
 		);
 	});
 
-	it("leaves out a skill installed on its own", () => {
-		expect(
-			skillsInInstalledPacks(discovery, manifest, REPO).has("skills/b"),
-		).toBe(false);
+	it("leaves out a skill installed on its own", async () => {
+		expect((await packed()).has("skills/b")).toBe(false);
 	});
 
-	it("finds nothing in a pack from another source", () => {
-		expect(
-			skillsInInstalledPacks(discovery, manifest, {
-				kind: "remote",
-				cloneUrl: "https://github.com/other/repo.git",
-			}).size,
-		).toBe(0);
+	it("leaves out a skill named like the installed pack's support folder, which holds no such skill", async () => {
+		expect((await packed()).has("other/shared")).toBe(false);
+	});
+
+	it("takes a folder of the pack it can't read for the skill, rather than failing", async () => {
+		const locked = join(installRoot, ".claude/skills/a");
+		await chmod(locked, 0o000);
+
+		try {
+			expect((await packed()).get("skills/a")).toBe("owner/repo/tools");
+		} finally {
+			await chmod(locked, 0o755);
+		}
+	});
+
+	it("finds nothing in a pack from another source", async () => {
+		const other: SourceId = {
+			kind: "remote",
+			cloneUrl: "https://github.com/other/repo.git",
+		};
+
+		expect((await packed(other)).size).toBe(0);
 	});
 });

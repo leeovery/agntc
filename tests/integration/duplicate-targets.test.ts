@@ -93,6 +93,25 @@ describe("duplicate install targets on add", () => {
 			readFile(join(projectDir, ".claude/skills/bar/SKILL.md")),
 		).rejects.toThrow();
 	});
+
+	it("refuses a pack whose own support folders install to one place as it stands, offering no choice", async () => {
+		await write(source, {
+			"skills/front/react/SKILL.md": "",
+			"skills/front/refs/guide.md": "",
+			"skills/back/node/SKILL.md": "",
+			"skills/back/refs/guide.md": "",
+		});
+
+		const { exitCode, document } = await run("add", (ui) =>
+			runAdd(source, {}, ui),
+		);
+
+		expect(exitCode).toBe(1);
+		expect(document.error?.message).toBe(
+			`${source}: laravel can't be installed as it stands: skills/back/refs and skills/front/refs would both install to .claude/skills/refs`,
+		);
+		expect(await readManifest(projectDir)).toEqual({});
+	});
 });
 
 describe("duplicate install targets on update", () => {
@@ -112,9 +131,7 @@ describe("duplicate install targets on update", () => {
 			expect.objectContaining({
 				key: source,
 				status: "aborted",
-				message: expect.stringContaining(
-					"skills/lint and tools/lint would both install to .claude/skills/lint",
-				),
+				message: `${source} can't be updated: in its source, skills/lint and tools/lint would both install to .claude/skills/lint, so it can't be installed as it stands. The existing install is left as it is.`,
 			}),
 		]);
 		expect(
@@ -122,6 +139,32 @@ describe("duplicate install targets on update", () => {
 		).toBe("v1");
 		expect((await readManifest(projectDir))[source]).toMatchObject({
 			type: "pack",
+			files: [".claude/skills/lint/"],
+		});
+	});
+
+	it("aborts a pack whose re-walk finds two support folders of one name, offering no re-add", async () => {
+		await run("add", (ui) => runAdd(source, {}, ui));
+		await write(source, {
+			"skills/front/react/SKILL.md": "",
+			"skills/front/refs/guide.md": "",
+			"skills/back/node/SKILL.md": "",
+			"skills/back/refs/guide.md": "",
+		});
+
+		const { exitCode, document } = await run("update", (ui) =>
+			runUpdate(source, {}, ui),
+		);
+
+		expect(exitCode).toBe(1);
+		expect(document.items).toEqual([
+			expect.objectContaining({
+				key: source,
+				status: "aborted",
+				message: `${source} can't be updated: in its source, skills/back/refs and skills/front/refs would both install to .claude/skills/refs, so it can't be installed as it stands. The existing install is left as it is.`,
+			}),
+		]);
+		expect((await readManifest(projectDir))[source]).toMatchObject({
 			files: [".claude/skills/lint/"],
 		});
 	});

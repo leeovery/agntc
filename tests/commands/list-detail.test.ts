@@ -1,7 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManifestEntry } from "../../src/manifest.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import { makeEntry } from "../helpers/factories.js";
+import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 
 vi.mock("@clack/prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@clack/prompts")>();
@@ -30,6 +41,8 @@ import { interactiveUi } from "../../src/ui.js";
 const mockSelect = vi.mocked(p.select);
 const mockLog = vi.mocked(p.log);
 
+let installRoot: string;
+
 function makeInput(
 	overrides: {
 		key?: string;
@@ -41,11 +54,26 @@ function makeInput(
 		key: overrides.key ?? "owner/repo",
 		entry: makeEntry(overrides.entry),
 		updateStatus: overrides.updateStatus ?? { status: "up-to-date" },
+		installRoot,
 	};
 }
 
-beforeEach(() => {
+/** Writes empty files under the install root. */
+async function installedFiles(...paths: string[]): Promise<void> {
+	for (const path of paths) {
+		const full = join(installRoot, path);
+		await mkdir(dirname(full), { recursive: true });
+		await writeFile(full, "");
+	}
+}
+
+beforeEach(async () => {
 	vi.clearAllMocks();
+	installRoot = await mkdtemp(join(tmpdir(), "agntc-list-detail-"));
+});
+
+afterEach(async () => {
+	await rm(installRoot, { recursive: true, force: true });
 });
 
 describe("renderDetailView", () => {
@@ -186,12 +214,14 @@ describe("renderDetailView", () => {
 	describe("asset counts", () => {
 		it("displays asset counts on one line", async () => {
 			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/b/SKILL.md",
+			);
 
 			await renderDetailView(
 				makeInput({
-					entry: {
-						files: [".claude/skills/a/SKILL.md", ".claude/skills/b/SKILL.md"],
-					},
+					entry: { files: [".claude/skills/a/", ".claude/skills/b/"] },
 				}),
 				interactiveUi,
 			);
@@ -199,15 +229,39 @@ describe("renderDetailView", () => {
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
 		});
 
-		it("displays mixed asset types", async () => {
+		it("counts a skill folder once, however many of its paths are recorded", async () => {
 			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/SKILL.md");
 
 			await renderDetailView(
 				makeInput({
 					entry: {
 						files: [
+							".claude/skills/a/",
 							".claude/skills/a/SKILL.md",
-							".claude/skills/b/SKILL.md",
+							".claude/skills/a/refs/guide.md",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+		});
+
+		it("displays mixed asset types", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/b/SKILL.md",
+			);
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						files: [
+							".claude/skills/a/",
+							".claude/skills/b/",
 							".claude/hooks/pre-commit.sh",
 						],
 					},
@@ -216,6 +270,72 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills, 1 hook");
+		});
+
+		it("counts a pack's installed folders without a SKILL.md as support folders, worded as add words them", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/b/SKILL.md",
+				".claude/skills/shared/references/x.md",
+				".claude/skills/gates/.claude-plugin/plugin.json",
+				".claude/skills/rows/hooks/hooks.json",
+			);
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".claude/skills/a/",
+							".claude/skills/b/",
+							".claude/skills/gates/",
+							".claude/skills/rows/",
+							".claude/skills/shared/",
+							".claude/agents/x.md",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"Assets: 2 skills, 3 folders, 1 agent",
+			);
+		});
+
+		it("gives a pack's skill count even when it holds only support folders", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/shared/references/x.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: { type: "pack", files: [".claude/skills/shared/"] },
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 0 skills, 1 folder");
+		});
+
+		it("never counts a loose file v1 recorded in .claude/skills as a folder", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/README.md",
+			);
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [".claude/skills/README.md", ".claude/skills/a/"],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
 		});
 
 		it("counts agent files", async () => {
@@ -231,6 +351,121 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 agent");
+		});
+
+		it("counts a skill entry's folder as a skill without looking at what the install holds", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/notes.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: { type: "skill", files: [".claude/skills/a/"] },
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+		});
+
+		it("counts a pack's folder as a skill when its SKILL.md is a link or the folder can't be read", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/linked/notes.md",
+				".claude/skills/locked/SKILL.md",
+				"elsewhere/SKILL.md",
+			);
+			await symlink(
+				join(installRoot, "elsewhere/SKILL.md"),
+				join(installRoot, ".claude/skills/linked/SKILL.md"),
+			);
+			const locked = join(installRoot, ".claude/skills/locked");
+			await chmod(locked, 0o000);
+
+			try {
+				await renderDetailView(
+					makeInput({
+						entry: {
+							type: "pack",
+							files: [".claude/skills/linked/", ".claude/skills/locked/"],
+						},
+					}),
+					interactiveUi,
+				);
+			} finally {
+				await chmod(locked, 0o755);
+			}
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
+		});
+
+		it("counts each top-level hook entry once, however many of its paths are recorded", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/SKILL.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".claude/skills/a/",
+							".claude/hooks/lint/",
+							".claude/hooks/lint/run.sh",
+							".claude/hooks/lint/lib/util.sh",
+							".claude/hooks/pre-commit.sh",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill, 2 hooks");
+		});
+
+		it("counts a v1 entry's agents and hooks as add does, leaving out the folders it recorded", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/SKILL.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".claude/skills/a/",
+							".claude/agents/",
+							".claude/agents/team/",
+							".claude/agents/team/lead.md",
+							".claude/agents/reviewer.md",
+							".claude/hooks/",
+							".claude/hooks/pre-commit.sh",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"Assets: 1 skill, 2 agents, 1 hook",
+			);
+		});
+
+		it("words a legacy pack recording nothing in .claude/ by what it has, with no skill count", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".agents/skills/a/",
+							".agents/skills/b/",
+							".cursor/skills/a/",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 3 other");
 		});
 
 		it("omits the assets line when the entry has no files", async () => {
@@ -570,6 +805,34 @@ describe("renderDetailView", () => {
 			expect(mockLog.error).toHaveBeenCalledWith(
 				'No matching version found for constraint "^1.0.0"',
 			);
+		});
+
+		it("check-failed says why, in one line", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					updateStatus: { status: "check-failed", reason: SSH_REFUSAL },
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.warn.mock.calls).toEqual([
+				[
+					"Couldn't check for updates (git@github.com: Permission denied (publickey).)",
+				],
+			]);
+		});
+
+		it("a check that didn't fail says nothing of one", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({ updateStatus: { status: "up-to-date" } }),
+				interactiveUi,
+			);
+
+			expect(mockLog.warn).not.toHaveBeenCalled();
 		});
 
 		it("constrained-up-to-date with latestOverall shows info about version outside constraint", async () => {

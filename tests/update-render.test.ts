@@ -1,8 +1,4 @@
 import { describe, expect, it } from "vitest";
-import {
-	buildAbortMessage,
-	buildCopySafetyMessage,
-} from "../src/clone-reinstall.js";
 import type { EntryGroup } from "../src/update-groups.js";
 import {
 	formatCheckFailedLine,
@@ -16,6 +12,7 @@ import {
 	groupLabel,
 } from "../src/update-render.js";
 import { makeEntry } from "./helpers/factories.js";
+import { SSH_REFUSAL } from "./helpers/git-mocks.js";
 
 function makeGroup(
 	memberKeys: string[],
@@ -289,49 +286,6 @@ describe("formatMemberLine", () => {
 			text: "macos  (v1.2.0 -> v1.3.0)",
 		});
 	});
-
-	it("copy-failed renders at error level with the recovery hint", () => {
-		expect(
-			formatMemberLine({
-				kind: "copy-failed",
-				name: "design",
-				recoveryHint: "re-run update",
-			}),
-		).toEqual({
-			level: "error",
-			text: "design: copy failed — re-run update",
-		});
-	});
-
-	it("aborted renders at error level carrying the recorded type and the remove+add remedy inline", () => {
-		const message = buildAbortMessage(
-			"owner/repo/design",
-			makeEntry({ type: "pack" }),
-			{ reason: "SKILL.md missing" },
-			"project",
-		);
-
-		const line = formatMemberLine({ kind: "aborted", name: "design", message });
-
-		expect(line).toEqual({ level: "error", text: `design: ${message}` });
-		expect(line.text).toContain("installed as a pack");
-		expect(line.text).toContain("SKILL.md missing");
-		expect(line.text).toContain("npx agntc remove owner/repo/design");
-		expect(line.text).toContain("npx agntc add owner/repo/design");
-	});
-
-	it("blocked renders at error level with the copy-safety message and no remove+add remedy", () => {
-		const message = buildCopySafetyMessage(
-			"owner/repo/design",
-			"symlink target escapes the clone",
-		);
-
-		const line = formatMemberLine({ kind: "blocked", name: "design", message });
-
-		expect(line).toEqual({ level: "error", text: `design: ${message}` });
-		expect(line.text).not.toContain("npx agntc remove");
-		expect(line.text).not.toContain("npx agntc add");
-	});
 });
 
 describe("formatUpToDateLine", () => {
@@ -392,10 +346,53 @@ describe("formatNewerTagsLine", () => {
 });
 
 describe("formatCheckFailedLine", () => {
-	it("renders '<label>: check failed — <reason>' with the shared probe reason", () => {
+	it("names the label and the reason, and says the install was left untouched", () => {
 		expect(
 			formatCheckFailedLine("owner/repo", "ls-remote failed: dead remote"),
-		).toBe("owner/repo: check failed — ls-remote failed: dead remote");
+		).toBe(
+			"owner/repo: couldn't check for updates (ls-remote failed: dead remote) — left untouched",
+		);
+	});
+
+	it("keeps one line of git's error: its first, without git's advice", () => {
+		expect(
+			formatCheckFailedLine("leeovery/agentic-workflows", SSH_REFUSAL),
+		).toBe(
+			"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+		);
+	});
+
+	it("takes git's fatal: off the line it keeps", () => {
+		expect(
+			formatCheckFailedLine(
+				"owner/repo",
+				"\nfatal: repository 'https://github.com/owner/repo.git/' not found\n",
+			),
+		).toBe(
+			"owner/repo: couldn't check for updates (repository 'https://github.com/owner/repo.git/' not found) — left untouched",
+		);
+	});
+
+	it("says a check that timed out timed out", () => {
+		expect(
+			formatCheckFailedLine(
+				"owner/repo",
+				"git ls-remote timed out after 15s\nCommand failed: git ls-remote https://github.com/owner/repo.git HEAD\n",
+			),
+		).toBe(
+			"owner/repo: couldn't check for updates (git ls-remote timed out after 15s) — left untouched",
+		);
+	});
+
+	it("names the refusal, not the known-hosts warning before it", () => {
+		expect(
+			formatCheckFailedLine(
+				"owner/repo",
+				`Warning: Permanently added 'github.com' (ED25519) to the list of known hosts.\n${SSH_REFUSAL}`,
+			),
+		).toBe(
+			"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+		);
 	});
 });
 
