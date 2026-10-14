@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import type { ParsedSource } from "../src/source-parser.js";
-import { mockExecFile } from "./helpers/git-mocks.js";
+import { mockExecFile, settle } from "./helpers/git-mocks.js";
 
 vi.mock("node:child_process");
 
@@ -48,26 +48,12 @@ function mockGitOnDisk(breaks: number): void {
 	});
 }
 
-/** Runs `promise` to its end, passing each retry's wait without sleeping. */
-async function settle<T>(promise: Promise<T>): Promise<T | Error> {
-	let done = false;
-	const settled = promise
-		.catch((err: Error) => err)
-		.finally(() => {
-			done = true;
-		});
-	while (!done) {
-		await new Promise((resolve) => setImmediate(resolve));
-		vi.advanceTimersByTime(100);
-	}
-	return settled;
-}
-
 describe("cloneSource after a partial clone", () => {
 	let tempDir: string | undefined;
 
 	beforeEach(() => {
-		vi.useFakeTimers({ toFake: ["setTimeout"] });
+		tempDir = undefined;
+		vi.useFakeTimers();
 	});
 
 	afterEach(async () => {
