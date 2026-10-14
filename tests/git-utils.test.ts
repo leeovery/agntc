@@ -168,6 +168,24 @@ describe("execGit", () => {
 		expect(err.stderr).toBe("");
 	});
 
+	it.each([
+		[["-C", "/tmp/agntc-abc", "rev-parse", "HEAD"], "rev-parse"],
+		[["-c", "core.askPass=", "ls-remote", "url"], "ls-remote"],
+		[["--no-pager", "-C", "/tmp/x", "log"], "log"],
+	])("names the subcommand of %j past git's own options when it times out", async (args, subcommand) => {
+		mockExecFile((_cmd, _args, _opts, cb) => {
+			cb(Object.assign(new Error("Command failed"), { killed: true }), "", "");
+		});
+
+		const err = (await execGit(args, { timeout: 60_000 }).catch(
+			(e: unknown) => e,
+		)) as GitError;
+
+		expect(err.message.split("\n")[0]).toBe(
+			`git ${subcommand} timed out after 60s`,
+		);
+	});
+
 	it("marks a command that failed on its own as not timed out", async () => {
 		mockExecFileFailure("fatal: bad ref");
 

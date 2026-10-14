@@ -47,10 +47,27 @@ export function mockExecFileFailingFirst(
 	});
 }
 
-/** Settles `promise` while fake timers run, so a retry's waits pass at once. */
+// Taken before any test fakes the timers, so it always yields to real I/O.
+const realSetImmediate = setImmediate;
+
+/**
+ * Settles `promise` while fake timers run, so a retry's waits pass at once.
+ * Between rounds it lets real I/O finish, as a wait a retry schedules after
+ * real file work isn't pending until that work is done.
+ */
 export async function settle<T>(promise: Promise<T>): Promise<T | Error> {
-	const caught = promise.catch((err: Error) => err);
-	await vi.runAllTimersAsync();
+	let done = false;
+	const caught = promise
+		.catch((err: Error) => err)
+		.finally(() => {
+			done = true;
+		});
+	while (!done) {
+		await vi.runAllTimersAsync();
+		if (!done) {
+			await new Promise((resolve) => realSetImmediate(resolve));
+		}
+	}
 	return caught;
 }
 

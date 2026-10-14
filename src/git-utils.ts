@@ -20,6 +20,22 @@ export interface GitError extends Error {
 	timedOut: boolean;
 }
 
+/** git's own options that take the next argument as their value. */
+const OPTIONS_WITH_A_VALUE = new Set(["-C", "-c"]);
+
+/** The subcommand `args` run: the first argument past git's own options. */
+function gitSubcommand(args: string[]): string {
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i] ?? "";
+		if (OPTIONS_WITH_A_VALUE.has(arg)) {
+			i++;
+		} else if (!arg.startsWith("-")) {
+			return arg;
+		}
+	}
+	return "";
+}
+
 /**
  * A timed-out command's message opens with the timeout, so a terminal line
  * taken from its first line says so; Node's own message, with the command
@@ -33,7 +49,7 @@ function gitError(
 ): GitError {
 	const timedOut = error.killed === true;
 	const message = timedOut
-		? `git ${args[0]} timed out after ${timeout / 1000}s\n${error.message}`
+		? `git ${gitSubcommand(args)} timed out after ${timeout / 1000}s\n${error.message}`
 		: stderr || error.message;
 	return Object.assign(new Error(message), { stderr, timedOut });
 }
