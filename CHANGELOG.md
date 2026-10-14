@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-10-14
+
+✨ Added
+- `update owner/repo` (a key naming several installs) now updates them together — one check and one clone per repo, with grouped streamed output.
+- `npm run typecheck` type-checks source and tests, and now gates CI publish and `mint release`.
+
+🔧 Changed
+- Updates re-key installs the way `add` would, such as a pack whose folder is now a single skill or a root skill that moved below the root — the entry moves to the new key and a note names both.
+- Updating by key now exits non-zero on a dead remote or unmatched constraint, whether the key names one install or several; update-all still only warns.
+- Packs update before loose skills across the whole run, so skills a pack absorbs are skipped rather than reinstalled and taken over.
+- Remedy and recovery re-add commands keep the install's version (constraint, tag or branch) and point at the item as replayed under its new key.
+- Local-source re-add commands name the item's own folder.
+- The out-of-constraint footer prints commands only for installs the run left in place, under their current keys.
+- Machine-mode `update` items report a moved entry under its new `key` with `previousKey` for the old one.
+- `list` follows an entry to its new key after an update or version change.
+- Moved skills in a group are located with one shared walk of the clone.
+- The symlink-escape check now plans exactly the folders and filters the copy uses, and names the offending link by its path below the source root.
+
+🐛 Fixed
+- Updates abort before removing anything when the key an install would move to is already taken, with a remedy that frees it.
+- Links in a clone to a file or folder elsewhere in the repo are now copied in place, one level deep, instead of being dropped.
+- Links into `.git` are left out of a copy in any letter case.
+
+🔒 Security
+- Links to targets that can't be listed or whose names differ in case from what's on disk are refused, so a link can't reach `.git` or folders above an item on case-insensitive filesystems.
+- Links in folders brought in by another link are checked against the source root before anything is written.
+
 ## [0.5.0] - 2026-10-13
 
 **Breaking:** agntc now installs for Claude only, and a pack (formerly a plugin) must be declared with `{"type": "pack"}` or `--pack`; folder shape no longer makes one. Existing installs keep working: multi-agent installs move to `.claude/` on their next `update`, and plugin entries are read as packs.
