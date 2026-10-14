@@ -1887,6 +1887,24 @@ describe("buildAbortMessage", () => {
 		);
 	});
 
+	it("offers no re-add when two of the source's folders install to one place, which add would refuse too", () => {
+		const msg = buildAbortMessage(
+			"owner/repo/laravel",
+			makeEntry({ type: "pack" }),
+			{
+				reason:
+					"laravel/skills/back/refs and laravel/skills/front/refs would both install to .claude/skills/refs",
+				sourceClash: true,
+			},
+			"project",
+			"v2.0.0",
+		);
+
+		expect(msg).toBe(
+			"owner/repo/laravel can't be updated: in its source, laravel/skills/back/refs and laravel/skills/front/refs would both install to .claude/skills/refs, so it can't be installed as it stands. The existing install is left as it is.",
+		);
+	});
+
 	it("re-adds a skill from its recorded path, not its key", () => {
 		const msg = buildAbortMessage(
 			"owner/repo/go",

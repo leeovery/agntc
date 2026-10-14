@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	hookEntryName,
 	identifyAssetType,
 	isUnderRoot,
 	skillFolderName,
@@ -90,5 +91,25 @@ describe("skillFolderName", () => {
 		[".claude/agents/foo/", "another asset's folder"],
 	])("is null for %s, %s", (path) => {
 		expect(skillFolderName(path)).toBeNull();
+	});
+});
+
+describe("hookEntryName", () => {
+	it.each([
+		[".claude/hooks/pre-commit.sh", "pre-commit.sh"],
+		[".claude/hooks/lint/", "lint"],
+		[".claude/hooks/lint/lib/util.sh", "lint"],
+	])("names the top-level hook entry %s is or lies in", (path, name) => {
+		expect(hookEntryName(path)).toBe(name);
+	});
+
+	it.each([
+		[".claude/hooks/", "the hooks folder itself"],
+		[".claude/hooks", "the hooks folder without its slash"],
+		[".claude/hooks/../x", "a segment that isn't safe"],
+		[".claude/hooksX/lint", "a sibling sharing the prefix"],
+		[".claude/skills/lint/", "another asset's folder"],
+	])("is null for %s, %s", (path) => {
+		expect(hookEntryName(path)).toBeNull();
 	});
 });

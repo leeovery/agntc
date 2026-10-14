@@ -456,6 +456,7 @@ describe("executeNukeAndReinstall", () => {
 				status: "aborted",
 				reason:
 					"laravel/skills/a/lint and laravel/tools/lint would both install to .claude/skills/lint",
+				sourceClash: true,
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyPack).not.toHaveBeenCalled();
@@ -492,6 +493,7 @@ describe("executeNukeAndReinstall", () => {
 				status: "aborted",
 				reason:
 					"laravel/skills/cat/shared and laravel/skills/shared would both install to .claude/skills/shared",
+				sourceClash: true,
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyPack).not.toHaveBeenCalled();

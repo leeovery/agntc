@@ -54,8 +54,9 @@ export function isEmptyPack(pack: FoundPack): boolean {
 
 /**
  * Keys each item under the source key ({@link keyItem}). Refuses, naming the
- * paths, when two items would install to one place or, failing that, share a
- * key. `root` is the source root the items' paths are relative to.
+ * paths, when an item's own folders or two items would install to one place
+ * or, failing that, two items share a key. `root` is the source root the
+ * items' paths are relative to.
  */
 export async function keyItems(
 	items: InstallItem[],
@@ -70,7 +71,7 @@ export async function keyItems(
 			claims: await computeClaims(item, root),
 		})),
 	);
-	const targetClashes = findTargetClashLines(keyed);
+	const targetClashes = findTargetClashLines(keyed, rootName);
 	const clashes =
 		targetClashes.length > 0 ? targetClashes : findKeyClashes(keyed, rootName);
 	if (clashes.length > 0) {
@@ -99,7 +100,21 @@ function itemKeySuffix(item: InstallItem): string {
 	return item.skill.name;
 }
 
-function findTargetClashLines(keyed: KeyedItem[]): string[] {
+/**
+ * An item whose own folders would install to one place first: no choice of
+ * items mends that, so it can't be installed as it stands. Failing that, two
+ * items claiming one place, where choosing one does.
+ */
+function findTargetClashLines(keyed: KeyedItem[], rootName: string): string[] {
+	const own = keyed.flatMap(({ item, claims }) =>
+		findTargetClashes(claims).map(
+			(clash) =>
+				`${itemLabel(item, rootName)} can't be installed as it stands: ${describeClash(clash)}`,
+		),
+	);
+	if (own.length > 0) {
+		return own;
+	}
 	return findTargetClashes(keyed.flatMap(({ claims }) => claims)).map(
 		(clash) => `${describeClash(clash)} — choose one`,
 	);

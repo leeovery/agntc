@@ -162,6 +162,11 @@ interface NukeReinstallAborted {
 	 */
 	stillInSource?: true;
 	/**
+	 * What stopped it was two of the source's folders installing to one place,
+	 * which neither update nor add can install, so there is no remedy to offer.
+	 */
+	sourceClash?: true;
+	/**
 	 * The item as the replay found it, under the key `add` gives it: set when
 	 * the abort came after a replay, for a remedy that adds it again.
 	 */
@@ -198,7 +203,7 @@ export type NukeReinstallResult =
 /** What the re-cloned source now offers for an entry, decided before any delete. */
 type Replay =
 	| { ok: true; item: InstallItem; note?: string }
-	| { ok: false; reason: string }
+	| { ok: false; abort: Pick<NukeReinstallAborted, "reason" | "sourceClash"> }
 	| { ok: false; gone: true };
 
 const GONE: Replay = { ok: false, gone: true };
@@ -255,7 +260,7 @@ async function clearReplay(
 	if (!replay.ok) {
 		return "gone" in replay
 			? { status: "gone" }
-			: { status: "aborted", reason: replay.reason };
+			: { status: "aborted", ...replay.abort };
 	}
 
 	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
@@ -396,7 +401,9 @@ async function followMovedSkill(
 	if (matches.length > 1) {
 		return {
 			ok: false,
-			reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.join(", ")}`,
+			abort: {
+				reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.join(", ")}`,
+			},
 		};
 	}
 	return {
@@ -411,7 +418,7 @@ async function followMovedSkill(
  * removed ones go. A path that is now a single skill reinstalls as that
  * skill; a path that is gone, or holds nothing, is gone upstream. Two of its
  * skills or support folders sharing a folder name would install to one place,
- * so the pack aborts.
+ * which no add could install either, so the pack aborts with no remedy.
  */
 async function derivePackReplay(
 	options: NukeReinstallOptions,
@@ -432,7 +439,13 @@ async function derivePackReplay(
 		}
 		const clashes = findTargetClashes(skillClaims(skillFolders(pack)));
 		if (clashes.length > 0) {
-			return { ok: false, reason: clashes.map(describeClash).join("; ") };
+			return {
+				ok: false,
+				abort: {
+					reason: clashes.map(describeClash).join("; "),
+					sourceClash: true,
+				},
+			};
 		}
 		return { ok: true, item: { kind: "pack", pack } };
 	} catch (err) {
@@ -444,7 +457,7 @@ async function derivePackReplay(
 			};
 		}
 		if (err instanceof PackConflictError) {
-			return { ok: false, reason: "its folder now contains packs" };
+			return { ok: false, abort: { reason: "its folder now contains packs" } };
 		}
 		if (err instanceof StartPathError) {
 			return GONE;

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -206,6 +206,17 @@ describe("skillsInInstalledPacks", () => {
 
 	it("leaves out a skill named like the installed pack's support folder, which holds no such skill", async () => {
 		expect((await packed()).has("other/shared")).toBe(false);
+	});
+
+	it("takes a folder of the pack it can't read for the skill, rather than failing", async () => {
+		const locked = join(installRoot, ".claude/skills/a");
+		await chmod(locked, 0o000);
+
+		try {
+			expect((await packed()).get("skills/a")).toBe("owner/repo/tools");
+		} finally {
+			await chmod(locked, 0o755);
+		}
 	});
 
 	it("finds nothing in a pack from another source", async () => {

@@ -154,7 +154,7 @@ describe("keyItems", () => {
 			]);
 		});
 
-		it("refuses two skills inside one pack", async () => {
+		it("refuses a pack with two skills of one name as it stands, offering no choice", async () => {
 			const packed = pack("p", {
 				skills: [
 					{ name: "foo", path: "p/a/foo" },
@@ -163,8 +163,40 @@ describe("keyItems", () => {
 			});
 
 			expect(await refusal([packed])).toEqual([
-				"p/a/foo and p/b/foo would both install to .claude/skills/foo — choose one",
+				"p can't be installed as it stands: p/a/foo and p/b/foo would both install to .claude/skills/foo",
 			]);
+		});
+
+		it("refuses a pack with two support folders of one name as it stands, offering no choice", async () => {
+			const packed = pack("p", {
+				skills: [
+					{ name: "react", path: "p/skills/front/react" },
+					{ name: "node", path: "p/skills/back/node" },
+				],
+				supportFolders: [
+					{ name: "refs", path: "p/skills/back/refs" },
+					{ name: "refs", path: "p/skills/front/refs" },
+				],
+			});
+
+			expect(await refusal([packed])).toEqual([
+				"p can't be installed as it stands: p/skills/back/refs and p/skills/front/refs would both install to .claude/skills/refs",
+			]);
+		});
+
+		it("names a pack whose own folders clash before any clash between items, which it would only hide", async () => {
+			const packed = pack("p", {
+				supportFolders: [
+					{ name: "refs", path: "p/a/refs" },
+					{ name: "refs", path: "p/b/refs" },
+				],
+			});
+
+			expect(await refusal([packed, skill("x/lint"), skill("y/lint")])).toEqual(
+				[
+					"p can't be installed as it stands: p/a/refs and p/b/refs would both install to .claude/skills/refs",
+				],
+			);
 		});
 
 		it("refuses two packs sharing a skill name, an agent file or a hook entry", async () => {
@@ -200,7 +232,7 @@ describe("keyItems", () => {
 			});
 
 			expect(await refusal([packed])).toEqual([
-				"p/skills/cat/shared and p/skills/shared would both install to .claude/skills/shared — choose one",
+				"p can't be installed as it stands: p/skills/cat/shared and p/skills/shared would both install to .claude/skills/shared",
 			]);
 		});
 

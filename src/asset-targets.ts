@@ -35,12 +35,24 @@ export function skillTarget(name: string): string {
  * isn't one safe segment.
  */
 export function skillFolderName(path: string): string | null {
-	const prefix = `${targetDir("skills")}/`;
-	if (!path.startsWith(prefix)) {
-		return null;
-	}
-	const [name = "", ...below] = path.slice(prefix.length).split("/");
+	const [name = "", ...below] = segmentsIn("skills", path);
 	return below.length > 0 && isSafeSegment(name) ? name : null;
+}
+
+/**
+ * The top-level entry of `.claude/hooks/` a path is or lies in, a file or a
+ * folder, as `add` counts hooks; null for a path outside it, or a name that
+ * isn't one safe segment.
+ */
+export function hookEntryName(path: string): string | null {
+	const [name = ""] = segmentsIn("hooks", path);
+	return isSafeSegment(name) ? name : null;
+}
+
+/** The segments of `path` below an asset type's directory; none outside it. */
+function segmentsIn(assetType: AssetType, path: string): string[] {
+	const prefix = `${targetDir(assetType)}/`;
+	return path.startsWith(prefix) ? path.slice(prefix.length).split("/") : [];
 }
 
 /** The asset type owning an install-root-relative file path, or null if none. */

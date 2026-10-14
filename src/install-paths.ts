@@ -67,22 +67,37 @@ export async function inspectInstallPath(
 }
 
 /**
- * Whether the installed `.claude/skills/<name>/` is a skill, holding its
- * `SKILL.md`, rather than a pack's support folder, which holds none: the
- * manifest records the two alike. No link is followed.
+ * Whether the installed `.claude/skills/<name>/` is a skill rather than a
+ * pack's support folder: the manifest records the two alike. Only a real
+ * folder found holding no `SKILL.md` that isn't a folder is a support folder.
+ * A `SKILL.md` that is a link is a skill's, and whatever the probe can't tell
+ * without following a link (a link at the folder, a folder that's gone, a
+ * path it can't read) counts as a skill, as it did before support folders.
  */
 export async function isInstalledSkill(
 	installRoot: string,
 	name: string,
 ): Promise<boolean> {
 	if (!isSafeSegment(name)) {
-		return false;
+		return true;
 	}
-	const state = await inspectInstallPath(
-		installRoot,
-		`${skillTarget(name)}SKILL.md`,
+	const supportFolder = await holdsNoSkillFile(installRoot, name).catch(
+		() => false,
 	);
-	return state.kind === "present" && !state.isDirectory;
+	return !supportFolder;
+}
+
+async function holdsNoSkillFile(
+	installRoot: string,
+	name: string,
+): Promise<boolean> {
+	const folder = skillTarget(name);
+	const skillFile = await inspectInstallPath(installRoot, `${folder}SKILL.md`);
+	if (skillFile.kind !== "missing") {
+		return skillFile.kind === "present" && skillFile.isDirectory;
+	}
+	const state = await inspectInstallPath(installRoot, folder);
+	return state.kind === "present" && state.isDirectory;
 }
 
 /**

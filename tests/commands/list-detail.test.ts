@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -344,6 +351,121 @@ describe("renderDetailView", () => {
 			);
 
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 agent");
+		});
+
+		it("counts a skill entry's folder as a skill without looking at what the install holds", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/notes.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: { type: "skill", files: [".claude/skills/a/"] },
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+		});
+
+		it("counts a pack's folder as a skill when its SKILL.md is a link or the folder can't be read", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/linked/notes.md",
+				".claude/skills/locked/SKILL.md",
+				"elsewhere/SKILL.md",
+			);
+			await symlink(
+				join(installRoot, "elsewhere/SKILL.md"),
+				join(installRoot, ".claude/skills/linked/SKILL.md"),
+			);
+			const locked = join(installRoot, ".claude/skills/locked");
+			await chmod(locked, 0o000);
+
+			try {
+				await renderDetailView(
+					makeInput({
+						entry: {
+							type: "pack",
+							files: [".claude/skills/linked/", ".claude/skills/locked/"],
+						},
+					}),
+					interactiveUi,
+				);
+			} finally {
+				await chmod(locked, 0o755);
+			}
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
+		});
+
+		it("counts each top-level hook entry once, however many of its paths are recorded", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/SKILL.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".claude/skills/a/",
+							".claude/hooks/lint/",
+							".claude/hooks/lint/run.sh",
+							".claude/hooks/lint/lib/util.sh",
+							".claude/hooks/pre-commit.sh",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill, 2 hooks");
+		});
+
+		it("counts a v1 entry's agents and hooks as add does, leaving out the folders it recorded", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(".claude/skills/a/SKILL.md");
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".claude/skills/a/",
+							".claude/agents/",
+							".claude/agents/team/",
+							".claude/agents/team/lead.md",
+							".claude/agents/reviewer.md",
+							".claude/hooks/",
+							".claude/hooks/pre-commit.sh",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith(
+				"Assets: 1 skill, 2 agents, 1 hook",
+			);
+		});
+
+		it("words a legacy pack recording nothing in .claude/ by what it has, with no skill count", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [
+							".agents/skills/a/",
+							".agents/skills/b/",
+							".cursor/skills/a/",
+						],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 3 other");
 		});
 
 		it("omits the assets line when the entry has no files", async () => {

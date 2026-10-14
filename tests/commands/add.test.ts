@@ -700,6 +700,24 @@ describe("add command", () => {
 			]);
 			expect(await installed(".claude")).toBe(false);
 		});
+
+		it("refuses a pack whose own support folders would install to one place, offering no choice", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/front/react/SKILL.md": "",
+				"p/skills/front/refs/x.md": "",
+				"p/skills/back/node/SKILL.md": "",
+				"p/skills/back/refs/x.md": "",
+			});
+
+			const code = await exitCode(runAdd("owner/repo"));
+
+			expect(code).toBe(1);
+			expect(cancelled()).toEqual([
+				"owner/repo: p can't be installed as it stands: p/skills/back/refs and p/skills/front/refs would both install to .claude/skills/refs",
+			]);
+			expect(await installed(".claude")).toBe(false);
+		});
 	});
 
 	describe("reinstalling under the same key", () => {

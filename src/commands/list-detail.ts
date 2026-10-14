@@ -1,6 +1,6 @@
 import {
 	type AssetCounts,
-	type AssetType,
+	hookEntryName,
 	identifyAssetType,
 	skillFolderName,
 } from "../asset-targets.js";
@@ -50,37 +50,57 @@ interface EntryAssets {
 }
 
 /**
- * Counts each `.claude/skills/<name>/` once: a skill when the install holds
- * its `SKILL.md`, else a pack's support folder, as the manifest records the
- * two alike. Agents and hooks count their recorded paths.
+ * Counts what an entry installs as `add` counts it, however many of its paths
+ * are recorded: each `.claude/skills/<name>/` once, each top-level entry of
+ * `.claude/hooks/` once, and each agent `.md` file. A pack's skills folder is
+ * a skill or a support folder by what the install holds
+ * ({@link isInstalledSkill}), as the manifest records the two alike; a skill
+ * entry's is a skill by definition.
  */
 async function countAssets(
-	files: string[],
+	entry: ManifestEntry,
 	installRoot: string,
 ): Promise<EntryAssets> {
-	const folders = [
-		...new Set(files.map(skillFolderName).filter((name) => name !== null)),
-	];
-	const isSkill = await Promise.all(
-		folders.map((name) => isInstalledSkill(installRoot, name)),
-	);
-	const skills = isSkill.filter(Boolean).length;
-	const typed = (type: AssetType | null) =>
-		files.filter((file) => identifyAssetType(file) === type).length;
+	const { files } = entry;
+	const folders = distinct(files.map(skillFolderName));
+	const skills =
+		entry.type === "pack"
+			? await countInstalledSkills(folders, installRoot)
+			: folders.length;
 	return {
 		counts: {
 			skills,
 			folders: folders.length - skills,
-			agents: typed("agents"),
-			hooks: typed("hooks"),
+			agents: files.filter(isAgentFile).length,
+			hooks: distinct(files.map(hookEntryName)).length,
 		},
-		other: typed(null),
+		other: files.filter((file) => identifyAssetType(file) === null).length,
 	};
+}
+
+async function countInstalledSkills(
+	folders: string[],
+	installRoot: string,
+): Promise<number> {
+	const isSkill = await Promise.all(
+		folders.map((name) => isInstalledSkill(installRoot, name)),
+	);
+	return isSkill.filter(Boolean).length;
+}
+
+function distinct(names: (string | null)[]): string[] {
+	return [...new Set(names.filter((name) => name !== null))];
+}
+
+/** An agent as `add` installs one: a `.md` file in `.claude/agents/`. */
+function isAgentFile(file: string): boolean {
+	return identifyAssetType(file) === "agents" && file.endsWith(".md");
 }
 
 /**
  * What the entry installs, on one line: a pack's counts as `add` words them,
- * a skill's only those it has. Empty for an entry recording no files.
+ * once it records something in `.claude/`; otherwise, a skill's included,
+ * only the counts it has. Empty for an entry recording no files.
  */
 async function assetSummary(
 	entry: ManifestEntry,
@@ -89,14 +109,21 @@ async function assetSummary(
 	if (entry.files.length === 0) {
 		return "";
 	}
-	const { counts, other } = await countAssets(entry.files, installRoot);
-	const assets =
-		entry.type === "pack"
-			? formatPackCounts(counts)
-			: formatAssetCounts(counts);
+	const { counts, other } = await countAssets(entry, installRoot);
+	const assets = usesPackWording(entry)
+		? formatPackCounts(counts)
+		: formatAssetCounts(counts);
 	return [assets, other > 0 ? `${other} other` : ""]
 		.filter((part) => part !== "")
 		.join(", ");
+}
+
+/** A legacy pack recording only paths outside `.claude/` has no counts to word. */
+function usesPackWording(entry: ManifestEntry): boolean {
+	return (
+		entry.type === "pack" &&
+		entry.files.some((file) => identifyAssetType(file) !== null)
+	);
 }
 
 // `canChangeVersion` is decided by the caller from the installed ref (tag-based)
