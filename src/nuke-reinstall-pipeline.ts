@@ -23,6 +23,7 @@ import {
 	StartPathError,
 	skillFolders,
 } from "./discover.js";
+import { droppedButInSource } from "./dropped-folders.js";
 import { restoreCommand, sourceIdOf, sourceKeyOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { pathExists, relativePosix } from "./fs-utils.js";
@@ -41,6 +42,7 @@ import {
 import { nukeManifestFiles } from "./nuke-files.js";
 import type { Scope } from "./scope.js";
 import { memberName, repoFromKey } from "./source-parser.js";
+import { joinWithAnd } from "./summary.js";
 import { checkUnmanagedConflicts } from "./unmanaged-check.js";
 
 export interface NukeReinstallOptions {
@@ -142,9 +144,10 @@ interface NukeReinstallRemoveFailed {
 }
 
 /**
- * The re-cloned tree can't be replayed for the entry, or files are in the way
- * of what it would install. Found before any file is removed, so the existing
- * install is left intact.
+ * The re-cloned tree can't be replayed for the entry, the replay would remove
+ * folders the source still has, or files are in the way of what it would
+ * install. Found before any file is removed, so the existing install is left
+ * intact.
  */
 interface NukeReinstallAborted {
 	status: "aborted";
@@ -153,6 +156,11 @@ interface NukeReinstallAborted {
 	inTheWay?: true;
 	/** What stopped it was another entry holding the key the item moves to. */
 	takenKey?: string;
+	/**
+	 * What stopped it was folders it would remove that are still in its
+	 * source, which a remove and add accept.
+	 */
+	stillInSource?: true;
 	/**
 	 * The item as the replay found it, under the key `add` gives it: set when
 	 * the abort came after a replay, for a remedy that adds it again.
@@ -212,9 +220,10 @@ interface ClearedReplay extends KeyedReplay {
 /**
  * Reinstalls an entry from a re-cloned source, replaying its recorded type,
  * under the key `add` would give what it replays to. Every check — a symlink
- * on the recorded path, what the source still holds, what is in the way of
- * the files it would install, whether that key is free, and the
- * symlink-escape scan — runs before any file is removed.
+ * on the recorded path, what the source still holds, recorded folders it
+ * would remove that the source still has, what is in the way of the files it
+ * would install, whether that key is free, and the symlink-escape scan — runs
+ * before any file is removed.
  */
 export async function executeNukeAndReinstall(
 	options: NukeReinstallOptions,
@@ -250,7 +259,22 @@ async function clearReplay(
 	}
 
 	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
-	const way = await inTheWayOf(replay.item, options);
+	const incoming = await computeIncomingFiles(replay.item, cloneRoot);
+	const dropped = await droppedButInSource(
+		existingEntry.files,
+		incoming,
+		replay.item,
+		cloneRoot,
+	);
+	if (dropped.length > 0) {
+		return {
+			status: "aborted",
+			reason: droppedReason(dropped),
+			stillInSource: true,
+			replayed: replayedAs(options, { replay, keyed }),
+		};
+	}
+	const way = await inTheWayOf(replay.item, incoming, options);
 	if (isKeyTaken(keyed.key, options, way)) {
 		return {
 			status: "aborted",
@@ -436,14 +460,15 @@ interface InTheWay extends Claims {
 }
 
 /**
- * Sorts out what sits at every path the item would claim. Only a pack absorbs
- * loose skills from its own source; any other entry's files clash.
+ * Sorts out what sits at every path the item would claim, `incoming`. Only a
+ * pack absorbs loose skills from its own source; any other entry's files
+ * clash.
  */
 async function inTheWayOf(
 	item: InstallItem,
-	{ key, cloneRoot, existingEntry, installed, scope }: NukeReinstallOptions,
+	incoming: string[],
+	{ key, existingEntry, installed, scope }: NukeReinstallOptions,
 ): Promise<InTheWay> {
-	const incoming = await computeIncomingFiles(item, cloneRoot);
 	const claims: Claims =
 		item.kind === "pack"
 			? claimFiles(incoming, installed, key, sourceIdOf(key, existingEntry))
@@ -467,6 +492,11 @@ function isKeyTaken(
 	{ absorbed }: InTheWay,
 ): boolean {
 	return newKey !== key && newKey in installed && !absorbed.includes(newKey);
+}
+
+function droppedReason(names: string[]): string {
+	const are = names.length === 1 ? "is" : "are";
+	return `it would remove ${joinWithAnd(names)}, which ${are} still in the source but would no longer be installed`;
 }
 
 function inTheWayReason({ clashes, unmanaged }: InTheWay): string {

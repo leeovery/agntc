@@ -69,6 +69,13 @@ vi.mock("../../src/unmanaged-check.js", async () => {
 	return mockUnmanagedCheckModule();
 });
 
+vi.mock("../../src/dropped-folders.js", async () => {
+	const { mockDroppedFoldersModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockDroppedFoldersModule();
+});
+
 // File-specific: this file also needs `stat` (local-path validation).
 vi.mock("node:fs/promises", () => ({
 	stat: vi.fn(),
@@ -110,6 +117,7 @@ const mockCopyPack = mocks.copyPack;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
 const mockDiscover = mocks.discover;
+const mockDroppedButInSource = mocks.droppedButInSource;
 const mockConfirm = vi.mocked(p.confirm);
 // File-specific handle: local-path validation via fs.stat.
 const mockStat = vi.mocked(stat);
@@ -435,6 +443,36 @@ describe("executeUpdateAction", () => {
 			expect(result.message).toContain(
 				"To migrate: npx agntc remove -g owner/repo then npx agntc add -g owner/repo",
 			);
+		});
+
+		it("names the folders it would remove that the source still has, and how to update anyway", async () => {
+			const key = "owner/repo/tools";
+			const entry = makeEntry({
+				type: "pack",
+				files: [".claude/skills/a/", ".claude/skills/workflow-shared/"],
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockResolvedValue(packAt("tools", "a"));
+			mockDroppedButInSource.mockResolvedValue(["workflow-shared"]);
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				success: false,
+				message:
+					"owner/repo/tools can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 	});
 

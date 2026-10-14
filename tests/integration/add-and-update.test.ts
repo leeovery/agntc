@@ -835,6 +835,121 @@ describe("integration: add and update", () => {
 			});
 		});
 
+		describe("installed by v1 for Claude and Codex", () => {
+			const V1_ENTRY = {
+				ref: null,
+				commit: OLD_SHA,
+				installedAt: "2026-01-15T10:00:00.000Z",
+				agents: ["claude", "codex"],
+				type: "plugin",
+				files: [
+					".claude/skills/README.md",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-start/SKILL.md",
+					".claude/skills/workflow-shared/",
+					".claude/skills/workflow-shared/references/",
+					".claude/skills/workflow-shared/references/casing-conventions.md",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-gates/README.md",
+					".agents/skills/workflow-start/",
+					".agents/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			};
+
+			async function installV1(): Promise<void> {
+				await write(projectDir, {
+					".claude/skills/README.md": "",
+					".claude/skills/workflow-start/SKILL.md": "v0",
+					".claude/skills/workflow-shared/references/casing-conventions.md":
+						"v0",
+					".claude/skills/workflow-gates/README.md": "",
+					".agents/skills/workflow-start/SKILL.md": "v0",
+					".agents/skills/workflow-shared/references/casing-conventions.md":
+						"v0",
+					".claude/agents/workflow-reviewer.md": "",
+				});
+				await write(join(projectDir, ".agntc"), {
+					"manifest.json": { [KEY]: V1_ENTRY },
+				});
+			}
+
+			it("update replaces it without stopping: support folders kept, the loose README and Codex copies gone", async () => {
+				await repo(KEY, WORKFLOWS);
+				await installV1();
+
+				await runUpdate();
+
+				expect(mockLog.error).not.toHaveBeenCalled();
+				expect(await sharedText()).toBe("v1");
+				expect(await installedFiles()).toEqual(
+					[
+						".claude/agents/workflow-reviewer.md",
+						...SKILLS,
+						...SHARED,
+						...GATES,
+						".claude/skills/workflow-gates/tests/guard.test.ts",
+					].sort(),
+				);
+				expect(await installed(".agents/skills/workflow-start")).toBe(false);
+				expect(await installed(".agents/skills/workflow-shared")).toBe(false);
+				expect((await savedManifest())[KEY]).toMatchObject({
+					type: "pack",
+					commit: NEW_SHA,
+				});
+			});
+
+			describe("when upstream moved a support folder out of skills/", () => {
+				const MESSAGE =
+					"leeovery/agentic-workflows can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove leeovery/agentic-workflows then npx agntc add leeovery/agentic-workflows --pack";
+
+				beforeEach(async () => {
+					const {
+						"skills/workflow-shared/references/casing-conventions.md": _,
+						"skills/workflow-shared/references/composing-a-raise.md": __,
+						...rest
+					} = WORKFLOWS;
+					await repo(KEY, {
+						...rest,
+						"shared/workflow-shared/references/casing-conventions.md": "v2",
+					});
+					await installV1();
+				});
+
+				async function expectInstallIntact(): Promise<void> {
+					expect(await sharedText()).toBe("v0");
+					expect(
+						await readFile(
+							join(projectDir, ".claude/skills/workflow-start/SKILL.md"),
+							"utf-8",
+						),
+					).toBe("v0");
+					expect(await installed(".claude/skills/README.md")).toBe(true);
+					expect(await installed(".agents/skills/workflow-shared")).toBe(true);
+					expect(await savedManifest()).toEqual({ [KEY]: V1_ENTRY });
+				}
+
+				it("update by key stops before removing anything, naming the folder", async () => {
+					expect(await updateError(KEY)).toBeInstanceOf(ExitSignal);
+
+					expect(mockLog.error).toHaveBeenCalledWith(MESSAGE);
+					await expectInstallIntact();
+				});
+
+				it("update of everything stops it the same way", async () => {
+					expect(await updateError()).toBeInstanceOf(ExitSignal);
+
+					const stops = vi
+						.mocked(p.spinner)
+						.mock.results.flatMap(({ value }) =>
+							value.stop.mock.calls.map(([text]: [string]) => text),
+						);
+					expect(stops).toContainEqual(expect.stringContaining(MESSAGE));
+					await expectInstallIntact();
+				});
+			});
+		});
+
 		describe("with a folder agntc didn't install where a support folder goes", () => {
 			const MINE = ".claude/skills/workflow-shared/mine.md";
 

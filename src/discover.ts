@@ -285,9 +285,9 @@ async function supportFoldersIn(
 	skillPaths: string[],
 ): Promise<SkillFolder[]> {
 	const found: SkillFolder[] = [];
-	for (const entry of await readEntries(absolute(ctx, dir))) {
+	for (const entry of await walkableFolders(absolute(ctx, dir))) {
 		const path = joinPath(dir, entry.name);
-		if (!isWalkable(entry) || skillPaths.includes(path)) {
+		if (skillPaths.includes(path)) {
 			continue;
 		}
 		if (skillPaths.some((skill) => skill.startsWith(`${path}/`))) {
@@ -455,6 +455,14 @@ async function readEntries(dir: string): Promise<Dirent[]> {
 	} catch {
 		return [];
 	}
+}
+
+/**
+ * The folders in `dir` the walk would enter: real folders, neither hidden nor
+ * one of the names it skips. A folder that can't be listed holds none.
+ */
+export async function walkableFolders(dir: string): Promise<Dirent[]> {
+	return (await readEntries(dir)).filter(isWalkable);
 }
 
 function isWalkable(entry: Dirent): boolean {

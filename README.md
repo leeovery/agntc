@@ -163,11 +163,12 @@ Check remote state and reinstall when newer versions exist.
 npx agntc@latest update [key] [-y]
 ```
 
-Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved ref and copies again. Constrained installs update to the best match within their range. Tag-pinned installs show newer tags but don't auto-upgrade. Every check runs before any file is deleted; if the new tree can't be installed, or other files are in the way of it, the update aborts with the existing install left intact and prints the remedy.
+Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved ref and copies again. Constrained installs update to the best match within their range. Tag-pinned installs show newer tags but don't auto-upgrade. Every check runs before any file is deleted; if the new tree can't be installed, it would remove a folder the repo still has, or other files are in the way of it, the update aborts with the existing install left intact and prints the remedy.
 
 - **Packs are re-walked.** Skills and support folders added upstream arrive; those removed upstream go.
 - **Moved skills are followed.** A loose skill whose folder moved is found again when exactly one skill in the repo has its name. New skills are never picked up for loose skills; install the folder as a pack for that.
 - **Keys follow what's installed.** When an install comes back as something `add` would key differently, such as a pack whose folder is now a single skill or a skill that moved out of the repo root, it moves to that key and a note names both. If another install already has that key, the update stops and says how to free it, unless that install is a loose skill the pack takes over.
+- **Nothing the repo still has is dropped.** If an update would remove a folder from `.claude/skills/` that the repo still holds but the new install wouldn't include, it stops, names the folders and prints the `remove` and `add` that update it anyway. A category folder an older agntc installed whole, whose skills now install on their own, goes without stopping.
 - **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
 - **Packs absorb loose skills.** When a pack now holds a skill you installed on its own from the same repo, the pack takes it over and the loose entry goes.
 

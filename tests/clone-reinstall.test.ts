@@ -2007,6 +2007,44 @@ describe("buildAbortMessage for a key another entry holds", () => {
 	});
 });
 
+describe("buildAbortMessage for folders still in the source", () => {
+	const cause = {
+		reason:
+			"it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed",
+		stillInSource: true,
+		replayed: {
+			key: "owner/repo",
+			entry: makeEntry({ type: "pack", ref: "v1.4.0", constraint: "^1.2.0" }),
+		},
+	} as const;
+	const entry = makeEntry({
+		type: "pack",
+		ref: "v1.3.0",
+		constraint: "^1.2.0",
+	});
+
+	it.each([
+		[
+			"project",
+			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo then npx agntc add 'owner/repo@^1.2.0' --pack",
+		],
+		[
+			"global",
+			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove -g owner/repo then npx agntc add -g 'owner/repo@^1.2.0' --pack",
+		],
+	] as const)("names the folders and updates it anyway by a remove and re-add, in %s scope", (scope, message) => {
+		expect(buildAbortMessage("owner/repo", entry, cause, scope)).toBe(message);
+	});
+
+	it("re-adds at the tag a version change picked", () => {
+		expect(
+			buildAbortMessage("owner/repo", entry, cause, "project", "v2.0.0"),
+		).toBe(
+			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo then npx agntc add owner/repo@v2.0.0 --pack",
+		);
+	});
+});
+
 describe("buildAbortMessage keeps the version the entry tracks", () => {
 	it("re-adds a constrained entry on its constraint", () => {
 		expect(

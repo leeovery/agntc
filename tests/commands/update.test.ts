@@ -53,6 +53,10 @@ vi.mock("../../src/unmanaged-check.js", () => ({
 	checkUnmanagedConflicts: vi.fn(),
 }));
 
+vi.mock("../../src/dropped-folders.js", () => ({
+	droppedButInSource: vi.fn(),
+}));
+
 vi.mock("../../src/discover.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/discover.js")>()),
 	discover: vi.fn(),
@@ -99,6 +103,7 @@ import {
 	type FoundPack,
 	PackConflictError,
 } from "../../src/discover.js";
+import { droppedButInSource } from "../../src/dropped-folders.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import {
 	addEntry,
@@ -128,6 +133,7 @@ const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
 const mockCopyPack = vi.mocked(copyPack);
 const mockDiscover = vi.mocked(discover);
 const mockCheckUnmanaged = vi.mocked(checkUnmanagedConflicts);
+const mockDroppedButInSource = vi.mocked(droppedButInSource);
 
 const LARAVEL_PACK: FoundPack = {
 	name: "repo",
@@ -242,6 +248,7 @@ beforeEach(() => {
 	// Default: no escaping symlink in the re-clone (copy-safety scan passes).
 	mockScanForEscapingSymlinks.mockResolvedValue(undefined);
 	mockCheckUnmanaged.mockResolvedValue([]);
+	mockDroppedButInSource.mockResolvedValue([]);
 	mockAddEntry.mockImplementation((manifest, key, entry) => ({
 		...manifest,
 		[key]: entry,
@@ -7372,6 +7379,81 @@ describe("a pack taking over loose skills from its own source", () => {
 				"replace them: npx agntc remove -g owner/repo/tools then npx agntc add -g owner/repo/tools --pack --overwrite",
 			),
 		);
+	});
+});
+
+describe("a pack that would remove folders still in its source", () => {
+	const KEY = "owner/repo/tools";
+	const TOOLS: FoundPack = {
+		name: "tools",
+		path: "tools",
+		skills: [{ name: "a", path: "tools/skills/a" }],
+		supportFolders: [],
+		assetDirs: [],
+	};
+	const ENTRY = makeEntry({
+		type: "pack",
+		commit: INSTALLED_SHA,
+		files: [
+			".claude/skills/a/",
+			".claude/skills/workflow-shared/",
+			".claude/skills/workflow-gates/",
+		],
+	});
+	const MESSAGE =
+		"owner/repo/tools can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack";
+
+	beforeEach(() => {
+		mockReadManifestOrExit.mockResolvedValue({ [KEY]: ENTRY });
+		mockCheckForUpdate.mockResolvedValue({
+			status: "update-available",
+			remoteCommit: REMOTE_SHA,
+		});
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockDiscover.mockResolvedValue(onlyPack(TOOLS));
+		mockDroppedButInSource.mockResolvedValue([
+			"workflow-shared",
+			"workflow-gates",
+		]);
+	});
+
+	it("by key, asks the source about what the pack would no longer write, before removing anything", async () => {
+		await runUpdate(KEY).catch(() => {});
+
+		expect(mockDroppedButInSource).toHaveBeenCalledExactlyOnceWith(
+			ENTRY.files,
+			[".claude/skills/a/"],
+			{ kind: "pack", pack: TOOLS },
+			"/tmp/agntc-clone",
+		);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockCopyPack).not.toHaveBeenCalled();
+	});
+
+	it("by key, names them and how to update anyway, leaving the install as recorded", async () => {
+		const err = await runUpdate(KEY).catch((e) => e);
+
+		expect(err).toBeInstanceOf(ExitSignal);
+		expect(mockLog.error).toHaveBeenCalledWith(MESSAGE);
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+	});
+
+	it("in all-mode, reports it aborted with the same message, exiting 1", async () => {
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document.items).toEqual([
+			expect.objectContaining({
+				key: KEY,
+				status: "aborted",
+				message: MESSAGE,
+			}),
+		]);
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockWriteManifest).not.toHaveBeenCalled();
 	});
 });
 

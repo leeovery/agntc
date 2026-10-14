@@ -83,6 +83,13 @@ vi.mock("../../src/unmanaged-check.js", async () => {
 	return mockUnmanagedCheckModule();
 });
 
+vi.mock("../../src/dropped-folders.js", async () => {
+	const { mockDroppedFoldersModule } = await import(
+		"../helpers/list-action-mock-factories.js"
+	);
+	return mockDroppedFoldersModule();
+});
+
 // File-specific: change-version always fetches the full remote tag list.
 vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
@@ -115,6 +122,7 @@ const mockCopyPack = mocks.copyPack;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
 const mockDiscover = mocks.discover;
+const mockDroppedButInSource = mocks.droppedButInSource;
 // File-specific handles for the change-version flow.
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockSelect = vi.mocked(p.select);
@@ -773,6 +781,35 @@ describe("executeChangeVersionAction", () => {
 			expect(result.message).toContain(
 				"To migrate: npx agntc remove -g owner/repo then npx agntc add -g owner/repo",
 			);
+		});
+
+		it("names the folders it would remove that the source still has, and re-adds at the chosen version", async () => {
+			const key = "owner/repo/tools";
+			const entry = makeEntry({
+				type: "pack",
+				ref: "v1.0.0",
+				files: [".claude/skills/a/", ".claude/skills/workflow-shared/"],
+			});
+			mockSelect.mockResolvedValue("v2.0.0");
+			primeSuccessfulReinstall();
+			mockDiscover.mockResolvedValue(packAt("tools", "a"));
+			mockDroppedButInSource.mockResolvedValue(["workflow-shared"]);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				changed: false,
+				message:
+					"owner/repo/tools can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools@v2.0.0 --pack",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 	});
 
