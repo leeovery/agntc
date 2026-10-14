@@ -5,6 +5,7 @@ import {
 	prepareReinstall,
 	recordReinstall,
 } from "../clone-reinstall.js";
+import { errorMessage, gitErrorCause } from "../errors.js";
 import { fetchRemoteTags } from "../git-utils.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
@@ -43,17 +44,17 @@ export async function executeChangeVersionAction(
 	scope: Scope,
 	ui: Ui,
 ): Promise<ChangeVersionResult> {
-	// Fetching the full tag list is a network round-trip (git ls-remote) — show a
-	// spinner so the pause before the version list isn't silent.
-	const url = deriveCloneUrlFromKey(key, entry.cloneUrl);
-	const spin = ui.spinner();
-	spin.start("Fetching available versions...");
-	let tags: string[];
-	try {
-		tags = [...(await fetchRemoteTags(url))].reverse();
-	} finally {
-		spin.stop("Fetched available versions");
+	const fetched = await fetchVersions(
+		deriveCloneUrlFromKey(key, entry.cloneUrl),
+		ui,
+	);
+	if ("cause" in fetched) {
+		return unchanged(
+			key,
+			`${key}: couldn't fetch its versions (${fetched.cause}) — left untouched`,
+		);
 	}
+	const { tags } = fetched;
 
 	if (tags.length === 0) {
 		return unchanged(key, "No tagged versions available");
@@ -131,6 +132,26 @@ export async function executeChangeVersionAction(
 		message: `Changed ${result.key} to ${selectedTag}`,
 		notes: result.notes,
 	};
+}
+
+/**
+ * The remote's tags, newest first, or why they couldn't be listed. Listing
+ * them is a network round-trip (git ls-remote), so a spinner covers the pause.
+ */
+async function fetchVersions(
+	url: string,
+	ui: Ui,
+): Promise<{ tags: string[] } | { cause: string }> {
+	const spin = ui.spinner();
+	spin.start("Fetching available versions...");
+	try {
+		const tags = await fetchRemoteTags(url);
+		spin.stop("Fetched available versions");
+		return { tags: [...tags].reverse() };
+	} catch (err: unknown) {
+		spin.stop("Couldn't fetch available versions", 2);
+		return { cause: gitErrorCause(errorMessage(err)) };
+	}
 }
 
 function unchanged(key: string, message: string): ChangeVersionResult {

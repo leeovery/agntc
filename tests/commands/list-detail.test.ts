@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManifestEntry } from "../../src/manifest.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import { makeEntry } from "../helpers/factories.js";
+import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 
 vi.mock("@clack/prompts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@clack/prompts")>();
@@ -570,6 +571,34 @@ describe("renderDetailView", () => {
 			expect(mockLog.error).toHaveBeenCalledWith(
 				'No matching version found for constraint "^1.0.0"',
 			);
+		});
+
+		it("check-failed says why, in one line", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({
+					updateStatus: { status: "check-failed", reason: SSH_REFUSAL },
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.warn.mock.calls).toEqual([
+				[
+					"Couldn't check for updates (git@github.com: Permission denied (publickey).)",
+				],
+			]);
+		});
+
+		it("a check that didn't fail says nothing of one", async () => {
+			mockSelect.mockResolvedValue("back");
+
+			await renderDetailView(
+				makeInput({ updateStatus: { status: "up-to-date" } }),
+				interactiveUi,
+			);
+
+			expect(mockLog.warn).not.toHaveBeenCalled();
 		});
 
 		it("constrained-up-to-date with latestOverall shows info about version outside constraint", async () => {

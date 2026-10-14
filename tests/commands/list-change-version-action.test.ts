@@ -96,6 +96,7 @@ import { fetchRemoteTags } from "../../src/git-utils.js";
 import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
+import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 import {
 	looseSkillsAt,
 	packAt,
@@ -303,6 +304,38 @@ describe("executeChangeVersionAction", () => {
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe("Already on this version");
 			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("versions that can't be fetched", () => {
+		it("changes nothing and says why in one line", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0" });
+			const spin = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
+			vi.mocked(p.spinner).mockReturnValueOnce(spin);
+			mockFetchRemoteTags.mockRejectedValue(new Error(SSH_REFUSAL));
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				key,
+				message:
+					"owner/repo: couldn't fetch its versions (git@github.com: Permission denied (publickey).) — left untouched",
+				notes: [],
+			});
+			expect(spin.stop).toHaveBeenCalledWith(
+				"Couldn't fetch available versions",
+				2,
+			);
+			expect(mockSelect).not.toHaveBeenCalled();
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 	});

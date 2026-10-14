@@ -31,7 +31,7 @@ vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 
 vi.mock("../../src/git-utils.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-utils.js")>()),
-	execGit: vi.fn(),
+	lsRemote: vi.fn(),
 	fetchRemoteTags: vi.fn(),
 }));
 
@@ -45,13 +45,13 @@ import { runAdd } from "../../src/commands/add.js";
 import { runUpdate } from "../../src/commands/update.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
-import { execGit, fetchRemoteTags } from "../../src/git-utils.js";
+import { fetchRemoteTags, lsRemote } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
-const mockExecGit = vi.mocked(execGit);
+const mockLsRemote = vi.mocked(lsRemote);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
 const mockMultiselect = vi.mocked(p.multiselect);
@@ -92,8 +92,8 @@ beforeEach(async () => {
 		kind: "head",
 		resolvedSha: NEW_SHA,
 	});
-	mockExecGit.mockImplementation(
-		lsRemote((ref) => (ref === "HEAD" ? NEW_SHA : undefined)),
+	mockLsRemote.mockImplementation(
+		remoteRefs((ref) => (ref === "HEAD" ? NEW_SHA : undefined)),
 	);
 });
 
@@ -144,9 +144,9 @@ async function savedManifest(): Promise<Manifest> {
 	return JSON.parse(raw) as Manifest;
 }
 
-/** `git ls-remote <url> <refs...>`: a line for each ref `shaOf` knows. */
-function lsRemote(shaOf: (ref: string) => string | undefined) {
-	return async ([, , ...refs]: string[]) => ({
+/** `ls-remote <url> <refs...>`: a line for each ref `shaOf` knows. */
+function remoteRefs(shaOf: (ref: string) => string | undefined) {
+	return async ([, ...refs]: string[]) => ({
 		stdout: refs
 			.flatMap((ref) => {
 				const sha = shaOf(ref);
@@ -697,7 +697,9 @@ describe("integration: add and update", () => {
 					? { kind: "head", resolvedSha }
 					: { kind: "branch", resolvedSha };
 			});
-			mockExecGit.mockImplementation(lsRemote((ref) => remote.get(ref)?.sha));
+			mockLsRemote.mockImplementation(
+				remoteRefs((ref) => remote.get(ref)?.sha),
+			);
 		});
 
 		it("stays on its branch across two updates while the branch moves", async () => {

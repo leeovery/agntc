@@ -16,6 +16,7 @@ import {
 	groupLabel,
 } from "../src/update-render.js";
 import { makeEntry } from "./helpers/factories.js";
+import { SSH_REFUSAL } from "./helpers/git-mocks.js";
 
 function makeGroup(
 	memberKeys: string[],
@@ -392,10 +393,31 @@ describe("formatNewerTagsLine", () => {
 });
 
 describe("formatCheckFailedLine", () => {
-	it("renders '<label>: check failed — <reason>' with the shared probe reason", () => {
+	it("names the label and the reason, and says the install was left untouched", () => {
 		expect(
 			formatCheckFailedLine("owner/repo", "ls-remote failed: dead remote"),
-		).toBe("owner/repo: check failed — ls-remote failed: dead remote");
+		).toBe(
+			"owner/repo: couldn't check for updates (ls-remote failed: dead remote) — left untouched",
+		);
+	});
+
+	it("keeps one line of git's error: its first, without git's advice", () => {
+		expect(
+			formatCheckFailedLine("leeovery/agentic-workflows", SSH_REFUSAL),
+		).toBe(
+			"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+		);
+	});
+
+	it("takes git's fatal: off the line it keeps", () => {
+		expect(
+			formatCheckFailedLine(
+				"owner/repo",
+				"\nfatal: repository 'https://github.com/owner/repo.git/' not found\n",
+			),
+		).toBe(
+			"owner/repo: couldn't check for updates (repository 'https://github.com/owner/repo.git/' not found) — left untouched",
+		);
 	});
 });
 

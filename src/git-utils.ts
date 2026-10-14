@@ -6,6 +6,13 @@ export interface ExecGitOptions {
 }
 
 const DEFAULT_TIMEOUT = 30_000;
+const LS_REMOTE_TIMEOUT = 15_000;
+
+/** The wait before each retry of a remote git operation. */
+const RETRY_DELAYS = [500, 1000];
+
+/** How many times a remote git operation is tried. */
+export const GIT_ATTEMPTS = RETRY_DELAYS.length + 1;
 
 export function execGit(
 	args: string[],
@@ -24,6 +31,38 @@ export function execGit(
 			resolve({ stdout, stderr });
 		});
 	});
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Runs a remote git operation up to {@link GIT_ATTEMPTS} times. The last
+ * failure, or one `isFinal` says no retry can mend, is thrown as it was.
+ */
+export async function withGitRetry<T>(
+	run: () => Promise<T>,
+	isFinal: (err: unknown) => boolean = () => false,
+): Promise<T> {
+	for (const wait of RETRY_DELAYS) {
+		try {
+			return await run();
+		} catch (err: unknown) {
+			if (isFinal(err)) throw err;
+		}
+		await delay(wait);
+	}
+	return run();
+}
+
+/** `git ls-remote <args>`: every read of a remote that doesn't clone it. */
+export function lsRemote(
+	args: string[],
+): Promise<{ stdout: string; stderr: string }> {
+	return withGitRetry(() =>
+		execGit(["ls-remote", ...args], { timeout: LS_REMOTE_TIMEOUT }),
+	);
 }
 
 export interface TagRef {
@@ -53,9 +92,7 @@ export function parseTagRefs(stdout: string): TagRef[] {
 }
 
 export async function fetchRemoteTagRefs(url: string): Promise<TagRef[]> {
-	const { stdout } = await execGit(["ls-remote", "--tags", url], {
-		timeout: 15_000,
-	});
+	const { stdout } = await lsRemote(["--tags", url]);
 	return parseTagRefs(stdout);
 }
 
@@ -71,8 +108,6 @@ function parseDefaultBranch(stdout: string): string | null {
 
 /** A remote's default branch, asked of the remote without cloning it. */
 export async function fetchDefaultBranch(url: string): Promise<string | null> {
-	const { stdout } = await execGit(["ls-remote", "--symref", url, "HEAD"], {
-		timeout: 15_000,
-	});
+	const { stdout } = await lsRemote(["--symref", url, "HEAD"]);
 	return parseDefaultBranch(stdout);
 }
