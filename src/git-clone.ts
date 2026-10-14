@@ -12,9 +12,10 @@ export interface CloneResult {
 
 const CLONE_TIMEOUT = 60_000;
 
+// HTTPS credential failures no retry can mend. An SSH "Permission denied" is
+// left out: a key refused once can be accepted on the next attempt.
 const AUTH_ERROR_PATTERNS = [
 	"Authentication",
-	"Permission denied",
 	"could not read Username",
 	"could not read Password",
 ];

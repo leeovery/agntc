@@ -51,7 +51,7 @@ src/
   clone-reinstall.ts        # Shared clone-and-reinstall (singletons); cloneRepoOnce primitive + runPipeline for the grouped path; recordReinstall (an entry and its key move in one write); recordCopyFailure (the one place a copy failure drops the entry and what it took over); abort/blocked messages
   nuke-reinstall-pipeline.ts# Derive-before-delete replay (pack re-walk, moved skill, gone) + nuke-and-reinstall
   manifest.ts               # Read/write .agntc/manifest.json; legacy normalization on read
-  git-clone.ts              # Shallow clone through withGitRetry (an auth refusal isn't retried)
+  git-clone.ts              # Shallow clone through withGitRetry (an HTTPS credential failure isn't retried; an SSH "Permission denied" is)
   git-utils.ts              # execGit; withGitRetry, the one retry (GIT_ATTEMPTS, delays) clones and remote reads share; lsRemote, every remote read (tags, default branch, update-check probes), each attempt under its own timeout
   update-check.ts           # Per-member categorization vs remote (categorizeMember, GroupTarget); constrained checks
   update-check-all.ts       # Checks for every entry (list)
