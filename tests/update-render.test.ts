@@ -291,20 +291,17 @@ describe("formatMemberLine", () => {
 		});
 	});
 
-	it("copy-failed renders at error level with the recovery hint", () => {
-		expect(
-			formatMemberLine({
-				kind: "copy-failed",
-				name: "design",
-				recoveryHint: "re-run update",
-			}),
-		).toEqual({
+	it("copy-failed renders at error level as its recovery hint, which names the member", () => {
+		const message =
+			"Update failed for owner/repo/design after removing old files. It is currently uninstalled.";
+
+		expect(formatMemberLine({ kind: "copy-failed", message })).toEqual({
 			level: "error",
-			text: "design: copy failed — re-run update",
+			text: message,
 		});
 	});
 
-	it("aborted renders at error level carrying the recorded type and the remove+add remedy inline", () => {
+	it("aborted renders at error level as its message, the key once, with the recorded type and the remove+add remedy", () => {
 		const message = buildAbortMessage(
 			"owner/repo/design",
 			makeEntry({ type: "pack" }),
@@ -312,24 +309,25 @@ describe("formatMemberLine", () => {
 			"project",
 		);
 
-		const line = formatMemberLine({ kind: "aborted", name: "design", message });
+		const line = formatMemberLine({ kind: "aborted", message });
 
-		expect(line).toEqual({ level: "error", text: `design: ${message}` });
-		expect(line.text).toContain("installed as a pack");
+		expect(line).toEqual({ level: "error", text: message });
+		expect(line.text).toMatch(/^owner\/repo\/design was installed as a pack/);
 		expect(line.text).toContain("SKILL.md missing");
 		expect(line.text).toContain("npx agntc remove owner/repo/design");
 		expect(line.text).toContain("npx agntc add owner/repo/design");
 	});
 
-	it("blocked renders at error level with the copy-safety message and no remove+add remedy", () => {
+	it("blocked renders at error level as its copy-safety message, the key once, with no remove+add remedy", () => {
 		const message = buildCopySafetyMessage(
 			"owner/repo/design",
 			"symlink target escapes the clone",
 		);
 
-		const line = formatMemberLine({ kind: "blocked", name: "design", message });
+		const line = formatMemberLine({ kind: "blocked", message });
 
-		expect(line).toEqual({ level: "error", text: `design: ${message}` });
+		expect(line).toEqual({ level: "error", text: message });
+		expect(line.text).toMatch(/^owner\/repo\/design: symlink target/);
 		expect(line.text).not.toContain("npx agntc remove");
 		expect(line.text).not.toContain("npx agntc add");
 	});

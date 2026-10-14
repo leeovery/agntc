@@ -1,6 +1,6 @@
 import { join, posix } from "node:path";
 import { targetDir } from "./asset-targets.js";
-import { walkableFolders } from "./discover.js";
+import { skillFolders, walkableFolders } from "./discover.js";
 import { type InstallItem, itemPath } from "./install-item.js";
 import { installPathMatcher, isSafeSegment } from "./install-paths.js";
 
@@ -9,11 +9,12 @@ const SKILLS_DIR = `${targetDir("skills")}/`;
 /**
  * The folders an entry recorded directly in `.claude/skills/` that its
  * reinstall won't write, though a folder of that name is still in the item's
- * source: what an update would remove that upstream still has. It asks the
- * source alone, never the install rules, so a gap in those rules stops the
- * update instead of deleting what they miss. A namesake holding a skill the
- * item installs is a category whose skills now install on their own, so
- * dropping the folder loses nothing.
+ * source outside everything the item installs: what an update would remove
+ * that upstream still has. It asks the source alone, never the install rules,
+ * so a gap in those rules stops the update instead of deleting what they
+ * miss. A namesake inside a folder the item installs still installs, nested
+ * in it, and a namesake holding one is a category whose contents now install
+ * on their own, so dropping the folder loses nothing.
  *
  * `recorded` is the entry's files, `incoming` what its reinstall writes, and
  * `root` the source root the item's paths are relative to. The source is
@@ -35,10 +36,10 @@ export async function droppedButInSource(
 	if (dropped.size === 0) {
 		return [];
 	}
-	const found = await namesakes(root, itemPath(item), dropped);
-	const installs = installedSkillPaths(item);
+	const installs = installedFolders(item);
+	const found = await namesakes(root, itemPath(item), dropped, installs);
 	const isCategory = (path: string) =>
-		installs.some((skill) => skill.startsWith(`${path}/`));
+		installs.some((folder) => folder.startsWith(`${path}/`));
 	return [...dropped].filter((name) => {
 		const paths = found.get(name) ?? [];
 		return paths.length > 0 && !paths.some(isCategory);
@@ -56,15 +57,20 @@ function recordedSkillFolder(path: string): string | null {
 
 /**
  * The root-relative paths of every folder below `base` named in `names`, at
- * any depth, entering only the folders the walk would.
+ * any depth, entering only the folders the walk would and none the item
+ * installs.
  */
 async function namesakes(
 	root: string,
 	base: string,
 	names: ReadonlySet<string>,
+	installs: readonly string[],
 ): Promise<Map<string, string[]>> {
 	const found = new Map<string, string[]>();
 	const visit = async (dir: string): Promise<void> => {
+		if (installs.includes(dir)) {
+			return;
+		}
 		for (const { name } of await walkableFolders(join(root, dir))) {
 			const path = posix.join(dir, name);
 			if (names.has(name)) {
@@ -77,8 +83,9 @@ async function namesakes(
 	return found;
 }
 
-function installedSkillPaths(item: InstallItem): string[] {
+/** The folders an item installs whole: a pack's skill folders, or the skill's own. */
+function installedFolders(item: InstallItem): string[] {
 	return item.kind === "pack"
-		? item.pack.skills.map(({ path }) => path)
+		? skillFolders(item.pack).map(({ path }) => path)
 		: [item.skill.path];
 }

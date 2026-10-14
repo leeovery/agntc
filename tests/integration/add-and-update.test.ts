@@ -936,7 +936,7 @@ describe("integration: add and update", () => {
 					await expectInstallIntact();
 				});
 
-				it("update of everything stops it the same way", async () => {
+				it("update of everything stops it with the same message, the key printed once", async () => {
 					expect(await updateError()).toBeInstanceOf(ExitSignal);
 
 					const stops = vi
@@ -944,7 +944,7 @@ describe("integration: add and update", () => {
 						.mock.results.flatMap(({ value }) =>
 							value.stop.mock.calls.map(([text]: [string]) => text),
 						);
-					expect(stops).toContainEqual(expect.stringContaining(MESSAGE));
+					expect(stops).toContain(MESSAGE);
 					await expectInstallIntact();
 				});
 			});

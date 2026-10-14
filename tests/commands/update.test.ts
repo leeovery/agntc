@@ -86,6 +86,10 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 import { access, stat } from "node:fs/promises";
 import * as p from "@clack/prompts";
 import {
+	buildAbortMessage,
+	buildCopySafetyMessage,
+} from "../../src/clone-reinstall.js";
+import {
 	failureMemberLine,
 	runUpdate,
 	streamGroupMemberLines,
@@ -1340,7 +1344,7 @@ describe("update command", () => {
 			// The single failure IS the spinner stop-frame at code 2 (error), carrying
 			// the copy-failed member line — no separate p.log.error beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo: copy failed — Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 				2,
 			);
 			expect(mockLog.error).not.toHaveBeenCalled();
@@ -1399,10 +1403,10 @@ describe("update command", () => {
 			// One member line each, all under the one header, at the matching level.
 			expect(mockLog.success).toHaveBeenCalledWith("a");
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"b: copy failed — Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
+				"Update failed for owner/repo/b after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
 			);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringMatching(/^c: owner\/repo\/c was installed as a skill/),
+				expect.stringMatching(/^owner\/repo\/c was installed as a skill/),
 			);
 		});
 
@@ -5940,65 +5944,35 @@ describe("update command", () => {
 describe("failureMemberLine (shared loud member-line rendering)", () => {
 	// The collapsed group-of-one path (collapsedMemberLine) and the streamed
 	// multi-member path (emitMemberLine) both route their loud outcomes
-	// through this ONE helper, differing only by the display `name` they supply
-	// (the collapsed path passes the FULL member key; the streamed path passes the
-	// member basename). Asserting the helper directly proves the three loud
-	// arms live in exactly one place and render identically — modulo that name —
-	// across both paths.
+	// through this ONE helper. Each outcome's message already names the member
+	// by its key, so the line is the message alone, never `<key>: <key> …`.
+	const KEY = "owner/repo/design";
 
-	it("renders copy-failed at error level with the recovery hint, honouring the passed name", () => {
-		const outcome: PluginOutcome = {
+	it.each([
+		{
 			status: "copy-failed",
-			key: "owner/repo/design",
-			summary: "re-run update",
+			summary: `Update failed for ${KEY} after removing old files. It is currently uninstalled. Run \`npx agntc add ${KEY}\` to install it again.`,
 			absorbed: [],
-		};
-
-		// Collapsed path name source: the full member key.
-		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
-			level: "error",
-			text: "owner/repo/design: copy failed — re-run update",
-		});
-		// Streamed path name source: the member basename. Same shape, only the
-		// name differs — proving the name is a parameter, not baked in.
-		expect(failureMemberLine(outcome, "design")).toEqual({
-			level: "error",
-			text: "design: copy failed — re-run update",
-		});
-	});
-
-	it("renders aborted at error level carrying the summary as the inline message", () => {
-		const outcome: PluginOutcome = {
+		},
+		{
 			status: "aborted",
-			key: "owner/repo/design",
-			summary: "recorded as skill but SKILL.md missing; run remove then add",
-		};
-
-		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
-			level: "error",
-			text: "owner/repo/design: recorded as skill but SKILL.md missing; run remove then add",
-		});
-		expect(failureMemberLine(outcome, "design")).toEqual({
-			level: "error",
-			text: "design: recorded as skill but SKILL.md missing; run remove then add",
-		});
-	});
-
-	it("renders blocked at error level carrying the summary as the inline message", () => {
-		const outcome: PluginOutcome = {
+			summary: buildAbortMessage(
+				KEY,
+				makeEntry({ type: "pack" }),
+				{ reason: "its folder now contains packs" },
+				"project",
+			),
+		},
+		{
 			status: "blocked",
-			key: "owner/repo/design",
-			summary: "symlink target escapes the clone",
-		};
+			summary: buildCopySafetyMessage(KEY, 'symlink "evil" points outside'),
+		},
+	] as const)("renders $status at error level as its message alone, which names the member", (fields) => {
+		const outcome = { key: KEY, ...fields } as PluginOutcome;
 
-		expect(failureMemberLine(outcome, "owner/repo/design")).toEqual({
-			level: "error",
-			text: "owner/repo/design: symlink target escapes the clone",
-		});
-		expect(failureMemberLine(outcome, "design")).toEqual({
-			level: "error",
-			text: "design: symlink target escapes the clone",
-		});
+		const line = failureMemberLine(outcome);
+
+		expect(line).toEqual({ level: "error", text: fields.summary });
 	});
 
 	it("returns null for a bare `failed` — its rendering is NOT shared (each caller renders it itself)", () => {
@@ -6013,7 +5987,7 @@ describe("failureMemberLine (shared loud member-line rendering)", () => {
 			summary: "owner/repo: Failed — git clone failed",
 		};
 
-		expect(failureMemberLine(outcome, "owner/repo")).toBeNull();
+		expect(failureMemberLine(outcome)).toBeNull();
 	});
 });
 
@@ -7295,9 +7269,7 @@ describe("a pack taking over loose skills from its own source", () => {
 				"/fake/project",
 				{},
 			);
-			expect(mockLog.error).toHaveBeenCalledWith(
-				`tools: copy failed — ${PACK_MESSAGE}`,
-			);
+			expect(mockLog.error).toHaveBeenCalledWith(PACK_MESSAGE);
 		});
 	});
 

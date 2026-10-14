@@ -1613,30 +1613,61 @@ describe("executeNukeAndReinstall", () => {
 			);
 		});
 
-		it("aborts a loose skill that would drop a folder still in its skill folder", async () => {
-			await upstream("skills/foo/SKILL.md", "skills/foo/helpers/a.md");
+		it.each([
+			["a skill", "tools/skills/api/models/a.md"],
+			["a support folder", "tools/skills/shared/models/a.md"],
+		])("lets a folder go whose namesake installs inside %s the pack installs", async (_, nested) => {
+			await upstream(
+				"tools/skills/api/SKILL.md",
+				"tools/skills/shared/README.md",
+				nested,
+			);
+			const files = [".claude/skills/api/", ".claude/skills/models/"];
+
+			const result = await executeNukeAndReinstall(packOptions(files));
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it("lets a pack re-typed as a single skill drop its old skills, which install inside it", async () => {
+			await upstream("tools/SKILL.md", "tools/skills/a/SKILL.md");
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/tools/"],
+			});
 
 			const result = await executeNukeAndReinstall(
-				skillOptions("owner/repo/foo", "skills/foo", [
-					".claude/skills/foo/",
-					".claude/skills/helpers/",
-				]),
+				packOptions([".claude/skills/a/"]),
 			);
 
-			expect(result).toEqual({
-				status: "aborted",
-				reason:
-					"it would remove helpers, which is still in the source but would no longer be installed",
-				stillInSource: true,
-				replayed: {
-					key: "owner/repo/foo",
-					entry: expect.objectContaining({
-						type: "skill",
-						sourceSubpath: "skills/foo",
-					}),
-				},
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { type: "skill", files: [".claude/skills/tools/"] },
 			});
-			expectNothingRemoved();
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/a/",
+			]);
+		});
+
+		it("lets a loose skill drop a folder whose namesake installs inside its skill folder", async () => {
+			await upstream("skills/foo/SKILL.md", "skills/foo/helpers/a.md");
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+			});
+			const files = [".claude/skills/foo/", ".claude/skills/helpers/"];
+
+			const result = await executeNukeAndReinstall(
+				skillOptions("owner/repo/foo", "skills/foo", files),
+			);
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
 		});
 
 		it("looks for a loose skill's dropped folder in its skill folder alone", async () => {

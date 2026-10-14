@@ -174,10 +174,10 @@ export interface MemberLine {
  * Every per-member outcome the streamed group block renders, discriminated on
  * `kind`. A `success` carries — only in the divergent-old case, where
  * the header could not carry a shared old — its own `move`. The three loud
- * non-success variants carry their already-assembled `message` /
- * `recoveryHint` (built upstream by {@link buildAbortMessage} /
- * {@link buildCopySafetyMessage} / the copy-failed recovery hint), so the
- * wording lives at one source and merely rides the line here.
+ * non-success variants carry their already-assembled `message` (built
+ * upstream by {@link buildAbortMessage} / {@link buildCopySafetyMessage} / the
+ * copy-failed recovery hint), so the wording lives at one source and merely
+ * rides the line here.
  */
 export type MemberLineInput =
 	| {
@@ -190,9 +190,7 @@ export type MemberLineInput =
 				newCommit: string;
 			} | null;
 	  }
-	| { kind: "copy-failed"; name: string; recoveryHint: string }
-	| { kind: "aborted"; name: string; message: string }
-	| { kind: "blocked"; name: string; message: string };
+	| { kind: "copy-failed" | "aborted" | "blocked"; message: string };
 
 /**
  * Maps a member outcome to its exact streamed line and clack log level — the
@@ -200,8 +198,8 @@ export type MemberLineInput =
  * `text`, matching today's summary convention.
  *
  * A success renders the bare `<name>`, with the {@link formatVersionMove} as a
- * trailing parenthetical in the divergent-old case only. The loud non-success
- * variants ride their inline message.
+ * trailing parenthetical in the divergent-old case only. A loud non-success
+ * variant is its message alone.
  */
 export function formatMemberLine(input: MemberLineInput): MemberLine {
 	switch (input.kind) {
@@ -209,16 +207,11 @@ export function formatMemberLine(input: MemberLineInput): MemberLine {
 			const suffix = input.move ? `  (${formatVersionMove(input.move)})` : "";
 			return { level: "success", text: `${input.name}${suffix}` };
 		}
+		// Each message already names the member by its key, so the line doesn't
+		// name it again.
 		case "copy-failed":
-			return {
-				level: "error",
-				text: `${input.name}: copy failed — ${input.recoveryHint}`,
-			};
-		// aborted and blocked share one line shape (`<name>: <message>`); the
-		// difference — recorded-type remove+add remedy vs none — lives in the
-		// pre-built message, not here.
 		case "aborted":
 		case "blocked":
-			return { level: "error", text: `${input.name}: ${input.message}` };
+			return { level: "error", text: input.message };
 	}
 }
