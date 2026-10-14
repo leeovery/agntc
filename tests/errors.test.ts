@@ -70,6 +70,41 @@ describe("gitErrorCause", () => {
 		expect(gitErrorCause("ssh: fatal: no route")).toBe("ssh: fatal: no route");
 	});
 
+	it("passes over ssh's known-hosts warning to the line that names the failure", () => {
+		expect(
+			gitErrorCause(
+				`Warning: Permanently added 'github.com' (ED25519) to the list of known hosts.\n${SSH_REFUSAL}`,
+			),
+		).toBe("git@github.com: Permission denied (publickey).");
+	});
+
+	it("passes over git's warnings, hints and clone progress", () => {
+		expect(
+			gitErrorCause(
+				[
+					"Cloning into '/tmp/agntc-abc'...",
+					"warning: redirecting to https://github.com/o/r.git/",
+					"hint: Using 'master' as the name for the initial branch.",
+					"fatal: Remote branch v9 not found in upstream origin",
+				].join("\n"),
+			),
+		).toBe("Remote branch v9 not found in upstream origin");
+	});
+
+	it("gives the first line when every line is one it would pass over", () => {
+		expect(gitErrorCause("warning: something odd\nhint: try this")).toBe(
+			"warning: something odd",
+		);
+	});
+
+	it("says a timed-out command timed out, and after how long", () => {
+		expect(
+			gitErrorCause(
+				"git ls-remote timed out after 15s\nCommand failed: git ls-remote --tags https://github.com/o/r.git\n",
+			),
+		).toBe("git ls-remote timed out after 15s");
+	});
+
 	it("keeps a one-line message as it is", () => {
 		expect(gitErrorCause("network timeout")).toBe("network timeout");
 	});

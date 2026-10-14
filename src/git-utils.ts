@@ -14,6 +14,30 @@ const RETRY_DELAYS = [500, 1000];
 /** How many times a remote git operation is tried. */
 export const GIT_ATTEMPTS = RETRY_DELAYS.length + 1;
 
+/** A failed git command: what it wrote to stderr, and whether its timeout killed it. */
+export interface GitError extends Error {
+	stderr: string;
+	timedOut: boolean;
+}
+
+/**
+ * A timed-out command's message opens with the timeout, so a terminal line
+ * taken from its first line says so; Node's own message, with the command
+ * and any stderr, follows it.
+ */
+function gitError(
+	args: string[],
+	timeout: number,
+	error: Error & { killed?: boolean },
+	stderr: string,
+): GitError {
+	const timedOut = error.killed === true;
+	const message = timedOut
+		? `git ${args[0]} timed out after ${timeout / 1000}s\n${error.message}`
+		: stderr || error.message;
+	return Object.assign(new Error(message), { stderr, timedOut });
+}
+
 export function execGit(
 	args: string[],
 	options?: ExecGitOptions,
@@ -22,15 +46,31 @@ export function execGit(
 	return new Promise((resolve, reject) => {
 		execFile("git", args, { cwd, timeout }, (error, stdout, stderr) => {
 			if (error) {
-				const gitError = Object.assign(new Error(stderr || error.message), {
-					stderr: stderr || "",
-				});
-				reject(gitError);
+				reject(gitError(args, timeout, error, stderr || ""));
 				return;
 			}
 			resolve({ stdout, stderr });
 		});
 	});
+}
+
+// HTTPS credential failures. An SSH "Permission denied" is left out: a key
+// refused once can be accepted on the next attempt.
+const CREDENTIAL_FAILURES = [
+	"Authentication",
+	"could not read Username",
+	"could not read Password",
+];
+
+/**
+ * A git failure no retry can mend: a credential failure, which would prompt
+ * again at a terminal, or a timeout, which would wait out the timeout again.
+ */
+export function isFinalGitError(err: unknown): boolean {
+	const { stderr = "", timedOut = false } = (err ?? {}) as Partial<GitError>;
+	return (
+		timedOut || CREDENTIAL_FAILURES.some((pattern) => stderr.includes(pattern))
+	);
 }
 
 function delay(ms: number): Promise<void> {
@@ -60,8 +100,9 @@ export async function withGitRetry<T>(
 export function lsRemote(
 	args: string[],
 ): Promise<{ stdout: string; stderr: string }> {
-	return withGitRetry(() =>
-		execGit(["ls-remote", ...args], { timeout: LS_REMOTE_TIMEOUT }),
+	return withGitRetry(
+		() => execGit(["ls-remote", ...args], { timeout: LS_REMOTE_TIMEOUT }),
+		isFinalGitError,
 	);
 }
 

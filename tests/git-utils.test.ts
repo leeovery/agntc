@@ -6,10 +6,13 @@ import {
 	fetchRemoteTagRefs,
 	fetchRemoteTags,
 	GIT_ATTEMPTS,
+	type GitError,
+	isFinalGitError,
 	lsRemote,
 	withGitRetry,
 } from "../src/git-utils.js";
 import {
+	mockExecFile,
 	mockExecFileFailingFirst,
 	SSH_REFUSAL,
 	settle,
@@ -146,6 +149,53 @@ describe("execGit", () => {
 		);
 
 		await expect(execGit(["status"])).rejects.toThrow("spawn ENOENT");
+	});
+
+	it("opens a timed-out command's message with the timeout, keeping Node's after it", async () => {
+		const nodeMessage = "Command failed: git ls-remote --tags url\n";
+		mockExecFile((_cmd, _args, _opts, cb) => {
+			cb(Object.assign(new Error(nodeMessage), { killed: true }), "", "");
+		});
+
+		const err = (await execGit(["ls-remote", "--tags", "url"], {
+			timeout: 15_000,
+		}).catch((e: unknown) => e)) as GitError;
+
+		expect(err.message).toBe(
+			`git ls-remote timed out after 15s\n${nodeMessage}`,
+		);
+		expect(err.timedOut).toBe(true);
+		expect(err.stderr).toBe("");
+	});
+
+	it("marks a command that failed on its own as not timed out", async () => {
+		mockExecFileFailure("fatal: bad ref");
+
+		const err = (await execGit(["status"]).catch(
+			(e: unknown) => e,
+		)) as GitError;
+
+		expect(err.timedOut).toBe(false);
+	});
+});
+
+describe("isFinalGitError", () => {
+	it.each([
+		"fatal: Authentication failed for 'https://github.com/o/r.git/'",
+		"fatal: could not read Username for 'https://github.com': terminal prompts disabled",
+		"fatal: could not read Password for 'https://u@github.com': No such device",
+	])("is final for an HTTPS credential failure: %s", (stderr) => {
+		expect(isFinalGitError({ stderr, timedOut: false })).toBe(true);
+	});
+
+	it("is final for a timeout", () => {
+		expect(isFinalGitError({ stderr: "", timedOut: true })).toBe(true);
+	});
+
+	it("is not final for an SSH key refusal, which a retry can pass", () => {
+		expect(isFinalGitError({ stderr: SSH_REFUSAL, timedOut: false })).toBe(
+			false,
+		);
 	});
 });
 
@@ -365,6 +415,33 @@ describe("remote reads retry", () => {
 
 		expect(await settle(fetchDefaultBranch(URL))).toBe("trunk");
 		expect(execFileCalls()).toHaveLength(2);
+	});
+
+	it("doesn't retry an HTTPS credential failure, which would prompt again", async () => {
+		const stderr = "fatal: could not read Username for 'https://github.com'";
+		mockExecFileFailingFirst(Number.POSITIVE_INFINITY, stderr);
+
+		const err = await settle(lsRemote(["--tags", URL]));
+
+		expect((err as Error).message).toBe(stderr);
+		expect(execFileCalls()).toHaveLength(1);
+	});
+
+	it("doesn't retry a read its timeout killed", async () => {
+		mockExecFile((_cmd, _args, _opts, cb) => {
+			cb(
+				Object.assign(new Error("Command failed: git ls-remote"), {
+					killed: true,
+				}),
+				"",
+				"",
+			);
+		});
+
+		const err = await settle(lsRemote(["--tags", URL]));
+
+		expect((err as GitError).timedOut).toBe(true);
+		expect(execFileCalls()).toHaveLength(1);
 	});
 });
 
