@@ -113,6 +113,7 @@ function foundPack(overrides: Partial<FoundPack> = {}): FoundPack {
 		name: "laravel",
 		path: "laravel",
 		skills: [{ name: "api", path: "laravel/skills/api" }],
+		supportFolders: [],
 		assetDirs: [],
 		...overrides,
 	};
@@ -452,6 +453,42 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockCopyPack).not.toHaveBeenCalled();
 		});
 
+		it("still reinstalls a pack left with only support folders", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						skills: [],
+						supportFolders: [{ name: "shared", path: "laravel/skills/shared" }],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result.status).toBe("success");
+		});
+
+		it("aborts, leaving the install intact, when a skill and a support folder share a folder name", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						skills: [{ name: "shared", path: "laravel/skills/cat/shared" }],
+						supportFolders: [{ name: "shared", path: "laravel/skills/shared" }],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(packOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"laravel/skills/cat/shared and laravel/skills/shared would both install to .claude/skills/shared",
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyPack).not.toHaveBeenCalled();
+		});
+
 		it("is gone upstream, leaving the install intact, when its path is missing", async () => {
 			mockDiscover.mockRejectedValue(
 				new StartPathError('path "laravel" not found in source'),
@@ -639,6 +676,23 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				entry: { type: "skill", sourceSubpath: "tools/skills/go" },
 			});
+		});
+
+		it("never follows a pack's support folder of that name, which isn't a skill", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						path: "tools",
+						skills: [],
+						supportFolders: [{ name: "go", path: "tools/skills/go" }],
+					}),
+				),
+			);
+
+			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(result).toEqual({ status: "gone" });
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 
 		it("drops the recorded path when the skill moved to where its key points", async () => {
@@ -1849,5 +1903,19 @@ describe("sourceWalk", () => {
 		]);
 		expect(Object.isFrozen(skills)).toBe(true);
 		expect(skills.every((skill) => Object.isFrozen(skill))).toBe(true);
+	});
+
+	it("never lists a pack's support folders, which aren't skills", async () => {
+		mockDiscover.mockResolvedValue(
+			onlyPack(
+				foundPack({
+					supportFolders: [{ name: "shared", path: "laravel/skills/shared" }],
+				}),
+			),
+		);
+
+		const skills = await sourceWalk("/tmp/clone")("repo");
+
+		expect(skills).toEqual([{ name: "api", path: "laravel/skills/api" }]);
 	});
 });

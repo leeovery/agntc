@@ -3,12 +3,13 @@ import {
 	cp,
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	rm,
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { CANCEL } = vi.hoisted(() => ({ CANCEL: Symbol("cancel") }));
@@ -582,6 +583,309 @@ describe("integration: add and update", () => {
 				expect(await installed(".claude/skills/gone")).toBe(false);
 				expect(await savedManifest()).not.toHaveProperty("owner/repo/gone");
 				await keptUpdated();
+			});
+		});
+	});
+
+	describe("a pack whose skills/ holds support folders, shaped like agentic-workflows", () => {
+		const KEY = "leeovery/agentic-workflows";
+		const WORKFLOWS = {
+			"agntc.json": PACK,
+			"README.md": "",
+			"package.json": "{}",
+			"tests/engine.test.ts": "",
+			"agents/workflow-reviewer.md": "",
+			"skills/README.md": "",
+			"skills/workflow-start/SKILL.md": "",
+			"skills/workflow-start/references/routing.md": "",
+			"skills/workflow-planning-process/SKILL.md": "",
+			"skills/workflow-shared/references/casing-conventions.md": "v1",
+			"skills/workflow-shared/references/composing-a-raise.md": "",
+			"skills/workflow-gates/.claude-plugin/plugin.json": "{}",
+			"skills/workflow-gates/hooks/hooks.json": "{}",
+			"skills/workflow-gates/hooks/guard.ts": "",
+			"skills/workflow-gates/tests/guard.test.ts": "",
+			"skills/workflow-gates/README.md": "",
+			"skills/workflow-gates/tsconfig.json": "{}",
+		};
+		const SKILLS = [
+			".claude/skills/workflow-planning-process/SKILL.md",
+			".claude/skills/workflow-start/SKILL.md",
+			".claude/skills/workflow-start/references/routing.md",
+		];
+		const SHARED = [
+			".claude/skills/workflow-shared/references/casing-conventions.md",
+			".claude/skills/workflow-shared/references/composing-a-raise.md",
+		];
+		const GATES = [
+			".claude/skills/workflow-gates/.claude-plugin/plugin.json",
+			".claude/skills/workflow-gates/README.md",
+			".claude/skills/workflow-gates/hooks/guard.ts",
+			".claude/skills/workflow-gates/hooks/hooks.json",
+			".claude/skills/workflow-gates/tsconfig.json",
+		];
+
+		/** Every file under `.claude/`, install-root-relative and sorted. */
+		async function installedFiles(): Promise<string[]> {
+			const entries = await readdir(join(projectDir, ".claude"), {
+				recursive: true,
+				withFileTypes: true,
+			});
+			return entries
+				.filter((entry) => entry.isFile())
+				.map((entry) =>
+					relative(projectDir, join(entry.parentPath, entry.name)),
+				)
+				.sort();
+		}
+
+		function sharedText(): Promise<string> {
+			return readFile(
+				join(
+					projectDir,
+					".claude/skills/workflow-shared/references/casing-conventions.md",
+				),
+				"utf-8",
+			);
+		}
+
+		/** Upstream after a release: one support folder changed, one added, one trimmed. */
+		async function release(): Promise<void> {
+			const { "skills/workflow-gates/tests/guard.test.ts": _, ...kept } =
+				WORKFLOWS;
+			await repo(KEY, {
+				...kept,
+				"skills/workflow-shared/references/casing-conventions.md": "v2",
+				"skills/workflow-gates-rows/.claude-plugin/plugin.json": "{}",
+				"skills/workflow-gates-rows/hooks/hooks.json": "{}",
+			});
+		}
+
+		async function addAtOldCommit(): Promise<void> {
+			const dir = await repo(KEY, WORKFLOWS);
+			mockCloneSource.mockImplementationOnce(async () => {
+				const tempDir = await mkdtemp(join(testDir, "clone-"));
+				await cp(dir, tempDir, { recursive: true });
+				return { tempDir, commit: OLD_SHA };
+			});
+			await runAdd(KEY);
+		}
+
+		it("add installs its skills, its agents and every support folder whole, and nothing else", async () => {
+			await addAtOldCommit();
+
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates/tests/guard.test.ts",
+				].sort(),
+			);
+			expect(await savedManifest()).toEqual({
+				[KEY]: expect.objectContaining({
+					type: "pack",
+					commit: OLD_SHA,
+					files: [
+						".claude/skills/workflow-planning-process/",
+						".claude/skills/workflow-start/",
+						".claude/skills/workflow-gates/",
+						".claude/skills/workflow-shared/",
+						".claude/agents/workflow-reviewer.md",
+					],
+				}),
+			});
+			expect(mockLog.success).toHaveBeenCalledWith(
+				"agentic-workflows (pack · 2 skills, 2 folders, 1 agent)",
+			);
+		});
+
+		it("update replaces each support folder whole, bringing in a new one", async () => {
+			await addAtOldCommit();
+			await release();
+
+			await runUpdate();
+
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates-rows/.claude-plugin/plugin.json",
+					".claude/skills/workflow-gates-rows/hooks/hooks.json",
+				].sort(),
+			);
+			expect(await sharedText()).toBe("v2");
+			expect((await savedManifest())[KEY]).toMatchObject({
+				type: "pack",
+				commit: NEW_SHA,
+				files: [
+					".claude/skills/workflow-planning-process/",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-gates-rows/",
+					".claude/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			});
+		});
+
+		it("update keeps the support folders a v1 manifest recorded, folder by folder and file by file", async () => {
+			await repo(KEY, WORKFLOWS);
+			await write(projectDir, {
+				".claude/agents/workflow-reviewer.md": "",
+				".claude/skills/workflow-start/SKILL.md": "",
+				".claude/skills/workflow-shared/references/casing-conventions.md": "v0",
+				".claude/skills/workflow-gates/README.md": "",
+			});
+			await write(join(projectDir, ".agntc"), {
+				"manifest.json": {
+					[KEY]: {
+						ref: null,
+						commit: OLD_SHA,
+						installedAt: "2026-01-15T10:00:00.000Z",
+						agents: ["claude"],
+						type: "plugin",
+						files: [
+							".claude/skills/workflow-start/",
+							".claude/skills/workflow-start/SKILL.md",
+							".claude/skills/workflow-shared/",
+							".claude/skills/workflow-shared/references/",
+							".claude/skills/workflow-shared/references/casing-conventions.md",
+							".claude/skills/workflow-gates/",
+							".claude/skills/workflow-gates/README.md",
+							".claude/agents/workflow-reviewer.md",
+						],
+					},
+				},
+			});
+
+			await runUpdate();
+
+			expect(await sharedText()).toBe("v1");
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates/tests/guard.test.ts",
+				].sort(),
+			);
+			expect((await savedManifest())[KEY]).toMatchObject({
+				type: "pack",
+				commit: NEW_SHA,
+				files: [
+					".claude/skills/workflow-planning-process/",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			});
+		});
+
+		it("update brings back the support folders a 0.5 manifest lost", async () => {
+			await repo(KEY, WORKFLOWS);
+			await write(projectDir, {
+				".claude/agents/workflow-reviewer.md": "",
+				".claude/skills/workflow-start/SKILL.md": "",
+				".claude/skills/workflow-planning-process/SKILL.md": "",
+			});
+			await write(join(projectDir, ".agntc"), {
+				"manifest.json": {
+					[KEY]: {
+						ref: null,
+						commit: OLD_SHA,
+						installedAt: "2026-10-13T10:00:00.000Z",
+						type: "pack",
+						cloneUrl: "https://github.com/leeovery/agentic-workflows.git",
+						files: [
+							".claude/skills/workflow-planning-process/",
+							".claude/skills/workflow-start/",
+							".claude/agents/workflow-reviewer.md",
+						],
+					},
+				},
+			});
+
+			await runUpdate();
+
+			expect(await installedFiles()).toEqual(
+				[
+					".claude/agents/workflow-reviewer.md",
+					...SKILLS,
+					...SHARED,
+					...GATES,
+					".claude/skills/workflow-gates/tests/guard.test.ts",
+				].sort(),
+			);
+			expect((await savedManifest())[KEY]).toMatchObject({
+				type: "pack",
+				commit: NEW_SHA,
+				files: [
+					".claude/skills/workflow-planning-process/",
+					".claude/skills/workflow-start/",
+					".claude/skills/workflow-gates/",
+					".claude/skills/workflow-shared/",
+					".claude/agents/workflow-reviewer.md",
+				],
+			});
+		});
+
+		describe("with a folder agntc didn't install where a support folder goes", () => {
+			const MINE = ".claude/skills/workflow-shared/mine.md";
+
+			async function readMine(): Promise<string> {
+				return readFile(join(projectDir, MINE), "utf-8");
+			}
+
+			it("add asks, and on cancel installs nothing and leaves it alone", async () => {
+				await repo(KEY, WORKFLOWS);
+				await write(projectDir, { [MINE]: "mine" });
+				vi.mocked(p.select).mockResolvedValue("cancel");
+
+				await runAdd(KEY);
+
+				expect(p.note).toHaveBeenCalledWith(
+					expect.stringContaining(".claude/skills/workflow-shared/"),
+					`Unmanaged files for "${KEY}"`,
+				);
+				expect(await readMine()).toBe("mine");
+				expect(await installed(".claude/skills/workflow-start")).toBe(false);
+				expect(await savedManifest()).toEqual({});
+			});
+
+			it("update aborts before removing anything, the install left intact", async () => {
+				await repo(KEY, WORKFLOWS);
+				await write(projectDir, {
+					".claude/skills/workflow-start/SKILL.md": "old",
+					[MINE]: "mine",
+				});
+				const entry = {
+					ref: null,
+					commit: OLD_SHA,
+					installedAt: "2026-10-13T10:00:00.000Z",
+					type: "pack",
+					cloneUrl: "https://github.com/leeovery/agentic-workflows.git",
+					files: [".claude/skills/workflow-start/"],
+				};
+				await write(join(projectDir, ".agntc"), {
+					"manifest.json": { [KEY]: entry },
+				});
+
+				expect(await updateError()).toBeInstanceOf(ExitSignal);
+
+				expect(await readMine()).toBe("mine");
+				expect(
+					await readFile(
+						join(projectDir, ".claude/skills/workflow-start/SKILL.md"),
+						"utf-8",
+					),
+				).toBe("old");
+				expect(await savedManifest()).toEqual({ [KEY]: entry });
 			});
 		});
 	});

@@ -32,6 +32,7 @@ function pack(path: string, extra: Partial<FoundPack> = {}): FoundPack {
 		name: path.split("/").pop() || "repo",
 		path,
 		skills: [],
+		supportFolders: [],
 		assetDirs: [],
 		...extra,
 	};
@@ -152,6 +153,26 @@ describe("optionLine", () => {
 				menuOption({ kind: "skill", skill: skill("tools/a") }, "repo"),
 			),
 		).toBe("tools/a");
+	});
+
+	it("counts a pack's support folders after its skills", () => {
+		const workflows = pack("", {
+			skills: [skill("skills/start"), skill("skills/plan")],
+			supportFolders: [
+				{ name: "gates", path: "skills/gates" },
+				{ name: "shared", path: "skills/shared" },
+			],
+		});
+		const shared = pack("p", {
+			supportFolders: [{ name: "shared", path: "p/skills/shared" }],
+		});
+
+		expect(
+			optionLine(menuOption({ kind: "pack", pack: workflows }, "repo")),
+		).toBe("repo (pack · 2 skills, 2 folders)");
+		expect(optionLine(menuOption({ kind: "pack", pack: shared }, "repo"))).toBe(
+			"p (pack · 0 skills, 1 folder)",
+		);
 	});
 });
 
@@ -330,6 +351,24 @@ describe("chooseItems", () => {
 			});
 		});
 
+		it("installs a pack holding only support folders", () => {
+			const shared = pack("", {
+				supportFolders: [{ name: "shared", path: "skills/shared" }],
+			});
+
+			const choice = chooseItems(
+				found({ packs: [shared] }),
+				{ kind: "pack" },
+				ctx,
+			);
+
+			expect(choice.outcome).toEqual({
+				kind: "install",
+				items: [{ kind: "pack", pack: shared }],
+				notes: [],
+			});
+		});
+
 		it("refuses a pack with no skills, agents or hooks", () => {
 			const choice = chooseItems(
 				found({ packs: [pack("")] }),
@@ -444,6 +483,52 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toMatchObject({
 				notes: [
 					"a is part of the pack p — installed on its own, without its hooks",
+				],
+			});
+		});
+
+		it("names the support folders left behind, last", () => {
+			const choice = chooseItems(
+				found({
+					packs: [
+						{
+							...LARAVEL,
+							supportFolders: [
+								{ name: "gates", path: "laravel/skills/gates" },
+								{ name: "shared", path: "laravel/skills/shared" },
+							],
+						},
+					],
+				}),
+				{ kind: "skills", names: ["api"] },
+				ctx,
+			);
+
+			expect(choice.outcome).toMatchObject({
+				items: [{ kind: "skill", skill: skill("laravel/skills/api") }],
+				notes: [
+					"api is part of the pack laravel — installed on its own, without models, its agents/hooks and its support folders gates, shared",
+				],
+			});
+		});
+
+		it("names a lone support folder left behind, even with every skill taken", () => {
+			const choice = chooseItems(
+				found({
+					packs: [
+						pack("p", {
+							skills: [skill("p/skills/a")],
+							supportFolders: [{ name: "shared", path: "p/skills/shared" }],
+						}),
+					],
+				}),
+				{ kind: "skills", names: ["a"] },
+				ctx,
+			);
+
+			expect(choice.outcome).toMatchObject({
+				notes: [
+					"a is part of the pack p — installed on its own, without its support folder shared",
 				],
 			});
 		});

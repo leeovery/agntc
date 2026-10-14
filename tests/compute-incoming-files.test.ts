@@ -44,7 +44,14 @@ async function tree(spec: Record<string, string>): Promise<void> {
 function packItem(overrides: Partial<FoundPack> = {}): InstallItem {
 	return {
 		kind: "pack",
-		pack: { name: "p", path: "p", skills: [], assetDirs: [], ...overrides },
+		pack: {
+			name: "p",
+			path: "p",
+			skills: [],
+			supportFolders: [],
+			assetDirs: [],
+			...overrides,
+		},
 	};
 }
 
@@ -97,6 +104,21 @@ describe("computeIncomingFiles", () => {
 			]);
 		});
 
+		it("claims each support folder as a skill folder, with its source path", async () => {
+			const claims = await computeClaims(
+				packItem({
+					skills: [{ name: "a", path: "p/skills/a" }],
+					supportFolders: [{ name: "shared", path: "p/skills/shared" }],
+				}),
+				root,
+			);
+
+			expect(claims).toEqual([
+				{ target: ".claude/skills/a/", source: "p/skills/a" },
+				{ target: ".claude/skills/shared/", source: "p/skills/shared" },
+			]);
+		});
+
 		it("claims nothing from agents/ or hooks/ the pack doesn't list", async () => {
 			await tree({ "p/agents/a.md": "", "p/hooks/h.sh": "" });
 
@@ -106,11 +128,13 @@ describe("computeIncomingFiles", () => {
 		it("predicts the top-level paths copying claims", async () => {
 			await tree({
 				"p/skills/a/SKILL.md": "",
+				"p/skills/shared/refs/x.md": "",
 				"p/agents/x.md": "",
 				"p/hooks/h.sh": "",
 			});
 			const item = packItem({
 				skills: [{ name: "a", path: "p/skills/a" }],
+				supportFolders: [{ name: "shared", path: "p/skills/shared" }],
 				assetDirs: ["agents", "hooks"],
 			});
 			const projectDir = join(base, "project");

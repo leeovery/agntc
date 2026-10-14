@@ -25,7 +25,7 @@ src/
   documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
   scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
   source-parser.ts          # Parse owner/repo[/path], HTTPS/SSH URLs[/path], local paths, tree URLs; key<->source-dir (repoFromKey, keySubpath, memberName, deriveCloneUrlFromKey, resolveGuardedSourceDir); addSourceFor/locateSource build the source a printed add command takes
-  discover.ts               # Deep walk: skills, declared packs, strays; matchSkills for --skill; PackConflictError / StartPathError
+  discover.ts               # Deep walk: skills, declared packs (with their support folders), strays; skillFolders (a pack's skills, then its support folders); matchSkills for --skill; PackConflictError / StartPathError
   frontmatter.ts            # SKILL.md frontmatter read (name, description); display + --skill matching only
   config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`; declaresPack (`pack` or legacy `plugin`)
   choose-items.ts           # Flags -> Selection; chooseItems decides install / menu / refuse; stray notices; --list lines
@@ -34,7 +34,7 @@ src/
   asset-targets.ts          # Claude asset routing (.claude/skills|agents|hooks), skillTarget
   copy-item.ts              # Copy dispatch: skill vs pack; copyUnits (the folders a copy plans, each with its filter); checkItemLinks, the symlink-escape pre-flight over those units
   copy-bare-skill.ts        # Copy of one skill folder through planCopy/writeCopy (drops top-level agntc.json and .git, in any case, at any depth)
-  copy-pack.ts              # Copy a pack: skills flat, agents/*.md, hooks/*; rollback on failure
+  copy-pack.ts              # Copy a pack: skills and support folders flat, agents/*.md, hooks/*; rollback on failure
   copy-rollback.ts          # Link-safe rollback of a partial copy
   copy-safety.ts            # Path-traversal guard; inspectSourcePath (lstat each segment of a source path); lexical symlink-escape pre-flight for one copied folder (source-root boundary; plans that folder's copy, filter and source kind included, so it reads what the copy reads and no more); planCopy/writeCopy, a copy of a CopyUnit that never follows a link (a clone's link elsewhere in the source copies its target in place, one level)
   compute-incoming-files.ts # Files an item would install; claims + target clashes
@@ -68,7 +68,8 @@ src/
 - `Ui`: The single output/prompt surface; `MachineUi` turns prompts into failures and collects `warnings`/`notes`/`report` into one `MachineDocument`
 - `AgntcConfig`: Shape of `agntc.json` — `{ type? }`; `"pack"` (or legacy `"plugin"`) declares a pack
 - `Discovery`: `{ packs: FoundPack[], skills: FoundSkill[], strays: StrayAssets[] }` from `discover`
-- `FoundSkill` / `FoundPack`: name (folder basename), repo-relative path; skill carries frontmatter name/description, pack its skills and qualifying `assetDirs`
+- `FoundSkill` / `FoundPack`: name (folder basename), repo-relative path; skill carries frontmatter name/description, pack its skills, `supportFolders` and qualifying `assetDirs`
+- `SkillFolder`: `{ name, path }`, a folder installed whole as `.claude/skills/<name>/`; `FoundSkill` extends it, and a pack's support folders are plain ones
 - `Selection`: `auto | skills | pack | all`, from the add flags
 - `InstallItem`: `{ kind: "skill", skill } | { kind: "pack", pack }`; `KeyedItem` adds the manifest key and `sourceSubpath?`
 - `ConflictPolicy`: `overwrite | ask | stop` — `--overwrite`, else ask at a terminal, else stop the item
@@ -84,7 +85,8 @@ src/
 `agntc.json` is **optional**. A skill is a folder with `SKILL.md`; a pack is always **declared**, never inferred from shape.
 
 - **Walk.** From the added path (repo root, `owner/repo/path`, tree URL path or local path): `SKILL.md` → skill, not entered; `{"type": "pack"}` → pack, recorded, not entered; anything else descended, max depth 5. Skips hidden dirs, `node_modules`, `dist`, `build`, `vendor`. Symlinked dirs are never entered. `SKILL.md` + pack declaration → skill, with a warning.
-- **Packs don't nest.** A pack holds every skill found inside it plus its own top-level `agents/` (`.md` files only) and `hooks/` (every entry). Inner pack declarations are plain folders.
+- **Packs don't nest.** A pack holds every skill found inside it plus its own top-level `agents/` (`.md` files only), `hooks/` (every entry) and the support folders in its `skills/`. Inner pack declarations are plain folders.
+- **Support folders.** Everything in a pack's own top-level `skills/` installs; shape decides only how. A folder with `SKILL.md` is a skill; one a skill the walk found sits under is a category, its folders read the same way; any other is a support folder (`FoundPack.supportFolders`), installed whole as `.claude/skills/<name>/` through `skillUnit` (hidden content kept, `.git` and a top-level `agntc.json` dropped). A folder the 5-level walk reached no skill under is a support folder. Loose files, links, hidden folders and the walk's skipped names are left out. A support folder claims its target as a skill does, so every clash, collision, unmanaged and link-in-the-way check applies, and a pack holding only support folders isn't empty. They aren't skills: never `--skill` matches, moved-skill candidates or entries. A skill taken from a pack installs without them, and its note names them. Same rule for a `--pack` folder.
 - **Strays.** A non-pack folder with qualifying `agents/`/`hooks/` gets a notice with the `--pack` line that would install them. Agents and hooks install only as part of a pack.
 - **Declaring.** Author: `{"type": "pack"}` (legacy `"plugin"` reads as pack). User: `--pack` bundles the added path; refused on a single skill or a path containing packs.
 - **Choosing.** One offered item installs without a menu; several give a menu (packs by path, then loose skills by path; never splits a pack). `--skill` matches folder or frontmatter name anywhere, packs included; a skill taken from a pack installs loose with a note. Duplicate names are refused, listing paths. `--skill`/`--pack`/`--all` are mutually exclusive; `--list` combines only with `--pack`. Skills an installed pack from the same source holds are left out with a note.
@@ -99,7 +101,7 @@ Claude only. Paths are relative to the install root (project dir, or `~` with `-
 
 | Asset | Target |
 |-------|--------|
-| skills | `.claude/skills/<folder>/` (flat, pack skills included) |
+| skills | `.claude/skills/<folder>/` (flat, pack skills and support folders included) |
 | agents | `.claude/agents/` (pack only, `.md` files) |
 | hooks | `.claude/hooks/` (pack only) |
 
@@ -116,7 +118,7 @@ Claude only. Paths are relative to the install root (project dir, or `~` with `-
 
 Nuke-and-reinstall: delete manifest `files`, re-clone, re-copy. Constrained entries resolve best match within constraint range.
 
-- **Replays the recorded `type`.** A pack re-walks its path (`forcePack`), so additions arrive and removals go; a pack path that is now a single skill reinstalls as a skill (with a note). A loose skill re-copies from its path; if `SKILL.md` is gone there, a whole-source walk follows it when exactly one skill has its name (note + new `sourceSubpath`), aborts when several do.
+- **Replays the recorded `type`.** A pack re-walks its path (`forcePack`), so additions arrive and removals go, support folders included; a pack path that is now a single skill reinstalls as a skill (with a note). A loose skill re-copies from its path; if `SKILL.md` is gone there, a whole-source walk follows it when exactly one skill has its name (note + new `sourceSubpath`), aborts when several do.
 - **Keyed as `add` keys it.** A replayed skill is named by its folder (`folderName`: the path's basename, or the source root's name at the root), never by its key, so a key that disagrees with the folder installs under the folder. The replayed item is keyed by `keyItem` under the entry's source key (`sourceKeyOf`: `owner/repo`, or the local root). When that isn't the entry's key — a pack path now a single skill, a root skill moved below the root, a skill moved to the root, a skill still keyed by a pack's path, a pack recorded by name with a path — the entry moves to that key with `add`'s `sourceSubpath`, the old key dropped in the same manifest write (`recordReinstall`, on every writer), and one note names both (`…, now keyed <new>`). A new key another entry holds aborts the entry before anything is removed (`takenKey`; remedy: `remove <new>` then `update <old>`), unless that entry is a loose skill the pack takes over: it is dropped and the pack recorded under its key in the same write (`recordReinstall` drops what it took over, then records it). The out-of-constraint footer prints its commands for entries as the run left them, leaving out any the run uninstalled (absorbed, removed as gone upstream, copy failed); a group with none left prints no line.
 - **Derive-before-delete.** Replay, the new key, files in the way (other entries' and unmanaged), and the symlink-escape scan all run before any file is removed. Irreconcilable change or files in the way → abort that entry, install intact, loud message with the `remove` + re-add (`--overwrite` when files are in the way) remedy. The `remove` names the entry as installed; once the replay has succeeded, the re-add installs the item as replayed (`replayed`): a remote item under its new key, a local one by its folder, which `add` keys as a source of its own (see Re-add commands). The re-add keeps the version the entry tracks (`restoreCommand`). An abort of a list version change redoes that change: the remedy says to change the version again (an update follows the entry's own constraint or pin, so it would never install the chosen tag), and its re-add pins that tag.
 - **Gone upstream.** Nothing left for a skill (or a pack's path gone/empty) → `settleGone`: `-y` removes, a terminal asks (default no; kept entries are asked again next run), machine mode keeps and reports (`gone-kept`, flags `-y`). Never a failure.

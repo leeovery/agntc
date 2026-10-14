@@ -70,9 +70,11 @@ A **pack** is a set of skills, optionally with agents and hooks, that installs, 
 
 A pack holds every skill found inside it, plus the `.md` files in its own top-level `agents/` and everything in its own top-level `hooks/`. Its skills install flat, like any other skill.
 
+A pack also installs everything in its own top-level `skills/` folder. A folder there that holds no skill is a **support folder**, such as shared references its skills load, and installs whole beside them, whatever is in it. A folder there that holds skills deeper down is a category, and its own folders are read the same way. Loose files, links, hidden folders, `node_modules`, `dist`, `build` and `vendor` in `skills/` aren't installed.
+
 | Asset | Installs to |
 |---|---|
-| skills | `.claude/skills/<folder-name>/` |
+| skills, and a pack's support folders | `.claude/skills/<folder-name>/` |
 | agents (`.md` files) | `.claude/agents/` |
 | hooks | `.claude/hooks/` |
 
@@ -111,10 +113,10 @@ Hidden folders, `node_modules`, `dist`, `build` and `vendor` are skipped. Packs 
 
 - One thing found installs without a menu.
 - Several give a menu: one line per pack, loose skills shown by path. The menu never splits a pack.
-- `--skill <names...>` installs the named skills, matching folder name or frontmatter `name`, anywhere in the source, including inside a pack. A skill taken out of a pack installs on its own, with a note naming the pack and what's left out. A name found twice is refused, listing the paths.
+- `--skill <names...>` installs the named skills, matching folder name or frontmatter `name`, anywhere in the source, including inside a pack. A skill taken out of a pack installs on its own, with a note naming the pack and what's left out, its support folders included. A name found twice is refused, listing the paths.
 - `--pack` installs the added path as one pack. It's refused on a single skill and on a path that contains packs.
 - `--all` installs everything the menu would list.
-- `--list` shows what the source holds and installs nothing: packs with their skill counts, skills with their path and description. It combines with `--pack` only.
+- `--list` shows what the source holds and installs nothing: packs with their skill and support folder counts, skills with their path and description. It combines with `--pack` only.
 
 `--pack`, `--skill` and `--all` don't combine. `--plugin` still works as an alias for `--pack`, with a note that it's been renamed.
 
@@ -163,7 +165,7 @@ npx agntc@latest update [key] [-y]
 
 Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved ref and copies again. Constrained installs update to the best match within their range. Tag-pinned installs show newer tags but don't auto-upgrade. Every check runs before any file is deleted; if the new tree can't be installed, or other files are in the way of it, the update aborts with the existing install left intact and prints the remedy.
 
-- **Packs are re-walked.** Skills added upstream arrive; skills removed upstream go.
+- **Packs are re-walked.** Skills and support folders added upstream arrive; those removed upstream go.
 - **Moved skills are followed.** A loose skill whose folder moved is found again when exactly one skill in the repo has its name. New skills are never picked up for loose skills; install the folder as a pack for that.
 - **Keys follow what's installed.** When an install comes back as something `add` would key differently, such as a pack whose folder is now a single skill or a skill that moved out of the repo root, it moves to that key and a note names both. If another install already has that key, the update stops and says how to free it, unless that install is a loose skill the pack takes over.
 - **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
@@ -264,6 +266,7 @@ laravel/
   skills/
     eloquent/SKILL.md
     testing/SKILL.md
+    shared/           ← no SKILL.md: installs whole to .claude/skills/shared/
   agents/
     reviewer.md       ← installs to .claude/agents/reviewer.md
   hooks/
@@ -273,7 +276,8 @@ laravel/
 - `agntc.json` carries only `type`. `"pack"` declares a pack; the old `"plugin"` is read as `"pack"`. Malformed or missing config is ignored.
 - A folder with both `SKILL.md` and a pack declaration is treated as a skill, with a warning.
 - Only `.md` files under a pack's `agents/` install as agents, hidden ones aside. Every entry in its `hooks/` installs.
-- A user can still take one skill out of your pack with `--skill`; it installs on its own.
+- A folder in a pack's `skills/` with no skill in it installs whole as a support folder, so the pack's skills can share references through it.
+- A user can still take one skill out of your pack with `--skill`; it installs on its own, without the pack's support folders.
 - `agntc.json` is never copied into an install.
 
 ## Manifest

@@ -129,6 +129,7 @@ describe("skillsInInstalledPacks", () => {
 				name: "tools",
 				path: "tools",
 				skills: [{ name: "a", path: "tools/skills/a" }],
+				supportFolders: [],
 				assetDirs: ["agents"],
 			},
 		],

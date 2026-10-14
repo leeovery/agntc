@@ -4,7 +4,7 @@ import {
 	describeClash,
 	findTargetClashes,
 } from "./compute-incoming-files.js";
-import type { FoundPack, FoundSkill } from "./discover.js";
+import { type FoundPack, type FoundSkill, skillFolders } from "./discover.js";
 import { joinWithAnd } from "./summary.js";
 
 /** One thing `add` installs as one manifest entry: a lone skill or a whole pack. */
@@ -43,9 +43,9 @@ export function itemLabel(item: InstallItem, rootName: string): string {
 	return pathLabel(itemPath(item), rootName);
 }
 
-/** A pack holding no skills and no agents or hooks has nothing to install. */
+/** A pack holding no skills, support folders, agents or hooks has nothing to install. */
 export function isEmptyPack(pack: FoundPack): boolean {
-	return pack.skills.length === 0 && pack.assetDirs.length === 0;
+	return skillFolders(pack).length === 0 && pack.assetDirs.length === 0;
 }
 
 /**

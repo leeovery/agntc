@@ -133,6 +133,7 @@ const LARAVEL_PACK: FoundPack = {
 	name: "repo",
 	path: "",
 	skills: [{ name: "new-skill", path: "skills/new-skill" }],
+	supportFolders: [],
 	assetDirs: ["agents"],
 };
 
@@ -7016,6 +7017,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			{ name: "a", path: "tools/skills/a" },
 			{ name: "b", path: "tools/skills/b" },
 		],
+		supportFolders: [],
 		assetDirs: [],
 	};
 	const NOTE = "owner/repo/tools now includes a, installed on its own before";

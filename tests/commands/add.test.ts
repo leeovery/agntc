@@ -1615,6 +1615,7 @@ describe("add command", () => {
 						path: "p",
 						skillCount: 1,
 						skills: [{ name: "s", path: "p/skills/s", description: null }],
+						supportFolders: [],
 						assetDirs: ["hooks"],
 					},
 				],

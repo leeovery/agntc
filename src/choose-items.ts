@@ -15,7 +15,7 @@ import {
 } from "./install-item.js";
 import { agntcCommand, type ScopeName } from "./scope.js";
 import { locateSource } from "./source-parser.js";
-import { joinWithAnd, pluralize } from "./summary.js";
+import { formatPackCounts, joinWithAnd } from "./summary.js";
 
 /** What the user asked `add` to install. */
 export type Selection =
@@ -261,7 +261,10 @@ export function menuOption(item: InstallItem, rootName: string): MenuOption {
 	const label = itemLabel(item, rootName);
 	const hint =
 		item.kind === "pack"
-			? `pack · ${pluralize(item.pack.skills.length, "skill")}`
+			? `pack · ${formatPackCounts({
+					skills: item.pack.skills.length,
+					folders: item.pack.supportFolders.length,
+				})}`
 			: item.skill.description?.split("\n")[0]?.trim();
 	return { value: item, label, ...(hint ? { hint } : {}) };
 }
@@ -320,7 +323,8 @@ function isWithin(path: string, folder: string): boolean {
 
 /**
  * Notes that a skill taken out of a pack installs on its own, naming what the
- * pack holds that isn't `present`: installed already, or alongside it.
+ * pack holds that isn't `present` (installed already, or alongside it), its
+ * support folders included.
  */
 function packedSkillNotes(
 	{ skill, pack }: SkillMatch,
@@ -342,7 +346,19 @@ function leftOutOf(pack: FoundPack, present: Set<string>): string {
 		.join(", ");
 	const assets =
 		pack.assetDirs.length > 0 ? `its ${pack.assetDirs.join("/")}` : "";
-	return [otherSkills, assets].filter((part) => part !== "").join(" and ");
+	// Support folders go last, so the names after "its support folders" are plainly theirs.
+	return joinWithAnd(
+		[otherSkills, assets, supportFoldersOf(pack)].filter((part) => part !== ""),
+	);
+}
+
+function supportFoldersOf({ supportFolders }: FoundPack): string {
+	if (supportFolders.length === 0) {
+		return "";
+	}
+	const noun = supportFolders.length === 1 ? "folder" : "folders";
+	const names = supportFolders.map((folder) => folder.name).join(", ");
+	return `its support ${noun} ${names}`;
 }
 
 function byPath(a: { path: string }, b: { path: string }): number {

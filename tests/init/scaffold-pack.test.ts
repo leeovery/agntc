@@ -100,6 +100,7 @@ describe("packScaffold", () => {
 								"Brief description of what this skill does and when to use it.",
 						},
 					],
+					supportFolders: [],
 					assetDirs: ["agents", "hooks"],
 				},
 			],

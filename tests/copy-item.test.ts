@@ -156,6 +156,7 @@ describe("copyItem", () => {
 					name: "p",
 					path: "p",
 					skills: [{ name: "a", path: "p/skills/a" }],
+					supportFolders: [],
 					assetDirs: ["agents"],
 				},
 			},
@@ -181,6 +182,7 @@ describe("checkItemLinks", () => {
 				name: "p",
 				path: "p",
 				skills: skills.map((name) => ({ name, path: `p/skills/${name}` })),
+				supportFolders: [],
 				assetDirs: ["agents", "hooks"],
 			},
 		};

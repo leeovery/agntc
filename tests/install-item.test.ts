@@ -40,6 +40,7 @@ function pack(path: string, overrides: Partial<FoundPack> = {}) {
 			name: path.split("/").pop() || "repo",
 			path,
 			skills: [],
+			supportFolders: [],
 			assetDirs: [],
 			...overrides,
 		},
@@ -192,6 +193,40 @@ describe("keyItems", () => {
 			]);
 		});
 
+		it("refuses a pack whose skill and support folder share a name", async () => {
+			const packed = pack("p", {
+				skills: [{ name: "shared", path: "p/skills/cat/shared" }],
+				supportFolders: [{ name: "shared", path: "p/skills/shared" }],
+			});
+
+			expect(await refusal([packed])).toEqual([
+				"p/skills/cat/shared and p/skills/shared would both install to .claude/skills/shared — choose one",
+			]);
+		});
+
+		it("refuses two packs that both ship a support folder of one name", async () => {
+			const first = pack("p", {
+				supportFolders: [{ name: "shared", path: "p/skills/shared" }],
+			});
+			const second = pack("q", {
+				supportFolders: [{ name: "shared", path: "q/skills/shared" }],
+			});
+
+			expect(await refusal([first, second])).toEqual([
+				"p/skills/shared and q/skills/shared would both install to .claude/skills/shared — choose one",
+			]);
+		});
+
+		it("refuses a loose skill named like a selected pack's support folder", async () => {
+			const packed = pack("p", {
+				supportFolders: [{ name: "shared", path: "p/skills/shared" }],
+			});
+
+			expect(await refusal([packed, skill("tools/shared")])).toEqual([
+				"p/skills/shared and tools/shared would both install to .claude/skills/shared — choose one",
+			]);
+		});
+
 		it("reports only the shared install paths when the same items also share a key", async () => {
 			const lines = await refusal([
 				skill("a/x"),
@@ -241,7 +276,7 @@ describe("itemLabel", () => {
 });
 
 describe("isEmptyPack", () => {
-	it("is empty with no skills and no asset dirs", () => {
+	it("is empty with no skills, support folders or asset dirs", () => {
 		expect(isEmptyPack(pack("p").pack)).toBe(true);
 	});
 
@@ -250,5 +285,11 @@ describe("isEmptyPack", () => {
 			isEmptyPack(pack("p", { skills: [{ name: "a", path: "p/a" }] }).pack),
 		).toBe(false);
 		expect(isEmptyPack(pack("p", { assetDirs: ["hooks"] }).pack)).toBe(false);
+	});
+
+	it("isn't empty with only support folders", () => {
+		const supportFolders = [{ name: "shared", path: "p/skills/shared" }];
+
+		expect(isEmptyPack(pack("p", { supportFolders }).pack)).toBe(false);
 	});
 });

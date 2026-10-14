@@ -112,7 +112,9 @@ export function packAt(path: string, ...names: string[]): Discovery {
 		path: `${path}/skills/${name}`,
 	}));
 	return {
-		packs: [{ name: basename(path), path, skills, assetDirs: [] }],
+		packs: [
+			{ name: basename(path), path, skills, supportFolders: [], assetDirs: [] },
+		],
 		skills: [],
 		strays: [],
 	};

@@ -6,7 +6,7 @@ import {
 	listAgentFiles,
 	listHookEntries,
 } from "./copy-pack.js";
-import type { FoundPack, FoundSkill } from "./discover.js";
+import { type FoundPack, type SkillFolder, skillFolders } from "./discover.js";
 import type { InstallItem } from "./install-item.js";
 import { withoutTrailingSlash } from "./install-paths.js";
 import { joinWithAnd } from "./summary.js";
@@ -45,16 +45,19 @@ export async function computeClaims(
 		return skillClaims([item.skill]);
 	}
 	return [
-		...skillClaims(item.pack.skills),
+		...skillClaims(skillFolders(item.pack)),
 		...(await packAssetClaims(item.pack, root)),
 	];
 }
 
-/** Skills install flat by folder name, so each claims `.claude/skills/<name>/`. */
-export function skillClaims(skills: FoundSkill[]): Claim[] {
-	return skills.map((skill) => ({
-		target: skillTarget(skill.name),
-		source: skill.path,
+/**
+ * Skills, and a pack's support folders, install flat by folder name, so each
+ * claims `.claude/skills/<name>/`.
+ */
+export function skillClaims(folders: readonly SkillFolder[]): Claim[] {
+	return folders.map((folder) => ({
+		target: skillTarget(folder.name),
+		source: folder.path,
 	}));
 }
 

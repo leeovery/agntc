@@ -56,6 +56,7 @@ const PACK: FoundPack = {
 	name: "p",
 	path: "p",
 	skills: ["a", "b", "c"].map((name) => ({ name, path: `p/skills/${name}` })),
+	supportFolders: [],
 	assetDirs: ["agents", "hooks"],
 };
 

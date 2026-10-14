@@ -1,6 +1,7 @@
 export type AssetType = "skills" | "agents" | "hooks";
 
-export type AssetCounts = Partial<Record<AssetType, number>>;
+/** What a copy installed, by asset type; `folders` counts a pack's support folders. */
+export type AssetCounts = Partial<Record<AssetType | "folders", number>>;
 
 const TARGET_DIRS: Record<AssetType, string> = {
 	skills: ".claude/skills",

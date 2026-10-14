@@ -21,6 +21,7 @@ import {
 	folderName,
 	PackConflictError,
 	StartPathError,
+	skillFolders,
 } from "./discover.js";
 import { restoreCommand, sourceIdOf, sourceKeyOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
@@ -382,10 +383,11 @@ async function followMovedSkill(
 }
 
 /**
- * Re-walks a pack so skills added upstream arrive and removed ones go. A path
- * that is now a single skill reinstalls as that skill; a path that is gone,
- * or holds nothing, is gone upstream. Two of its skills sharing a folder name
- * would install to one place, so the pack aborts.
+ * Re-walks a pack so skills and support folders added upstream arrive and
+ * removed ones go. A path that is now a single skill reinstalls as that
+ * skill; a path that is gone, or holds nothing, is gone upstream. Two of its
+ * skills or support folders sharing a folder name would install to one place,
+ * so the pack aborts.
  */
 async function derivePackReplay(
 	options: NukeReinstallOptions,
@@ -404,7 +406,7 @@ async function derivePackReplay(
 		if (pack === undefined || isEmptyPack(pack)) {
 			return GONE;
 		}
-		const clashes = findTargetClashes(skillClaims(pack.skills));
+		const clashes = findTargetClashes(skillClaims(skillFolders(pack)));
 		if (clashes.length > 0) {
 			return { ok: false, reason: clashes.map(describeClash).join("; ") };
 		}
