@@ -1,7 +1,7 @@
 import type { Stats } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { skillTarget } from "./asset-targets.js";
+import { isSafeSegment, skillTarget } from "./asset-targets.js";
 import { isNodeError } from "./errors.js";
 
 /**
@@ -33,11 +33,6 @@ export function installPathMatcher(
 ): (path: string) => boolean {
 	const normalised = new Set([...paths].map(withoutTrailingSlash));
 	return (path) => normalised.has(withoutTrailingSlash(path));
-}
-
-/** A single folder or file name: not empty, `.` or `..`, and holding no `/`. */
-export function isSafeSegment(name: string): boolean {
-	return name !== "" && name !== "." && name !== ".." && !name.includes("/");
 }
 
 /**

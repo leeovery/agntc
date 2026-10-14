@@ -2,7 +2,7 @@ import {
 	type AssetCounts,
 	type AssetType,
 	identifyAssetType,
-	targetDir,
+	skillFolderName,
 } from "../asset-targets.js";
 import { gitErrorCause } from "../errors.js";
 import { isInstalledSkill } from "../install-paths.js";
@@ -58,7 +58,9 @@ async function countAssets(
 	files: string[],
 	installRoot: string,
 ): Promise<EntryAssets> {
-	const folders = [...new Set(files.flatMap(skillFolderOf))];
+	const folders = [
+		...new Set(files.map(skillFolderName).filter((name) => name !== null)),
+	];
 	const isSkill = await Promise.all(
 		folders.map((name) => isInstalledSkill(installRoot, name)),
 	);
@@ -74,15 +76,6 @@ async function countAssets(
 		},
 		other: typed(null),
 	};
-}
-
-/** The `<name>` of a path in `.claude/skills/<name>/`, if it's in one. */
-function skillFolderOf(file: string): string[] {
-	if (identifyAssetType(file) !== "skills") {
-		return [];
-	}
-	const [name = ""] = file.slice(targetDir("skills").length + 1).split("/");
-	return name === "" ? [] : [name];
 }
 
 /**

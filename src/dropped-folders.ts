@@ -1,10 +1,13 @@
 import { join, posix } from "node:path";
-import { targetDir } from "./asset-targets.js";
-import { skillFolders, walkableFolders } from "./discover.js";
+import { skillFolderName, skillTarget } from "./asset-targets.js";
+import {
+	MAX_DEPTH,
+	PACK_ASSET_DIRS,
+	skillFolders,
+	walkableFolders,
+} from "./discover.js";
 import { type InstallItem, itemPath } from "./install-item.js";
-import { installPathMatcher, isSafeSegment } from "./install-paths.js";
-
-const SKILLS_DIR = `${targetDir("skills")}/`;
+import { installPathMatcher } from "./install-paths.js";
 
 /**
  * The folders an entry recorded directly in `.claude/skills/` that its
@@ -26,18 +29,15 @@ export async function droppedButInSource(
 	item: InstallItem,
 	root: string,
 ): Promise<string[]> {
-	const writes = installPathMatcher(incoming);
-	const dropped = new Set(
-		recorded
-			.filter((path) => !writes(path))
-			.map(recordedSkillFolder)
-			.filter((name) => name !== null),
-	);
+	const dropped = droppedFolders(recorded, incoming);
 	if (dropped.size === 0) {
 		return [];
 	}
 	const installs = installedFolders(item);
-	const found = await namesakes(root, itemPath(item), dropped, installs);
+	const found = await namesakes(root, itemPath(item), dropped, [
+		...installs,
+		...ownAssetDirs(item),
+	]);
 	const isCategory = (path: string) =>
 		installs.some((folder) => folder.startsWith(`${path}/`));
 	return [...dropped].filter((name) => {
@@ -46,29 +46,37 @@ export async function droppedButInSource(
 	});
 }
 
-/** The `<name>` of a recorded `.claude/skills/<name>/`; null for anything else. */
-function recordedSkillFolder(path: string): string | null {
-	if (!path.startsWith(SKILLS_DIR) || !path.endsWith("/")) {
-		return null;
+/** The names of the recorded skill folders the reinstall won't write. */
+function droppedFolders(
+	recorded: readonly string[],
+	incoming: readonly string[],
+): Set<string> {
+	const writes = installPathMatcher(incoming);
+	const dropped = new Set<string>();
+	for (const path of recorded) {
+		const name = skillFolderName(path);
+		const isFolder = name !== null && path === skillTarget(name);
+		if (isFolder && !writes(path)) {
+			dropped.add(name);
+		}
 	}
-	const name = path.slice(SKILLS_DIR.length, -1);
-	return isSafeSegment(name) ? name : null;
+	return dropped;
 }
 
 /**
- * The root-relative paths of every folder below `base` named in `names`, at
- * any depth, entering only the folders the walk would and none the item
- * installs.
+ * The root-relative paths of every folder below `base` named in `names`, as
+ * deep as discovery reads, entering only the folders the walk would and none
+ * in `closed`.
  */
 async function namesakes(
 	root: string,
 	base: string,
 	names: ReadonlySet<string>,
-	installs: readonly string[],
+	closed: readonly string[],
 ): Promise<Map<string, string[]>> {
 	const found = new Map<string, string[]>();
-	const visit = async (dir: string): Promise<void> => {
-		if (installs.includes(dir)) {
+	const visit = async (dir: string, depth: number): Promise<void> => {
+		if (depth >= MAX_DEPTH || closed.includes(dir)) {
 			return;
 		}
 		for (const { name } of await walkableFolders(join(root, dir))) {
@@ -76,10 +84,10 @@ async function namesakes(
 			if (names.has(name)) {
 				found.set(name, [...(found.get(name) ?? []), path]);
 			}
-			await visit(path);
+			await visit(path, depth + 1);
 		}
 	};
-	await visit(base);
+	await visit(base, 0);
 	return found;
 }
 
@@ -88,4 +96,11 @@ function installedFolders(item: InstallItem): string[] {
 	return item.kind === "pack"
 		? skillFolders(item.pack).map(({ path }) => path)
 		: [item.skill.path];
+}
+
+/** A pack's own `agents/` and `hooks/`, which never install to `.claude/skills/`. */
+function ownAssetDirs(item: InstallItem): string[] {
+	return item.kind === "pack"
+		? PACK_ASSET_DIRS.map((dir) => posix.join(item.pack.path, dir))
+		: [];
 }

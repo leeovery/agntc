@@ -90,9 +90,11 @@ export class StartPathError extends Error {
 	}
 }
 
-const MAX_DEPTH = 5;
+/** How many folders below where it starts the walk reads. */
+export const MAX_DEPTH = 5;
 const SKIPPED_DIRS = new Set(["node_modules", "dist", "build", "vendor"]);
-const PACK_ASSET_DIRS: readonly PackAssetDir[] = ["agents", "hooks"];
+/** A pack's own top-level folders that install by their own rules. */
+export const PACK_ASSET_DIRS: readonly PackAssetDir[] = ["agents", "hooks"];
 const ASSET_FILE_TESTS: Record<PackAssetDir, (entry: Dirent) => boolean> = {
 	agents: (entry) => entry.isFile() && entry.name.endsWith(".md"),
 	hooks: (entry) => entry.isFile(),

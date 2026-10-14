@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	identifyAssetType,
 	isUnderRoot,
+	skillFolderName,
 	targetDir,
 } from "../src/asset-targets.js";
 
@@ -67,5 +68,27 @@ describe("isUnderRoot", () => {
 
 	it("fails for a sibling sharing the root's prefix", () => {
 		expect(isUnderRoot(".claude/skillsX/foo", ".claude/skills")).toBe(false);
+	});
+});
+
+describe("skillFolderName", () => {
+	it.each([
+		[".claude/skills/foo/", "foo"],
+		[".claude/skills/foo/SKILL.md", "foo"],
+		[".claude/skills/foo/references/deep/guide.md", "foo"],
+	])("names the skill folder %s is in", (path, name) => {
+		expect(skillFolderName(path)).toBe(name);
+	});
+
+	it.each([
+		[".claude/skills/README.md", "a loose file in .claude/skills"],
+		[".claude/skills/", "the skills folder itself"],
+		[".claude/skills/../x/", "a segment that isn't safe"],
+		[".claude/skills//x", "an empty segment"],
+		[".claude/skillsX/foo/", "a sibling sharing the prefix"],
+		[".agents/skills/foo/", "a legacy skill root"],
+		[".claude/agents/foo/", "another asset's folder"],
+	])("is null for %s, %s", (path) => {
+		expect(skillFolderName(path)).toBeNull();
 	});
 });

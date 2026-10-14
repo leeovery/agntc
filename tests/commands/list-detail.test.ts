@@ -311,6 +311,26 @@ describe("renderDetailView", () => {
 			expect(mockLog.info).toHaveBeenCalledWith("Assets: 0 skills, 1 folder");
 		});
 
+		it("never counts a loose file v1 recorded in .claude/skills as a folder", async () => {
+			mockSelect.mockResolvedValue("back");
+			await installedFiles(
+				".claude/skills/a/SKILL.md",
+				".claude/skills/README.md",
+			);
+
+			await renderDetailView(
+				makeInput({
+					entry: {
+						type: "pack",
+						files: [".claude/skills/README.md", ".claude/skills/a/"],
+					},
+				}),
+				interactiveUi,
+			);
+
+			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+		});
+
 		it("counts agent files", async () => {
 			mockSelect.mockResolvedValue("back");
 

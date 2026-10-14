@@ -1557,7 +1557,7 @@ describe("executeNukeAndReinstall", () => {
 		it("aborts on a namesake holding a skill the pack doesn't install", async () => {
 			await upstream(
 				"tools/skills/api/SKILL.md",
-				"tools/hooks/frontend/react/SKILL.md",
+				"tools/a/b/c/d/frontend/react/SKILL.md",
 			);
 
 			const result = await executeNukeAndReinstall(
@@ -1566,6 +1566,35 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({ status: "aborted", stillInSource: true });
 			expectNothingRemoved();
+		});
+
+		it.each([
+			["hooks/", "tools/hooks/lint/run.sh"],
+			["agents/", "tools/agents/lint/notes.md"],
+		])("lets a folder go whose namesake is in the pack's own %s, which installs by its own rules", async (_, file) => {
+			await upstream("tools/skills/api/SKILL.md", file);
+			const files = [".claude/skills/api/", ".claude/skills/lint/"];
+
+			const result = await executeNukeAndReinstall(packOptions(files));
+
+			expect(result.status).toBe("success");
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
+				"/fake/project",
+				files,
+			);
+		});
+
+		it.each([
+			["aborts on", 5, "tools/a/b/c/d/lint/a.md", "aborted"],
+			["looks no further than", 6, "tools/a/b/c/d/e/lint/a.md", "success"],
+		])("%s a namesake %i folders below the pack, as deep as discovery reads", async (_, __, file, status) => {
+			await upstream("tools/skills/api/SKILL.md", file);
+
+			const result = await executeNukeAndReinstall(
+				packOptions([".claude/skills/api/", ".claude/skills/lint/"]),
+			);
+
+			expect(result.status).toBe(status);
 		});
 
 		it("lets a category folder go when the pack installs the skills it holds", async () => {

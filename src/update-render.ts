@@ -171,47 +171,29 @@ export interface MemberLine {
 }
 
 /**
- * Every per-member outcome the streamed group block renders, discriminated on
- * `kind`. A `success` carries — only in the divergent-old case, where
- * the header could not carry a shared old — its own `move`. The three loud
- * non-success variants carry their already-assembled `message` (built
- * upstream by {@link buildAbortMessage} / {@link buildCopySafetyMessage} / the
- * copy-failed recovery hint), so the wording lives at one source and merely
- * rides the line here.
+ * A member that updated, as the streamed group block renders it. It carries —
+ * only in the divergent-old case, where the header could not carry a shared
+ * old — its own `move`.
  */
-export type MemberLineInput =
-	| {
-			kind: "success";
-			name: string;
-			move?: {
-				oldRef: string | null;
-				newRef: string | null;
-				oldCommit: string;
-				newCommit: string;
-			} | null;
-	  }
-	| { kind: "copy-failed" | "aborted" | "blocked"; message: string };
+export interface MemberLineInput {
+	kind: "success";
+	name: string;
+	move?: {
+		oldRef: string | null;
+		newRef: string | null;
+		oldCommit: string;
+		newCommit: string;
+	} | null;
+}
 
 /**
- * Maps a member outcome to its exact streamed line and clack log level — the
- * glyph (✓/✗) is supplied by the level (`p.log.success/error`), NOT embedded in
- * `text`, matching today's summary convention.
- *
- * A success renders the bare `<name>`, with the {@link formatVersionMove} as a
- * trailing parenthetical in the divergent-old case only. A loud non-success
- * variant is its message alone.
+ * Maps an updated member to its exact streamed line and clack log level — the
+ * glyph (✓) is supplied by the level (`p.log.success`), NOT embedded in
+ * `text`, matching today's summary convention: the bare `<name>`, with the
+ * {@link formatVersionMove} as a trailing parenthetical in the divergent-old
+ * case only.
  */
 export function formatMemberLine(input: MemberLineInput): MemberLine {
-	switch (input.kind) {
-		case "success": {
-			const suffix = input.move ? `  (${formatVersionMove(input.move)})` : "";
-			return { level: "success", text: `${input.name}${suffix}` };
-		}
-		// Each message already names the member by its key, so the line doesn't
-		// name it again.
-		case "copy-failed":
-		case "aborted":
-		case "blocked":
-			return { level: "error", text: input.message };
-	}
+	const suffix = input.move ? `  (${formatVersionMove(input.move)})` : "";
+	return { level: "success", text: `${input.name}${suffix}` };
 }

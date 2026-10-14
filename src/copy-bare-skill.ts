@@ -1,5 +1,5 @@
 import { basename, join } from "node:path";
-import { skillTarget } from "./asset-targets.js";
+import { isSafeSegment, skillTarget } from "./asset-targets.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
 import {
 	type CopySource,
@@ -8,7 +8,7 @@ import {
 	planCopy,
 	writeCopy,
 } from "./copy-safety.js";
-import { assertNoLinkInTheWay, isSafeSegment } from "./install-paths.js";
+import { assertNoLinkInTheWay } from "./install-paths.js";
 
 export interface CopyBareSkillInput {
 	sourceDir: string;
