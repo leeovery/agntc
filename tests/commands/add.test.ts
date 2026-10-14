@@ -1248,7 +1248,7 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/good"]);
 			expect(await installed(".claude/skills/bad")).toBe(false);
-			expect(logged("error")[0]).toMatch(/^bad: failed — symlink "leak"/);
+			expect(logged("error")[0]).toMatch(/^bad: failed — symlink "bad\/leak"/);
 		});
 
 		it("fails an item whose copy throws and exits non-zero after the summary", async () => {
@@ -1755,7 +1755,7 @@ describe("add command", () => {
 					type: "skill",
 					path: "bad",
 					status: "failed",
-					reason: expect.stringMatching(/^symlink "leak"/),
+					reason: expect.stringMatching(/^symlink "bad\/leak"/),
 				},
 				expect.objectContaining({
 					key: "owner/repo/good",

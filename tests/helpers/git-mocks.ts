@@ -11,7 +11,7 @@ export function mockExecFile(
 ): void {
 	vi.mocked(childProcess.execFile).mockImplementation(
 		// biome-ignore lint/complexity/noBannedTypes: vitest mock callback type requires loose Function
-		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
+		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function | null) => {
 			if (typeof _opts === "function") {
 				cb = _opts;
 				_opts = {};

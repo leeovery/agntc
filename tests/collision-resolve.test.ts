@@ -25,6 +25,7 @@ import {
 } from "../src/collision-resolve.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { interactiveUi } from "../src/ui.js";
+import { makeEntry } from "./helpers/factories.js";
 
 const mockedNote = vi.mocked(p.note);
 const mockedSelect = vi.mocked(p.select);
@@ -37,12 +38,12 @@ beforeEach(() => {
 describe("resolveCollisions", () => {
 	it("returns resolved true with unchanged manifest when no collisions", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>();
 
@@ -60,18 +61,18 @@ describe("resolveCollisions", () => {
 
 	it("removes colliding plugin when user chooses remove", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/", ".claude/agents/executor.md"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/skills/skill-b/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -102,12 +103,12 @@ describe("resolveCollisions", () => {
 
 	it("returns resolved false when user chooses cancel", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -130,24 +131,24 @@ describe("resolveCollisions", () => {
 
 	it("resolves multiple colliding plugins sequentially", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/agents/my-agent.md"],
-			},
-			"owner/repo-c": {
+			}),
+			"owner/repo-c": makeEntry({
 				ref: "v1",
 				commit: "ghi789",
 				installedAt: "2026-01-17T10:00:00.000Z",
 				files: [".claude/skills/skill-c/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -177,24 +178,24 @@ describe("resolveCollisions", () => {
 
 	it("stops on cancel during sequential resolution", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/agents/my-agent.md"],
-			},
-			"owner/repo-c": {
+			}),
+			"owner/repo-c": makeEntry({
 				ref: "v1",
 				commit: "ghi789",
 				installedAt: "2026-01-17T10:00:00.000Z",
 				files: [".claude/skills/skill-c/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -231,12 +232,12 @@ describe("resolveCollisions", () => {
 
 	it("treats clack cancel (symbol) as cancel", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -258,12 +259,12 @@ describe("resolveCollisions", () => {
 
 	it("calls note with file list and collision title before select", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/", ".claude/agents/executor.md"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			[
@@ -288,12 +289,12 @@ describe("resolveCollisions", () => {
 
 	it("select message is single-line with plugin key (collision)", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -311,18 +312,18 @@ describe("resolveCollisions", () => {
 
 	it("calls note for each collision in sequential resolution", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/agents/my-agent.md"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -349,12 +350,12 @@ describe("resolveCollisions", () => {
 
 	it("does not offer install-anyway option", async () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 		const collisions = new Map<string, string[]>([
 			["owner/repo-a", [".claude/skills/skill-a/"]],
@@ -375,12 +376,13 @@ describe("resolveCollisions", () => {
 });
 
 describe("removeCollidingEntries", () => {
-	const entry = (files: string[]) => ({
-		ref: "main",
-		commit: "abc123",
-		installedAt: "2026-01-15T10:00:00.000Z",
-		files,
-	});
+	const entry = (files: string[]) =>
+		makeEntry({
+			ref: "main",
+			commit: "abc123",
+			installedAt: "2026-01-15T10:00:00.000Z",
+			files,
+		});
 
 	it("deletes each named entry's files and drops it from the manifest, asking nothing", async () => {
 		const manifest: Manifest = {

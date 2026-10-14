@@ -11,6 +11,12 @@ import { interactiveUi } from "../../src/ui.js";
 
 const mockSelect = vi.mocked(p.select);
 
+function firstSelectCall() {
+	const call = mockSelect.mock.calls[0]?.[0];
+	if (!call) throw new Error("select was not called");
+	return call;
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 });
@@ -22,10 +28,10 @@ describe("selectInitType", () => {
 		await selectInitType(interactiveUi);
 
 		expect(mockSelect).toHaveBeenCalledOnce();
-		const call = mockSelect.mock.calls[0]?.[0];
+		const call = firstSelectCall();
 		expect(call.options).toHaveLength(2);
 
-		const values = call.options.map((o: { value: string }) => o.value);
+		const values = call.options.map((o) => o.value);
 		expect(values).toEqual(["skill", "pack"]);
 
 		const labels = call.options.map((o: { label?: string }) => o.label);
@@ -37,7 +43,7 @@ describe("selectInitType", () => {
 
 		await selectInitType(interactiveUi);
 
-		const call = mockSelect.mock.calls[0]?.[0];
+		const call = firstSelectCall();
 		expect(call.message).toBe("What are you creating?");
 	});
 
@@ -70,7 +76,7 @@ describe("selectInitType", () => {
 
 		await selectInitType(interactiveUi);
 
-		const call = mockSelect.mock.calls[0]?.[0];
+		const call = firstSelectCall();
 		const hints = call.options.map((o: { hint?: string }) => o.hint);
 		expect(hints).toEqual([
 			"a single skill (SKILL.md)",

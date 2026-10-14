@@ -44,11 +44,13 @@ vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 	);
 });
 
-vi.mock("../../src/copy-bare-skill.js", async () => {
+vi.mock("../../src/copy-bare-skill.js", async (importOriginal) => {
 	const { mockCopyBareSkillModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockCopyBareSkillModule();
+	return mockCopyBareSkillModule(
+		importOriginal<typeof import("../../src/copy-bare-skill.js")>,
+	);
 });
 
 vi.mock("../../src/discover.js", async (importOriginal) => {
@@ -92,6 +94,7 @@ import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
 	looseSkillsAt,
+	packAt,
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
@@ -103,6 +106,7 @@ const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
+const mockCopyPack = mocks.copyPack;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
 const mockDiscover = mocks.discover;
@@ -202,6 +206,7 @@ describe("executeUpdateAction", () => {
 
 			expect(result).toEqual({
 				success: false,
+				key,
 				message: "/Users/lee/Code/skills: path does not exist",
 				notes: [],
 			});
@@ -467,6 +472,89 @@ describe("executeUpdateAction", () => {
 		});
 	});
 
+	describe("a root skill that moved upstream", () => {
+		it("moves the entry to the key add gives it, the old key gone in the same write", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({
+				type: "skill",
+				files: [".claude/skills/repo/"],
+			});
+			const other = makeEntry({ files: [".claude/skills/other/"] });
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/repo"));
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/repo/"],
+			});
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry, "owner/other": other },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				key: "owner/repo/repo",
+				message: "Updated owner/repo/repo",
+				notes: [
+					"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+				],
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/other": other, "owner/repo/repo": result.newEntry },
+			);
+			expect(result.newEntry).toMatchObject({ sourceSubpath: "skills/repo" });
+		});
+	});
+
+	describe("a pack moving onto the key of a loose skill it takes over", () => {
+		it("records the pack alone under that key, the skill dropped in the same write", async () => {
+			const key = "owner/repo/tools";
+			const entry = makeEntry({
+				type: "pack",
+				sourceSubpath: "packs/tools",
+				files: [".claude/skills/a/"],
+			});
+			const loose = makeEntry({ files: [".claude/skills/tools/"] });
+
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockResolvedValue(packAt("packs/tools", "a", "tools"));
+			mockCopyPack.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/", ".claude/skills/tools/"],
+				assetCounts: { skills: 2 },
+			});
+
+			const result = await executeUpdateAction(
+				key,
+				entry,
+				{ [key]: entry, "owner/repo/packs/tools": loose },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				success: true,
+				key: "owner/repo/packs/tools",
+				newEntry: { type: "pack" },
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/repo/packs/tools": result.newEntry },
+			);
+		});
+	});
+
 	describe("an entry gone upstream", () => {
 		const key = "owner/repo/go";
 		const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
@@ -514,6 +602,7 @@ describe("executeUpdateAction", () => {
 
 			expect(result).toEqual({
 				success: true,
+				key,
 				message:
 					"Kept owner/repo/go — it's gone upstream; update will ask again",
 				notes: [],
@@ -536,6 +625,7 @@ describe("executeUpdateAction", () => {
 
 			expect(result).toEqual({
 				success: true,
+				key,
 				message: "Removed owner/repo/go — it's gone upstream",
 				notes: [],
 			});
@@ -569,6 +659,7 @@ describe("executeUpdateAction", () => {
 
 			expect(result).toEqual({
 				success: false,
+				key,
 				message:
 					"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
 				notes: [],

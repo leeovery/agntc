@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import {
 	copyFile,
 	lstat,
@@ -6,7 +7,8 @@ import {
 	readlink,
 	symlink,
 } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve } from "node:path";
+import { isNodeError } from "./errors.js";
 import { relativePosix } from "./fs-utils.js";
 
 /**
@@ -93,73 +95,42 @@ export class SymlinkEscapeError extends Error {
 }
 
 /**
- * Recursive pre-flight scan that rejects any symlink in `unitDir` whose target
- * resolves outside `cloneRoot` (the boundary). Read-only: no filesystem writes.
+ * Pre-flight that refuses, before anything is written or removed, every link
+ * the copy of one folder could read that leads out of the source root: those
+ * in it the filter keeps, and, from a clone, those in a folder elsewhere it
+ * would bring in a link's place. A local source links to such a folder, so it
+ * isn't read.
  *
- * `unitDir` is the tree to copy (bare-skill dir, pack dir, or member
- * subdir); `cloneRoot` is the containment boundary. A symlink may legitimately
- * point anywhere inside the clone (e.g. a sibling unit dir in a multi-dir
- * pack), so the boundary is the clone root, NOT the unit dir.
- *
- * Symlinks are detected (dirent.isSymbolicLink) but never followed: symlinked
- * directories are validated and NOT descended into, so symlink-to-dir cycles
- * (a link to an ancestor) cannot be traversed and the walk visits only the
- * finite real directory tree. Recursion descends into REAL subdirectories at
- * any depth.
- *
- * Target containment is evaluated LEXICALLY via path.resolve (no realpath/stat
- * on the target): this both implements broken-link semantics
- * (a dangling link is judged by where it points lexically) and avoids
- * following symlink chains. Throws {@link SymlinkEscapeError} on the FIRST
- * escaping symlink (fail fast). Pure: throw only, no logging or process.exit.
+ * It plans that very copy, `dir` from `source` kept by `keep`, so it reads
+ * what the copy reads and no more: no link is followed, and a dangling one is
+ * judged by where it points. Throws {@link SymlinkEscapeError} on the first
+ * escaping link. Read-only.
  */
 export async function scanForEscapingSymlinks(
-	unitDir: string,
-	cloneRoot: string,
-): Promise<void> {
-	const root = resolve(cloneRoot);
-	const unitRoot = resolve(unitDir);
-	await scanDir(unitRoot, root, unitRoot);
-}
-
-async function scanDir(
 	dir: string,
-	cloneRoot: string,
-	unitRoot: string,
+	source: CopySource,
+	keep: CopyFilter,
 ): Promise<void> {
-	const entries = await readdir(dir, { withFileTypes: true });
-
-	for (const entry of entries) {
-		const entryPath = join(dir, entry.name);
-
-		if (entry.isSymbolicLink()) {
-			await containedTarget(entryPath, cloneRoot, unitRoot);
-			// Validated but NOT descended into — prevents infinite loops on
-			// symlink-to-dir cycles (link to an ancestor).
-			continue;
-		}
-
-		if (entry.isDirectory()) {
-			await scanDir(entryPath, cloneRoot, unitRoot);
-		}
-	}
+	await planCopy({ dir, keep }, source);
 }
+
+/** What the symlink-escape pre-flight found: nothing, or the escaping link. */
+export type EscapeCheck = { ok: true } | { ok: false; message: string };
 
 /**
  * Scan-and-narrow wrapper around {@link scanForEscapingSymlinks}: runs the
  * symlink-escape pre-flight and maps the outcome to a discriminated result so
  * callers own only their distinct surfacing. A {@link SymlinkEscapeError} is
  * narrowed to `{ ok: false, message }` (the error's message verbatim); any
- * other error RETHROWS unchanged. Success resolves to `{ ok: true }`. The
- * scan boundary semantics are unchanged — callers pass the same `unitDir` /
- * `cloneRoot` arguments they would to {@link scanForEscapingSymlinks}.
+ * other error RETHROWS unchanged. Success resolves to `{ ok: true }`.
  */
 export async function checkEscapingSymlinks(
-	unitDir: string,
-	cloneRoot: string,
-): Promise<{ ok: true } | { ok: false; message: string }> {
+	dir: string,
+	source: CopySource,
+	keep: CopyFilter,
+): Promise<EscapeCheck> {
 	try {
-		await scanForEscapingSymlinks(unitDir, cloneRoot);
+		await scanForEscapingSymlinks(dir, source, keep);
 		return { ok: true };
 	} catch (err) {
 		if (err instanceof SymlinkEscapeError) {
@@ -171,19 +142,25 @@ export async function checkEscapingSymlinks(
 
 /**
  * Where a link leads, resolved from where it sits without following it, so a
- * dangling link is judged the same way. One leading out of `cloneRoot` throws.
+ * dangling link is judged the same way. One leading out of `root` throws,
+ * naming the link by where it sits below `root`.
  */
-async function containedTarget(
-	linkPath: string,
-	cloneRoot: string,
-	unitRoot: string,
-): Promise<string> {
-	const written = await readlink(linkPath);
-	const target = resolve(dirname(linkPath), written);
-	if (!isContained(cloneRoot, target)) {
-		throw new SymlinkEscapeError(relative(unitRoot, linkPath), written);
+async function containedTarget(link: string, root: string): Promise<string> {
+	const written = await readlink(link);
+	const target = resolve(dirname(link), written);
+	if (!isContained(root, target)) {
+		throw new SymlinkEscapeError(relativePosix(root, link), written);
 	}
 	return target;
+}
+
+/**
+ * Whether a `/`-joined path is a `.git` or lies below one: history, never
+ * content. Any letter case counts, as a filesystem that ignores case reads
+ * `.GIT` as `.git`.
+ */
+export function inGitFolder(path: string): boolean {
+	return path.split("/").some((name) => name.toLowerCase() === ".git");
 }
 
 /** What an item is copied from: the root its paths sit below, and its kind. */
@@ -202,32 +179,55 @@ export type CopyStep =
 /** Whether a copy keeps what sits at a `/`-joined path below the folder it copies. */
 export type CopyFilter = (path: string) => boolean;
 
+/** A folder a copy plans, and the filter it plans it with. */
+export interface CopyUnit {
+	dir: string;
+	keep: CopyFilter;
+}
+
 interface Plan {
+	/** The folder links are judged against: the one copied, or a target copied in a link's place. */
 	unit: string;
+	/** Where `unit` lands, below the destination. */
+	at: string;
 	root: string;
 	local: boolean;
 	keep: CopyFilter;
 	steps: CopyStep[];
+	/** Whether a link elsewhere in a clone is copied in its place: never inside such a copy. */
+	materialises: boolean;
 }
 
 /**
- * Plans copying the folder `dir` without following a link. Folders and
- * regular files copy; sockets, FIFOs and devices are left out. A link, read
- * from where it sits:
+ * Plans copying the folder `dir`, kept by `keep`, without following a link.
+ * Folders and regular files copy; sockets, FIFOs and devices are left out. A
+ * link, read from where it sits:
  * - out of the source root throws {@link SymlinkEscapeError};
  * - to something inside `dir` the filter keeps stays a link, made relative;
- * - to something inside `dir` the filter drops is left out;
- * - to `dir` itself, above it or elsewhere in the source is an absolute link
- *   into a local source, which stays, and is left out of a clone, which is
- *   deleted once copied.
+ * - to something inside `dir` the filter drops, or below a folder it drops,
+ *   is left out;
+ * - to `dir` itself or above it is an absolute link into a local source,
+ *   which stays, and is left out of a clone, which is deleted once copied;
+ * - elsewhere in the source is an absolute link into a local source, and in
+ *   a clone is replaced by a copy of what it leads to (see {@link materialise}).
+ *
+ * The filter sees every path where it lands in the copy, so what a link
+ * brings in is filtered as if it sat at the link's path.
  */
 export async function planCopy(
-	dir: string,
+	{ dir, keep }: CopyUnit,
 	{ root, local }: CopySource,
-	keep: CopyFilter,
 ): Promise<CopyStep[]> {
 	const unit = resolve(dir);
-	const plan: Plan = { unit, root: resolve(root), local, keep, steps: [] };
+	const plan: Plan = {
+		unit,
+		at: "",
+		root: resolve(root),
+		local,
+		keep,
+		steps: [],
+		materialises: true,
+	};
 	plan.steps.push({ kind: "dir", path: "" });
 	await planFolder(plan, unit, "");
 	return plan.steps;
@@ -262,10 +262,7 @@ async function planFolder(
 			continue;
 		}
 		if (entry.isSymbolicLink()) {
-			const target = await installedLink(plan, from);
-			if (target !== null) {
-				plan.steps.push({ kind: "link", path, target });
-			}
+			await planLink(plan, from, path);
 		} else if (entry.isDirectory()) {
 			plan.steps.push({ kind: "dir", path });
 			await planFolder(plan, from, path);
@@ -275,12 +272,99 @@ async function planFolder(
 	}
 }
 
-/** What a link is written as in the copy, or null when it's left out. */
-async function installedLink(plan: Plan, link: string): Promise<string | null> {
-	const target = await containedTarget(link, plan.root, plan.unit);
-	const inside = relativePosix(plan.unit, target);
-	if (inside === "" || !isContained(plan.unit, target)) {
-		return plan.local ? target : null;
+/** Plans what the link at `path` in the copy is written as, if anything. */
+async function planLink(plan: Plan, link: string, path: string): Promise<void> {
+	const target = await containedTarget(link, plan.root);
+	if (target !== plan.unit && isContained(plan.unit, target)) {
+		const inside = posix.join(plan.at, relativePosix(plan.unit, target));
+		if (keepsTheWay(plan.keep, inside)) {
+			const relativeTarget = relative(dirname(link), target) || ".";
+			plan.steps.push({ kind: "link", path, target: relativeTarget });
+		}
+	} else if (plan.local) {
+		plan.steps.push({ kind: "link", path, target });
+	} else if (plan.materialises && !isContained(target, plan.unit)) {
+		await materialise(plan, target, path);
 	}
-	return plan.keep(inside) ? relative(dirname(link), target) || "." : null;
+}
+
+/**
+ * Whether the filter keeps a path and every folder above it, as a copy only
+ * reaches what lies in the folders it keeps.
+ */
+function keepsTheWay(keep: CopyFilter, path: string): boolean {
+	const names = path.split("/");
+	return names.every((_, index) => keep(names.slice(0, index + 1).join("/")));
+}
+
+/**
+ * Copies what a link elsewhere in a clone leads to in the link's place: a
+ * regular file, or a folder whose own links are judged against it and are
+ * never copied in their turn, so a chain or a cycle of links stops there.
+ * A target in `.git`, itself a link or below one, not named as listed on
+ * disk, or neither a file nor a folder is left out.
+ */
+async function materialise(
+	plan: Plan,
+	target: string,
+	path: string,
+): Promise<void> {
+	const entry = await listedEntry(plan.root, target);
+	if (entry?.isDirectory()) {
+		plan.steps.push({ kind: "dir", path });
+		const inner = { ...plan, unit: target, at: path, materialises: false };
+		await planFolder(inner, target, path);
+	} else if (entry?.isFile()) {
+		plan.steps.push({ kind: "file", path, from: target });
+	}
+}
+
+/**
+ * The entry `target` names below `root`, when it's out of `.git`, each name
+ * on the way to it is listed in its folder exactly as written, and every
+ * folder on the way is a real one that can be listed; null otherwise. Exact
+ * names keep the checks made on the target's path true of what is read where
+ * a filesystem ignores case: `SKILLS` there would read the folder above the
+ * item, and `.GIT` the clone's history.
+ */
+async function listedEntry(
+	root: string,
+	target: string,
+): Promise<Dirent | null> {
+	const path = relativePosix(root, target);
+	if (inGitFolder(path)) {
+		return null;
+	}
+	let folder = root;
+	let entry: Dirent | null = null;
+	for (const name of path.split("/")) {
+		if (entry !== null && !entry.isDirectory()) {
+			return null;
+		}
+		const entries = await listingOnTheWay(folder);
+		entry = entries?.find((listed) => listed.name === name) ?? null;
+		if (entry === null) {
+			return null;
+		}
+		folder = join(folder, name);
+	}
+	return entry;
+}
+
+/** Why a folder on the way to a link's target can't be listed: not readable, or gone. */
+const UNLISTABLE = new Set(["EACCES", "EPERM", "ENOENT", "ENOTDIR"]);
+
+/**
+ * A folder's entries, or null when it can't be listed, so the link through it
+ * is left out as one to a missing target is. Any other error is the plan's.
+ */
+async function listingOnTheWay(folder: string): Promise<Dirent[] | null> {
+	try {
+		return await readdir(folder, { withFileTypes: true });
+	} catch (err) {
+		if (isNodeError(err) && UNLISTABLE.has(err.code ?? "")) {
+			return null;
+		}
+		throw err;
+	}
 }

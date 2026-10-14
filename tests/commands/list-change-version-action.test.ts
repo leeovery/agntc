@@ -58,11 +58,13 @@ vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 	);
 });
 
-vi.mock("../../src/copy-bare-skill.js", async () => {
+vi.mock("../../src/copy-bare-skill.js", async (importOriginal) => {
 	const { mockCopyBareSkillModule } = await import(
 		"../helpers/list-action-mock-factories.js"
 	);
-	return mockCopyBareSkillModule();
+	return mockCopyBareSkillModule(
+		importOriginal<typeof import("../../src/copy-bare-skill.js")>,
+	);
 });
 
 vi.mock("../../src/discover.js", async (importOriginal) => {
@@ -89,12 +91,14 @@ vi.mock("../../src/git-utils.js", () => ({
 import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
+import { PackConflictError } from "../../src/discover.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
 import { globalScope, projectScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
 	looseSkillsAt,
+	packAt,
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
@@ -106,6 +110,7 @@ const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
 const mockCopyBareSkill = mocks.copyBareSkill;
+const mockCopyPack = mocks.copyPack;
 const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
 const mockDiscover = mocks.discover;
@@ -455,6 +460,114 @@ describe("executeChangeVersionAction", () => {
 		});
 	});
 
+	describe("a root skill that moved at the chosen version", () => {
+		it("moves the entry to the key add gives it, the old key gone in the same write", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({
+				ref: "v1.0.0",
+				files: [".claude/skills/repo/"],
+			});
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			primeSuccessfulReinstall();
+			mockAccess.mockRejectedValue(new Error("ENOENT"));
+			mockDiscover.mockResolvedValue(looseSkillsAt("skills/repo"));
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				changed: true,
+				key: "owner/repo/repo",
+				message: "Changed owner/repo/repo to v2.0.0",
+				newEntry: { ref: "v2.0.0", sourceSubpath: "skills/repo" },
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/repo/repo": result.newEntry },
+			);
+		});
+	});
+
+	describe("a pack moving onto the key of a loose skill it takes over", () => {
+		it("records the pack alone under that key, the skill dropped in the same write", async () => {
+			const key = "owner/repo/tools";
+			const entry = makeEntry({
+				type: "pack",
+				ref: "v1.0.0",
+				sourceSubpath: "packs/tools",
+				files: [".claude/skills/a/"],
+			});
+			const loose = makeEntry({
+				ref: "v1.0.0",
+				files: [".claude/skills/tools/"],
+			});
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			primeSuccessfulReinstall();
+			mockDiscover.mockResolvedValue(packAt("packs/tools", "a", "tools"));
+			mockCopyPack.mockResolvedValue({
+				copiedFiles: [".claude/skills/a/", ".claude/skills/tools/"],
+				assetCounts: { skills: 2 },
+			});
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry, "owner/repo/packs/tools": loose },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toMatchObject({
+				changed: true,
+				key: "owner/repo/packs/tools",
+				newEntry: { type: "pack", ref: "v2.0.0" },
+			});
+			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				{ "owner/repo/packs/tools": result.newEntry },
+			);
+		});
+	});
+
+	describe("a key another entry holds at the chosen version", () => {
+		it("tells the user to free it and change the version again, as an update wouldn't install that version", async () => {
+			const key = "owner/repo/packs/foo";
+			const entry = makeEntry({ type: "pack", ref: "v1.0.0" });
+			const other = makeEntry({ type: "pack", files: [".claude/skills/x/"] });
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			primeSuccessfulReinstall();
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single", "single-skill"),
+			);
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry, "owner/repo/foo": other },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result).toEqual({
+				changed: false,
+				key,
+				message:
+					"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then change it to v2.0.0 again",
+				notes: [],
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("copy-failed", () => {
 		it("removes entry from manifest and returns changed: false with recovery hint", async () => {
 			const key = "owner/repo";
@@ -485,6 +598,33 @@ describe("executeChangeVersionAction", () => {
 		});
 	});
 
+	describe("copy-failed on an entry with a constraint", () => {
+		it("tells the user to re-add the tag they picked, not the constraint the entry had", async () => {
+			const key = "owner/repo";
+			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
+
+			mockSelect.mockResolvedValue("v2.0.0");
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			const result = await executeChangeVersionAction(
+				key,
+				entry,
+				{ [key]: entry },
+				projectScope("/fake/project"),
+				interactiveUi,
+			);
+
+			expect(result.changed).toBe(false);
+			expect(result.message).toContain(
+				"Run `npx agntc add owner/repo@v2.0.0` to install it again.",
+			);
+		});
+	});
+
 	describe("a removal that fails part way", () => {
 		it("returns changed: false with the reason, copying nothing and keeping the entry", async () => {
 			const key = "owner/repo";
@@ -504,6 +644,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: false,
+				key,
 				message: "couldn't remove its old files: EACCES",
 				notes: [],
 			});
@@ -534,6 +675,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: false,
+				key,
 				message: "/Users/lee/Code/skills: path does not exist",
 				notes: [],
 			});
@@ -541,7 +683,7 @@ describe("executeChangeVersionAction", () => {
 	});
 
 	describe("aborted (derive-before-delete)", () => {
-		it("renders the canonical buildAbortMessage with recordedType + remove+add remedy, leaves install intact", async () => {
+		it("renders the canonical buildAbortMessage with recordedType + a remove+add remedy at the chosen version, leaves install intact", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({
 				type: "skill",
@@ -569,7 +711,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe(
-				"owner/repo was installed as a skill and can't be updated (its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo). The existing install is unchanged. To migrate: npx agntc remove owner/repo then npx agntc add owner/repo",
+				"owner/repo was installed as a skill and can't be updated (its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo). The existing install is unchanged. To migrate: npx agntc remove owner/repo then npx agntc add owner/repo@v1.1.0",
 			);
 			expect(result.newEntry).toBeUndefined();
 			// Install intact: no nuke, no manifest write.
@@ -654,6 +796,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: true,
+				key,
 				message:
 					"Kept owner/repo/go — it's gone upstream; update will ask again",
 				notes: [],
@@ -675,6 +818,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: true,
+				key,
 				message: "Removed owner/repo/go — it's gone upstream",
 				notes: [],
 			});
@@ -704,6 +848,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result).toEqual({
 				changed: false,
+				key,
 				message:
 					"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
 				notes: [],

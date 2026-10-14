@@ -7,6 +7,7 @@ import {
 	type InstallItem,
 	isEmptyPack,
 	itemLabel,
+	keyItem,
 	keyItems,
 } from "../src/install-item.js";
 
@@ -172,7 +173,9 @@ describe("keyItems", () => {
 				"q/agents/team/lead.md",
 				"q/hooks/lint",
 			]);
-			const assets = { assetDirs: ["agents", "hooks"] } as const;
+			const assets: Pick<FoundPack, "assetDirs"> = {
+				assetDirs: ["agents", "hooks"],
+			};
 			const first = pack("p", {
 				...assets,
 				skills: [{ name: "api", path: "p/skills/api" }],
@@ -213,6 +216,20 @@ describe("keyItems", () => {
 				{ key: "owner/repo/lint" },
 			]);
 		});
+	});
+});
+
+describe("keyItem", () => {
+	it("gives one item the key and recorded path keyItems gives it", async () => {
+		const items = [
+			skill("skills/react/hooks"),
+			pack("plugins/nuxt"),
+			skill(""),
+		];
+
+		expect(items.map((item) => keyItem(item, "owner/repo"))).toEqual(
+			await keysOf(items),
+		);
 	});
 });
 

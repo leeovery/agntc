@@ -7,16 +7,30 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	assertSubpathWithinClone,
+	type CopySource,
 	checkEscapingSymlinks,
 	inspectSourcePath,
 	PathTraversalError,
 	SymlinkEscapeError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
+
+function remote(root: string): CopySource {
+	return { root, local: false };
+}
+
+function local(root: string): CopySource {
+	return { root, local: true };
+}
+
+/** A filter keeping everything, so a scan reads all a copy of the folder could. */
+function everything(): boolean {
+	return true;
+}
 
 // Interpretation note (per task 5-1 / spec Copy-Safety Hardening):
 // This guard is a LEXICAL containment predicate over path strings. A source
@@ -203,15 +217,18 @@ describe("scanForEscapingSymlinks", () => {
 		await writeFile(join(unitDir, "sub", "b.txt"), "b");
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
-	it("rejects an absolute-target symlink (-> /etc/passwd)", async () => {
+	it.each([
+		["a clone", remote],
+		["a local source", local],
+	])("rejects an absolute-target symlink (-> /etc/passwd) in %s", async (_kind, kind) => {
 		await symlink("/etc/passwd", join(unitDir, "leak"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, kind(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -219,7 +236,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("../../../../etc/passwd", join(unitDir, "leak"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -228,7 +245,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("../shared.txt", join(unitDir, "link"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -239,7 +256,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("../other-unit", join(unitDir, "sibling-link"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -247,7 +264,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("./does-not-exist.txt", join(unitDir, "dangling"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -258,7 +275,7 @@ describe("scanForEscapingSymlinks", () => {
 		);
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -268,7 +285,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink("/etc/passwd", join(deep, "leak"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).rejects.toBeInstanceOf(SymlinkEscapeError);
 	});
 
@@ -279,7 +296,7 @@ describe("scanForEscapingSymlinks", () => {
 		await symlink(unitDir, join(unitDir, "cycle"));
 
 		await expect(
-			scanForEscapingSymlinks(unitDir, cloneRoot),
+			scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 		).resolves.toBeUndefined();
 	});
 
@@ -290,18 +307,98 @@ describe("scanForEscapingSymlinks", () => {
 		try {
 			await symlink(outside, join(unitDir, "escape-dir"));
 			await expect(
-				scanForEscapingSymlinks(unitDir, cloneRoot),
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
 			).rejects.toBeInstanceOf(SymlinkEscapeError);
 		} finally {
 			await rm(outside, { recursive: true, force: true });
 		}
 	});
 
+	describe("a folder elsewhere in the clone a link leads to", () => {
+		async function linkIn(base: string, links: Record<string, string>) {
+			for (const [path, target] of Object.entries(links)) {
+				await mkdir(dirname(join(base, path)), { recursive: true });
+				await symlink(target, join(base, path));
+			}
+		}
+
+		/** A link to a folder holding a link out of the source root. */
+		async function linkToALeak(): Promise<void> {
+			await writeFile(join(unitDir, "SKILL.md"), "");
+			await linkIn(cloneRoot, {
+				"shared/deep/leak": "/etc/passwd",
+				"unit/shared": "../shared",
+			});
+		}
+
+		it("rejects a link out of the clone in it, as a copy would read it in the link's place", async () => {
+			await linkToALeak();
+
+			await expect(
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
+			).rejects.toThrow(
+				new SymlinkEscapeError("shared/deep/leak", "/etc/passwd"),
+			);
+		});
+
+		it("allows it in a local source, whose copy links to the folder rather than reading it", async () => {
+			await linkToALeak();
+
+			await expect(
+				scanForEscapingSymlinks(unitDir, local(cloneRoot), everything),
+			).resolves.toBeUndefined();
+		});
+
+		it("allows a link out of the clone that no copy reads: through a link above the unit, a chain, .git, or a folder a copied folder links to", async () => {
+			await linkIn(cloneRoot, {
+				"above/leak": "/etc/passwd",
+				"unit/up": "..",
+				"chained/leak": "/etc/passwd",
+				alias: "chained",
+				"unit/chain": "../alias",
+				".git/leak": "/etc/passwd",
+				"unit/history": "../.git",
+				"b/leak": "/etc/passwd",
+				"a/to-b": "../b",
+				"unit/a": "../a",
+			});
+
+			await expect(
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
+			).resolves.toBeUndefined();
+		});
+
+		it("finishes on two folders linking to each other, both reached from the unit", async () => {
+			await linkIn(cloneRoot, {
+				"a/to-b": "../b",
+				"b/to-a": "../a",
+				"unit/a": "../a",
+				"unit/b": "../b",
+			});
+
+			await expect(
+				scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything),
+			).resolves.toBeUndefined();
+		});
+	});
+
+	it("reads only what its filter keeps, so a link the copy drops isn't judged", async () => {
+		await symlink("/etc/passwd", join(unitDir, "dropped"));
+
+		await expect(
+			scanForEscapingSymlinks(
+				unitDir,
+				remote(cloneRoot),
+				(path) => path !== "dropped",
+			),
+		).resolves.toBeUndefined();
+	});
+
 	it("names the offending relative path and target in the error", async () => {
 		await symlink("/etc/passwd", join(unitDir, "leak"));
 
 		try {
-			await scanForEscapingSymlinks(unitDir, cloneRoot);
+			await scanForEscapingSymlinks(unitDir, remote(cloneRoot), everything);
 			expect.unreachable("expected throw");
 		} catch (err) {
 			expect(err).toBeInstanceOf(SymlinkEscapeError);
@@ -332,7 +429,11 @@ describe("checkEscapingSymlinks", () => {
 	it("returns { ok: true } when there is no escaping symlink", async () => {
 		await writeFile(join(unitDir, "a.txt"), "a");
 
-		const result = await checkEscapingSymlinks(unitDir, cloneRoot);
+		const result = await checkEscapingSymlinks(
+			unitDir,
+			remote(cloneRoot),
+			everything,
+		);
 
 		expect(result).toEqual({ ok: true });
 	});
@@ -340,7 +441,11 @@ describe("checkEscapingSymlinks", () => {
 	it("returns { ok: false, message } for a SymlinkEscapeError", async () => {
 		await symlink("/etc/passwd", join(unitDir, "leak"));
 
-		const result = await checkEscapingSymlinks(unitDir, cloneRoot);
+		const result = await checkEscapingSymlinks(
+			unitDir,
+			remote(cloneRoot),
+			everything,
+		);
 
 		expect(result.ok).toBe(false);
 		// message carries the SymlinkEscapeError's message verbatim.
@@ -353,10 +458,18 @@ describe("checkEscapingSymlinks", () => {
 		// A missing directory makes scanForEscapingSymlinks throw an ENOENT
 		// Error (not a SymlinkEscapeError), which must propagate unchanged.
 		await expect(
-			checkEscapingSymlinks(join(cloneRoot, "does-not-exist"), cloneRoot),
+			checkEscapingSymlinks(
+				join(cloneRoot, "does-not-exist"),
+				remote(cloneRoot),
+				everything,
+			),
 		).rejects.not.toBeInstanceOf(SymlinkEscapeError);
 		await expect(
-			checkEscapingSymlinks(join(cloneRoot, "does-not-exist"), cloneRoot),
+			checkEscapingSymlinks(
+				join(cloneRoot, "does-not-exist"),
+				remote(cloneRoot),
+				everything,
+			),
 		).rejects.toThrow();
 	});
 });

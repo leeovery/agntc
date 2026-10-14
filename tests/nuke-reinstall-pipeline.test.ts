@@ -31,7 +31,8 @@ vi.mock("../src/discover.js", async (importOriginal) => ({
 	discover: vi.fn(),
 }));
 
-vi.mock("../src/copy-bare-skill.js", () => ({
+vi.mock("../src/copy-bare-skill.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/copy-bare-skill.js")>()),
 	copyBareSkill: vi.fn(),
 }));
 
@@ -71,6 +72,7 @@ import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
 	type NukeReinstallResult,
+	sourceWalk,
 } from "../src/nuke-reinstall-pipeline.js";
 import { globalScope, projectScope } from "../src/scope.js";
 import { checkUnmanagedConflicts } from "../src/unmanaged-check.js";
@@ -159,11 +161,11 @@ describe("executeNukeAndReinstall", () => {
 			expect(result.copiedFiles).toEqual([".claude/skills/my-skill/"]);
 		});
 
-		it("re-copies the bare skill under the manifest-key basename, not basename(sourceDir)", async () => {
+		it("re-copies a root skill under the repo's name, not basename(sourceDir)", async () => {
 			// Regression: on update/change-version the sourceDir is the random mkdtemp
-			// clone dir, so the re-copy must take its name from the manifest KEY
-			// (owner/repo → "repo"), not basename(tempDir) — otherwise the skill (and
-			// the recorded files) land under a garbage temp-dir name.
+			// clone dir, so a root skill must take its name from the repo, as add
+			// names it (owner/repo → "repo"), not basename(tempDir) — otherwise the
+			// skill (and the recorded files) land under a garbage temp-dir name.
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/repo/"],
@@ -248,13 +250,13 @@ describe("executeNukeAndReinstall", () => {
 			});
 		}
 
-		it("re-walks the pack from the clone root at its path, forcing a pack", async () => {
+		it("re-walks the pack from the clone root at its path, forcing a pack, the root named after the repo", async () => {
 			await executeNukeAndReinstall(packOptions());
 
 			expect(mockDiscover).toHaveBeenCalledWith("/tmp/clone", {
 				startPath: "laravel",
 				forcePack: true,
-				rootName: "laravel",
+				rootName: "repo",
 			});
 		});
 
@@ -359,6 +361,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockCopyPack).not.toHaveBeenCalled();
 			expect(result).toMatchObject({
 				status: "success",
+				key: "owner/repo/laravel",
 				notes: [
 					"owner/repo/laravel is a single skill — reinstalled as a skill",
 				],
@@ -610,6 +613,7 @@ describe("executeNukeAndReinstall", () => {
 			});
 			expect(result).toMatchObject({
 				status: "success",
+				key: "owner/repo/go",
 				entry: { type: "skill", sourceSubpath: "lang/go" },
 				notes: ["owner/repo/go moved from skills/go to lang/go"],
 			});
@@ -647,7 +651,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(result.entry).not.toHaveProperty("sourceSubpath");
 		});
 
-		it("follows a root skill that moved below the root, naming the old path after the repo", async () => {
+		it("follows a root skill that moved below the root, keying it by its folder as add would", async () => {
 			mockDiscover.mockResolvedValue(
 				looseSkills({ name: "repo", path: "skills/repo" }),
 			);
@@ -658,8 +662,11 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "success",
+				key: "owner/repo/repo",
 				entry: { sourceSubpath: "skills/repo" },
-				notes: ["owner/repo moved from repo to skills/repo"],
+				notes: [
+					"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+				],
 			});
 		});
 
@@ -672,7 +679,8 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/tmp/clone/lang/go",
-				"/tmp/clone",
+				{ root: "/tmp/clone", local: false },
+				expect.any(Function),
 			);
 		});
 
@@ -722,7 +730,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 
-		it("records a moved local skill's path from the folder its key sits in", async () => {
+		it("keys a moved local skill below the folder it was walked from, as add would", async () => {
 			mockDiscover.mockResolvedValue(
 				looseSkills({ name: "go", path: "lang/go" }),
 			);
@@ -741,7 +749,8 @@ describe("executeNukeAndReinstall", () => {
 			});
 			expect(result).toMatchObject({
 				status: "success",
-				entry: { sourceSubpath: "go/lang/go" },
+				key: "/src/kit/go/go",
+				entry: { sourceSubpath: "lang/go" },
 			});
 		});
 
@@ -779,6 +788,368 @@ describe("executeNukeAndReinstall", () => {
 			await executeNukeAndReinstall(makeOptions(MEMBER));
 
 			expect(callOrder).toEqual(["walk", "nuke"]);
+		});
+
+		it("follows a moved skill through the walk it is given", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "go", path: "lang/go" }),
+			);
+			const walk = sourceWalk("/tmp/clone");
+			await walk("repo");
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({ ...MEMBER, walk }),
+			);
+
+			expect(mockDiscover).toHaveBeenCalledTimes(1);
+			expect(result).toMatchObject({
+				status: "success",
+				entry: { sourceSubpath: "lang/go" },
+			});
+		});
+
+		it("walks on its own when given no walk, sharing nothing with another reinstall", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills({ name: "go", path: "lang/go" }),
+			);
+
+			await executeNukeAndReinstall(makeOptions(MEMBER));
+			await executeNukeAndReinstall(makeOptions(MEMBER));
+
+			expect(mockDiscover).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe("the key add gives what it replays", () => {
+		const PACK_KEY = "owner/repo/packs/foo";
+		const PACK_ENTRY = makeEntry({
+			type: "pack",
+			files: [".claude/skills/a/", ".claude/skills/b/"],
+		});
+
+		function retypedOptions(
+			overrides: Partial<NukeReinstallOptions> = {},
+		): NukeReinstallOptions {
+			return makeOptions({
+				key: PACK_KEY,
+				sourceDir: "/tmp/clone/packs/foo",
+				cloneRoot: "/tmp/clone",
+				existingEntry: PACK_ENTRY,
+				installed: { [PACK_KEY]: PACK_ENTRY },
+				...overrides,
+			});
+		}
+
+		beforeEach(() => {
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+			});
+		});
+
+		it("moves a pack whose path is now a single skill to the skill's key, with one note naming both", async () => {
+			const result = await executeNukeAndReinstall(retypedOptions());
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/foo",
+				entry: { type: "skill", sourceSubpath: "packs/foo" },
+				notes: [
+					"owner/repo/packs/foo is a single skill — reinstalled as a skill, now keyed owner/repo/foo",
+				],
+			});
+		});
+
+		it("moves a local pack to the skill's key below its recorded root, keeping the root", async () => {
+			const entry = makeEntry({
+				type: "pack",
+				commit: null,
+				localRoot: "/src/kit",
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "/src/kit/packs/foo",
+					sourceDir: "/src/kit/packs/foo",
+					cloneRoot: "/src/kit",
+					existingEntry: entry,
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "/src/kit/foo",
+				entry: { sourceSubpath: "packs/foo", localRoot: "/src/kit" },
+			});
+		});
+
+		it("re-keys a skill still recorded under a pack's path, with a note naming both", async () => {
+			mockPathExists.mockResolvedValue(true);
+
+			const result = await executeNukeAndReinstall(
+				retypedOptions({ existingEntry: makeEntry({ type: "skill" }) }),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/foo",
+				entry: { type: "skill", sourceSubpath: "packs/foo" },
+				notes: ["owner/repo/packs/foo is now keyed owner/repo/foo"],
+			});
+		});
+
+		it("re-keys a pack recorded by name with a path to the path that keys a pack, absorbing under that key", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(foundPack({ path: "plugins/laravel" })),
+			);
+			const loose = makeEntry({
+				type: "skill",
+				files: [".claude/skills/api/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/laravel",
+					sourceDir: "/tmp/clone/plugins/laravel",
+					cloneRoot: "/tmp/clone",
+					existingEntry: makeEntry({
+						type: "pack",
+						files: [],
+						sourceSubpath: "plugins/laravel",
+					}),
+					installed: { "owner/repo/api": loose },
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/plugins/laravel",
+				absorbed: ["owner/repo/api"],
+				notes: [
+					"owner/repo/laravel is now keyed owner/repo/plugins/laravel",
+					"owner/repo/plugins/laravel now includes api, installed on its own before",
+				],
+			});
+			if (result.status !== "success") return;
+			expect(result.entry).not.toHaveProperty("sourceSubpath");
+		});
+
+		it("keys a loose skill that moved to the root as the source itself", async () => {
+			mockPathExists.mockResolvedValue(false);
+			mockDiscover.mockResolvedValue(looseSkills({ name: "repo", path: "" }));
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/repo",
+					sourceDir: "/tmp/clone/skills/repo",
+					cloneRoot: "/tmp/clone",
+					existingEntry: makeEntry({
+						type: "skill",
+						sourceSubpath: "skills/repo",
+					}),
+				}),
+			);
+
+			expect(result).toMatchObject({ status: "success", key: "owner/repo" });
+			if (result.status !== "success") return;
+			expect(result.entry).not.toHaveProperty("sourceSubpath");
+		});
+
+		it("names a pack recorded by name, now a single skill, by its folder: where it installs and how it's keyed", async () => {
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/foo/"],
+			});
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/my-plugin",
+					sourceDir: "/tmp/clone/plugins/foo",
+					cloneRoot: "/tmp/clone",
+					existingEntry: makeEntry({
+						type: "pack",
+						sourceSubpath: "plugins/foo",
+						files: [".claude/skills/a/"],
+					}),
+				}),
+			);
+
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ skillName: "foo" }),
+			);
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/a/",
+			]);
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/foo",
+				entry: {
+					type: "skill",
+					sourceSubpath: "plugins/foo",
+					files: [".claude/skills/foo/"],
+				},
+			});
+		});
+
+		it("names a skill recorded under a key that isn't its folder by the folder, removing the old install", async () => {
+			mockPathExists.mockResolvedValue(true);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/my-plugin",
+					sourceDir: "/tmp/clone/plugins/foo",
+					cloneRoot: "/tmp/clone",
+					existingEntry: makeEntry({
+						type: "skill",
+						sourceSubpath: "plugins/foo",
+						files: [".claude/skills/my-plugin/"],
+					}),
+				}),
+			);
+
+			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+				".claude/skills/my-plugin/",
+			]);
+			expect(mockCopyBareSkill).toHaveBeenCalledWith(
+				expect.objectContaining({ skillName: "foo" }),
+			);
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/foo",
+				entry: { sourceSubpath: "plugins/foo", files: [".claude/skills/foo/"] },
+				notes: ["owner/repo/my-plugin is now keyed owner/repo/foo"],
+			});
+		});
+
+		it("looks for a moved skill by its folder's name, not its key's", async () => {
+			mockPathExists.mockResolvedValue(false);
+			mockDiscover.mockResolvedValue(
+				looseSkills(
+					{ name: "my-plugin", path: "my-plugin" },
+					{ name: "foo", path: "skills/foo" },
+				),
+			);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/my-plugin",
+					sourceDir: "/tmp/clone/plugins/foo",
+					cloneRoot: "/tmp/clone",
+					existingEntry: makeEntry({
+						type: "skill",
+						sourceSubpath: "plugins/foo",
+					}),
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/foo",
+				entry: { sourceSubpath: "skills/foo" },
+			});
+		});
+
+		it("moves onto a key held by a loose skill from its source that it takes over", async () => {
+			mockDiscover.mockResolvedValue(
+				onlyPack(
+					foundPack({
+						path: "packs/tools",
+						skills: [
+							{ name: "a", path: "packs/tools/skills/a" },
+							{ name: "tools", path: "packs/tools/skills/tools" },
+						],
+					}),
+				),
+			);
+			const pack = makeEntry({
+				type: "pack",
+				sourceSubpath: "packs/tools",
+				files: [".claude/skills/a/"],
+			});
+			const loose = makeEntry({ files: [".claude/skills/tools/"] });
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "owner/repo/tools",
+					sourceDir: "/tmp/clone/packs/tools",
+					cloneRoot: "/tmp/clone",
+					existingEntry: pack,
+					installed: {
+						"owner/repo/tools": pack,
+						"owner/repo/packs/tools": loose,
+					},
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/packs/tools",
+				absorbed: ["owner/repo/packs/tools"],
+			});
+			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
+				"/fake/project",
+				[".claude/skills/a/", ".claude/skills/tools/"],
+			);
+		});
+
+		it("aborts before removing anything when another entry holds the key it would move to", async () => {
+			const other = makeEntry({ type: "pack", files: [".claude/skills/x/"] });
+
+			const result = await executeNukeAndReinstall(
+				retypedOptions({
+					installed: { [PACK_KEY]: PACK_ENTRY, "owner/repo/foo": other },
+				}),
+			);
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason: "it would move to owner/repo/foo, which is already installed",
+				takenKey: "owner/repo/foo",
+				replayed: {
+					key: "owner/repo/foo",
+					entry: expect.objectContaining({
+						type: "skill",
+						sourceSubpath: "packs/foo",
+						files: [],
+					}),
+				},
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("carries the skill it now is, under its new key, when files are in its way", async () => {
+			mockCheckUnmanaged.mockResolvedValue([".claude/skills/foo/"]);
+
+			const result = await executeNukeAndReinstall(retypedOptions());
+
+			expect(result).toEqual({
+				status: "aborted",
+				reason:
+					"files agntc didn't install are in the way: .claude/skills/foo/",
+				inTheWay: true,
+				replayed: {
+					key: "owner/repo/foo",
+					entry: expect.objectContaining({
+						type: "skill",
+						sourceSubpath: "packs/foo",
+					}),
+				},
+			});
+			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		});
+
+		it("tells a copy failure to install it again as the skill it now is", async () => {
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			const result = await executeNukeAndReinstall(retypedOptions());
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				recoveryHint:
+					"Update failed for owner/repo/packs/foo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
+			});
 		});
 	});
 
@@ -838,6 +1209,7 @@ describe("executeNukeAndReinstall", () => {
 				reason:
 					"files agntc didn't install are in the way: .claude/skills/queues/",
 				inTheWay: true,
+				replayed: expect.objectContaining({ key: PACK_KEY }),
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyPack).not.toHaveBeenCalled();
@@ -859,6 +1231,7 @@ describe("executeNukeAndReinstall", () => {
 				reason:
 					"files of other/tools/queues are in the way: .claude/skills/queues/",
 				inTheWay: true,
+				replayed: expect.objectContaining({ key: PACK_KEY }),
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
@@ -1139,6 +1512,40 @@ describe("executeNukeAndReinstall", () => {
 			);
 		});
 
+		it.each([
+			{
+				tracks: "a constraint",
+				entry: { constraint: "^1.2.0", ref: "v1.2.3" },
+				newRef: "v1.4.0",
+				reAdd: "npx agntc add 'owner/repo@^1.2.0'",
+			},
+			{
+				tracks: "a branch",
+				entry: { ref: "main" },
+				newRef: undefined,
+				reAdd: "npx agntc add owner/repo@main",
+			},
+		])("keeps an entry tracking $tracks on it in the recovery's re-add", async ({
+			entry,
+			newRef,
+			reAdd,
+		}) => {
+			mockPathExists.mockResolvedValue(true);
+			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					existingEntry: makeEntry({ type: "skill", ...entry }),
+					...(newRef !== undefined ? { newRef } : {}),
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "copy-failed",
+				recoveryHint: expect.stringContaining(`Run \`${reAdd}\``),
+			});
+		});
+
 		it("confirms nuke was called before copy failed", async () => {
 			mockPathExists.mockResolvedValue(true);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
@@ -1195,6 +1602,8 @@ describe("executeNukeAndReinstall", () => {
 			const result = await executeNukeAndReinstall(
 				makeOptions({
 					key: "/src/repo/my-skill",
+					sourceDir: "/src/repo/my-skill",
+					cloneRoot: "/src/repo",
 					existingEntry: makeEntry({
 						type: "skill",
 						commit: null,
@@ -1205,6 +1614,7 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "success",
+				key: "/src/repo/my-skill",
 				entry: { localRoot: "/src/repo" },
 			});
 		});
@@ -1218,11 +1628,13 @@ describe("executeNukeAndReinstall", () => {
 			const result = await executeNukeAndReinstall(
 				makeOptions({
 					key: "/src/my-skill",
+					sourceDir: "/src/my-skill",
+					cloneRoot: "/src/my-skill",
 					existingEntry: makeEntry({ type: "skill", commit: null }),
 				}),
 			);
 
-			expect(result.status).toBe("success");
+			expect(result).toMatchObject({ status: "success", key: "/src/my-skill" });
 			if (result.status !== "success") return;
 			expect(result.entry).not.toHaveProperty("localRoot");
 		});
@@ -1285,7 +1697,8 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/tmp/clone/go",
-				"/tmp/clone",
+				{ root: "/tmp/clone", local: false },
+				expect.any(Function),
 			);
 		});
 
@@ -1368,5 +1781,73 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result.status).toBe("success");
 		});
+	});
+});
+
+describe("sourceWalk", () => {
+	it("walks a source once for every ask under one root name", async () => {
+		mockDiscover.mockResolvedValue(looseSkills({ name: "go", path: "go" }));
+		const walk = sourceWalk("/tmp/clone");
+
+		const [first, second] = await Promise.all([walk("repo"), walk("repo")]);
+
+		expect(mockDiscover).toHaveBeenCalledTimes(1);
+		expect(mockDiscover).toHaveBeenCalledWith("/tmp/clone", {
+			rootName: "repo",
+		});
+		expect(second).toBe(first);
+	});
+
+	it("walks again under another root name, which names a skill at the root", async () => {
+		mockDiscover.mockImplementation(async (_root, { rootName }) =>
+			looseSkills({ name: rootName, path: "" }),
+		);
+		const walk = sourceWalk("/tmp/clone");
+
+		const repo = await walk("repo");
+		const folder = await walk("folder");
+
+		expect(mockDiscover).toHaveBeenCalledTimes(2);
+		expect(repo.map((skill) => skill.name)).toEqual(["repo"]);
+		expect(folder.map((skill) => skill.name)).toEqual(["folder"]);
+	});
+
+	it("walks again after a walk that failed, rather than failing every later ask", async () => {
+		mockDiscover
+			.mockRejectedValueOnce(new Error("EMFILE: too many open files"))
+			.mockResolvedValueOnce(looseSkills({ name: "go", path: "go" }));
+		const walk = sourceWalk("/tmp/clone");
+
+		await expect(walk("repo")).rejects.toThrow("EMFILE");
+		const skills = await walk("repo");
+
+		expect(mockDiscover).toHaveBeenCalledTimes(2);
+		expect(skills).toEqual([{ name: "go", path: "go" }]);
+	});
+
+	it("shares nothing between two walks of one source", async () => {
+		mockDiscover.mockResolvedValue(looseSkills());
+
+		await sourceWalk("/tmp/clone")("repo");
+		await sourceWalk("/tmp/clone")("repo");
+
+		expect(mockDiscover).toHaveBeenCalledTimes(2);
+	});
+
+	it("lists every skill, loose or in a pack, and none can be changed", async () => {
+		mockDiscover.mockResolvedValue({
+			packs: [foundPack()],
+			skills: [{ name: "go", path: "go" }],
+			strays: [],
+		});
+
+		const skills = await sourceWalk("/tmp/clone")("repo");
+
+		expect(skills).toEqual([
+			{ name: "go", path: "go" },
+			{ name: "api", path: "laravel/skills/api" },
+		]);
+		expect(Object.isFrozen(skills)).toBe(true);
+		expect(skills.every((skill) => Object.isFrozen(skill))).toBe(true);
 	});
 });

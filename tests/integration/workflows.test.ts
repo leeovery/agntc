@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { checkFileCollisions } from "../../src/collision-check.js";
 import { computeIncomingFiles } from "../../src/compute-incoming-files.js";
-import { copyBareSkill } from "../../src/copy-bare-skill.js";
+import { copyBareSkill, skillUnit } from "../../src/copy-bare-skill.js";
 import { copyItem } from "../../src/copy-item.js";
 import {
 	type CopySource,
@@ -844,7 +844,7 @@ describe("integration: core workflows", () => {
 			expect(saved["owner/reshaped-skill"]!.files).toEqual(entry.files);
 		});
 
-		it("(d3) follows a skill that moved within its source and records where it went", async () => {
+		it("(d3) follows a skill that moved within its source, keyed and recorded as add would", async () => {
 			const skillDir = join(sourceDir, "moving-skill");
 			await createFile(skillDir, "SKILL.md");
 			const copyResult = await copyBareSkill({
@@ -877,9 +877,10 @@ describe("integration: core workflows", () => {
 
 			expect(result.status).toBe("success");
 			if (result.status !== "success") throw new Error("unexpected");
+			expect(result.key).toBe("owner/moving-skill/moving-skill");
 			expect(result.entry.sourceSubpath).toBe("skills/moving-skill");
 			expect(result.notes).toEqual([
-				"owner/moving-skill moved from moving-skill to skills/moving-skill",
+				"owner/moving-skill moved from moving-skill to skills/moving-skill, now keyed owner/moving-skill/moving-skill",
 			]);
 			expect(
 				await fileExists(
@@ -927,6 +928,7 @@ describe("integration: core workflows", () => {
 				reason:
 					"files agntc didn't install are in the way: .claude/skills/review/",
 				inTheWay: true,
+				replayed: expect.objectContaining({ key: "owner/growing-pack" }),
 			});
 			expect(
 				await fileExists(join(projectDir, ".claude/skills/planning/SKILL.md")),
@@ -1014,7 +1016,11 @@ describe("integration: core workflows", () => {
 			let aborted = false;
 			let copied = false;
 			try {
-				await scanForEscapingSymlinks(skillDir, sourceDir);
+				await scanForEscapingSymlinks(
+					skillDir,
+					remote(sourceDir),
+					skillUnit(skillDir).keep,
+				);
 				// Only reached if the gate passed — would proceed to copy.
 				await copyBareSkill({
 					sourceDir: skillDir,
@@ -1053,7 +1059,11 @@ describe("integration: core workflows", () => {
 			await symlink(join(skillDir, "real.txt"), join(skillDir, "alias.txt"));
 
 			// Should not throw.
-			await scanForEscapingSymlinks(skillDir, sourceDir);
+			await scanForEscapingSymlinks(
+				skillDir,
+				remote(sourceDir),
+				skillUnit(skillDir).keep,
+			);
 		});
 	});
 

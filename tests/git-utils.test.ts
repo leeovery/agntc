@@ -11,7 +11,7 @@ vi.mock("node:child_process");
 
 function mockExecFileSuccess(stdout = "output\n", stderr = ""): void {
 	vi.mocked(childProcess.execFile).mockImplementation(
-		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
+		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function | null) => {
 			if (typeof _opts === "function") {
 				cb = _opts;
 			}
@@ -25,7 +25,7 @@ function mockExecFileSuccess(stdout = "output\n", stderr = ""): void {
 
 function mockExecFileFailure(stderr: string): void {
 	vi.mocked(childProcess.execFile).mockImplementation(
-		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
+		(_cmd: string, _args: unknown, _opts: unknown, cb?: Function | null) => {
 			if (typeof _opts === "function") {
 				cb = _opts;
 			}
@@ -121,7 +121,7 @@ describe("execGit", () => {
 
 	it("uses error.message as fallback when stderr is empty", async () => {
 		vi.mocked(childProcess.execFile).mockImplementation(
-			(_cmd: string, _args: unknown, _opts: unknown, cb?: Function) => {
+			(_cmd: string, _args: unknown, _opts: unknown, cb?: Function | null) => {
 				if (typeof _opts === "function") {
 					cb = _opts;
 				}

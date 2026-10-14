@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
+import { checkItemLinks } from "../src/copy-item.js";
 import { type CopySource, SymlinkEscapeError } from "../src/copy-safety.js";
 
 let testDir: string;
@@ -34,6 +35,14 @@ async function tree(base: string, files: Record<string, string>) {
 	for (const [path, content] of Object.entries(files)) {
 		await mkdir(dirname(join(base, path)), { recursive: true });
 		await writeFile(join(base, path), content);
+	}
+}
+
+/** Links each path below `base` to its target, written as given. */
+async function link(base: string, links: Record<string, string>) {
+	for (const [path, target] of Object.entries(links)) {
+		await mkdir(dirname(join(base, path)), { recursive: true });
+		await symlink(target, join(base, path));
 	}
 }
 
@@ -324,6 +333,14 @@ describe("copyBareSkill", () => {
 			return copyBareSkill({ sourceDir: skill, source, projectDir });
 		}
 
+		/** The symlink-escape pre-flight `add` and `update` run on foo. */
+		function preflightFoo(source: CopySource) {
+			return checkItemLinks(
+				{ kind: "skill", skill: { name: "foo", path: "skills/foo" } },
+				source,
+			);
+		}
+
 		/** Copies foo from a clone, then deletes the clone, as add and update do. */
 		async function copyFromCloneThenDelete(): Promise<void> {
 			await copyFoo(remote(clone));
@@ -338,13 +355,25 @@ describe("copyBareSkill", () => {
 			return (await readdir(installed(path))).sort();
 		}
 
-		/** A link to its own folder, above it, and elsewhere in the clone. */
-		async function linkOutOfTheSkill(): Promise<void> {
+		/** A link to its own folder, and two to folders above it. */
+		async function linkToTheSkillAndAbove(): Promise<void> {
 			await symlink("../foo", join(skill, "self"));
 			await symlink("..", join(skill, "ref/up"));
 			await symlink("../..", join(skill, "repo"));
+		}
+
+		/** A link to a folder and one to a file elsewhere in the clone. */
+		async function linkElsewhere(): Promise<void> {
 			await symlink("../../shared", join(skill, "shared"));
 			await symlink("../../shared/guide.md", join(skill, "guide.md"));
+		}
+
+		async function isRealFolder(path: string): Promise<boolean> {
+			return (await lstat(installed(path))).isDirectory();
+		}
+
+		async function isRealFile(path: string): Promise<boolean> {
+			return (await lstat(installed(path))).isFile();
 		}
 
 		it("keeps a link to a file in the skill a relative link, which reads once the clone is gone", async () => {
@@ -365,8 +394,8 @@ describe("copyBareSkill", () => {
 			expect(await readFile(installed("ref/abs.md"), "utf-8")).toBe("a");
 		});
 
-		it("leaves out of a clone's skill a link to its own folder, above it or elsewhere in the clone", async () => {
-			await linkOutOfTheSkill();
+		it("leaves out of a clone's skill a link to its own folder or above it", async () => {
+			await linkToTheSkillAndAbove();
 
 			await copyFromCloneThenDelete();
 
@@ -374,8 +403,247 @@ describe("copyBareSkill", () => {
 			expect(await installedNames("ref")).toEqual(["a.md"]);
 		});
 
+		it("copies a file a clone's skill links to elsewhere in the clone in the link's place", async () => {
+			await symlink("../../shared/guide.md", join(skill, "guide.md"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await isRealFile("guide.md")).toBe(true);
+			expect(await readFile(installed("guide.md"), "utf-8")).toBe("guide");
+		});
+
+		it("copies a folder a clone's skill links to elsewhere in the clone in the link's place", async () => {
+			await tree(clone, { "shared/deep/more.md": "more" });
+			await symlink("../../../shared", join(skill, "ref/shared"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await isRealFolder("ref/shared")).toBe(true);
+			expect(await installedNames("ref/shared")).toEqual(["deep", "guide.md"]);
+			expect(await readFile(installed("ref/shared/guide.md"), "utf-8")).toBe(
+				"guide",
+			);
+			expect(
+				await readFile(installed("ref/shared/deep/more.md"), "utf-8"),
+			).toBe("more");
+		});
+
+		it("judges the links in a folder it copies in a link's place against that folder, and copies none in its turn", async () => {
+			await tree(clone, { "other/x.md": "x" });
+			await link(clone, {
+				"shared/alias.md": "guide.md",
+				"shared/self": ".",
+				"shared/up": "..",
+				"shared/back": "../skills/foo/ref",
+				"shared/other": "../other",
+				"shared/x.md": "../other/x.md",
+			});
+			await symlink("../../shared", join(skill, "shared"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames("shared")).toEqual(["alias.md", "guide.md"]);
+			expect(await readlink(installed("shared/alias.md"))).toBe("guide.md");
+			expect(await readFile(installed("shared/alias.md"), "utf-8")).toBe(
+				"guide",
+			);
+		});
+
+		it("copies each of two folders linking to each other once, through the skill's links to both", async () => {
+			await tree(clone, { "a/a.md": "a", "b/b.md": "b" });
+			await link(clone, { "a/to-b": "../b", "b/to-a": "../a" });
+			await link(skill, { a: "../../a", b: "../../b" });
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames("a")).toEqual(["a.md"]);
+			expect(await installedNames("b")).toEqual(["b.md"]);
+		});
+
+		it.each([
+			["a link", { "skills/foo/chain": "../../alias", alias: "shared" }],
+			[
+				"a link to a file",
+				{
+					"skills/foo/chain.md": "../../alias.md",
+					"alias.md": "shared/guide.md",
+				},
+			],
+			[
+				"below a linked folder",
+				{ "skills/foo/below": "../../linked/guide.md", linked: "shared" },
+			],
+			["missing", { "skills/foo/gone": "../../gone/guide.md" }],
+			["below a file", { "skills/foo/under": "../../shared/guide.md/x" }],
+		])("leaves out a link elsewhere in a clone to %s", async (_what, links) => {
+			await link(clone, links);
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		// Root reads any folder, mode or not.
+		it.skipIf(process.getuid?.() === 0).each([
+			["a file", "guide.md"],
+			["a folder", "deep"],
+		])(
+			"leaves out a link to %s in a folder it can't list, passing the pre-flight and installing the rest",
+			async (_kind, name) => {
+				const locked = join(clone, "shared");
+				await tree(clone, { "shared/deep/more.md": "" });
+				await symlink(`../../shared/${name}`, join(skill, "linked"));
+				await chmod(locked, 0o311);
+				try {
+					const check = await preflightFoo(remote(clone));
+					await copyFoo(remote(clone));
+
+					expect(check).toEqual({ ok: true });
+				} finally {
+					await chmod(locked, 0o755);
+				}
+				expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+			},
+		);
+
+		it("leaves out a link elsewhere in a clone to a FIFO without blocking", async () => {
+			execFileSync("mkfifo", [join(clone, "pipe")]);
+			await symlink("../../pipe", join(skill, "pipe"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("never copies a .git in a link's place, whether the link leads to one, into one, or to a folder holding one", async () => {
+			await tree(clone, {
+				".git/HEAD": "ref",
+				"vendor/lib/.git/config": "",
+				"shared/.git/HEAD": "ref",
+			});
+			await link(skill, {
+				history: "../../.git",
+				"head.txt": "../../.git/HEAD",
+				config: "../../vendor/lib/.git/config",
+				shared: "../../shared",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref", "shared"]);
+			expect(await installedNames("shared")).toEqual(["guide.md"]);
+		});
+
+		it.each([
+			".GIT",
+			".Git",
+		])("never copies a .git in a link's place through a link spelling it %s, to the clone's or one spelled so", async (spelling) => {
+			await tree(clone, {
+				".git/config": "url = https://token@host/repo",
+				[`vendor/${spelling}/config`]: "",
+			});
+			await link(skill, {
+				config: `../../${spelling}/config`,
+				history: `../../${spelling}`,
+				vendored: `../../vendor/${spelling}`,
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("leaves out a link naming its target in another case than the folder lists it, so it never reads the folder above the skill", async () => {
+			await link(skill, {
+				skills: "../../SKILLS",
+				"guide.md": "../../SHARED/guide.md",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("leaves out a link into a folder the skill drops, though what it names lies below it", async () => {
+			await tree(skill, { "agntc.json/data": "data" });
+			await symlink("agntc.json/data", join(skill, "data"));
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
+		it("drops agntc.json only at the skill's top, from what it copies in a link's place too", async () => {
+			await tree(clone, {
+				"shared/agntc.json": "{}",
+				"config/agntc.json": "{}",
+			});
+			await link(clone, { "shared/config.json": "agntc.json" });
+			await link(skill, {
+				shared: "../../shared",
+				"agntc.json": "../../config/agntc.json",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual(["SKILL.md", "ref", "shared"]);
+			expect(await installedNames("shared")).toEqual([
+				"agntc.json",
+				"config.json",
+				"guide.md",
+			]);
+			expect(await readlink(installed("shared/config.json"))).toBe(
+				"agntc.json",
+			);
+		});
+
+		describe("a link to a folder elsewhere holding a link out of the source", () => {
+			const SECRET = () => join(testDir, "outside/secret.md");
+
+			beforeEach(async () => {
+				await tree(testDir, { "outside/secret.md": "secret" });
+				await symlink(SECRET(), join(clone, "shared/leak"));
+				await symlink("../../shared", join(skill, "shared"));
+			});
+
+			it("is refused from a clone, by the pre-flight and by the copy, writing nothing", async () => {
+				const refusal = new SymlinkEscapeError("shared/leak", SECRET());
+
+				const check = await preflightFoo(remote(clone));
+
+				expect(check).toEqual({ ok: false, message: refusal.message });
+				await expect(copyFoo(remote(clone))).rejects.toThrow(refusal);
+				expect(await fileExists(join(projectDir, INSTALLED))).toBe(false);
+			});
+
+			it("passes the pre-flight from a local source and installs as an absolute link", async () => {
+				const check = await preflightFoo(local(clone));
+
+				await copyFoo(local(clone));
+
+				expect(check).toEqual({ ok: true });
+				expect(await readlink(installed("shared"))).toBe(join(clone, "shared"));
+			});
+		});
+
+		it("passes the pre-flight on a link out of the clone that the skill filter drops, as the copy never reads it", async () => {
+			await tree(testDir, { "outside/secret.md": "secret" });
+			await symlink(join(testDir, "outside"), join(clone, "shared/leak"));
+			await link(skill, {
+				".git": "../../shared",
+				"agntc.json": join(testDir, "outside/secret.md"),
+			});
+
+			const check = await preflightFoo(remote(clone));
+			await copyFromCloneThenDelete();
+
+			expect(check).toEqual({ ok: true });
+			expect(await installedNames()).toEqual(["SKILL.md", "ref"]);
+		});
+
 		it("links a local skill's link to its own folder, above it or elsewhere in the source absolutely into the source", async () => {
-			await linkOutOfTheSkill();
+			await linkToTheSkillAndAbove();
+			await linkElsewhere();
 
 			await copyFoo(local(clone));
 
@@ -415,7 +683,8 @@ describe("copyBareSkill", () => {
 
 			expect(await readlink(installed("c0/x"))).toBe("../c1");
 			expect(await readlink(installed("c15/y"))).toBe("../c16");
-			expect(await installedNames()).not.toContain("chain");
+			expect(await isRealFolder("chain")).toBe(true);
+			expect(await installedNames("chain")).toEqual([]);
 		});
 
 		it("keeps a dangling link into the skill, and leaves out a dangling one elsewhere in a clone", async () => {
@@ -457,6 +726,22 @@ describe("copyBareSkill", () => {
 
 			expect(await fileExists(installed(".env.example"))).toBe(true);
 			expect(await fileExists(installed(".config/settings.json"))).toBe(true);
+		});
+
+		it("drops a .git spelled in any case from the skill's own content, keeping .github", async () => {
+			await tree(skill, {
+				".GIT/config": "",
+				"ref/.Git/HEAD": "",
+				".github/workflows/ci.yml": "",
+			});
+
+			await copyFromCloneThenDelete();
+
+			expect(await installedNames()).toEqual([".github", "SKILL.md", "ref"]);
+			expect(await installedNames("ref")).toEqual(["a.md"]);
+			expect(await fileExists(installed(".github/workflows/ci.yml"))).toBe(
+				true,
+			);
 		});
 
 		it("skips a FIFO without blocking", async () => {

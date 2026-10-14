@@ -169,7 +169,8 @@ describe("copyPack rollback", () => {
 		).catch((e) => e);
 
 		expect(thrown).toBe(error);
-		const [[recorded]] = mockedRollback.mock.calls as [[string[]]];
+		expect(mockedRollback).toHaveBeenCalledOnce();
+		const recorded = mockedRollback.mock.calls[0]?.[0] ?? [];
 		expect(recorded.filter((path) => path.includes("lint"))).toEqual([
 			".claude/hooks/lint/",
 			".claude/hooks/lint/a.sh",

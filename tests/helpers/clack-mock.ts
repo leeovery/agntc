@@ -20,7 +20,7 @@ interface SpinnerHandle {
 interface ClackMock {
 	intro: Mock;
 	outro: Mock;
-	spinner: Mock<[], SpinnerHandle>;
+	spinner: Mock<() => SpinnerHandle>;
 	log: {
 		info: Mock;
 		warn: Mock;

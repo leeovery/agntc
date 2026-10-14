@@ -32,6 +32,7 @@ vi.mock("../../src/update-check.js", async (importOriginal) => ({
 }));
 
 import { type AddOptions, runAdd } from "../../src/commands/add.js";
+import { runRemove } from "../../src/commands/remove.js";
 import { runUpdate } from "../../src/commands/update.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
@@ -311,20 +312,19 @@ describe("symlinks in what a source installs", () => {
 	const LINT_LINK = { "tools/hooks/lint": "../../scripts/lint" };
 	const LINTED_PACK_FILES = [".claude/skills/api/", ".claude/hooks/pre.sh"];
 
-	it("installs a remote skill whose internal links read once the clone is gone, leaving out a link elsewhere in the clone, on add and update", async () => {
+	it("installs a remote skill whose internal links read once the clone is gone, leaving out a link to the repo above it, on add and update", async () => {
 		const files = {
 			"skills/foo/SKILL.md": "foo",
 			"skills/foo/ref/a.md": "a",
-			"shared/guide.md": "guide",
 		};
 		const links = {
 			"skills/foo/link.md": "ref/a.md",
-			"skills/foo/shared": "../../shared",
+			"skills/foo/repo": "../..",
 		};
 		await publish(files, links);
 
 		const added = await add("owner/repo");
-		const afterAdd = await linkInstalled(".claude/skills/foo/shared");
+		const afterAdd = await linkInstalled(".claude/skills/foo/repo");
 		await publish(files, links);
 		const updated = await update();
 
@@ -338,7 +338,122 @@ describe("symlinks in what a source installs", () => {
 		);
 		expect(await installedText(".claude/skills/foo/link.md")).toBe("a");
 		expect(afterAdd).toBe(false);
-		expect(await linkInstalled(".claude/skills/foo/shared")).toBe(false);
+		expect(await linkInstalled(".claude/skills/foo/repo")).toBe(false);
+	});
+
+	describe("a remote link to a folder elsewhere in the repo", () => {
+		function remove(key: string) {
+			return run("remove", (ui) => runRemove(key, { yes: true }, ui));
+		}
+
+		async function isRealFolder(path: string): Promise<boolean> {
+			return (await lstat(join(projectDir, path))).isDirectory();
+		}
+
+		it("installs a skill's shared folder as real files, refreshes them on update and removes them with the skill", async () => {
+			const shared = (guide: string) => ({
+				"skills/foo/SKILL.md": "foo",
+				"shared/references/guide.md": guide,
+			});
+			const links = { "skills/foo/references": "../../shared/references" };
+			await publish(shared("v1"), links);
+
+			const added = await add("owner/repo");
+			const guideAfterAdd = await installedText(
+				".claude/skills/foo/references/guide.md",
+			);
+			const filesAfterAdd = (await readManifest(projectDir))["owner/repo/foo"]
+				?.files;
+			const realAfterAdd = await isRealFolder(".claude/skills/foo/references");
+			await publish(shared("v2"), links);
+			const updated = await update();
+			const guideAfterUpdate = await installedText(
+				".claude/skills/foo/references/guide.md",
+			);
+			const removed = await remove("owner/repo/foo");
+
+			expect([added.exitCode, updated.exitCode, removed.exitCode]).toEqual([
+				0, 0, 0,
+			]);
+			expect(guideAfterAdd).toBe("v1");
+			expect(realAfterAdd).toBe(true);
+			expect(filesAfterAdd).toEqual([".claude/skills/foo/"]);
+			expect(updated.document.items).toEqual([
+				expect.objectContaining({ key: "owner/repo/foo", status: "updated" }),
+			]);
+			expect(guideAfterUpdate).toBe("v2");
+			expect(await linkInstalled(".claude/skills/foo")).toBe(false);
+			expect(await readManifest(projectDir)).toEqual({});
+			expect(await clonesLeft()).toEqual([]);
+		});
+
+		it("records each file a pack's hook folder copies in a link's place, and update and remove replace and remove them", async () => {
+			const scripts = (util: string) => ({
+				"tools/agntc.json": PACK,
+				"tools/skills/api/SKILL.md": "api",
+				"tools/hooks/lint/run.sh": "run",
+				"scripts/lib/util.sh": util,
+			});
+			const links = { "tools/hooks/lint/lib": "../../../scripts/lib" };
+			await publish(scripts("v1"), links);
+
+			const added = await add("owner/repo/tools");
+			const filesAfterAdd = (await readManifest(projectDir))["owner/repo/tools"]
+				?.files;
+			await publish(scripts("v2"), links);
+			const updated = await update();
+			const utilAfterUpdate = await installedText(
+				".claude/hooks/lint/lib/util.sh",
+			);
+			const removed = await remove("owner/repo/tools");
+
+			expect([added.exitCode, updated.exitCode, removed.exitCode]).toEqual([
+				0, 0, 0,
+			]);
+			expect(filesAfterAdd).toEqual([
+				".claude/skills/api/",
+				".claude/hooks/lint/",
+				".claude/hooks/lint/lib/",
+				".claude/hooks/lint/lib/util.sh",
+				".claude/hooks/lint/run.sh",
+			]);
+			expect(utilAfterUpdate).toBe("v2");
+			expect(await linkInstalled(".claude/hooks/lint")).toBe(false);
+			expect(await readManifest(projectDir)).toEqual({});
+		});
+
+		it("blocks an update, before removing anything, when the folder holds a link out of the clone", async () => {
+			const files = {
+				"skills/foo/SKILL.md": "v1",
+				"shared/guide.md": "guide",
+			};
+			const links = { "skills/foo/shared": "../../shared" };
+			await publish(files, links);
+			await add("owner/repo");
+			const before = await readManifest(projectDir);
+			await publish(
+				{ ...files, "skills/foo/SKILL.md": "v2" },
+				{ ...links, "shared/leak": join(testDir, "outside") },
+			);
+
+			const { exitCode, document } = await update();
+
+			expect(exitCode).toBe(1);
+			expect(document.items).toEqual([
+				expect.objectContaining({
+					key: "owner/repo/foo",
+					status: "blocked",
+					message: expect.stringContaining(
+						'symlink "shared/leak" points outside the clone',
+					),
+				}),
+			]);
+			expect(await readManifest(projectDir)).toEqual(before);
+			expect(await installedText(".claude/skills/foo/SKILL.md")).toBe("v1");
+			expect(await installedText(".claude/skills/foo/shared/guide.md")).toBe(
+				"guide",
+			);
+		});
 	});
 
 	it("links a local skill's link to a folder beside it absolutely into the source, on add and update", async () => {
@@ -365,6 +480,82 @@ describe("symlinks in what a source installs", () => {
 		expect(await installedText(".claude/skills/foo/shared/guide.md")).toBe(
 			"guide",
 		);
+	});
+
+	describe("a link to a folder beside the skill holding a link out of the source", () => {
+		const files = {
+			"skills/foo/SKILL.md": "v1",
+			"shared/guide.md": "guide",
+		};
+		const links = () => ({
+			"skills/foo/shared": "../../shared",
+			"shared/leak": join(testDir, "outside"),
+		});
+
+		it("adds and updates a local skill, linking the folder absolutely without reading it", async () => {
+			const source = join(testDir, "code", "repo");
+			await write(source, files);
+			await link(source, links());
+
+			const added = await add(source);
+			const updated = await update();
+
+			expect([added.exitCode, updated.exitCode]).toEqual([0, 0]);
+			expect(added.document.items).toEqual([
+				expect.objectContaining({ status: "installed" }),
+			]);
+			expect(updated.document.items).toEqual([
+				expect.objectContaining({ status: "refreshed" }),
+			]);
+			expect(
+				await readlink(join(projectDir, ".claude/skills/foo/shared")),
+			).toBe(join(source, "shared"));
+		});
+
+		it("refuses to add a remote skill, installing nothing", async () => {
+			await publish(files, links());
+
+			const { exitCode, document } = await add("owner/repo");
+
+			expect(exitCode).toBe(1);
+			expect(document.items).toEqual([
+				expect.objectContaining({
+					key: "owner/repo/foo",
+					status: "failed",
+					reason: expect.stringContaining(
+						'symlink "shared/leak" points outside the clone',
+					),
+				}),
+			]);
+			expect(await linkInstalled(".claude/skills/foo")).toBe(false);
+			expect(await readManifest(projectDir)).toEqual({});
+		});
+	});
+
+	it("adds and updates a pack whose links out of the clone sit only where its copy never reads", async () => {
+		const files = (api: string) => ({
+			"tools/agntc.json": PACK,
+			"tools/skills/api/SKILL.md": api,
+			"shared-docs/guide.md": "",
+		});
+		const links = {
+			"tools/docs": "../shared-docs",
+			"shared-docs/img": "/usr/share/pixmaps",
+		};
+		await publish(files("v1"), links);
+
+		const added = await add("owner/repo/tools");
+		await publish(files("v2"), links);
+		const updated = await update();
+
+		expect([added.exitCode, updated.exitCode]).toEqual([0, 0]);
+		expect(updated.document.items).toEqual([
+			expect.objectContaining({ key: "owner/repo/tools", status: "updated" }),
+		]);
+		expect((await readManifest(projectDir))["owner/repo/tools"]?.files).toEqual(
+			[".claude/skills/api/"],
+		);
+		expect(await installedText(".claude/skills/api/SKILL.md")).toBe("v2");
 	});
 
 	it("never installs a link at the top of a pack's hooks/, on add or update", async () => {

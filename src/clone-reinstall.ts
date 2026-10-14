@@ -1,12 +1,13 @@
-import { localItemPath, localRootOf, reAddCommand } from "./entry-source.js";
+import { localItemPath, localRootOf, restoreCommand } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
-import { removeEntry, writeManifest } from "./manifest.js";
+import { addEntry, removeEntry, writeManifest } from "./manifest.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
+	type NukeReinstallResult,
 } from "./nuke-reinstall-pipeline.js";
 import { agntcCommand, type Scope, type ScopeName } from "./scope.js";
 import {
@@ -83,6 +84,8 @@ export async function prepareReinstall(
 
 interface CloneReinstallSuccess {
 	status: "success";
+	/** The key `manifestEntry` goes under: the entry's own, or the one `add` now gives it. */
+	key: string;
 	manifestEntry: ManifestEntry;
 	copiedFiles: string[];
 	/** What the user should hear about how the entry was reinstalled. */
@@ -95,9 +98,7 @@ interface CloneReinstallSuccess {
  * Nothing the entry installs is left in its source. Nothing was touched; the
  * caller decides whether to remove it.
  */
-interface CloneReinstallGone {
-	status: "gone";
-}
+type CloneReinstallGone = Extract<NukeReinstallResult, { status: "gone" }>;
 
 /**
  * A copy failure has already removed the entry's files, and those of the loose
@@ -190,18 +191,20 @@ export function mapCloneFailure<T>(
  * {@link buildAbortMessage} and `blocked` through
  * {@link buildCopySafetyMessage}. A new failure variant is a single edit here;
  * the list actions can't drift. update.ts keeps its richer per-status handler.
+ * `version` is the tag a version change asked for ({@link buildAbortMessage}).
  */
 export function failureMessage(
 	result: CloneReinstallFailure,
 	key: string,
 	entry: ManifestEntry,
 	scope: ScopeName,
+	version?: string,
 ): string {
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
 		onCopyFailed: (msg) => msg,
 		onRemoveFailed: (msg) => msg,
-		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope),
+		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope, version),
 		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
 	});
 }
@@ -216,12 +219,10 @@ export function failureMessage(
  * `status` alone, keeping it separate from the `status: "failed"` reasons
  * (notably copy-failed, which removes the entry) without a redundant second tag.
  */
-export interface CloneReinstallAborted {
-	status: "aborted";
-	reason: string;
-	/** What stopped it was files in the way, which an add with --overwrite replaces. */
-	inTheWay?: true;
-}
+export type CloneReinstallAborted = Extract<
+	NukeReinstallResult,
+	{ status: "aborted" }
+>;
 
 /** Why an update aborted, as {@link buildAbortMessage} reports it. */
 export type AbortCause = Omit<CloneReinstallAborted, "status">;
@@ -239,10 +240,10 @@ export type AbortCause = Omit<CloneReinstallAborted, "status">;
  * {@link reason} carries the offending symlink; {@link buildCopySafetyMessage}
  * assembles the user-facing report.
  */
-export interface CloneReinstallBlocked {
-	status: "blocked";
-	reason: string;
-}
+export type CloneReinstallBlocked = Extract<
+	NukeReinstallResult,
+	{ status: "blocked" }
+>;
 
 export type CloneReinstallResult =
 	| CloneReinstallSuccess
@@ -254,24 +255,50 @@ export type CloneReinstallResult =
 /**
  * The user-facing report for a derive-before-delete abort: why the source
  * can't be replayed for the entry, that the existing install is unchanged,
- * and the manual remedy built from the entry. Files in the way are cleared by
- * hand or replaced by an add with --overwrite, which update doesn't take; any
- * other abort migrates by remove+add. Distinct from the copy-failed report,
- * which tells the user the unit is currently uninstalled and to re-run update —
- * here nothing was touched.
+ * and the manual remedy. Its remove names the entry as installed; its re-add
+ * installs the item as replayed when the abort came after a replay, else the
+ * entry as recorded. Files in the way are cleared by hand or replaced by an
+ * add with --overwrite, which update doesn't take; any other abort migrates
+ * by remove+add. A key taken by another entry is freed by removing that
+ * entry, after which update moves this one there: an add would refuse the
+ * taken key too. Distinct from the copy-failed report, which tells the user
+ * the unit is currently uninstalled and to re-run update — here nothing was
+ * touched.
+ *
+ * The re-add keeps the version the entry tracks ({@link restoreCommand}).
+ * `version` is the tag a version change asked for. An update follows the
+ * entry's own constraint or pin, so it would never install that tag: the
+ * remedy changes the version again instead, and its re-add pins that tag.
  */
 export function buildAbortMessage(
 	key: string,
 	entry: ManifestEntry,
-	{ reason, inTheWay }: AbortCause,
+	{ reason, inTheWay, takenKey, replayed }: AbortCause,
 	scope: ScopeName,
+	version?: string,
 ): string {
-	const reAdd = reAddCommand(key, entry, scope);
+	const again =
+		version === undefined ? "update again" : `change it to ${version} again`;
+	if (takenKey !== undefined) {
+		const redo =
+			version === undefined ? agntcCommand(scope, "update", [key]) : again;
+		return (
+			`${key} can't be updated: ${reason}. The existing install is ` +
+			`unchanged. To replace that entry with it: ` +
+			`${agntcCommand(scope, "remove", [takenKey])} then ${redo}`
+		);
+	}
+	const reAdd = restoreCommand(
+		replayed?.key ?? key,
+		replayed?.entry ?? entry,
+		scope,
+		version,
+	);
 	const remove = agntcCommand(scope, "remove", [key]);
 	if (inTheWay) {
 		return (
 			`${key} can't be updated: ${reason}. The existing install is ` +
-			`unchanged. Clear them and update again, or replace them: ` +
+			`unchanged. Clear them and ${again}, or replace them: ` +
 			`${remove} then ${reAdd} --overwrite`
 		);
 	}
@@ -433,7 +460,43 @@ export async function cloneAndReinstall(
 	}
 }
 
-/** A copy failure removed the files of the entry and of what it took over, so their entries go. */
+/**
+ * `manifest` with a reinstalled entry under `key`, the key `add` gives it, in
+ * place of the entry at `from`, and without the loose skills it took over,
+ * `absorbed`. One of those may have held `key`, so they go before the entry is
+ * recorded; an entry whose key moved leaves its old key in the same write.
+ */
+export function recordReinstall(
+	manifest: Manifest,
+	from: string,
+	key: string,
+	entry: ManifestEntry,
+	absorbed: string[],
+): Manifest {
+	const dropped = from === key ? absorbed : [...absorbed, from];
+	return addEntry(
+		dropped.reduce((rest, gone) => removeEntry(rest, gone), manifest),
+		key,
+		entry,
+	);
+}
+
+/**
+ * `manifest` after a copy failure for the entry under `key`: the failure
+ * removed its files and those of the loose skills it took over, `absorbed`,
+ * so their entries go too.
+ */
+export function recordCopyFailure(
+	manifest: Manifest,
+	key: string,
+	absorbed: string[],
+): Manifest {
+	return [key, ...absorbed].reduce(
+		(rest, removed) => removeEntry(rest, removed),
+		manifest,
+	);
+}
+
 async function handleCopyFailedRemoval(
 	result: CloneReinstallResult,
 	options: CloneAndReinstallOptions,
@@ -443,10 +506,9 @@ async function handleCopyFailedRemoval(
 		result.failureReason === "copy-failed" &&
 		options.manifest !== undefined
 	) {
-		const removed = [options.key, ...result.absorbed];
 		await writeManifest(
 			options.scope.root,
-			removed.reduce((rest, key) => removeEntry(rest, key), options.manifest),
+			recordCopyFailure(options.manifest, options.key, result.absorbed),
 		);
 	}
 	return result;
@@ -493,6 +555,7 @@ export async function runPipeline(
 		case "success":
 			return {
 				status: "success",
+				key: pipelineResult.key,
 				manifestEntry: pipelineResult.entry,
 				copiedFiles: pipelineResult.copiedFiles,
 				notes: pipelineResult.notes,

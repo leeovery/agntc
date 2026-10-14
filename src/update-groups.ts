@@ -5,16 +5,15 @@ import {
 	cloneRepoOnce,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	recordCopyFailure,
+	recordReinstall,
 	runPipeline,
 } from "./clone-reinstall.js";
 import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
-import {
-	addEntry,
-	type Manifest,
-	type ManifestEntry,
-	removeEntry,
-} from "./manifest.js";
+import type { Manifest, ManifestEntry } from "./manifest.js";
+import { removeEntry } from "./manifest.js";
+import { type SourceWalk, sourceWalk } from "./nuke-reinstall-pipeline.js";
 import type { Scope, ScopeName } from "./scope.js";
 import {
 	deriveCloneUrlFromKey,
@@ -101,7 +100,12 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
  *
  * An entry found gone upstream starts as `gone-kept`, which is true until its
  * removal is settled; `-y` or a yes turns it into `gone-removed`. An entry a
- * pack took over during the run ends as `absorbed`.
+ * pack took over during the run ends as `absorbed`, under the key it had when
+ * the run started: it is recorded nowhere once the run ends.
+ *
+ * `key` is where the entry is recorded once the outcome is applied. A
+ * reinstall `add` would key differently moves the entry, and `previousKey`
+ * names the key it had ({@link keyBefore}).
  */
 export type PluginOutcome =
 	| ({
@@ -131,6 +135,14 @@ export type PluginOutcome =
 interface Reinstalled {
 	notes: string[];
 	absorbed: string[];
+	previousKey?: string;
+}
+
+/** The key an outcome's entry had when the run started. */
+export function keyBefore(outcome: PluginOutcome): string {
+	return (
+		("previousKey" in outcome ? outcome.previousKey : undefined) ?? outcome.key
+	);
 }
 
 /**
@@ -164,13 +176,16 @@ export function isSuccessOutcome(
  * The loose skill entries a pack took over. Their files are removed before
  * the pack is copied, so they are taken over whether or not the copy worked.
  */
-function absorbedBy(outcome: PluginOutcome): string[] {
+export function absorbedBy(outcome: PluginOutcome): string[] {
 	return isSuccessOutcome(outcome) || outcome.status === "copy-failed"
 		? outcome.absorbed
 		: [];
 }
 
-/** The outcome of a loose skill entry the pack whose outcome is `pack` took over. */
+/**
+ * The outcome of a loose skill entry, keyed `key` when the run started, that
+ * the pack whose outcome is `pack` took over.
+ */
 export function absorbedOutcome(
 	key: string,
 	pack: PluginOutcome,
@@ -181,44 +196,70 @@ export function absorbedOutcome(
 		key,
 		into,
 		summary: isSuccessOutcome(pack)
-			? `${key} is now part of the pack ${into}`
+			? `${key} is now part of the pack ${packTakingOver(key, pack)}`
 			: `${key} was removed — the pack ${into} took it over, then failed to install`,
 	};
 }
 
 /**
- * Folds one outcome into the manifest: a reinstall records its new entry, a
- * copy failure or a removal drops the entry, and both a reinstall and a copy
- * failure drop the loose skills a pack took over. Anything else leaves the
- * manifest as it was, same object included.
+ * The pack that took over the entry keyed `key`, by its key; a pack that moved
+ * onto that very key is named by the key it moved from.
+ */
+function packTakingOver(key: string, pack: PluginOutcome): string {
+	return pack.key === key
+		? `${keyBefore(pack)}, which moved to its key`
+		: pack.key;
+}
+
+/**
+ * Folds one outcome into the manifest: a reinstall records its new entry,
+ * under the key it moved to when it moved, a copy failure or a removal drops
+ * the entry, and both a reinstall and a copy failure drop the loose skills a
+ * pack took over. Anything else leaves the manifest as it was, same object
+ * included.
  */
 export function applyOutcome(
 	manifest: Manifest,
 	outcome: PluginOutcome,
 ): Manifest {
-	const rest = absorbedBy(outcome).reduce(removeEntry, manifest);
 	if (isSuccessOutcome(outcome)) {
-		return addEntry(rest, outcome.key, outcome.newEntry);
+		return recordReinstall(
+			manifest,
+			keyBefore(outcome),
+			outcome.key,
+			outcome.newEntry,
+			outcome.absorbed,
+		);
 	}
-	if (outcome.status === "copy-failed" || outcome.status === "gone-removed") {
-		return removeEntry(rest, outcome.key);
+	if (outcome.status === "copy-failed") {
+		return recordCopyFailure(manifest, outcome.key, outcome.absorbed);
+	}
+	if (outcome.status === "gone-removed") {
+		return removeEntry(manifest, outcome.key);
 	}
 	return manifest;
 }
 
 /**
  * Gives every entry a pack took over during the run an `absorbed` outcome, in
- * place of whatever it got before.
+ * place of whatever it got before, under the key it had when the run started.
+ * `outcomes` are in the order the run made them: a pack takes over the entry
+ * recorded under a key at that point, which may be one an earlier reinstall
+ * moved there, and may move onto that key itself.
  */
 export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
 	const takenBy = new Map<string, PluginOutcome>();
+	const startedAs = new Map<string, string>();
 	for (const outcome of outcomes) {
 		for (const looseKey of absorbedBy(outcome)) {
-			takenBy.set(looseKey, outcome);
+			takenBy.set(startedAs.get(looseKey) ?? looseKey, outcome);
+		}
+		if (isSuccessOutcome(outcome)) {
+			startedAs.set(outcome.key, keyBefore(outcome));
 		}
 	}
 	return [
-		...outcomes.filter((outcome) => !takenBy.has(outcome.key)),
+		...outcomes.filter((outcome) => !takenBy.has(keyBefore(outcome))),
 		...[...takenBy].map(([key, pack]) => absorbedOutcome(key, pack)),
 	];
 }
@@ -238,7 +279,9 @@ export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
  * member's pre-update `entry.ref` as the move's old ref. It is consulted only on
  * the git-update arm; the local (`refreshed`) and failure arms ignore it.
  *
- * A `gone` result maps to an unsettled `gone-kept`: nothing was touched yet.
+ * A success is keyed where the reinstall recorded it, with the member's key as
+ * `previousKey` when that moved. A `gone` result maps to an unsettled
+ * `gone-kept`: nothing was touched yet.
  */
 export function mapReinstallResultToOutcome(
 	key: string,
@@ -277,13 +320,20 @@ export function mapReinstallResultToOutcome(
 		});
 	}
 
-	const reinstalled = { notes: result.notes, absorbed: result.absorbed };
+	const reinstalled = {
+		notes: result.notes,
+		absorbed: result.absorbed,
+		...(result.key !== key ? { previousKey: key } : {}),
+	};
 
 	if (entry.commit === null) {
 		return {
 			status: "refreshed",
-			key,
-			summary: renderUpdateOutcomeSummary({ type: "local-update", key }),
+			key: result.key,
+			summary: renderUpdateOutcomeSummary({
+				type: "local-update",
+				key: result.key,
+			}),
 			newEntry: result.manifestEntry,
 			...reinstalled,
 		};
@@ -291,10 +341,10 @@ export function mapReinstallResultToOutcome(
 
 	return {
 		status: "updated",
-		key,
+		key: result.key,
 		summary: renderUpdateOutcomeSummary({
 			type: "git-update",
-			key,
+			key: result.key,
 			oldRef: entry.ref,
 			newRef,
 			oldCommit: entry.commit,
@@ -380,6 +430,12 @@ export function groupTargetFacets(
 	}
 }
 
+/** A group's one clone, with the walk its members share for moved skills. */
+interface SharedClone {
+	root: string;
+	walk: SourceWalk;
+}
+
 /**
  * Reinstalls a single group member from the shared clone, fully isolated in its
  * own try/catch so one member's throw can never abort its siblings. Obtains its
@@ -393,7 +449,7 @@ export function groupTargetFacets(
  */
 async function reinstallMember(
 	member: GroupMember,
-	tempDir: string,
+	clone: SharedClone,
 	facets: GroupTargetFacets,
 	scope: Scope,
 	installed: Manifest,
@@ -409,7 +465,11 @@ async function reinstallMember(
 	// Sharing this value with the grouped header keeps the collapsed
 	// group-of-one wording identical to the grouped multi-member wording.
 	try {
-		const guarded = resolveGuardedSourceDir(tempDir, key, entry.sourceSubpath);
+		const guarded = resolveGuardedSourceDir(
+			clone.root,
+			key,
+			entry.sourceSubpath,
+		);
 		if (!guarded.ok) {
 			return mapReinstallResultToOutcome(
 				key,
@@ -430,7 +490,8 @@ async function reinstallMember(
 			installed,
 			scope,
 			sourceDir: guarded.sourceDir,
-			cloneRoot: tempDir,
+			cloneRoot: clone.root,
+			walk: clone.walk,
 			newRef: cloneRef,
 			newCommit: commit,
 		});
@@ -452,6 +513,7 @@ async function reinstallMember(
  * via {@link cloneRepoOnce}, then reinstalls each updating `member` sequentially
  * from that shared clone through the clone-agnostic reinstall half
  * ({@link runPipeline}), returning one {@link PluginOutcome} per member.
+ * Members whose skill moved share one walk of the clone to find it.
  *
  * `members` is the group's updating subset (categorized `update-available` /
  * `constrained-update-available`); the clone is taken from the group's first
@@ -506,8 +568,9 @@ export async function processGroupUpdate(
 	}
 
 	try {
+		const clone = { root: tempDir, walk: sourceWalk(tempDir) };
 		const reinstall = (member: GroupMember, current: Manifest) =>
-			reinstallMember(member, tempDir, facets, scope, current);
+			reinstallMember(member, clone, facets, scope, current);
 		return {
 			cloneFailed: false,
 			outcomes: await reinstallInTurn(members, installed, reinstall),

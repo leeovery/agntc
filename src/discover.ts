@@ -230,7 +230,7 @@ async function toFoundPack(ctx: Context, path: string): Promise<FoundPack> {
 	const { skills } = await walk(ctx, path, "pack");
 	const abs = absolute(ctx, path);
 	return {
-		name: folderName(ctx, path),
+		name: folderName(path, ctx.rootName),
 		path,
 		skills: await toFoundSkills(ctx, skills),
 		assetDirs: await qualifyingAssetDirs(abs, await readEntries(abs)),
@@ -250,7 +250,7 @@ async function toFoundSkills(
 async function toFoundSkill(ctx: Context, path: string): Promise<FoundSkill> {
 	const { name, description } = await readSkillFrontmatter(absolute(ctx, path));
 	return {
-		name: folderName(ctx, path),
+		name: folderName(path, ctx.rootName),
 		path,
 		...(name !== undefined ? { frontmatterName: name } : {}),
 		...(description !== undefined ? { description } : {}),
@@ -417,8 +417,12 @@ function absolute(ctx: Context, path: string): string {
 	return join(ctx.root, path);
 }
 
-function folderName(ctx: Context, path: string): string {
-	return path === "" ? ctx.rootName : posix.basename(path);
+/**
+ * What a skill or pack at `path` is called: its folder's name, or `rootName`,
+ * the source's, for the source root.
+ */
+export function folderName(path: string, rootName: string): string {
+	return path === "" ? rootName : posix.basename(path);
 }
 
 function displayPath(ctx: Context, path: string): string {

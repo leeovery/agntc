@@ -25,8 +25,8 @@ import {
 	conflictPolicy,
 } from "../clear-conflicts.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
-import { copyItem } from "../copy-item.js";
-import { checkEscapingSymlinks, PathTraversalError } from "../copy-safety.js";
+import { checkItemLinks, copyItem } from "../copy-item.js";
+import { type CopySource, PathTraversalError } from "../copy-safety.js";
 import {
 	type Discovery,
 	discover,
@@ -648,11 +648,13 @@ async function escapingSymlink(
 	{ item }: KeyedItem,
 	src: FetchedSource,
 ): Promise<string | null> {
-	const check = await checkEscapingSymlinks(
-		join(src.root, itemPath(item)),
-		src.root,
-	);
+	const check = await checkItemLinks(item, copySourceOf(src));
 	return check.ok ? null : check.message;
+}
+
+/** What an item is copied from: a fetched source with no commit is a local folder. */
+function copySourceOf(src: FetchedSource): CopySource {
+	return { root: src.root, local: src.commit === null };
 }
 
 interface InstalledItem {
@@ -702,7 +704,7 @@ async function installKeyedItem(
 	try {
 		const { copiedFiles, assetCounts } = await copyItem(
 			item,
-			{ root: src.root, local: src.commit === null },
+			copySourceOf(src),
 			installRoot,
 		);
 		const entry = buildManifestEntry({

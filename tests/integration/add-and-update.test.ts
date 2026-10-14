@@ -56,6 +56,7 @@ const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
 const mockMultiselect = vi.mocked(p.multiselect);
 const mockLog = vi.mocked(p.log);
+const mockOutro = vi.mocked(p.outro);
 
 const OLD_SHA = "a".repeat(40);
 const NEW_SHA = "b".repeat(40);
@@ -362,6 +363,69 @@ describe("integration: add and update", () => {
 			type: "pack",
 			commit: NEW_SHA,
 			files: [".claude/skills/api/", ".claude/skills/jobs/"],
+		});
+	});
+
+	describe("loose skills from one repo", () => {
+		const SKILLS = ["a", "b", "c"];
+
+		async function publish(text: string): Promise<string> {
+			return repo(
+				"owner/repo",
+				Object.fromEntries(
+					SKILLS.map((name) => [`skills/${name}/SKILL.md`, text]),
+				),
+			);
+		}
+
+		async function skillText(name: string): Promise<string> {
+			return readFile(
+				join(projectDir, `.claude/skills/${name}/SKILL.md`),
+				"utf-8",
+			);
+		}
+
+		beforeEach(async () => {
+			const v1 = await publish("v1");
+			mockCloneSource.mockImplementationOnce(async () => {
+				const tempDir = await mkdtemp(join(testDir, "clone-"));
+				await cp(v1, tempDir, { recursive: true });
+				return { tempDir, commit: OLD_SHA };
+			});
+			await runAdd("owner/repo", { skill: SKILLS });
+			await publish("v2");
+			mockCloneSource.mockClear();
+		});
+
+		it("update owner/repo clones the repo once and updates every skill", async () => {
+			await runUpdate("owner/repo");
+
+			expect(mockCloneSource).toHaveBeenCalledOnce();
+			expect(mockResolveGroupTarget).toHaveBeenCalledOnce();
+			for (const name of SKILLS) {
+				expect(await skillText(name)).toBe("v2");
+			}
+			const manifest = await savedManifest();
+			expect(
+				SKILLS.map((name) => manifest[`owner/repo/${name}`]?.commit),
+			).toEqual([NEW_SHA, NEW_SHA, NEW_SHA]);
+		});
+
+		it("update with one skill's exact key updates that skill alone, through the single-key path", async () => {
+			await runUpdate("owner/repo/b");
+
+			expect(mockResolveGroupTarget).not.toHaveBeenCalled();
+			expect(mockCloneSource).toHaveBeenCalledOnce();
+			expect(await skillText("b")).toBe("v2");
+			expect(await skillText("a")).toBe("v1");
+			expect(await skillText("c")).toBe("v1");
+			const manifest = await savedManifest();
+			expect(
+				SKILLS.map((name) => manifest[`owner/repo/${name}`]?.commit),
+			).toEqual([OLD_SHA, NEW_SHA, OLD_SHA]);
+			expect(mockOutro).toHaveBeenCalledWith(
+				expect.stringContaining("owner/repo/b"),
+			);
 		});
 	});
 
@@ -718,12 +782,12 @@ describe("integration: add and update", () => {
 			return `couldn't remove its old files: won't delete ../outside.md — not a plain path below ${projectDir}`;
 		}
 
-		it("by key, records the pack done before it and reports the member as failed", async () => {
+		it("by a key naming both, records the pack done before it and reports the member as failed", async () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError("owner/repo"));
 			expect(mockLog.error).toHaveBeenCalledExactlyOnceWith(
-				`owner/repo/skillB: ${refusal()}`,
+				`owner/repo/skillB: Failed — ${refusal()}`,
 			);
 		});
 

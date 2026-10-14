@@ -1,11 +1,12 @@
 import { copyFile, mkdir, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { type AssetCounts, targetDir } from "./asset-targets.js";
-import { copyBareSkill } from "./copy-bare-skill.js";
+import { copyBareSkill, skillUnit } from "./copy-bare-skill.js";
 import { rollbackCopiedFiles } from "./copy-rollback.js";
 import {
 	type CopySource,
 	type CopyStep,
+	type CopyUnit,
 	planCopy,
 	writeCopy,
 } from "./copy-safety.js";
@@ -64,6 +65,29 @@ export async function copyPack(
 	}
 
 	return { copiedFiles, assetCounts };
+}
+
+/**
+ * The folders copying a pack plans, each with the filter it's planned with:
+ * its skills and its hook folders. Agents and hook files are copied as the
+ * regular files they're listed as, so no link of theirs is read.
+ */
+export async function packUnits(
+	pack: FoundPack,
+	root: string,
+): Promise<CopyUnit[]> {
+	const skills = pack.skills.map((skill) => skillUnit(join(root, skill.path)));
+	if (!pack.assetDirs.includes("hooks")) {
+		return skills;
+	}
+	const hooksDir = join(root, pack.path, "hooks");
+	const folders = (await listHookEntries(hooksDir)).filter(
+		(entry) => entry.isDirectory,
+	);
+	return [
+		...skills,
+		...folders.map((entry) => hookUnit(join(hooksDir, entry.name))),
+	];
 }
 
 /**
@@ -153,7 +177,7 @@ async function copyHooks(
 	for (const entry of entries) {
 		const from = join(hooksDir, entry.name);
 		const steps: CopyStep[] = entry.isDirectory
-			? await planCopy(from, source, isVisible)
+			? await planCopy(hookUnit(from), source)
 			: [{ kind: "file", path: "", from }];
 		const target = hookTarget(entry);
 		const dest = join(installRoot, target);
@@ -170,6 +194,11 @@ function installedPath(target: string, { kind, path }: CopyStep): string {
 		return target;
 	}
 	return kind === "dir" ? `${target}${path}/` : `${target}${path}`;
+}
+
+/** A hook folder installs without hidden entries at any depth. */
+function hookUnit(dir: string): CopyUnit {
+	return { dir, keep: isVisible };
 }
 
 function isVisible(path: string): boolean {

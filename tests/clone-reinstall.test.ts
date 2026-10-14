@@ -36,7 +36,8 @@ vi.mock("../src/fs-utils.js", async (importOriginal) => ({
 	pathExists: vi.fn(),
 }));
 
-vi.mock("../src/copy-pack.js", () => ({
+vi.mock("../src/copy-pack.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/copy-pack.js")>()),
 	copyPack: vi.fn(),
 }));
 
@@ -45,7 +46,8 @@ vi.mock("../src/discover.js", async (importOriginal) => ({
 	discover: vi.fn(),
 }));
 
-vi.mock("../src/copy-bare-skill.js", () => ({
+vi.mock("../src/copy-bare-skill.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/copy-bare-skill.js")>()),
 	copyBareSkill: vi.fn(),
 }));
 
@@ -72,6 +74,8 @@ import {
 	failureMessage,
 	isCloneReinstallFailure,
 	mapCloneFailure,
+	recordCopyFailure,
+	recordReinstall,
 } from "../src/clone-reinstall.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPack } from "../src/copy-pack.js";
@@ -705,7 +709,8 @@ describe("cloneAndReinstall", () => {
 			});
 			expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 				"/Users/lee/Code/skills/skills/react/hooks",
-				"/Users/lee/Code/skills",
+				{ root: "/Users/lee/Code/skills", local: true },
+				expect.any(Function),
 			);
 		});
 
@@ -768,6 +773,35 @@ describe("cloneAndReinstall", () => {
 				status: "success",
 				notes: ["owner/repo/swift is a single skill — reinstalled as a skill"],
 				manifestEntry: { type: "skill" },
+			});
+		});
+
+		it("hands back the key add gives what it reinstalled, when that moved", async () => {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockDiscover.mockRejectedValue(
+				new PackConflictError("single skill", "single-skill"),
+			);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/swift/"],
+			});
+
+			const result = await cloneAndReinstall(
+				{
+					key: "owner/repo/packs/swift",
+					entry: makeEntry({ type: "pack" }),
+					scope: projectScope("/fake/project"),
+				},
+				interactiveUi,
+				{},
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				key: "owner/repo/swift",
+				manifestEntry: { type: "skill", sourceSubpath: "packs/swift" },
 			});
 		});
 
@@ -1078,7 +1112,8 @@ describe("cloneAndReinstall", () => {
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone",
-					"/tmp/agntc-clone",
+					{ root: "/tmp/agntc-clone", local: false },
+					expect.any(Function),
 				);
 			});
 
@@ -1109,7 +1144,8 @@ describe("cloneAndReinstall", () => {
 
 				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 					"/tmp/agntc-clone/go",
-					"/tmp/agntc-clone",
+					{ root: "/tmp/agntc-clone", local: false },
+					expect.any(Function),
 				);
 			});
 
@@ -1137,7 +1173,11 @@ describe("cloneAndReinstall", () => {
 					{},
 				);
 
-				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(key, key);
+				expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
+					key,
+					{ root: key, local: true },
+					expect.any(Function),
+				);
 			});
 
 			it("escaping symlink blocks before nuke (install intact, no copy, non-zero pre-flight failure)", async () => {
@@ -1568,7 +1608,12 @@ describe("mapCloneFailure", () => {
 
 	it("dispatches copy-failed to onCopyFailed handler", () => {
 		const result = mapCloneFailure(
-			{ status: "failed", failureReason: "copy-failed", message: "disk full" },
+			{
+				status: "failed",
+				failureReason: "copy-failed",
+				message: "disk full",
+				absorbed: [],
+			},
 			makeHandlers(),
 		);
 		expect(result).toBe("copy-failed: disk full");
@@ -1667,6 +1712,7 @@ describe("isCloneReinstallFailure", () => {
 	it("returns false for a success result", () => {
 		const result: CloneReinstallResult = {
 			status: "success",
+			key: "owner/repo",
 			manifestEntry: makeEntry(),
 			copiedFiles: [".claude/skills/my-skill/"],
 			notes: [],
@@ -1715,6 +1761,7 @@ describe("failureMessage", () => {
 				status: "failed",
 				failureReason: "copy-failed",
 				message: "disk full hint",
+				absorbed: [],
 			},
 			"owner/repo",
 			makeEntry(),
@@ -1851,6 +1898,28 @@ describe("buildAbortMessage", () => {
 		expect(msg).not.toContain("--pack");
 	});
 
+	it("re-adds the item as replayed, under its new key, while removing the entry as installed", () => {
+		const msg = buildAbortMessage(
+			"owner/repo/packs/foo",
+			makeEntry({ type: "pack" }),
+			{
+				reason:
+					"files agntc didn't install are in the way: .claude/skills/foo/",
+				inTheWay: true,
+				replayed: {
+					key: "owner/repo/foo",
+					entry: makeEntry({ type: "skill", sourceSubpath: "packs/foo" }),
+				},
+			},
+			"project",
+		);
+
+		expect(msg).toContain(
+			"replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo --overwrite",
+		);
+		expect(msg).not.toContain("--pack");
+	});
+
 	it("points files in the way at clearing them, or at a re-add with --overwrite", () => {
 		const msg = buildAbortMessage(
 			"owner/repo/laravel",
@@ -1907,6 +1976,182 @@ describe("buildAbortMessage", () => {
 		).toContain(
 			"replace them: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack --overwrite",
 		);
+	});
+});
+
+describe("buildAbortMessage for a key another entry holds", () => {
+	it.each([
+		[
+			"project",
+			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then npx agntc update owner/repo/packs/foo",
+		],
+		[
+			"global",
+			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove -g owner/repo/foo then npx agntc update -g owner/repo/packs/foo",
+		],
+	] as const)("names both keys and frees the taken one, in %s scope", (scope, message) => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/packs/foo",
+				makeEntry({ type: "pack" }),
+				{
+					reason: "it would move to owner/repo/foo, which is already installed",
+					takenKey: "owner/repo/foo",
+				},
+				scope,
+			),
+		).toBe(message);
+	});
+});
+
+describe("buildAbortMessage keeps the version the entry tracks", () => {
+	it("re-adds a constrained entry on its constraint", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				makeEntry({ type: "pack", ref: "v1.4.0", constraint: "^1.2.0" }),
+				{ reason: "files are in the way", inTheWay: true },
+				"project",
+			),
+		).toContain(
+			"replace them: npx agntc remove owner/repo/laravel then npx agntc add 'owner/repo/laravel@^1.2.0' --pack --overwrite",
+		);
+	});
+
+	it("re-adds an entry tracking a branch on that branch", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				makeEntry({ type: "pack", ref: "main" }),
+				{ reason: "its folder now contains packs" },
+				"project",
+			),
+		).toContain(
+			"To migrate: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel@main --pack",
+		);
+	});
+
+	it("re-adds an entry on HEAD bare", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/laravel",
+				makeEntry({ type: "pack", ref: null }),
+				{ reason: "its folder now contains packs" },
+				"project",
+			),
+		).toMatch(/then npx agntc add owner\/repo\/laravel --pack$/);
+	});
+});
+
+describe("buildAbortMessage for a version change", () => {
+	const replayed = {
+		key: "owner/repo/foo",
+		entry: makeEntry({
+			type: "skill",
+			ref: "v2.0.0",
+			sourceSubpath: "packs/foo",
+		}),
+	};
+
+	it("frees a taken key, then changes the version again, which an update wouldn't do", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/packs/foo",
+				makeEntry({ type: "pack", ref: "v1.0.0" }),
+				{
+					reason: "it would move to owner/repo/foo, which is already installed",
+					takenKey: "owner/repo/foo",
+					replayed,
+				},
+				"project",
+				"v2.0.0",
+			),
+		).toBe(
+			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then change it to v2.0.0 again",
+		);
+	});
+
+	it("changes the version again once files in the way are cleared, or re-adds at that version", () => {
+		expect(
+			buildAbortMessage(
+				"owner/repo/packs/foo",
+				makeEntry({ type: "pack", ref: "v1.0.0" }),
+				{ reason: "files are in the way", inTheWay: true, replayed },
+				"project",
+				"v2.0.0",
+			),
+		).toBe(
+			"owner/repo/packs/foo can't be updated: files are in the way. The existing install is unchanged. Clear them and change it to v2.0.0 again, or replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo@v2.0.0 --overwrite",
+		);
+	});
+});
+
+describe("recordReinstall", () => {
+	const manifest: Manifest = {
+		"owner/repo/a": makeEntry(),
+		"owner/repo/old": makeEntry(),
+		"owner/repo/z": makeEntry(),
+	};
+	const entry = makeEntry({ commit: REMOTE_SHA });
+
+	it("records the entry over the one it replaces, in its place, when its key stays", () => {
+		const next = recordReinstall(
+			manifest,
+			"owner/repo/old",
+			"owner/repo/old",
+			entry,
+			[],
+		);
+
+		expect(Object.keys(next)).toEqual(Object.keys(manifest));
+		expect(next["owner/repo/old"]).toBe(entry);
+	});
+
+	it("records the entry under its new key and drops the old one", () => {
+		const next = recordReinstall(
+			manifest,
+			"owner/repo/old",
+			"owner/repo/new",
+			entry,
+			[],
+		);
+
+		expect(Object.keys(next)).toEqual([
+			"owner/repo/a",
+			"owner/repo/z",
+			"owner/repo/new",
+		]);
+		expect(next["owner/repo/new"]).toBe(entry);
+	});
+
+	it("drops the loose skills it took over, then records it, so a key one held has the entry alone", () => {
+		const next = recordReinstall(
+			manifest,
+			"owner/repo/old",
+			"owner/repo/z",
+			entry,
+			["owner/repo/a", "owner/repo/z"],
+		);
+
+		expect(next).toEqual({ "owner/repo/z": entry });
+	});
+});
+
+describe("recordCopyFailure", () => {
+	it("drops the entry whose copy failed and the loose skills it took over, leaving the rest in order", () => {
+		const manifest: Manifest = {
+			"owner/repo/a": makeEntry(),
+			"owner/repo/pack": makeEntry({ type: "pack" }),
+			"owner/repo/loose": makeEntry(),
+			"owner/repo/z": makeEntry(),
+		};
+
+		const next = recordCopyFailure(manifest, "owner/repo/pack", [
+			"owner/repo/loose",
+		]);
+
+		expect(Object.keys(next)).toEqual(["owner/repo/a", "owner/repo/z"]);
+		expect(Object.keys(manifest)).toHaveLength(4);
 	});
 });
 

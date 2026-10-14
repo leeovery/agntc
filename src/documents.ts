@@ -9,7 +9,7 @@ import type { EntryType, Manifest, ManifestEntry } from "./manifest.js";
 import type { ItemOutcome } from "./summary.js";
 import type { UpdateCheckResult } from "./update-check.js";
 import { checkResultFor } from "./update-check-all.js";
-import type { PluginOutcome } from "./update-groups.js";
+import { keyBefore, type PluginOutcome } from "./update-groups.js";
 
 /** The source `add` read, at the version it resolved to. */
 export interface SourceJson {
@@ -234,6 +234,8 @@ function available(
  */
 export interface UpdateItemJson extends EntryJson, CheckDetailsJson {
 	status: PluginOutcome["status"];
+	/** The key the entry had before the update moved it to `key`, the one `add` gives it. */
+	previousKey?: string;
 	previousRef?: string | null;
 	previousCommit?: string | null;
 	/**
@@ -245,7 +247,10 @@ export interface UpdateItemJson extends EntryJson, CheckDetailsJson {
 	flags?: string[];
 }
 
-/** `outcomes` in the order to report them; `before` is the manifest the run started from. */
+/**
+ * `outcomes` in the order to report them; `before` is the manifest the run
+ * started from, and `checks` are by the keys it holds.
+ */
 export function updateBody(
 	before: Manifest,
 	outcomes: PluginOutcome[],
@@ -253,10 +258,11 @@ export function updateBody(
 ): { items: UpdateItemJson[] } {
 	return {
 		items: outcomes.flatMap((outcome) => {
-			const entry = before[outcome.key];
+			const key = keyBefore(outcome);
+			const entry = before[key];
 			return entry === undefined
 				? []
-				: [updateItem(outcome, entry, checks.get(outcome.key))];
+				: [updateItem(outcome, entry, checks.get(key))];
 		}),
 	};
 }
@@ -267,11 +273,14 @@ function updateItem(
 	check: UpdateCheckResult | undefined,
 ): UpdateItemJson {
 	const details = checkDetails(check);
+	const from = keyBefore(outcome);
+	const moved = from !== outcome.key ? { previousKey: from } : {};
 	switch (outcome.status) {
 		case "updated":
 			return {
 				...entryJson(outcome.key, outcome.newEntry),
 				status: outcome.status,
+				...moved,
 				previousRef: before.ref,
 				previousCommit: before.commit,
 				...details,
@@ -280,6 +289,7 @@ function updateItem(
 			return {
 				...entryJson(outcome.key, outcome.newEntry),
 				status: outcome.status,
+				...moved,
 				...details,
 			};
 		case "gone-kept":

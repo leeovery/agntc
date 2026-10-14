@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { checkFileCollisions } from "../src/collision-check.js";
 import type { Manifest } from "../src/manifest.js";
+import { makeEntry } from "./helpers/factories.js";
 
 describe("checkFileCollisions", () => {
 	it("returns empty map when no overlap", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 
 		const result = checkFileCollisions([".claude/skills/skill-b/"], manifest);
@@ -26,12 +27,12 @@ describe("checkFileCollisions", () => {
 
 	it("detects single file overlap with one plugin", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/shared-skill/"],
-			},
+			}),
 		};
 
 		const result = checkFileCollisions(
@@ -47,7 +48,7 @@ describe("checkFileCollisions", () => {
 
 	it("detects multiple file overlaps with one plugin", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
@@ -56,7 +57,7 @@ describe("checkFileCollisions", () => {
 					".claude/agents/executor.md",
 					".claude/hooks/pre-commit.sh",
 				],
-			},
+			}),
 		};
 
 		const result = checkFileCollisions(
@@ -73,18 +74,18 @@ describe("checkFileCollisions", () => {
 
 	it("groups collisions by manifest key across multiple plugins", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/agents/my-agent.md"],
-			},
+			}),
 		};
 
 		const result = checkFileCollisions(
@@ -99,18 +100,18 @@ describe("checkFileCollisions", () => {
 
 	it("excludes own key for reinstall", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/skills/skill-b/"],
-			},
+			}),
 		};
 
 		const result = checkFileCollisions(
@@ -124,18 +125,18 @@ describe("checkFileCollisions", () => {
 
 	it("excludes own key but still detects collisions with other plugins", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/", ".claude/skills/shared/"],
-			},
-			"owner/repo-b": {
+			}),
+			"owner/repo-b": makeEntry({
 				ref: null,
 				commit: "def456",
 				installedAt: "2026-01-16T10:00:00.000Z",
 				files: [".claude/skills/shared/"],
-			},
+			}),
 		};
 
 		const result = checkFileCollisions(
@@ -150,12 +151,12 @@ describe("checkFileCollisions", () => {
 
 	it("matches directory paths exactly (no partial prefix matching)", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/my-skill/"],
-			},
+			}),
 		};
 
 		// "my-skill-extended/" should NOT match "my-skill/"
@@ -169,12 +170,12 @@ describe("checkFileCollisions", () => {
 
 	it("matches regular file paths exactly", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/agents/executor.md"],
-			},
+			}),
 		};
 
 		// Different file should not match
@@ -188,12 +189,12 @@ describe("checkFileCollisions", () => {
 
 	it("returns empty map when incoming files list is empty", () => {
 		const manifest: Manifest = {
-			"owner/repo-a": {
+			"owner/repo-a": makeEntry({
 				ref: "main",
 				commit: "abc123",
 				installedAt: "2026-01-15T10:00:00.000Z",
 				files: [".claude/skills/skill-a/"],
-			},
+			}),
 		};
 
 		const result = checkFileCollisions([], manifest);
@@ -204,12 +205,12 @@ describe("checkFileCollisions", () => {
 	describe("a folder and a file at one install path", () => {
 		function owning(files: string[]): Manifest {
 			return {
-				"owner/repo-a": {
+				"owner/repo-a": makeEntry({
 					ref: "main",
 					commit: "abc123",
 					installedAt: "2026-01-15T10:00:00.000Z",
 					files,
-				},
+				}),
 			};
 		}
 

@@ -28,6 +28,11 @@ vi.mock("../src/copy-bare-skill.js", async (importOriginal) => ({
 	copyBareSkill: vi.fn(),
 }));
 
+vi.mock("../src/discover.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../src/discover.js")>();
+	return { ...actual, discover: vi.fn(actual.discover) };
+});
+
 vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/copy-safety.js")>();
 	const { mockCopySafety } = await import("./helpers/copy-safety-mock.js");
@@ -45,6 +50,7 @@ import {
 	PathTraversalError,
 	scanForEscapingSymlinks,
 } from "../src/copy-safety.js";
+import { discover } from "../src/discover.js";
 import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { execGit, fetchRemoteTagRefs } from "../src/git-utils.js";
@@ -57,12 +63,14 @@ import {
 	resolveGroupTarget,
 } from "../src/update-check.js";
 import {
+	absorbedOutcome,
 	applyOutcome,
 	type EntryGroup,
 	failedOutcome,
 	groupEntriesForUpdate,
 	groupTargetFacets,
 	isSuccessOutcome,
+	keyBefore,
 	mapReinstallResultToOutcome,
 	type PluginOutcome,
 	packsFirst,
@@ -79,6 +87,7 @@ const mockPathExists = vi.mocked(pathExists);
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
+const mockDiscover = vi.mocked(discover);
 
 const REPO_URL = "https://github.com/owner/repo.git";
 
@@ -114,12 +123,16 @@ describe("isSuccessOutcome", () => {
 			key: "owner/repo/a",
 			summary: "s",
 			newEntry,
+			notes: [],
+			absorbed: [],
 		};
 		const refreshed: PluginOutcome = {
 			status: "refreshed",
 			key: "local",
 			summary: "s",
 			newEntry,
+			notes: [],
+			absorbed: [],
 		};
 
 		expect(isSuccessOutcome(updated)).toBe(true);
@@ -142,15 +155,21 @@ describe("isSuccessOutcome", () => {
 			"gone-kept",
 			"gone-removed",
 		] as const) {
-			expect(isSuccessOutcome({ status, key: "k", summary: "s" })).toBe(false);
+			expect(
+				isSuccessOutcome({ status, key: "k", summary: "s", absorbed: [] }),
+			).toBe(false);
 		}
 	});
 });
 
 describe("mapReinstallResultToOutcome success", () => {
-	function successResult(manifestEntry: ManifestEntry): CloneReinstallResult {
+	function successResult(
+		manifestEntry: ManifestEntry,
+		key: string,
+	): CloneReinstallResult {
 		return {
 			status: "success",
+			key,
 			manifestEntry,
 			copiedFiles: manifestEntry.files,
 			notes: [],
@@ -165,7 +184,7 @@ describe("mapReinstallResultToOutcome success", () => {
 		const outcome = mapReinstallResultToOutcome(
 			"owner/repo/a",
 			entry,
-			successResult(newEntry),
+			successResult(newEntry, "owner/repo/a"),
 			"v1.1.0",
 			"project",
 		);
@@ -187,7 +206,7 @@ describe("mapReinstallResultToOutcome success", () => {
 		const outcome = mapReinstallResultToOutcome(
 			"/local/path",
 			entry,
-			successResult(newEntry),
+			successResult(newEntry, "/local/path"),
 			null,
 			"project",
 		);
@@ -206,7 +225,7 @@ describe("mapReinstallResultToOutcome success", () => {
 		const notes = ["owner/repo/a now includes b, installed on its own before"];
 		const newEntry = makeEntry({ commit: SHA_TGT });
 		const result = {
-			...successResult(newEntry),
+			...successResult(newEntry, "owner/repo/a"),
 			notes,
 			absorbed: ["owner/repo/b"],
 		};
@@ -229,6 +248,47 @@ describe("mapReinstallResultToOutcome success", () => {
 				"project",
 			),
 		).toMatchObject({ status: "refreshed", notes, absorbed: ["owner/repo/b"] });
+	});
+
+	it("keys a reinstall that moved where it went, naming the key it had", () => {
+		const entry = makeEntry({ ref: "v1.0.0", commit: SHA_CUR });
+		const newEntry = makeEntry({ ref: "v1.1.0", commit: SHA_TGT });
+
+		const outcome = mapReinstallResultToOutcome(
+			"owner/repo/packs/foo",
+			entry,
+			successResult(newEntry, "owner/repo/foo"),
+			"v1.1.0",
+			"project",
+		);
+
+		expect(outcome).toEqual({
+			status: "updated",
+			key: "owner/repo/foo",
+			previousKey: "owner/repo/packs/foo",
+			summary: "owner/repo/foo: Updated v1.0.0 -> v1.1.0",
+			newEntry,
+			notes: [],
+			absorbed: [],
+		});
+		expect(keyBefore(outcome)).toBe("owner/repo/packs/foo");
+	});
+
+	it("keys a local reinstall that moved where it went, naming the key it had", () => {
+		const outcome = mapReinstallResultToOutcome(
+			"/src/kit/packs/foo",
+			makeEntry({ commit: null }),
+			successResult(makeEntry({ commit: null }), "/src/kit/foo"),
+			null,
+			"project",
+		);
+
+		expect(outcome).toMatchObject({
+			status: "refreshed",
+			key: "/src/kit/foo",
+			previousKey: "/src/kit/packs/foo",
+			summary: "/src/kit/foo: Refreshed from local path",
+		});
 	});
 
 	it("maps gone to a gone-kept outcome, since nothing was touched yet", () => {
@@ -334,6 +394,46 @@ describe("applyOutcome", () => {
 		expect(next["owner/repo/pack"]).toBe(newEntry);
 	});
 
+	it("moves a reinstall that went to a new key there, the old key gone in the same manifest", () => {
+		const newEntry = makeEntry({ commit: SHA_TGT });
+
+		const next = applyOutcome(manifest, {
+			status: "updated",
+			key: "owner/repo/moved",
+			previousKey: "owner/repo/loose",
+			summary: "s",
+			newEntry,
+			notes: [],
+			absorbed: [],
+		});
+
+		expect(Object.keys(next)).toEqual([
+			"owner/repo/pack",
+			"owner/repo/other",
+			"owner/repo/moved",
+		]);
+		expect(next["owner/repo/moved"]).toBe(newEntry);
+	});
+
+	it("leaves one entry under a key a pack moved onto, the loose skill it took over there dropped", () => {
+		const newEntry = makeEntry({ type: "pack", commit: SHA_TGT });
+
+		const next = applyOutcome(manifest, {
+			status: "updated",
+			key: "owner/repo/loose",
+			previousKey: "owner/repo/pack",
+			summary: "s",
+			newEntry,
+			notes: [],
+			absorbed: ["owner/repo/loose"],
+		});
+
+		expect(next).toEqual({
+			"owner/repo/other": manifest["owner/repo/other"],
+			"owner/repo/loose": newEntry,
+		});
+	});
+
 	it("drops an entry removed as gone upstream", () => {
 		const next = applyOutcome(manifest, {
 			status: "gone-removed",
@@ -407,6 +507,67 @@ describe("withAbsorptions", () => {
 		expect(outcomes.map((outcome) => outcome.key)).toEqual([
 			"owner/repo/pack",
 			"owner/repo/loose",
+		]);
+	});
+
+	it("reports an entry a pack took over after it moved under the key it started the run with", () => {
+		const outcomes = withAbsorptions([
+			{
+				status: "updated",
+				key: "owner/repo/foo",
+				previousKey: "owner/repo/packs/foo",
+				summary: "s",
+				newEntry: makeEntry(),
+				notes: [],
+				absorbed: [],
+			},
+			{
+				status: "updated",
+				key: "owner/repo/packs",
+				summary: "s",
+				newEntry: makeEntry({ type: "pack" }),
+				notes: [],
+				absorbed: ["owner/repo/foo"],
+			},
+		]);
+
+		expect(outcomes).toEqual([
+			expect.objectContaining({ key: "owner/repo/packs" }),
+			{
+				status: "absorbed",
+				key: "owner/repo/packs/foo",
+				into: "owner/repo/packs",
+				summary:
+					"owner/repo/packs/foo is now part of the pack owner/repo/packs",
+			},
+		]);
+	});
+
+	it("keeps a pack that moved onto the key of the entry it took over, beside that entry's absorbed outcome naming the key it left", () => {
+		const pack: PluginOutcome = {
+			status: "updated",
+			key: "owner/repo/packs/tools",
+			previousKey: "owner/repo/tools",
+			summary: "s",
+			newEntry: makeEntry({ type: "pack" }),
+			notes: [],
+			absorbed: ["owner/repo/packs/tools"],
+		};
+
+		const outcomes = withAbsorptions([
+			pack,
+			absorbedOutcome("owner/repo/packs/tools", pack),
+		]);
+
+		expect(outcomes).toEqual([
+			pack,
+			{
+				status: "absorbed",
+				key: "owner/repo/packs/tools",
+				into: "owner/repo/packs/tools",
+				summary:
+					"owner/repo/packs/tools is now part of the pack owner/repo/tools, which moved to its key",
+			},
 		]);
 	});
 
@@ -1091,6 +1252,84 @@ describe("processGroupUpdate", () => {
 		]);
 	});
 
+	describe("members whose skill moved", () => {
+		const movedSkills = {
+			packs: [],
+			skills: [
+				{ name: "a", path: "moved/a" },
+				{ name: "b", path: "moved/b" },
+			],
+			strays: [],
+		};
+
+		beforeEach(() => {
+			mockPathExists.mockResolvedValue(false);
+		});
+
+		it("walks the group's clone once for all of them", async () => {
+			mockDiscover.mockResolvedValueOnce(movedSkills);
+			const members = [
+				branchMember("owner/repo/a"),
+				branchMember("owner/repo/b"),
+			];
+
+			const { outcomes } = await processGroupUpdate(
+				branchGroup(members),
+				members,
+				BRANCH_TARGET,
+				projectScope("/fake/project"),
+				installedOf(members),
+			);
+
+			expect(mockDiscover).toHaveBeenCalledTimes(1);
+			expect(mockDiscover).toHaveBeenCalledWith(CLONE_DIR, {
+				rootName: "repo",
+			});
+			expect(outcomes).toEqual([
+				expect.objectContaining({
+					status: "updated",
+					newEntry: expect.objectContaining({ sourceSubpath: "moved/a" }),
+				}),
+				expect.objectContaining({
+					status: "updated",
+					newEntry: expect.objectContaining({ sourceSubpath: "moved/b" }),
+				}),
+			]);
+		});
+
+		it("walks each group's own clone", async () => {
+			mockDiscover
+				.mockResolvedValueOnce(movedSkills)
+				.mockResolvedValueOnce(movedSkills);
+			mockCloneSource
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-1",
+					commit: CLONE_COMMIT,
+				})
+				.mockResolvedValueOnce({
+					tempDir: "/tmp/clone-2",
+					commit: CLONE_COMMIT,
+				});
+			const first = [branchMember("owner/repo/a")];
+			const second = [branchMember("owner/repo/b")];
+
+			for (const members of [first, second]) {
+				await processGroupUpdate(
+					branchGroup(members),
+					members,
+					BRANCH_TARGET,
+					projectScope("/fake/project"),
+					installedOf(members),
+				);
+			}
+
+			expect(mockDiscover.mock.calls.map(([root]) => root)).toEqual([
+				"/tmp/clone-1",
+				"/tmp/clone-2",
+			]);
+		});
+	});
+
 	it("clones a constrained group once at the resolved target tag and records target.commit per member", async () => {
 		const members = [
 			{
@@ -1281,11 +1520,13 @@ describe("processGroupUpdate", () => {
 
 		expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 			`${CLONE_DIR}/a`,
-			CLONE_DIR,
+			{ root: CLONE_DIR, local: false },
+			expect.any(Function),
 		);
 		expect(mockScanForEscapingSymlinks).toHaveBeenCalledWith(
 			`${CLONE_DIR}/b`,
-			CLONE_DIR,
+			{ root: CLONE_DIR, local: false },
+			expect.any(Function),
 		);
 	});
 
@@ -1325,9 +1566,11 @@ describe("processGroupUpdate", () => {
 		]);
 		expect(outcomes.every((o) => o.status === "failed")).toBe(true);
 		for (const o of outcomes) {
-			expect(o.summary).toBe(
-				`${o.key}: Failed — git clone failed after 3 attempts: network error`,
-			);
+			expect(o).toEqual({
+				status: "failed",
+				key: o.key,
+				summary: `${o.key}: Failed — git clone failed after 3 attempts: network error`,
+			});
 		}
 		// The clone never produced a tempDir, so there is nothing to clean up, and no
 		// member reinstall was attempted.

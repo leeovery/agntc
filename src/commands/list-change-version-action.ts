@@ -3,11 +3,12 @@ import {
 	failureMessage,
 	isCloneReinstallFailure,
 	prepareReinstall,
+	recordReinstall,
 } from "../clone-reinstall.js";
 import { fetchRemoteTags } from "../git-utils.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { addEntry, removeEntry, writeManifest } from "../manifest.js";
+import { writeManifest } from "../manifest.js";
 import type { Scope } from "../scope.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
 import type { Ui } from "../ui.js";
@@ -18,6 +19,8 @@ import type { Ui } from "../ui.js";
  */
 export interface ChangeVersionResult {
 	changed: boolean;
+	/** The key the entry is recorded under now: the one it moved to, if it moved. */
+	key: string;
 	newEntry?: ManifestEntry;
 	message: string;
 	notes: string[];
@@ -53,7 +56,7 @@ export async function executeChangeVersionAction(
 	}
 
 	if (tags.length === 0) {
-		return unchanged("No tagged versions available");
+		return unchanged(key, "No tagged versions available");
 	}
 
 	// Newest-first, with the currently-installed tag flagged so the user can see
@@ -71,11 +74,11 @@ export async function executeChangeVersionAction(
 	});
 
 	if (selectedTag === null) {
-		return unchanged("Cancelled");
+		return unchanged(key, "Cancelled");
 	}
 
 	if (selectedTag === entry.ref) {
-		return unchanged("Already on this version");
+		return unchanged(key, "Already on this version");
 	}
 
 	// Changing version re-installs (nuke + re-copy) and pins to the exact tag
@@ -84,39 +87,52 @@ export async function executeChangeVersionAction(
 		message: `Change ${key} to ${selectedTag}? This re-installs it at the new version.`,
 	});
 	if (!confirmed) {
-		return unchanged("Cancelled");
+		return unchanged(key, "Cancelled");
 	}
 
-	const prepared = await prepareReinstall(key, entry, scope, {
+	// The change pins the entry to the chosen tag, dropping its constraint, so
+	// it reinstalls as the entry it becomes: a recovery re-adds that tag.
+	const prepared = await prepareReinstall(key, stripConstraint(entry), scope, {
 		manifest,
 		newRef: selectedTag,
 	});
 	if (!prepared.ok) {
-		return unchanged(prepared.reason);
+		return unchanged(key, prepared.reason);
 	}
 
 	const result = await cloneAndReinstall(prepared.options, ui, manifest);
 
 	if (result.status === "gone") {
 		const settled = await settleGoneInList(key, entry, manifest, scope, ui);
-		return { changed: settled.ok, message: settled.message, notes: [] };
+		return { changed: settled.ok, key, message: settled.message, notes: [] };
 	}
 	if (isCloneReinstallFailure(result)) {
-		return unchanged(failureMessage(result, key, entry, scope.name));
+		return unchanged(
+			key,
+			failureMessage(result, key, entry, scope.name, selectedTag),
+		);
 	}
 
-	const finalEntry = stripConstraint(result.manifestEntry);
-	const rest = result.absorbed.reduce(removeEntry, manifest);
-	await writeManifest(scope.root, addEntry(rest, key, finalEntry));
+	await writeManifest(
+		scope.root,
+		recordReinstall(
+			manifest,
+			key,
+			result.key,
+			result.manifestEntry,
+			result.absorbed,
+		),
+	);
 
 	return {
 		changed: true,
-		newEntry: finalEntry,
-		message: `Changed ${key} to ${selectedTag}`,
+		key: result.key,
+		newEntry: result.manifestEntry,
+		message: `Changed ${result.key} to ${selectedTag}`,
 		notes: result.notes,
 	};
 }
 
-function unchanged(message: string): ChangeVersionResult {
-	return { changed: false, message, notes: [] };
+function unchanged(key: string, message: string): ChangeVersionResult {
+	return { changed: false, key, message, notes: [] };
 }
