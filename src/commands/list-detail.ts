@@ -1,4 +1,5 @@
 import { identifyAssetType } from "../asset-targets.js";
+import { gitErrorCause } from "../errors.js";
 import type { EntryType, ManifestEntry } from "../manifest.js";
 import { formatRefLabel } from "../summary.js";
 import type { Ui } from "../ui.js";
@@ -89,6 +90,24 @@ function getActions(
 	return actions;
 }
 
+/** Why the view offers no update: no version in range, or a check that failed. */
+function reportStatusProblem(
+	entry: ManifestEntry,
+	updateStatus: UpdateCheckResult,
+	ui: Ui,
+): void {
+	if (updateStatus.status === "constrained-no-match") {
+		ui.log.error(
+			`No matching version found for constraint "${entry.constraint}"`,
+		);
+	}
+	if (updateStatus.status === "check-failed") {
+		ui.log.warn(
+			`Couldn't check for updates (${gitErrorCause(updateStatus.reason)})`,
+		);
+	}
+}
+
 export async function renderDetailView(
 	input: DetailViewInput,
 	ui: Ui,
@@ -115,11 +134,7 @@ export async function renderDetailView(
 		ui.log.info(`Assets: ${assetSummary}`);
 	}
 
-	if (updateStatus.status === "constrained-no-match") {
-		ui.log.error(
-			`No matching version found for constraint "${entry.constraint}"`,
-		);
-	}
+	reportStatusProblem(entry, updateStatus, ui);
 
 	// A tag-pinned install (ref parses as a version) can switch to any other tag,
 	// but only when we can actually reach the remote to list them.

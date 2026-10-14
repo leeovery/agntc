@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { errorMessage, isNodeError } from "../src/errors.js";
+import { errorMessage, gitErrorCause, isNodeError } from "../src/errors.js";
+import { SSH_REFUSAL } from "./helpers/git-mocks.js";
 
 describe("isNodeError", () => {
 	it("returns true for Error with code property", () => {
@@ -39,5 +40,37 @@ describe("errorMessage", () => {
 		expect(errorMessage(null)).toBe("null");
 		expect(errorMessage(undefined)).toBe("undefined");
 		expect(errorMessage({ foo: "bar" })).toBe("[object Object]");
+	});
+});
+
+describe("gitErrorCause", () => {
+	it("keeps the first line of git's error, without the advice after it", () => {
+		expect(gitErrorCause(SSH_REFUSAL)).toBe(
+			"git@github.com: Permission denied (publickey).",
+		);
+	});
+
+	it("skips blank lines to reach the first one with words", () => {
+		expect(gitErrorCause("\n  \n  remote: Repository not found.\n")).toBe(
+			"remote: Repository not found.",
+		);
+	});
+
+	it("takes git's fatal: off the line it keeps", () => {
+		expect(
+			gitErrorCause(
+				"fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com\n",
+			),
+		).toBe(
+			"unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com",
+		);
+	});
+
+	it("leaves a fatal: that isn't the line's start alone", () => {
+		expect(gitErrorCause("ssh: fatal: no route")).toBe("ssh: fatal: no route");
+	});
+
+	it("keeps a one-line message as it is", () => {
+		expect(gitErrorCause("network timeout")).toBe("network timeout");
 	});
 });

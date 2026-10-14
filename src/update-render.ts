@@ -1,3 +1,4 @@
+import { gitErrorCause } from "./errors.js";
 import { repoFromKey } from "./source-parser.js";
 import { upgradeAdvice } from "./summary.js";
 import type { EntryGroup } from "./update-groups.js";
@@ -73,13 +74,13 @@ export function formatNewerTagsLine(
 }
 
 /**
- * The collapsed trailing line for a check-failed group — one line carrying the
- * group's single shared probe reason. A group's resolution probe is
- * one network round-trip, so a failure is group-level: it count-collapses rather
- * than enumerating the members.
+ * The one line a failed update check prints: the collapsed trailing line for a
+ * check-failed group (its one probe's reason, never one line per member), and
+ * the single-key failure. `label` names the group or the key. The reason is cut
+ * to its cause ({@link gitErrorCause}); a machine document keeps it whole.
  */
 export function formatCheckFailedLine(label: string, reason: string): string {
-	return `${label}: check failed — ${reason}`;
+	return `${label}: couldn't check for updates (${gitErrorCause(reason)}) — left untouched`;
 }
 
 /**

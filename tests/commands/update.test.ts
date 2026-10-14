@@ -164,6 +164,7 @@ const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 import { globalScope } from "../../src/scope.js";
 import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
+import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 import { clackCalls, runMachine } from "../helpers/machine.js";
 
 const INSTALLED_SHA = "a".repeat(40);
@@ -480,19 +481,9 @@ describe("update command", () => {
 
 			await runUpdate();
 
-			// Should not throw (continues)
-			// Summary should mention the failure
-			const allLogCalls = [
-				...mockLog.warn.mock.calls.map((c) => c[0]),
-				...mockLog.message.mock.calls.map((c) => c[0]),
-				...mockLog.info.mock.calls.map((c) => c[0]),
-			];
-			const hasFailedNote = allLogCalls.some(
-				(msg) =>
-					typeof msg === "string" &&
-					(msg.includes("failed") || msg.includes("Failed")),
+			expect(mockLog.warn).toHaveBeenCalledWith(
+				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
-			expect(hasFailedNote).toBe(true);
 		});
 
 		it("all-plugins update emits no check-failed warning for a v4-branch entry resolving to a real status", async () => {
@@ -1858,11 +1849,31 @@ describe("update command", () => {
 			expect(err).toBeUndefined();
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 			// ONE collapsed line carrying the shared probe reason — no per-member enumeration.
-			expect(warnCalls).toContain(`owner/repo: check failed — ${REASON}`);
-			expect(warnCalls.filter((m) => m.includes("check failed"))).toHaveLength(
-				1,
+			expect(warnCalls).toContain(
+				`owner/repo: couldn't check for updates (${REASON}) — left untouched`,
 			);
+			expect(
+				warnCalls.filter((m) => m.includes("couldn't check for updates")),
+			).toHaveLength(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
+		});
+
+		it("collapses git's error in a check-failed group to its one-line cause", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"leeovery/agentic-workflows": member("agentic-workflows"),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "check-failed",
+				reason: SSH_REFUSAL,
+			});
+
+			await runUpdate();
+
+			expect(mockLog.warn.mock.calls).toEqual([
+				[
+					"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+				],
+			]);
 		});
 
 		it("collapses a constrained-no-match group to one line with the shared constraint", async () => {
@@ -2028,8 +2039,26 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Update check failed for owner/repo: network timeout",
+				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
+		});
+
+		it("prints git's error as its one-line cause", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry(),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: SSH_REFUSAL,
+			});
+
+			await runUpdate("owner/repo").catch(() => undefined);
+
+			expect(mockLog.error.mock.calls).toEqual([
+				[
+					"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+				],
+			]);
 		});
 	});
 
@@ -3152,10 +3181,10 @@ describe("update command", () => {
 			// failure is one shared reason, never one line per member.
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 			const checkFailedLines = warnCalls.filter((m) =>
-				m.includes("check failed"),
+				m.includes("couldn't check for updates"),
 			);
 			expect(checkFailedLines).toEqual([
-				`owner/repo: check failed — ${PROBE_REASON}`,
+				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
 			]);
 		});
 
@@ -3227,7 +3256,9 @@ describe("update command", () => {
 
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
 			// One group line keyed by the group label (task 2-5)...
-			expect(warnCalls).toContain(`owner/repo: check failed — ${PROBE_REASON}`);
+			expect(warnCalls).toContain(
+				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
+			);
 			// ...and the individual member keys never each surface a line.
 			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
 				expect(warnCalls.some((m) => m.startsWith(`${key}:`))).toBe(false);
@@ -3289,7 +3320,7 @@ describe("update command", () => {
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				"Update check failed for owner/repo: network timeout",
+				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
 		});
 
@@ -3347,7 +3378,9 @@ describe("update command", () => {
 			expect(err).toBeUndefined();
 			// Surfaced via warn, NOT error.
 			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-			expect(warnCalls).toContain(`owner/repo-a: check failed — ${REASON}`);
+			expect(warnCalls).toContain(
+				`owner/repo-a: couldn't check for updates (${REASON}) — left untouched`,
+			);
 			expect(mockLog.error).not.toHaveBeenCalled();
 			// The check-failed group mutates no manifest state (probe failed before any
 			// clone); the succeeding sibling B still persists.
@@ -3648,7 +3681,7 @@ describe("update command", () => {
 				(c) => c[0] as string,
 			);
 			expect(warnCalls).toContain(
-				`owner/checkfail: check failed — ${CHECK_REASON}`,
+				`owner/checkfail: couldn't check for updates (${CHECK_REASON}) — left untouched`,
 			);
 			expect(warnCalls).toContain(
 				"owner/nomatch: no tags satisfy ^2.0 — left untouched",
@@ -6219,6 +6252,19 @@ describe("update without a terminal", () => {
 		});
 	});
 
+	it("keeps git's whole error in a failed check's reason", async () => {
+		mockReadManifestOrExit.mockResolvedValue({
+			"owner/a": makeEntry({ commit: INSTALLED_SHA }),
+		});
+		targetsByKey({ "owner/a": { kind: "check-failed", reason: SSH_REFUSAL } });
+
+		const run = await runMachine(updateCommand, []);
+
+		expect(run.document).toMatchObject({
+			items: [{ key: "owner/a", status: "check-failed", reason: SSH_REFUSAL }],
+		});
+	});
+
 	it("carries a reinstall's note as a note", async () => {
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/repo/swift": makeEntry({
@@ -6316,6 +6362,24 @@ describe("update without a terminal", () => {
 				],
 			});
 			expect(mockWriteManifest).not.toHaveBeenCalled();
+		});
+
+		it("keeps git's whole error in a failed check's reason", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({ commit: INSTALLED_SHA }),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "check-failed",
+				reason: SSH_REFUSAL,
+			});
+
+			const run = await runMachine(updateCommand, ["owner/repo"]);
+
+			expect(run.document).toMatchObject({
+				items: [
+					{ key: "owner/repo", status: "check-failed", reason: SSH_REFUSAL },
+				],
+			});
 		});
 
 		it("prints an error document for a key that isn't installed", async () => {
@@ -6534,7 +6598,7 @@ describe("a key naming several entries", () => {
 			"owner/two/b": updated("b"),
 		});
 		expect(mockLog.warn).toHaveBeenCalledWith(
-			"owner/one: check failed — network timeout",
+			"owner/one: couldn't check for updates (network timeout) — left untouched",
 		);
 	});
 

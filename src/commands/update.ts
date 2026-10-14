@@ -266,7 +266,7 @@ async function settleKey(
 		case "constrained-up-to-date":
 			return reportUpToDate(key, ui);
 		case "check-failed":
-			ui.log.error(`Update check failed for ${key}: ${check.reason}`);
+			ui.log.error(formatCheckFailedLine(key, check.reason));
 			return { status: "check-failed", key };
 		case "newer-tags":
 			reportNewerTags(member, check.tags, run);

@@ -24,7 +24,7 @@ vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 
 vi.mock("../../src/git-utils.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-utils.js")>()),
-	execGit: vi.fn(),
+	lsRemote: vi.fn(),
 	fetchRemoteTagRefs: vi.fn(),
 	fetchRemoteTags: vi.fn(),
 }));
@@ -41,9 +41,9 @@ import { runUpdate, updateCommand } from "../../src/commands/update.js";
 import { groupReAddCommands, reAddCommand } from "../../src/entry-source.js";
 import { cloneSource } from "../../src/git-clone.js";
 import {
-	execGit,
 	fetchRemoteTagRefs,
 	fetchRemoteTags,
+	lsRemote,
 } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
@@ -51,7 +51,7 @@ import { resolveGroupTarget } from "../../src/update-check.js";
 import { type MachineRun, runMachine } from "../helpers/machine.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
-const mockExecGit = vi.mocked(execGit);
+const mockLsRemote = vi.mocked(lsRemote);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockFetchRemoteTagRefs = vi.mocked(fetchRemoteTagRefs);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
@@ -93,7 +93,7 @@ beforeEach(async () => {
 		kind: "head",
 		resolvedSha: head,
 	}));
-	mockExecGit.mockImplementation(async ([, , ...refs]: string[]) => ({
+	mockLsRemote.mockImplementation(async ([, ...refs]: string[]) => ({
 		stdout: refs.includes("HEAD") ? `${head}\tHEAD` : "",
 		stderr: "",
 	}));

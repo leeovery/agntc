@@ -6,6 +6,9 @@ import {
 	buildRefProbeOutput,
 	buildTagsOutput,
 	mockExecFile,
+	mockExecFileFailingFirst,
+	SSH_REFUSAL,
+	settle,
 } from "./helpers/git-mocks.js";
 
 vi.mock("node:child_process");
@@ -42,11 +45,17 @@ function mockLsRemote(routes: { probe?: string; tags?: string }): void {
 
 beforeEach(() => {
 	vi.restoreAllMocks();
+	vi.useFakeTimers();
 });
 
 afterEach(() => {
+	vi.useRealTimers();
 	vi.restoreAllMocks();
 });
+
+function lsRemoteCalls(): number {
+	return vi.mocked(childProcess.execFile).mock.calls.length;
+}
 
 describe("checkForUpdate", () => {
 	describe("local installs", () => {
@@ -393,16 +402,67 @@ describe("checkForUpdate", () => {
 			});
 		});
 
-		it("returns check-failed carrying the underlying message when the probe errors", async () => {
-			mockLsRemoteFailure("fatal: could not read from remote repository");
+		it("returns check-failed carrying the underlying message when every probe attempt errors", async () => {
+			mockLsRemoteFailure(SSH_REFUSAL);
 			const entry = makeEntry({ ref: "v4", commit: INSTALLED_SHA });
 
-			const result = await checkForUpdate("owner/repo", entry);
+			const result = await settle(checkForUpdate("owner/repo", entry));
+
+			expect(result).toEqual({ status: "check-failed", reason: SSH_REFUSAL });
+			expect(lsRemoteCalls()).toBe(3);
+		});
+
+		it("passes when the probe succeeds on its second attempt", async () => {
+			mockExecFileFailingFirst(
+				1,
+				SSH_REFUSAL,
+				buildRefProbeOutput({ head: { ref: "main", sha: REMOTE_SHA } }),
+			);
+			const entry = makeEntry({ ref: "main", commit: INSTALLED_SHA });
+
+			const result = await settle(checkForUpdate("owner/repo", entry));
 
 			expect(result).toEqual({
-				status: "check-failed",
-				reason: "fatal: could not read from remote repository",
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
 			});
+		});
+
+		it("passes when a pinned tag's tag list succeeds on its second attempt", async () => {
+			let tagListCalls = 0;
+			mockExecFile((_cmd, args, _opts, cb) => {
+				if (!args.includes("--tags")) {
+					cb(
+						null,
+						buildRefProbeOutput({ tag: { ref: "v1.0.0", sha: OTHER_SHA } }),
+						"",
+					);
+					return;
+				}
+				tagListCalls++;
+				if (tagListCalls === 1) {
+					cb(
+						Object.assign(new Error(SSH_REFUSAL), { stderr: SSH_REFUSAL }),
+						"",
+						SSH_REFUSAL,
+					);
+					return;
+				}
+				cb(
+					null,
+					buildTagsOutput([
+						{ sha: OTHER_SHA, tag: "v1.0.0" },
+						{ sha: REMOTE_SHA, tag: "v1.1.0" },
+					]),
+					"",
+				);
+			});
+			const entry = makeEntry({ ref: "v1.0.0", commit: OTHER_SHA });
+
+			const result = await settle(checkForUpdate("owner/repo", entry));
+
+			expect(result).toEqual({ status: "newer-tags", tags: ["v1.1.0"] });
+			expect(tagListCalls).toBe(2);
 		});
 
 		it("issues the probe with a 15s timeout (not execGit's 30s default)", async () => {
@@ -420,16 +480,30 @@ describe("checkForUpdate", () => {
 	});
 
 	describe("ls-remote failure (HEAD path)", () => {
-		it("returns check-failed when ls-remote errors", async () => {
+		it("returns check-failed when every ls-remote attempt errors", async () => {
 			mockLsRemoteFailure("fatal: could not read from remote repository");
 			const entry = makeEntry({ ref: null, commit: INSTALLED_SHA });
 
-			const result = await checkForUpdate("owner/repo", entry);
+			const result = await settle(checkForUpdate("owner/repo", entry));
 
 			expect(result).toEqual({
 				status: "check-failed",
 				reason: "fatal: could not read from remote repository",
 			});
+			expect(lsRemoteCalls()).toBe(3);
+		});
+
+		it("passes when ls-remote succeeds on its second attempt", async () => {
+			mockExecFileFailingFirst(1, SSH_REFUSAL, `${REMOTE_SHA}\tHEAD\n`);
+			const entry = makeEntry({ ref: null, commit: INSTALLED_SHA });
+
+			const result = await settle(checkForUpdate("owner/repo", entry));
+
+			expect(result).toEqual({
+				status: "update-available",
+				remoteCommit: REMOTE_SHA,
+			});
+			expect(lsRemoteCalls()).toBe(2);
 		});
 
 		it("returns check-failed on timeout", async () => {
@@ -443,7 +517,7 @@ describe("checkForUpdate", () => {
 			});
 			const entry = makeEntry({ ref: null, commit: INSTALLED_SHA });
 
-			const result = await checkForUpdate("owner/repo", entry);
+			const result = await settle(checkForUpdate("owner/repo", entry));
 
 			expect(result).toEqual({
 				status: "check-failed",

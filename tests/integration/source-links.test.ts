@@ -22,7 +22,7 @@ vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 
 vi.mock("../../src/git-utils.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-utils.js")>()),
-	execGit: vi.fn(async () => ({ stdout: "", stderr: "" })),
+	lsRemote: vi.fn(async () => ({ stdout: "", stderr: "" })),
 	fetchRemoteTags: vi.fn(async () => []),
 }));
 

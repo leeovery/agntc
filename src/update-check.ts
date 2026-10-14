@@ -1,4 +1,4 @@
-import { execGit, fetchRemoteTagRefs } from "./git-utils.js";
+import { fetchRemoteTagRefs, lsRemote } from "./git-utils.js";
 import type { ManifestEntry } from "./manifest.js";
 import { deriveCloneUrlFromKey } from "./source-parser.js";
 import type { EntryGroup } from "./update-groups.js";
@@ -215,10 +215,11 @@ async function resolveRefTarget(
 ): Promise<GroupTarget> {
 	let stdout: string;
 	try {
-		({ stdout } = await execGit(
-			["ls-remote", url, `refs/heads/${ref}`, `refs/tags/${ref}`],
-			{ timeout: 15_000 },
-		));
+		({ stdout } = await lsRemote([
+			url,
+			`refs/heads/${ref}`,
+			`refs/tags/${ref}`,
+		]));
 	} catch (err: unknown) {
 		return { kind: "check-failed", reason: (err as Error).message };
 	}
@@ -241,9 +242,7 @@ async function resolveRefTarget(
 
 async function resolveHeadTarget(url: string): Promise<GroupTarget> {
 	try {
-		const { stdout } = await execGit(["ls-remote", url, "HEAD"], {
-			timeout: 15_000,
-		});
+		const { stdout } = await lsRemote([url, "HEAD"]);
 		const remoteSha = parseLsRemoteSha(stdout);
 		if (remoteSha === null) {
 			return { kind: "check-failed", reason: "No HEAD ref found on remote" };

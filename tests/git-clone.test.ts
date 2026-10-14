@@ -226,18 +226,38 @@ describe("cloneSource", () => {
 		expect(cloneCalls.length).toBe(1);
 	});
 
-	it("detects auth failure from 'Permission denied' stderr", async () => {
-		mockExecFileFailure("Permission denied (publickey)");
+	it("retries an SSH 'Permission denied', which a later attempt can pass", async () => {
+		mockExecFileFailure("git@github.com: Permission denied (publickey).");
 
 		const err = await runAndReject(makeParsed());
-		expect(err.message).toMatch(/Permission denied/);
+		expect(err.message).toBe(
+			"git clone failed after 3 attempts: git@github.com: Permission denied (publickey).",
+		);
 
 		const execFileMock = vi.mocked(childProcess.execFile);
 		const cloneCalls = execFileMock.mock.calls.filter((call) => {
 			const args = call[1] as string[];
 			return args.includes("clone");
 		});
-		expect(cloneCalls.length).toBe(1);
+		expect(cloneCalls.length).toBe(3);
+	});
+
+	it("succeeds on the second attempt after 'Permission denied (publickey)'", async () => {
+		mockExecFileFailure(
+			"git@github.com: Permission denied (publickey).",
+			128,
+			1,
+		);
+
+		const promise = cloneSource(makeParsed());
+		await vi.runAllTimersAsync();
+		const result = await promise;
+
+		expect(result).toEqual({ tempDir: FAKE_TEMPDIR, commit: FAKE_SHA });
+		const cloneCalls = vi
+			.mocked(childProcess.execFile)
+			.mock.calls.filter((call) => (call[1] as string[]).includes("clone"));
+		expect(cloneCalls.length).toBe(2);
 	});
 
 	it("detects auth failure from 'could not read Username' stderr", async () => {
