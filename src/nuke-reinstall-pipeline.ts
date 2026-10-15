@@ -143,15 +143,10 @@ interface NukeReinstallRemoveFailed {
 	reason: string;
 }
 
-/** An item as the entry it would be, under the key `add` gives it. */
+/** An item as a remedy re-adds it, under the entry's source key. */
 interface ReplayedItem {
 	key: string;
 	entry: ManifestEntry;
-}
-
-/** A skill a moved entry could follow, at its path in the source. */
-interface MoveCandidate extends ReplayedItem {
-	path: string;
 }
 
 /**
@@ -178,15 +173,16 @@ interface NukeReinstallAborted {
 	 */
 	sourceClash?: true;
 	/**
-	 * The item as the replay found it, under the key `add` gives it: set when
-	 * the abort came after a replay, for a remedy that adds it again.
+	 * The item the replay found, as the remedy re-adds it, under the entry's
+	 * source key: set when the abort came after a replay.
 	 */
 	replayed?: ReplayedItem;
 	/**
-	 * What stopped it was several skills, in path order, now carrying the name
-	 * of a skill gone from its path, for a remedy that adds one of them.
+	 * What stopped it was several skills now carrying the name of a skill gone
+	 * from its path: each, in path order, as the remedy re-adds it, under the
+	 * entry's source key.
 	 */
-	candidates?: MoveCandidate[];
+	candidates?: ReplayedItem[];
 }
 
 /**
@@ -287,7 +283,8 @@ async function clearReplay(
 			: { status: "aborted", ...replay.abort };
 	}
 
-	const { keyed } = keyReplay(options, replay);
+	const keyedReplay = keyReplay(options, replay);
+	const { keyed } = keyedReplay;
 	const incoming = await computeIncomingFiles(replay.item, cloneRoot);
 	const dropped = await droppedButInSource(
 		existingEntry.files,
@@ -300,7 +297,7 @@ async function clearReplay(
 			status: "aborted",
 			reason: droppedReason(dropped),
 			stillInSource: true,
-			replayed: replayedAs(options, { replay, keyed }),
+			replayed: replayedAs(options, keyedReplay),
 		};
 	}
 	const way = await inTheWayOf(replay.item, incoming, options);
@@ -309,7 +306,7 @@ async function clearReplay(
 			status: "aborted",
 			reason: `it would move to ${keyed.key}, which is already installed`,
 			takenKey: keyed.key,
-			replayed: replayedAs(options, { replay, keyed }),
+			replayed: replayedAs(options, keyedReplay),
 		};
 	}
 	if (way.clashes.size > 0 || way.unmanaged.length > 0) {
@@ -317,7 +314,7 @@ async function clearReplay(
 			status: "aborted",
 			reason: inTheWayReason(way),
 			inTheWay: true,
-			replayed: replayedAs(options, { replay, keyed }),
+			replayed: replayedAs(options, keyedReplay),
 		};
 	}
 
@@ -326,7 +323,12 @@ async function clearReplay(
 	if (!symlinkCheck.ok) {
 		return { status: "blocked", reason: symlinkCheck.message };
 	}
-	return { status: "cleared", replay, keyed, absorbed: way.absorbed, source };
+	return {
+		status: "cleared",
+		...keyedReplay,
+		absorbed: way.absorbed,
+		source,
+	};
 }
 
 async function reinstall(
@@ -427,13 +429,12 @@ async function followMovedSkill(
 			ok: false,
 			abort: {
 				reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.map(label).join(", ")}`,
-				candidates: matches.map((path) => ({
-					path,
-					...replayedAs(
+				candidates: matches.map((path) =>
+					replayedAs(
 						options,
 						keyReplay(options, { ok: true, item: skillAt(path, name) }),
 					),
-				})),
+				),
 			},
 		};
 	}
@@ -606,8 +607,7 @@ function keyReplay(
 }
 
 /**
- * The replayed item as the entry it would be, under the key `add` gives it:
- * what a remedy that adds it again installs.
+ * The replayed item as a remedy re-adds it, under the entry's source key.
  */
 function replayedAs(
 	options: NukeReinstallOptions,

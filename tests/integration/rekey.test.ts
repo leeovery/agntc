@@ -989,7 +989,7 @@ describe("a skill gone from its path whose name several skills now carry", () =>
 			/To follow one of them: (npx agntc remove .+) then one of: (.+)$/.exec(
 				message,
 			) ?? [];
-		const lines = adds.split("; ");
+		const lines = adds.split(" or ");
 		expect(lines).toHaveLength(candidates.length);
 		expect((await runPrinted(remove, "-y")).exitCode).toBe(0);
 		for (const [i, candidate] of candidates.entries()) {
@@ -1021,7 +1021,7 @@ describe("a skill gone from its path whose name several skills now carry", () =>
 		await expectAbortThenEachAddFollows(
 			update,
 			"owner/repo/go",
-			"owner/repo/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/skills/go. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo/go then one of: npx agntc add owner/repo/lang/go; npx agntc add owner/repo/tools/skills/go",
+			"owner/repo/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/skills/go. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo/go then one of: npx agntc add owner/repo/lang/go or npx agntc add owner/repo/tools/skills/go",
 			[
 				{ key: "owner/repo/go", content: "lang go" },
 				{ key: "owner/repo/go", content: "tools go" },
@@ -1040,7 +1040,7 @@ describe("a skill gone from its path whose name several skills now carry", () =>
 		await expectAbortThenEachAddFollows(
 			["owner/my-skill"],
 			"owner/my-skill",
-			"owner/my-skill can't be updated: its SKILL.md is gone from my-skill and 2 skills are now named my-skill: a/my-skill, b/my-skill. The existing install is unchanged. To follow one of them: npx agntc remove owner/my-skill then one of: npx agntc add owner/my-skill/a/my-skill; npx agntc add owner/my-skill/b/my-skill",
+			"owner/my-skill can't be updated: its SKILL.md is gone from my-skill and 2 skills are now named my-skill: a/my-skill, b/my-skill. The existing install is unchanged. To follow one of them: npx agntc remove owner/my-skill then one of: npx agntc add owner/my-skill/a/my-skill or npx agntc add owner/my-skill/b/my-skill",
 			[
 				{ key: "owner/my-skill/my-skill", content: "a v2" },
 				{ key: "owner/my-skill/my-skill", content: "b v2" },
@@ -1065,7 +1065,7 @@ describe("a skill gone from its path whose name several skills now carry", () =>
 		await expectAbortThenEachAddFollows(
 			[],
 			key,
-			`${key} can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove ${key} then one of: npx agntc add ${join(source, "lang/go")}; npx agntc add ${join(source, "tools/go")}`,
+			`${key} can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove ${key} then one of: npx agntc add ${join(source, "lang/go")} or npx agntc add ${join(source, "tools/go")}`,
 			[
 				{ key: join(source, "lang/go"), content: "lang go" },
 				{ key: join(source, "tools/go"), content: "tools go" },

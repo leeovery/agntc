@@ -2197,13 +2197,13 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 				makeEntry({ type: "skill", sourceSubpath: "skills/go" }),
 			),
 		).toBe(
-			"owner/repo/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo/go then one of: npx agntc add owner/repo/lang/go; npx agntc add owner/repo/tools/go",
+			"owner/repo/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo/go then one of: npx agntc add owner/repo/lang/go or npx agntc add owner/repo/tools/go",
 		);
 	});
 
 	it("adds a root skill's namesakes by their paths, each keyed by its folder", async () => {
 		expect(await abortMessage("owner/repo", makeEntry({ type: "skill" }))).toBe(
-			"owner/repo can't be updated: its SKILL.md is gone from repo and 2 skills are now named repo: lang/repo, tools/repo. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo then one of: npx agntc add owner/repo/lang/repo; npx agntc add owner/repo/tools/repo",
+			"owner/repo can't be updated: its SKILL.md is gone from repo and 2 skills are now named repo: lang/repo, tools/repo. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo then one of: npx agntc add owner/repo/lang/repo or npx agntc add owner/repo/tools/repo",
 		);
 	});
 
@@ -2220,7 +2220,7 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 				{ sourceDir: "/src/kit" },
 			),
 		).toBe(
-			"/src/kit/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove /src/kit/go then one of: npx agntc add /src/kit/lang/go; npx agntc add /src/kit/tools/go",
+			"/src/kit/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove /src/kit/go then one of: npx agntc add /src/kit/lang/go or npx agntc add /src/kit/tools/go",
 		);
 	});
 
@@ -2232,7 +2232,7 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 				{ newRef: "v2.0.0", version: "v2.0.0" },
 			),
 		).toMatch(
-			/then one of: npx agntc add owner\/repo\/lang\/go@v2\.0\.0; npx agntc add owner\/repo\/tools\/go@v2\.0\.0$/,
+			/then one of: npx agntc add owner\/repo\/lang\/go@v2\.0\.0 or npx agntc add owner\/repo\/tools\/go@v2\.0\.0$/,
 		);
 	});
 
@@ -2249,7 +2249,29 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 				{ newRef: "v1.3.0" },
 			),
 		).toMatch(
-			/then one of: npx agntc add 'owner\/repo\/lang\/go@\^1\.0\.0'; npx agntc add 'owner\/repo\/tools\/go@\^1\.0\.0'$/,
+			/then one of: npx agntc add 'owner\/repo\/lang\/go@\^1\.0\.0' or npx agntc add 'owner\/repo\/tools\/go@\^1\.0\.0'$/,
+		);
+	});
+
+	it("joins three or more adds by or, never by a shell separator", () => {
+		const at = (sourceSubpath: string) => ({
+			key: "owner/repo/go",
+			entry: makeEntry({ type: "skill", sourceSubpath }),
+		});
+
+		expect(
+			buildAbortMessage(
+				"owner/repo/go",
+				makeEntry({ type: "skill", sourceSubpath: "skills/go" }),
+				{
+					reason:
+						"its SKILL.md is gone from skills/go and 3 skills are now named go: a/go, b/go, c/go",
+					candidates: [at("a/go"), at("b/go"), at("c/go")],
+				},
+				"project",
+			),
+		).toMatch(
+			/then one of: npx agntc add owner\/repo\/a\/go or npx agntc add owner\/repo\/b\/go or npx agntc add owner\/repo\/c\/go$/,
 		);
 	});
 });

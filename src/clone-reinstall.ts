@@ -264,8 +264,9 @@ export type CloneReinstallResult =
  * remedy: an add would refuse them too. A key taken by another entry is freed
  * by removing that entry, after which update moves this one there: an add
  * would refuse the taken key too. A skill gone from its path whose name
- * several skills now carry is removed, then one of those added, each as
- * `add` keys it. Any other abort migrates by remove+add.
+ * several skills now carry is removed, then one of those added: the add
+ * lines are alternatives, joined by "or" so none reads as a shell sequence.
+ * Any other abort migrates by remove+add.
  * Distinct from the copy-failed report, which tells the user the unit is
  * currently uninstalled and to re-run update — here nothing was touched.
  *
@@ -314,7 +315,7 @@ export function buildAbortMessage(
 		return (
 			`${key} can't be updated: ${reason}. The existing install is ` +
 			`unchanged. To follow one of them: ${remove} then one of: ` +
-			adds.join("; ")
+			adds.join(" or ")
 		);
 	}
 	const reAdd = restoreCommand(

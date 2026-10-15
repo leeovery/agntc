@@ -794,7 +794,7 @@ describe("executeNukeAndReinstall", () => {
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 
-		it("carries each skill of that name, in path order, as the entry add would give it", async () => {
+		it("carries each skill of that name, in path order, as the remedy re-adds it under the entry's source key", async () => {
 			mockDiscover.mockResolvedValue(
 				looseSkills(
 					{ name: "go", path: "tools/go" },
@@ -829,12 +829,10 @@ describe("executeNukeAndReinstall", () => {
 			});
 			expect(result.candidates).toEqual([
 				{
-					path: "lang/go",
 					key: "owner/repo/go",
 					entry: expect.objectContaining(asAdded("lang/go")),
 				},
 				{
-					path: "tools/go",
 					key: "owner/repo/go",
 					entry: expect.objectContaining(asAdded("tools/go")),
 				},
@@ -867,12 +865,10 @@ describe("executeNukeAndReinstall", () => {
 				status: "aborted",
 				candidates: [
 					{
-						path: "lang/go",
 						key: "/src/kit/go",
 						entry: { localRoot: "/src/kit", sourceSubpath: "lang/go" },
 					},
 					{
-						path: "tools/go",
 						key: "/src/kit/go",
 						entry: { localRoot: "/src/kit", sourceSubpath: "tools/go" },
 					},

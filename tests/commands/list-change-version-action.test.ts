@@ -756,7 +756,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe(
-				"owner/repo can't be updated: its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo then one of: npx agntc add owner/repo/a/repo@v1.1.0; npx agntc add owner/repo/b/repo@v1.1.0",
+				"owner/repo can't be updated: its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo then one of: npx agntc add owner/repo/a/repo@v1.1.0 or npx agntc add owner/repo/b/repo@v1.1.0",
 			);
 			expect(result.newEntry).toBeUndefined();
 			// Install intact: no nuke, no manifest write.
@@ -783,7 +783,7 @@ describe("executeChangeVersionAction", () => {
 			);
 
 			expect(result.message).toContain(
-				"To follow one of them: npx agntc remove -g owner/repo then one of: npx agntc add -g owner/repo/a/repo@v1.1.0; npx agntc add -g owner/repo/b/repo@v1.1.0",
+				"To follow one of them: npx agntc remove -g owner/repo then one of: npx agntc add -g owner/repo/a/repo@v1.1.0 or npx agntc add -g owner/repo/b/repo@v1.1.0",
 			);
 		});
 
