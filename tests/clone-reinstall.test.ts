@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Manifest } from "../src/manifest.js";
+import type { Manifest, ManifestEntry } from "../src/manifest.js";
 
 vi.mock("@clack/prompts", () => ({
 	spinner: vi.fn(() => ({
@@ -305,7 +305,7 @@ describe("cloneAndReinstall", () => {
 				{},
 			);
 
-			expect(result).toEqual({
+			expect(result).toMatchObject({
 				status: "aborted",
 				reason:
 					"its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo",
@@ -2141,6 +2141,115 @@ describe("buildAbortMessage for a version change", () => {
 			),
 		).toBe(
 			"owner/repo/packs/foo can't be updated: files are in the way. The existing install is unchanged. Clear them and change it to v2.0.0 again, or replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo@v2.0.0 --overwrite",
+		);
+	});
+});
+
+describe("buildAbortMessage for a skill several skills now carry the name of", () => {
+	/** Updates `key` from a source where its SKILL.md is gone and `go` sits at lang/go and tools/go. */
+	async function abortMessage(
+		key: string,
+		entry: ManifestEntry,
+		{
+			sourceDir,
+			newRef,
+			version,
+		}: { sourceDir?: string; newRef?: string; version?: string } = {},
+	): Promise<string> {
+		const name = key.split("/").at(-1) ?? "";
+		mockCloneSource.mockResolvedValue({
+			tempDir: "/tmp/agntc-clone",
+			commit: REMOTE_SHA,
+		});
+		mockPathExists.mockResolvedValue(false);
+		mockDiscover.mockResolvedValue({
+			packs: [],
+			skills: [
+				{ name, path: `tools/${name}` },
+				{ name, path: `lang/${name}` },
+			],
+			strays: [],
+		});
+
+		const result = await cloneAndReinstall(
+			{
+				key,
+				entry,
+				scope: projectScope("/fake/project"),
+				...(sourceDir !== undefined ? { sourceDir } : {}),
+				...(newRef !== undefined ? { newRef } : {}),
+			},
+			interactiveUi,
+			{ [key]: entry },
+		);
+
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		if (!isCloneReinstallFailure(result)) {
+			throw new Error(`expected an abort, got ${result.status}`);
+		}
+		return failureMessage(result, key, entry, "project", version);
+	}
+
+	it("removes a remote skill recorded at a path, then adds one of those skills", async () => {
+		expect(
+			await abortMessage(
+				"owner/repo/go",
+				makeEntry({ type: "skill", sourceSubpath: "skills/go" }),
+			),
+		).toBe(
+			"owner/repo/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo/go then one of: npx agntc add owner/repo/lang/go; npx agntc add owner/repo/tools/go",
+		);
+	});
+
+	it("adds a root skill's namesakes by their paths, each keyed by its folder", async () => {
+		expect(await abortMessage("owner/repo", makeEntry({ type: "skill" }))).toBe(
+			"owner/repo can't be updated: its SKILL.md is gone from repo and 2 skills are now named repo: lang/repo, tools/repo. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo then one of: npx agntc add owner/repo/lang/repo; npx agntc add owner/repo/tools/repo",
+		);
+	});
+
+	it("adds a local skill's namesakes by their folders below the root", async () => {
+		expect(
+			await abortMessage(
+				"/src/kit/go",
+				makeEntry({
+					type: "skill",
+					commit: null,
+					localRoot: "/src/kit",
+					sourceSubpath: "skills/go",
+				}),
+				{ sourceDir: "/src/kit" },
+			),
+		).toBe(
+			"/src/kit/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove /src/kit/go then one of: npx agntc add /src/kit/lang/go; npx agntc add /src/kit/tools/go",
+		);
+	});
+
+	it("pins the tag a version change picked on each add", async () => {
+		expect(
+			await abortMessage(
+				"owner/repo/go",
+				makeEntry({ type: "skill", ref: "v1.0.0", sourceSubpath: "skills/go" }),
+				{ newRef: "v2.0.0", version: "v2.0.0" },
+			),
+		).toMatch(
+			/then one of: npx agntc add owner\/repo\/lang\/go@v2\.0\.0; npx agntc add owner\/repo\/tools\/go@v2\.0\.0$/,
+		);
+	});
+
+	it("keeps a constrained entry's caret on each add", async () => {
+		expect(
+			await abortMessage(
+				"owner/repo/go",
+				makeEntry({
+					type: "skill",
+					ref: "v1.2.0",
+					constraint: "^1.0.0",
+					sourceSubpath: "skills/go",
+				}),
+				{ newRef: "v1.3.0" },
+			),
+		).toMatch(
+			/then one of: npx agntc add 'owner\/repo\/lang\/go@\^1\.0\.0'; npx agntc add 'owner\/repo\/tools\/go@\^1\.0\.0'$/,
 		);
 	});
 });

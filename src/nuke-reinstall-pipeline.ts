@@ -143,6 +143,17 @@ interface NukeReinstallRemoveFailed {
 	reason: string;
 }
 
+/** An item as the entry it would be, under the key `add` gives it. */
+interface ReplayedItem {
+	key: string;
+	entry: ManifestEntry;
+}
+
+/** A skill a moved entry could follow, at its path in the source. */
+interface MoveCandidate extends ReplayedItem {
+	path: string;
+}
+
 /**
  * The re-cloned tree can't be replayed for the entry, the replay would remove
  * folders the source still has, or files are in the way of what it would
@@ -170,7 +181,12 @@ interface NukeReinstallAborted {
 	 * The item as the replay found it, under the key `add` gives it: set when
 	 * the abort came after a replay, for a remedy that adds it again.
 	 */
-	replayed?: { key: string; entry: ManifestEntry };
+	replayed?: ReplayedItem;
+	/**
+	 * What stopped it was several skills, in path order, now carrying the name
+	 * of a skill gone from its path, for a remedy that adds one of them.
+	 */
+	candidates?: MoveCandidate[];
 }
 
 /**
@@ -203,14 +219,22 @@ export type NukeReinstallResult =
 /** What the re-cloned source now offers for an entry, decided before any delete. */
 type Replay =
 	| { ok: true; item: InstallItem; note?: string }
-	| { ok: false; abort: Pick<NukeReinstallAborted, "reason" | "sourceClash"> }
+	| {
+			ok: false;
+			abort: Pick<
+				NukeReinstallAborted,
+				"reason" | "sourceClash" | "candidates"
+			>;
+	  }
 	| { ok: false; gone: true };
 
 const GONE: Replay = { ok: false, gone: true };
 
+type FoundReplay = Extract<Replay, { ok: true }>;
+
 /** A replay, with where `add` would record its item. */
 interface KeyedReplay {
-	replay: Extract<Replay, { ok: true }>;
+	replay: FoundReplay;
 	keyed: ItemKey;
 }
 
@@ -248,7 +272,7 @@ async function clearReplay(
 	| NukeReinstallBlocked
 	| NukeReinstallGone
 > {
-	const { key, cloneRoot, existingEntry } = options;
+	const { cloneRoot, existingEntry } = options;
 	const link = await linkOnRecordedPath(options);
 	if (link !== null) {
 		return { status: "blocked", reason: link };
@@ -263,7 +287,7 @@ async function clearReplay(
 			: { status: "aborted", ...replay.abort };
 	}
 
-	const keyed = keyItem(replay.item, sourceKeyOf(key, existingEntry));
+	const { keyed } = keyReplay(options, replay);
 	const incoming = await computeIncomingFiles(replay.item, cloneRoot);
 	const dropped = await droppedButInSource(
 		existingEntry.files,
@@ -402,7 +426,14 @@ async function followMovedSkill(
 		return {
 			ok: false,
 			abort: {
-				reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.join(", ")}`,
+				reason: `its SKILL.md is gone from ${label(oldPath)} and ${matches.length} skills are now named ${name}: ${matches.map(label).join(", ")}`,
+				candidates: matches.map((path) => ({
+					path,
+					...replayedAs(
+						options,
+						keyReplay(options, { ok: true, item: skillAt(path, name) }),
+					),
+				})),
 			},
 		};
 	}
@@ -563,6 +594,17 @@ function skillAt(path: string, name: string): InstallItem {
 	return { kind: "skill", skill: { name, path } };
 }
 
+/** The replay, keyed as `add` keys its item under the entry's source key. */
+function keyReplay(
+	{ key, existingEntry }: NukeReinstallOptions,
+	replay: FoundReplay,
+): KeyedReplay {
+	return {
+		replay,
+		keyed: keyItem(replay.item, sourceKeyOf(key, existingEntry)),
+	};
+}
+
 /**
  * The replayed item as the entry it would be, under the key `add` gives it:
  * what a remedy that adds it again installs.
@@ -570,7 +612,7 @@ function skillAt(path: string, name: string): InstallItem {
 function replayedAs(
 	options: NukeReinstallOptions,
 	keyedReplay: KeyedReplay,
-): { key: string; entry: ManifestEntry } {
+): ReplayedItem {
 	return {
 		key: keyedReplay.keyed.key,
 		entry: replayedEntry(options, keyedReplay, []),
