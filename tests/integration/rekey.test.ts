@@ -952,3 +952,124 @@ describe("a skill named by its folder where its key says otherwise", () => {
 		await expectLandsOnEntries(reAddCommand(key, entry, "project"), [key]);
 	});
 });
+
+describe("a skill gone from its path whose name several skills now carry", () => {
+	interface Candidate {
+		key: string;
+		content: string;
+	}
+
+	/**
+	 * Updates `key`, which aborts with `message`, removing nothing. Then runs
+	 * the printed remove and, in turn, each printed add, removing what it
+	 * installed before the next: each installs its candidate, in order.
+	 */
+	async function expectAbortThenEachAddFollows(
+		update: string[],
+		key: string,
+		message: string,
+		candidates: Candidate[],
+	): Promise<void> {
+		const file = `.claude/skills/${candidates[0]?.key.split("/").pop()}/SKILL.md`;
+		const before = await savedManifest();
+		const installedBefore = await readFile(join(projectDir, file), "utf-8");
+
+		const run = await runMachine(updateCommand, update);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document.items).toEqual([
+			expect.objectContaining({ key, status: "aborted", message }),
+		]);
+		expect(await savedManifest()).toEqual(before);
+		expect(await readFile(join(projectDir, file), "utf-8")).toBe(
+			installedBefore,
+		);
+
+		const [, remove = "", adds = ""] =
+			/To follow one of them: (npx agntc remove .+) then one of: (.+)$/.exec(
+				message,
+			) ?? [];
+		const lines = adds.split(" or ");
+		expect(lines).toHaveLength(candidates.length);
+		expect((await runPrinted(remove, "-y")).exitCode).toBe(0);
+		for (const [i, candidate] of candidates.entries()) {
+			const added = await runPrinted(lines[i] ?? "");
+
+			expect(added.exitCode).toBe(0);
+			expect(added.document.items).toEqual([
+				expect.objectContaining({ key: candidate.key, status: "installed" }),
+			]);
+			expect(await readFile(join(projectDir, file), "utf-8")).toBe(
+				candidate.content,
+			);
+			await runMachine(removeCommand, [candidate.key, "-y"]);
+		}
+	}
+
+	it.each([
+		["by key", ["owner/repo/go"]],
+		["in all-mode", []],
+	])("a remote skill added from a path, %s: the remedy adds either", async (_, update) => {
+		await repo("owner/repo", { "skills/go/SKILL.md": "go v1" });
+		await add("owner/repo/skills/go");
+		await push("owner/repo", {
+			"tools/agntc.json": PACK,
+			"tools/skills/go/SKILL.md": "tools go",
+			"lang/go/SKILL.md": "lang go",
+		});
+
+		await expectAbortThenEachAddFollows(
+			update,
+			"owner/repo/go",
+			"owner/repo/go can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/skills/go. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo/go then one of: npx agntc add owner/repo/lang/go or npx agntc add owner/repo/tools/skills/go",
+			[
+				{ key: "owner/repo/go", content: "lang go" },
+				{ key: "owner/repo/go", content: "tools go" },
+			],
+		);
+	});
+
+	it("a root skill keyed by its source: the remedy adds either by its path", async () => {
+		await repo("owner/my-skill", { "SKILL.md": "v1" });
+		await add("owner/my-skill");
+		await push("owner/my-skill", {
+			"a/my-skill/SKILL.md": "a v2",
+			"b/my-skill/SKILL.md": "b v2",
+		});
+
+		await expectAbortThenEachAddFollows(
+			["owner/my-skill"],
+			"owner/my-skill",
+			"owner/my-skill can't be updated: its SKILL.md is gone from my-skill and 2 skills are now named my-skill: a/my-skill, b/my-skill. The existing install is unchanged. To follow one of them: npx agntc remove owner/my-skill then one of: npx agntc add owner/my-skill/a/my-skill or npx agntc add owner/my-skill/b/my-skill",
+			[
+				{ key: "owner/my-skill/my-skill", content: "a v2" },
+				{ key: "owner/my-skill/my-skill", content: "b v2" },
+			],
+		);
+	});
+
+	it("a local skill: the remedy adds either by its own folder", async () => {
+		const source = join(testDir, "kit");
+		await write(source, {
+			"skills/go/SKILL.md": "go v1",
+			"skills/bar/SKILL.md": "bar",
+		});
+		await add(source, "--skill", "go");
+		await rm(join(source, "skills/go"), { recursive: true });
+		await write(source, {
+			"lang/go/SKILL.md": "lang go",
+			"tools/go/SKILL.md": "tools go",
+		});
+		const key = join(source, "go");
+
+		await expectAbortThenEachAddFollows(
+			[],
+			key,
+			`${key} can't be updated: its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go. The existing install is unchanged. To follow one of them: npx agntc remove ${key} then one of: npx agntc add ${join(source, "lang/go")} or npx agntc add ${join(source, "tools/go")}`,
+			[
+				{ key: join(source, "lang/go"), content: "lang go" },
+				{ key: join(source, "tools/go"), content: "tools go" },
+			],
+		);
+	});
+});

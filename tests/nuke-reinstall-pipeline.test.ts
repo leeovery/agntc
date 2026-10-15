@@ -785,13 +785,95 @@ describe("executeNukeAndReinstall", () => {
 
 			const result = await executeNukeAndReinstall(makeOptions(MEMBER));
 
-			expect(result).toEqual({
+			expect(result).toMatchObject({
 				status: "aborted",
 				reason:
 					"its SKILL.md is gone from skills/go and 2 skills are now named go: lang/go, tools/go",
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
+		});
+
+		it("carries each skill of that name, in path order, as the remedy re-adds it under the entry's source key", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills(
+					{ name: "go", path: "tools/go" },
+					{ name: "go", path: "lang/go" },
+				),
+			);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					...MEMBER,
+					existingEntry: makeEntry({
+						...MEMBER.existingEntry,
+						ref: "v1.2.0",
+						constraint: "^1.0.0",
+						cloneUrl: "https://github.com/owner/repo.git",
+					}),
+					newRef: "v1.3.0",
+					newCommit: "c".repeat(40),
+				}),
+			);
+
+			expect(result.status).toBe("aborted");
+			if (result.status !== "aborted") return;
+			const asAdded = (sourceSubpath: string) => ({
+				ref: "v1.3.0",
+				commit: "c".repeat(40),
+				files: [],
+				type: "skill",
+				cloneUrl: "https://github.com/owner/repo.git",
+				constraint: "^1.0.0",
+				sourceSubpath,
+			});
+			expect(result.candidates).toEqual([
+				{
+					key: "owner/repo/go",
+					entry: expect.objectContaining(asAdded("lang/go")),
+				},
+				{
+					key: "owner/repo/go",
+					entry: expect.objectContaining(asAdded("tools/go")),
+				},
+			]);
+		});
+
+		it("keys each local skill of that name below the folder it was walked from", async () => {
+			mockDiscover.mockResolvedValue(
+				looseSkills(
+					{ name: "go", path: "lang/go" },
+					{ name: "go", path: "tools/go" },
+				),
+			);
+
+			const result = await executeNukeAndReinstall(
+				makeOptions({
+					key: "/src/kit/go",
+					sourceDir: "/src/kit/skills/go",
+					cloneRoot: "/src/kit",
+					existingEntry: makeEntry({
+						type: "skill",
+						commit: null,
+						localRoot: "/src/kit",
+						sourceSubpath: "skills/go",
+					}),
+				}),
+			);
+
+			expect(result).toMatchObject({
+				status: "aborted",
+				candidates: [
+					{
+						key: "/src/kit/go",
+						entry: { localRoot: "/src/kit", sourceSubpath: "lang/go" },
+					},
+					{
+						key: "/src/kit/go",
+						entry: { localRoot: "/src/kit", sourceSubpath: "tools/go" },
+					},
+				],
+			});
 		});
 
 		it("keys a moved local skill below the folder it was walked from, as add would", async () => {

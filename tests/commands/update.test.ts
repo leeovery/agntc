@@ -1171,7 +1171,7 @@ describe("update command", () => {
 			expect(errorCalls.some((m) => m.includes("owner/cf"))).toBe(true);
 			expect(
 				errorCalls.some((m) =>
-					m.includes("owner/ab was installed as a skill and can't be updated"),
+					m.includes("owner/ab can't be updated: its SKILL.md is gone"),
 				),
 			).toBe(true);
 			expect(errorCalls.some((m) => m.includes("owner/bl"))).toBe(true);
@@ -1406,7 +1406,9 @@ describe("update command", () => {
 				"Update failed for owner/repo/b after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
 			);
 			expect(mockLog.error).toHaveBeenCalledWith(
-				expect.stringMatching(/^owner\/repo\/c was installed as a skill/),
+				expect.stringMatching(
+					/^owner\/repo\/c can't be updated: its SKILL.md is gone/,
+				),
 			);
 		});
 
