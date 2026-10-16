@@ -8,11 +8,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // a one-sided divergence (removing or weakening the guard at only one site)
 // would fail here.
 
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("./helpers/clack-mock.js");
-	return mockClack();
-});
-
 vi.mock("../src/git-clone.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/git-clone.js")>()),
 	cloneSource: vi.fn(),
@@ -22,10 +17,10 @@ vi.mock("../src/git-clone.js", async (importOriginal) => ({
 import { cloneAndReinstall } from "../src/clone-reinstall.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { projectScope } from "../src/scope.js";
-import { interactiveUi } from "../src/ui.js";
 import type { GroupTarget } from "../src/update-check.js";
 import { type EntryGroup, processGroupUpdate } from "../src/update-groups.js";
 import { makeEntry } from "./helpers/factories.js";
+import { testUi } from "./helpers/test-ui.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
@@ -56,7 +51,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 				entry,
 				scope: projectScope("/fake/project"),
 			},
-			interactiveUi,
+			testUi(),
 			{ "owner/repo/evil": entry },
 		);
 
@@ -116,7 +111,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 				entry: singletonEntry,
 				scope: projectScope("/fake/project"),
 			},
-			interactiveUi,
+			testUi(),
 			{ "owner/repo/evil": singletonEntry },
 		);
 
@@ -157,7 +152,7 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 
 		const singleton = await cloneAndReinstall(
 			{ key, entry, scope: projectScope("/fake/project") },
-			interactiveUi,
+			testUi(),
 			{ [key]: entry },
 		);
 		const member = { key, entry };

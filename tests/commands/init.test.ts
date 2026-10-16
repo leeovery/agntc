@@ -2,35 +2,10 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ExitSignal } from "../../src/exit-signal.js";
-
-vi.mock("@clack/prompts", () => ({
-	intro: vi.fn(),
-	outro: vi.fn(),
-	cancel: vi.fn(),
-	note: vi.fn(),
-	select: vi.fn(),
-	confirm: vi.fn(),
-	isCancel: (value: unknown): value is symbol => typeof value === "symbol",
-	log: {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		success: vi.fn(),
-		message: vi.fn(),
-	},
-}));
-
-import * as p from "@clack/prompts";
 import { initCommand, runInit } from "../../src/commands/init.js";
-import { clackCalls, runMachine } from "../helpers/machine.js";
-
-const mockOutro = vi.mocked(p.outro);
-const mockCancel = vi.mocked(p.cancel);
-const mockNote = vi.mocked(p.note);
-const mockSelect = vi.mocked(p.select);
-const mockConfirm = vi.mocked(p.confirm);
-const mockWarn = vi.mocked(p.log.warn);
+import { ExitSignal } from "../../src/exit-signal.js";
+import { runMachine } from "../helpers/machine.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const PACK_FILES = [
 	"agntc.json",
@@ -42,9 +17,11 @@ const NOT_A_PACK =
 	'agntc.json was already here and doesn\'t declare a pack — add "type": "pack" to it';
 
 let dir: string;
+let ui: TestUi;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
+	ui = testUi();
 	dir = await mkdtemp(join(tmpdir(), "agntc-init-"));
 	vi.spyOn(process, "cwd").mockReturnValue(dir);
 });
@@ -67,39 +44,39 @@ async function expectCleanCancel(run: Promise<void>): Promise<void> {
 
 	expect(error).toBeInstanceOf(ExitSignal);
 	expect((error as ExitSignal).code).toBe(0);
-	expect(mockCancel).toHaveBeenCalledWith("Cancelled");
+	expect(ui.cancel).toHaveBeenCalledWith("Cancelled");
 	expect(await written()).toEqual([]);
 }
 
 describe("runInit at a terminal", () => {
 	it("opens with 'agntc init'", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await runInit("skill", {});
+		await runInit("skill", {}, ui);
 
-		expect(p.intro).toHaveBeenCalledWith("agntc init");
+		expect(ui.intro).toHaveBeenCalledWith("agntc init");
 	});
 
 	it("scaffolds a skill named by the type argument without showing the menu", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await runInit("skill", {});
+		await runInit("skill", {}, ui);
 
-		expect(mockSelect).not.toHaveBeenCalled();
+		expect(ui.select).not.toHaveBeenCalled();
 		expect(await written()).toEqual(["SKILL.md"]);
-		expect(mockOutro).toHaveBeenCalledWith(
+		expect(ui.outro).toHaveBeenCalledWith(
 			"SKILL.md\nDone. Edit `SKILL.md` to define your skill.",
 		);
 	});
 
 	it("scaffolds a pack named by the type argument without showing the menu", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await runInit("pack", {});
+		await runInit("pack", {}, ui);
 
-		expect(mockSelect).not.toHaveBeenCalled();
+		expect(ui.select).not.toHaveBeenCalled();
 		expect(await written()).toEqual([...PACK_FILES].sort());
-		expect(mockOutro).toHaveBeenCalledWith(
+		expect(ui.outro).toHaveBeenCalledWith(
 			`${PACK_FILES.join(", ")}\nDone. Add skills under \`skills/\`, agents to \`agents/\` and hooks to \`hooks/\`.`,
 		);
 	});
@@ -108,81 +85,81 @@ describe("runInit at a terminal", () => {
 		["skill", ["SKILL.md"]],
 		["pack", [...PACK_FILES].sort()],
 	])("asks for the type when none is given, then scaffolds a %s", async (type, files) => {
-		mockSelect.mockResolvedValue(type);
-		mockConfirm.mockResolvedValue(true);
+		ui.select.mockResolvedValue(type);
+		ui.confirm.mockResolvedValue(true);
 
-		await runInit(undefined, {});
+		await runInit(undefined, {}, ui);
 
-		expect(mockSelect).toHaveBeenCalledOnce();
+		expect(ui.select).toHaveBeenCalledOnce();
 		expect(await written()).toEqual(files);
 	});
 
 	it("previews the files, then asks to proceed", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await runInit("skill", {});
+		await runInit("skill", {}, ui);
 
-		expect(mockNote).toHaveBeenCalledWith("  SKILL.md", "This will create:");
-		expect(mockConfirm).toHaveBeenCalledWith({ message: "Proceed?" });
+		expect(ui.box).toHaveBeenCalledWith("  SKILL.md", "This will create:");
+		expect(ui.confirm).toHaveBeenCalledWith({ message: "Proceed?" });
 	});
 
 	it("exits cleanly, writing nothing, when the menu is cancelled", async () => {
-		mockSelect.mockResolvedValue(Symbol("cancel"));
+		ui.select.mockResolvedValue(null);
 
-		await expectCleanCancel(runInit(undefined, {}));
-		expect(mockConfirm).not.toHaveBeenCalled();
+		await expectCleanCancel(runInit(undefined, {}, ui));
+		expect(ui.confirm).not.toHaveBeenCalled();
 	});
 
 	it.each([
 		"skill",
 		"pack",
 	] as const)("exits cleanly, writing nothing, when the %s confirmation is declined", async (type) => {
-		mockConfirm.mockResolvedValue(false);
+		ui.confirm.mockResolvedValue(false);
 
-		await expectCleanCancel(runInit(type, {}));
+		await expectCleanCancel(runInit(type, {}, ui));
 	});
 
 	it.each([
 		"skill",
 		"pack",
 	] as const)("skips the preview and its confirmation for a %s with -y", async (type) => {
-		await runInit(type, { yes: true });
+		await runInit(type, { yes: true }, ui);
 
-		expect(mockNote).not.toHaveBeenCalled();
-		expect(mockConfirm).not.toHaveBeenCalled();
+		expect(ui.box).not.toHaveBeenCalled();
+		expect(ui.confirm).not.toHaveBeenCalled();
 		expect((await written()).length).toBeGreaterThan(0);
 	});
 
 	it("leaves an existing SKILL.md as it is and says so", async () => {
 		await writeFile(join(dir, "SKILL.md"), "# Mine\n");
 
-		await runInit("skill", { yes: true });
+		await runInit("skill", { yes: true }, ui);
 
 		expect(await readFile(join(dir, "SKILL.md"), "utf-8")).toBe("# Mine\n");
-		expect(mockOutro).toHaveBeenCalledWith("SKILL.md (already exists)");
+		expect(ui.outro).toHaveBeenCalledWith("SKILL.md (already exists)");
 	});
 
 	it("writes the rest of a pack around files already there, listing those as existing", async () => {
 		await writeFile(join(dir, "agntc.json"), '{"type": "pack"}');
 
-		await runInit("pack", { yes: true });
+		await runInit("pack", { yes: true }, ui);
 
 		expect(await readFile(join(dir, "agntc.json"), "utf-8")).toBe(
 			'{"type": "pack"}',
 		);
-		expect(mockOutro).toHaveBeenCalledWith(
+		expect(ui.outro).toHaveBeenCalledWith(
 			expect.stringContaining("hooks/my-hook.sh, agntc.json (already exists)"),
 		);
-		expect(mockWarn).not.toHaveBeenCalled();
+		expect(ui.warn).not.toHaveBeenCalled();
 	});
 
 	it("warns when an agntc.json already there keeps the folder from being a pack", async () => {
 		await writeFile(join(dir, "agntc.json"), "{}");
 
-		await runInit("pack", { yes: true });
+		await runInit("pack", { yes: true }, ui);
 
 		expect(await readFile(join(dir, "agntc.json"), "utf-8")).toBe("{}");
-		expect(mockWarn).toHaveBeenCalledWith(NOT_A_PACK);
+		expect(ui.warn).toHaveBeenCalledWith(NOT_A_PACK);
 	});
 });
 
@@ -203,7 +180,7 @@ describe("init without a terminal", () => {
 			notes: [],
 		});
 		expect(await written()).toEqual([]);
-		expect(clackCalls(p)).toEqual([]);
+		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 	});
 
 	it("refuses for the type even when -y is given", async () => {
@@ -231,7 +208,7 @@ describe("init without a terminal", () => {
 			notes: [],
 		});
 		expect(await written()).toEqual([]);
-		expect(clackCalls(p)).toEqual([]);
+		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 	});
 
 	it("scaffolds a skill with -y and reports the files created", async () => {
@@ -247,7 +224,7 @@ describe("init without a terminal", () => {
 			warnings: [],
 			notes: [],
 		});
-		expect(clackCalls(p)).toEqual([]);
+		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 	});
 
 	it("scaffolds a pack with --yes and reports the files created", async () => {
@@ -278,7 +255,7 @@ describe("init without a terminal", () => {
 			skipped: ["agntc.json"],
 			warnings: [NOT_A_PACK],
 		});
-		expect(clackCalls(p)).toEqual([]);
+		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 	});
 });
 

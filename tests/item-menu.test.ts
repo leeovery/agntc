@@ -1,18 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const { CANCEL } = vi.hoisted(() => ({ CANCEL: Symbol("cancel") }));
-
-vi.mock("@clack/prompts", () => ({
-	multiselect: vi.fn(),
-	isCancel: vi.fn((value: unknown) => value === CANCEL),
-}));
-
-import { multiselect } from "@clack/prompts";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { MenuOption } from "../src/choose-items.js";
 import { promptForItems } from "../src/item-menu.js";
-import { interactiveUi } from "../src/ui.js";
+import { type TestUi, testUi } from "./helpers/test-ui.js";
 
-const mockMultiselect = vi.mocked(multiselect);
+let ui: TestUi;
 
 const OPTIONS: MenuOption[] = [
 	{
@@ -33,16 +24,16 @@ const OPTIONS: MenuOption[] = [
 ];
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	ui = testUi();
 });
 
 describe("promptForItems", () => {
 	it("offers every option with its label and hint, nothing preselected and none required", async () => {
-		mockMultiselect.mockResolvedValue([]);
+		ui.multiselect.mockResolvedValue([]);
 
-		await promptForItems(OPTIONS, interactiveUi);
+		await promptForItems(OPTIONS, ui);
 
-		expect(mockMultiselect).toHaveBeenCalledWith({
+		expect(ui.multiselect).toHaveBeenCalledWith({
 			message: "Select what to install",
 			options: [
 				{ value: 0, label: "p", hint: "pack · 0 skills" },
@@ -53,16 +44,14 @@ describe("promptForItems", () => {
 	});
 
 	it("returns the picked items", async () => {
-		mockMultiselect.mockResolvedValue([1]);
+		ui.multiselect.mockResolvedValue([1]);
 
-		expect(await promptForItems(OPTIONS, interactiveUi)).toEqual([
-			OPTIONS[1]!.value,
-		]);
+		expect(await promptForItems(OPTIONS, ui)).toEqual([OPTIONS[1]!.value]);
 	});
 
 	it("returns nothing when cancelled", async () => {
-		mockMultiselect.mockResolvedValue(CANCEL);
+		ui.multiselect.mockResolvedValue([]);
 
-		expect(await promptForItems(OPTIONS, interactiveUi)).toEqual([]);
+		expect(await promptForItems(OPTIONS, ui)).toEqual([]);
 	});
 });

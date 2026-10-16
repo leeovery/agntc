@@ -12,19 +12,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { CANCEL } = vi.hoisted(() => ({ CANCEL: Symbol("cancel") }));
-
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack({
-		multiselect: vi.fn(),
-		select: vi.fn(),
-		confirm: vi.fn(),
-		note: vi.fn(),
-		isCancel: vi.fn((value: unknown) => value === CANCEL),
-	});
-});
-
 vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-clone.js")>()),
 	cloneSource: vi.fn(),
@@ -41,7 +28,6 @@ vi.mock("../../src/update-check.js", async (importOriginal) => ({
 	resolveGroupTarget: vi.fn(),
 }));
 
-import * as p from "@clack/prompts";
 import { runAdd } from "../../src/commands/add.js";
 import { runUpdate } from "../../src/commands/update.js";
 import { ExitSignal } from "../../src/exit-signal.js";
@@ -51,14 +37,12 @@ import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
 import { MachineUi } from "../../src/ui.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockLsRemote = vi.mocked(lsRemote);
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
 const mockResolveGroupTarget = vi.mocked(resolveGroupTarget);
-const mockMultiselect = vi.mocked(p.multiselect);
-const mockLog = vi.mocked(p.log);
-const mockOutro = vi.mocked(p.outro);
 
 const OLD_SHA = "a".repeat(40);
 const NEW_SHA = "b".repeat(40);
@@ -68,9 +52,11 @@ let testDir: string;
 let projectDir: string;
 /** The upstream tree each `owner/repo` clones from. */
 let upstream: Map<string, string>;
+let ui: TestUi;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
+	ui = testUi();
 	testDir = await mkdtemp(join(tmpdir(), "agntc-add-update-"));
 	projectDir = join(testDir, "project");
 	await mkdir(projectDir, { recursive: true });
@@ -160,15 +146,15 @@ function remoteRefs(shaOf: (ref: string) => string | undefined) {
 }
 
 async function updateError(key?: string): Promise<unknown> {
-	return runUpdate(key).catch((error: unknown) => error);
+	return runUpdate(key, {}, ui).catch((error: unknown) => error);
 }
 
 function warnings(): string[] {
-	return mockLog.warn.mock.calls.map(([message]) => String(message));
+	return ui.warn.mock.calls.map(([message]) => String(message));
 }
 
 function menuLabels(): string[] {
-	const [options] = mockMultiselect.mock.calls[0]!;
+	const [options] = ui.multiselect.mock.calls[0]!;
 	return options.options.map((option) => String(option.label));
 }
 
@@ -179,7 +165,7 @@ describe("integration: add and update", () => {
 			"agents/openai.yaml": "model: gpt",
 		});
 
-		await runAdd("avdlee/swift-skill");
+		await runAdd("avdlee/swift-skill", {}, ui);
 
 		expect(await installed(".claude/skills/swift-skill/SKILL.md")).toBe(true);
 		expect(
@@ -196,6 +182,7 @@ describe("integration: add and update", () => {
 			}),
 		});
 		expect(warnings()).toEqual([]);
+		expect(ui.log.warn).not.toHaveBeenCalled();
 	});
 
 	describe("a v1-style plugin root", () => {
@@ -208,15 +195,15 @@ describe("integration: add and update", () => {
 
 		it("without a type gives loose skills, after a notice naming its agents and hooks", async () => {
 			await repo("owner/v1-plugin", V1_PLUGIN);
-			mockMultiselect.mockResolvedValue([0, 1]);
+			ui.multiselect.mockResolvedValue([0, 1]);
 
-			await runAdd("owner/v1-plugin");
+			await runAdd("owner/v1-plugin", {}, ui);
 
 			expect(warnings()).toEqual([
 				"v1-plugin has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/v1-plugin --pack",
 			]);
-			expect(mockLog.warn.mock.invocationCallOrder[0]).toBeLessThan(
-				mockMultiselect.mock.invocationCallOrder[0]!,
+			expect(ui.warn.mock.invocationCallOrder[0]).toBeLessThan(
+				ui.multiselect.mock.invocationCallOrder[0]!,
 			);
 			const manifest = await savedManifest();
 			expect(Object.keys(manifest)).toEqual([
@@ -238,9 +225,9 @@ describe("integration: add and update", () => {
 				"agntc.json": { type: "plugin" },
 			});
 
-			await runAdd("owner/v1-plugin");
+			await runAdd("owner/v1-plugin", {}, ui);
 
-			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(ui.multiselect).not.toHaveBeenCalled();
 			const manifest = await savedManifest();
 			expect(Object.keys(manifest)).toEqual(["owner/v1-plugin"]);
 			expect(manifest["owner/v1-plugin"]).toMatchObject({ type: "pack" });
@@ -265,12 +252,12 @@ describe("integration: add and update", () => {
 		});
 		mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.2.0"]);
 
-		await runAdd("leeovery/agentic-skills/laravel");
+		await runAdd("leeovery/agentic-skills/laravel", {}, ui);
 
 		expect(mockCloneSource).toHaveBeenCalledWith(
 			expect.objectContaining({ ref: "v1.2.0", startPath: "laravel" }),
 		);
-		expect(mockMultiselect).not.toHaveBeenCalled();
+		expect(ui.multiselect).not.toHaveBeenCalled();
 		const manifest = await savedManifest();
 		expect(manifest).toEqual({
 			"leeovery/agentic-skills/laravel": expect.objectContaining({
@@ -300,16 +287,16 @@ describe("integration: add and update", () => {
 
 		it("offers each skill by path and installs what's picked", async () => {
 			await repo("owner/categorised", CATEGORISED);
-			mockMultiselect.mockResolvedValue([1]);
+			ui.multiselect.mockResolvedValue([1]);
 
-			await runAdd("owner/categorised");
+			await runAdd("owner/categorised", {}, ui);
 
 			expect(menuLabels()).toEqual([
 				"skills/backend/laravel",
 				"skills/frontend/react",
 				"skills/frontend/vue",
 			]);
-			expect(mockMultiselect.mock.calls[0]![0].options[1]).toMatchObject({
+			expect(ui.multiselect.mock.calls[0]![0].options[1]).toMatchObject({
 				hint: "React patterns.",
 			});
 			expect(await savedManifest()).toEqual({
@@ -324,9 +311,9 @@ describe("integration: add and update", () => {
 		it("installs named skills with --skill and no menu", async () => {
 			await repo("owner/categorised", CATEGORISED);
 
-			await runAdd("owner/categorised", { skill: ["vue", "laravel"] });
+			await runAdd("owner/categorised", { skill: ["vue", "laravel"] }, ui);
 
-			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(ui.multiselect).not.toHaveBeenCalled();
 			expect(Object.keys(await savedManifest())).toEqual([
 				"owner/categorised/vue",
 				"owner/categorised/laravel",
@@ -346,7 +333,7 @@ describe("integration: add and update", () => {
 			await cp(upstream.get("owner/packs")!, tempDir, { recursive: true });
 			return { tempDir, commit: OLD_SHA };
 		});
-		await runAdd("owner/packs/laravel");
+		await runAdd("owner/packs/laravel", {}, ui);
 		expect(await installed(".claude/skills/models/SKILL.md")).toBe(true);
 
 		await repo("owner/packs", {
@@ -354,7 +341,7 @@ describe("integration: add and update", () => {
 			"laravel/skills/api/SKILL.md": "v2",
 			"laravel/skills/jobs/SKILL.md": "",
 		});
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
 		expect(await installed(".claude/skills/models")).toBe(false);
 		expect(await installed(".claude/skills/jobs/SKILL.md")).toBe(true);
@@ -394,13 +381,13 @@ describe("integration: add and update", () => {
 				await cp(v1, tempDir, { recursive: true });
 				return { tempDir, commit: OLD_SHA };
 			});
-			await runAdd("owner/repo", { skill: SKILLS });
+			await runAdd("owner/repo", { skill: SKILLS }, ui);
 			await publish("v2");
 			mockCloneSource.mockClear();
 		});
 
 		it("update owner/repo clones the repo once and updates every skill", async () => {
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledOnce();
 			expect(mockResolveGroupTarget).toHaveBeenCalledOnce();
@@ -414,7 +401,7 @@ describe("integration: add and update", () => {
 		});
 
 		it("update with one skill's exact key updates that skill alone, through the single-key path", async () => {
-			await runUpdate("owner/repo/b");
+			await runUpdate("owner/repo/b", {}, ui);
 
 			expect(mockResolveGroupTarget).not.toHaveBeenCalled();
 			expect(mockCloneSource).toHaveBeenCalledOnce();
@@ -425,7 +412,7 @@ describe("integration: add and update", () => {
 			expect(
 				SKILLS.map((name) => manifest[`owner/repo/${name}`]?.commit),
 			).toEqual([OLD_SHA, NEW_SHA, OLD_SHA]);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("owner/repo/b"),
 			);
 		});
@@ -471,7 +458,7 @@ describe("integration: add and update", () => {
 				}),
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			const manifest = await savedManifest();
 			expect(manifest["leeovery/agentic-skills/laravel"]).toMatchObject({
@@ -512,7 +499,7 @@ describe("integration: add and update", () => {
 				}),
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(await installed(".claude/agents/openai.yaml")).toBe(false);
 			expect(await installed(".claude/skills/swift/SKILL.md")).toBe(true);
@@ -523,7 +510,7 @@ describe("integration: add and update", () => {
 				type: "skill",
 				files: [".claude/skills/swift/"],
 			});
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.note).toHaveBeenCalledWith(
 				"avdlee/skills/swift is a single skill — reinstalled as a skill",
 			);
 		});
@@ -560,12 +547,14 @@ describe("integration: add and update", () => {
 
 			it("asks, and on no leaves it installed while its sibling updates", async () => {
 				await arrangeGone();
-				vi.mocked(p.confirm).mockResolvedValue(false);
+				ui.confirm.mockResolvedValue(false);
 
-				const err = await runUpdate().catch((error: unknown) => error);
+				const err = await runUpdate(undefined, {}, ui).catch(
+					(error: unknown) => error,
+				);
 
 				expect(err).toBeUndefined();
-				expect(p.confirm).toHaveBeenCalledExactlyOnceWith({
+				expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
 					message: "owner/repo/gone is gone upstream — remove it?",
 					initialValue: false,
 				});
@@ -576,9 +565,11 @@ describe("integration: add and update", () => {
 
 			it("on yes removes its files and its entry while its sibling updates", async () => {
 				await arrangeGone();
-				vi.mocked(p.confirm).mockResolvedValue(true);
+				ui.confirm.mockResolvedValue(true);
 
-				const err = await runUpdate().catch((error: unknown) => error);
+				const err = await runUpdate(undefined, {}, ui).catch(
+					(error: unknown) => error,
+				);
 
 				expect(err).toBeUndefined();
 				expect(await installed(".claude/skills/gone")).toBe(false);
@@ -669,7 +660,7 @@ describe("integration: add and update", () => {
 				await cp(dir, tempDir, { recursive: true });
 				return { tempDir, commit: OLD_SHA };
 			});
-			await runAdd(KEY);
+			await runAdd(KEY, {}, ui);
 		}
 
 		it("add installs its skills, its agents and every support folder whole, and nothing else", async () => {
@@ -697,7 +688,7 @@ describe("integration: add and update", () => {
 					],
 				}),
 			});
-			expect(mockLog.success).toHaveBeenCalledWith(
+			expect(ui.log.success).toHaveBeenCalledWith(
 				"agentic-workflows (pack · 2 skills, 2 folders, 1 agent)",
 			);
 		});
@@ -706,7 +697,7 @@ describe("integration: add and update", () => {
 			await addAtOldCommit();
 			await release();
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(await installedFiles()).toEqual(
 				[
@@ -763,7 +754,7 @@ describe("integration: add and update", () => {
 				},
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(await sharedText()).toBe("v1");
 			expect(await installedFiles()).toEqual(
@@ -812,7 +803,7 @@ describe("integration: add and update", () => {
 				},
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(await installedFiles()).toEqual(
 				[
@@ -879,9 +870,9 @@ describe("integration: add and update", () => {
 				await repo(KEY, WORKFLOWS);
 				await installV1();
 
-				await runUpdate();
+				await runUpdate(undefined, {}, ui);
 
-				expect(mockLog.error).not.toHaveBeenCalled();
+				expect(ui.log.error).not.toHaveBeenCalled();
 				expect(await sharedText()).toBe("v1");
 				expect(await installedFiles()).toEqual(
 					[
@@ -933,7 +924,7 @@ describe("integration: add and update", () => {
 				it("update by key stops before removing anything, naming the folder", async () => {
 					expect(await updateError(KEY)).toBeInstanceOf(ExitSignal);
 
-					expect(mockLog.error).toHaveBeenCalledWith(MESSAGE);
+					expect(ui.log.error).toHaveBeenCalledWith(MESSAGE);
 					await expectInstallIntact();
 				});
 
@@ -941,7 +932,7 @@ describe("integration: add and update", () => {
 					expect(await updateError()).toBeInstanceOf(ExitSignal);
 
 					const stops = vi
-						.mocked(p.spinner)
+						.mocked(ui.spinner)
 						.mock.results.flatMap(({ value }) =>
 							value.stop.mock.calls.map(([text]: [string]) => text),
 						);
@@ -961,11 +952,11 @@ describe("integration: add and update", () => {
 			it("add asks, and on cancel installs nothing and leaves it alone", async () => {
 				await repo(KEY, WORKFLOWS);
 				await write(projectDir, { [MINE]: "mine" });
-				vi.mocked(p.select).mockResolvedValue("cancel");
+				ui.select.mockResolvedValue("cancel");
 
-				await runAdd(KEY);
+				await runAdd(KEY, {}, ui);
 
-				expect(p.note).toHaveBeenCalledWith(
+				expect(ui.box).toHaveBeenCalledWith(
 					expect.stringContaining(".claude/skills/workflow-shared/"),
 					`Unmanaged files for "${KEY}"`,
 				);
@@ -1012,7 +1003,7 @@ describe("integration: add and update", () => {
 				"skills/api/SKILL.md": "v1",
 				"skills/jobs/SKILL.md": "v1",
 			});
-			await runAdd("owner/repo", { skill: ["api", "jobs"] });
+			await runAdd("owner/repo", { skill: ["api", "jobs"] }, ui);
 			await repo("owner/repo", {
 				"laravel/agntc.json": PACK,
 				"laravel/skills/api/SKILL.md": "v2",
@@ -1020,7 +1011,7 @@ describe("integration: add and update", () => {
 				"skills/jobs/SKILL.md": "v1",
 			});
 
-			await runAdd("owner/repo/laravel");
+			await runAdd("owner/repo/laravel", {}, ui);
 
 			const manifest = await savedManifest();
 			expect(Object.keys(manifest).sort()).toEqual([
@@ -1037,11 +1028,11 @@ describe("integration: add and update", () => {
 					"utf-8",
 				),
 			).toBe("v2");
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.note).toHaveBeenCalledWith(
 				"owner/repo/laravel now includes api, installed on its own before",
 			);
-			expect(p.select).not.toHaveBeenCalled();
-			expect(p.confirm).not.toHaveBeenCalled();
+			expect(ui.select).not.toHaveBeenCalled();
+			expect(ui.confirm).not.toHaveBeenCalled();
 		});
 
 		it("--skill on a skill an installed pack from the source holds says so and installs the rest", async () => {
@@ -1050,24 +1041,26 @@ describe("integration: add and update", () => {
 				"laravel/skills/api/SKILL.md": "",
 				"skills/other/SKILL.md": "",
 			});
-			await runAdd("owner/repo/laravel");
+			await runAdd("owner/repo/laravel", {}, ui);
 
-			const err = await runAdd("owner/repo", {
-				skill: ["api", "other"],
-			}).catch((error: unknown) => error);
+			const err = await runAdd(
+				"owner/repo",
+				{ skill: ["api", "other"] },
+				ui,
+			).catch((error: unknown) => error);
 
 			expect(err).toBeUndefined();
 			expect(Object.keys(await savedManifest())).toEqual([
 				"owner/repo/laravel",
 				"owner/repo/other",
 			]);
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.note).toHaveBeenCalledWith(
 				"api is already installed as part of the pack owner/repo/laravel",
 			);
-			expect(mockLog.info).not.toHaveBeenCalledWith(
+			expect(ui.note).not.toHaveBeenCalledWith(
 				expect.stringContaining("installed on its own"),
 			);
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
 		});
 
 		describe("with a support folder named like a loose skill", () => {
@@ -1090,15 +1083,15 @@ describe("integration: add and update", () => {
 
 			it("adding the pack stops at the loose skill as another install's files, taking nothing over", async () => {
 				await repo("owner/repo", WITH_SHARED);
-				await runAdd("owner/repo", { skill: ["shared"] });
-				const ui = new MachineUi("add", "project");
+				await runAdd("owner/repo", { skill: ["shared"] }, ui);
+				const machine = new MachineUi("add", "project");
 
-				const err = await runAdd("owner/repo/laravel", {}, ui).catch(
+				const err = await runAdd("owner/repo/laravel", {}, machine).catch(
 					(error: unknown) => error,
 				);
 
 				expect(err).toBeInstanceOf(ExitSignal);
-				expect(ui.document(1)).toMatchObject({
+				expect(machine.document(1)).toMatchObject({
 					items: [
 						{
 							key: "owner/repo/laravel",
@@ -1123,8 +1116,8 @@ describe("integration: add and update", () => {
 					await cp(v1, tempDir, { recursive: true });
 					return { tempDir, commit: OLD_SHA };
 				});
-				await runAdd("owner/repo/laravel");
-				await runAdd("owner/repo", { skill: ["shared"] });
+				await runAdd("owner/repo/laravel", {}, ui);
+				await runAdd("owner/repo", { skill: ["shared"] }, ui);
 				const before = await savedManifest();
 				await repo("owner/repo", WITH_SHARED);
 
@@ -1132,7 +1125,7 @@ describe("integration: add and update", () => {
 					ExitSignal,
 				);
 
-				expect(mockLog.error).toHaveBeenCalledWith(
+				expect(ui.log.error).toHaveBeenCalledWith(
 					expect.stringContaining(
 						"files of owner/repo/shared are in the way: .claude/skills/shared/",
 					),
@@ -1140,7 +1133,7 @@ describe("integration: add and update", () => {
 				expect(await savedManifest()).toEqual(before);
 				expect(await looseText()).toBe("loose");
 				expect(await installed(".claude/skills/shared/notes.md")).toBe(false);
-				expect(mockLog.info).not.toHaveBeenCalledWith(
+				expect(ui.note).not.toHaveBeenCalledWith(
 					expect.stringContaining("now includes shared"),
 				);
 			});
@@ -1152,20 +1145,20 @@ describe("integration: add and update", () => {
 					await cp(v1, tempDir, { recursive: true });
 					return { tempDir, commit: OLD_SHA };
 				});
-				await runAdd("owner/repo/laravel");
-				await runAdd("owner/repo", { skill: ["shared"] });
+				await runAdd("owner/repo/laravel", {}, ui);
+				await runAdd("owner/repo", { skill: ["shared"] }, ui);
 				await repo("owner/repo", {
 					...LARAVEL,
 					"laravel/skills/shared/SKILL.md": "the pack's",
 				});
 
-				await runUpdate("owner/repo/laravel");
+				await runUpdate("owner/repo/laravel", {}, ui);
 
 				expect(Object.keys(await savedManifest())).toEqual([
 					"owner/repo/laravel",
 				]);
 				expect(await looseText()).toBe("the pack's");
-				expect(mockLog.info).toHaveBeenCalledWith(
+				expect(ui.note).toHaveBeenCalledWith(
 					"owner/repo/laravel now includes shared, installed on its own before",
 				);
 			});
@@ -1226,10 +1219,10 @@ describe("integration: add and update", () => {
 		it("stays on its branch across two updates while the branch moves", async () => {
 			await push(null, "0".repeat(40), { "SKILL.md": "main" });
 			await push("dev", "1".repeat(40), { "SKILL.md": "dev 1" });
-			await runAdd("owner/repo@dev");
+			await runAdd("owner/repo@dev", {}, ui);
 
 			await push("dev", "2".repeat(40), { "SKILL.md": "dev 2" });
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(await skillText()).toBe("dev 2");
 			expect((await savedManifest())["owner/repo"]).toMatchObject({
@@ -1238,7 +1231,7 @@ describe("integration: add and update", () => {
 			});
 
 			await push("dev", "3".repeat(40), { "SKILL.md": "dev 3" });
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(await skillText()).toBe("dev 3");
 			expect((await savedManifest())["owner/repo"]).toMatchObject({
@@ -1309,18 +1302,20 @@ describe("integration: add and update", () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError("owner/repo"));
-			expect(mockLog.error).toHaveBeenCalledExactlyOnceWith(
+			expect(ui.log.error).toHaveBeenCalledExactlyOnceWith(
 				`owner/repo/skillB: Failed — ${refusal()}`,
 			);
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 
 		it("in all-mode, records the pack done before it and reports the member as failed", async () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError());
-			expect(mockLog.error).toHaveBeenCalledExactlyOnceWith(
+			expect(ui.log.error).toHaveBeenCalledExactlyOnceWith(
 				`owner/repo/skillB: Failed — ${refusal()}`,
 			);
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 	});
 });

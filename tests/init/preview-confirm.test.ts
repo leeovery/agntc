@@ -1,47 +1,38 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("@clack/prompts", () => ({
-	confirm: vi.fn(),
-	note: vi.fn(),
-	isCancel: (value: unknown): value is symbol => typeof value === "symbol",
-}));
-
-import * as p from "@clack/prompts";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
 	previewAndConfirm,
 	previewTree,
 } from "../../src/init/preview-confirm.js";
 import { packScaffold } from "../../src/init/scaffold-pack.js";
 import { skillScaffold } from "../../src/init/scaffold-skill.js";
-import { interactiveUi } from "../../src/ui.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
-const mockConfirm = vi.mocked(p.confirm);
-const mockNote = vi.mocked(p.note);
+let ui: TestUi;
 
 const skillFiles = skillScaffold.files("/work/my-skill");
 const packFiles = packScaffold.files("/work/my-pack");
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	ui = testUi();
 });
 
 describe("previewAndConfirm", () => {
 	it("displays SKILL.md for a skill", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await previewAndConfirm(skillFiles, interactiveUi);
+		await previewAndConfirm(skillFiles, ui);
 
-		expect(mockNote).toHaveBeenCalledOnce();
-		expect(mockNote.mock.calls[0]?.[0]).toBe("  SKILL.md");
+		expect(ui.box).toHaveBeenCalledOnce();
+		expect(ui.box.mock.calls[0]?.[0]).toBe("  SKILL.md");
 	});
 
 	it("displays a pack's files as a tree, each folder once", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await previewAndConfirm(packFiles, interactiveUi);
+		await previewAndConfirm(packFiles, ui);
 
-		expect(mockNote).toHaveBeenCalledOnce();
-		expect(mockNote.mock.calls[0]?.[0]).toBe(
+		expect(ui.box).toHaveBeenCalledOnce();
+		expect(ui.box.mock.calls[0]?.[0]).toBe(
 			[
 				"  agntc.json",
 				"  skills/",
@@ -56,54 +47,54 @@ describe("previewAndConfirm", () => {
 	});
 
 	it("preview message includes 'This will create:'", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await previewAndConfirm(skillFiles, interactiveUi);
+		await previewAndConfirm(skillFiles, ui);
 
-		const title = mockNote.mock.calls[0]?.[1];
+		const title = ui.box.mock.calls[0]?.[1];
 		expect(title).toBe("This will create:");
 	});
 
 	it("shows the preview before the confirmation prompt", async () => {
 		const callOrder: string[] = [];
-		mockNote.mockImplementation(() => {
+		ui.box.mockImplementation(() => {
 			callOrder.push("note");
 		});
-		mockConfirm.mockImplementation(() => {
+		ui.confirm.mockImplementation(() => {
 			callOrder.push("confirm");
 			return Promise.resolve(true);
 		});
 
-		await previewAndConfirm(packFiles, interactiveUi);
+		await previewAndConfirm(packFiles, ui);
 
 		expect(callOrder).toEqual(["note", "confirm"]);
 	});
 
 	it("asks 'Proceed?' via confirm prompt", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		await previewAndConfirm(skillFiles, interactiveUi);
+		await previewAndConfirm(skillFiles, ui);
 
-		expect(mockConfirm).toHaveBeenCalledOnce();
-		expect(mockConfirm.mock.calls[0]?.[0].message).toBe("Proceed?");
+		expect(ui.confirm).toHaveBeenCalledOnce();
+		expect(ui.confirm.mock.calls[0]?.[0].message).toBe("Proceed?");
 	});
 
 	it("returns true when user confirms", async () => {
-		mockConfirm.mockResolvedValue(true);
+		ui.confirm.mockResolvedValue(true);
 
-		expect(await previewAndConfirm(skillFiles, interactiveUi)).toBe(true);
+		expect(await previewAndConfirm(skillFiles, ui)).toBe(true);
 	});
 
 	it("returns false when user declines", async () => {
-		mockConfirm.mockResolvedValue(false);
+		ui.confirm.mockResolvedValue(false);
 
-		expect(await previewAndConfirm(skillFiles, interactiveUi)).toBe(false);
+		expect(await previewAndConfirm(skillFiles, ui)).toBe(false);
 	});
 
 	it("returns false when user cancels", async () => {
-		mockConfirm.mockResolvedValue(Symbol("cancel"));
+		ui.confirm.mockResolvedValue(false);
 
-		expect(await previewAndConfirm(packFiles, interactiveUi)).toBe(false);
+		expect(await previewAndConfirm(packFiles, ui)).toBe(false);
 	});
 });
 

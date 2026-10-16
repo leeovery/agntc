@@ -1,5 +1,5 @@
 import type { Stats } from "node:fs";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest } from "../../src/manifest.js";
 
 // The clone-reinstall dependency surface shared with list-change-version-action
@@ -7,11 +7,6 @@ import type { Manifest } from "../../src/manifest.js";
 // vitest hoists `vi.mock` to the top of *this* file and needs the literal
 // module path at hoist time, so each `vi.mock(path, ...)` call lives here; the
 // factory contents are delegated to the shared helper.
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack({ confirm: vi.fn(), isCancel: vi.fn(() => false) });
-});
-
 vi.mock("../../src/manifest.js", async (importOriginal) => {
 	const { mockManifestModule } = await import(
 		"../helpers/list-action-mock-factories.js"
@@ -93,11 +88,9 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 });
 
 import { stat } from "node:fs/promises";
-import * as p from "@clack/prompts";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { globalScope, projectScope } from "../../src/scope.js";
-import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import {
 	looseSkillsAt,
@@ -105,6 +98,7 @@ import {
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mocks = setupListActionMocks();
 const mockWriteManifest = mocks.writeManifest;
@@ -118,9 +112,13 @@ const mockAccess = mocks.access;
 const mockScanForEscapingSymlinks = mocks.scanForEscapingSymlinks;
 const mockDiscover = mocks.discover;
 const mockDroppedButInSource = mocks.droppedButInSource;
-const mockConfirm = vi.mocked(p.confirm);
 // File-specific handle: local-path validation via fs.stat.
 const mockStat = vi.mocked(stat);
+let ui: TestUi;
+
+beforeEach(() => {
+	ui = testUi();
+});
 
 describe("executeUpdateAction", () => {
 	describe("remote update (commit is not null)", () => {
@@ -142,7 +140,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(true);
@@ -179,7 +177,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(true);
@@ -209,7 +207,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -235,7 +233,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(false);
@@ -265,7 +263,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
@@ -287,7 +285,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(false);
@@ -317,7 +315,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(true);
@@ -352,7 +350,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(false);
@@ -380,7 +378,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(false);
@@ -414,7 +412,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(false);
@@ -441,7 +439,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				{ "owner/repo": entry },
 				globalScope("/home/lee"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.message).toContain(
@@ -467,7 +465,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toMatchObject({
@@ -500,7 +498,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(true);
@@ -538,7 +536,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				{ [key]: entry, "owner/other": other },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toMatchObject({
@@ -582,7 +580,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				{ [key]: entry, "owner/repo/packs/tools": loose },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toMatchObject({
@@ -614,17 +612,17 @@ describe("executeUpdateAction", () => {
 
 		it("asks whether to remove it, no by default", async () => {
 			arrangeGone();
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
 			await executeUpdateAction(
 				key,
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockConfirm).toHaveBeenCalledExactlyOnceWith({
+			expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
 				message: "owner/repo/go is gone upstream — remove it?",
 				initialValue: false,
 			});
@@ -632,14 +630,14 @@ describe("executeUpdateAction", () => {
 
 		it("keeps it on no: nothing removed or written", async () => {
 			arrangeGone();
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
 			const result = await executeUpdateAction(
 				key,
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -655,14 +653,14 @@ describe("executeUpdateAction", () => {
 
 		it("removes its files and then its entry on yes", async () => {
 			arrangeGone();
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 
 			const result = await executeUpdateAction(
 				key,
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -686,7 +684,7 @@ describe("executeUpdateAction", () => {
 
 		it("keeps it and reports the failure when removing it fails", async () => {
 			arrangeGone();
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockRejectedValue(
 				new Error("EACCES: permission denied"),
 			);
@@ -696,7 +694,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -732,7 +730,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(false);
@@ -768,7 +766,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 				{ newRef: "v1.2.0", newCommit: overrideCommit },
 			);
 
@@ -799,7 +797,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.success).toBe(true);
@@ -827,7 +825,7 @@ describe("executeUpdateAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(

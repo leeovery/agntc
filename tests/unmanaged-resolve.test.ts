@@ -1,37 +1,22 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-// Mock @clack/prompts before importing module under test
-vi.mock("@clack/prompts", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@clack/prompts")>();
-	return {
-		...actual,
-		note: vi.fn(),
-		select: vi.fn(),
-		confirm: vi.fn(),
-		isCancel: vi.fn((value: unknown) => typeof value === "symbol"),
-	};
-});
-
-import * as p from "@clack/prompts";
-import { interactiveUi } from "../src/ui.js";
 import type { UnmanagedPluginConflicts } from "../src/unmanaged-resolve.js";
 import { resolveUnmanagedConflicts } from "../src/unmanaged-resolve.js";
+import { type TestUi, testUi } from "./helpers/test-ui.js";
 
-const mockedNote = vi.mocked(p.note);
-const mockedSelect = vi.mocked(p.select);
-const mockedConfirm = vi.mocked(p.confirm);
+let ui: TestUi;
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	ui = testUi();
 });
 
 describe("resolveUnmanagedConflicts", () => {
 	it("returns all approved when no conflicts", async () => {
-		const result = await resolveUnmanagedConflicts([], interactiveUi);
+		const result = await resolveUnmanagedConflicts([], ui);
 
 		expect(result.approved).toEqual([]);
 		expect(result.cancelled).toEqual([]);
-		expect(mockedSelect).not.toHaveBeenCalled();
+		expect(ui.select).not.toHaveBeenCalled();
 	});
 
 	it("overwrite with double confirm approves files", async () => {
@@ -42,18 +27,18 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("overwrite");
-		mockedConfirm.mockResolvedValueOnce(true);
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(true);
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([
 			".claude/skills/my-skill/",
 			".claude/agents/executor.md",
 		]);
 		expect(result.cancelled).toEqual([]);
-		expect(mockedSelect).toHaveBeenCalledTimes(1);
-		expect(mockedConfirm).toHaveBeenCalledTimes(1);
+		expect(ui.select).toHaveBeenCalledTimes(1);
+		expect(ui.confirm).toHaveBeenCalledTimes(1);
 	});
 
 	it("overwrite with declined second confirm cancels plugin", async () => {
@@ -64,10 +49,10 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("overwrite");
-		mockedConfirm.mockResolvedValueOnce(false);
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(false);
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([]);
 		expect(result.cancelled).toEqual([".claude/skills/my-skill/"]);
@@ -81,16 +66,16 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([]);
 		expect(result.cancelled).toEqual([
 			".claude/skills/my-skill/",
 			".claude/hooks/pre-commit.sh",
 		]);
-		expect(mockedConfirm).not.toHaveBeenCalled();
+		expect(ui.confirm).not.toHaveBeenCalled();
 	});
 
 	it("collections: each plugin checked independently", async () => {
@@ -106,17 +91,17 @@ describe("resolveUnmanagedConflicts", () => {
 		];
 
 		// plugin-a: overwrite + confirm
-		mockedSelect.mockResolvedValueOnce("overwrite");
-		mockedConfirm.mockResolvedValueOnce(true);
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(true);
 		// plugin-b: cancel
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([".claude/skills/skill-a/"]);
 		expect(result.cancelled).toEqual([".claude/skills/skill-b/"]);
-		expect(mockedSelect).toHaveBeenCalledTimes(2);
-		expect(mockedConfirm).toHaveBeenCalledTimes(1);
+		expect(ui.select).toHaveBeenCalledTimes(2);
+		expect(ui.confirm).toHaveBeenCalledTimes(1);
 	});
 
 	it("all cancelled returns empty approved", async () => {
@@ -131,10 +116,10 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("cancel");
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([]);
 		expect(result.cancelled).toEqual([
@@ -143,7 +128,7 @@ describe("resolveUnmanagedConflicts", () => {
 		]);
 	});
 
-	it("treats clack cancel (symbol) on select as cancel", async () => {
+	it("treats a cancelled select as cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
 				pluginKey: "owner/repo-a",
@@ -151,15 +136,15 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce(Symbol("cancel") as unknown as string);
+		ui.select.mockResolvedValueOnce(null);
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([]);
 		expect(result.cancelled).toEqual([".claude/skills/my-skill/"]);
 	});
 
-	it("treats clack cancel (symbol) on confirm as cancel", async () => {
+	it("treats a cancelled confirm as cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
 				pluginKey: "owner/repo-a",
@@ -167,10 +152,10 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("overwrite");
-		mockedConfirm.mockResolvedValueOnce(Symbol("cancel") as unknown as boolean);
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(false);
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([]);
 		expect(result.cancelled).toEqual([".claude/skills/my-skill/"]);
@@ -193,15 +178,15 @@ describe("resolveUnmanagedConflicts", () => {
 		];
 
 		// plugin-a: overwrite + confirm = approved
-		mockedSelect.mockResolvedValueOnce("overwrite");
-		mockedConfirm.mockResolvedValueOnce(true);
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(true);
 		// plugin-b: overwrite + decline confirm = cancelled
-		mockedSelect.mockResolvedValueOnce("overwrite");
-		mockedConfirm.mockResolvedValueOnce(false);
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(false);
 		// plugin-c: cancel = cancelled
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
-		const result = await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		const result = await resolveUnmanagedConflicts(conflicts, ui);
 
 		expect(result.approved).toEqual([".claude/skills/skill-a/"]);
 		expect(result.cancelled).toEqual([
@@ -211,7 +196,7 @@ describe("resolveUnmanagedConflicts", () => {
 		]);
 	});
 
-	it("calls note with file list and unmanaged title before select", async () => {
+	it("calls box with file list and unmanaged title before select", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
 				pluginKey: "owner/repo-a",
@@ -219,18 +204,18 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
-		await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		await resolveUnmanagedConflicts(conflicts, ui);
 
-		expect(mockedNote).toHaveBeenCalledWith(
+		expect(ui.box).toHaveBeenCalledWith(
 			"  - .claude/skills/my-skill/\n  - .claude/agents/executor.md",
 			'Unmanaged files for "owner/repo-a"',
 		);
-		// note() must be called before select()
-		const noteOrder = mockedNote.mock.invocationCallOrder[0];
-		const selectOrder = mockedSelect.mock.invocationCallOrder[0];
-		expect(noteOrder).toBeLessThan(selectOrder!);
+		// box() must be called before select()
+		const boxOrder = ui.box.mock.invocationCallOrder[0];
+		const selectOrder = ui.select.mock.invocationCallOrder[0];
+		expect(boxOrder).toBeLessThan(selectOrder!);
 	});
 
 	it("select message is single-line with plugin key (unmanaged)", async () => {
@@ -241,17 +226,17 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
-		await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		await resolveUnmanagedConflicts(conflicts, ui);
 
-		const call = mockedSelect.mock.calls[0]!;
+		const call = ui.select.mock.calls[0]!;
 		const { message } = call[0] as { message: string };
 		expect(message).toBe('How would you like to proceed with "owner/repo-a"?');
 		expect(message).not.toContain("\n");
 	});
 
-	it("calls note for each conflict in collection resolution", async () => {
+	it("calls box for each conflict in collection resolution", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
 				pluginKey: "owner/repo/plugin-a",
@@ -263,19 +248,19 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("overwrite");
-		mockedConfirm.mockResolvedValueOnce(true);
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(true);
+		ui.select.mockResolvedValueOnce("cancel");
 
-		await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		await resolveUnmanagedConflicts(conflicts, ui);
 
-		expect(mockedNote).toHaveBeenCalledTimes(2);
-		expect(mockedNote).toHaveBeenNthCalledWith(
+		expect(ui.box).toHaveBeenCalledTimes(2);
+		expect(ui.box).toHaveBeenNthCalledWith(
 			1,
 			"  - .claude/skills/skill-a/",
 			'Unmanaged files for "owner/repo/plugin-a"',
 		);
-		expect(mockedNote).toHaveBeenNthCalledWith(
+		expect(ui.box).toHaveBeenNthCalledWith(
 			2,
 			"  - .claude/skills/skill-b/",
 			'Unmanaged files for "owner/repo/plugin-b"',
@@ -290,11 +275,11 @@ describe("resolveUnmanagedConflicts", () => {
 			},
 		];
 
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
-		await resolveUnmanagedConflicts(conflicts, interactiveUi);
+		await resolveUnmanagedConflicts(conflicts, ui);
 
-		const call = mockedSelect.mock.calls[0]!;
+		const call = ui.select.mock.calls[0]!;
 		const options = (call[0] as { options: Array<{ value: string }> }).options;
 		const values = options.map((o) => o.value);
 		expect(values).toContain("overwrite");
@@ -303,14 +288,14 @@ describe("resolveUnmanagedConflicts", () => {
 	});
 
 	it("labels cancel as cancelling this install", async () => {
-		mockedSelect.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("cancel");
 
 		await resolveUnmanagedConflicts(
 			[{ pluginKey: "owner/repo-a", files: [".claude/skills/my-skill/"] }],
-			interactiveUi,
+			ui,
 		);
 
-		const { options } = mockedSelect.mock.calls[0]![0] as {
+		const { options } = ui.select.mock.calls[0]![0] as {
 			options: Array<{ value: string; label: string }>;
 		};
 		expect(options.find((o) => o.value === "cancel")?.label).toBe(

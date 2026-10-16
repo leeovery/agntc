@@ -6,11 +6,6 @@ import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import type { PluginOutcome } from "../../src/update-groups.js";
 
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack({ confirm: vi.fn(), isCancel: vi.fn(() => false) });
-});
-
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/manifest.js")>()),
 	readManifest: vi.fn(),
@@ -84,7 +79,6 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 });
 
 import { access, stat } from "node:fs/promises";
-import * as p from "@clack/prompts";
 import {
 	buildAbortMessage,
 	buildCopySafetyMessage,
@@ -165,17 +159,13 @@ function rewalkFinds(...paths: string[]): void {
 const mockCopyBareSkill = vi.mocked(copyBareSkill);
 const mockStat = vi.mocked(stat);
 const mockAccess = vi.mocked(access);
-const mockOutro = vi.mocked(p.outro);
-const mockLog = vi.mocked(p.log);
-const mockCancel = vi.mocked(p.cancel);
-const mockConfirm = vi.mocked(p.confirm);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 
 import { globalScope } from "../../src/scope.js";
-import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import { SSH_REFUSAL } from "../helpers/git-mocks.js";
-import { clackCalls, runMachine } from "../helpers/machine.js";
+import { runMachine } from "../helpers/machine.js";
+import { type TestSpinner, type TestUi, testUi } from "../helpers/test-ui.js";
 
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
@@ -240,8 +230,11 @@ function installGroupTargetBridge(): void {
 	});
 }
 
+let ui: TestUi;
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	ui = testUi();
 	vi.spyOn(process, "cwd").mockReturnValue("/fake/project");
 	mockWriteManifest.mockResolvedValue(undefined);
 	mockCleanupTempDir.mockResolvedValue(undefined);
@@ -265,21 +258,17 @@ beforeEach(() => {
 });
 
 /**
- * Installs a STABLE spinner handle shared across every `p.spinner()` call in a
+ * Installs a STABLE spinner handle shared across every `ui.spinner()` call in a
  * test (the leading check spinner AND each streamed group-of-one spinner), so the
  * collapsed group-of-one stop-frames can be asserted directly. A group-of-one now
  * streams its single outcome as `spin.stop(text, code)` (code 2 = loud error ✗,
- * code 0 = success/benign ◇) — NOT a separate `p.log.*` line.
+ * code 0 = success/benign ◇) — NOT a separate `ui.log.*` line.
  */
-function captureSpinner() {
-	const handle = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
-	vi.mocked(p.spinner).mockReturnValue(
-		handle as unknown as ReturnType<typeof p.spinner>,
-	);
+function captureSpinner(): TestSpinner {
+	const handle: TestSpinner = { start: vi.fn(), stop: vi.fn() };
+	ui.spinner.mockReturnValue(handle);
 	return handle;
 }
-
-type CapturedSpinner = ReturnType<typeof captureSpinner>;
 
 /**
  * The collapsed group-of-one lines a run streamed as spinner stop-frames — every
@@ -287,7 +276,7 @@ type CapturedSpinner = ReturnType<typeof captureSpinner>;
  * (2 = error, 0 = success/benign). Excludes the leading check spinner's single-arg
  * `stop("Update checks complete.")` and the >=2-member header stop (both one arg).
  */
-function stopTexts(handle: CapturedSpinner, code?: 0 | 2): string[] {
+function stopTexts(handle: TestSpinner, code?: 0 | 2): string[] {
 	return handle.stop.mock.calls
 		.filter((c) => c.length >= 2 && (code === undefined || c[1] === code))
 		.map((c) => c[0] as string);
@@ -298,17 +287,17 @@ describe("update command", () => {
 		it("shows the 'agntc update' intro (all-plugins mode)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc update");
+			expect(ui.intro).toHaveBeenCalledWith("agntc update");
 		});
 
 		it("shows the 'agntc update' intro (single-key mode)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc update");
+			expect(ui.intro).toHaveBeenCalledWith("agntc update");
 		});
 	});
 
@@ -316,9 +305,9 @@ describe("update command", () => {
 		it("displays message and exits 0 when manifest is empty", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
+			expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 
@@ -348,7 +337,7 @@ describe("update command", () => {
 				},
 			);
 
-			const runPromise = runUpdate();
+			const runPromise = runUpdate(undefined, {}, ui);
 
 			// Wait a tick for both to start
 			await new Promise((r) => setTimeout(r, 10));
@@ -367,12 +356,9 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
-			const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
-			vi.mocked(p.spinner).mockReturnValue(
-				mockSpinner as ReturnType<typeof p.spinner>,
-			);
+			const mockSpinner = captureSpinner();
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockSpinner.start).toHaveBeenCalledWith(
 				expect.stringContaining("Checking for updates"),
@@ -387,9 +373,9 @@ describe("update command", () => {
 			});
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith("Everything is up to date.");
+			expect(ui.outro).toHaveBeenCalledWith("Everything is up to date.");
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
@@ -413,7 +399,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalled();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -446,7 +432,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -466,14 +452,14 @@ describe("update command", () => {
 				tags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			// Summary should mention newer tags
 			const allLogCalls = [
-				...mockLog.info.mock.calls.map((c) => c[0]),
-				...mockLog.message.mock.calls.map((c) => c[0]),
+				...ui.log.info.mock.calls.map((c) => c[0]),
+				...ui.log.message.mock.calls.map((c) => c[0]),
 			];
 			const hasNewerTagsInfo = allLogCalls.some(
 				(msg) => typeof msg === "string" && msg.includes("newer tags"),
@@ -490,9 +476,9 @@ describe("update command", () => {
 				reason: "network timeout",
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			expect(mockLog.warn).toHaveBeenCalledWith(
+			expect(ui.log.warn).toHaveBeenCalledWith(
 				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
 		});
@@ -506,12 +492,13 @@ describe("update command", () => {
 			});
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			const allLogCalls = [
-				...mockLog.warn.mock.calls.map((c) => c[0]),
-				...mockLog.message.mock.calls.map((c) => c[0]),
-				...mockLog.info.mock.calls.map((c) => c[0]),
+				...ui.log.warn.mock.calls.map((c) => c[0]),
+				...ui.log.message.mock.calls.map((c) => c[0]),
+				...ui.log.info.mock.calls.map((c) => c[0]),
+				...ui.note.mock.calls.map((c) => c[0]),
 			];
 			const hasFailedNote = allLogCalls.some(
 				(msg) =>
@@ -519,7 +506,7 @@ describe("update command", () => {
 					(msg.includes("failed") || msg.includes("Failed")),
 			);
 			expect(hasFailedNote).toBe(false);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("up to date"),
 			);
 		});
@@ -563,7 +550,7 @@ describe("update command", () => {
 
 			// Partial failure: B is still processed and written, but the run exits
 			// non-zero because A hard-errored. Catch so the assertions below run.
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -623,7 +610,7 @@ describe("update command", () => {
 			});
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Git update should clone
 			expect(mockCloneSource).toHaveBeenCalled();
@@ -667,15 +654,15 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Should have per-plugin info in the output — the updated repo-a now
 			// streams as its group-of-one spinner stop-frame, repo-b (up-to-date)
-			// via the trailing p.log summary.
+			// via the trailing ui.log summary.
 			const allMessages = [
-				...mockLog.info.mock.calls.map((c) => c[0]),
-				...mockLog.message.mock.calls.map((c) => c[0]),
-				...mockLog.success.mock.calls.map((c) => c[0]),
+				...ui.log.info.mock.calls.map((c) => c[0]),
+				...ui.log.message.mock.calls.map((c) => c[0]),
+				...ui.log.success.mock.calls.map((c) => c[0]),
 				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some(
@@ -701,7 +688,7 @@ describe("update command", () => {
 				},
 			);
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
@@ -724,7 +711,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -759,7 +746,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 			expect(mockResolveGroupTarget).toHaveBeenCalledTimes(1);
@@ -780,7 +767,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Excluded from grouping: no group check, no clone; reinstalled in place.
 			expect(mockResolveGroupTarget).not.toHaveBeenCalled();
@@ -792,10 +779,7 @@ describe("update command", () => {
 		});
 
 		it("the grouped path does not emit the per-clone Cloning repository... spinner", async () => {
-			const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
-			vi.mocked(p.spinner).mockReturnValue(
-				mockSpinner as ReturnType<typeof p.spinner>,
-			);
+			const mockSpinner = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
@@ -818,7 +802,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			const startCalls = mockSpinner.start.mock.calls.map(
 				(c) => c[0] as string,
@@ -834,10 +818,7 @@ describe("update command", () => {
 		});
 
 		it("single-key still routes through cloneAndReinstall (per-clone spinner, no group check)", async () => {
-			const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
-			vi.mocked(p.spinner).mockReturnValue(
-				mockSpinner as ReturnType<typeof p.spinner>,
-			);
+			const mockSpinner = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					commit: INSTALLED_SHA,
@@ -857,7 +838,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			const startCalls = mockSpinner.start.mock.calls.map(
 				(c) => c[0] as string,
@@ -902,7 +883,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/updated/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockWriteManifest).toHaveBeenCalledTimes(2);
 			expect(mockAddEntry).toHaveBeenCalledWith(
@@ -955,7 +936,7 @@ describe("update command", () => {
 				.mockRejectedValueOnce(new Error("disk full"))
 				.mockResolvedValue({ copiedFiles: [".claude/skills/updated/"] });
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// Copy-failed trips the non-zero exit; both groups still persisted.
 			expect(err).toBeInstanceOf(ExitSignal);
@@ -1043,7 +1024,7 @@ describe("update command", () => {
 			});
 
 			// aborted + blocked trip the non-zero exit; catch so assertions run.
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// No member mutated the manifest → no add/remove and no group write.
 			expect(mockAddEntry).not.toHaveBeenCalled();
@@ -1085,7 +1066,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/updated/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockWriteManifest).toHaveBeenCalledTimes(2);
 			// Group A's write: A updated, B still at its pre-run commit (not yet run).
@@ -1159,7 +1140,7 @@ describe("update command", () => {
 			// cf clone: copy throws → copy-failed (removes its entry).
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -1224,23 +1205,23 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Each git group streams under its own Updating spinner (the local never does).
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-a");
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-b");
 			// Streamed outcome lines appear in manifest (processing) order: git A
 			// (its group-of-one spinner stop-frame), then the interleaved local
-			// (p.log.success, no spinner), then git B (its stop-frame).
+			// (ui.log.success, no spinner), then git B (its stop-frame).
 			expect(stopTexts(handle, 0)).toEqual([A_SUMMARY, B_SUMMARY]);
-			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual([
+			expect(ui.log.success.mock.calls.map((c) => c[0])).toEqual([
 				LOCAL_SUMMARY,
 			]);
 			const stopOrder = (text: string) =>
 				handle.stop.mock.invocationCallOrder[
 					handle.stop.mock.calls.findIndex((c) => c[0] === text)
 				]!;
-			const localOrder = mockLog.success.mock.invocationCallOrder[0]!;
+			const localOrder = ui.log.success.mock.invocationCallOrder[0]!;
 			expect(stopOrder(A_SUMMARY)).toBeLessThan(localOrder);
 			expect(localOrder).toBeLessThan(stopOrder(B_SUMMARY));
 		});
@@ -1262,17 +1243,17 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Animation is KEPT: the group-of-one still opens an Updating spinner...
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 			// ...whose settled stop-frame IS the single collapsed Updated line (code 0
-			// = success). No separate p.log line beneath a header.
+			// = success). No separate ui.log line beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
 				"owner/repo: Updated aaaaaaa -> bbbbbbb",
 				0,
 			);
-			expect(mockLog.success).not.toHaveBeenCalled();
+			expect(ui.log.success).not.toHaveBeenCalled();
 			// Neither the start nor the stop carries a `(1 members)` header line.
 			const messages = [
 				...handle.start.mock.calls.map((c) => c[0] as string),
@@ -1309,7 +1290,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/a/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Collapsed to the spinner stop-frame carrying the FULL member key (the /a
 			// suffix distinguishes it from a true standalone), code 0, no separate line.
@@ -1317,7 +1298,7 @@ describe("update command", () => {
 				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
 				0,
 			);
-			expect(mockLog.success).not.toHaveBeenCalled();
+			expect(ui.log.success).not.toHaveBeenCalled();
 			// The spinner still starts on the bare repo label (no member suffix, no count).
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 		});
@@ -1339,15 +1320,16 @@ describe("update command", () => {
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
 			// copy-failed trips the non-zero exit; catch so assertions run.
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// The single failure IS the spinner stop-frame at code 2 (error), carrying
-			// the copy-failed member line — no separate p.log.error beneath a header.
+			// the copy-failed member line — no separate ui.log.error beneath a header.
 			expect(handle.stop).toHaveBeenCalledWith(
 				"Update failed for owner/repo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 				2,
 			);
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.fail).not.toHaveBeenCalled();
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 		});
 
@@ -1394,18 +1376,18 @@ describe("update command", () => {
 			);
 
 			// copy-failed trips the non-zero exit; catch so assertions run.
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// One header carrying the attempted count.
 			expect(handle.start).toHaveBeenCalledWith(
 				"Updating owner/repo  aaaaaaa -> bbbbbbb  (3 members)",
 			);
 			// One member line each, all under the one header, at the matching level.
-			expect(mockLog.success).toHaveBeenCalledWith("a");
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.success).toHaveBeenCalledWith("a");
+			expect(ui.log.error).toHaveBeenCalledWith(
 				"Update failed for owner/repo/b after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
 			);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				expect.stringMatching(
 					/^owner\/repo\/c can't be updated: its SKILL.md is gone/,
 				),
@@ -1431,11 +1413,11 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			// Local streams first (manifest index 0) via p.log.success; the git group
+			// Local streams first (manifest index 0) via ui.log.success; the git group
 			// follows as its group-of-one spinner stop-frame.
-			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual([
+			expect(ui.log.success.mock.calls.map((c) => c[0])).toEqual([
 				LOCAL_SUMMARY,
 			]);
 			expect(stopTexts(handle, 0)).toEqual([
@@ -1447,7 +1429,7 @@ describe("update command", () => {
 						(c) => c[0] === "owner/repo-a: Updated aaaaaaa -> bbbbbbb",
 					)
 				]!;
-			expect(mockLog.success.mock.invocationCallOrder[0]!).toBeLessThan(
+			expect(ui.log.success.mock.invocationCallOrder[0]!).toBeLessThan(
 				aStopOrder,
 			);
 			// The local never clones and never opens an Updating spinner; only the git
@@ -1476,10 +1458,10 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Two distinct repos → two groups-of-one; each ✓ is now that group's
-			// spinner stop-frame (the collapsed Updated line), not a p.log line.
+			// spinner stop-frame (the collapsed Updated line), not a ui.log line.
 			const writeOrders = mockWriteManifest.mock.invocationCallOrder;
 			const stopCalls = handle.stop.mock.calls;
 			const stopOrder = (text: string) =>
@@ -1524,14 +1506,13 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// One group spinner on the header (plus the leading check spinner) — never
 			// a per-member message tick across the three reinstalls.
 			expect(handle.start).toHaveBeenCalledWith(
 				expect.stringContaining("Updating owner/repo"),
 			);
-			expect(handle.message).not.toHaveBeenCalled();
 		});
 
 		it("starts no Updating spinner for a group whose members are all non-updatable", async () => {
@@ -1554,7 +1535,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			const starts = handle.start.mock.calls.map((c) => c[0] as string);
 			// The updatable group streams under a spinner...
@@ -1603,7 +1584,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// The resolved target.tag (v1.3.0) and the shared members' entry.ref
 			// (v1.2.3) render as tags in the group header — not commit hashes.
@@ -1637,7 +1618,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Divergent olds → header carries the resolved tag target only.
 			expect(handle.start).toHaveBeenCalledWith(
@@ -1645,8 +1626,8 @@ describe("update command", () => {
 			);
 			// Each member threads its OWN entry.ref as oldRef against the shared
 			// target.tag → its own tag move on the member line.
-			expect(mockLog.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
-			expect(mockLog.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
+			expect(ui.log.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
+			expect(ui.log.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
 		});
 	});
 
@@ -1700,18 +1681,11 @@ describe("update command", () => {
 				successOutcome("owner/repo/b"),
 			];
 
-			streamGroupMemberLines(
-				item,
-				outcomes,
-				REMOTE_SHA,
-				"v1.3.0",
-				true,
-				interactiveUi,
-			);
+			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", true, ui);
 
 			// Caller says divergent → each member line carries its own tag move.
-			expect(mockLog.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
-			expect(mockLog.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
+			expect(ui.log.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
+			expect(ui.log.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
 		});
 
 		it("leaves member lines bare when divergent=false even though the updating commits differ", () => {
@@ -1722,18 +1696,11 @@ describe("update command", () => {
 				successOutcome("owner/repo/b"),
 			];
 
-			streamGroupMemberLines(
-				item,
-				outcomes,
-				REMOTE_SHA,
-				"v1.3.0",
-				false,
-				interactiveUi,
-			);
+			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", false, ui);
 
 			// Caller says shared → the move stays on the header, member lines are bare.
-			expect(mockLog.success).toHaveBeenCalledWith("a");
-			expect(mockLog.success).toHaveBeenCalledWith("b");
+			expect(ui.log.success).toHaveBeenCalledWith("a");
+			expect(ui.log.success).toHaveBeenCalledWith("b");
 		});
 	});
 
@@ -1776,11 +1743,9 @@ describe("update command", () => {
 			});
 			installPipelineMocks();
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const messageCalls = mockLog.message.mock.calls.map(
-				(c) => c[0] as string,
-			);
+			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
 			// ONE collapsed count line for the 7-member group, keyed by the group.
 			expect(messageCalls).toContain("owner/repo: 7 up to date");
 			// Not 7 near-identical per-member up-to-date lines.
@@ -1806,9 +1771,9 @@ describe("update command", () => {
 				newerTags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toContain(
 				[
 					"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
@@ -1834,9 +1799,9 @@ describe("update command", () => {
 				newerTags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toContain(
 				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo/a@v3.0",
 			);
@@ -1856,11 +1821,11 @@ describe("update command", () => {
 				reason: REASON,
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
 			expect(err).toBeUndefined();
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			// ONE collapsed line carrying the shared probe reason — no per-member enumeration.
 			expect(warnCalls).toContain(
 				`owner/repo: couldn't check for updates (${REASON}) — left untouched`,
@@ -1880,9 +1845,9 @@ describe("update command", () => {
 				reason: SSH_REFUSAL,
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			expect(mockLog.warn.mock.calls).toEqual([
+			expect(ui.log.warn.mock.calls).toEqual([
 				[
 					"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
 				],
@@ -1898,9 +1863,9 @@ describe("update command", () => {
 				kind: "constrained-no-match",
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			// ONE collapsed line carrying the shared constraint.
 			expect(warnCalls).toContain(
 				"owner/repo: no tags satisfy ^2.0 — left untouched",
@@ -1924,12 +1889,10 @@ describe("update command", () => {
 					: { kind: "tag", tag: "v2.0.0", newerTags: [] };
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-			const messageCalls = mockLog.message.mock.calls.map(
-				(c) => c[0] as string,
-			);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
 			expect(warnCalls).toContain(
 				"owner/repo@^1.2.3: no tags satisfy ^1.2.3 — left untouched",
 			);
@@ -1951,15 +1914,13 @@ describe("update command", () => {
 			});
 			installPipelineMocks();
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// The behind member streamed inline (its own updated line), NOT counted here.
 			expect(stopTexts(handle, 0)).toContain(
 				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
 			);
-			const messageCalls = mockLog.message.mock.calls.map(
-				(c) => c[0] as string,
-			);
+			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
 			// Only the two up-to-date members appear — as the collapsed count (2, not 3).
 			expect(messageCalls).toContain("owner/repo: 2 up to date");
 			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
@@ -1979,9 +1940,9 @@ describe("update command", () => {
 		it("displays message and exits 0", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
+			expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 	});
@@ -1992,13 +1953,13 @@ describe("update command", () => {
 				"other/plugin": makeEntry(),
 			});
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
-				"owner/repo is not installed.",
-			);
+			expect(ui.fail).toHaveBeenCalledWith("owner/repo is not installed.", {
+				style: "error",
+			});
 		});
 	});
 
@@ -2009,9 +1970,9 @@ describe("update command", () => {
 			});
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"owner/repo is already up to date.",
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -2027,13 +1988,14 @@ describe("update command", () => {
 			});
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
-			const err = await runUpdate("nuxt/ui").catch((e) => e);
+			const err = await runUpdate("nuxt/ui", {}, ui).catch((e) => e);
 
 			// Resolves (no ExitSignal) — up-to-date, not the check-failed exit-1 path.
 			expect(err).toBeUndefined();
-			expect(mockOutro).toHaveBeenCalledWith("nuxt/ui is already up to date.");
+			expect(ui.outro).toHaveBeenCalledWith("nuxt/ui is already up to date.");
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 	});
 
@@ -2047,11 +2009,11 @@ describe("update command", () => {
 				reason: "network timeout",
 			});
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
 		});
@@ -2065,9 +2027,9 @@ describe("update command", () => {
 				reason: SSH_REFUSAL,
 			});
 
-			await runUpdate("owner/repo").catch(() => undefined);
+			await runUpdate("owner/repo", {}, ui).catch(() => undefined);
 
-			expect(mockLog.error.mock.calls).toEqual([
+			expect(ui.log.error.mock.calls).toEqual([
 				[
 					"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
 				],
@@ -2101,7 +2063,7 @@ describe("update command", () => {
 				return { removed: [], skipped: [] };
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(callOrder).toEqual(["clone", "nuke"]);
 		});
@@ -2126,7 +2088,7 @@ describe("update command", () => {
 				assetCounts: { skills: 1 },
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/my-skill/",
@@ -2157,7 +2119,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				{ "owner/repo": entry },
@@ -2188,12 +2150,12 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining(INSTALLED_SHA.slice(0, 7)),
 			);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining(REMOTE_SHA.slice(0, 7)),
 			);
 		});
@@ -2215,7 +2177,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// No confirm mock was set up — would throw if called
 			// Also explicitly verify no confirm import usage
@@ -2252,7 +2214,7 @@ describe("update command", () => {
 		it("nukes every recorded file and reinstalls into .claude only", async () => {
 			setupLegacyUpdate(legacyFiles);
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
 				"/fake/project",
@@ -2269,7 +2231,7 @@ describe("update command", () => {
 		it("persists the reinstalled entry with .claude files and no agents field", async () => {
 			setupLegacyUpdate(legacyFiles);
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			const written = mockWriteManifest.mock.calls[0]![1] as Manifest;
 			expect(written["owner/repo"]!.files).toEqual([".claude/skills/repo/"]);
@@ -2279,7 +2241,7 @@ describe("update command", () => {
 		it("migrates a Codex-only entry", async () => {
 			setupLegacyUpdate([".agents/skills/my-skill/"]);
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".agents/skills/my-skill/",
@@ -2291,9 +2253,9 @@ describe("update command", () => {
 		it("names no agent in the update summary", async () => {
 			setupLegacyUpdate(legacyFiles);
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"Updated owner/repo: aaaaaaa -> bbbbbbb — 1 file(s)",
 			);
 		});
@@ -2324,7 +2286,7 @@ describe("update command", () => {
 		it("single-key update of aborting entry exits non-zero", async () => {
 			arrangeRecordedSkillAbort();
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -2333,9 +2295,9 @@ describe("update command", () => {
 		it("abort message names recorded type, current structure change, and remove+add remedy", async () => {
 			arrangeRecordedSkillAbort();
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
 			const msg = errorCalls.find((m) => m.includes("owner/repo"));
 			expect(msg).toBeDefined();
 			expect(msg).toContain("skill");
@@ -2348,7 +2310,7 @@ describe("update command", () => {
 		it("does not nuke or mutate the manifest on abort (install intact)", async () => {
 			arrangeRecordedSkillAbort();
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -2358,12 +2320,12 @@ describe("update command", () => {
 		it("is distinct from copy-failed: install intact, no entry removal, no retry hint", async () => {
 			arrangeRecordedSkillAbort();
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
 			// Copy-failed removes the entry + writes the manifest; abort must not.
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 			expect(mockRemoveEntry).not.toHaveBeenCalled();
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
 			// Copy-failed hint tells the user the unit is currently uninstalled;
 			// abort must NOT use that wording (install is intact).
 			const hasRetryHint = errorCalls.some((m) =>
@@ -2409,7 +2371,7 @@ describe("update command", () => {
 
 			// All-updates partial abort exits non-zero (after writing successful
 			// siblings); catch so the manifest assertions below still run.
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// Manifest write must NOT include any add/remove for the aborted entry.
 			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
@@ -2446,7 +2408,7 @@ describe("update command", () => {
 
 			// All-updates abort exits non-zero after rendering the loud summary;
 			// catch so the summary assertions below still run.
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// The single aborted member is a group-of-one → its loud line is the
 			// spinner stop-frame at code 2 (error ✗).
@@ -2488,7 +2450,7 @@ describe("update command", () => {
 		it("single-key update with an escaping symlink exits non-zero", async () => {
 			arrangeSymlinkEscape();
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -2497,9 +2459,9 @@ describe("update command", () => {
 		it("reports a copy-safety message describing the symlink escape, NOT a type change or remove+add", async () => {
 			arrangeSymlinkEscape();
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
 			const msg = errorCalls.find((m) => m.includes("owner/repo"));
 			expect(msg).toBeDefined();
 			expect(msg).toContain("evil-link");
@@ -2514,7 +2476,7 @@ describe("update command", () => {
 		it("does not nuke or mutate the manifest on a symlink-escape block (install intact)", async () => {
 			arrangeSymlinkEscape();
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -2568,7 +2530,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// Non-zero exit from the blocked member.
 			expect(err).toBeInstanceOf(ExitSignal);
@@ -2653,7 +2615,7 @@ describe("update command", () => {
 		it("one member aborting does not stop siblings — sibling is updated and written", async () => {
 			arrangePartialAbort();
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// Sibling repo-b was processed (copied) and added to the manifest.
 			expect(mockCopyBareSkill).toHaveBeenCalled();
@@ -2670,7 +2632,7 @@ describe("update command", () => {
 		it("partial abort exits non-zero", async () => {
 			arrangePartialAbort();
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -2684,7 +2646,7 @@ describe("update command", () => {
 				callOrder.push("write");
 			});
 
-			const err = await runUpdate().catch((e) => {
+			const err = await runUpdate(undefined, {}, ui).catch((e) => {
 				callOrder.push("throw");
 				return e;
 			});
@@ -2696,7 +2658,7 @@ describe("update command", () => {
 		it("does not roll back the successful sibling when a member aborts", async () => {
 			arrangePartialAbort();
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// No coherence rollback: repo-b's successful entry is never removed.
 			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
@@ -2710,7 +2672,7 @@ describe("update command", () => {
 		it("leaves the aborted entry's manifest entry unchanged (install intact)", async () => {
 			const { entryA } = arrangePartialAbort();
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			expect(mockRemoveEntry).not.toHaveBeenCalledWith(
 				expect.anything(),
@@ -2724,7 +2686,7 @@ describe("update command", () => {
 			const handle = captureSpinner();
 			arrangePartialAbort();
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// repo-a aborts as a group-of-one → its loud line is the spinner
 			// stop-frame at code 2 (error ✗).
@@ -2739,7 +2701,7 @@ describe("update command", () => {
 			const handle = captureSpinner();
 			arrangePartialAbort();
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// Each is its own group-of-one: repo-b succeeds (stop code 0), repo-a
 			// aborts (stop code 2).
@@ -2780,7 +2742,7 @@ describe("update command", () => {
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			rewalkFinds("x/repo-a", "y/repo-a", "x/repo-b", "y/repo-b");
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// Two standalone repos, each a group-of-one → two distinct loud
 			// stop-frames at code 2 (error ✗).
@@ -2823,7 +2785,7 @@ describe("update command", () => {
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			rewalkFinds("x/repo-a", "y/repo-a", "x/repo-b", "y/repo-b");
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -2857,11 +2819,11 @@ describe("update command", () => {
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			rewalkFinds("x/repo-a", "y/repo-a");
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockOutro).not.toHaveBeenCalledWith(
+			expect(ui.outro).not.toHaveBeenCalledWith(
 				expect.stringContaining("up to date"),
 			);
 			// repo-a aborts as a group-of-one → loud stop-frame at code 2 (error ✗).
@@ -2890,7 +2852,7 @@ describe("update command", () => {
 				new PackConflictError("contains packs", "contains-packs"),
 			);
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -2920,7 +2882,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
@@ -2940,7 +2902,7 @@ describe("update command", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
@@ -2957,7 +2919,7 @@ describe("update command", () => {
 			});
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -2976,13 +2938,14 @@ describe("update command", () => {
 				new Error("git clone failed after 3 attempts: network error"),
 			);
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			expect(mockCancel).toHaveBeenCalledOnce();
-			expect(mockCancel).toHaveBeenCalledWith(
+			expect(ui.cancel).toHaveBeenCalledOnce();
+			expect(ui.cancel).toHaveBeenCalledWith(
 				expect.stringContaining("git clone failed"),
 			);
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 	});
 
@@ -3016,16 +2979,16 @@ describe("update command", () => {
 			threeMemberCollection();
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// ONE enumerated grouped error line naming the affected member basenames
 			// alongside the count — emitted in place of the header's per-member lines.
-			expect(mockLog.error.mock.calls.map((c) => c[0])).toEqual([
+			expect(ui.log.error.mock.calls.map((c) => c[0])).toEqual([
 				"owner/repo: clone failed — affects 3 members: a, b, c",
 			]);
 			// The interim per-member `<key>: Failed — …` warn lines are gone: the
 			// N-outcome fan-out is a DISPLAY-only collapse now (never one line per member).
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 			// The >=2-member group still opens (and settles) its Updating header spinner.
 			expect(handle.start).toHaveBeenCalledWith(
@@ -3037,7 +3000,7 @@ describe("update command", () => {
 			threeMemberCollection();
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// clone-failed removes no entries (only copy-failed does) → the persistence
 			// fold sees only `failed` outcomes → no add/remove → no write for the group.
@@ -3050,7 +3013,7 @@ describe("update command", () => {
 			threeMemberCollection();
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// The DISPLAY collapsed to one line, but the model still holds N `failed`
 			// outcomes → hasFailedOutcome trips → runGroupedUpdates throws ExitSignal(1).
@@ -3089,16 +3052,16 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
 			// Group A collapses to ONE enumerated error line; group B streams both
 			// member ✓ lines under its own header.
-			expect(mockLog.error.mock.calls.map((c) => c[0])).toEqual([
+			expect(ui.log.error.mock.calls.map((c) => c[0])).toEqual([
 				"owner/repo-a: clone failed — affects 2 members: x, y",
 			]);
-			expect(mockLog.success.mock.calls.map((c) => c[0])).toEqual(["m", "n"]);
+			expect(ui.log.success.mock.calls.map((c) => c[0])).toEqual(["m", "n"]);
 			// Only group B persisted; group A (clone-failed) wrote nothing.
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			expect(mockAddEntry).toHaveBeenCalledWith(
@@ -3138,18 +3101,19 @@ describe("update command", () => {
 			});
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// The single collapsed failed line IS the spinner stop-frame at code 2.
 			expect(stopTexts(handle, 2)).toEqual([
 				"owner/repo: Failed — git clone failed",
 			]);
 			// No enumerated grouped line for a group-of-one — no "affects" text anywhere.
-			const errorCalls = mockLog.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
 			expect(errorCalls.some((m) => m.includes("clone failed — affects"))).toBe(
 				false,
 			);
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 	});
 
@@ -3185,14 +3149,14 @@ describe("update command", () => {
 		it("collapses a group probe failure to one check-failed line carrying the shared reason", async () => {
 			threeMemberCollection();
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
 			expect(err).toBeUndefined();
 			// The MODEL stays N check-failed outcomes (exit accounting); the DISPLAY
 			// count-collapses to ONE group line (task 2-5) — a group-level probe
 			// failure is one shared reason, never one line per member.
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			const checkFailedLines = warnCalls.filter((m) =>
 				m.includes("couldn't check for updates"),
 			);
@@ -3204,7 +3168,7 @@ describe("update command", () => {
 		it("a check-failed group runs no clone and mutates no manifest state", async () => {
 			threeMemberCollection();
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// The probe failed BEFORE any clone; no reinstall runs, so nothing persists.
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -3244,7 +3208,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/skill-b/"],
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// check-failed excluded from hasFailedOutcome → no ExitSignal (exit 0).
 			expect(err).toBeUndefined();
@@ -3265,9 +3229,9 @@ describe("update command", () => {
 		it("collapses the trailing summary to the group label — no per-member enumeration", async () => {
 			threeMemberCollection();
 
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			// One group line keyed by the group label (task 2-5)...
 			expect(warnCalls).toContain(
 				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
@@ -3327,12 +3291,12 @@ describe("update command", () => {
 				reason: "network timeout",
 			});
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			// The requested action did not happen -> ExitSignal(1), loud error.
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				"owner/repo: couldn't check for updates (network timeout) — left untouched",
 			);
 		});
@@ -3347,11 +3311,11 @@ describe("update command", () => {
 			});
 			mockCheckForUpdate.mockResolvedValue({ status: "constrained-no-match" });
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				"No tags satisfy the constraint for owner/repo. Left untouched.",
 			);
 		});
@@ -3385,16 +3349,17 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/b/"],
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
 			expect(err).toBeUndefined();
 			// Surfaced via warn, NOT error.
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			expect(warnCalls).toContain(
 				`owner/repo-a: couldn't check for updates (${REASON}) — left untouched`,
 			);
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.fail).not.toHaveBeenCalled();
 			// The check-failed group mutates no manifest state (probe failed before any
 			// clone); the succeeding sibling B still persists.
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
@@ -3426,16 +3391,17 @@ describe("update command", () => {
 				kind: "constrained-no-match",
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
 			expect(err).toBeUndefined();
 			// Surfaced via warn, NOT error.
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			expect(warnCalls).toContain(
 				"owner/repo: no tags satisfy ^2.0 — left untouched",
 			);
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.fail).not.toHaveBeenCalled();
 			// Entry left untouched: no clone, no write, no add/remove.
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -3472,7 +3438,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/b/"],
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// aborted is in hasFailedOutcome membership -> ExitSignal(1).
 			expect(err).toBeInstanceOf(ExitSignal);
@@ -3524,7 +3490,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/b/"],
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// blocked is in hasFailedOutcome membership -> ExitSignal(1).
 			expect(err).toBeInstanceOf(ExitSignal);
@@ -3575,7 +3541,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/x/"],
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// `failed` is in hasFailedOutcome membership -> ExitSignal(1).
 			expect(err).toBeInstanceOf(ExitSignal);
@@ -3620,7 +3586,7 @@ describe("update command", () => {
 				.mockRejectedValueOnce(new Error("disk full"))
 				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/b/"] });
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// copy-failed is in hasFailedOutcome membership -> ExitSignal(1).
 			expect(err).toBeInstanceOf(ExitSignal);
@@ -3683,16 +3649,14 @@ describe("update command", () => {
 				return { kind: "constrained-no-match" };
 			});
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// None of the four categories is a hasFailedOutcome member -> exit 0.
 			expect(err).toBeUndefined();
 			// Every category was genuinely produced (not swallowed by an early return):
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
-			const messageCalls = mockLog.message.mock.calls.map(
-				(c) => c[0] as string,
-			);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
 			expect(warnCalls).toContain(
 				`owner/checkfail: couldn't check for updates (${CHECK_REASON}) — left untouched`,
 			);
@@ -3705,7 +3669,8 @@ describe("update command", () => {
 			expect(messageCalls.some((m) => m.includes("up to date"))).toBe(true);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			// No hard-failure category surfaced -> no loud error anywhere.
-			expect(mockLog.error).not.toHaveBeenCalled();
+			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 	});
 
@@ -3725,7 +3690,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -3756,7 +3721,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate(key);
+			await runUpdate(key, {}, ui);
 
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
 				"/fake/project",
@@ -3787,7 +3752,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -3811,7 +3776,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -3837,7 +3802,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -3871,7 +3836,7 @@ describe("update command", () => {
 				assetCounts: { skills: 1, agents: 1 },
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockDiscover).toHaveBeenCalledWith("/tmp/agntc-clone", {
 				startPath: "",
@@ -3915,13 +3880,13 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/swift/"],
 			});
 
-			await runUpdate("owner/repo/swift");
+			await runUpdate("owner/repo/swift", {}, ui);
 
 			const note =
 				"owner/repo/swift is a single skill — reinstalled as a skill";
-			expect(mockLog.info).toHaveBeenCalledWith(note);
-			expect(mockLog.info.mock.invocationCallOrder.at(-1)).toBeLessThan(
-				mockOutro.mock.invocationCallOrder.at(-1)!,
+			expect(ui.note).toHaveBeenCalledWith(note);
+			expect(ui.note.mock.invocationCallOrder.at(-1)).toBeLessThan(
+				ui.outro.mock.invocationCallOrder.at(-1)!,
 			);
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/agents/openai.yaml",
@@ -3961,13 +3926,13 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/swift/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.note).toHaveBeenCalledWith(
 				"owner/repo/swift is a single skill — reinstalled as a skill",
 			);
 			const settled = handle.stop.mock.invocationCallOrder.at(-1)!;
-			expect(mockLog.info.mock.invocationCallOrder[0]).toBeGreaterThan(settled);
+			expect(ui.note.mock.invocationCallOrder[0]).toBeGreaterThan(settled);
 		});
 	});
 
@@ -3987,7 +3952,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -4009,9 +3974,9 @@ describe("update command", () => {
 				tags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.log.info).toHaveBeenCalledWith(
 				"Pinned to v1.0. Newer tags available:",
 			);
 		});
@@ -4025,9 +3990,9 @@ describe("update command", () => {
 				tags: ["v2.0", "v3.0", "v4.0"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			const messageCalls = mockLog.message.mock.calls.map((call) => call[0]);
+			const messageCalls = ui.log.message.mock.calls.map((call) => call[0]);
 			expect(messageCalls).toEqual(["  v4.0", "  v3.0", "  v2.0"]);
 		});
 
@@ -4040,9 +4005,9 @@ describe("update command", () => {
 				tags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"To upgrade: npx agntc add owner/repo@v3.0",
 			);
 		});
@@ -4056,7 +4021,7 @@ describe("update command", () => {
 				tags: ["v2.0"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -4072,7 +4037,7 @@ describe("update command", () => {
 				tags: ["v2.0"],
 			});
 
-			await expect(runUpdate("owner/repo")).resolves.toBeUndefined();
+			await expect(runUpdate("owner/repo", {}, ui)).resolves.toBeUndefined();
 		});
 
 		it("shows re-add command for collection plugin key", async () => {
@@ -4084,9 +4049,9 @@ describe("update command", () => {
 				tags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate("owner/repo/go");
+			await runUpdate("owner/repo/go", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"To upgrade: npx agntc add owner/repo/go@v3.0",
 			);
 		});
@@ -4105,13 +4070,13 @@ describe("update command", () => {
 				tags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"To upgrade: npx agntc add owner/repo@v3.0",
 			);
 			// Exact-pin keeps the @<newest> suffix — never the bare caret re-add.
-			expect(mockOutro).not.toHaveBeenCalledWith(
+			expect(ui.outro).not.toHaveBeenCalledWith(
 				"To upgrade: npx agntc add owner/repo",
 			);
 		});
@@ -4129,13 +4094,13 @@ describe("update command", () => {
 				tags: ["v2.0", "v3.0"],
 			});
 
-			await runUpdate("owner/repo/go");
+			await runUpdate("owner/repo/go", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"To upgrade: npx agntc add owner/repo/go@v3.0",
 			);
 			// Member-scoped, NOT the repo-level command the all-mode collapse uses.
-			expect(mockOutro).not.toHaveBeenCalledWith(
+			expect(ui.outro).not.toHaveBeenCalledWith(
 				"To upgrade: npx agntc add owner/repo@v3.0",
 			);
 		});
@@ -4148,9 +4113,9 @@ describe("update command", () => {
 			});
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"owner/repo is already up to date.",
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -4179,7 +4144,7 @@ describe("update command", () => {
 		it("triggers re-copy from stored path when status is local", async () => {
 			setupLocalBase();
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
 			expect(mockStat).toHaveBeenCalledWith(LOCAL_KEY);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
@@ -4194,7 +4159,7 @@ describe("update command", () => {
 			setupLocalBase();
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
 			expect(mockStat).toHaveBeenCalledWith(LOCAL_KEY);
 		});
@@ -4206,11 +4171,11 @@ describe("update command", () => {
 				Object.assign(new Error("ENOENT"), { code: "ENOENT" }),
 			);
 
-			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+			const err = await runUpdate(LOCAL_KEY, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				`${LOCAL_KEY}: path does not exist`,
 			);
 		});
@@ -4220,11 +4185,11 @@ describe("update command", () => {
 			mockCheckForUpdate.mockResolvedValue({ status: "local" });
 			mockStat.mockResolvedValue({ isDirectory: () => false } as Stats);
 
-			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+			const err = await runUpdate(LOCAL_KEY, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				`${LOCAL_KEY}: path is not a directory`,
 			);
 		});
@@ -4232,7 +4197,7 @@ describe("update command", () => {
 		it("does not use git clone for local updates", async () => {
 			setupLocalBase();
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).not.toHaveBeenCalled();
@@ -4251,7 +4216,7 @@ describe("update command", () => {
 				return { copiedFiles: [".claude/skills/my-plugin/"] };
 			});
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
 			expect(callOrder).toEqual(["nuke", "copy"]);
 		});
@@ -4259,7 +4224,7 @@ describe("update command", () => {
 		it("updates manifest with null ref and commit", async () => {
 			setupLocalBase();
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				{ [LOCAL_KEY]: LOCAL_ENTRY },
@@ -4276,9 +4241,9 @@ describe("update command", () => {
 		it("shows Refreshed summary", async () => {
 			setupLocalBase();
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("Refreshed"),
 			);
 		});
@@ -4286,7 +4251,7 @@ describe("update command", () => {
 		it("does not create a temp dir for local updates", async () => {
 			setupLocalBase();
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockCleanupTempDir).not.toHaveBeenCalled();
@@ -4303,7 +4268,7 @@ describe("update command", () => {
 				assetCounts: { skills: 1, agents: 1 },
 			});
 
-			await runUpdate(LOCAL_KEY);
+			await runUpdate(LOCAL_KEY, {}, ui);
 
 			expect(mockDiscover).toHaveBeenCalledWith(LOCAL_KEY, {
 				startPath: "",
@@ -4328,14 +4293,15 @@ describe("update command", () => {
 				},
 			});
 
-			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+			const err = await runUpdate(LOCAL_KEY, {}, ui).catch((e) => e);
 
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledTimes(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledTimes(1);
+			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.log.error).toHaveBeenCalledWith(
 				expect.stringMatching(new RegExp(`^${LOCAL_KEY}: .*"\\.\\./x"`)),
 			);
-			expect(mockCancel).not.toHaveBeenCalled();
+			expect(ui.cancel).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 	});
@@ -4360,7 +4326,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			await runUpdate("owner/repo/go");
+			await runUpdate("owner/repo/go", {}, ui);
 
 			// Clone uses owner/repo (first two segments)
 			expect(mockCloneSource).toHaveBeenCalledWith(
@@ -4379,7 +4345,7 @@ describe("update command", () => {
 		it("exits 1 on manifest read failure", async () => {
 			mockReadManifestOrExit.mockRejectedValue(new ExitSignal(1));
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -4414,7 +4380,7 @@ describe("update command", () => {
 				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/go/"] })
 				.mockResolvedValueOnce({ copiedFiles: [".claude/skills/ts/"] });
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// One group: probed once, cloned once, recorded in one write.
 			expect(mockResolveGroupTarget).toHaveBeenCalledOnce();
@@ -4459,7 +4425,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			await runUpdate("owner/repo/go");
+			await runUpdate("owner/repo/go", {}, ui);
 
 			expect(mockCheckForUpdate).toHaveBeenCalledTimes(1);
 			expect(mockCheckForUpdate).toHaveBeenCalledWith("owner/repo/go", goEntry);
@@ -4470,12 +4436,13 @@ describe("update command", () => {
 				"other/plugin": makeEntry(),
 			});
 
-			const err = await runUpdate("nonexistent/repo").catch((e) => e);
+			const err = await runUpdate("nonexistent/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.fail).toHaveBeenCalledWith(
 				"nonexistent/repo is not installed.",
+				{ style: "error" },
 			);
 		});
 
@@ -4504,7 +4471,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/standalone/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// Should only update the exact match, not the collection entry
 			expect(mockCheckForUpdate).toHaveBeenCalledTimes(1);
@@ -4534,7 +4501,7 @@ describe("update command", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -4564,9 +4531,9 @@ describe("update command", () => {
 				new Error("ENOSPC: no space left on device, write"),
 			);
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 			);
 		});
@@ -4590,7 +4557,7 @@ describe("update command", () => {
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const err = await runUpdate(LOCAL_KEY).catch((e) => e);
+			const err = await runUpdate(LOCAL_KEY, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -4608,9 +4575,9 @@ describe("update command", () => {
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await runUpdate(LOCAL_KEY).catch(() => {});
+			await runUpdate(LOCAL_KEY, {}, ui).catch(() => {});
 
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				expect.stringContaining(`npx agntc add ${LOCAL_KEY}`),
 			);
 		});
@@ -4639,7 +4606,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalled();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -4669,7 +4636,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// cloneSource should be called with the new tag as ref
 			expect(mockCloneSource).toHaveBeenCalledWith(
@@ -4701,12 +4668,12 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// oldRef = pre-update entry.ref (v1.2.3), newRef = post-update
 			// result.manifestEntry.ref (resolved v1.3.0) → the shared formatVersionMove
 			// renders the tag move, not commit hashes.
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s)",
 			);
 		});
@@ -4733,7 +4700,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				{ "owner/repo": entry },
@@ -4768,7 +4735,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				{ "owner/repo": entry },
@@ -4801,11 +4768,11 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// Both refs are semver tags and the ref moved (v1.2.3 -> v1.3.0) → the
 			// shared formatVersionMove renders tags, not the commit hashes.
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("v1.2.3 -> v1.3.0"),
 			);
 		});
@@ -4825,10 +4792,10 @@ describe("update command", () => {
 				latestOverall: null,
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"owner/repo is already up to date.",
 			);
 		});
@@ -4847,9 +4814,9 @@ describe("update command", () => {
 				latestOverall: null,
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"owner/repo is already up to date.",
 			);
 		});
@@ -4866,7 +4833,7 @@ describe("update command", () => {
 				latestOverall: null,
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -4885,7 +4852,7 @@ describe("update command", () => {
 				latestOverall: null,
 			});
 
-			await expect(runUpdate("owner/repo")).resolves.toBeUndefined();
+			await expect(runUpdate("owner/repo", {}, ui)).resolves.toBeUndefined();
 		});
 	});
 
@@ -4901,14 +4868,14 @@ describe("update command", () => {
 				status: "constrained-no-match",
 			});
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				expect.stringContaining("owner/repo"),
 			);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				expect.stringContaining("constraint"),
 			);
 		});
@@ -4924,7 +4891,7 @@ describe("update command", () => {
 				status: "constrained-no-match",
 			});
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -4942,7 +4909,7 @@ describe("update command", () => {
 				status: "constrained-no-match",
 			});
 
-			await runUpdate("owner/repo").catch(() => {});
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
 			expect(mockAddEntry).not.toHaveBeenCalled();
 		});
@@ -4971,7 +4938,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({
@@ -4997,9 +4964,9 @@ describe("update command", () => {
 				latestOverall: null,
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("up to date"),
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -5018,9 +4985,9 @@ describe("update command", () => {
 				status: "constrained-no-match",
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 			// Collapsed group line carrying the shared constraint (task 2-5).
 			expect(warnCalls).toContain(
 				"owner/repo: no tags satisfy ^2.0 — left untouched",
@@ -5079,17 +5046,17 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// A should be updated (constrained-update-available)
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 			expect(mockWriteManifest).toHaveBeenCalled();
 			// Summary should contain info for all three — the updated repo-a streams
-			// as its group-of-one stop-frame; repo-b/repo-c via trailing p.log lines.
+			// as its group-of-one stop-frame; repo-b/repo-c via trailing ui.log lines.
 			const allMessages = [
-				...mockLog.success.mock.calls.map((c) => c[0] as string),
-				...mockLog.message.mock.calls.map((c) => c[0] as string),
-				...mockLog.warn.mock.calls.map((c) => c[0] as string),
+				...ui.log.success.mock.calls.map((c) => c[0] as string),
+				...ui.log.message.mock.calls.map((c) => c[0] as string),
+				...ui.log.warn.mock.calls.map((c) => c[0] as string),
 				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
@@ -5163,7 +5130,7 @@ describe("update command", () => {
 			});
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Constrained and branch should be processed (clone called)
 			// Local should be processed (stat called)
@@ -5173,11 +5140,11 @@ describe("update command", () => {
 			expect(mockWriteManifest).toHaveBeenCalledTimes(3);
 			// All four should appear in the summary — the updated constrained/branch
 			// standalones stream as group-of-one stop-frames; tagged (info) and local
-			// (p.log.success) via trailing p.log lines.
+			// (ui.log.success) via trailing ui.log lines.
 			const allMessages = [
-				...mockLog.success.mock.calls.map((c) => c[0] as string),
-				...mockLog.message.mock.calls.map((c) => c[0] as string),
-				...mockLog.info.mock.calls.map((c) => c[0] as string),
+				...ui.log.success.mock.calls.map((c) => c[0] as string),
+				...ui.log.message.mock.calls.map((c) => c[0] as string),
+				...ui.log.info.mock.calls.map((c) => c[0] as string),
 				...stopTexts(handle),
 			];
 			const hasConstrained = allMessages.some((msg) =>
@@ -5224,15 +5191,15 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/skill-a/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			// The updated repo-a streams as its group-of-one stop-frame; repo-b
-			// (newer-tags) via the trailing p.log.info summary.
+			// (newer-tags) via the trailing ui.log.info summary.
 			const allMessages = [
-				...mockLog.success.mock.calls.map((c) => c[0] as string),
-				...mockLog.info.mock.calls.map((c) => c[0] as string),
+				...ui.log.success.mock.calls.map((c) => c[0] as string),
+				...ui.log.info.mock.calls.map((c) => c[0] as string),
 				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
@@ -5263,7 +5230,7 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// The out-of-constraint info should be collected for rendering.
 			// Since vc-3-5 handles rendering, we verify the function returns
@@ -5301,10 +5268,10 @@ describe("update command", () => {
 				},
 			);
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// All up-to-date, so the "all up to date" message should appear
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("up to date"),
 			);
 		});
@@ -5324,15 +5291,13 @@ describe("update command", () => {
 				latestOverall: null,
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Should not clone (no downgrade)
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			// The never-downgraded member is demoted to up-to-date and reported via the
 			// collapsed per-group count line (task 2-5): one member → "1 up to date".
-			const messageCalls = mockLog.message.mock.calls.map(
-				(c) => c[0] as string,
-			);
+			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
 			expect(messageCalls).toContain("owner/repo: 1 up to date");
 		});
 
@@ -5358,10 +5323,10 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// Should NOT show "Everything is up to date." — there was an update
-			expect(mockOutro).not.toHaveBeenCalledWith("Everything is up to date.");
+			expect(ui.outro).not.toHaveBeenCalledWith("Everything is up to date.");
 		});
 	});
 
@@ -5402,7 +5367,7 @@ describe("update command", () => {
 
 			// Copy failure makes the run exit non-zero, but the successful sibling
 			// is still written first. Catch so the manifest assertions below run.
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -5437,7 +5402,7 @@ describe("update command", () => {
 
 			// Copy failure exits non-zero after the summary is rendered; catch so
 			// the recovery-hint assertion below still runs.
-			await runUpdate().catch(() => {});
+			await runUpdate(undefined, {}, ui).catch(() => {});
 
 			// The copy-failed standalone is a group-of-one → its loud recovery-hint
 			// line is the spinner stop-frame at code 2 (error ✗).
@@ -5463,7 +5428,7 @@ describe("update command", () => {
 
 			// Copy failure exits non-zero after the manifest write; catch so the
 			// removal assertion below still runs.
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -5496,12 +5461,12 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// A same-run safe bump lands v1.3.0; the footer names that POST-BUMP
 			// landed tag (group target.tag), not the pre-bump ref, so it agrees with
 			// the inline Updated line.
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toContain(
 				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5530,9 +5495,9 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			const hasHeader = infoCalls.some((msg) =>
 				msg.includes("Newer versions outside constraints"),
 			);
@@ -5570,9 +5535,9 @@ describe("update command", () => {
 				},
 			);
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			const hasRepoA = infoCalls.some(
 				(msg) => msg.includes("owner/repo-a") && msg.includes("v2.0.0"),
 			);
@@ -5605,11 +5570,11 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// current is the LANDED tag (checkResult.tag = v1.3.0), NOT the pre-bump
 			// entry.ref (v1.2.3) — matching the inline `Updated ... -> v1.3.0` line.
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toContain(
 				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5638,9 +5603,9 @@ describe("update command", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			const hasHeader = infoCalls.some((msg) =>
 				msg.includes("Newer versions outside constraints"),
 			);
@@ -5660,10 +5625,10 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// No safe bump this run: pre/post coincide, so current = entry.ref = v1.3.0.
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toContain(
 				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5683,11 +5648,11 @@ describe("update command", () => {
 				latestOverall: "v0.4.0",
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			// A 0.x-minor (^0.3.3 gates 0.4.0) rides the SAME out-of-constraint path as
 			// a major — identical actionable wording, current from the check result.
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toContain(
 				"  owner/repo  v0.3.3 -> v0.4.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5706,9 +5671,9 @@ describe("update command", () => {
 				latestOverall: null,
 			});
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			const hasHeader = infoCalls.some((msg) =>
 				msg.includes("Newer versions outside constraints"),
 			);
@@ -5744,9 +5709,9 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			// ONE footer line for the whole collection: current = group target.tag,
 			// keyed by the group label, the group's bare re-add commands.
 			expect(infoCalls).toContain(
@@ -5793,9 +5758,9 @@ describe("update command", () => {
 						};
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			// Two footer lines: prefix disambiguated by @intent, command stays bare
 			// (no @intent). current = each group's own target.tag.
 			expect(infoCalls).toContain(
@@ -5819,12 +5784,12 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			// The footer is the ONLY info output on this all-up-to-date path, so the
 			// exact two lines pin the actionable wording verbatim: current = group
 			// target.tag (v1.2.3), a bare --skill command, no (constraint: ...) tail.
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			expect(infoCalls).toEqual([
 				"Newer versions outside constraints:",
 				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
@@ -5846,11 +5811,11 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			const allModeErr = await runUpdate().catch((e) => e);
+			const allModeErr = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			// The footer does not feed hasFailedOutcome, so all-mode exit stays 0.
 			expect(allModeErr).toBeUndefined();
-			expect(mockLog.info.mock.calls.map((c) => c[0] as string)).toContain(
+			expect(ui.log.info.mock.calls.map((c) => c[0] as string)).toContain(
 				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			);
 
@@ -5868,7 +5833,9 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			const singleKeyErr = await runUpdate("owner/repo").catch((e) => e);
+			const singleKeyErr = await runUpdate("owner/repo", {}, ui).catch(
+				(e) => e,
+			);
 			expect(singleKeyErr).toBeUndefined();
 		});
 
@@ -5901,13 +5868,14 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			const allLines = [
-				...mockLog.info.mock.calls.map((c) => c[0]),
-				...mockLog.message.mock.calls.map((c) => c[0]),
-				...mockLog.warn.mock.calls.map((c) => c[0]),
-				...mockOutro.mock.calls.map((c) => c[0]),
+				...ui.log.info.mock.calls.map((c) => c[0]),
+				...ui.note.mock.calls.map((c) => c[0]),
+				...ui.log.message.mock.calls.map((c) => c[0]),
+				...ui.log.warn.mock.calls.map((c) => c[0]),
+				...ui.outro.mock.calls.map((c) => c[0]),
 			].filter((m): m is string => typeof m === "string");
 			// No newer-tags surface at all: neither the "newer tags available" notice...
 			expect(allLines.some((m) => m.includes("newer tags available"))).toBe(
@@ -5931,9 +5899,9 @@ describe("update command", () => {
 				latestOverall: "v2.0.0",
 			});
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			// The caret out-of-constraint footer: current -> newer with the group's
 			// BARE re-add command (no @ suffix), collapsed to one line for the group.
 			expect(infoCalls).toContain("Newer versions outside constraints:");
@@ -5982,7 +5950,7 @@ describe("failureMemberLine (shared loud member-line rendering)", () => {
 	it("returns null for a bare `failed` — its rendering is NOT shared (each caller renders it itself)", () => {
 		// Both paths render a bare `failed` at ERROR (red ✗) but by different mechanics:
 		// the collapsed path settles a red error spinner stop-frame (code 2), the
-		// streamed path emits p.log.error via renderFailedOutcome. A single shared
+		// streamed path emits ui.log.error via renderFailedOutcome. A single shared
 		// MemberLine cannot reproduce both, so the helper declines (null) and each
 		// caller keeps its own bare-`failed` fallback.
 		const outcome: PluginOutcome = {
@@ -6002,10 +5970,10 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 	// the group-of-one collapsed spinner stop-frame — never the yellow warn glyph.
 	// clack's spin.stop has no warn code, so the group-of-one collapse can only be
 	// green or red; red is the honest choice, so the other paths normalise UP to red
-	// (renderFailedOutcome emits p.log.error for `failed`). Exit accounting is
+	// (renderFailedOutcome emits ui.log.error for `failed`). Exit accounting is
 	// unchanged: `failed` still trips hasFailedOutcome → ExitSignal(1).
 
-	it("renders a streamed multi-member `failed` via p.log.error (not p.log.warn)", async () => {
+	it("renders a streamed multi-member `failed` via ui.log.error (not ui.log.warn)", async () => {
 		// A 2-member collection → one group, one shared clone that SUCCEEDS. Member a
 		// reinstalls cleanly (✓); member b's per-member symlink scan throws, propagating
 		// to reinstallMember's defensive catch → a bare `failed` outcome with
@@ -6043,18 +6011,18 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		});
 
 		// `failed` trips the non-zero exit; catch so assertions run.
-		await runUpdate().catch(() => {});
+		await runUpdate(undefined, {}, ui).catch(() => {});
 
-		// The bare `failed` member renders RED via p.log.error…
-		expect(mockLog.error).toHaveBeenCalledWith("owner/repo/b: Failed — boom");
+		// The bare `failed` member renders RED via ui.log.error…
+		expect(ui.log.error).toHaveBeenCalledWith("owner/repo/b: Failed — boom");
 		// …and never the yellow warn glyph.
-		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+		const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 		// The successful sibling still streams its ✓ line under the shared header.
-		expect(mockLog.success).toHaveBeenCalledWith("a");
+		expect(ui.log.success).toHaveBeenCalledWith("a");
 	});
 
-	it("renders a local `failed` red via p.log.error (not p.log.warn)", async () => {
+	it("renders a local `failed` red via ui.log.error (not ui.log.warn)", async () => {
 		// A lone local entry (commit null) is streamed via streamLocalWork with NO
 		// spinner. Its source path fails validation (stat rejects) → processLocalUpdate
 		// returns a bare `failed` outcome → streamCollapsedOutcome → emitMemberLine →
@@ -6074,19 +6042,19 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		mockStat.mockRejectedValue(new Error("ENOENT"));
 
 		// `failed` trips the non-zero exit; catch so assertions run.
-		await runUpdate().catch(() => {});
+		await runUpdate(undefined, {}, ui).catch(() => {});
 
-		expect(mockLog.error).toHaveBeenCalledWith(
+		expect(ui.log.error).toHaveBeenCalledWith(
 			`${LOCAL_KEY}: Failed — ${LOCAL_KEY}: path does not exist`,
 		);
-		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+		const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 	});
 
 	it("renders a group-of-one collapsed `failed` at error (spin.stop code 2), never warn — uniform with the other layouts", async () => {
 		// A standalone repo → a group-of-one whose shared clone throws. It collapses to
 		// ONE red spinner stop-frame at code 2 (clack has no warn code), NOT a separate
-		// p.log.* line. This is the third layout: together with the streamed and local
+		// ui.log.* line. This is the third layout: together with the streamed and local
 		// paths above, a bare `failed` is now uniformly RED everywhere.
 		const handle = captureSpinner();
 		mockReadManifestOrExit.mockResolvedValue({
@@ -6101,14 +6069,14 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		});
 		mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-		await runUpdate().catch(() => {});
+		await runUpdate(undefined, {}, ui).catch(() => {});
 
 		// The collapsed `failed` line IS the spinner stop-frame at code 2 (red ✗).
 		expect(stopTexts(handle, 2)).toEqual([
 			"owner/repo: Failed — git clone failed",
 		]);
 		// No warn glyph for the collapsed failure.
-		const warnCalls = mockLog.warn.mock.calls.map((c) => c[0] as string);
+		const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 	});
 });
@@ -6122,7 +6090,7 @@ describe("update without a terminal", () => {
 		});
 	}
 
-	it("prints one document of every entry, a move carrying both ends, and never touches clack", async () => {
+	it("prints one document of every entry, a move carrying both ends, and nothing else", async () => {
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/caret": makeEntry({
 				type: "skill",
@@ -6182,7 +6150,7 @@ describe("update without a terminal", () => {
 			warnings: [],
 			notes: [],
 		});
-		expect(clackCalls(p)).toEqual([]);
+		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 	});
 
 	it("reports each entry when one fails, exiting 1", async () => {
@@ -6321,7 +6289,7 @@ describe("update without a terminal", () => {
 				warnings: [],
 				notes: [],
 			});
-			expect(clackCalls(p)).toEqual([]);
+			expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 		});
 
 		it("reports a failed check and exits 1, as at a terminal", async () => {
@@ -6445,7 +6413,7 @@ describe("a key naming several entries", () => {
 			"owner/repo/c": skill("c"),
 		});
 
-		await runUpdate("owner/repo");
+		await runUpdate("owner/repo", {}, ui);
 
 		expect(probedKeys()).toEqual([
 			["owner/repo/a", "owner/repo/b", "owner/repo/c"],
@@ -6468,14 +6436,14 @@ describe("a key naming several entries", () => {
 			"owner/repo/b": skill("b"),
 		});
 
-		await runUpdate("owner/repo");
+		await runUpdate("owner/repo", {}, ui);
 
 		expect(handle.start).toHaveBeenCalledWith(
 			"Updating owner/repo  aaaaaaa -> bbbbbbb  (2 members)",
 		);
-		expect(mockLog.success).toHaveBeenCalledWith("a");
-		expect(mockLog.success).toHaveBeenCalledWith("b");
-		expect(mockOutro).not.toHaveBeenCalled();
+		expect(ui.log.success).toHaveBeenCalledWith("a");
+		expect(ui.log.success).toHaveBeenCalledWith("b");
+		expect(ui.outro).not.toHaveBeenCalled();
 	});
 
 	it("probes and clones each group once when the key spans several", async () => {
@@ -6486,7 +6454,7 @@ describe("a key naming several entries", () => {
 			"owner/two/d": skill("d", { ref: "main" }),
 		});
 
-		await runUpdate("owner");
+		await runUpdate("owner", {}, ui);
 
 		expect(probedKeys()).toEqual([
 			["owner/one/a", "owner/one/b"],
@@ -6510,7 +6478,7 @@ describe("a key naming several entries", () => {
 			"owner/repo/z": skill("z", { ref: "main" }),
 		});
 
-		await runUpdate("owner/repo/packs");
+		await runUpdate("owner/repo/packs", {}, ui);
 
 		expect(probedKeys()).toEqual([
 			["owner/repo/packs/x", "owner/repo/packs/y"],
@@ -6527,7 +6495,7 @@ describe("a key naming several entries", () => {
 		});
 		mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 
-		await runUpdate("/Users/lee/Code");
+		await runUpdate("/Users/lee/Code", {}, ui);
 
 		expect(mockResolveGroupTarget).not.toHaveBeenCalled();
 		expect(mockCloneSource).not.toHaveBeenCalled();
@@ -6535,10 +6503,10 @@ describe("a key naming several entries", () => {
 			mockCopyBareSkill.mock.calls.map(([{ sourceDir }]) => sourceDir),
 		).toEqual(["/Users/lee/Code/a", "/Users/lee/Code/b"]);
 		expect(mockWriteManifest).toHaveBeenCalledTimes(2);
-		expect(mockLog.success).toHaveBeenCalledWith(
+		expect(ui.log.success).toHaveBeenCalledWith(
 			"/Users/lee/Code/a: Refreshed from local path",
 		);
-		expect(mockLog.success).toHaveBeenCalledWith(
+		expect(ui.log.success).toHaveBeenCalledWith(
 			"/Users/lee/Code/b: Refreshed from local path",
 		);
 	});
@@ -6553,7 +6521,7 @@ describe("a key naming several entries", () => {
 				commit: REMOTE_SHA,
 			});
 
-		const err = await runUpdate("owner").catch((e) => e);
+		const err = await runUpdate("owner", {}, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
 		expect((err as ExitSignal).code).toBe(1);
@@ -6573,7 +6541,7 @@ describe("a key naming several entries", () => {
 				: { kind: "head", resolvedSha: REMOTE_SHA },
 		);
 
-		const err = await runUpdate("owner").catch((e) => e);
+		const err = await runUpdate("owner", {}, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
 		expect((err as ExitSignal).code).toBe(1);
@@ -6582,7 +6550,7 @@ describe("a key naming several entries", () => {
 			"owner/one/a": unchecked,
 			"owner/two/b": updated("b"),
 		});
-		expect(mockLog.warn).toHaveBeenCalledWith(
+		expect(ui.log.warn).toHaveBeenCalledWith(
 			"owner/one: couldn't check for updates (network timeout) — left untouched",
 		);
 	});
@@ -6630,7 +6598,7 @@ describe("a key naming several entries", () => {
 			warnings: [],
 			notes: [],
 		});
-		expect(clackCalls(p)).toEqual([]);
+		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 	});
 
 	describe("exits 1 on a dead remote however many entries the key names", () => {
@@ -6689,7 +6657,7 @@ describe("a key naming several entries", () => {
 		});
 		mockResolveGroupTarget.mockResolvedValue({ kind: "constrained-no-match" });
 
-		const err = await runUpdate("owner/repo").catch((e) => e);
+		const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
 		expect((err as ExitSignal).code).toBe(1);
@@ -6702,14 +6670,14 @@ describe("a key naming several entries", () => {
 			remoteCommit: REMOTE_SHA,
 		});
 
-		await runUpdate("owner/repo");
+		await runUpdate("owner/repo", {}, ui);
 
 		expect(mockResolveGroupTarget).not.toHaveBeenCalled();
 		expect(mockCheckForUpdate).toHaveBeenCalledExactlyOnceWith(
 			"owner/repo/go",
 			expect.anything(),
 		);
-		expect(mockOutro).toHaveBeenCalledOnce();
+		expect(ui.outro).toHaveBeenCalledOnce();
 	});
 });
 
@@ -6767,11 +6735,11 @@ describe("an entry gone upstream", () => {
 	describe("for one key at a terminal", () => {
 		it("asks whether to remove it, no by default", async () => {
 			arrangeGone();
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
-			await runUpdate(GONE_KEY);
+			await runUpdate(GONE_KEY, {}, ui);
 
-			expect(mockConfirm).toHaveBeenCalledExactlyOnceWith({
+			expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
 				message: "owner/repo/go is gone upstream — remove it?",
 				initialValue: false,
 			});
@@ -6779,15 +6747,15 @@ describe("an entry gone upstream", () => {
 
 		it("keeps its files and entry on no, says update will ask again, and exits 0", async () => {
 			arrangeGone();
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
-			const err = await runUpdate(GONE_KEY).catch((e) => e);
+			const err = await runUpdate(GONE_KEY, {}, ui).catch((e) => e);
 
 			expect(err).toBeUndefined();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
-			expect(mockLog.warn).toHaveBeenCalledWith(
+			expect(ui.log.warn).toHaveBeenCalledWith(
 				"Kept owner/repo/go — it's gone upstream; update will ask again",
 			);
 		});
@@ -6795,10 +6763,10 @@ describe("an entry gone upstream", () => {
 		it("removes its files and then its entry on yes, and exits 0", async () => {
 			const other = looseEntry("other");
 			arrangeGone({ [GONE_KEY]: goneEntry(), "owner/other": other });
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			const order = recordOrder();
 
-			const err = await runUpdate(GONE_KEY).catch((e) => e);
+			const err = await runUpdate(GONE_KEY, {}, ui).catch((e) => e);
 
 			expect(err).toBeUndefined();
 			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
@@ -6810,7 +6778,7 @@ describe("an entry gone upstream", () => {
 				{ "owner/other": other },
 			);
 			expect(order).toEqual(["nuke", "write"]);
-			expect(mockLog.success).toHaveBeenCalledWith(
+			expect(ui.log.success).toHaveBeenCalledWith(
 				"Removed owner/repo/go — it's gone upstream",
 			);
 		});
@@ -6818,9 +6786,9 @@ describe("an entry gone upstream", () => {
 		it("removes it without asking under -y", async () => {
 			arrangeGone();
 
-			await runUpdate(GONE_KEY, { yes: true });
+			await runUpdate(GONE_KEY, { yes: true }, ui);
 
-			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(ui.confirm).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
 			]);
@@ -6842,13 +6810,13 @@ describe("an entry gone upstream", () => {
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			rewalkFinds();
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 
-			const err = await runUpdate(localKey).catch((e) => e);
+			const err = await runUpdate(localKey, {}, ui).catch((e) => e);
 
 			expect(err).toBeUndefined();
 			expect(mockDiscover).toHaveBeenCalledWith(localKey, { rootName: "go" });
-			expect(mockConfirm).toHaveBeenCalledWith({
+			expect(ui.confirm).toHaveBeenCalledWith({
 				message: "/Users/lee/Code/go is gone upstream — remove it?",
 				initialValue: false,
 			});
@@ -6866,11 +6834,11 @@ describe("an entry gone upstream", () => {
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/"],
 			});
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
-			const asked = mockConfirm.mock.invocationCallOrder[0]!;
+			const asked = ui.confirm.mock.invocationCallOrder[0]!;
 			const beforeAsking = (order: number[]) => order.filter((o) => o < asked);
 			// The check spinner and the group's spinner both started and stopped
 			// before the question, and no spinner starts after it.
@@ -6885,21 +6853,21 @@ describe("an entry gone upstream", () => {
 				"Updating owner/repo  aaaaaaa -> bbbbbbb  (2 members)",
 			);
 			// a's member line is out before the question; the answer follows it.
-			expect(mockLog.success).toHaveBeenCalledWith("a");
-			expect(mockLog.success.mock.invocationCallOrder[0]).toBeLessThan(asked);
-			expect(mockLog.warn.mock.invocationCallOrder[0]).toBeGreaterThan(asked);
+			expect(ui.log.success).toHaveBeenCalledWith("a");
+			expect(ui.log.success.mock.invocationCallOrder[0]).toBeLessThan(asked);
+			expect(ui.log.warn.mock.invocationCallOrder[0]).toBeGreaterThan(asked);
 		});
 
 		it("stops a group of one on its header before asking", async () => {
 			const handle = captureSpinner();
 			arrangeGone();
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
-			await runUpdate();
+			await runUpdate(undefined, {}, ui);
 
 			expect(handle.stop).toHaveBeenLastCalledWith("Updating owner/repo");
 			expect(handle.stop.mock.invocationCallOrder.at(-1)).toBeLessThan(
-				mockConfirm.mock.invocationCallOrder[0]!,
+				ui.confirm.mock.invocationCallOrder[0]!,
 			);
 		});
 
@@ -6910,9 +6878,9 @@ describe("an entry gone upstream", () => {
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/"],
 			});
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeUndefined();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalledWith("/fake/project", [
@@ -6921,7 +6889,7 @@ describe("an entry gone upstream", () => {
 			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
 			expect(written[GONE_KEY]).toEqual(gone);
 			expect(written["owner/repo/a"]!.commit).toBe(REMOTE_SHA);
-			expect(mockLog.warn).toHaveBeenCalledWith(
+			expect(ui.log.warn).toHaveBeenCalledWith(
 				"Kept owner/repo/go — it's gone upstream; update will ask again",
 			);
 		});
@@ -6931,9 +6899,9 @@ describe("an entry gone upstream", () => {
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/"],
 			});
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 
-			const err = await runUpdate().catch((e) => e);
+			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 			expect(err).toBeUndefined();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -6941,7 +6909,7 @@ describe("an entry gone upstream", () => {
 			]);
 			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
 			expect(Object.keys(written)).toEqual(["owner/repo/a"]);
-			expect(mockLog.success).toHaveBeenCalledWith(
+			expect(ui.log.success).toHaveBeenCalledWith(
 				"Removed owner/repo/go — it's gone upstream",
 			);
 		});
@@ -6949,9 +6917,9 @@ describe("an entry gone upstream", () => {
 		it("removes it without asking under -y", async () => {
 			arrangeGone();
 
-			await runUpdate(undefined, { yes: true });
+			await runUpdate(undefined, { yes: true }, ui);
 
-			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(ui.confirm).not.toHaveBeenCalled();
 			expect(mockWriteManifest).toHaveBeenLastCalledWith("/fake/project", {});
 		});
 	});
@@ -6968,10 +6936,12 @@ describe("an entry gone upstream", () => {
 				copiedFiles: [".claude/skills/a/"],
 			});
 
-			const err = await runUpdate("owner/repo", { yes: true }).catch((e) => e);
+			const err = await runUpdate("owner/repo", { yes: true }, ui).catch(
+				(e) => e,
+			);
 
 			expect(err).toBeUndefined();
-			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(ui.confirm).not.toHaveBeenCalled();
 			expect(mockCloneSource).toHaveBeenCalledOnce();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
@@ -6980,7 +6950,7 @@ describe("an entry gone upstream", () => {
 				"owner/repo/a": expect.objectContaining({ commit: REMOTE_SHA }),
 				"other/repo": other,
 			});
-			expect(mockLog.success).toHaveBeenCalledWith(
+			expect(ui.log.success).toHaveBeenCalledWith(
 				"Removed owner/repo/go — it's gone upstream",
 			);
 		});
@@ -7015,7 +6985,7 @@ describe("an entry gone upstream", () => {
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
-			expect(clackCalls(p)).toEqual([]);
+			expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 		});
 
 		it("keeps it the same way in all-mode", async () => {
@@ -7109,7 +7079,7 @@ describe("a pack taking over loose skills from its own source", () => {
 	it("all-mode updates the pack first, then skips the loose entry it took over in its group", async () => {
 		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
 
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
 		expect(mockCloneSource).toHaveBeenCalledOnce();
 		expect(mockCopyPack).toHaveBeenCalledOnce();
@@ -7124,7 +7094,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			".claude/skills/a/",
 			".claude/skills/b/",
 		]);
-		expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+		expect(ui.note).toHaveBeenCalledWith(NOTE);
 	});
 
 	it("all-mode skips a taken-over loose entry whose own group comes after the pack's", async () => {
@@ -7133,7 +7103,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			"owner/repo/a": looseA({ ref: "main" }),
 		});
 
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
 		// Two groups (head and main), but only the pack's ever clones.
 		expect(mockCloneSource).toHaveBeenCalledOnce();
@@ -7186,12 +7156,12 @@ describe("a pack taking over loose skills from its own source", () => {
 			const handle = captureSpinner();
 			arrangeSkillGroupFirst();
 
-			await runUpdate("owner/repo");
+			await runUpdate("owner/repo", {}, ui);
 
 			expect(stopTexts(handle)).toEqual([
 				expect.stringMatching(/^owner\/repo\/tools: Updated/),
 			]);
-			expect(mockLog.success).not.toHaveBeenCalled();
+			expect(ui.log.success).not.toHaveBeenCalled();
 		});
 	});
 
@@ -7266,21 +7236,21 @@ describe("a pack taking over loose skills from its own source", () => {
 			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
 			mockCopyPack.mockRejectedValue(new Error("disk full"));
 
-			const err = await runUpdate("owner/repo").catch((e) => e);
+			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
 				"/fake/project",
 				{},
 			);
-			expect(mockLog.error).toHaveBeenCalledWith(PACK_MESSAGE);
+			expect(ui.log.error).toHaveBeenCalledWith(PACK_MESSAGE);
 		});
 	});
 
 	it("a key naming both updates the pack and skips the loose entry", async () => {
 		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
 
-		await runUpdate("owner/repo");
+		await runUpdate("owner/repo", {}, ui);
 
 		expect(mockCloneSource).toHaveBeenCalledOnce();
 		expect(mockCopyPack).toHaveBeenCalledOnce();
@@ -7288,7 +7258,7 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
 			[PACK_KEY]: expect.objectContaining({ commit: REMOTE_SHA }),
 		});
-		expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+		expect(ui.note).toHaveBeenCalledWith(NOTE);
 	});
 
 	it("aborts the pack, install intact, when its skills would land on another source's files", async () => {
@@ -7300,7 +7270,7 @@ describe("a pack taking over loose skills from its own source", () => {
 				: { kind: "head", resolvedSha: INSTALLED_SHA },
 		);
 
-		const err = await runUpdate().catch((e) => e);
+		const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
 		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
@@ -7311,9 +7281,9 @@ describe("a pack taking over loose skills from its own source", () => {
 	it("names the other entry and its files when it aborts", async () => {
 		arrangeTakeover({ [PACK_KEY]: packEntry(), "other/repo/a": looseA() });
 
-		await runUpdate(PACK_KEY).catch(() => {});
+		await runUpdate(PACK_KEY, {}, ui).catch(() => {});
 
-		expect(mockLog.error).toHaveBeenCalledWith(
+		expect(ui.log.error).toHaveBeenCalledWith(
 			"owner/repo/tools can't be updated: files of other/repo/a are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
 		);
 	});
@@ -7322,7 +7292,7 @@ describe("a pack taking over loose skills from its own source", () => {
 		arrangeTakeover({ [PACK_KEY]: packEntry() });
 		mockCheckUnmanaged.mockResolvedValue([".claude/skills/a/"]);
 
-		const err = await runUpdate(PACK_KEY).catch((e) => e);
+		const err = await runUpdate(PACK_KEY, {}, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
 		expect(mockCheckUnmanaged).toHaveBeenCalledWith(
@@ -7333,7 +7303,7 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		expect(mockCopyPack).not.toHaveBeenCalled();
 		expect(mockWriteManifest).not.toHaveBeenCalled();
-		expect(mockLog.error).toHaveBeenCalledWith(
+		expect(ui.log.error).toHaveBeenCalledWith(
 			"owner/repo/tools can't be updated: files agntc didn't install are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
 		);
 	});
@@ -7342,15 +7312,15 @@ describe("a pack taking over loose skills from its own source", () => {
 		arrangeTakeover({ [PACK_KEY]: packEntry() });
 		mockCheckUnmanaged.mockResolvedValue([".claude/skills/a/"]);
 
-		await runUpdate(PACK_KEY, {}, interactiveUi, GLOBAL).catch(() => {});
+		await runUpdate(PACK_KEY, {}, ui, GLOBAL).catch(() => {});
 
-		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, interactiveUi);
+		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, ui);
 		expect(mockCheckUnmanaged).toHaveBeenCalledWith(
 			[".claude/skills/a/", ".claude/skills/b/"],
 			{ [PACK_KEY]: packEntry() },
 			HOME,
 		);
-		expect(mockLog.error).toHaveBeenCalledWith(
+		expect(ui.log.error).toHaveBeenCalledWith(
 			expect.stringContaining(
 				"replace them: npx agntc remove -g owner/repo/tools then npx agntc add -g owner/repo/tools --pack --overwrite",
 			),
@@ -7397,7 +7367,7 @@ describe("a pack that would remove folders still in its source", () => {
 	});
 
 	it("by key, asks the source about what the pack would no longer write, before removing anything", async () => {
-		await runUpdate(KEY).catch(() => {});
+		await runUpdate(KEY, {}, ui).catch(() => {});
 
 		expect(mockDroppedButInSource).toHaveBeenCalledExactlyOnceWith(
 			ENTRY.files,
@@ -7410,10 +7380,10 @@ describe("a pack that would remove folders still in its source", () => {
 	});
 
 	it("by key, names them and how to update anyway, leaving the install as recorded", async () => {
-		const err = await runUpdate(KEY).catch((e) => e);
+		const err = await runUpdate(KEY, {}, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
-		expect(mockLog.error).toHaveBeenCalledWith(MESSAGE);
+		expect(ui.log.error).toHaveBeenCalledWith(MESSAGE);
 		expect(mockWriteManifest).not.toHaveBeenCalled();
 	});
 
@@ -7437,10 +7407,10 @@ describe("a global update", () => {
 	it("titles itself global", async () => {
 		mockReadManifestOrExit.mockResolvedValue({});
 
-		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+		await runUpdate(undefined, {}, ui, GLOBAL);
 
-		expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc update · global");
-		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, interactiveUi);
+		expect(ui.intro).toHaveBeenCalledWith("agntc update · global");
+		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, ui);
 	});
 
 	it("carries -g in a pinned key's upgrade command", async () => {
@@ -7452,9 +7422,9 @@ describe("a global update", () => {
 			tags: ["v2.0", "v3.0"],
 		});
 
-		await runUpdate("owner/repo", {}, interactiveUi, GLOBAL);
+		await runUpdate("owner/repo", {}, ui, GLOBAL);
 
-		expect(mockOutro).toHaveBeenCalledWith(
+		expect(ui.outro).toHaveBeenCalledWith(
 			"To upgrade: npx agntc add -g owner/repo@v3.0",
 		);
 	});
@@ -7472,9 +7442,9 @@ describe("a global update", () => {
 			latestOverall: "v2.0.0",
 		});
 
-		await runUpdate("owner/repo", {}, interactiveUi, GLOBAL);
+		await runUpdate("owner/repo", {}, ui, GLOBAL);
 
-		expect(mockLog.info).toHaveBeenCalledWith(
+		expect(ui.log.info).toHaveBeenCalledWith(
 			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo",
 		);
 	});
@@ -7494,9 +7464,9 @@ describe("a global update", () => {
 			newerTags: ["v3.0"],
 		});
 
-		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+		await runUpdate(undefined, {}, ui, GLOBAL);
 
-		expect(mockLog.info).toHaveBeenCalledWith(
+		expect(ui.log.info).toHaveBeenCalledWith(
 			[
 				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
 				"    npx agntc add -g owner/repo/a@v3.0",
@@ -7523,9 +7493,9 @@ describe("a global update", () => {
 			latestOverall: "v2.0.0",
 		});
 
-		await runUpdate(undefined, {}, interactiveUi, GLOBAL);
+		await runUpdate(undefined, {}, ui, GLOBAL);
 
-		expect(mockLog.info).toHaveBeenCalledWith(
+		expect(ui.log.info).toHaveBeenCalledWith(
 			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo --skill a b",
 		);
 	});

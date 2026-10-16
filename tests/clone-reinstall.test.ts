@@ -1,21 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
 
-vi.mock("@clack/prompts", () => ({
-	spinner: vi.fn(() => ({
-		start: vi.fn(),
-		stop: vi.fn(),
-		message: vi.fn(),
-	})),
-	log: {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		success: vi.fn(),
-		message: vi.fn(),
-	},
-}));
-
 vi.mock("../src/manifest.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/manifest.js")>()),
 	writeManifest: vi.fn(),
@@ -61,7 +46,6 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 	};
 });
 
-import * as p from "@clack/prompts";
 import type {
 	CloneFailureHandlers,
 	CloneReinstallResult,
@@ -106,13 +90,15 @@ const mockPathExists = vi.mocked(pathExists);
 const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
-import { interactiveUi } from "../src/ui.js";
 import { makeEntry } from "./helpers/factories.js";
+import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const REMOTE_SHA = "b".repeat(40);
+let ui: TestUi;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	ui = testUi();
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockPathExists.mockResolvedValue(true);
@@ -148,7 +134,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -187,7 +173,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -211,7 +197,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -233,7 +219,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -242,10 +228,6 @@ describe("cloneAndReinstall", () => {
 
 		it("uses spinner for clone", async () => {
 			const entry = makeEntry();
-			const mockSpinner = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
-			vi.mocked(p.spinner).mockReturnValue(
-				mockSpinner as ReturnType<typeof p.spinner>,
-			);
 
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
@@ -261,12 +243,13 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
-			expect(mockSpinner.start).toHaveBeenCalledWith("Cloning repository...");
-			expect(mockSpinner.stop).toHaveBeenCalledWith("Cloned successfully");
+			const [spinner] = ui.spinners;
+			expect(spinner!.start).toHaveBeenCalledWith("Cloning repository...");
+			expect(spinner!.stop).toHaveBeenCalledWith("Cloned successfully");
 		});
 	});
 
@@ -301,7 +284,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -325,7 +308,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -347,7 +330,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				interactiveUi,
+				ui,
 				manifest,
 			);
 
@@ -368,7 +351,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -388,7 +371,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -429,7 +412,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -475,7 +458,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -508,7 +491,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -536,7 +519,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -562,7 +545,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -588,7 +571,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					manifest: { "owner/repo": entry },
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -615,7 +598,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -637,7 +620,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -665,7 +648,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					sourceDir: key,
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -696,7 +679,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -731,7 +714,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -765,7 +748,7 @@ describe("cloneAndReinstall", () => {
 					}),
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -794,7 +777,7 @@ describe("cloneAndReinstall", () => {
 					entry: makeEntry({ type: "pack" }),
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -820,7 +803,7 @@ describe("cloneAndReinstall", () => {
 					entry: makeEntry({ type: "skill" }),
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -867,7 +850,7 @@ describe("cloneAndReinstall", () => {
 					entry: pack,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				manifest,
 			);
 
@@ -923,7 +906,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				interactiveUi,
+				ui,
 				manifest,
 			);
 
@@ -963,7 +946,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				interactiveUi,
+				ui,
 				manifest,
 			);
 
@@ -985,7 +968,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					sourceDir: "/src/kit",
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -1016,7 +999,7 @@ describe("cloneAndReinstall", () => {
 					scope: projectScope("/fake/project"),
 					newRef: "v2.0.0",
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -1044,7 +1027,7 @@ describe("cloneAndReinstall", () => {
 					entry: makeEntry({ ref }),
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -1078,7 +1061,7 @@ describe("cloneAndReinstall", () => {
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				interactiveUi,
+				ui,
 				{},
 			);
 
@@ -1108,7 +1091,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1140,7 +1123,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1171,7 +1154,7 @@ describe("cloneAndReinstall", () => {
 						scope: projectScope("/fake/project"),
 						sourceDir: key,
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1203,7 +1186,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1239,7 +1222,7 @@ describe("cloneAndReinstall", () => {
 						scope: projectScope("/fake/project"),
 						manifest,
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1281,7 +1264,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1317,7 +1300,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1353,7 +1336,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1399,7 +1382,7 @@ describe("cloneAndReinstall", () => {
 						scope: projectScope("/fake/project"),
 						manifest,
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1431,7 +1414,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1468,7 +1451,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -1495,7 +1478,7 @@ describe("cloneAndReinstall", () => {
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					interactiveUi,
+					ui,
 					{},
 				);
 
@@ -2179,7 +2162,7 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 				...(sourceDir !== undefined ? { sourceDir } : {}),
 				...(newRef !== undefined ? { newRef } : {}),
 			},
-			interactiveUi,
+			ui,
 			{ [key]: entry },
 		);
 

@@ -2,22 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import type { Manifest } from "../../src/manifest.js";
 
-vi.mock("@clack/prompts", () => ({
-	intro: vi.fn(),
-	outro: vi.fn(),
-	log: {
-		info: vi.fn(),
-		warn: vi.fn(),
-		error: vi.fn(),
-		success: vi.fn(),
-		message: vi.fn(),
-	},
-	cancel: vi.fn(),
-	confirm: vi.fn(),
-	multiselect: vi.fn(),
-	isCancel: (value: unknown): value is symbol => typeof value === "symbol",
-}));
-
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
 	removeEntry: (await importOriginal<typeof import("../../src/manifest.js")>())
 		.removeEntry,
@@ -30,25 +14,21 @@ vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-import * as p from "@clack/prompts";
 import { removeCommand, runRemove } from "../../src/commands/remove.js";
 import { readManifestOrExit, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
-import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
-import { clackCalls, runMachine } from "../helpers/machine.js";
+import { runMachine } from "../helpers/machine.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
-const mockConfirm = vi.mocked(p.confirm);
-const mockMultiselect = vi.mocked(p.multiselect);
-const mockOutro = vi.mocked(p.outro);
-const mockIntro = vi.mocked(p.intro);
-const mockLog = vi.mocked(p.log);
+let ui: TestUi;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	ui = testUi();
 	vi.spyOn(process, "cwd").mockReturnValue("/fake/project");
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockWriteManifest.mockResolvedValue(undefined);
@@ -59,9 +39,9 @@ describe("remove command", () => {
 		it("displays 'No skills or packs installed.' and exits 0", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await expect(runRemove("owner/repo")).resolves.toBeUndefined();
+			await expect(runRemove("owner/repo", {}, ui)).resolves.toBeUndefined();
 
-			expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
+			expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
 		});
 	});
 
@@ -76,23 +56,23 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/my-skill/",
 				".claude/agents/executor.md",
 			]);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("Removed owner/repo"),
 			);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("2 file(s)"),
 			);
 		});
@@ -115,13 +95,13 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [".claude/skills/go/"],
 				skipped: [],
 			});
 
-			await runRemove("owner/repo/go");
+			await runRemove("owner/repo/go", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
@@ -149,18 +129,18 @@ describe("remove command", () => {
 				},
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 
-			await runRemove("owner/repo/go");
+			await runRemove("owner/repo/go", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith(
 				"/fake/project",
 				legacyFiles,
 			);
 			for (const file of legacyFiles) {
-				expect(mockLog.message).toHaveBeenCalledWith(`  ${file}`);
+				expect(ui.log.message).toHaveBeenCalledWith(`  ${file}`);
 			}
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("3 file(s)"),
 			);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
@@ -190,13 +170,13 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [],
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledTimes(2);
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -226,15 +206,15 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("Removed owner/repo"),
 			);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				expect.stringContaining("3 file(s)"),
 			);
 		});
@@ -252,12 +232,13 @@ describe("remove command", () => {
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 
-			const err = await runRemove("nonexistent/plugin").catch((e) => e);
+			const err = await runRemove("nonexistent/plugin", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.fail).toHaveBeenCalledWith(
 				"nonexistent/plugin is not installed.",
+				{ style: "error" },
 			);
 		});
 	});
@@ -273,21 +254,21 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			expect(mockLog.message).toHaveBeenCalledWith(
+			expect(ui.log.message).toHaveBeenCalledWith(
 				expect.stringContaining(".claude/skills/my-skill/"),
 			);
-			expect(mockLog.message).toHaveBeenCalledWith(
+			expect(ui.log.message).toHaveBeenCalledWith(
 				expect.stringContaining(".claude/agents/executor.md"),
 			);
-			expect(mockConfirm).toHaveBeenCalled();
+			expect(ui.confirm).toHaveBeenCalled();
 		});
 
 		it("cancels and exits 0 when user declines", async () => {
@@ -300,9 +281,9 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(false);
+			ui.confirm.mockResolvedValue(false);
 
-			const err = await runRemove("owner/repo").catch((e) => e);
+			const err = await runRemove("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(0);
@@ -310,7 +291,7 @@ describe("remove command", () => {
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
-		it("cancels and exits 0 when confirm is cancelled (symbol)", async () => {
+		it("cancels and exits 0 when confirm is cancelled", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					ref: "v1.0",
@@ -319,9 +300,9 @@ describe("remove command", () => {
 					files: [".claude/skills/my-skill/"],
 				}),
 			});
-			mockConfirm.mockResolvedValue(Symbol.for("cancel") as unknown as boolean);
+			ui.confirm.mockResolvedValue(false);
 
-			const err = await runRemove("owner/repo").catch((e) => e);
+			const err = await runRemove("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(0);
@@ -344,7 +325,7 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [
 					".claude/skills/planning/",
@@ -354,7 +335,7 @@ describe("remove command", () => {
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/planning/",
@@ -375,13 +356,13 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [".claude/skills/my-skill/"],
 				skipped: [".claude/agents/executor.md"],
 			});
 
-			await expect(runRemove("owner/repo")).resolves.toBeUndefined();
+			await expect(runRemove("owner/repo", {}, ui)).resolves.toBeUndefined();
 
 			expect(mockWriteManifest).toHaveBeenCalled();
 		});
@@ -404,13 +385,13 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [".claude/skills/my-skill/"],
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
 				"other/plugin": manifest["other/plugin"],
@@ -441,10 +422,10 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
 				"unrelated/plugin": manifest["unrelated/plugin"],
@@ -467,7 +448,7 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [
 					".claude/skills/planning/",
@@ -477,9 +458,9 @@ describe("remove command", () => {
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith("Removed owner/repo — 3 file(s)");
+			expect(ui.outro).toHaveBeenCalledWith("Removed owner/repo — 3 file(s)");
 		});
 
 		it("shows correct file count for single file plugin", async () => {
@@ -492,15 +473,15 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [".claude/skills/my-skill/"],
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			expect(mockOutro).toHaveBeenCalledWith("Removed owner/repo — 1 file(s)");
+			expect(ui.outro).toHaveBeenCalledWith("Removed owner/repo — 1 file(s)");
 		});
 	});
 
@@ -515,13 +496,13 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({
 				removed: [".claude/skills/my-skill/"],
 				skipped: [],
 			});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
 			// nukeManifestFiles only called with the files listed in manifest,
 			// no additional calls to remove parent directories
@@ -536,12 +517,9 @@ describe("remove command", () => {
 		it("reads manifest from cwd", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			expect(mockReadManifestOrExit).toHaveBeenCalledWith(
-				"/fake/project",
-				interactiveUi,
-			);
+			expect(mockReadManifestOrExit).toHaveBeenCalledWith("/fake/project", ui);
 		});
 	});
 
@@ -549,7 +527,7 @@ describe("remove command", () => {
 		it("throws ExitSignal(1) on read failure", async () => {
 			mockReadManifestOrExit.mockRejectedValue(new ExitSignal(1));
 
-			const err = await runRemove("owner/repo").catch((e) => e);
+			const err = await runRemove("owner/repo", {}, ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -561,10 +539,10 @@ describe("remove command", () => {
 			it("displays message and returns without showing multiselect", async () => {
 				mockReadManifestOrExit.mockResolvedValue({});
 
-				await expect(runRemove()).resolves.toBeUndefined();
+				await expect(runRemove(undefined, {}, ui)).resolves.toBeUndefined();
 
-				expect(mockOutro).toHaveBeenCalledWith("No skills or packs installed.");
-				expect(mockMultiselect).not.toHaveBeenCalled();
+				expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
+				expect(ui.multiselect).not.toHaveBeenCalled();
 			});
 		});
 
@@ -585,13 +563,13 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo"]);
+				ui.confirm.mockResolvedValue(true);
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
-				expect(mockMultiselect).toHaveBeenCalledOnce();
-				const call = mockMultiselect.mock.calls[0]![0];
+				expect(ui.multiselect).toHaveBeenCalledOnce();
+				const call = ui.multiselect.mock.calls[0]![0];
 				const values = call.options.map((o) => o.value);
 				expect(values).toEqual(["owner/repo", "other/plugin"]);
 				expect(call.message).toBe("Select what to remove");
@@ -607,14 +585,14 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo"]);
+				ui.confirm.mockResolvedValue(true);
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
-				expect(mockIntro).toHaveBeenCalledWith("agntc remove");
-				expect(mockIntro.mock.invocationCallOrder[0]!).toBeLessThan(
-					mockMultiselect.mock.invocationCallOrder[0]!,
+				expect(ui.intro).toHaveBeenCalledWith("agntc remove");
+				expect(ui.intro.mock.invocationCallOrder[0]!).toBeLessThan(
+					ui.multiselect.mock.invocationCallOrder[0]!,
 				);
 			});
 
@@ -634,12 +612,12 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo"]);
+				ui.confirm.mockResolvedValue(true);
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
-				const call = mockMultiselect.mock.calls[0]![0];
+				const call = ui.multiselect.mock.calls[0]![0];
 				const ownerOption = call.options.find((o) => o.value === "owner/repo");
 				expect(ownerOption?.hint).toBe("v1.0");
 
@@ -659,13 +637,13 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo"]);
+				ui.confirm.mockResolvedValue(true);
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
-				expect(mockMultiselect).toHaveBeenCalledOnce();
-				const call = mockMultiselect.mock.calls[0]![0];
+				expect(ui.multiselect).toHaveBeenCalledOnce();
+				const call = ui.multiselect.mock.calls[0]![0];
 				expect(call.options).toHaveLength(1);
 				expect(call.options[0]!.value).toBe("owner/repo");
 			});
@@ -681,15 +659,13 @@ describe("remove command", () => {
 						files: [".claude/skills/my-skill/"],
 					}),
 				});
-				mockMultiselect.mockResolvedValue(
-					Symbol("cancel") as unknown as string[],
-				);
+				ui.multiselect.mockResolvedValue([]);
 
-				const err = await runRemove().catch((e) => e);
+				const err = await runRemove(undefined, {}, ui).catch((e) => e);
 
 				expect(err).toBeInstanceOf(ExitSignal);
 				expect((err as ExitSignal).code).toBe(0);
-				expect(mockConfirm).not.toHaveBeenCalled();
+				expect(ui.confirm).not.toHaveBeenCalled();
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			});
 
@@ -702,13 +678,13 @@ describe("remove command", () => {
 						files: [".claude/skills/my-skill/"],
 					}),
 				});
-				mockMultiselect.mockResolvedValue([]);
+				ui.multiselect.mockResolvedValue([]);
 
-				const err = await runRemove().catch((e) => e);
+				const err = await runRemove(undefined, {}, ui).catch((e) => e);
 
 				expect(err).toBeInstanceOf(ExitSignal);
 				expect((err as ExitSignal).code).toBe(0);
-				expect(mockConfirm).not.toHaveBeenCalled();
+				expect(ui.confirm).not.toHaveBeenCalled();
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			});
 		});
@@ -730,14 +706,14 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo"]);
+				ui.confirm.mockResolvedValue(true);
 				mockNukeManifestFiles.mockResolvedValue({
 					removed: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 					skipped: [],
 				});
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
 				expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 					".claude/skills/my-skill/",
@@ -770,10 +746,10 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
+				ui.confirm.mockResolvedValue(true);
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
 				expect(mockNukeManifestFiles).toHaveBeenCalledTimes(2);
 				expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -797,10 +773,10 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo"]);
-				mockConfirm.mockResolvedValue(false);
+				ui.multiselect.mockResolvedValue(["owner/repo"]);
+				ui.confirm.mockResolvedValue(false);
 
-				const err = await runRemove().catch((e) => e);
+				const err = await runRemove(undefined, {}, ui).catch((e) => e);
 
 				expect(err).toBeInstanceOf(ExitSignal);
 				expect((err as ExitSignal).code).toBe(0);
@@ -822,8 +798,8 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo"]);
+				ui.confirm.mockResolvedValue(true);
 				mockNukeManifestFiles.mockResolvedValue({
 					removed: [
 						".claude/skills/planning/",
@@ -833,7 +809,7 @@ describe("remove command", () => {
 					skipped: [],
 				});
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
 				expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 					".claude/skills/planning/",
@@ -858,12 +834,12 @@ describe("remove command", () => {
 					}),
 				};
 				mockReadManifestOrExit.mockResolvedValue(manifest);
-				mockMultiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
-				mockConfirm.mockResolvedValue(true);
+				ui.multiselect.mockResolvedValue(["owner/repo", "other/plugin"]);
+				ui.confirm.mockResolvedValue(true);
 
-				await runRemove();
+				await runRemove(undefined, {}, ui);
 
-				expect(mockOutro).toHaveBeenCalledWith(
+				expect(ui.outro).toHaveBeenCalledWith(
 					"Removed 2 install(s) — 3 file(s)",
 				);
 			});
@@ -886,14 +862,12 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			const messageCalls = mockLog.message.mock.calls.map(
-				(c) => c[0] as string,
-			);
+			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
 			const skillsHeaderIdx = messageCalls.findIndex((m) =>
 				m.includes("Skills"),
 			);
@@ -919,14 +893,12 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			const messageCalls = mockLog.message.mock.calls.map(
-				(c) => c[0] as string,
-			);
+			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
 			const hasSkillsHeader = messageCalls.some((m) => m.includes("Skills"));
 			const hasAgentsHeader = messageCalls.some((m) => m.includes("Agents"));
 			const hasHooksHeader = messageCalls.some((m) => m.includes("Hooks"));
@@ -954,12 +926,12 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
 			const hasGoPlugin = infoCalls.some((m) => m.includes("owner/repo/go"));
 			const hasPythonPlugin = infoCalls.some((m) =>
 				m.includes("owner/repo/python"),
@@ -978,12 +950,12 @@ describe("remove command", () => {
 				}),
 			};
 			mockReadManifestOrExit.mockResolvedValue(manifest);
-			mockConfirm.mockResolvedValue(true);
+			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
-			await runRemove("owner/repo");
+			await runRemove("owner/repo", {}, ui);
 
-			expect(mockLog.info).not.toHaveBeenCalled();
+			expect(ui.log.info).not.toHaveBeenCalled();
 		});
 	});
 	describe("-y", () => {
@@ -1015,13 +987,13 @@ describe("remove command", () => {
 		});
 
 		it("removes without asking at a terminal", async () => {
-			await runRemove("owner/repo/go", { yes: true });
+			await runRemove("owner/repo/go", { yes: true }, ui);
 
-			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(ui.confirm).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
 			]);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"Removed owner/repo/go — 1 file(s)",
 			);
 		});
@@ -1051,7 +1023,7 @@ describe("remove command", () => {
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
 				"other/plugin": manifest["other/plugin"],
 			});
-			expect(clackCalls(p)).toEqual([]);
+			expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 		});
 
 		it("left off without a terminal, refuses before deleting anything, naming -y", async () => {
@@ -1071,7 +1043,7 @@ describe("remove command", () => {
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
-			expect(clackCalls(p)).toEqual([]);
+			expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 		});
 	});
 
@@ -1094,7 +1066,7 @@ describe("remove command", () => {
 					"remove needs the key of what to remove without a terminal: npx agntc remove <key>",
 				flags: ["<key>"],
 			});
-			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(ui.multiselect).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 
@@ -1173,7 +1145,7 @@ describe("remove command", () => {
 
 		it("removes the keys around it, keeps it recorded, names it and exits 1", async () => {
 			await expect(
-				runRemove("owner/repo", { yes: true }),
+				runRemove("owner/repo", { yes: true }, ui),
 			).rejects.toMatchObject({ code: 1 });
 
 			expect(mockNukeManifestFiles).toHaveBeenCalledTimes(3);
@@ -1181,12 +1153,10 @@ describe("remove command", () => {
 				"owner/repo/b": manifest["owner/repo/b"],
 				"other/repo": manifest["other/repo"],
 			});
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
 			);
-			expect(mockOutro).toHaveBeenCalledWith(
-				"Removed 2 install(s) — 2 file(s)",
-			);
+			expect(ui.outro).toHaveBeenCalledWith("Removed 2 install(s) — 2 file(s)");
 		});
 
 		it("without a terminal, reports only the keys removed and the failure, with ok false", async () => {
@@ -1222,14 +1192,14 @@ describe("remove command", () => {
 
 		it("alone, removes nothing, keeps it recorded and exits 1", async () => {
 			await expect(
-				runRemove("owner/repo/b", { yes: true }),
+				runRemove("owner/repo/b", { yes: true }, ui),
 			).rejects.toMatchObject({ code: 1 });
 
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", manifest);
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
 			);
-			expect(mockOutro).toHaveBeenCalledWith("Nothing removed");
+			expect(ui.outro).toHaveBeenCalledWith("Nothing removed");
 		});
 	});
 });
