@@ -7,7 +7,7 @@ import {
 	visibleWidth,
 	wrap,
 } from "./layout.js";
-import { type Style, statusTone } from "./style.js";
+import { type Painter, type Style, statusTone } from "./style.js";
 import type { TallyItem } from "./types.js";
 
 const SEPARATOR = "  ·  ";
@@ -23,9 +23,10 @@ export function renderClose(
 	const rule = `${MARGIN}${style.dim("─".repeat(roomFrom(MARGIN.length, width)))}`;
 	const counts = tally
 		.filter((item) => item.count > 0)
-		.map((item) =>
-			statusTone(item.status, style)(`${item.count} ${item.label}`),
-		);
+		.map((item) => ({
+			text: `${item.count} ${item.label}`,
+			paint: statusTone(item.status, style),
+		}));
 	const lines = packed(
 		counts,
 		style.dim(SEPARATOR),
@@ -47,22 +48,30 @@ export function renderClose(
 	];
 }
 
-/** Items joined by `separator`, breaking between items to stay inside `room`. */
+interface Count {
+	text: string;
+	paint: Painter;
+}
+
+/**
+ * Counts joined by `separator`, breaking between them to stay inside `room`;
+ * a count too long for a line of its own wraps.
+ */
 function packed(
-	items: readonly string[],
+	counts: readonly Count[],
 	separator: string,
 	room: number,
 ): string[] {
 	const lines: string[] = [];
-	for (const item of items) {
+	for (const { text, paint } of counts) {
 		const line = lines.at(-1);
 		if (
 			line !== undefined &&
-			visibleWidth(line) + visibleWidth(separator) + visibleWidth(item) <= room
+			visibleWidth(line) + visibleWidth(separator) + visibleWidth(text) <= room
 		) {
-			lines[lines.length - 1] = line + separator + item;
+			lines[lines.length - 1] = line + separator + paint(text);
 		} else {
-			lines.push(item);
+			lines.push(...wrap(text, room).map(paint));
 		}
 	}
 	return lines;

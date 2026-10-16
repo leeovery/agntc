@@ -26,10 +26,21 @@ export function renderNext(
 /** `<subject> — <lead>`, the lead's first letter lowered to run on from the dash. */
 function heading(item: NextItem, width: number, style: Style): string[] {
 	const room = roomFrom(LEAD_AT, width);
-	const prefix = `${item.subject} — `;
-	const lead =
-		item.remedy.lead.charAt(0).toLowerCase() + item.remedy.lead.slice(1);
-	const [first = "", ...rest] = wrap(lead, room, room - visibleWidth(prefix));
-	const opening = `${style.bold(item.subject)} —${first === "" ? "" : ` ${first}`}`;
-	return [opening, ...rest].map((line) => indent(LEAD_AT) + line);
+	const subject = wrap(item.subject, room);
+	const end = subject.pop() ?? "";
+	const { lead } = item.remedy;
+	const [first = "", ...rest] =
+		lead === ""
+			? []
+			: wrap(
+					`— ${lead.charAt(0).toLowerCase()}${lead.slice(1)}`,
+					room,
+					room - visibleWidth(end) - 1,
+				);
+	const opening = [end === "" ? "" : style.bold(end), first]
+		.filter((part) => part !== "")
+		.join(" ");
+	return [...subject.map(style.bold), opening, ...rest]
+		.filter((line) => line !== "")
+		.map((line) => indent(LEAD_AT) + line);
 }

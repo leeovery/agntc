@@ -1,7 +1,7 @@
 import type { Message } from "../message.js";
-import { indent, MARGIN, roomFrom, wrap } from "./layout.js";
+import { indent, MARGIN, prose, roomFrom, wrap } from "./layout.js";
 import { LEAD_AT, renderRemedy } from "./remedy.js";
-import { type Painter, type Style, statusGlyph } from "./style.js";
+import { identity, type Style, statusGlyph } from "./style.js";
 import type { Status } from "./types.js";
 
 export type MessageKind = "warn" | "note" | "error";
@@ -21,15 +21,13 @@ export function renderMessage(
 ): string[] {
 	const { text, cause, remedy } =
 		typeof message === "string" ? { text: message } : message;
-	const room = roomFrom(LEAD_AT, width);
-	const hanging = (paint: Painter) => (line: string) =>
-		indent(LEAD_AT) + paint(line);
-	const textPaint = kind === "error" ? style.bold : (line: string) => line;
-	const [first = "", ...rest] = wrap(text, room);
+	const textPaint = kind === "error" ? style.bold : identity;
+	const [first = "", ...rest] = wrap(text, roomFrom(LEAD_AT, width));
+	const opening = first === "" ? "" : ` ${textPaint(first)}`;
 	return [
-		`${MARGIN}${statusGlyph(KIND_STATUS[kind], style)} ${textPaint(first)}`,
-		...rest.map(hanging(textPaint)),
-		...(cause === undefined ? [] : wrap(cause, room).map(hanging(style.dim))),
+		`${MARGIN}${statusGlyph(KIND_STATUS[kind], style)}${opening}`,
+		...rest.map((line) => indent(LEAD_AT) + textPaint(line)),
+		...prose(cause ?? "", LEAD_AT, width, style.dim),
 		...(remedy === undefined ? [] : renderRemedy(remedy, width, style)),
 	];
 }

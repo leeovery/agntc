@@ -21,6 +21,30 @@ describe("detectColorLevel", () => {
 		["FORCE_COLOR=true", { FORCE_COLOR: "true" }, false, 1],
 		["any other FORCE_COLOR as on", { FORCE_COLOR: "yes" }, false, 1],
 		["FORCE_COLOR over TERM=dumb", { FORCE_COLOR: "2", TERM: "dumb" }, true, 2],
+		[
+			"FORCE_COLOR=1 as a floor under truecolor",
+			{ FORCE_COLOR: "1", COLORTERM: "truecolor" },
+			true,
+			3,
+		],
+		[
+			"FORCE_COLOR=1 as a floor under a 256 TERM off a terminal",
+			{ FORCE_COLOR: "1", TERM: "xterm-256color" },
+			false,
+			2,
+		],
+		[
+			"FORCE_COLOR=3 over a plain TERM",
+			{ FORCE_COLOR: "3", TERM: "xterm" },
+			true,
+			3,
+		],
+		[
+			"FORCE_COLOR=0 under truecolor",
+			{ FORCE_COLOR: "0", COLORTERM: "truecolor" },
+			true,
+			0,
+		],
 		["no terminal", { COLORTERM: "truecolor" }, false, 0],
 		["TERM=dumb", { TERM: "dumb", COLORTERM: "truecolor" }, true, 0],
 		["COLORTERM=truecolor", { COLORTERM: "truecolor", TERM: "xterm" }, true, 3],
@@ -79,7 +103,7 @@ describe("createStyle", () => {
 		}
 	});
 
-	it("nests, as no painter closes with a full reset", () => {
+	it("nests painters on different axes, as none closes with a full reset", () => {
 		const style = createStyle(3);
 		expect(style.good(style.bold("x"))).toBe(
 			"\x1b[32m\x1b[1mx\x1b[22m\x1b[39m",

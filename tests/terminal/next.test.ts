@@ -80,7 +80,7 @@ describe("renderNext", () => {
 		]);
 	});
 
-	it("starts the lead below a subject too long to share its line", () => {
+	it("wraps a subject too long for its line, the lead running on from it", () => {
 		expect(
 			renderNext(
 				[{ ...abort, subject: "owner/a-very-long-repository-name-here" }],
@@ -88,9 +88,27 @@ describe("renderNext", () => {
 				plain,
 			).slice(2, 4),
 		).toEqual([
-			"   owner/a-very-long-repository-name-here —",
-			"   to update it anyway:",
+			"   owner/a-very-long-repository-name-he",
+			"   re — to update it anyway:",
 		]);
+	});
+
+	it("leaves the dash out without a lead", () => {
+		expect(
+			renderNext(
+				[
+					{
+						subject: "macos",
+						remedy: {
+							lead: "",
+							steps: [{ command: "npx agntc update macos" }],
+						},
+					},
+				],
+				80,
+				plain,
+			),
+		).toEqual(["", " Next", "   macos", "     npx agntc update macos"]);
 	});
 
 	it("paints Next and the subject bold and commands in the accent", () => {

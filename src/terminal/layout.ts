@@ -24,33 +24,10 @@ export function indent(columns: number): string {
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: SGR escape codes open with ESC
 const SGR = /\x1b\[[0-9;]*m/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: SGR escape codes open with ESC
+const SGR_PIECE = /(\x1b\[[0-9;]*m)/;
 
 type Range = readonly [number, number];
-
-// Combining marks, zero-width and format characters, variation selectors and
-// emoji skin-tone modifiers: drawn on the character before them.
-const ZERO_WIDTH: readonly Range[] = [
-	[0x0300, 0x036f],
-	[0x0483, 0x0489],
-	[0x0591, 0x05bd],
-	[0x05bf, 0x05bf],
-	[0x05c1, 0x05c2],
-	[0x05c4, 0x05c5],
-	[0x05c7, 0x05c7],
-	[0x0610, 0x061a],
-	[0x064b, 0x065f],
-	[0x0670, 0x0670],
-	[0x1ab0, 0x1aff],
-	[0x1dc0, 0x1dff],
-	[0x200b, 0x200f],
-	[0x2060, 0x2064],
-	[0x20d0, 0x20ff],
-	[0xfe00, 0xfe0f],
-	[0xfe20, 0xfe2f],
-	[0xfeff, 0xfeff],
-	[0x1f3fb, 0x1f3ff],
-	[0xe0100, 0xe01ef],
-];
 
 // East Asian Wide and Fullwidth, and characters with emoji presentation.
 const WIDE: readonly Range[] = [
@@ -136,22 +113,47 @@ function inRanges(code: number, ranges: readonly Range[]): boolean {
 	return false;
 }
 
-function charWidth(char: string): number {
-	const code = char.codePointAt(0) ?? 0;
-	if (code < 0x20 || (code >= 0x7f && code < 0xa0)) {
-		return 0;
+const graphemes = new Intl.Segmenter();
+
+// Marks and format characters draw on the character before them, as an
+// emoji's skin tone does on the emoji.
+const ZERO_WIDTH = /[\p{Mn}\p{Me}\p{Cf}\p{Cc}\p{Emoji_Modifier}]/u;
+// An emoji joined to others (ZWJ) or asked to draw as one (VS16) takes two.
+const EMOJI_SEQUENCE = /^\p{Emoji}.*[\u200d\ufe0f]/su;
+
+function clusterWidth(cluster: string): number {
+	if (EMOJI_SEQUENCE.test(cluster)) {
+		return 2;
 	}
-	if (inRanges(code, ZERO_WIDTH)) {
-		return 0;
+	let width = 0;
+	for (const char of cluster) {
+		if (!ZERO_WIDTH.test(char)) {
+			width += inRanges(char.codePointAt(0) ?? 0, WIDE) ? 2 : 1;
+		}
 	}
-	return inRanges(code, WIDE) ? 2 : 1;
+	return width;
+}
+
+function clustersOf(text: string): string[] {
+	return [...graphemes.segment(text)].map(({ segment }) => segment);
+}
+
+/** The text's escape codes and grapheme clusters, in order. */
+function pieces(text: string): string[] {
+	return text
+		.split(SGR_PIECE)
+		.flatMap((part, index) => (index % 2 === 1 ? [part] : clustersOf(part)));
+}
+
+function isSgr(piece: string): boolean {
+	return piece.startsWith("\x1b[");
 }
 
 /** Columns the text takes on screen, escape codes aside. */
 export function visibleWidth(text: string): number {
 	let width = 0;
-	for (const char of text.replace(SGR, "")) {
-		width += charWidth(char);
+	for (const cluster of clustersOf(text.replace(SGR, ""))) {
+		width += clusterWidth(cluster);
 	}
 	return width;
 }
@@ -164,26 +166,41 @@ export function padStart(text: string, width: number): string {
 	return indent(Math.max(0, width - visibleWidth(text))) + text;
 }
 
-/** The longest run of `chars` that fits in `width` columns. */
-function fitting(chars: string[], width: number): string[] {
+/** The longest run of plain `clusters` that fits in `width` columns. */
+function fitting(clusters: readonly string[], width: number): string[] {
 	const kept: string[] = [];
 	let used = 0;
-	for (const char of chars) {
-		used += charWidth(char);
+	for (const cluster of clusters) {
+		used += clusterWidth(cluster);
 		if (used > width) {
 			break;
 		}
-		kept.push(char);
+		kept.push(cluster);
 	}
 	return kept;
 }
 
-/** Plain text cut at the end to fit `width`, marked with `…`. */
+/**
+ * Text cut at the end to fit `width`, marked with `…`. Every escape code
+ * stays, those past the cut included, so what they open they also close.
+ */
 export function truncate(text: string, width: number): string {
 	if (visibleWidth(text) <= width) {
 		return text;
 	}
-	return width < 1 ? "" : `${fitting([...text], width - 1).join("")}…`;
+	let room = width - 1;
+	let cut = false;
+	let kept = "";
+	for (const piece of pieces(text)) {
+		const columns = isSgr(piece) ? 0 : clusterWidth(piece);
+		if (isSgr(piece) || (!cut && columns <= room)) {
+			kept += piece;
+			room -= columns;
+		} else {
+			cut = true;
+		}
+	}
+	return width < 1 ? kept : `${kept}…`;
 }
 
 /** Plain text cut at the start to fit `width`, marked with `…`. */
@@ -194,7 +211,7 @@ export function truncateStart(text: string, width: number): string {
 	if (width < 1) {
 		return "";
 	}
-	return `…${fitting([...text].reverse(), width - 1)
+	return `…${fitting(clustersOf(text).reverse(), width - 1)
 		.reverse()
 		.join("")}`;
 }
@@ -207,6 +224,20 @@ export function spread(
 ): string | undefined {
 	const gap = width - 1 - visibleWidth(left) - visibleWidth(right);
 	return gap < 2 ? undefined : left + indent(gap) + right;
+}
+
+/** Prose wrapped to fit from `column`, each line indented to it; nothing for empty text. */
+export function prose(
+	text: string,
+	column: number,
+	width: number,
+	paint: (line: string) => string = (line) => line,
+): string[] {
+	return text === ""
+		? []
+		: wrap(text, roomFrom(column, width)).map(
+				(line) => indent(column) + paint(line),
+			);
 }
 
 /**
@@ -234,7 +265,7 @@ function wrapParagraph(
 	const full = Math.max(1, width);
 	const lines: string[] = [];
 	let line = "";
-	let room = Math.max(1, firstWidth);
+	let room = firstWidth;
 	const breakLine = () => {
 		lines.push(line);
 		line = "";
@@ -253,7 +284,7 @@ function wrapParagraph(
 		if (wordWidth > room && room < full) {
 			breakLine();
 		}
-		let rest = [...word];
+		let rest = clustersOf(word);
 		while (visibleWidth(rest.join("")) > room) {
 			const fits = fitting(rest, room);
 			const piece = fits.length > 0 ? fits : rest.slice(0, 1);

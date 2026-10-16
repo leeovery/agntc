@@ -23,6 +23,12 @@ describe("visibleWidth", () => {
 		["a combining mark as nothing", "é", 1],
 		["a zero-width joiner as nothing", "a‍b", 2],
 		["an emoji as two", "🚀", 2],
+		["devanagari with its marks as one each", "नमस्ते", 4],
+		["a thai consonant and its tone mark as one", "ก่", 1],
+		["a ZWJ family as two", "👨‍👩‍👧", 2],
+		["an emoji asked for by VS16 as two", "❤️", 2],
+		["a skin-toned emoji as two", "👍🏽", 2],
+		["a flag as two", "🇬🇧", 2],
 		["an emoji-presentation symbol as two", "✅", 2],
 		["text-presentation glyphs as one", "✓✗○●↑·!■", 8],
 		["box drawing as one", "├─└─", 4],
@@ -59,6 +65,16 @@ describe("truncate", () => {
 
 	it("never splits a wide character", () => {
 		expect(truncate("日本語", 4)).toBe("日…");
+	});
+
+	it("keeps every escape code, those past the cut too", () => {
+		expect(truncate("\x1b[2mabc\x1b[22m \x1b[1mdefgh\x1b[22m", 6)).toBe(
+			"\x1b[2mabc\x1b[22m \x1b[1md\x1b[22m…",
+		);
+	});
+
+	it("never splits a grapheme cluster", () => {
+		expect(truncate("ab👨‍👩‍👧cd", 4)).toBe("ab…");
 	});
 
 	it("cuts the start with truncateStart", () => {

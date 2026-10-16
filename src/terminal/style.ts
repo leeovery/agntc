@@ -25,10 +25,20 @@ export function detectColorLevel(
 		return 0;
 	}
 	const forced = forcedLevel(env.FORCE_COLOR);
-	if (forced !== undefined) {
-		return forced;
+	if (forced === 0) {
+		return 0;
 	}
-	if (!isTTY || env.TERM === "dumb") {
+	if (forced !== undefined) {
+		return Math.max(forced, terminalLevel(env)) as ColorLevel;
+	}
+	return isTTY ? terminalLevel(env) : 0;
+}
+
+/** What the terminal says it draws. */
+function terminalLevel(
+	env: Readonly<Record<string, string | undefined>>,
+): ColorLevel {
+	if (env.TERM === "dumb") {
 		return 0;
 	}
 	if (/^(truecolor|24bit)$/i.test(env.COLORTERM ?? "")) {
@@ -37,7 +47,10 @@ export function detectColorLevel(
 	return env.TERM?.includes("256") ? 2 : 1;
 }
 
-/** Any value but `0`/`false` turns colour on; `2` and `3` also pick the level. */
+/**
+ * Any value but `0`/`false` turns colour on, at least at level 1; `2` and `3`
+ * raise that floor.
+ */
 function forcedLevel(value: string | undefined): ColorLevel | undefined {
 	if (value === undefined) {
 		return undefined;
@@ -58,13 +71,22 @@ const ACCENT: Record<Exclude<ColorLevel, 0>, string> = {
 	3: "38;2;167;139;250",
 };
 
-const identity: Painter = (text) => text;
+export const identity: Painter = (text) => text;
+
+/** Each line painted, an empty one left empty so it still reads as nothing. */
+export function paintLines(lines: readonly string[], paint: Painter): string[] {
+	return lines.map((line) => (line === "" ? line : paint(line)));
+}
 
 function sgr(open: string, close: string): Painter {
 	return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
 }
 
-/** Painters close with their own codes, never a full reset, so they nest. */
+/**
+ * Painters close with their own codes, never a full reset, so painters on
+ * different axes nest (a colour round bold). Bold and dim share their close,
+ * as all colours do, so neither nests inside its own kind.
+ */
 export function createStyle(level: ColorLevel): Style {
 	if (level === 0) {
 		return {

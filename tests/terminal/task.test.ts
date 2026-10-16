@@ -38,13 +38,13 @@ describe("startTask", () => {
 	});
 
 	it("hides the cursor and draws the first frame at once", () => {
-		const task = startTask(out, render, { host });
+		const task = startTask(out, render, 80, { host });
 		expect(out.writes).toEqual([HIDE, `${CLEAR}⠁ updating`]);
 		task.clear();
 	});
 
 	it("redraws the line every 80 ms through the frames, round again", () => {
-		const task = startTask(out, render, { host });
+		const task = startTask(out, render, 80, { host });
 		vi.advanceTimersByTime(79);
 		expect(out.writes).toHaveLength(2);
 		vi.advanceTimersByTime(80 * 8 - 79);
@@ -55,7 +55,7 @@ describe("startTask", () => {
 	});
 
 	it("settles into its lines and shows the cursor, and stops spinning", () => {
-		const task = startTask(out, render, { host });
+		const task = startTask(out, render, 80, { host });
 		task.settle([" ✓ owner/alpha", "   └─ one"]);
 		expect(out.writes.at(-1)).toBe(
 			`${CLEAR} ✓ owner/alpha\n   └─ one\n${SHOW}`,
@@ -66,13 +66,13 @@ describe("startTask", () => {
 	});
 
 	it("clears its line and shows the cursor", () => {
-		const task = startTask(out, render, { host });
+		const task = startTask(out, render, 80, { host });
 		task.clear();
 		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
 	});
 
 	it("finishes once", () => {
-		const task = startTask(out, render, { host });
+		const task = startTask(out, render, 80, { host });
 		task.settle(["done"]);
 		const written = out.writes.length;
 		task.clear();
@@ -82,8 +82,8 @@ describe("startTask", () => {
 
 	it("adds its exit and signal handlers once, removing them with the last task", () => {
 		expect(listening(host)).toEqual([0, 0, 0]);
-		const first = startTask(out, render, { host });
-		const second = startTask(out, render, { host });
+		const first = startTask(out, render, 80, { host });
+		const second = startTask(out, render, 80, { host });
 		expect(listening(host)).toEqual([1, 1, 1]);
 		first.clear();
 		expect(listening(host)).toEqual([1, 1, 1]);
@@ -91,10 +91,10 @@ describe("startTask", () => {
 		expect(listening(host)).toEqual([0, 0, 0]);
 	});
 
-	it("shows the cursor on exit while a task spins", () => {
-		const task = startTask(out, render, { host });
+	it("erases the line and shows the cursor on exit while a task spins", () => {
+		const task = startTask(out, render, 80, { host });
 		host.emit("exit");
-		expect(out.writes.at(-1)).toBe(SHOW);
+		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
 		expect(host.exit).not.toHaveBeenCalled();
 		task.clear();
 	});
@@ -102,31 +102,64 @@ describe("startTask", () => {
 	it.each([
 		["SIGINT", 130],
 		["SIGTERM", 143],
-	])("shows the cursor on %s and exits %i", (signal, code) => {
-		const task = startTask(out, render, { host });
+	])("erases the half-drawn line, shows the cursor on %s and exits %i", (signal, code) => {
+		const task = startTask(out, render, 80, { host });
 		host.emit(signal);
-		expect(out.writes.at(-1)).toBe(SHOW);
+		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
 		expect(host.exit).toHaveBeenCalledWith(code);
 		task.clear();
 	});
 
-	it("shows the cursor once on each output still spinning", () => {
+	it("restores each output still spinning once", () => {
 		const other = new Capture();
-		const first = startTask(out, render, { host });
-		const second = startTask(out, render, { host });
-		const third = startTask(other, render, { host });
+		const first = startTask(out, render, 80, { host });
+		const second = startTask(out, render, 80, { host });
+		const third = startTask(other, render, 80, { host });
 		out.writes = [];
 		host.emit("exit");
-		expect(out.writes).toEqual([SHOW]);
-		expect(other.writes.at(-1)).toBe(SHOW);
+		expect(out.writes).toEqual([`${CLEAR}${SHOW}`]);
+		expect(other.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
 		for (const task of [first, second, third]) {
 			task.clear();
 		}
 	});
 
+	it("keeps the cursor hidden while another task spins on the output", () => {
+		const first = startTask(out, render, 80, { host });
+		const second = startTask(out, render, 80, { host });
+		first.settle(["first"]);
+		expect(out.writes.at(-1)).toBe(`${CLEAR}first\n`);
+		second.clear();
+		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
+	});
+
+	it("shows the cursor on an output when its own last task ends", () => {
+		const other = new Capture();
+		const first = startTask(out, render, 80, { host });
+		const second = startTask(other, render, 80, { host });
+		first.clear();
+		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
+		second.clear();
+		expect(other.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
+	});
+
+	it("cuts a frame to one line of width - 1, keeping every escape code", () => {
+		const task = startTask(
+			out,
+			(frame) =>
+				`\x1b[35m${frame}\x1b[39m \x1b[2mChecking six repositories\x1b[22m\nmore`,
+			12,
+			{ host },
+		);
+		expect(out.writes.at(-1)).toBe(
+			`${CLEAR}\x1b[35m⠁\x1b[39m \x1b[2mChecking\x1b[22m…`,
+		);
+		task.clear();
+	});
+
 	it("listens on the process by default", () => {
 		const before = listening(process);
-		const task = startTask(out, render);
+		const task = startTask(out, render, 80);
 		expect(listening(process)).toEqual(before.map((count) => count + 1));
 		task.clear();
 		expect(listening(process)).toEqual(before);

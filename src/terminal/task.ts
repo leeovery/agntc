@@ -1,3 +1,5 @@
+import { truncate } from "./layout.js";
+
 const FRAMES = "⠁⠂⠄⡀⢀⠠⠐⠈";
 const FRAME_MS = 80;
 const HIDE_CURSOR = "\x1b[?25l";
@@ -22,25 +24,35 @@ export interface TaskOptions {
 }
 
 export interface Task {
-	/** Replaces the spinning line with `lines` and shows the cursor. */
+	/** Replaces the spinning line with `lines`, showing the cursor once no task spins on the output. */
 	settle(lines: readonly string[]): void;
-	/** Erases the spinning line and shows the cursor. */
+	/** Erases the spinning line, showing the cursor once no task spins on the output. */
 	clear(): void;
 }
 
+/** Tasks spinning on each output, so the cursor comes back only with the last. */
+const spinning = new Map<TaskOutput, number>();
+
 /**
  * Spins `render(frame)` on one line until the task settles or clears, the
- * cursor hidden meanwhile.
+ * cursor hidden meanwhile. Each frame is cut to `width - 1` columns, as
+ * `\r\x1b[2K` erases one row only.
  */
 export function startTask(
 	out: TaskOutput,
 	render: (frame: string) => string,
+	width: number,
 	options: TaskOptions = {},
 ): Task {
 	let frame = 0;
-	const draw = () =>
-		out.write(`${CLEAR_LINE}${render(FRAMES.charAt(frame % FRAMES.length))}`);
+	const draw = () => {
+		const [line = ""] = render(FRAMES.charAt(frame % FRAMES.length)).split(
+			"\n",
+		);
+		out.write(`${CLEAR_LINE}${truncate(line, width - 1)}`);
+	};
 	const release = track(options.host ?? process, out);
+	spinning.set(out, (spinning.get(out) ?? 0) + 1);
 	out.write(HIDE_CURSOR);
 	draw();
 	const timer = setInterval(() => {
@@ -56,12 +68,23 @@ export function startTask(
 		finished = true;
 		clearInterval(timer);
 		release();
-		out.write(`${CLEAR_LINE}${text}${SHOW_CURSOR}`);
+		out.write(`${CLEAR_LINE}${text}${stopSpinning(out) ? SHOW_CURSOR : ""}`);
 	};
 	return {
 		settle: (lines) => finish(lines.map((line) => `${line}\n`).join("")),
 		clear: () => finish(""),
 	};
+}
+
+/** Counts a task off its output; true when it was the last there. */
+function stopSpinning(out: TaskOutput): boolean {
+	const left = (spinning.get(out) ?? 1) - 1;
+	if (left === 0) {
+		spinning.delete(out);
+	} else {
+		spinning.set(out, left);
+	}
+	return left === 0;
 }
 
 interface Registration {
@@ -72,8 +95,9 @@ interface Registration {
 const registrations = new Map<TaskHost, Registration>();
 
 /**
- * Counts a task against its host, whose handlers show the cursor on every
- * active task's output: added with the first task, removed with the last.
+ * Counts a task against its host, whose handlers erase the spinning line and
+ * show the cursor on every active task's output: added with the first task,
+ * removed with the last.
  */
 function track(host: TaskHost, out: TaskOutput): () => void {
 	const registration = registrations.get(host) ?? register(host);
@@ -91,7 +115,7 @@ function register(host: TaskHost): Registration {
 	const tasks = new Set<{ out: TaskOutput }>();
 	const restore = () => {
 		for (const out of new Set([...tasks].map((task) => task.out))) {
-			out.write(SHOW_CURSOR);
+			out.write(`${CLEAR_LINE}${SHOW_CURSOR}`);
 		}
 	};
 	const exitOn = (code: number) => () => {

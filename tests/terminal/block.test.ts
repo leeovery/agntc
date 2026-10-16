@@ -13,6 +13,8 @@ function block(rows: Row[], width: number, style = plain): string[] {
 }
 
 const LONG_SUBJECT = "owner/a-very-long-repository-name-here";
+const LONG_META = "feature/a-very-long-branch-name-here";
+const APPLE = "rshankras/claude-code-apple-skills";
 const REASON =
 	"it would remove macos-hig, which is still in the source but would no longer be installed.";
 
@@ -27,6 +29,30 @@ describe("blockLayout", () => {
 		const rows: Row[] = [{ status: "done", subject: LONG_SUBJECT }];
 		expect(blockLayout(rows, 80).subjectWidth).toBe(36);
 		expect(blockLayout(rows, 100).subjectWidth).toBe(41);
+	});
+
+	it("measures each child's name, glyph included, into the subject column", () => {
+		expect(
+			blockLayout(
+				[
+					{
+						status: "done",
+						subject: "owner/x",
+						children: [{ name: "a-long-child-name", status: "done" }],
+					},
+				],
+				80,
+			),
+		).toEqual({ subjectWidth: 25, metaWidth: 0, detailAt: 28 });
+	});
+
+	it("caps the meta column so the detail keeps 20 columns", () => {
+		expect(
+			blockLayout(
+				[{ status: "done", subject: "owner/alpha", meta: LONG_META }],
+				60,
+			),
+		).toEqual({ subjectWidth: 14, metaWidth: 22, detailAt: 39 });
 	});
 
 	it("gives the meta column the widest meta and 3, from any row", () => {
@@ -229,22 +255,152 @@ describe("renderRow", () => {
 		]);
 	});
 
-	it("pushes a child's detail down when its name overruns the column", () => {
+	it("keeps a child longer than its row's subject on its own line", () => {
 		expect(
 			block(
 				[
 					{
 						status: "done",
 						subject: "owner/x",
-						children: [{ name: "a-long-child-name", detail: "skill" }],
+						children: [
+							{ name: "a-long-child-name", detail: "skill" },
+							{ name: "b", status: "done", detail: "skill" },
+						],
 					},
 				],
 				80,
 			),
-		).toEqual([" ✓ owner/x", "   └─ a-long-child-name", `${gap(13)}skill`]);
+		).toEqual([
+			" ✓ owner/x",
+			"   ├─ a-long-child-name   skill",
+			`   └─ ✓ b${gap(17)}skill`,
+		]);
+	});
+
+	it("pushes a child's detail down when its name overruns the capped column", () => {
+		expect(
+			block(
+				[
+					{
+						status: "done",
+						subject: "owner/x",
+						children: [{ name: LONG_SUBJECT, detail: "skill" }],
+					},
+				],
+				80,
+			),
+		).toEqual([" ✓ owner/x", `   └─ ${LONG_SUBJECT}`, `${gap(39)}skill`]);
+	});
+
+	it("puts a move's note below the move when the two don't fit together", () => {
+		expect(
+			block(
+				[
+					{
+						status: "failed",
+						subject: APPLE,
+						meta: "^0.10.12",
+						detail: {
+							move: { from: "v0.10.12", to: "v0.11.0" },
+							note: "not applied",
+						},
+					},
+				],
+				80,
+			),
+		).toEqual([
+			` ✗ ${APPLE}  ^0.10.12   v0.10.12 → v0.11.0`,
+			`${gap(50)}not applied`,
+		]);
+	});
+
+	it("drops the detail below a meta wider than its capped column", () => {
+		expect(
+			block(
+				[
+					{
+						status: "done",
+						subject: "owner/alpha",
+						meta: LONG_META,
+						detail: "pack · 14 skills, 2 folders",
+					},
+					{
+						status: "done",
+						subject: "owner/beta",
+						meta: "^1.0.0",
+						detail: "skill",
+					},
+				],
+				60,
+			),
+		).toEqual([
+			` ✓ owner/alpha   ${LONG_META}`,
+			`${gap(39)}pack · 14 skills, 2`,
+			`${gap(39)}folders`,
+			` ✓ owner/beta    ^1.0.0${gap(16)}skill`,
+		]);
+	});
+
+	it("treats an empty detail as absent", () => {
+		expect(
+			block(
+				[
+					{
+						status: "done",
+						subject: "owner/alpha",
+						meta: "^1.0.0",
+						detail: "",
+						children: [{ name: "one", detail: "" }],
+					},
+				],
+				80,
+			),
+		).toEqual([" ✓ owner/alpha   ^1.0.0", "   └─ one"]);
+		expect(
+			block([{ status: "done", subject: "owner/alpha", detail: "" }], 40),
+		).toEqual([" ✓ owner/alpha"]);
 	});
 
 	describe("below 60 columns", () => {
+		it("lets the meta lead the detail when it can't follow the subject", () => {
+			expect(
+				block(
+					[
+						{
+							status: "done",
+							subject: APPLE,
+							meta: "^1.4.0",
+							detail: { move: { from: "v1.4.0", to: "v1.5.0" } },
+						},
+					],
+					40,
+				),
+			).toEqual([` ✓ ${APPLE}`, "   ^1.4.0  v1.4.0 → v1.5.0"]);
+		});
+
+		it("puts a move's note below it there too", () => {
+			expect(
+				block(
+					[
+						{
+							status: "failed",
+							subject: APPLE,
+							meta: "^0.10.12",
+							detail: {
+								move: { from: "v0.10.12", to: "v0.11.0" },
+								note: "not applied",
+							},
+						},
+					],
+					40,
+				),
+			).toEqual([
+				` ✗ ${APPLE}`,
+				"   ^0.10.12  v0.10.12 → v0.11.0",
+				"   not applied",
+			]);
+		});
+
 		it("puts every detail on its own line, under the subject or the child", () => {
 			expect(
 				block(
@@ -386,6 +542,45 @@ describe("renderRow", () => {
 				`   \x1b[2m├─\x1b[22m \x1b[33m!\x1b[39m c${gap(8)}kept`,
 				`   \x1b[2m└─\x1b[22m \x1b[32m✓\x1b[39m d${gap(8)}\x1b[2mupdated\x1b[22m`,
 			]);
+		});
+
+		it("dims a done child's detail under a failed row", () => {
+			expect(
+				block(
+					[
+						{
+							status: "failed",
+							subject: "owner/alpha",
+							children: [{ name: "b", status: "done", detail: "updated" }],
+						},
+					],
+					80,
+					color,
+				)[1],
+			).toBe(
+				`   \x1b[2m└─\x1b[22m \x1b[32m✓\x1b[39m b${gap(8)}\x1b[2mupdated\x1b[22m`,
+			);
+		});
+
+		it("dims a child without a status under a subject row, and keeps it normal under an attention row", () => {
+			const child = (status: "subject" | "attention") =>
+				block(
+					[
+						{
+							status,
+							subject: "owner/alpha",
+							children: [{ name: "b", detail: "11 folders" }],
+						},
+					],
+					80,
+					color,
+				)[1];
+			expect(child("subject")).toBe(
+				`   \x1b[2m└─\x1b[22m b${gap(10)}\x1b[2m11 folders\x1b[22m`,
+			);
+			expect(child("attention")).toBe(
+				`   \x1b[2m└─\x1b[22m b${gap(10)}11 folders`,
+			);
 		});
 
 		it("dims a child marked unchanged end to end", () => {

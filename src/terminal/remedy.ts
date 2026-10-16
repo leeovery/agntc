@@ -1,5 +1,5 @@
 import type { Remedy, Step } from "../message.js";
-import { indent, roomFrom, wrap } from "./layout.js";
+import { indent, prose } from "./layout.js";
 import type { Style } from "./style.js";
 
 /** Where a remedy's lead and what it says to read sit. */
@@ -13,9 +13,7 @@ export function renderRemedy(
 	style: Style,
 ): string[] {
 	return [
-		...wrap(remedy.lead, roomFrom(LEAD_AT, width)).map(
-			(line) => indent(LEAD_AT) + line,
-		),
+		...prose(remedy.lead, LEAD_AT, width),
 		...renderSteps(remedy.steps, width, style),
 	];
 }
@@ -39,6 +37,6 @@ export function renderSteps(
 			const lead = index === 0 ? "one of" : "then one of";
 			return [at + style.dim(lead), ...step.choice.map(command)];
 		}
-		return wrap(step.words, roomFrom(STEP_AT, width)).map((line) => at + line);
+		return prose(step.words, STEP_AT, width);
 	});
 }
