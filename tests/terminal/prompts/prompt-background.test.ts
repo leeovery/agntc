@@ -187,10 +187,14 @@ describe("the background", () => {
 		});
 
 		it("takes out the reply before a ctrl-z typed while it's asked suspends", async () => {
-			const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+			let banded: boolean | undefined;
+			const kill = vi.spyOn(process, "kill").mockImplementation(() => {
+				banded = terminal.output.text.includes(BAND);
+				return true;
+			});
+			const terminal = terminalAnswering();
 			try {
 				const { promptSelect } = await freshPrompts();
-				const terminal = terminalAnswering();
 				const answer = promptSelect(
 					{ message: "Pick", options: CHOICES },
 					terminal.context(truecolor),
@@ -200,15 +204,34 @@ describe("the background", () => {
 				await elapse(25);
 				expect(kill).not.toHaveBeenCalled();
 				await terminal.press(DARK_REPLY);
-				expect(kill).toHaveBeenCalledWith(process.pid, "SIGTSTP");
-				expect(terminal.output.text).toContain(BAND);
-				process.emit("SIGTSTP");
-				process.emit("SIGCONT");
+				expect(kill.mock.calls).toEqual([[0, "SIGTSTP"]]);
+				expect(banded).toBe(true);
 				await terminal.press(KEY.enter);
 				expect(await answer).toBe("laravel");
 			} finally {
 				kill.mockRestore();
 			}
+		});
+
+		it("cancels on a ctrl-d typed while it's asked, once the reply is in", async () => {
+			const { promptSelect } = await freshPrompts();
+			const terminal = terminalAnswering();
+			const answer = promptSelect(
+				{ message: "Pick", options: CHOICES },
+				terminal.context(truecolor),
+			);
+			await elapse(5);
+			await terminal.press(KEY.ctrlD);
+			await elapse(35);
+			await terminal.press(DARK_REPLY);
+			expect(await answer).toBeNull();
+			expect(terminal.output.text).toContain(BAND);
+			expect(terminal.input.isRaw).toBe(false);
+			// Read again on the real clock, as xterm writes on timers.
+			vi.useRealTimers();
+			const screen = new Terminal();
+			screen.output.write(terminal.output.text);
+			expect(await screen.lines()).toEqual([]);
 		});
 	});
 

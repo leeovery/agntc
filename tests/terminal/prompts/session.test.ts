@@ -9,7 +9,6 @@ import {
 } from "vitest";
 import { promptConfirm } from "../../../src/terminal/prompts/confirm.js";
 import { Engine } from "../../../src/terminal/prompts/engine.js";
-import type { InputFilter } from "../../../src/terminal/prompts/input-filter.js";
 import { promptMultiselect } from "../../../src/terminal/prompts/multiselect.js";
 import { promptSelect } from "../../../src/terminal/prompts/select.js";
 import {
@@ -24,13 +23,12 @@ import {
 	FakeStdin,
 	KEY,
 	Terminal,
-	tick,
 } from "./terminal.js";
 
 const HIDE = "\x1b[?25l";
 const SHOW = "\x1b[?25h";
 const EXIT_EVENTS = ["exit", "SIGINT", "SIGTERM"] as const;
-/** The signals a prompt follows a suspend by, on the process itself. */
+/** The process's signals of a suspend: the prompt's SIGTSTP, and the SIGCONT readline would leave, suspending by itself. */
 const SIGNALS = ["SIGTSTP", "SIGCONT"] as const;
 
 const signalListeners = () =>
@@ -60,9 +58,14 @@ const PROMPTS = {
 		promptConfirm({ message: "Remove it?" }, terminal.context()),
 };
 const NAMES = Object.keys(PROMPTS) as (keyof typeof PROMPTS)[];
+/** What each prompt answers when cancelled. */
+const CANCELLED = { select: null, multiselect: [], confirm: false };
 
 const listening = (terminal: Terminal) =>
 	EXIT_EVENTS.map((event) => terminal.host.listenerCount(event));
+
+const cursorShown = (text = "") =>
+	text.lastIndexOf(SHOW) > text.lastIndexOf(HIDE);
 
 describe.each(NAMES)("a %s", (name) => {
 	const ask = PROMPTS[name];
@@ -183,6 +186,23 @@ describe.each(NAMES)("a %s", (name) => {
 		await answer;
 	});
 
+	it("cancels on ctrl-d, on which readline closes, leaving nothing on the screen and the terminal as it was", async () => {
+		const terminal = new Terminal();
+		const watching = signalListeners();
+		terminal.output.write("before\n");
+		const answer = ask(terminal);
+		await terminal.press(KEY.down);
+		await terminal.press(KEY.ctrlD);
+		expect(await answer).toEqual(CANCELLED[name]);
+		expect(await terminal.lines()).toEqual(["before"]);
+		expect(await terminal.cursor()).toEqual([0, 1]);
+		expect(cursorShown(terminal.output.text)).toBe(true);
+		expect(terminal.input.isRaw).toBe(false);
+		expect(listening(terminal)).toEqual([0, 0, 0]);
+		expect(signalListeners()).toEqual(watching);
+		expect(terminal.input.listenerCount("data")).toBe(0);
+	});
+
 	it("watches the process for exits only while open", async () => {
 		const terminal = new Terminal();
 		const answer = ask(terminal);
@@ -256,6 +276,8 @@ describe("on a fake clock", () => {
 describe("ctrl-z", () => {
 	const SUSPEND = "\x1a";
 	let terminal: Terminal;
+	/** The engine of a prompt run here on runPrompt, to be seen at the stop. */
+	let engine: Engine | undefined;
 	/** Each `process.kill`, kept here from the test worker, with the terminal as it stood. */
 	let kills: {
 		pid: number;
@@ -263,18 +285,18 @@ describe("ctrl-z", () => {
 		text: string;
 		raw: boolean;
 		catching: number;
+		asking: boolean | undefined;
 	}[];
-	/** Whether readline's SIGTSTP to node arrives, as a caught signal does, a turn of the loop on. */
-	let delivering: boolean;
 	let kill: MockInstance<typeof process.kill>;
 	/** The SIGTSTP and SIGCONT listeners before the prompt, the counts it must leave. */
 	let watching: number[];
 
 	beforeEach(() => {
 		terminal = new Terminal();
+		engine = undefined;
 		kills = [];
-		delivering = true;
 		watching = signalListeners();
+		// Returning at once, as for a job continued straight away.
 		kill = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
 			kills.push({
 				pid,
@@ -282,10 +304,8 @@ describe("ctrl-z", () => {
 				text: terminal.output.text,
 				raw: terminal.input.isRaw,
 				catching: process.listenerCount("SIGTSTP"),
+				asking: engine?.asking,
 			});
-			if (pid === process.pid && delivering) {
-				setImmediate(() => process.emit("SIGTSTP"));
-			}
 			return true;
 		});
 	});
@@ -294,129 +314,92 @@ describe("ctrl-z", () => {
 		kill.mockRestore();
 	});
 
-	const cursorShown = (text = "") =>
-		text.lastIndexOf(SHOW) > text.lastIndexOf(HIDE);
-
 	async function screenOf(text = ""): Promise<string[]> {
 		const screen = new Terminal();
 		screen.output.write(text);
 		return screen.lines();
 	}
 
-	it("stops the whole process group, leaving the shell the cursor and cooked mode, and comes back live", async () => {
+	/** The whole process group stopped, the frame erased, the cursor shown and cooked mode, the prompt's own SIGTSTP listener off so the signal stops the process. */
+	async function expectStoppedForTheShell(
+		stop: (typeof kills)[number] | undefined,
+	) {
+		expect([stop?.pid, stop?.signal]).toEqual([0, "SIGTSTP"]);
+		expect(stop?.catching).toBe(watching[0]);
+		expect(stop?.raw).toBe(false);
+		expect(cursorShown(stop?.text)).toBe(true);
+		expect(await screenOf(stop?.text)).toEqual(["before"]);
+	}
+
+	function pick(): Promise<Engine> {
+		return runPrompt(
+			terminal.context(),
+			(streams) => {
+				engine = new Engine({ ...streams, render: noFrame });
+				return engine;
+			},
+			() => [" ? Pick"],
+		);
+	}
+
+	it("stops the whole process group, leaving the shell the cursor and cooked mode, and comes back as it was", async () => {
 		terminal.output.write("before\n");
 		const answer = PROMPTS.select(terminal);
 		await terminal.press(KEY.down);
 		const drawn = await terminal.lines();
 		await terminal.press(SUSPEND);
-		await tick();
-		expect(kills.map(({ pid, signal }) => [pid, signal])).toEqual([
-			[process.pid, "SIGTSTP"],
-			[0, "SIGTSTP"],
-		]);
-		const stopping = kills[1];
-		// Its own listener off, so the signal stops the process as by default.
-		expect(stopping?.catching).toBe(watching[0]);
-		expect(stopping?.raw).toBe(false);
-		expect(cursorShown(stopping?.text)).toBe(true);
-		expect(await screenOf(stopping?.text)).toEqual(["before"]);
-		// Continued: the kill returns, then SIGCONT comes.
-		expect(signalListeners()[0]).toBe((watching[0] ?? 0) + 1);
+		expect(kills).toHaveLength(1);
+		await expectStoppedForTheShell(kills[0]);
+		expect(signalListeners()).toEqual([(watching[0] ?? 0) + 1, watching[1]]);
 		expect(terminal.input.isRaw).toBe(true);
 		expect(cursorShown(terminal.output.text)).toBe(false);
 		expect(await terminal.lines()).toEqual(drawn);
-		process.emit("SIGCONT");
-		await tick();
-		expect(terminal.input.isRaw).toBe(true);
 		await terminal.press(KEY.down, KEY.enter);
 		expect(await answer).toBe("macos");
 		expect(signalListeners()).toEqual(watching);
-		const written = terminal.output.text;
-		process.emit("SIGCONT");
-		await tick();
-		expect(terminal.output.text).toBe(written);
-		expect(terminal.input.isRaw).toBe(false);
 	});
 
-	it("keeps the frame erased from the ctrl-z to the stop it leads to", async () => {
-		delivering = false;
+	it("stops before a key read with its ctrl-z answers, and leaves no listener once answered", async () => {
 		terminal.output.write("before\n");
-		const answer = PROMPTS.select(terminal);
-		await terminal.press(SUSPEND, KEY.down);
-		expect(await terminal.lines()).toEqual(["before"]);
-		expect(cursorShown(terminal.output.text)).toBe(true);
-		process.emit("SIGTSTP");
-		await tick();
-		expect((await terminal.lines())[4]).toBe(" ▌   nuxt      pack · 9 skills");
-		process.emit("SIGCONT");
-		await terminal.press(KEY.enter);
-		expect(await answer).toBe("nuxt");
-	});
-
-	it("leaves nothing to do once answered in the read its ctrl-z came in", async () => {
-		terminal.output.write("before\n");
-		const answer = PROMPTS.select(terminal);
+		const asked = pick();
 		await terminal.press(`${SUSPEND}\r`);
-		expect(await answer).toBe("laravel");
-		await tick();
-		const written = terminal.output.text;
-		process.emit("SIGCONT");
-		await tick();
-		expect(kills.map(({ pid }) => pid)).toEqual([process.pid]);
-		expect(terminal.output.text).toBe(written);
-		expect(terminal.input.isRaw).toBe(false);
+		expect((await asked).state).toBe("submit");
+		expect(kills.map(({ asking }) => asking)).toEqual([true]);
+		await expectStoppedForTheShell(kills[0]);
 		expect(signalListeners()).toEqual(watching);
+		expect(terminal.input.isRaw).toBe(false);
 		expect(await terminal.lines()).toEqual(["before"]);
 	});
 
-	it("does nothing on a SIGCONT that comes as the prompt is answered", async () => {
-		const answer = PROMPTS.select(terminal);
-		await terminal.press();
-		terminal.input.write(KEY.enter);
-		process.emit("SIGCONT");
-		expect(await answer).toBe("laravel");
-		await tick();
-		expect(terminal.input.isRaw).toBe(false);
-		expect(cursorShown(terminal.output.text)).toBe(true);
-		expect(await terminal.lines()).toEqual([]);
-	});
-
-	it("takes another ctrl key for no suspend, the frame kept and the cursor hidden", async () => {
+	it("stops once for each ctrl-z in a read, coming back after each", async () => {
+		terminal.output.write("before\n");
 		const answer = PROMPTS.select(terminal);
 		await terminal.press(KEY.down);
 		const drawn = await terminal.lines();
-		await terminal.press("\x01");
+		await terminal.press(`${SUSPEND}${SUSPEND}`);
+		expect(kills).toHaveLength(2);
+		await expectStoppedForTheShell(kills[0]);
+		await expectStoppedForTheShell(kills[1]);
 		expect(await terminal.lines()).toEqual(drawn);
-		expect(cursorShown(terminal.output.text)).toBe(false);
-		expect(kills).toEqual([]);
 		await terminal.press(KEY.enter);
 		expect(await answer).toBe("nuxt");
+		expect(signalListeners()).toEqual(watching);
 	});
 
-	it("takes ctrl-shift-z, which readline doesn't suspend on, for no suspend", async () => {
-		let filter: InputFilter | undefined;
-		const asked = runPrompt(
-			terminal.context(),
-			(streams) => {
-				filter = streams.input;
-				return new Engine({ ...streams, render: noFrame });
-			},
-			() => [" ? Pick"],
-		);
-		await terminal.press();
-		filter?.emit("keypress", undefined, {
-			sequence: "\x1b[122;6u",
-			name: "z",
-			ctrl: true,
-			meta: false,
-			shift: true,
-		});
-		await terminal.press();
-		expect(await terminal.lines()).toEqual([" ? Pick"]);
+	it("takes a SIGTSTP sent from outside as it takes ctrl-z", async () => {
+		terminal.output.write("before\n");
+		const answer = PROMPTS.select(terminal);
+		await terminal.press(KEY.down);
+		const drawn = await terminal.lines();
+		process.emit("SIGTSTP");
+		expect(kills).toHaveLength(1);
+		await expectStoppedForTheShell(kills[0]);
+		expect(terminal.input.isRaw).toBe(true);
 		expect(cursorShown(terminal.output.text)).toBe(false);
-		expect(kills).toEqual([]);
+		expect(await terminal.lines()).toEqual(drawn);
 		await terminal.press(KEY.enter);
-		await asked;
+		expect(await answer).toBe("nuxt");
+		expect(signalListeners()).toEqual(watching);
 	});
 });
 

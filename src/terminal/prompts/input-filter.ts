@@ -25,7 +25,7 @@ type Delivery = string | typeof ESCAPE_KEY;
 
 interface Scan {
 	passed: string;
-	/** A last ESC, or the start of a sequence whose end is still to come. */
+	/** The start of a sequence whose end is still to come. */
 	held: string;
 	bodies: string[];
 }
@@ -43,29 +43,34 @@ interface SequenceEnd {
  * What a prompt reads instead of stdin. Every OSC sequence (`ESC ]` … BEL or
  * ST) is taken out and its body reported, so a terminal's reply never reaches
  * the prompt as keys. Every other byte passes at once, read by readline as it
- * would read stdin, but for a read's last ESC, which may open a sequence split
- * across reads.
+ * would read stdin, but for the last ESC of what passes.
  *
- * That ESC is held as long as readline waits after one: a `]` by then starts a
- * sequence, any other byte passes with it, as readline would join them, and
- * nothing by then makes it the escape key. A sequence's start is held for its
- * end 100 ms at most and 64 bytes. Dropped then, as it was never keys, the
- * rest of a reply that may still come is taken out too, up to its BEL or ST:
- * until a byte no reply holds, or another 100 ms.
+ * That ESC waits as long as readline waits after one, from when it was read,
+ * whatever sequence is taken out after it meanwhile: a `]` straight after it
+ * starts a sequence, any other byte passes with it, as readline would join
+ * them, and nothing by then makes it the escape key. A sequence's start is
+ * held for its end 100 ms at most and 64 bytes. Dropped then, as it was never
+ * keys, the rest of a reply that may still come is taken out too, up to its
+ * BEL or ST: until a byte no reply holds, or another 100 ms.
  *
  * Until released it reads all the same but delivers nothing, keeping it in
  * order for the release: while the background is asked, no prompt reads.
  *
- * It reads as a terminal (`isTTY`), and its raw mode is the source's while
- * it's in use, so the prompt engine sets raw mode on stdin through it.
+ * It reads as a terminal (`isTTY`), and its raw mode is the source's, so the
+ * prompt engine sets raw mode on stdin through it.
  */
 export class InputFilter extends Transform {
 	readonly isTTY = true;
-	/** A read's last ESC, or the start of a sequence whose end is still to come. */
+	/** The start of a sequence whose end is still to come. */
 	private held = "";
 	/** Whether what's read is still the rest of a sequence whose start was dropped. */
 	private inTail = false;
+	/** The held sequence's wait for its end, or a dropped one's for its rest. */
 	private timer: NodeJS.Timeout | undefined;
+	/** The last ESC's wait for the key after it. */
+	private escape: NodeJS.Timeout | undefined;
+	/** Whether that ESC is the last byte read, so a `]` read next opens a sequence with it. */
+	private escapeLast = false;
 	private released = false;
 	/** What's held back until released: text, and the escape key wherever a lone ESC's wait ran out. */
 	private readonly queue: Delivery[] = [];
@@ -79,11 +84,8 @@ export class InputFilter extends Transform {
 		return this.source.isRaw === true;
 	}
 
-	/** Once destroyed, a late call (readline's own, on a SIGCONT after its prompt) leaves stdin be. */
 	setRawMode(mode: boolean): this {
-		if (!this.destroyed) {
-			this.source.setRawMode?.(mode);
-		}
+		this.source.setRawMode?.(mode);
 		return this;
 	}
 
@@ -121,10 +123,11 @@ export class InputFilter extends Transform {
 		done();
 	}
 
-	/** A held ESC is stdin's last byte, read in turn; a sequence's start is dropped. */
+	/** A waiting ESC is stdin's last byte, read in turn; a sequence's start is dropped. */
 	override _flush(done: TransformCallback): void {
-		if (this.held === ESC) {
-			this.pass(ESC);
+		if (this.escape !== undefined) {
+			this.stopEscape();
+			this.deliver(ESC);
 		}
 		this.held = "";
 		this.inTail = false;
@@ -137,25 +140,33 @@ export class InputFilter extends Transform {
 		done: (error?: Error | null) => void,
 	): void {
 		this.stopWaiting();
+		this.stopEscape();
 		done(error);
 	}
 
 	private strip(chunk: string): void {
+		const opens = this.escapeLast && this.escape !== undefined;
+		this.escapeLast = false;
 		const after = this.afterTail(chunk);
 		if (after === undefined) {
 			return;
 		}
 		const previous = this.held;
-		const text = previous + after;
+		let text = previous + after;
+		if (opens && text.startsWith("]")) {
+			this.stopEscape();
+			text = ESC + text;
+		}
 		const { passed, held, bodies } = scan(text);
 		for (const body of bodies) {
 			this.report(body);
 		}
 		this.pass(passed);
-		this.hold(held, previous.startsWith(OSC_START) && held === text);
+		this.escapeLast = held === "" && text.endsWith(ESC);
+		this.hold(held, previous !== "" && held === text);
 	}
 
-	/** Holds what may open a sequence; its wait starts afresh unless it carries on the sequence already held. */
+	/** Holds a sequence's start; its wait starts afresh unless it carries on the one already held. */
 	private hold(held: string, continued: boolean): void {
 		this.held = held;
 		if (held.length > HOLD_BYTES) {
@@ -163,7 +174,7 @@ export class InputFilter extends Transform {
 		} else if (held === "") {
 			this.stopWaiting();
 		} else if (!continued) {
-			this.wait(held === ESC ? ESCAPE_MS : SEQUENCE_MS);
+			this.wait();
 		}
 	}
 
@@ -171,7 +182,7 @@ export class InputFilter extends Transform {
 	private dropSequence(): void {
 		this.held = "";
 		this.inTail = true;
-		this.wait(SEQUENCE_MS);
+		this.wait();
 	}
 
 	/**
@@ -191,18 +202,15 @@ export class InputFilter extends Transform {
 		return text.slice(end);
 	}
 
-	private wait(ms: number): void {
+	private wait(): void {
 		clearTimeout(this.timer);
-		this.timer = setTimeout(() => this.waited(), ms);
+		this.timer = setTimeout(() => this.waited(), SEQUENCE_MS);
 	}
 
 	private waited(): void {
 		this.timer = undefined;
 		if (this.inTail) {
 			this.inTail = false;
-		} else if (this.held === ESC) {
-			this.held = "";
-			this.deliver(ESCAPE_KEY);
 		} else {
 			this.dropSequence();
 		}
@@ -213,10 +221,33 @@ export class InputFilter extends Transform {
 		this.timer = undefined;
 	}
 
+	/** Keys: an ESC waiting goes on with them, and their last ESC waits in turn. */
 	private pass(text: string): void {
-		if (text !== "") {
-			this.deliver(text);
+		if (text === "") {
+			return;
 		}
+		let keys = text;
+		if (this.escape !== undefined) {
+			this.stopEscape();
+			keys = ESC + keys;
+		}
+		if (keys.endsWith(ESC)) {
+			keys = keys.slice(0, -1);
+			this.escape = setTimeout(() => this.escaped(), ESCAPE_MS);
+		}
+		if (keys !== "") {
+			this.deliver(keys);
+		}
+	}
+
+	private escaped(): void {
+		this.escape = undefined;
+		this.deliver(ESCAPE_KEY);
+	}
+
+	private stopEscape(): void {
+		clearTimeout(this.escape);
+		this.escape = undefined;
 	}
 
 	private deliver(item: Delivery): void {
@@ -253,7 +284,7 @@ export class InputFilter extends Transform {
 	}
 }
 
-/** `text` read for its sequences: what passes as keys, what's held for what follows, and each body taken out. */
+/** `text` read for its sequences: what passes as keys, a last sequence's start held for its end, and each body taken out. */
 function scan(text: string): Scan {
 	const bodies: string[] = [];
 	let passed = "";
@@ -261,10 +292,7 @@ function scan(text: string): Scan {
 	while (at < text.length) {
 		const start = text.indexOf(OSC_START, at);
 		if (start === -1) {
-			const rest = text.slice(at);
-			const held = rest.endsWith(ESC) ? ESC : "";
-			passed += rest.slice(0, rest.length - held.length);
-			return { passed, held, bodies };
+			return { passed: passed + text.slice(at), held: "", bodies };
 		}
 		passed += text.slice(at, start);
 		const end = sequenceEnd(text, start + OSC_START.length);

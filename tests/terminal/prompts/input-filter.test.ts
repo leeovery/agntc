@@ -6,6 +6,7 @@ import { InputFilter } from "../../../src/terminal/prompts/input-filter.js";
 import { FakeStdin, tick } from "./terminal.js";
 
 const REPLY = "\x1b]11;rgb:1e1e/1e1e/1e1e";
+const REPLY_END = `${REPLY}\x07`;
 const BODY = "11;rgb:1e1e/1e1e/1e1e";
 
 /** What readline makes of an ESC nothing follows in time. */
@@ -212,6 +213,55 @@ describe("InputFilter", () => {
 			expect(names).toEqual(["a", "escape", "b"]);
 		});
 
+		it.each([
+			["a read after it", ["\x1b", REPLY_END]],
+			["the read it ends", [`\x1b${REPLY_END}`]],
+		])("keeps an ESC's 50 ms through a reply taken out in %s", async (_where, reads) => {
+			const { filter, read, keys } = filtering();
+			const [first, ...rest] = reads;
+			await send(filter, first ?? "");
+			await waited(20);
+			await send(filter, ...rest);
+			await waited(29);
+			expect(keys).toEqual([]);
+			await waited(1);
+			expect(keys).toEqual([[undefined, ESCAPE_KEY]]);
+			expect(read()).toBe("");
+		});
+
+		it("passes an ESC with the key after a reply taken out after it, inside its 50 ms", async () => {
+			const { filter, read, keys } = filtering();
+			await send(filter, "\x1b");
+			await waited(20);
+			await send(filter, REPLY_END);
+			await waited(20);
+			await send(filter, "j");
+			expect(read()).toBe("\x1bj");
+			await waited(100);
+			expect(keys).toEqual([]);
+		});
+
+		it("makes the escape key of an ESC held back with a reply after it, at its own time and not the release's", async () => {
+			const filter = new InputFilter(new FakeStdin());
+			const names = decoding(filter);
+			await send(filter, "\x1b");
+			await waited(20);
+			await send(filter, REPLY_END);
+			filter.release();
+			await waited(50);
+			await send(filter, "j");
+			expect(names).toEqual(["escape", "j"]);
+		});
+
+		it("starts a sequence only with a ] straight after the ESC, not one after a reply taken out", async () => {
+			const { filter, read, bodies } = filtering();
+			await send(filter, "\x1b");
+			await waited(20);
+			await send(filter, REPLY_END, "]");
+			expect(read()).toBe("\x1b]");
+			expect(bodies).toEqual([BODY]);
+		});
+
 		it("waits afresh when a held ESC turns into a sequence, and takes out a reply ending inside that wait", async () => {
 			const { filter, read, bodies } = filtering();
 			await send(filter, "\x1b");
@@ -337,16 +387,6 @@ describe("InputFilter", () => {
 		expect(filter.isRaw).toBe(true);
 		filter.setRawMode(false);
 		expect(filter.isRaw).toBe(false);
-	});
-
-	it("leaves the source's raw mode be once destroyed", () => {
-		const { source, filter } = filtering();
-		filter.setRawMode(true);
-		filter.setRawMode(false);
-		filter.destroy();
-		filter.setRawMode(true);
-		expect(source.rawModes).toEqual([true, false]);
-		expect(source.isRaw).toBe(false);
 	});
 
 	it("stops reporting to a listener that stopped", async () => {

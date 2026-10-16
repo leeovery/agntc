@@ -1,4 +1,3 @@
-import type { Key } from "node:readline";
 import type { Writable } from "node:stream";
 import {
 	ERASE_DOWN,
@@ -84,10 +83,6 @@ export async function runPrompt<E extends Engine>(
 	}
 }
 
-function isOpen(engine: Engine): boolean {
-	return engine.state !== "submit" && engine.state !== "cancel";
-}
-
 /**
  * A prompt's hold on the terminal: stdin piped through the filter in raw
  * mode, the frame on screen, and the process watched for its exit and, once
@@ -97,8 +92,6 @@ class Session {
 	readonly filter: InputFilter;
 	private readonly screen: Screen;
 	private readonly stops: (() => void)[] = [];
-	/** From ctrl-z to the stop it leads to: the frame stays erased. */
-	private suspended = false;
 
 	constructor(private readonly context: PromptContext) {
 		this.filter = new InputFilter(context.input);
@@ -120,7 +113,7 @@ class Session {
 		this.context.output.write(HIDE_CURSOR);
 		paint();
 		const redraw = () => {
-			if (isOpen(engine) && !this.suspended) {
+			if (engine.asking) {
 				paint();
 			}
 		};
@@ -152,70 +145,37 @@ class Session {
 	}
 
 	/**
-	 * Readline suspends on ctrl-z by turning raw mode off and sending SIGTSTP
-	 * to node alone, and on SIGCONT pauses the filter, which nothing then
-	 * resumes. Ahead of it the frame is erased and the cursor shown, for the
-	 * shell, and kept so until the stop. Its SIGTSTP is caught and sent on to
-	 * the whole process group, as a terminal's ^Z is, so a parent such as npx
-	 * stops too and the shell sees its job stop. Once continued, and again
-	 * after readline's own SIGCONT listener, which may come after this one, the
-	 * filter reads in raw mode and the frame is drawn afresh. All of it is on
-	 * the process itself, where readline suspends and listens.
+	 * Readline on its own suspends on ctrl-z by stopping node alone, so a
+	 * parent such as npx runs on and the shell sees nothing stop. With a
+	 * listener for its SIGTSTP it only tells, in its handling of the key, ahead
+	 * of every key after it; a SIGTSTP sent from outside is taken the same way.
+	 * The frame is erased and the terminal left cooked for the shell, then the
+	 * whole process group stops, as a terminal's ^Z stops it. The kill returns
+	 * once the job is continued, or at once where the stop is ignored (an
+	 * orphaned group), and the prompt comes back as it was.
 	 */
 	private followSuspend(engine: Engine, paint: () => void): void {
-		const resume = () => {
-			if (!isOpen(engine)) {
-				return;
-			}
-			this.suspended = false;
-			this.filter.setRawMode(true);
-			this.filter.resume();
-			this.context.output.write(HIDE_CURSOR);
-			paint();
-		};
-		const stop = () => {
-			this.suspend();
+		const output = this.context.output;
+		const suspend = () => {
+			this.screen.erase();
+			output.write(SHOW_CURSOR);
 			this.filter.setRawMode(false);
 			// With no listener, SIGTSTP stops the process as it does by default.
-			process.off("SIGTSTP", stop);
+			process.off("SIGTSTP", suspend);
 			process.kill(0, "SIGTSTP");
-			process.on("SIGTSTP", stop);
-			resume();
+			process.on("SIGTSTP", suspend);
+			this.filter.setRawMode(true);
+			output.write(HIDE_CURSOR);
+			paint();
 		};
-		const beforeSuspend = (_char: unknown, key: Key | undefined) => {
-			if (suspends(key)) {
-				this.suspend();
-			}
-		};
-		const continued = () => process.nextTick(resume);
-		this.filter.prependListener("keypress", beforeSuspend);
-		process.on("SIGTSTP", stop);
-		process.on("SIGCONT", continued);
+		const readline = engine.readline;
+		readline?.on("SIGTSTP", suspend);
+		process.on("SIGTSTP", suspend);
 		this.stops.push(() => {
-			this.filter.off("keypress", beforeSuspend);
-			process.off("SIGTSTP", stop);
-			process.off("SIGCONT", continued);
+			readline?.off("SIGTSTP", suspend);
+			process.off("SIGTSTP", suspend);
 		});
 	}
-
-	private suspend(): void {
-		if (this.suspended) {
-			return;
-		}
-		this.suspended = true;
-		this.screen.erase();
-		this.context.output.write(SHOW_CURSOR);
-	}
-}
-
-/** Whether readline suspends the process on `key`: ctrl-z, but not with shift, nor on Windows. */
-function suspends(key: Key | undefined): boolean {
-	return (
-		key?.ctrl === true &&
-		key.shift !== true &&
-		key.name === "z" &&
-		process.platform !== "win32"
-	);
 }
 
 /** The lines a prompt has on screen, redrawn in place and erased whole. */

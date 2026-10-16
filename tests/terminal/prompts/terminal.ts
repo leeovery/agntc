@@ -17,6 +17,7 @@ export const KEY = {
 	tab: "\t",
 	escape: "\x1b",
 	ctrlC: "\x03",
+	ctrlD: "\x04",
 } as const;
 
 /** A terminal's stdin: keys written to it are read, and raw mode is recorded. */
