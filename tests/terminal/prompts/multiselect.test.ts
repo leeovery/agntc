@@ -66,6 +66,24 @@ describe("renderMultiselect", () => {
 		]);
 	});
 
+	it("cuts a label too wide for its column at its start, its hint kept in the column", () => {
+		const root = "/Volumes/Scratch/tmp/claude-501/a-long-session-folder/3a";
+		const keys: Choice<string>[] = [
+			{ value: "a", label: `${root}/two-skills/alpha`, hint: "skill" },
+			{ value: "b", label: `${root}/two-skills/beta`, hint: "skill" },
+		];
+		expect(
+			renderMultiselect(
+				view({ options: keys, cursor: 0, picked: [1] }),
+				100,
+				plain,
+			).slice(1, 3),
+		).toEqual([
+			" ▌ ○ …/a-long-session-folder/3a/two-skills/alpha  skill",
+			"   ● …1/a-long-session-folder/3a/two-skills/beta  skill",
+		]);
+	});
+
 	it("cuts the hints to fit at 40, without the key hints", () => {
 		expect(renderMultiselect(view({ cursor: 0 }), 40, plain)).toEqual([
 			" ? What to install",

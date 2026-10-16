@@ -8,7 +8,7 @@ export const CLEAR_LINE = `\r${ERASE_LINE}`;
 /** Erases from the cursor to the end of the screen. */
 export const ERASE_DOWN = "\x1b[J";
 
-type ExitEvent = "exit" | "SIGINT" | "SIGTERM";
+export type ExitEvent = "exit" | "SIGINT" | "SIGTERM";
 
 /** The process whose ending restores the terminal; tests pass their own. */
 export interface ExitHost {
@@ -18,19 +18,22 @@ export interface ExitHost {
 }
 
 /**
- * Runs `restore` when the process exits, and on SIGINT or SIGTERM, which then
- * end it with the code a shell reports for them (130, 143). The return stops
- * watching.
+ * Runs `restore`, told which, when the process exits, and on SIGINT or
+ * SIGTERM, which then end it with the code a shell reports for them (130,
+ * 143). The return stops watching.
  */
-export function restoreOnExit(host: ExitHost, restore: () => void): () => void {
-	const exitWith = (code: number) => () => {
-		restore();
+export function restoreOnExit(
+	host: ExitHost,
+	restore: (event: ExitEvent) => void,
+): () => void {
+	const exitWith = (signal: ExitEvent, code: number) => () => {
+		restore(signal);
 		host.exit(code);
 	};
 	const handlers: [ExitEvent, () => void][] = [
-		["exit", restore],
-		["SIGINT", exitWith(130)],
-		["SIGTERM", exitWith(143)],
+		["exit", () => restore("exit")],
+		["SIGINT", exitWith("SIGINT", 130)],
+		["SIGTERM", exitWith("SIGTERM", 143)],
 	];
 	for (const [event, handler] of handlers) {
 		host.on(event, handler);

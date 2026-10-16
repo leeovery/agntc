@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createStyle } from "../../src/terminal/style.js";
 import { startTask, type TaskHost } from "../../src/terminal/task.js";
 
 const HIDE = "\x1b[?25l";
@@ -103,11 +104,23 @@ describe("startTask", () => {
 	it.each([
 		["SIGINT", 130],
 		["SIGTERM", 143],
-	])("erases the half-drawn line, shows the cursor on %s and exits %i", (signal, code) => {
+	])("leaves ○ Cancelled where it spun, shows the cursor on %s and exits %i", (signal, code) => {
 		const task = startTask(out, render, 80, { host });
 		host.emit(signal);
-		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
+		expect(out.writes.at(-1)).toBe(`${CLEAR} ○ Cancelled\n${SHOW}`);
 		expect(host.exit).toHaveBeenCalledWith(code);
+		task.clear();
+	});
+
+	it("paints the cancel line a signal leaves dim in the task's style", () => {
+		const task = startTask(out, render, 80, {
+			host,
+			style: createStyle(3),
+		});
+		host.emit("SIGINT");
+		expect(out.writes.at(-1)).toBe(
+			`${CLEAR} \x1b[2m○ Cancelled\x1b[22m\n${SHOW}`,
+		);
 		task.clear();
 	});
 

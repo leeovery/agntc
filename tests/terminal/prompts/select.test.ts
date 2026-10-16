@@ -216,20 +216,53 @@ describe("renderSelect", () => {
 			{ value: "long", label: "x".repeat(40), hint: "skill" },
 		];
 
-		it("caps the label column and pushes a wider label's hint two spaces on at 40", () => {
+		it("caps the label column, cutting a wider label at its start to keep its hint in the column at 40", () => {
 			expect(renderSelect(view(options, 0), 40, plain).slice(1)).toEqual([
 				` ▌ x${gap(17)}skill`,
-				"   macos-app-design-kit  skill",
-				`   ${"x".repeat(35)}…`,
+				"   …-app-design-kit  skill",
+				`   …${"x".repeat(15)}  skill`,
 			]);
 		});
 
-		it("keeps a label whole when it fits at 80, its hint after it", () => {
+		it("keeps a label that fits its column whole at 80, cutting only the wider one", () => {
 			expect(renderSelect(view(options, 2), 80, plain).slice(1)).toEqual([
 				`   x${gap(35)}skill`,
 				`   macos-app-design-kit${gap(16)}skill`,
-				` ▌ ${"x".repeat(40)}  skill`,
+				` ▌ …${"x".repeat(33)}  skill`,
 			]);
+		});
+
+		it("tells long keys apart by their tails, each hint in its column, at 100", () => {
+			const root = "/Volumes/Scratch/tmp/claude-501/a-long-session-folder/3a";
+			const keys: SelectOption<string>[] = [
+				{ value: "a", label: `${root}/two-skills/alpha`, hint: "✓ up to date" },
+				{ value: "b", label: `${root}/two-skills/beta`, hint: "◇ local" },
+			];
+			expect(renderSelect(view(keys, 0), 100, plain).slice(1)).toEqual([
+				" ▌ …/a-long-session-folder/3a/two-skills/alpha  ✓ up to date",
+				"   …1/a-long-session-folder/3a/two-skills/beta  ◇ local",
+			]);
+		});
+
+		it("takes the room for a label without a hint, cut at its start", () => {
+			const long: SelectOption<string>[] = [
+				{ value: "a", label: `${"x".repeat(40)}/alpha` },
+			];
+			expect(renderSelect(view(long, 0), 40, plain).slice(1)).toEqual([
+				` ▌ …${"x".repeat(29)}/alpha`,
+			]);
+		});
+	});
+
+	describe("long headings", () => {
+		it("are cut at their start, as a local path is told apart by its tail", () => {
+			const headed: SelectOption<string>[] = [
+				{ heading: `~/Code/${"x".repeat(40)}/my-skills` },
+				{ value: "a", label: "drafting" },
+			];
+			expect(renderSelect(view(headed, 1), 40, plain)[1]).toBe(
+				`   …${"x".repeat(25)}/my-skills`,
+			);
 		});
 	});
 

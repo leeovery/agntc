@@ -7,7 +7,7 @@ import {
 	roomFrom,
 	spread,
 	truncate,
-	visibleWidth,
+	truncateStart,
 	wrap,
 } from "../layout.js";
 import { identity, type Painter, type Style } from "../style.js";
@@ -78,9 +78,10 @@ export function labelColumn(
 
 /**
  * An option's label, `inset` columns in, and its dim hint in the label
- * column, inside `room`. A label too wide for its column puts its hint two
- * spaces after it; a hint is cut with `…` to fit, and left out when nothing
- * of it would show.
+ * column, inside `room`. The hint keeps its column: a label too wide to end
+ * two short of it is cut at its start with `…`, as a key or a name is told
+ * apart by its tail. A hint is cut with `…` to fit, and left out when nothing
+ * of it would show; the label then takes the room.
  */
 export function optionText<T>(
 	choice: Choice<T>,
@@ -90,17 +91,16 @@ export function optionText<T>(
 	current: boolean,
 	inset = 0,
 ): string {
-	const label = truncate(choice.label, Math.max(0, room - inset));
-	const used = inset + visibleWidth(label);
-	const hintAt = Math.max(column, used + MIN_LABEL_GAP);
-	const hint = fitHint(choice.hint ?? "", room - hintAt);
+	const hint = fitHint(choice.hint ?? "", room - column);
+	const labelRoom = (hint === "" ? room : column - MIN_LABEL_GAP) - inset;
+	const label = truncateStart(choice.label, Math.max(0, labelRoom));
 	const lead =
 		indent(inset) +
 		(label === "" ? "" : (current ? style.bold : identity)(label));
 	if (hint === "") {
 		return label === "" ? "" : lead;
 	}
-	return `${lead}${indent(hintAt - used)}${style.dim(hint)}`;
+	return `${pad(lead, column)}${style.dim(hint)}`;
 }
 
 function fitHint(hint: string, room: number): string {
@@ -137,7 +137,7 @@ export function headingLine(
 	width: number,
 	style: Style,
 ): string {
-	const text = truncate(heading, Math.max(0, roomFrom(TEXT_AT, width)));
+	const text = truncateStart(heading, roomFrom(TEXT_AT, width));
 	return at(TEXT_AT, text === "" ? "" : style.bold(text));
 }
 

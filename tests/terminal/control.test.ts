@@ -17,20 +17,20 @@ describe("restoreOnExit", () => {
 		const restore = vi.fn();
 		restoreOnExit(host, restore);
 		host.emit("exit");
-		expect(restore).toHaveBeenCalledOnce();
+		expect(restore).toHaveBeenCalledExactlyOnceWith("exit");
 		expect(host.exit).not.toHaveBeenCalled();
 	});
 
 	it.each([
 		["SIGINT", 130],
 		["SIGTERM", 143],
-	])("restores on %s, then exits %i", (signal, code) => {
+	])("restores on %s, told it was that signal, then exits %i", (signal, code) => {
 		const host = new FakeHost();
 		const order: string[] = [];
 		host.exit.mockImplementation(() => order.push("exit"));
-		restoreOnExit(host, () => order.push("restore"));
+		restoreOnExit(host, (event) => order.push(`restore ${event}`));
 		host.emit(signal);
-		expect(order).toEqual(["restore", "exit"]);
+		expect(order).toEqual([`restore ${signal}`, "exit"]);
 		expect(host.exit).toHaveBeenCalledWith(code);
 	});
 
