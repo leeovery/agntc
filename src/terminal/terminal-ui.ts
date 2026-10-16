@@ -1,5 +1,5 @@
 import { ExitSignal } from "../exit-signal.js";
-import type { Message } from "../message.js";
+import { isMachineOnly, type Message } from "../message.js";
 import type {
 	Block,
 	ConfirmPrompt,
@@ -172,11 +172,15 @@ export class TerminalUi implements Ui {
 	}
 
 	warn(message: Message): void {
-		this.print(this.message("warn", message));
+		if (!isMachineOnly(message)) {
+			this.print(this.message("warn", message));
+		}
 	}
 
 	note(message: Message): void {
-		this.print(this.message("note", message));
+		if (!isMachineOnly(message)) {
+			this.print(this.message("note", message));
+		}
 	}
 
 	select<T>(prompt: SelectPrompt<T>): Promise<T | null> {

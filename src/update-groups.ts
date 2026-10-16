@@ -15,7 +15,7 @@ import { cleanupTempDir } from "./git-clone.js";
 import { goneMessage } from "./gone-upstream.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry } from "./manifest.js";
-import type { SubjectMessage } from "./message.js";
+import type { Message, SubjectMessage } from "./message.js";
 import { type SourceWalk, sourceWalk } from "./nuke-reinstall-pipeline.js";
 import type { Scope, ScopeName } from "./scope.js";
 import {
@@ -140,7 +140,7 @@ export type PluginOutcome =
 	| ({ status: "absorbed"; key: string; into: string } & Told);
 
 interface Reinstalled {
-	notes: string[];
+	notes: Message[];
 	absorbed: string[];
 	previousKey?: string;
 	/** What the reinstall installed, counted as `add` counts it. */

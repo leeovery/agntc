@@ -219,6 +219,16 @@ describe("a task", () => {
 		]);
 	});
 
+	it("prints nothing for a note or warning whose words are machine mode's alone", async () => {
+		const { term, ui } = run();
+		const task = ui.block(SUBJECTS).task(PROGRESS);
+		ui.note({ text: "", plain: "owner/repo/a is now keyed owner/repo/b" });
+		ui.warn({ text: "", plain: "for the document" });
+		ui.note("a note");
+		task.settle(SETTLED);
+		expect(await term.lines()).toEqual([SETTLED_LINE, " · a note"]);
+	});
+
 	it("clears without a row, what was said meanwhile kept", async () => {
 		const { term, ui } = run();
 		const task = ui.block(SUBJECTS).task(PROGRESS);

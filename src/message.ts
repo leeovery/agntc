@@ -27,6 +27,13 @@ export interface SubjectMessage extends RichMessage {
 /** A message about a subject that always says what can be done. */
 export type Advice = SubjectMessage & { remedy: Remedy };
 
+/** A remedy on its own, with the sentence machine mode prints for it. */
+export interface WordedRemedy {
+	remedy: Remedy;
+	/** The remedy as machine mode words it. */
+	plain: string;
+}
+
 export interface Remedy {
 	/** What the steps are for, as `To update it anyway:`. */
 	lead: string;
@@ -37,6 +44,16 @@ export type Step =
 	| { command: string }
 	| { choice: string[] }
 	| { words: string };
+
+/** Whether a message has nothing to say at a terminal: a rich one whose words are machine mode's alone. */
+export function isMachineOnly(message: Message): boolean {
+	return (
+		typeof message !== "string" &&
+		message.text === "" &&
+		message.cause === undefined &&
+		message.remedy === undefined
+	);
+}
 
 /** The message as machine mode prints it: a string as it is, a rich one its `plain`. */
 export function plainText(message: Message): string {

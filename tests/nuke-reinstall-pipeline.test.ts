@@ -729,7 +729,11 @@ describe("executeNukeAndReinstall", () => {
 				key: "owner/repo/repo",
 				entry: { sourceSubpath: "skills/repo" },
 				notes: [
-					"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+					{
+						text: "owner/repo moved from repo to skills/repo",
+						plain:
+							"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+					},
 				],
 			});
 		});
@@ -1003,7 +1007,11 @@ describe("executeNukeAndReinstall", () => {
 				key: "owner/repo/foo",
 				entry: { type: "skill", sourceSubpath: "packs/foo" },
 				notes: [
-					"owner/repo/packs/foo is a single skill — reinstalled as a skill, now keyed owner/repo/foo",
+					{
+						text: "owner/repo/packs/foo is a single skill — reinstalled as a skill",
+						plain:
+							"owner/repo/packs/foo is a single skill — reinstalled as a skill, now keyed owner/repo/foo",
+					},
 				],
 			});
 		});
@@ -1042,7 +1050,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/foo",
 				entry: { type: "skill", sourceSubpath: "packs/foo" },
-				notes: ["owner/repo/packs/foo is now keyed owner/repo/foo"],
+				notes: [
+					{
+						text: "",
+						plain: "owner/repo/packs/foo is now keyed owner/repo/foo",
+					},
+				],
 			});
 		});
 
@@ -1074,7 +1087,10 @@ describe("executeNukeAndReinstall", () => {
 				key: "owner/repo/plugins/laravel",
 				absorbed: ["owner/repo/api"],
 				notes: [
-					"owner/repo/laravel is now keyed owner/repo/plugins/laravel",
+					{
+						text: "",
+						plain: "owner/repo/laravel is now keyed owner/repo/plugins/laravel",
+					},
 					"owner/repo/plugins/laravel now includes api, installed on its own before",
 				],
 			});
@@ -1164,7 +1180,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/foo",
 				entry: { sourceSubpath: "plugins/foo", files: [".claude/skills/foo/"] },
-				notes: ["owner/repo/my-plugin is now keyed owner/repo/foo"],
+				notes: [
+					{
+						text: "",
+						plain: "owner/repo/my-plugin is now keyed owner/repo/foo",
+					},
+				],
 			});
 		});
 

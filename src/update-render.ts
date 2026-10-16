@@ -1,5 +1,5 @@
 import { gitErrorCause } from "./errors.js";
-import type { Advice, SubjectMessage } from "./message.js";
+import type { Advice } from "./message.js";
 import { memberName, repoFromKey } from "./source-parser.js";
 import { formatPackCounts, pluralize, upgradeAdvice } from "./summary.js";
 import { LOOKS, type Look } from "./terminal/tally.js";
@@ -7,14 +7,15 @@ import type {
 	BlockSubject,
 	Child,
 	Detail,
-	NextItem,
 	Row,
+	RowHead,
 	Status,
 } from "./terminal/types.js";
 import type { UpdateTally } from "./ui.js";
 import {
 	type EntryGroup,
 	isSuccessOutcome,
+	keyBefore,
 	type PluginOutcome,
 } from "./update-groups.js";
 import type { VersionMove } from "./version-resolve.js";
@@ -49,17 +50,6 @@ export function groupLabel(group: EntryGroup, groups: EntryGroup[]): string {
 	}
 	const suffix = group.versionIntent === null ? "HEAD" : group.versionIntent;
 	return `${base}@${suffix}`;
-}
-
-/** A row's subject and its dim meta: a repo and the intent it tracks, or a local entry's folder. */
-export interface RowHead {
-	subject: string;
-	meta: string;
-}
-
-/** The intent a group or entry tracks: its constraint, else its ref, else HEAD. */
-export function intentMeta(intent: string | null): string {
-	return intent ?? "HEAD";
 }
 
 const CATEGORY: Record<PluginOutcome["status"], keyof UpdateTally> = {
@@ -154,17 +144,30 @@ export function reinstalledRow(
 	return {
 		status: outcomeStatus(worst),
 		...head,
-		detail: groupDetail(move, outcomes.some(isSuccessOutcome), worst),
+		detail: groupDetail(move, outcomes, worst),
 		children: members.map((member) => memberChild(member, alike)),
 	};
 }
 
+const GONE: ReadonlySet<PluginOutcome["status"]> = new Set([
+	"gone-kept",
+	"gone-removed",
+]);
+
+/**
+ * The group's move, with how it ended when no member landed. A group whose
+ * every member is gone upstream made no move, so it says only how it ended.
+ */
 function groupDetail(
 	move: GroupMove,
-	landed: boolean,
+	outcomes: readonly PluginOutcome[],
 	worst: PluginOutcome,
 ): Detail {
 	const ended = lookOf(worst.status).label;
+	if (outcomes.every(({ status }) => GONE.has(status))) {
+		return { label: ended };
+	}
+	const landed = outcomes.some(isSuccessOutcome);
 	if ("move" in move) {
 		return landed ? { move: move.move } : { move: move.move, note: ended };
 	}
@@ -176,7 +179,7 @@ function memberChild(
 	alike: boolean,
 ): Child {
 	return {
-		name: memberName(outcome.key),
+		name: memberName(keyBefore(outcome)),
 		...(alike ? {} : { status: outcomeStatus(outcome) }),
 		detail: isSuccessOutcome(outcome)
 			? reinstalledDetail(outcome, move, files)
@@ -229,8 +232,14 @@ export function localRow(head: RowHead, member: MemberResult): Row {
 					label: lookOf(outcome.status).label,
 					aside: reinstalledDetail(outcome, undefined, member.files),
 				}
-			: outcomeDetail(outcome),
+			: withoutOwnPath(outcomeDetail(outcome), outcome.key),
 	};
+}
+
+/** A local entry's reason, without the folder it opens on when that's the entry's own: its row names it. */
+function withoutOwnPath(detail: string, key: string): string {
+	const own = `${key}: `;
+	return detail.startsWith(own) ? detail.slice(own.length) : detail;
 }
 
 /** A group whose clone failed: the failure, and every member it took down. */
@@ -242,9 +251,24 @@ export function cloneFailedRow(
 	return {
 		status: "failed",
 		...head,
-		detail: { label: "clone failed", aside: reason },
+		detail: { label: "clone failed", aside: cloneFailureCause(reason) },
 		children: keys.map((key) => ({ name: memberName(key) })),
 	};
+}
+
+const CLONE_FAILED = /^git clone failed(?: after \d+ attempts)?: /;
+
+/**
+ * A clone failure in one line, as a check failure's row words it: git's
+ * cause, without the clone's own preamble or the `done.` its progress ends
+ * on. The document keeps the whole message.
+ */
+function cloneFailureCause(reason: string): string {
+	const stderr = reason
+		.replace(CLONE_FAILED, "")
+		.split("\n")
+		.filter((line) => line.trim() !== "done.");
+	return gitErrorCause(stderr.join("\n"));
 }
 
 /** Why a group or key was left as it is. */
@@ -253,12 +277,22 @@ export type LeftAlone =
 	| { status: "check-failed"; reason: string }
 	| { status: "constrained-no-match"; constraint: string };
 
-/** A group or key the run left as it is, and why. */
-export function leftAloneRow(head: RowHead, why: LeftAlone): Row {
+/**
+ * A group or key the run left as it is, and why. A key's row names its entry
+ * beneath it, `keys`; a group's names none, its label saying which it is.
+ */
+export function leftAloneRow(
+	head: RowHead,
+	why: LeftAlone,
+	keys: readonly string[] = [],
+): Row {
 	return {
 		status: lookOf(why.status).status,
 		...head,
 		detail: leftAloneDetail(why),
+		...(keys.length > 0
+			? { children: keys.map((key) => ({ name: memberName(key) })) }
+			: {}),
 	};
 }
 
@@ -275,22 +309,6 @@ function leftAloneDetail(why: LeftAlone): Detail {
 	}
 }
 
-/** The remedy a message carries, under its subject: the row already says what happened. */
-export function remedyItem(message: SubjectMessage): NextItem | null {
-	return message.remedy === undefined
-		? null
-		: { subject: message.subject, remedy: message.remedy };
-}
-
-/** A message whose row says less than it does: what it says leads its remedy. */
-export function adviceItem(message: Advice): NextItem {
-	const { lead, steps } = message.remedy;
-	return {
-		subject: message.subject,
-		remedy: { lead: `${message.detail} ${lead}`, steps },
-	};
-}
-
 /**
  * An exact-pinned group with newer tags: the pin, the newest tag, and the
  * re-add commands that pin the group's members to it. `label` is the
@@ -302,15 +320,15 @@ export function newerTagsMessage(
 	newestTag: string,
 	commands: string[],
 ): Advice {
-	const detail = `Pinned to ${pinnedRef} — newer tags available (latest: ${newestTag}).`;
-	const text = `${label}: ${detail}`;
+	const latest = `newer tags available (latest: ${newestTag}).`;
+	const detail = `Pinned to ${pinnedRef}, ${latest}`;
 	const advice = upgradeAdvice(commands);
 	return {
 		subject: label,
 		detail,
-		text,
+		text: `${label}: ${detail}`,
 		remedy: advice.remedy,
-		plain: `${text} ${advice.plain}`,
+		plain: `${label}: Pinned to ${pinnedRef} — ${latest} ${advice.plain}`,
 	};
 }
 

@@ -77,6 +77,11 @@ export function moveTarget(newRef: string | null, newCommit: string): string {
 	return isVersionTag(newRef) ? newRef! : newCommit.slice(0, 7);
 }
 
+/** The intent a group or entry tracks: its constraint, else its ref, else HEAD. */
+export function intentMeta(intent: string | null): string {
+	return intent ?? "HEAD";
+}
+
 export interface VersionOverrides {
 	newRef: string;
 	newCommit: string;

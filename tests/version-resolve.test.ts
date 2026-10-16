@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatVersionMove,
+	intentMeta,
 	isVersionTag,
 	moveTarget,
 	newestTag,
@@ -267,5 +268,13 @@ describe("moveTarget", () => {
 		expect(moveTarget("v1.3.0", NEW)).toBe("v1.3.0");
 		expect(moveTarget("main", NEW)).toBe("9f8e7d6");
 		expect(moveTarget(null, NEW)).toBe("9f8e7d6");
+	});
+});
+
+describe("intentMeta", () => {
+	it("is the constraint or ref a group tracks, HEAD when it tracks none", () => {
+		expect(intentMeta("^1.2.3")).toBe("^1.2.3");
+		expect(intentMeta("main")).toBe("main");
+		expect(intentMeta(null)).toBe("HEAD");
 	});
 });

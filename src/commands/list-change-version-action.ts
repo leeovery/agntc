@@ -10,6 +10,7 @@ import { fetchRemoteTags } from "../git-utils.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { writeManifest } from "../manifest.js";
+import { plainText } from "../message.js";
 import type { Scope } from "../scope.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
 import type { Ui } from "../ui.js";
@@ -130,7 +131,7 @@ export async function executeChangeVersionAction(
 		key: result.key,
 		newEntry: result.manifestEntry,
 		message: `Changed ${result.key} to ${selectedTag}`,
-		notes: result.notes,
+		notes: result.notes.map(plainText),
 	};
 }
 

@@ -9,6 +9,7 @@ import { errorMessage } from "../errors.js";
 import { settleGoneInList } from "../gone-upstream.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { writeManifest } from "../manifest.js";
+import { plainText } from "../message.js";
 import type { Scope } from "../scope.js";
 import type { Ui } from "../ui.js";
 import type { VersionOverrides } from "../version-resolve.js";
@@ -77,7 +78,7 @@ export async function executeUpdateAction(
 			key: result.key,
 			newEntry: result.manifestEntry,
 			message: isLocal ? `Refreshed ${result.key}` : `Updated ${result.key}`,
-			notes: result.notes,
+			notes: result.notes.map(plainText),
 		};
 	} catch (err) {
 		return { success: false, key, message: errorMessage(err), notes: [] };

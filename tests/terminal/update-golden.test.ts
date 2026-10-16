@@ -50,7 +50,12 @@ let projectDir: string;
 let upstream: Map<string, string>;
 /** What each `owner/repo` resolves to; a clone of one missing here fails. */
 let targets: Map<string, GroupTarget>;
-let unreachable: Set<string>;
+/** The repos whose clone fails, each with what the failure says. */
+let unreachable: Map<string, string>;
+
+function notFound(repo: string): string {
+	return `git clone failed after 3 attempts: fatal: repository 'https://github.com/${repo}.git/' not found`;
+}
 
 beforeEach(async () => {
 	vi.clearAllMocks();
@@ -59,7 +64,7 @@ beforeEach(async () => {
 	await mkdir(projectDir, { recursive: true });
 	upstream = new Map();
 	targets = new Map();
-	unreachable = new Set();
+	unreachable = new Map();
 	vi.mocked(cloneSource).mockImplementation(async (parsed) => {
 		if (parsed.type === "local-path") {
 			throw new Error("local sources aren't cloned");
@@ -67,9 +72,7 @@ beforeEach(async () => {
 		const repo = `${parsed.owner}/${parsed.repo}`;
 		const fixture = upstream.get(repo);
 		if (fixture === undefined || unreachable.has(repo)) {
-			throw new Error(
-				`git clone failed after 3 attempts: fatal: repository 'https://github.com/${repo}.git/' not found`,
-			);
+			throw new Error(unreachable.get(repo) ?? notFound(repo));
 		}
 		const tempDir = await mkdtemp(join(testDir, "clone-"));
 		await cp(fixture, tempDir, { recursive: true });
@@ -318,7 +321,7 @@ describe("an update of everything", () => {
 			"     npx agntc remove rshankras/claude-code-apple-skills/macos",
 			"     npx agntc add 'rshankras/claude-code-apple-skills/macos@^1.4.0' --pack",
 			"",
-			"   referodesign/refero_skill — newer version outside the constraint: v1.0.3 -> v2.0.0 available. To",
+			"   referodesign/refero_skill — newer version outside the constraint: v1.0.3 → v2.0.0 available. To",
 			"   upgrade:",
 			"     npx agntc add referodesign/refero_skill/refero-design",
 			...close(
@@ -333,7 +336,7 @@ describe("an update of everything", () => {
 			{ "a/SKILL.md": "new", "b/SKILL.md": "new" },
 			{ kind: "head", resolvedSha: NEW },
 		);
-		unreachable.add("owner/repo");
+		unreachable.set("owner/repo", notFound("owner/repo"));
 		await installed({
 			"owner/repo/a": entry("owner/repo", {
 				files: [".claude/skills/a/", ".claude/skills/a/SKILL.md"],
@@ -346,11 +349,40 @@ describe("an update of everything", () => {
 		expect(await drawn()).toEqual([
 			HEADER,
 			"",
-			" ✗ owner/repo   HEAD   clone failed · git clone failed after 3 attempts: fatal: repository",
-			"                       'https://github.com/owner/repo.git/' not found",
+			" ✗ owner/repo   HEAD   clone failed · repository 'https://github.com/owner/repo.git/' not found",
 			"   ├─ a",
 			"   └─ b",
 			...close("2 failed"),
+		]);
+	});
+
+	it("words a clone failure by git's cause alone, out of all its stderr says", async () => {
+		await repo(
+			"owner/repo",
+			{ "a/SKILL.md": "new" },
+			{ kind: "head", resolvedSha: NEW },
+		);
+		unreachable.set(
+			"owner/repo",
+			[
+				"git clone failed after 3 attempts: Cloning into '/var/folders/x1/T/agntc-Ab12Cd'...",
+				"done.",
+				"warning: --depth is ignored in local clones; use file:// instead.",
+				"fatal: repository '/srv/git/owner/repo.git' does not exist",
+				"",
+			].join("\n"),
+		);
+		await installed({
+			"owner/repo/a": entry("owner/repo", {
+				files: [".claude/skills/a/", ".claude/skills/a/SKILL.md"],
+			}),
+		});
+
+		expect(await drawn()).toEqual([
+			HEADER,
+			"",
+			" ✗ owner/repo   HEAD   clone failed · repository '/srv/git/owner/repo.git' does not exist",
+			"   └─ a",
 		]);
 	});
 
@@ -429,6 +461,7 @@ describe("an update of one key", () => {
 			HEADER,
 			"",
 			" ○ owner/repo   ^1.1.0   up to date",
+			"   └─ repo",
 		]);
 	});
 
@@ -449,7 +482,7 @@ describe("an update of one key", () => {
 		expect(await drawn({ key: "owner/repo/gone", yes: true })).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo   ^1.0.0   v1.0.0 → v1.1.0  removed",
+			" ✓ owner/repo   ^1.0.0   removed",
 			"   └─ gone               removed — it's gone upstream",
 		]);
 	});

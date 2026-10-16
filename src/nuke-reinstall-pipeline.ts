@@ -41,7 +41,7 @@ import {
 	type Manifest,
 	type ManifestEntry,
 } from "./manifest.js";
-import type { SubjectMessage } from "./message.js";
+import type { Message, SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import type { Scope } from "./scope.js";
 import { memberName, repoFromKey } from "./source-parser.js";
@@ -121,7 +121,7 @@ interface NukeReinstallSuccess {
 	/** What the copy installed, counted as `add` counts it. */
 	assetCounts: AssetCounts;
 	/** What the user should hear about how the entry was reinstalled. */
-	notes: string[];
+	notes: Message[];
 	/** The loose skill entries a pack took over; their files are already removed. */
 	absorbed: string[];
 }
@@ -378,19 +378,27 @@ async function reinstall(
 	};
 }
 
-/** The replay's note and the key the entry moved to, told as one note. */
+/**
+ * The replay's note and the key the entry moved to, told as one note. At a
+ * terminal the entry's row says where it moved, so the note tells only the
+ * replay, and nothing when there's no replay to tell.
+ */
 function replayNotes(
 	key: string,
 	newKey: string,
 	note: string | undefined,
-): string[] {
+): Message[] {
 	if (newKey === key) {
 		return note === undefined ? [] : [note];
 	}
 	return [
-		note === undefined
-			? `${key} is now keyed ${newKey}`
-			: `${note}, now keyed ${newKey}`,
+		{
+			text: note ?? "",
+			plain:
+				note === undefined
+					? `${key} is now keyed ${newKey}`
+					: `${note}, now keyed ${newKey}`,
+		},
 	];
 }
 

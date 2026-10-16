@@ -1,5 +1,6 @@
 import type { Stats } from "node:fs";
-import { basename } from "node:path";
+import { homedir } from "node:os";
+import { basename, join, sep } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
@@ -307,30 +308,54 @@ const OLD7 = "aaaaaaa";
 const NEW7 = "bbbbbbb";
 const HASHES = { from: OLD7, to: NEW7 };
 
-function upToDate(subject: string, meta: string): Row {
-	return { status: "unchanged", subject, meta, detail: "up to date" };
+/** A key's left-alone row names its one entry beneath it; a group's names none. */
+function entryUnder(member: string | undefined): Pick<Row, "children"> {
+	return member === undefined ? {} : { children: [{ name: member }] };
 }
 
-function notChecked(subject: string, meta: string, cause: string): Row {
+function upToDate(subject: string, meta: string, member?: string): Row {
+	return {
+		status: "unchanged",
+		subject,
+		meta,
+		detail: "up to date",
+		...entryUnder(member),
+	};
+}
+
+function notChecked(
+	subject: string,
+	meta: string,
+	cause: string,
+	member?: string,
+): Row {
 	return {
 		status: "attention",
 		subject,
 		meta,
 		detail: { label: "not checked", aside: cause },
+		...entryUnder(member),
 	};
 }
 
-function noMatch(subject: string, constraint: string): Row {
+function noMatch(subject: string, constraint: string, member?: string): Row {
 	return {
 		status: "attention",
 		subject,
 		meta: constraint,
 		detail: { label: `no tags satisfy ${constraint}` },
+		...entryUnder(member),
 	};
 }
 
-function newerTags(subject: string, meta: string): Row {
-	return { status: "unchanged", subject, meta, detail: "newer tags available" };
+function newerTags(subject: string, meta: string, member?: string): Row {
+	return {
+		status: "unchanged",
+		subject,
+		meta,
+		detail: "newer tags available",
+		...entryUnder(member),
+	};
 }
 
 /** A group whose members all updated along `move`, each `[name, detail]`. */
@@ -436,7 +461,7 @@ function upgrade(
 	return {
 		subject,
 		remedy: {
-			lead: `Newer version outside the constraint: ${current} -> ${latest} available. To upgrade:`,
+			lead: `Newer version outside the constraint: ${current} → ${latest} available. To upgrade:`,
 			steps: commands.map((command) => ({ command })),
 		},
 	};
@@ -547,7 +572,7 @@ describe("update command", () => {
 
 			const [block] = ui.blocks;
 			expect(block!.task.mock.calls[0]).toEqual([
-				{ text: "Checking for updates…" },
+				{ text: "checking for updates…" },
 			]);
 			expect(block!.tasks[0]!.clear).toHaveBeenCalledOnce();
 			expect(block!.tasks[0]!.settle).not.toHaveBeenCalled();
@@ -665,7 +690,7 @@ describe("update command", () => {
 						{
 							subject: "owner/repo",
 							remedy: {
-								lead: "Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+								lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
 								steps: [{ command: "npx agntc add owner/repo@v3.0" }],
 							},
 						},
@@ -1010,7 +1035,7 @@ describe("update command", () => {
 			// group's own task spins where its row settles. No clone spinner.
 			expect(ui.spinner).not.toHaveBeenCalled();
 			expect(progress()).toEqual([
-				{ text: "Checking for updates…" },
+				{ text: "checking for updates…" },
 				{ subject: "owner/repo", meta: "HEAD", text: "updating to bbbbbbb…" },
 			]);
 			const [checking, updating] = ui.blocks[0]!.tasks;
@@ -1456,7 +1481,7 @@ describe("update command", () => {
 			// Each unit spins in its row's place, the local refreshing, the git
 			// groups updating; their rows land in manifest (processing) order.
 			expect(progress()).toEqual([
-				{ text: "Checking for updates…" },
+				{ text: "checking for updates…" },
 				{ subject: "owner/repo-a", meta: "HEAD", text: "updating to bbbbbbb…" },
 				{ subject: "/local/path", meta: "local", text: "refreshing…" },
 				{ subject: "owner/repo-b", meta: "HEAD", text: "updating to bbbbbbb…" },
@@ -1794,7 +1819,7 @@ describe("update command", () => {
 			await runUpdate(undefined, {}, ui);
 
 			expect(progress()).toEqual([
-				{ text: "Checking for updates…" },
+				{ text: "checking for updates…" },
 				{ subject: "owner/repo", meta: "HEAD", text: "updating to bbbbbbb…" },
 			]);
 			expect(drawn().rows).toEqual([
@@ -1833,7 +1858,7 @@ describe("update command", () => {
 			// The updatable group spins while it updates; the pinned (newer-tags)
 			// group never clones and its row is drawn once the work has landed.
 			expect(progress()).toEqual([
-				{ text: "Checking for updates…" },
+				{ text: "checking for updates…" },
 				{
 					subject: "owner/updatable",
 					meta: "HEAD",
@@ -1856,7 +1881,7 @@ describe("update command", () => {
 						{
 							subject: "owner/pinned",
 							remedy: {
-								lead: "Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade:",
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
 								steps: [{ command: "npx agntc add owner/pinned@v2.0" }],
 							},
 						},
@@ -2102,7 +2127,7 @@ describe("update command", () => {
 						{
 							subject: "owner/repo",
 							remedy: {
-								lead: "Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+								lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
 								steps: [
 									{
 										command: "npx agntc add owner/repo@v3.0 --skill alpha zeta",
@@ -2135,7 +2160,7 @@ describe("update command", () => {
 				{
 					subject: "owner/repo",
 					remedy: {
-						lead: "Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+						lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
 						steps: [{ command: "npx agntc add owner/repo/a@v3.0" }],
 					},
 				},
@@ -2324,7 +2349,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [upToDate("owner/repo", "HEAD")],
+					rows: [upToDate("owner/repo", "HEAD", "repo")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -2348,7 +2373,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("nuxt/ui", "v4", "ui")]],
-					rows: [upToDate("nuxt/ui", "v4")],
+					rows: [upToDate("nuxt/ui", "v4", "ui")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -2373,7 +2398,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [notChecked("owner/repo", "HEAD", "network timeout")],
+					rows: [notChecked("owner/repo", "HEAD", "network timeout", "repo")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -2395,6 +2420,7 @@ describe("update command", () => {
 					"owner/repo",
 					"HEAD",
 					"git@github.com: Permission denied (publickey).",
+					"repo",
 				),
 			]);
 		});
@@ -3380,14 +3406,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [
-						cloneFailed(
-							"owner/repo",
-							"HEAD",
-							"git clone failed after 3 attempts: network error",
-							"repo",
-						),
-					],
+					rows: [cloneFailed("owner/repo", "HEAD", "network error", "repo")],
 					tally: closed({ failed: 1 }),
 				}),
 			);
@@ -3753,7 +3772,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [notChecked("owner/repo", "HEAD", "network timeout")],
+					rows: [notChecked("owner/repo", "HEAD", "network timeout", "repo")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -3776,7 +3795,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^2.0", "repo")]],
-					rows: [noMatch("owner/repo", "^2.0")],
+					rows: [noMatch("owner/repo", "^2.0", "repo")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -4146,7 +4165,7 @@ describe("update command", () => {
 						{
 							subject: "owner/newer",
 							remedy: {
-								lead: "Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade:",
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
 								steps: [{ command: "npx agntc add owner/newer@v2.0" }],
 							},
 						},
@@ -4482,7 +4501,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v1.0", "repo")]],
-					rows: [newerTags("owner/repo", "v1.0")],
+					rows: [newerTags("owner/repo", "v1.0", "repo")],
 					next: [
 						pinnedKey(
 							"owner/repo",
@@ -4559,7 +4578,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v1.0", "go")]],
-					rows: [newerTags("owner/repo", "v1.0")],
+					rows: [newerTags("owner/repo", "v1.0", "go")],
 					next: [
 						pinnedKey(
 							"owner/repo/go",
@@ -4639,7 +4658,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v3.0", "repo")]],
-					rows: [upToDate("owner/repo", "v3.0")],
+					rows: [upToDate("owner/repo", "v3.0", "repo")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -4708,7 +4727,7 @@ describe("update command", () => {
 							status: "failed",
 							subject: LOCAL_KEY,
 							meta: "local",
-							detail: `${LOCAL_KEY}: path does not exist`,
+							detail: "path does not exist",
 						},
 					],
 					tally: closed({ failed: 1 }),
@@ -4730,7 +4749,7 @@ describe("update command", () => {
 					status: "failed",
 					subject: LOCAL_KEY,
 					meta: "local",
-					detail: `${LOCAL_KEY}: path is not a directory`,
+					detail: "path is not a directory",
 				},
 			]);
 		});
@@ -4801,6 +4820,29 @@ describe("update command", () => {
 			expect(progress()).toEqual([
 				{ subject: LOCAL_KEY, meta: "local", text: "refreshing…" },
 			]);
+		});
+
+		it("draws a local entry under the home folder by its path from ~, in all-mode too", async () => {
+			const underHome = join(homedir(), "Code", "my-plugin");
+			mockReadManifestOrExit.mockResolvedValue({ [underHome]: LOCAL_ENTRY });
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-plugin/"],
+			});
+
+			await runUpdate(undefined, {}, ui);
+
+			const shortened = `~${sep}Code${sep}my-plugin`;
+			expect(progress()).toEqual([
+				{ subject: shortened, meta: "local", text: "refreshing…" },
+			]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[local(shortened)]],
+					rows: [refreshed(shortened, "skill")],
+					tally: closed({ refreshed: 1 }),
+				}),
+			);
 		});
 
 		it("does not create a temp dir for local updates", async () => {
@@ -5407,7 +5449,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0")],
+					rows: [upToDate("owner/repo", "^1.0", "repo")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -5432,7 +5474,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0")],
+					rows: [upToDate("owner/repo", "^1.0", "repo")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -5492,7 +5534,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^2.0", "repo")]],
-					rows: [noMatch("owner/repo", "^2.0")],
+					rows: [noMatch("owner/repo", "^2.0", "repo")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -5813,7 +5855,7 @@ describe("update command", () => {
 						{
 							subject: "owner/tagged",
 							remedy: {
-								lead: "Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade:",
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
 								steps: [{ command: "npx agntc add owner/tagged@v2.0" }],
 							},
 						},
@@ -5874,7 +5916,7 @@ describe("update command", () => {
 						{
 							subject: "owner/repo-b",
 							remedy: {
-								lead: "Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade:",
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
 								steps: [{ command: "npx agntc add owner/repo-b@v2.0" }],
 							},
 						},
@@ -6383,7 +6425,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0")],
+					rows: [upToDate("owner/repo", "^1.0", "repo")],
 					next: [
 						upgrade(
 							"owner/repo",
@@ -6417,6 +6459,37 @@ describe("update command", () => {
 			expect(drawn().next).toEqual([
 				upgrade("owner/repo", "v0.3.3", "v0.4.0", "npx agntc add owner/repo"),
 			]);
+		});
+
+		it("queues no upgrade for a key whose update failed, its install unmoved", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^1.0",
+					files: [".claude/skills/my-skill/"],
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: "v2.0.0",
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			// Blocked leaves the entry installed as it was, so only the gate on
+			// the failure keeps its upgrade out of Next.
+			mockScanForEscapingSymlinks.mockRejectedValue(
+				new SymlinkEscapeError("evil-link", "/etc/passwd"),
+			);
+
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
+
+			expect(drawn().rows[0]!.status).toBe("failed");
+			expect(drawn().next).toEqual([]);
 		});
 
 		it("does not render info line when within-constraint best equals absolute latest", async () => {
@@ -6778,7 +6851,7 @@ describe("a bare `failed` draws failed on every layout", () => {
 						status: "failed",
 						subject: LOCAL_KEY,
 						meta: "local",
-						detail: `${LOCAL_KEY}: path does not exist`,
+						detail: "path does not exist",
 					},
 				],
 				tally: closed({ failed: 1 }),
@@ -7227,9 +7300,16 @@ describe("a key naming several entries", () => {
 						["y", "skill · now keyed owner/repo/y"],
 					),
 				],
+				// The rows say where each moved; machine mode alone hears the notes.
 				notes: [
-					"owner/repo/packs/x is now keyed owner/repo/x",
-					"owner/repo/packs/y is now keyed owner/repo/y",
+					{
+						text: "",
+						plain: "owner/repo/packs/x is now keyed owner/repo/x",
+					},
+					{
+						text: "",
+						plain: "owner/repo/packs/y is now keyed owner/repo/y",
+					},
 				],
 				tally: closed({ updated: 2 }),
 			}),
@@ -7490,13 +7570,13 @@ describe("an entry gone upstream", () => {
 	const KEPT_DETAIL = "kept — it's gone upstream; update will ask again";
 	const REMOVED_DETAIL = "removed — it's gone upstream";
 
-	/** The row of a group whose one member, go, was gone upstream and `ended` so. */
+	/** The row of a group whose one member, go, was gone upstream and `ended` so: no move, as it made none. */
 	function goneRow(ended: "kept" | "removed"): Row {
 		return {
 			status: ended === "kept" ? "attention" : "done",
 			subject: "owner/repo",
 			meta: "HEAD",
-			detail: { move: HASHES, note: ended },
+			detail: { label: ended },
 			children: [
 				{ name: "go", detail: ended === "kept" ? KEPT_DETAIL : REMOVED_DETAIL },
 			],
@@ -7965,6 +8045,33 @@ describe("a pack taking over loose skills from its own source", () => {
 		);
 	});
 
+	it("draws no row for a pinned loose entry a pack on HEAD took over from another group, telling it under the pack", async () => {
+		arrangeTakeover({
+			[PACK_KEY]: packEntry(),
+			"owner/repo/a": looseA({ ref: "v1.0" }),
+		});
+		// The pin is up to date, so its group is only left alone: the pack's
+		// takeover is all that keeps it from drawing a row of its own.
+		mockResolveGroupTarget.mockImplementation(async (group) =>
+			group.versionIntent === null
+				? { kind: "head", resolvedSha: REMOTE_SHA }
+				: { kind: "tag", tag: "v1.0", newerTags: [] },
+		);
+
+		await runUpdate(undefined, {}, ui);
+
+		expect(drawn().rows).toEqual([
+			updated(
+				"owner/repo@HEAD",
+				"HEAD",
+				HASHES,
+				["tools", "pack · 2 skills"],
+				["a", "is now part of the pack owner/repo/tools"],
+			),
+		]);
+		expect(drawn().tally).toEqual(closed({ updated: 2 }));
+	});
+
 	describe("when the loose entry's own group comes before the pack's", () => {
 		function arrangeSkillGroupFirst(): void {
 			arrangeTakeover({
@@ -8419,7 +8526,7 @@ describe("a global update", () => {
 			{
 				subject: "owner/repo",
 				remedy: {
-					lead: "Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
+					lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
 					steps: [
 						{ command: "npx agntc add -g owner/repo/a@v3.0" },
 						{ command: "npx agntc add -g owner/repo/tools@v3.0 --pack" },

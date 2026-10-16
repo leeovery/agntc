@@ -25,7 +25,8 @@ import {
 	type OutOfConstraintInfo,
 	outOfConstraintMessage,
 } from "../summary.js";
-import type { BlockSubject, Row } from "../terminal/types.js";
+import { adviceItem, remedyItem } from "../terminal/next.js";
+import type { BlockSubject, Row, RowHead } from "../terminal/types.js";
 import { type Block, type BlockTask, interactiveUi, type Ui } from "../ui.js";
 import type { GroupTarget, UpdateCheckResult } from "../update-check.js";
 import {
@@ -53,24 +54,21 @@ import {
 	withAbsorptions,
 } from "../update-groups.js";
 import {
-	adviceItem,
 	cloneFailedRow,
 	type GroupMove,
 	groupLabel,
 	groupSubject,
-	intentMeta,
 	type LeftAlone,
 	leftAloneRow,
 	localRow,
 	type MemberResult,
 	newerTagsMessage,
 	pinnedTagsMessage,
-	type RowHead,
 	reinstalledRow,
-	remedyItem,
 	updateTally,
 } from "../update-render.js";
 import {
+	intentMeta,
 	isAtOrAboveVersion,
 	moveTarget,
 	newestTag,
@@ -340,7 +338,7 @@ async function settleKey(
 	const { key, entry } = member;
 	const leftAlone = (why: LeftAlone, outcome: PluginOutcome): SettledKey => ({
 		outcome,
-		row: leftAloneRow(keyHead(member, run.home), why),
+		row: leftAloneRow(keyHead(member, run.home), why, [key]),
 	});
 	switch (check.status) {
 		case "up-to-date":
@@ -704,7 +702,7 @@ async function checkGroups(
 	if (groups.length === 0) {
 		return [];
 	}
-	const checking = block.task({ text: "Checking for updates…" });
+	const checking = block.task({ text: CHECKING });
 	const resolved = await Promise.all(
 		groups.map(async (group) => ({
 			group,
@@ -1080,11 +1078,13 @@ function memberResults(
 	outcomes: PluginOutcome[],
 	facets: Facets,
 ): MemberResult[] {
-	const divergent = isDivergent(item);
-	return outcomes.map((outcome, i) => ({
-		outcome,
-		...(divergent ? { move: memberMove(item.updating[i]!.entry, facets) } : {}),
-	}));
+	if (!isDivergent(item)) {
+		return outcomes.map((outcome) => ({ outcome }));
+	}
+	return outcomes.map((outcome) => {
+		const member = item.updating.find(({ key }) => key === keyBefore(outcome))!;
+		return { outcome, move: memberMove(member.entry, facets) };
+	});
 }
 
 /**

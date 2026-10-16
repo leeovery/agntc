@@ -557,14 +557,14 @@ function upgrade(
 	return {
 		subject,
 		remedy: {
-			lead: `Newer version outside the constraint: ${current} -> ${latest} available. To upgrade:`,
+			lead: `Newer version outside the constraint: ${current} → ${latest} available. To upgrade:`,
 			steps: [{ command }],
 		},
 	};
 }
 
-describe("the streamed line of a member the run moved", () => {
-	it("names it by the key the run left it under", async () => {
+describe("the row of a member the run moved", () => {
+	it("names it by the key it had, saying the key it moved to, and notes it for machine mode alone", async () => {
 		await repo("owner/repo", {
 			"plugins/foo/SKILL.md": "foo v2",
 			"bar/SKILL.md": "bar v2",
@@ -587,11 +587,15 @@ describe("the streamed line of a member the run moved", () => {
 
 		await runUpdate(undefined, {}, ui);
 
-		const names = ui
-			.rows()
-			.flatMap(({ children = [] }) => children.map(({ name }) => name));
-		expect(names).toContain("foo");
-		expect(names).not.toContain("my-plugin");
+		const children = ui.rows().flatMap(({ children = [] }) => children);
+		expect(children).toContainEqual({
+			name: "my-plugin",
+			detail: "skill · now keyed owner/repo/foo",
+		});
+		expect(ui.note).toHaveBeenCalledExactlyOnceWith({
+			text: "",
+			plain: "owner/repo/my-plugin is now keyed owner/repo/foo",
+		});
 	});
 });
 

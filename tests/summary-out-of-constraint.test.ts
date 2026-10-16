@@ -6,7 +6,7 @@ import {
 } from "../src/summary.js";
 
 describe("outOfConstraintMessage", () => {
-	it("words the actionable <current> -> <latestOverall> move, and the bare re-add that makes it", () => {
+	it("words the actionable <current> → <latestOverall> move at a terminal, -> in its machine sentence, and the bare re-add that makes it", () => {
 		const info: OutOfConstraintInfo = {
 			subject: "owner/plugin-a",
 			current: "v1.3.0",
@@ -17,8 +17,8 @@ describe("outOfConstraintMessage", () => {
 		expect(outOfConstraintMessage(info)).toEqual({
 			subject: "owner/plugin-a",
 			detail:
-				"Newer version outside the constraint: v1.3.0 -> v2.0.0 available.",
-			text: "owner/plugin-a  v1.3.0 -> v2.0.0 available.",
+				"Newer version outside the constraint: v1.3.0 → v2.0.0 available.",
+			text: "owner/plugin-a  v1.3.0 → v2.0.0 available.",
 			remedy: {
 				lead: "To upgrade:",
 				steps: [{ command: "npx agntc add owner/plugin-a" }],
@@ -85,7 +85,6 @@ describe("outOfConstraintMessage", () => {
 describe("upgradeAdvice", () => {
 	it("runs one command on after its lead", () => {
 		expect(upgradeAdvice(["npx agntc add owner/repo"])).toEqual({
-			text: "",
 			remedy: {
 				lead: "To upgrade:",
 				steps: [{ command: "npx agntc add owner/repo" }],

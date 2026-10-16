@@ -1,7 +1,58 @@
 import { describe, expect, it } from "vitest";
-import { renderNext } from "../../src/terminal/next.js";
+import type { SubjectMessage } from "../../src/message.js";
+import { adviceItem, remedyItem, renderNext } from "../../src/terminal/next.js";
 import { createStyle } from "../../src/terminal/style.js";
 import type { NextItem } from "../../src/terminal/types.js";
+
+describe("Next items from messages", () => {
+	const STILL_IN_SOURCE: SubjectMessage = {
+		subject: "owner/repo/macos",
+		detail:
+			"can't be updated: it would remove macos-hig. The existing install is unchanged.",
+		text: "owner/repo/macos can't be updated: it would remove macos-hig. The existing install is unchanged.",
+		remedy: {
+			lead: "To update it anyway:",
+			steps: [
+				{ command: "npx agntc remove owner/repo/macos" },
+				{ command: "npx agntc add owner/repo/macos --pack" },
+			],
+		},
+		plain: "the machine sentence",
+	};
+
+	it("puts a message's remedy under its subject, the row having said what happened", () => {
+		expect(remedyItem(STILL_IN_SOURCE)).toEqual({
+			subject: "owner/repo/macos",
+			remedy: STILL_IN_SOURCE.remedy,
+		});
+	});
+
+	it("queues nothing for a message with no remedy", () => {
+		const { remedy: _, ...told } = STILL_IN_SOURCE;
+		expect(remedyItem(told)).toBeNull();
+	});
+
+	it("leads an advice's remedy with what it says, the row having said less", () => {
+		expect(
+			adviceItem({
+				subject: "owner/repo",
+				detail: "Pinned to v1.0.0, newer tags available (latest: v1.2.0).",
+				text: "",
+				remedy: {
+					lead: "To upgrade:",
+					steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],
+				},
+				plain: "",
+			}),
+		).toEqual({
+			subject: "owner/repo",
+			remedy: {
+				lead: "Pinned to v1.0.0, newer tags available (latest: v1.2.0). To upgrade:",
+				steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],
+			},
+		});
+	});
+});
 
 const plain = createStyle(0);
 

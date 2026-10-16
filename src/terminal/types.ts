@@ -32,6 +32,9 @@ export interface Row {
 	children?: Child[];
 }
 
+/** A row's subject and its dim meta: a repo and the intent it tracks, or a local entry's folder. */
+export type RowHead = Required<Pick<Row, "subject" | "meta">>;
+
 export interface Child {
 	name: string;
 	/** Set by the caller when the child's own outcome is worth a glyph. */

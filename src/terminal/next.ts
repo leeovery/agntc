@@ -1,7 +1,24 @@
+import type { Advice, SubjectMessage } from "../message.js";
 import { indent, MARGIN, roomFrom, visibleWidth, wrap } from "./layout.js";
 import { LEAD_AT, renderSteps } from "./remedy.js";
 import type { Style } from "./style.js";
 import type { NextItem } from "./types.js";
+
+/** The remedy a message carries, under its subject: the row already says what happened. */
+export function remedyItem(message: SubjectMessage): NextItem | null {
+	return message.remedy === undefined
+		? null
+		: { subject: message.subject, remedy: message.remedy };
+}
+
+/** A message whose row says less than it does: what it says leads its remedy. */
+export function adviceItem(message: Advice): NextItem {
+	const { lead, steps } = message.remedy;
+	return {
+		subject: message.subject,
+		remedy: { lead: `${message.detail} ${lead}`, steps },
+	};
+}
 
 /** What the reader can do about the run, gathered for its close. */
 export function renderNext(

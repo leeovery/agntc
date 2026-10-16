@@ -880,7 +880,11 @@ describe("integration: core workflows", () => {
 			expect(result.key).toBe("owner/moving-skill/moving-skill");
 			expect(result.entry.sourceSubpath).toBe("skills/moving-skill");
 			expect(result.notes).toEqual([
-				"owner/moving-skill moved from moving-skill to skills/moving-skill, now keyed owner/moving-skill/moving-skill",
+				{
+					text: "owner/moving-skill moved from moving-skill to skills/moving-skill",
+					plain:
+						"owner/moving-skill moved from moving-skill to skills/moving-skill, now keyed owner/moving-skill/moving-skill",
+				},
 			]);
 			expect(
 				await fileExists(

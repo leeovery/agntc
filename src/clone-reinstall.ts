@@ -5,7 +5,7 @@ import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { addEntry, removeEntry, writeManifest } from "./manifest.js";
-import type { Remedy, Step, SubjectMessage } from "./message.js";
+import type { Message, Remedy, Step, SubjectMessage } from "./message.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
@@ -93,7 +93,7 @@ interface CloneReinstallSuccess {
 	/** What the copy installed, counted as `add` counts it. */
 	assetCounts: AssetCounts;
 	/** What the user should hear about how the entry was reinstalled. */
-	notes: string[];
+	notes: Message[];
 	/** Loose skill entries a pack took over: their files are gone, their entries are the caller's to drop. */
 	absorbed: string[];
 }

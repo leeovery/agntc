@@ -9,18 +9,15 @@ import {
 	type PluginOutcome,
 } from "../src/update-groups.js";
 import {
-	adviceItem,
 	cloneFailedRow,
 	groupLabel,
 	groupSubject,
-	intentMeta,
 	leftAloneRow,
 	localRow,
 	newerTagsMessage,
 	outcomeStatus,
 	pinnedTagsMessage,
 	reinstalledRow,
-	remedyItem,
 	updateTally,
 } from "../src/update-render.js";
 import { makeEntry } from "./helpers/factories.js";
@@ -78,14 +75,6 @@ describe("groupLabel", () => {
 
 		expect(groupLabel(standalone, [standalone])).toBe("owner/repo");
 		expect(groupLabel(collection, [collection])).toBe("owner/repo");
-	});
-});
-
-describe("intentMeta", () => {
-	it("is the constraint or ref a group tracks, HEAD when it tracks none", () => {
-		expect(intentMeta("^1.2.3")).toBe("^1.2.3");
-		expect(intentMeta("main")).toBe("main");
-		expect(intentMeta(null)).toBe("HEAD");
 	});
 });
 
@@ -235,15 +224,17 @@ describe("a group the run reinstalled", () => {
 		]);
 	});
 
-	it("names a member that moved by the key it moved to, and says so", () => {
+	it("names a member that moved by the key it had, as the block measured it, and says where it went", () => {
 		const row = reinstalledRow(HEAD, { move: MOVE }, [
 			{
-				outcome: updated("owner/repo/foo", { previousKey: "owner/repo" }),
+				outcome: updated("owner/repo/foo", {
+					previousKey: "owner/repo/my-plugin",
+				}),
 			},
 		]);
 
 		expect(row.children).toEqual([
-			{ name: "foo", detail: "skill · now keyed owner/repo/foo" },
+			{ name: "my-plugin", detail: "skill · now keyed owner/repo/foo" },
 		]);
 	});
 
@@ -312,6 +303,48 @@ describe("a group the run reinstalled", () => {
 		]);
 	});
 
+	it.each<[string, PluginOutcome]>([
+		[
+			"kept",
+			{
+				status: "gone-kept",
+				key: "owner/repo/b",
+				summary: "Kept owner/repo/b",
+			},
+		],
+		["not checked", { status: "check-failed", key: "owner/repo/b" }],
+	])("reads a failed member as worse than a %s one", (_, beside) => {
+		const row = reinstalledRow(HEAD, { move: MOVE }, [
+			{ outcome: aborted("owner/repo/a") },
+			{ outcome: beside },
+		]);
+
+		expect(row.status).toBe("failed");
+	});
+
+	it("draws no move for a group whose every member is gone upstream, as it made none", () => {
+		const gone = (status: "gone-kept" | "gone-removed", key: string) =>
+			({ status, key, summary: "" }) as PluginOutcome;
+
+		expect(
+			reinstalledRow(HEAD, { move: MOVE }, [
+				{ outcome: gone("gone-kept", "owner/repo/a") },
+			]).detail,
+		).toEqual({ label: "kept" });
+		expect(
+			reinstalledRow(HEAD, { move: MOVE }, [
+				{ outcome: gone("gone-removed", "owner/repo/a") },
+				{ outcome: gone("gone-kept", "owner/repo/b") },
+			]).detail,
+		).toEqual({ label: "kept" });
+		expect(
+			reinstalledRow(HEAD, { move: MOVE }, [
+				{ outcome: gone("gone-removed", "owner/repo/a") },
+				{ outcome: updated("owner/repo/b") },
+			]).detail,
+		).toEqual({ move: MOVE });
+	});
+
 	it("reads a member a needs-a-look outcome left as worse than one that landed", () => {
 		const row = reinstalledRow(HEAD, { move: MOVE }, [
 			{ outcome: updated("owner/repo/a") },
@@ -378,10 +411,21 @@ describe("a local entry's row", () => {
 			}),
 		).toEqual({ status: "failed", ...LOCAL, detail: "path not found" });
 	});
+
+	it("leaves out the entry's own folder a reason opens on, the row naming it", () => {
+		const key = "/home/lee/Code/skills/foo";
+		const detail = (reason: string) =>
+			localRow(LOCAL, { outcome: failedOutcome(key, reason) }).detail;
+
+		expect(detail(`${key}: path does not exist`)).toBe("path does not exist");
+		expect(detail("/home/lee/Code/skills: path does not exist")).toBe(
+			"/home/lee/Code/skills: path does not exist",
+		);
+	});
 });
 
 describe("a group whose clone failed", () => {
-	it("names the failure with git's whole reason, and every member it took down", () => {
+	it("names the failure by git's cause, and every member it took down", () => {
 		expect(
 			cloneFailedRow(HEAD, "git clone failed: fatal: not found", [
 				"owner/repo/a",
@@ -390,11 +434,23 @@ describe("a group whose clone failed", () => {
 		).toEqual({
 			status: "failed",
 			...HEAD,
-			detail: {
-				label: "clone failed",
-				aside: "git clone failed: fatal: not found",
-			},
+			detail: { label: "clone failed", aside: "not found" },
 			children: [{ name: "a" }, { name: "b" }],
+		});
+	});
+
+	it("takes the cause out of git's whole stderr: no attempts, temp folder, progress or warning", () => {
+		const reason = [
+			"git clone failed after 3 attempts: Cloning into '/tmp/agntc-Xy12'...",
+			"done.",
+			"warning: --depth is ignored in local clones; use file:// instead.",
+			"fatal: repository '/srv/gone.git' does not exist",
+			"",
+		].join("\n");
+
+		expect(cloneFailedRow(HEAD, reason, ["owner/repo/a"]).detail).toEqual({
+			label: "clone failed",
+			aside: "repository '/srv/gone.git' does not exist",
 		});
 	});
 });
@@ -405,6 +461,17 @@ describe("a group the run left alone", () => {
 			status: "unchanged",
 			...HEAD,
 			detail: "up to date",
+		});
+	});
+
+	it("names a key's entry beneath its row", () => {
+		expect(
+			leftAloneRow(HEAD, { status: "newer-tags" }, ["owner/repo/solo"]),
+		).toEqual({
+			status: "unchanged",
+			...HEAD,
+			detail: "newer tags available",
+			children: [{ name: "solo" }],
 		});
 	});
 
@@ -455,36 +522,6 @@ describe("a group's block subject", () => {
 	});
 });
 
-describe("Next items", () => {
-	it("puts a message's remedy under its subject, the row having said what happened", () => {
-		expect(remedyItem(STILL_IN_SOURCE)).toEqual({
-			subject: "owner/repo/macos",
-			remedy: STILL_IN_SOURCE.remedy,
-		});
-	});
-
-	it("queues nothing for a message with no remedy", () => {
-		const { remedy: _, ...told } = STILL_IN_SOURCE;
-		expect(remedyItem(told)).toBeNull();
-	});
-
-	it("leads an advice's remedy with what it says, the row having said less", () => {
-		expect(
-			adviceItem(
-				newerTagsMessage("owner/repo", "v1.0.0", "v1.2.0", [
-					"npx agntc add owner/repo@v1.2.0",
-				]),
-			),
-		).toEqual({
-			subject: "owner/repo",
-			remedy: {
-				lead: "Pinned to v1.0.0 — newer tags available (latest: v1.2.0). To upgrade:",
-				steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],
-			},
-		});
-	});
-});
-
 describe("newerTagsMessage", () => {
 	it("words a pinned group's newer tags and the one member's re-add, inline in its sentence", () => {
 		expect(
@@ -493,8 +530,8 @@ describe("newerTagsMessage", () => {
 			]),
 		).toEqual({
 			subject: "owner/repo",
-			detail: "Pinned to v1.0.0 — newer tags available (latest: v1.2.0).",
-			text: "owner/repo: Pinned to v1.0.0 — newer tags available (latest: v1.2.0).",
+			detail: "Pinned to v1.0.0, newer tags available (latest: v1.2.0).",
+			text: "owner/repo: Pinned to v1.0.0, newer tags available (latest: v1.2.0).",
 			remedy: {
 				lead: "To upgrade:",
 				steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],

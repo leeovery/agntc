@@ -1,5 +1,5 @@
 import type { AssetCounts } from "./asset-targets.js";
-import type { Advice, Remedy, RichMessage } from "./message.js";
+import type { Advice, WordedRemedy } from "./message.js";
 import { formatVersionMove } from "./version-resolve.js";
 
 export function pluralize(count: number, singular: string): string {
@@ -172,14 +172,14 @@ export interface OutOfConstraintInfo {
 /** A newer version outside the constraint, and the commands that move to it. */
 export function outOfConstraintMessage(info: OutOfConstraintInfo): Advice {
 	const { subject, current, latestOverall } = info;
-	const available = `${current} -> ${latestOverall} available.`;
+	const available = `${current} → ${latestOverall} available.`;
 	const advice = upgradeAdvice(info.commands);
 	return {
 		subject,
 		detail: `Newer version outside the constraint: ${available}`,
 		text: `${subject}  ${available}`,
 		remedy: advice.remedy,
-		plain: `${subject}  ${available} ${advice.plain}`,
+		plain: `${subject}  ${current} -> ${latestOverall} available. ${advice.plain}`,
 	};
 }
 
@@ -187,13 +187,10 @@ export function outOfConstraintMessage(info: OutOfConstraintInfo): Advice {
  * `To upgrade:` and the commands, once each. Its sentence runs one command
  * on after the lead, and sets several a line each.
  */
-export function upgradeAdvice(
-	commands: string[],
-): RichMessage & { remedy: Remedy } {
+export function upgradeAdvice(commands: string[]): WordedRemedy {
 	const distinct = [...new Set(commands)];
 	const lead = "To upgrade:";
 	return {
-		text: "",
 		remedy: { lead, steps: distinct.map((command) => ({ command })) },
 		plain:
 			distinct.length === 1
