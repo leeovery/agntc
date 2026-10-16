@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { type Mock, vi } from "vitest";
+import { vi } from "vitest";
 import type { MachineDocument } from "../../src/ui.js";
 
 export interface MachineRun {
@@ -48,22 +48,4 @@ export async function runMachine(
 
 	const stdout = writes.join("");
 	return { stdout, exitCode, document: JSON.parse(stdout) as MachineDocument };
-}
-
-/** Every call made to a mocked `@clack/prompts`, `log` methods included. */
-export function clackCalls(clack: Record<string, unknown>): string[] {
-	const called: string[] = [];
-	for (const [name, member] of Object.entries(clack)) {
-		if (vi.isMockFunction(member) && (member as Mock).mock.calls.length > 0) {
-			called.push(name);
-		}
-		if (name === "log" && member !== null && typeof member === "object") {
-			called.push(
-				...clackCalls(member as Record<string, unknown>).map(
-					(method) => `log.${method}`,
-				),
-			);
-		}
-	}
-	return called;
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { blockLayout, renderRow } from "../../src/terminal/block.js";
+import {
+	blockLayout,
+	renderProgress,
+	renderRow,
+} from "../../src/terminal/block.js";
 import { createStyle } from "../../src/terminal/style.js";
 import type { Row } from "../../src/terminal/types.js";
 
@@ -716,5 +720,81 @@ describe("renderRow", () => {
 				)[1],
 			).toBe(` \x1b[2m  └─ ○ b${gap(8)}up to date\x1b[22m`);
 		});
+	});
+});
+
+describe("blockLayout from subjects alone", () => {
+	it("fixes the same columns as the rows those subjects will be", () => {
+		const rows: Row[] = [
+			{
+				status: "done",
+				subject: "owner/alpha",
+				meta: "^1.0.0",
+				detail: "updated",
+				children: [{ name: "a-long-child-name", status: "done" }],
+			},
+		];
+		expect(
+			blockLayout(
+				[
+					{
+						subject: "owner/alpha",
+						meta: "^1.0.0",
+						children: [{ name: "a-long-child-name", status: "done" }],
+					},
+				],
+				80,
+			),
+		).toEqual(blockLayout(rows, 80));
+	});
+});
+
+describe("renderProgress", () => {
+	const subjects = [{ subject: "owner/alpha", meta: "^1.0.0" }];
+	const progress = {
+		subject: "owner/alpha",
+		meta: "^1.0.0",
+		text: "updating to v1.0.1…",
+	};
+
+	it("puts the frame in the glyph slot and what it's doing in the detail column", () => {
+		expect(
+			renderProgress(progress, "⠁", blockLayout(subjects, 80), 80, plain),
+		).toBe(` ⠁ owner/alpha${gap(3)}^1.0.0${gap(3)}updating to v1.0.1…`);
+	});
+
+	it("follows the frame with what it's doing when it has no subject", () => {
+		expect(
+			renderProgress(
+				{ text: "Checking 6 repos…" },
+				"⠂",
+				blockLayout(subjects, 80),
+				80,
+				plain,
+			),
+		).toBe(" ⠂ Checking 6 repos…");
+	});
+
+	it("keeps to the subject's own line below 60 columns", () => {
+		expect(
+			renderProgress(progress, "⠁", blockLayout(subjects, 40), 40, plain),
+		).toBe(" ⠁ owner/alpha  ^1.0.0");
+	});
+
+	it("paints the frame in the accent, the subject bold and the rest dim", () => {
+		expect(
+			renderProgress(progress, "⠁", blockLayout(subjects, 80), 80, color),
+		).toBe(
+			` \x1b[38;2;167;139;250m⠁\x1b[39m \x1b[1mowner/alpha\x1b[22m${gap(3)}\x1b[2m^1.0.0\x1b[22m${gap(3)}\x1b[2mupdating to v1.0.1…\x1b[22m`,
+		);
+		expect(
+			renderProgress(
+				{ text: "Checking…" },
+				"⠁",
+				blockLayout([], 80),
+				80,
+				color,
+			),
+		).toBe(" \x1b[38;2;167;139;250m⠁\x1b[39m \x1b[2mChecking…\x1b[22m");
 	});
 });

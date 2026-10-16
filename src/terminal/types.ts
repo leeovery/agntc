@@ -39,6 +39,22 @@ export interface Child {
 	detail?: string;
 }
 
+/**
+ * What a block's columns are measured from: each row's subject and meta, and
+ * its children's names, a child with a status given a glyph's room.
+ */
+export type BlockSubject = Pick<Row, "subject" | "meta"> & {
+	children?: readonly Pick<Child, "name" | "status">[];
+};
+
+/** A step still running: the row it will settle into, when it has one, and what it's doing. */
+export interface Progress {
+	subject?: string;
+	meta?: string;
+	/** Dim, as `updating to v0.2.5…`. */
+	text: string;
+}
+
 export interface TallyItem {
 	count: number;
 	label: string;

@@ -1,12 +1,12 @@
 import type { Message } from "../message.js";
 import { indent, MARGIN, prose, roomFrom, wrap } from "./layout.js";
 import { LEAD_AT, renderRemedy } from "./remedy.js";
-import { identity, type Style, statusGlyph } from "./style.js";
+import { identity, type Painter, type Style, statusGlyph } from "./style.js";
 import type { Status } from "./types.js";
 
 export type MessageKind = "warn" | "note" | "error";
 
-const KIND_STATUS: Record<MessageKind, Status> = {
+export const KIND_STATUS: Record<MessageKind, Status> = {
 	warn: "attention",
 	note: "note",
 	error: "failed",
@@ -30,4 +30,24 @@ export function renderMessage(
 		...prose(cause ?? "", LEAD_AT, width, style.dim),
 		...(remedy === undefined ? [] : renderRemedy(remedy, width, style)),
 	];
+}
+
+/**
+ * ` ✓ text`, each of the text's lines as written, those after the first at
+ * column 3; with no status, every line at the margin. Nothing is wrapped, so
+ * a command written into a sentence stays whole for the terminal to wrap.
+ */
+export function renderWritten(
+	status: Status | undefined,
+	text: string,
+	style: Style,
+	paint: Painter = identity,
+): string[] {
+	const [first = "", ...rest] = text.split("\n");
+	const opening =
+		status === undefined ? MARGIN : `${MARGIN}${statusGlyph(status, style)} `;
+	const after = status === undefined ? MARGIN : indent(LEAD_AT);
+	const line = (lead: string, written: string) =>
+		written === "" ? lead.trimEnd() : lead + paint(written);
+	return [line(opening, first), ...rest.map((written) => line(after, written))];
 }

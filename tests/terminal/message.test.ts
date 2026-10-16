@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RichMessage } from "../../src/message.js";
-import { renderMessage } from "../../src/terminal/message.js";
+import { renderMessage, renderWritten } from "../../src/terminal/message.js";
 import { createStyle } from "../../src/terminal/style.js";
 
 const plain = createStyle(0);
@@ -205,5 +205,27 @@ describe("renderMessage", () => {
 				`     ${ACCENT}npx agntc add o/r --skill b/laravel\x1b[39m`,
 			]);
 		});
+	});
+});
+
+describe("renderWritten", () => {
+	it("keeps each line as written, those after the first at column 3, wrapping none", () => {
+		const long = "x".repeat(120);
+		expect(
+			renderWritten("attention", `first\n  - indented\n\n${long}`, plain),
+		).toEqual([" ! first", "     - indented", "", `   ${long}`]);
+	});
+
+	it("puts every line at the margin without a status", () => {
+		expect(renderWritten(undefined, "Header\n  a file", plain)).toEqual([
+			" Header",
+			"   a file",
+		]);
+	});
+
+	it("paints the glyph in its colour and the words with the painter given", () => {
+		expect(renderWritten("failed", "broken", color, color.bold)).toEqual([
+			" \x1b[31m✗\x1b[39m \x1b[1mbroken\x1b[22m",
+		]);
 	});
 });

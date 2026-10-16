@@ -38,6 +38,7 @@ export class CaptureStdout extends Writable {
 	text = "";
 	isTTY?: boolean;
 	rows?: number;
+	columns?: number;
 
 	constructor(private readonly onWrite: (text: string) => void = () => {}) {
 		super({ decodeStrings: false });
@@ -95,6 +96,7 @@ export class Terminal {
 			}
 		});
 		this.output.rows = rows;
+		this.output.columns = columns;
 	}
 
 	context(style: Style = createStyle(0), width = this.columns): PromptContext {

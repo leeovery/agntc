@@ -1,32 +1,29 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const { CANCEL } = vi.hoisted(() => ({ CANCEL: Symbol("cancel") }));
-
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("./helpers/clack-mock.js");
-	return mockClack({
-		note: vi.fn(),
-		select: vi.fn(),
-		multiselect: vi.fn(),
-		confirm: vi.fn(),
-		isCancel: vi.fn((value: unknown) => value === CANCEL),
-	});
-});
-
-import * as p from "@clack/prompts";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../src/exit-signal.js";
+import type { RichMessage } from "../src/message.js";
+import { TerminalUi } from "../src/terminal/terminal-ui.js";
 import { interactiveUi, MachineUi, type Ui } from "../src/ui.js";
-import { clackCalls } from "./helpers/machine.js";
 
 const OPTIONS = [
 	{ value: "a", label: "A" },
 	{ value: "b", label: "B", hint: "the second" },
 ];
 
-beforeEach(() => {
-	vi.clearAllMocks();
+const RICH: RichMessage = {
+	text: "laravel can't be updated.",
+	cause: "it would remove macos-hig",
+	remedy: {
+		lead: "To update it anyway:",
+		steps: [{ command: "npx agntc remove o/r/laravel" }],
+	},
+	plain:
+		"laravel can't be updated: it would remove macos-hig. To update it anyway: npx agntc remove o/r/laravel",
+};
+
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 async function exitCode(run: () => unknown): Promise<number | null> {
@@ -43,6 +40,14 @@ async function exitCode(run: () => unknown): Promise<number | null> {
 
 /** Calls every method a command uses to show something, leaving out the prompts. */
 function present(ui: Ui): void {
+	ui.header();
+	const block = ui.block([{ subject: "owner/repo" }]);
+	block.row({ status: "done", subject: "owner/repo" });
+	const task = block.task({ subject: "owner/repo", text: "updating…" });
+	task.settle({ status: "done", subject: "owner/repo" });
+	block.task({ text: "checking…" }).clear();
+	ui.next({ subject: "laravel", remedy: RICH.remedy! });
+	ui.close({ command: "update", counts: { updated: 2 } });
 	ui.intro("intro");
 	ui.outro("outro");
 	ui.cancel("cancel");
@@ -61,89 +66,15 @@ function present(ui: Ui): void {
 }
 
 describe("interactiveUi", () => {
-	it("shows everything through clack", () => {
-		present(interactiveUi);
-
-		expect(p.intro).toHaveBeenCalledWith("intro");
-		expect(p.outro).toHaveBeenCalledWith("outro");
-		expect(p.cancel).toHaveBeenCalledWith("cancel");
-		expect(p.note).toHaveBeenCalledWith("body", "title");
-		expect(p.spinner).toHaveBeenCalledTimes(1);
-		expect(p.log.info).toHaveBeenCalledWith("info");
-		expect(p.log.error).toHaveBeenCalledWith("error");
-		expect(p.log.success).toHaveBeenCalledWith("success");
-		expect(p.log.message).toHaveBeenCalledWith("message");
-		expect(clackCalls(p)).toEqual(
-			expect.arrayContaining(["intro", "spinner", "log.info"]),
-		);
-	});
-
-	it("logs a warning as a warning and a note as info", () => {
-		interactiveUi.warn("a warning");
-		interactiveUi.note("a note");
-
-		expect(p.log.warn).toHaveBeenCalledWith("a warning");
-		expect(p.log.info).toHaveBeenCalledWith("a note");
-	});
-
-	it("has no document to report to", () => {
-		interactiveUi.report({ items: [] });
-
-		expect(clackCalls(p)).toEqual([]);
-	});
-
-	it("passes a select through and reads a cancel as null", async () => {
-		vi.mocked(p.select).mockResolvedValueOnce("b");
-		expect(
-			await interactiveUi.select({ message: "Pick", options: OPTIONS }),
-		).toBe("b");
-		expect(p.select).toHaveBeenCalledWith({
-			message: "Pick",
-			options: OPTIONS,
-		});
-
-		vi.mocked(p.select).mockResolvedValueOnce(CANCEL);
-		expect(
-			await interactiveUi.select({ message: "Pick", options: OPTIONS }),
-		).toBeNull();
-	});
-
-	it("reads a cancelled multiselect as nothing picked", async () => {
-		vi.mocked(p.multiselect).mockResolvedValueOnce(["a"]);
-		expect(
-			await interactiveUi.multiselect({ message: "Pick", options: OPTIONS }),
-		).toEqual(["a"]);
-
-		vi.mocked(p.multiselect).mockResolvedValueOnce(CANCEL);
-		expect(
-			await interactiveUi.multiselect({ message: "Pick", options: OPTIONS }),
-		).toEqual([]);
-	});
-
-	it("reads a confirm as yes only when answered yes", async () => {
-		vi.mocked(p.confirm).mockResolvedValueOnce(true);
-		expect(await interactiveUi.confirm({ message: "Sure?" })).toBe(true);
-
-		vi.mocked(p.confirm).mockResolvedValueOnce(false);
-		expect(await interactiveUi.confirm({ message: "Sure?" })).toBe(false);
-
-		vi.mocked(p.confirm).mockResolvedValueOnce(CANCEL);
-		expect(await interactiveUi.confirm({ message: "Sure?" })).toBe(false);
-	});
-
-	it("fails with a cancel line by default, or an error line, and exit code 1", async () => {
-		expect(await exitCode(() => interactiveUi.fail("no way"))).toBe(1);
-		expect(p.cancel).toHaveBeenCalledWith("no way");
-
-		expect(
-			await exitCode(() => interactiveUi.fail("broken", { style: "error" })),
-		).toBe(1);
-		expect(p.log.error).toHaveBeenCalledWith("broken");
+	it("is a terminal ui, in interactive mode", () => {
+		expect(interactiveUi).toBeInstanceOf(TerminalUi);
+		expect(interactiveUi.mode).toBe("interactive");
 	});
 });
 
 describe("MachineUi", () => {
-	it("never touches clack", async () => {
+	it("draws nothing", async () => {
+		const write = vi.spyOn(process.stdout, "write");
 		const ui = new MachineUi("add", "project");
 
 		present(ui);
@@ -152,7 +83,7 @@ describe("MachineUi", () => {
 		await exitCode(() => ui.confirm({ message: "Sure?" }));
 		await exitCode(() => ui.fail("no way"));
 
-		expect(clackCalls(p)).toEqual([]);
+		expect(write).not.toHaveBeenCalled();
 	});
 
 	it("carries warnings and notes into the document, not what a person watches", () => {
@@ -167,6 +98,23 @@ describe("MachineUi", () => {
 			items: [],
 			warnings: ["a warning"],
 			notes: ["a note"],
+		});
+	});
+
+	it("flattens a rich warning, note and failure to its plain sentence", async () => {
+		const ui = new MachineUi("update", "project");
+
+		ui.warn(RICH);
+		ui.note(RICH);
+		await exitCode(() => ui.fail(RICH, { flags: ["-y"] }));
+
+		expect(ui.document(1)).toEqual({
+			ok: false,
+			command: "update",
+			scope: "project",
+			error: { message: RICH.plain, flags: ["-y"] },
+			warnings: [RICH.plain],
+			notes: [RICH.plain],
 		});
 	});
 
@@ -266,18 +214,31 @@ describe("MachineUi", () => {
 	});
 });
 
-describe("clack's reach", () => {
-	it("is imported by src/ui.ts and nothing else", async () => {
-		const srcDir = join(import.meta.dirname, "..", "src");
-		const files = await readdir(srcDir, { recursive: true });
-		const importers: string[] = [];
-		for (const file of files.filter((name) => name.endsWith(".ts"))) {
-			const text = await readFile(join(srcDir, file), "utf-8");
-			if (text.includes('from "@clack/prompts"')) {
-				importers.push(relative(srcDir, join(srcDir, file)));
-			}
+/** The files under src/ whose text holds an import from `module`. */
+async function importersOf(module: string): Promise<string[]> {
+	const srcDir = join(import.meta.dirname, "..", "src");
+	const files = await readdir(srcDir, { recursive: true });
+	const importers: string[] = [];
+	for (const file of files.filter((name) => name.endsWith(".ts")).sort()) {
+		const text = await readFile(join(srcDir, file), "utf-8");
+		if (text.includes(`from "${module}"`)) {
+			importers.push(file);
 		}
+	}
+	return importers;
+}
 
-		expect(importers).toEqual(["ui.ts"]);
+describe("clack's reach", () => {
+	it("leaves @clack/prompts imported by nothing", async () => {
+		expect(await importersOf("@clack/prompts")).toEqual([]);
+	});
+
+	it("keeps @clack/core to the prompts", async () => {
+		const importers = await importersOf("@clack/core");
+
+		expect(importers).not.toEqual([]);
+		for (const file of importers) {
+			expect(file.startsWith(join("terminal", "prompts"))).toBe(true);
+		}
 	});
 });

@@ -1,12 +1,6 @@
 import { homedir } from "node:os";
 import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("./helpers/clack-mock.js");
-	return mockClack();
-});
-
 import {
 	type CommandIo,
 	commandAction,
@@ -23,7 +17,13 @@ import { removeCommand } from "../src/commands/remove.js";
 import { updateCommand } from "../src/commands/update.js";
 import { ExitSignal } from "../src/exit-signal.js";
 import type { Scope } from "../src/scope.js";
-import { interactiveUi, type Ui } from "../src/ui.js";
+import { TerminalUi } from "../src/terminal/terminal-ui.js";
+import type { Ui } from "../src/ui.js";
+import {
+	CaptureStdout,
+	FakeHost,
+	FakeStdin,
+} from "./terminal/prompts/terminal.js";
 
 const BANNER_TAGLINE = "agent skills installer";
 
@@ -71,15 +71,19 @@ const HOME = "/home/lee";
 interface FakeIo extends CommandIo {
 	written: string[];
 	exits: number[];
+	/** What a terminal run drew, colour off. */
+	screen: CaptureStdout;
 }
 
-function fakeIo(terminal: boolean): FakeIo {
+function fakeIo(terminal: boolean, cwd = CWD): FakeIo {
+	const screen = new CaptureStdout();
 	const io: FakeIo = {
 		written: [],
 		exits: [],
+		screen,
 		stdinIsTTY: () => terminal,
 		stdoutIsTTY: () => terminal,
-		cwd: () => CWD,
+		cwd: () => cwd,
 		homedir: () => HOME,
 		write: async (text) => {
 			io.written.push(text);
@@ -87,8 +91,22 @@ function fakeIo(terminal: boolean): FakeIo {
 		exit: (code) => {
 			io.exits.push(code);
 		},
+		terminalUi: (header) =>
+			new TerminalUi({
+				header,
+				input: new FakeStdin(),
+				output: screen,
+				env: {},
+				host: new FakeHost(),
+			}),
 	};
 	return io;
+}
+
+/** ` ■ agntc add`, and `where` at the right margin of 80 columns. */
+function headerLine(where: string): string {
+	const left = " ■ agntc add";
+	return `${left}${" ".repeat(79 - left.length - where.length)}${where}`;
 }
 
 /** The one document a machine run wrote, failing unless it wrote exactly one. */
@@ -115,21 +133,71 @@ async function act(
 
 describe("commandAction", () => {
 	describe("at a terminal", () => {
-		it("prints the banner and runs with the interactive ui", async () => {
+		it("opens with the header, not the banner, and runs with a terminal ui", async () => {
 			const io = fakeIo(true);
 			const run = vi.fn(async (_ui: Ui, _scope: Scope, _name: string) => {});
 
 			await act(run, io, ["skill-a"]);
 
-			expect(io.written.join("")).toContain(BANNER_TAGLINE);
+			expect(io.screen.text).toBe(`${headerLine(CWD)}\n\n`);
+			expect(io.written).toEqual([]);
 			expect(run).toHaveBeenCalledWith(
-				interactiveUi,
+				expect.any(TerminalUi),
 				{ name: "project", root: CWD },
 				"skill-a",
 				{},
 				expect.any(Command),
 			);
 			expect(io.exits).toEqual([]);
+		});
+
+		it("names a project under the home folder from ~", async () => {
+			const io = fakeIo(true, `${HOME}/Code/project`);
+
+			await act(async () => {}, io);
+
+			expect(io.screen.text).toBe(`${headerLine("~/Code/project")}\n\n`);
+		});
+
+		it("names the global scope as global", async () => {
+			const io = fakeIo(true);
+
+			await act(async () => {}, io, ["-g"]);
+
+			expect(io.screen.text).toBe(`${headerLine("global")}\n\n`);
+		});
+
+		it("draws one header however often the command opens it", async () => {
+			const io = fakeIo(true);
+
+			await act(async (ui) => {
+				ui.intro("agntc add");
+				ui.header();
+			}, io);
+
+			expect(io.screen.text).toBe(`${headerLine(CWD)}\n\n`);
+		});
+
+		it("clears what still spins when the command ends, however it ends", async () => {
+			for (const ending of [
+				async () => {},
+				async () => {
+					throw new ExitSignal(1);
+				},
+			]) {
+				const io = fakeIo(true);
+
+				await act(async (ui) => {
+					ui.spinner().start("Cloning repository...");
+					ui.note("held under the spinner");
+					await ending();
+				}, io);
+
+				expect(io.screen.text.endsWith(" · held under the spinner\n")).toBe(
+					true,
+				);
+				expect(io.screen.text).toContain("\r\x1b[2K\x1b[?25h");
+			}
 		});
 
 		it("exits with an ExitSignal's code, 0 included", async () => {

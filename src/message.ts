@@ -24,3 +24,8 @@ export type Step =
 	| { command: string }
 	| { choice: string[] }
 	| { words: string };
+
+/** The message as machine mode prints it: a string as it is, a rich one its `plain`. */
+export function plainText(message: Message): string {
+	return typeof message === "string" ? message : message.plain;
+}

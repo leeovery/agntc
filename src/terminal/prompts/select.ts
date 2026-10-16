@@ -1,4 +1,4 @@
-import type { Choice, SelectPrompt } from "../../ui.js";
+import type { Choice, SelectOption, SelectPrompt } from "../../ui.js";
 import { roomFrom, visibleWidth } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
@@ -19,11 +19,7 @@ import {
 	runPrompt,
 } from "./session.js";
 
-/** A choice, or a bold heading over the choices after it that the cursor passes over. */
-export type SelectOption<T> = Choice<T> | { heading: string };
-
-export interface SelectQuestion<T> extends Omit<SelectPrompt<T>, "options"> {
-	options: readonly SelectOption<T>[];
+export interface SelectQuestion<T> extends SelectPrompt<T> {
 	/** The key hints on the question's line, in place of the usual ones. */
 	hints?: string;
 }

@@ -17,7 +17,6 @@ import {
 	isChoice,
 	renderSelect,
 	SELECT_HINTS,
-	type SelectOption,
 } from "../../src/terminal/prompts/select.js";
 import {
 	bandPainter,
@@ -32,6 +31,7 @@ import type {
 	Status,
 	TallyItem,
 } from "../../src/terminal/types.js";
+import type { SelectOption } from "../../src/ui.js";
 
 // The one rule: no line reaches the last column. Commands are exempt, as
 // they're never wrapped or cut. Lines are measured by string-width, not by

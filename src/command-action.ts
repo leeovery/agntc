@@ -1,15 +1,10 @@
 import { homedir } from "node:os";
 import { type Command, Option } from "commander";
-import { renderBanner } from "./banner.js";
 import { ExitSignal } from "./exit-signal.js";
-import { globalScope, projectScope, type Scope } from "./scope.js";
-import {
-	type CommandName,
-	interactiveUi,
-	MachineUi,
-	type Mode,
-	type Ui,
-} from "./ui.js";
+import { globalScope, projectScope, type Scope, scopeWhere } from "./scope.js";
+import { TerminalUi } from "./terminal/terminal-ui.js";
+import type { Header } from "./terminal/types.js";
+import { type CommandName, MachineUi, type Mode, type Ui } from "./ui.js";
 import { BANNER_VERSION } from "./version.js";
 
 export interface ModeInput {
@@ -44,6 +39,8 @@ export interface CommandIo {
 	/** Resolves once the text is flushed, so exiting straight after can't cut it short. */
 	write(text: string): Promise<void>;
 	exit(code: number): void;
+	/** The Ui a terminal run draws on, opening with `header`. */
+	terminalUi(header: Header): TerminalUi;
 }
 
 export const processIo: CommandIo = {
@@ -56,6 +53,7 @@ export const processIo: CommandIo = {
 			process.stdout.write(text, () => resolve());
 		}),
 	exit: (code) => process.exit(code),
+	terminalUi: (header) => new TerminalUi({ header }),
 };
 
 export function jsonOption(): Option {
@@ -80,7 +78,7 @@ type Run<A extends unknown[]> = (
 
 /**
  * A commander action that resolves the mode and the scope once and runs the
- * command with the matching {@link Ui}. A terminal gets the banner and clack;
+ * command with the matching {@link Ui}. A terminal run opens with its header;
  * machine mode gets exactly one JSON document on stdout, whatever happens. An
  * {@link ExitSignal} sets the exit code.
  */
@@ -101,7 +99,14 @@ export function commandAction<A extends unknown[]>(
 		const exitCode =
 			mode === "machine"
 				? await runMachine(machineUi(name, scope, this), start, io)
-				: await runInteractive(start, io);
+				: await runInteractive(
+						io.terminalUi({
+							command: name,
+							where: scopeWhere(scope, io.homedir()),
+							version: BANNER_VERSION,
+						}),
+						start,
+					);
 		if (exitCode !== null) {
 			io.exit(exitCode);
 		}
@@ -111,19 +116,22 @@ export function commandAction<A extends unknown[]>(
 /** The signalled exit code, or null when the command ran to its end. */
 type ExitCode = number | null;
 
+/** The header first; whatever still spins at the end, however it ends, clears. */
 async function runInteractive(
+	ui: TerminalUi,
 	start: (ui: Ui) => Promise<void>,
-	io: CommandIo,
 ): Promise<ExitCode> {
-	await io.write(`${renderBanner(BANNER_VERSION)}\n`);
+	ui.header();
 	try {
-		await start(interactiveUi);
+		await start(ui);
 		return null;
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			return err.code;
 		}
 		throw err;
+	} finally {
+		ui.end();
 	}
 }
 

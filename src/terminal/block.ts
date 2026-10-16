@@ -16,7 +16,15 @@ import {
 	statusGlyph,
 	statusTone,
 } from "./style.js";
-import type { Child, Detail, Move, Row, Status } from "./types.js";
+import type {
+	BlockSubject,
+	Child,
+	Detail,
+	Move,
+	Progress,
+	Row,
+	Status,
+} from "./types.js";
 
 /** Where a block's columns sit, fixed from every row it will hold. */
 export interface BlockLayout {
@@ -42,7 +50,10 @@ const MIN_META_COLUMN = 10;
 /** Painters that paint nothing, for a line dimmed whole: dim can't nest in dim. */
 const PLAIN = createStyle(0);
 
-export function blockLayout(rows: readonly Row[], width: number): BlockLayout {
+export function blockLayout(
+	rows: readonly (Row | BlockSubject)[],
+	width: number,
+): BlockLayout {
 	const subjectWidth = Math.min(
 		widest(rows.flatMap(subjectMeasures)) + COLUMN_GAP,
 		Math.floor(width * SUBJECT_SHARE),
@@ -60,7 +71,7 @@ export function blockLayout(rows: readonly Row[], width: number): BlockLayout {
  * meta too long for that is left out, so it moves its own row's detail down
  * rather than every row's; with none short enough the column is the cap.
  */
-function metaColumn(rows: readonly Row[], width: number): number {
+function metaColumn(rows: readonly BlockSubject[], width: number): number {
 	const cap = Math.max(MIN_META_COLUMN, Math.floor(width * META_SHARE));
 	const metas = rows.flatMap((row) =>
 		row.meta ? [visibleWidth(row.meta) + COLUMN_GAP] : [],
@@ -73,7 +84,7 @@ function metaColumn(rows: readonly Row[], width: number): number {
 }
 
 /** How far into the subject column a row's subject and each child's name reach. */
-function subjectMeasures(row: Row): number[] {
+function subjectMeasures(row: BlockSubject): number[] {
 	return [
 		visibleWidth(row.subject),
 		...(row.children ?? []).map(
@@ -97,18 +108,18 @@ export function renderRow(
 	width: number,
 	style: Style,
 ): string[] {
-	const narrow = isNarrow(width);
 	const quiet = row.status === "unchanged";
 	const paint = quiet ? PLAIN : style;
-	const lines = narrow
-		? narrowRow(row, width, paint)
-		: wideRow(row, layout, width, paint);
+	const lines = rowLines(row, statusGlyph(row.status, paint), layout, {
+		width,
+		paint,
+	});
 	const children = row.children ?? [];
 	return [
 		...lines.map(dimWhole(quiet, style)),
 		...children.flatMap((child, index) =>
 			renderChild(child, index === children.length - 1, row.status, {
-				detailAt: narrow ? undefined : layout.detailAt,
+				detailAt: isNarrow(width) ? undefined : layout.detailAt,
 				width,
 				style,
 			}),
@@ -116,15 +127,66 @@ export function renderRow(
 	];
 }
 
+/**
+ * A running step's line: the frame in the accent in its glyph slot, then its
+ * subject and meta in their columns and what it's doing dim in the detail
+ * column. Without a subject, what it's doing follows the frame.
+ */
+export function renderProgress(
+	progress: Progress,
+	frame: string,
+	layout: BlockLayout,
+	width: number,
+	style: Style,
+): string {
+	const glyph = style.accent(frame);
+	if (progress.subject === undefined) {
+		return `${MARGIN}${glyph} ${style.dim(progress.text)}`;
+	}
+	// A label takes its row's tone, and a note's is dim, as progress reads.
+	const row: Row = {
+		status: "note",
+		subject: progress.subject,
+		meta: progress.meta,
+		detail: { label: progress.text },
+	};
+	return rowLines(row, glyph, layout, { width, paint: style })[0] ?? "";
+}
+
+interface Pen {
+	width: number;
+	paint: Style;
+}
+
+/** A row's own lines, opening with `glyph`; its children aside. */
+function rowLines(
+	row: Row,
+	glyph: string,
+	layout: BlockLayout,
+	{ width, paint }: Pen,
+): string[] {
+	const lead = leadLines(
+		`${MARGIN}${glyph} `,
+		SUBJECT_AT,
+		row.subject,
+		paint.bold,
+		width,
+	);
+	return isNarrow(width)
+		? narrowRow(row, lead, width, paint)
+		: wideRow(row, lead, layout, width, paint);
+}
+
 function wideRow(
 	row: Row,
+	lead: readonly string[],
 	layout: BlockLayout,
 	width: number,
 	paint: Style,
 ): string[] {
 	const metaAt = SUBJECT_AT + layout.subjectWidth;
 	const room = roomFrom(layout.detailAt, width);
-	return flow(rowLead(row, width, paint), [
+	return flow(lead, [
 		{
 			at: metaAt,
 			lines: row.meta
@@ -149,9 +211,14 @@ function wideRow(
  * Below 60 columns the detail goes under the subject. The meta follows the
  * subject when it fits there, else it leads the detail.
  */
-function narrowRow(row: Row, width: number, paint: Style): string[] {
+function narrowRow(
+	row: Row,
+	opening: readonly string[],
+	width: number,
+	paint: Style,
+): string[] {
 	const room = roomFrom(SUBJECT_AT, width);
-	const lead = rowLead(row, width, paint);
+	const lead = [...opening];
 	const last = lead.at(-1) ?? "";
 	const meta = row.meta ?? "";
 	const followsSubject =
@@ -179,16 +246,6 @@ function narrowRow(row: Row, width: number, paint: Style): string[] {
 	return flow(lead, [
 		{ at: SUBJECT_AT, lines: [...metaLines, joined, ...rest] },
 	]);
-}
-
-function rowLead(row: Row, width: number, paint: Style): string[] {
-	return leadLines(
-		`${MARGIN}${statusGlyph(row.status, paint)} `,
-		SUBJECT_AT,
-		row.subject,
-		paint.bold,
-		width,
-	);
 }
 
 /** `prefix`, then `text` wrapped to fit, continuing at `at`. */

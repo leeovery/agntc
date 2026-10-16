@@ -3,7 +3,9 @@ import {
 	agntcCommand,
 	commandTitle,
 	globalScope,
+	homeShortened,
 	projectScope,
+	scopeWhere,
 } from "../src/scope.js";
 
 describe("projectScope and globalScope", () => {
@@ -71,6 +73,29 @@ describe("agntcCommand", () => {
 		expect(agntcCommand("project", "add", [path])).toBe(
 			`npx agntc add '${path}'`,
 		);
+	});
+});
+
+describe("scopeWhere", () => {
+	it("names the global scope global, wherever home is", () => {
+		expect(scopeWhere(globalScope("/home/lee"), "/home/lee")).toBe("global");
+	});
+
+	it("names a project by its root, home written as ~", () => {
+		expect(scopeWhere(projectScope("/home/lee/Code/app"), "/home/lee")).toBe(
+			"~/Code/app",
+		);
+		expect(scopeWhere(projectScope("/work/app"), "/home/lee")).toBe(
+			"/work/app",
+		);
+	});
+});
+
+describe("homeShortened", () => {
+	it("writes home, and only a path inside it, from ~", () => {
+		expect(homeShortened("/home/lee", "/home/lee")).toBe("~");
+		expect(homeShortened("/home/lee/a/b", "/home/lee")).toBe("~/a/b");
+		expect(homeShortened("/home/leeds/a", "/home/lee")).toBe("/home/leeds/a");
 	});
 });
 

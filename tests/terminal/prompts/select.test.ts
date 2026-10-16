@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	promptSelect,
 	renderSelect,
-	type SelectOption,
 	type SelectView,
 } from "../../../src/terminal/prompts/select.js";
 import { bandPainter, createStyle } from "../../../src/terminal/style.js";
+import type { SelectOption } from "../../../src/ui.js";
 import { KEY, Terminal } from "./terminal.js";
 
 const plain = createStyle(0);

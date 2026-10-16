@@ -10,11 +10,10 @@ import {
 	isChoice,
 	renderSelect,
 	SELECT_HINTS,
-	type SelectOption,
 	selectWindow,
 } from "../../../src/terminal/prompts/select.js";
 import { createStyle } from "../../../src/terminal/style.js";
-import type { Choice } from "../../../src/ui.js";
+import type { Choice, SelectOption } from "../../../src/ui.js";
 
 // The erase rests on one rule: an open prompt's frame is never taller than
 // the screen less a line, as the prompt's closing newline would scroll a

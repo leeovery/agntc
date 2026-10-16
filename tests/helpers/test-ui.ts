@@ -1,10 +1,31 @@
 import { type Mock, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
-import type { FailOptions, Log, Spinner, Ui } from "../../src/ui.js";
+import { type Message, plainText } from "../../src/message.js";
+import type { BlockSubject, Progress } from "../../src/terminal/types.js";
+import type {
+	Block,
+	BlockTask,
+	FailOptions,
+	Log,
+	Spinner,
+	Ui,
+} from "../../src/ui.js";
 
 export interface TestSpinner extends Spinner {
 	start: Mock<Spinner["start"]>;
 	stop: Mock<Spinner["stop"]>;
+}
+
+export interface TestTask extends BlockTask {
+	settle: Mock<BlockTask["settle"]>;
+	clear: Mock<BlockTask["clear"]>;
+}
+
+export interface TestBlock extends Block {
+	row: Mock<Block["row"]>;
+	task: Mock<(progress: Progress) => TestTask>;
+	/** Every task `task()` started, in the order it started them. */
+	readonly tasks: TestTask[];
 }
 
 /** A generic prompt keeps its signature, which a `Mock` alone would erase. */
@@ -25,22 +46,28 @@ export type Channel =
  */
 export interface TestUi extends Ui {
 	readonly mode: "interactive";
-	readonly log: { [K in keyof Log]: Mock<Log[K]> };
+	header: Mock<Ui["header"]>;
+	block: Mock<(subjects: readonly BlockSubject[]) => TestBlock>;
+	next: Mock<Ui["next"]>;
+	close: Mock<Ui["close"]>;
+	cancel: Mock<Ui["cancel"]>;
 	warn: Mock<Ui["warn"]>;
 	note: Mock<Ui["note"]>;
-	intro: Mock<Ui["intro"]>;
-	outro: Mock<Ui["outro"]>;
-	cancel: Mock<Ui["cancel"]>;
-	spinner: Mock<() => TestSpinner>;
-	box: Mock<Ui["box"]>;
 	select: Prompt<Ui["select"]>;
 	multiselect: Prompt<Ui["multiselect"]>;
 	confirm: Mock<Ui["confirm"]>;
 	report: Mock<Ui["report"]>;
 	fail: Mock<Ui["fail"]>;
+	readonly log: { [K in keyof Log]: Mock<Log[K]> };
+	intro: Mock<Ui["intro"]>;
+	outro: Mock<Ui["outro"]>;
+	spinner: Mock<() => TestSpinner>;
+	box: Mock<Ui["box"]>;
+	/** Every block `block()` opened, in the order it opened them. */
+	readonly blocks: TestBlock[];
 	/** Every handle `spinner()` returned, in the order it returned them. */
 	readonly spinners: TestSpinner[];
-	/** The messages drawn on a channel, in call order across every call that draws there. */
+	/** The messages drawn on a channel, in call order across every call that draws there; a rich one as machine mode flattens it. */
 	said(channel: Channel): string[];
 	/** The `invocationCallOrder` of each line `said(channel)` returns, in the same order. */
 	saidOrders(channel: Channel): number[];
@@ -54,17 +81,25 @@ function unscripted(name: string) {
 
 type Line = [order: number, message: string];
 
-function lines(fn: Mock<(message: string) => void>): Line[] {
+/** What a call that draws one message was given, and when. */
+interface Drawn {
+	mock: {
+		calls: readonly (readonly [Message, ...unknown[]])[];
+		invocationCallOrder: readonly number[];
+	};
+}
+
+function lines(fn: Drawn): Line[] {
 	return fn.mock.calls.map(([message], i) => [
 		fn.mock.invocationCallOrder[i]!,
-		message,
+		plainText(message),
 	]);
 }
 
 function failLines(fn: TestUi["fail"], style: FailOptions["style"]): Line[] {
 	return fn.mock.calls.flatMap(([message, options], i): Line[] =>
 		(options?.style ?? "cancel") === style
-			? [[fn.mock.invocationCallOrder[i]!, message]]
+			? [[fn.mock.invocationCallOrder[i]!, plainText(message)]]
 			: [],
 	);
 }
@@ -90,28 +125,35 @@ function unsortedLines(ui: TestUi, channel: Channel): Line[] {
 	}
 }
 
+function testBlock(): TestBlock {
+	const tasks: TestTask[] = [];
+	return {
+		row: vi.fn(),
+		task: vi.fn(() => {
+			const task = { settle: vi.fn(), clear: vi.fn() };
+			tasks.push(task);
+			return task;
+		}),
+		tasks,
+	};
+}
+
 export function testUi(): TestUi {
+	const blocks: TestBlock[] = [];
 	const spinners: TestSpinner[] = [];
 	const ui: TestUi = {
 		mode: "interactive",
-		log: {
-			info: vi.fn(),
-			warn: vi.fn(),
-			error: vi.fn(),
-			success: vi.fn(),
-			message: vi.fn(),
-		},
+		header: vi.fn(),
+		block: vi.fn(() => {
+			const block = testBlock();
+			blocks.push(block);
+			return block;
+		}),
+		next: vi.fn(),
+		close: vi.fn(),
+		cancel: vi.fn(),
 		warn: vi.fn(),
 		note: vi.fn(),
-		intro: vi.fn(),
-		outro: vi.fn(),
-		cancel: vi.fn(),
-		spinner: vi.fn(() => {
-			const handle = { start: vi.fn(), stop: vi.fn() };
-			spinners.push(handle);
-			return handle;
-		}),
-		box: vi.fn(),
 		select: unscripted("select") as Prompt<Ui["select"]>,
 		multiselect: unscripted("multiselect") as Prompt<Ui["multiselect"]>,
 		confirm: unscripted("confirm"),
@@ -119,6 +161,22 @@ export function testUi(): TestUi {
 		fail: vi.fn((): never => {
 			throw new ExitSignal(1);
 		}),
+		log: {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			success: vi.fn(),
+			message: vi.fn(),
+		},
+		intro: vi.fn(),
+		outro: vi.fn(),
+		spinner: vi.fn(() => {
+			const handle = { start: vi.fn(), stop: vi.fn() };
+			spinners.push(handle);
+			return handle;
+		}),
+		box: vi.fn(),
+		blocks,
 		spinners,
 		said: (channel) => channelLines(ui, channel).map(([, message]) => message),
 		saidOrders: (channel) => channelLines(ui, channel).map(([order]) => order),
