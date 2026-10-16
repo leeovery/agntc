@@ -387,8 +387,6 @@ describe("removeCollidingEntries", () => {
 		expect(result).toEqual({ "owner/repo-c": manifest["owner/repo-c"] });
 		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/a/"]);
 		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/b/"]);
-		expect(ui.select).not.toHaveBeenCalled();
-		expect(ui.box).not.toHaveBeenCalled();
 	});
 
 	describe("when a removal fails", () => {

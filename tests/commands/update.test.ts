@@ -266,7 +266,10 @@ beforeEach(() => {
  */
 function captureSpinner(): TestSpinner {
 	const handle: TestSpinner = { start: vi.fn(), stop: vi.fn() };
-	ui.spinner.mockReturnValue(handle);
+	ui.spinner.mockImplementation(() => {
+		ui.spinners.push(handle);
+		return handle;
+	});
 	return handle;
 }
 
@@ -494,7 +497,6 @@ describe("update command", () => {
 			const allLogCalls = [
 				...ui.said("warn"),
 				...ui.said("message"),
-				...ui.said("info"),
 				...ui.said("info"),
 			];
 			const hasFailedNote = allLogCalls.some(
@@ -1216,7 +1218,7 @@ describe("update command", () => {
 				handle.stop.mock.invocationCallOrder[
 					handle.stop.mock.calls.findIndex((c) => c[0] === text)
 				]!;
-			const localOrder = ui.log.success.mock.invocationCallOrder[0]!;
+			const localOrder = ui.saidOrders("success")[0]!;
 			expect(stopOrder(A_SUMMARY)).toBeLessThan(localOrder);
 			expect(localOrder).toBeLessThan(stopOrder(B_SUMMARY));
 		});
@@ -1421,9 +1423,7 @@ describe("update command", () => {
 						(c) => c[0] === "owner/repo-a: Updated aaaaaaa -> bbbbbbb",
 					)
 				]!;
-			expect(ui.log.success.mock.invocationCallOrder[0]!).toBeLessThan(
-				aStopOrder,
-			);
+			expect(ui.saidOrders("success")[0]!).toBeLessThan(aStopOrder);
 			// The local never clones and never opens an Updating spinner; only the git
 			// group does.
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
@@ -1739,7 +1739,7 @@ describe("update command", () => {
 
 			const messageCalls = ui.said("message");
 			// ONE collapsed count line for the 7-member group, keyed by the group.
-			expect(messageCalls).toContain("owner/repo: 7 up to date");
+			expect(messageCalls).toEqual(["owner/repo: 7 up to date"]);
 			// Not 7 near-identical per-member up-to-date lines.
 			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
 				1,
@@ -1886,7 +1886,7 @@ describe("update command", () => {
 			expect(warnCalls).toContain(
 				"owner/repo@^1.2.3: no tags satisfy ^1.2.3 — left untouched",
 			);
-			expect(messageCalls).toContain("owner/repo@v2.0.0: 1 up to date");
+			expect(messageCalls).toEqual(["owner/repo@v2.0.0: 1 up to date"]);
 		});
 
 		it("reports only the up-to-date members of a split group as the trailing count (behind members streamed, not counted here)", async () => {
@@ -1912,7 +1912,7 @@ describe("update command", () => {
 			);
 			const messageCalls = ui.said("message");
 			// Only the two up-to-date members appear — as the collapsed count (2, not 3).
-			expect(messageCalls).toContain("owner/repo: 2 up to date");
+			expect(messageCalls).toEqual(["owner/repo: 2 up to date"]);
 			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
 				1,
 			);
@@ -1947,9 +1947,7 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.fail).toHaveBeenCalledWith("owner/repo is not installed.", {
-				style: "error",
-			});
+			expect(ui.said("error")).toEqual(["owner/repo is not installed."]);
 		});
 	});
 
@@ -3867,7 +3865,7 @@ describe("update command", () => {
 			const note =
 				"owner/repo/swift is a single skill — reinstalled as a skill";
 			expect(ui.note).toHaveBeenCalledWith(note);
-			expect(ui.note.mock.invocationCallOrder.at(-1)).toBeLessThan(
+			expect(ui.saidOrders("info").at(-1)).toBeLessThan(
 				ui.outro.mock.invocationCallOrder.at(-1)!,
 			);
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
@@ -3914,7 +3912,7 @@ describe("update command", () => {
 				"owner/repo/swift is a single skill — reinstalled as a skill",
 			);
 			const settled = handle.stop.mock.invocationCallOrder.at(-1)!;
-			expect(ui.note.mock.invocationCallOrder[0]).toBeGreaterThan(settled);
+			expect(ui.saidOrders("info")[0]).toBeGreaterThan(settled);
 		});
 	});
 
@@ -4421,10 +4419,7 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.fail).toHaveBeenCalledWith(
-				"nonexistent/repo is not installed.",
-				{ style: "error" },
-			);
+			expect(ui.said("error")).toEqual(["nonexistent/repo is not installed."]);
 		});
 
 		it("prefers exact match when key exists as both standalone and collection prefix", async () => {
@@ -5279,7 +5274,7 @@ describe("update command", () => {
 			// The never-downgraded member is demoted to up-to-date and reported via the
 			// collapsed per-group count line (task 2-5): one member → "1 up to date".
 			const messageCalls = ui.said("message");
-			expect(messageCalls).toContain("owner/repo: 1 up to date");
+			expect(messageCalls).toEqual(["owner/repo: 1 up to date"]);
 		});
 
 		it("constrained-update-available with all constrained-up-to-date does not show all-up-to-date message", async () => {
@@ -5852,7 +5847,6 @@ describe("update command", () => {
 			await runUpdate(undefined, {}, ui);
 
 			const allLines = [
-				...ui.said("info"),
 				...ui.said("info"),
 				...ui.said("message"),
 				...ui.said("warn"),
@@ -6835,8 +6829,8 @@ describe("an entry gone upstream", () => {
 			);
 			// a's member line is out before the question; the answer follows it.
 			expect(ui.log.success).toHaveBeenCalledWith("a");
-			expect(ui.log.success.mock.invocationCallOrder[0]).toBeLessThan(asked);
-			expect(ui.log.warn.mock.invocationCallOrder[0]).toBeGreaterThan(asked);
+			expect(ui.saidOrders("success")[0]).toBeLessThan(asked);
+			expect(ui.saidOrders("warn")[0]).toBeGreaterThan(asked);
 		});
 
 		it("stops a group of one on its header before asking", async () => {

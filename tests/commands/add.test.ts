@@ -224,7 +224,7 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { plugin: true }, ui);
 
-			expect(ui.said("info")).toContain("--plugin is now --pack");
+			expect(ui.said("info")).toEqual(["--plugin is now --pack"]);
 			expect(await manifest()).toEqual({
 				"owner/repo": expect.objectContaining({
 					type: "pack",
@@ -544,8 +544,8 @@ describe("add command", () => {
 			expect(ui.said("cancel")).toEqual([
 				"owner/repo: no skills or packs were found",
 			]);
-			expect(ui.warn.mock.invocationCallOrder[0]).toBeLessThan(
-				ui.fail.mock.invocationCallOrder[0]!,
+			expect(ui.saidOrders("warn")[0]).toBeLessThan(
+				ui.saidOrders("cancel")[0]!,
 			);
 		});
 
@@ -632,9 +632,9 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { skill: ["a"] }, ui);
 
-			expect(ui.said("info")).toContain(
+			expect(ui.said("info")).toEqual([
 				"a is part of the pack p — installed on its own, without b and its hooks",
-			);
+			]);
 			expect(await manifest()).toEqual({
 				"owner/repo/a": expect.objectContaining({
 					type: "skill",
@@ -1117,7 +1117,7 @@ describe("add command", () => {
 				"skills/lint",
 			]);
 			expect(ui.said("info")).toEqual([API_NOTE]);
-			expect(ui.note.mock.invocationCallOrder[0]).toBeLessThan(
+			expect(ui.saidOrders("info")[0]).toBeLessThan(
 				ui.multiselect.mock.invocationCallOrder[0]!,
 			);
 			expect(Object.keys(await manifest())).toEqual([

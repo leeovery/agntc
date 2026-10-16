@@ -236,10 +236,9 @@ describe("remove command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.fail).toHaveBeenCalledWith(
+			expect(ui.said("error")).toEqual([
 				"nonexistent/plugin is not installed.",
-				{ style: "error" },
-			);
+			]);
 		});
 	});
 

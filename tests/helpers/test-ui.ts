@@ -42,6 +42,8 @@ export interface TestUi extends Ui {
 	readonly spinners: TestSpinner[];
 	/** The messages drawn on a channel, in call order across every call that draws there. */
 	said(channel: Channel): string[];
+	/** The `invocationCallOrder` of each line `said(channel)` returns, in the same order. */
+	saidOrders(channel: Channel): number[];
 }
 
 function unscripted(name: string) {
@@ -68,6 +70,10 @@ function failLines(fn: TestUi["fail"], style: FailOptions["style"]): Line[] {
 }
 
 function channelLines(ui: TestUi, channel: Channel): Line[] {
+	return unsortedLines(ui, channel).sort(([a], [b]) => a - b);
+}
+
+function unsortedLines(ui: TestUi, channel: Channel): Line[] {
 	switch (channel) {
 		case "info":
 			return [...lines(ui.log.info), ...lines(ui.note)];
@@ -114,10 +120,8 @@ export function testUi(): TestUi {
 			throw new ExitSignal(1);
 		}),
 		spinners,
-		said: (channel) =>
-			channelLines(ui, channel)
-				.sort(([a], [b]) => a - b)
-				.map(([, message]) => message),
+		said: (channel) => channelLines(ui, channel).map(([, message]) => message),
+		saidOrders: (channel) => channelLines(ui, channel).map(([order]) => order),
 	};
 	return ui;
 }

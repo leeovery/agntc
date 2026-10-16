@@ -514,8 +514,8 @@ describe("runListLoop", () => {
 			await runListLoop(ui);
 
 			expect(ui.note).toHaveBeenCalledWith(NOTE);
-			expect(ui.note.mock.invocationCallOrder[0]).toBeLessThan(
-				ui.log.success.mock.invocationCallOrder[0]!,
+			expect(ui.saidOrders("info")[0]).toBeLessThan(
+				ui.saidOrders("success")[0]!,
 			);
 		});
 

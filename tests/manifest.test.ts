@@ -1180,10 +1180,9 @@ describe("readManifestOrExit", () => {
 
 		await readManifestOrExit(testDir, ui).catch(() => {});
 
-		expect(ui.fail).toHaveBeenCalledWith(
+		expect(ui.said("error")).toEqual([
 			expect.stringContaining("Failed to read manifest:"),
-			{ style: "error" },
-		);
+		]);
 	});
 
 	it("includes the underlying error message in the log", async () => {
@@ -1195,10 +1194,9 @@ describe("readManifestOrExit", () => {
 		try {
 			await readManifestOrExit(testDir, ui).catch(() => {});
 
-			expect(ui.fail).toHaveBeenCalledWith(
+			expect(ui.said("error")).toEqual([
 				expect.stringMatching(/Failed to read manifest:.*permission/i),
-				{ style: "error" },
-			);
+			]);
 		} finally {
 			await chmod(manifestPath, 0o644);
 		}

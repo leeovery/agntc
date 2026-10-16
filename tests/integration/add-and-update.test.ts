@@ -197,7 +197,7 @@ describe("integration: add and update", () => {
 			expect(ui.said("warn")).toEqual([
 				"v1-plugin has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/v1-plugin --pack",
 			]);
-			expect(ui.warn.mock.invocationCallOrder[0]).toBeLessThan(
+			expect(ui.saidOrders("warn")[0]).toBeLessThan(
 				ui.multiselect.mock.invocationCallOrder[0]!,
 			);
 			const manifest = await savedManifest();
@@ -505,9 +505,9 @@ describe("integration: add and update", () => {
 				type: "skill",
 				files: [".claude/skills/swift/"],
 			});
-			expect(ui.note).toHaveBeenCalledWith(
+			expect(ui.said("info")).toEqual([
 				"avdlee/skills/swift is a single skill — reinstalled as a skill",
-			);
+			]);
 		});
 
 		describe("with an entry whose path is gone upstream", () => {
@@ -1021,9 +1021,9 @@ describe("integration: add and update", () => {
 					"utf-8",
 				),
 			).toBe("v2");
-			expect(ui.note).toHaveBeenCalledWith(
+			expect(ui.said("info")).toEqual([
 				"owner/repo/laravel now includes api, installed on its own before",
-			);
+			]);
 			expect(ui.select).not.toHaveBeenCalled();
 			expect(ui.confirm).not.toHaveBeenCalled();
 		});
@@ -1047,9 +1047,9 @@ describe("integration: add and update", () => {
 				"owner/repo/laravel",
 				"owner/repo/other",
 			]);
-			expect(ui.note).toHaveBeenCalledWith(
+			expect(ui.said("info")).toEqual([
 				"api is already installed as part of the pack owner/repo/laravel",
-			);
+			]);
 			expect(ui.said("info")).not.toContainEqual(
 				expect.stringContaining("installed on its own"),
 			);
@@ -1151,9 +1151,9 @@ describe("integration: add and update", () => {
 					"owner/repo/laravel",
 				]);
 				expect(await looseText()).toBe("the pack's");
-				expect(ui.note).toHaveBeenCalledWith(
+				expect(ui.said("info")).toEqual([
 					"owner/repo/laravel now includes shared, installed on its own before",
-				);
+				]);
 			});
 		});
 	});
