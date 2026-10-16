@@ -1,15 +1,27 @@
 import { describe, expect, it } from "vitest";
-import type { EntryGroup } from "../src/update-groups.js";
+import type { ManifestEntry } from "../src/manifest.js";
+import type { SubjectMessage } from "../src/message.js";
+import type { Row } from "../src/terminal/types.js";
 import {
-	formatCheckFailedLine,
-	formatCloneFailureLine,
-	formatConstrainedNoMatchLine,
-	formatGroupHeader,
-	formatMemberLine,
-	formatNewerTagsLine,
-	formatUpToDateLine,
-	formatVersionMove,
+	absorbedOutcome,
+	type EntryGroup,
+	failedOutcome,
+	type PluginOutcome,
+} from "../src/update-groups.js";
+import {
+	adviceItem,
+	cloneFailedRow,
 	groupLabel,
+	groupSubject,
+	intentMeta,
+	leftAloneRow,
+	localRow,
+	newerTagsMessage,
+	outcomeStatus,
+	pinnedTagsMessage,
+	reinstalledRow,
+	remedyItem,
+	updateTally,
 } from "../src/update-render.js";
 import { makeEntry } from "./helpers/factories.js";
 import { SSH_REFUSAL } from "./helpers/git-mocks.js";
@@ -69,353 +81,472 @@ describe("groupLabel", () => {
 	});
 });
 
-const OLD_A = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b";
-const OLD_B = "bbbbbbb222222233333334444444555555566666";
-const NEW = "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e";
-
-describe("formatVersionMove", () => {
-	it("renders <oldTag> -> <newTag> when both refs are semver tags and the ref moved", () => {
-		expect(
-			formatVersionMove({
-				oldRef: "v1.2.3",
-				newRef: "v1.3.0",
-				oldCommit: OLD_A,
-				newCommit: NEW,
-			}),
-		).toBe("v1.2.3 -> v1.3.0");
-	});
-
-	it("falls to short hashes for a v4 branch (clean() null)", () => {
-		expect(
-			formatVersionMove({
-				oldRef: "v4",
-				newRef: "v4",
-				oldCommit: OLD_A,
-				newCommit: NEW,
-			}),
-		).toBe("1a2b3c4 -> 9f8e7d6");
-	});
-
-	it("falls to short hashes for a v4.0.0 branch when only the commit moved (oldRef === newRef)", () => {
-		expect(
-			formatVersionMove({
-				oldRef: "v4.0.0",
-				newRef: "v4.0.0",
-				oldCommit: OLD_A,
-				newCommit: NEW,
-			}),
-		).toBe("1a2b3c4 -> 9f8e7d6");
-	});
-
-	it("falls to short hashes for a branch/HEAD move (newRef null or non-tag)", () => {
-		expect(
-			formatVersionMove({
-				oldRef: "main",
-				newRef: "main",
-				oldCommit: OLD_A,
-				newCommit: NEW,
-			}),
-		).toBe("1a2b3c4 -> 9f8e7d6");
-		expect(
-			formatVersionMove({
-				oldRef: null,
-				newRef: null,
-				oldCommit: OLD_A,
-				newCommit: NEW,
-			}),
-		).toBe("1a2b3c4 -> 9f8e7d6");
-	});
-
-	it("uses unknown for a null old commit on the hash path", () => {
-		expect(
-			formatVersionMove({
-				oldRef: null,
-				newRef: null,
-				oldCommit: null,
-				newCommit: NEW,
-			}),
-		).toBe("unknown -> 9f8e7d6");
+describe("intentMeta", () => {
+	it("is the constraint or ref a group tracks, HEAD when it tracks none", () => {
+		expect(intentMeta("^1.2.3")).toBe("^1.2.3");
+		expect(intentMeta("main")).toBe("main");
+		expect(intentMeta(null)).toBe("HEAD");
 	});
 });
 
-describe("formatGroupHeader", () => {
-	it("renders a shared-old header with old -> new and the attempted member count", () => {
-		const header = formatGroupHeader({
-			label: "owner/repo",
-			oldCommits: [OLD_A, OLD_A, OLD_A],
-			oldRefs: [null, null, null],
-			newCommit: NEW,
-			newRef: null,
-			divergent: false,
-		});
+const HEAD = { subject: "owner/repo", meta: "^1.0.0" };
+const MOVE = { from: "v1.0.0", to: "v1.1.0" };
 
-		expect(header).toBe("Updating owner/repo  1a2b3c4 -> 9f8e7d6  (3 members)");
+function updated(
+	key: string,
+	fields: Partial<Extract<PluginOutcome, { status: "updated" }>> = {},
+): PluginOutcome {
+	return {
+		status: "updated",
+		key,
+		summary: "",
+		newEntry: makeEntry({ type: "skill" }),
+		notes: [],
+		absorbed: [],
+		assetCounts: { skills: 1 },
+		...fields,
+	};
+}
+
+function packUpdated(key: string, entry?: Partial<ManifestEntry>) {
+	return updated(key, {
+		newEntry: makeEntry({ type: "pack", ...entry }),
+		assetCounts: { skills: 2, folders: 1, agents: 1 },
+	});
+}
+
+const STILL_IN_SOURCE: SubjectMessage = {
+	subject: "owner/repo/macos",
+	detail:
+		"can't be updated: it would remove macos-hig. The existing install is unchanged.",
+	text: "owner/repo/macos can't be updated: it would remove macos-hig. The existing install is unchanged.",
+	remedy: {
+		lead: "To update it anyway:",
+		steps: [
+			{ command: "npx agntc remove owner/repo/macos" },
+			{ command: "npx agntc add owner/repo/macos --pack" },
+		],
+	},
+	plain: "the machine sentence",
+};
+
+function aborted(key: string): PluginOutcome {
+	return {
+		status: "aborted",
+		key,
+		summary: STILL_IN_SOURCE.plain,
+		message: { ...STILL_IN_SOURCE, subject: key },
+	};
+}
+
+describe("how an outcome reads", () => {
+	it.each<[PluginOutcome["status"], Row["status"]]>([
+		["updated", "done"],
+		["refreshed", "done"],
+		["absorbed", "done"],
+		["gone-removed", "done"],
+		["up-to-date", "unchanged"],
+		["newer-tags", "unchanged"],
+		["check-failed", "attention"],
+		["constrained-no-match", "attention"],
+		["gone-kept", "attention"],
+		["aborted", "failed"],
+		["blocked", "failed"],
+		["copy-failed", "failed"],
+		["failed", "failed"],
+	])("draws %s with the %s glyph", (status, glyph) => {
+		expect(outcomeStatus({ status, key: "k" } as PluginOutcome)).toBe(glyph);
 	});
 
-	it("renders a divergent-old header with the resolved target only (no old ref)", () => {
-		const header = formatGroupHeader({
-			label: "owner/repo",
-			oldCommits: [OLD_A, OLD_B],
-			oldRefs: [null, null],
-			newCommit: NEW,
-			newRef: null,
-			divergent: true,
-		});
-
-		expect(header).toBe("Updating owner/repo -> 9f8e7d6  (2 members)");
-	});
-
-	it("counts only the updating members passed in oldCommits (up-to-date siblings excluded upstream)", () => {
-		const header = formatGroupHeader({
-			label: "owner/repo",
-			oldCommits: [OLD_A, OLD_A, OLD_A, OLD_A, OLD_A, OLD_A, OLD_A],
-			oldRefs: [null, null, null, null, null, null, null],
-			newCommit: NEW,
-			newRef: null,
-			divergent: false,
-		});
-
-		expect(header).toBe("Updating owner/repo  1a2b3c4 -> 9f8e7d6  (7 members)");
-	});
-
-	it("shared-old group header renders the tag move v1.2.3 -> v1.3.0", () => {
-		const header = formatGroupHeader({
-			label: "owner/repo",
-			oldCommits: [OLD_A, OLD_A],
-			oldRefs: ["v1.2.3", "v1.2.3"],
-			newCommit: NEW,
-			newRef: "v1.3.0",
-			divergent: false,
-		});
-
-		expect(header).toBe("Updating owner/repo  v1.2.3 -> v1.3.0  (2 members)");
-	});
-
-	it("divergent-old header shows -> <tag> for a tagged target and -> <hash> for a branch target", () => {
-		const tagged = formatGroupHeader({
-			label: "owner/repo",
-			oldCommits: [OLD_A, OLD_B],
-			oldRefs: ["v1.2.0", "v1.1.0"],
-			newCommit: NEW,
-			newRef: "v1.3.0",
-			divergent: true,
-		});
-		expect(tagged).toBe("Updating owner/repo -> v1.3.0  (2 members)");
-
-		const branch = formatGroupHeader({
-			label: "owner/repo",
-			oldCommits: [OLD_A, OLD_B],
-			oldRefs: ["main", "main"],
-			newCommit: NEW,
-			newRef: "main",
-			divergent: true,
-		});
-		expect(branch).toBe("Updating owner/repo -> 9f8e7d6  (2 members)");
-	});
-
-	// Structural guard: the shared-vs-divergent placement is driven by the
-	// caller-supplied `divergent` flag (single source of truth in streamGroupWork),
-	// NOT re-derived from the oldCommits Set. These two cases feed oldCommits whose
-	// Set size CONTRADICTS the passed flag to prove the flag alone gates placement.
-	it("places the move by the caller-supplied divergent flag, not the oldCommits set (flag=true wins over identical commits)", () => {
-		const header = formatGroupHeader({
-			label: "owner/repo",
-			// Identical commits — an internal Set derivation would say shared-old.
-			oldCommits: [OLD_A, OLD_A],
-			oldRefs: ["v1.2.3", "v1.2.3"],
-			newCommit: NEW,
-			newRef: "v1.3.0",
-			divergent: true,
-		});
-
-		// Caller says divergent → target-only header despite the identical commits.
-		expect(header).toBe("Updating owner/repo -> v1.3.0  (2 members)");
-	});
-
-	it("places the move by the caller-supplied divergent flag, not the oldCommits set (flag=false wins over distinct commits)", () => {
-		const header = formatGroupHeader({
-			label: "owner/repo",
-			// Distinct commits — an internal Set derivation would say divergent-old.
-			oldCommits: [OLD_A, OLD_B],
-			oldRefs: ["v1.2.3", "v1.2.3"],
-			newCommit: NEW,
-			newRef: "v1.3.0",
-			divergent: false,
-		});
-
-		// Caller says shared → the move rides the header despite distinct commits.
-		expect(header).toBe("Updating owner/repo  v1.2.3 -> v1.3.0  (2 members)");
-	});
-});
-
-describe("formatMemberLine", () => {
-	it("success renders the bare member name at success level with no parenthetical when no move", () => {
-		expect(formatMemberLine({ kind: "success", name: "design" })).toEqual({
-			level: "success",
-			text: "design",
-		});
-	});
-
-	it("divergent-old success carries its own (old -> new) move parenthetical", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "macos",
-				move: { oldRef: null, newRef: null, oldCommit: OLD_A, newCommit: NEW },
-			}),
-		).toEqual({
-			level: "success",
-			text: "macos  (1a2b3c4 -> 9f8e7d6)",
-		});
-	});
-
-	it("divergent-old member line renders its own <oldTag> -> <newTag> move in tags", () => {
-		expect(
-			formatMemberLine({
-				kind: "success",
-				name: "macos",
-				move: {
-					oldRef: "v1.2.0",
-					newRef: "v1.3.0",
-					oldCommit: OLD_A,
-					newCommit: NEW,
-				},
-			}),
-		).toEqual({
-			level: "success",
-			text: "macos  (v1.2.0 -> v1.3.0)",
-		});
-	});
-});
-
-describe("formatUpToDateLine", () => {
-	it("renders '<label>: <count> up to date' for the collapsed count", () => {
-		expect(formatUpToDateLine("owner/repo", 7)).toBe(
-			"owner/repo: 7 up to date",
-		);
-	});
-
-	it("renders a single up-to-date member as '<label>: 1 up to date'", () => {
-		expect(formatUpToDateLine("owner/repo", 1)).toBe(
-			"owner/repo: 1 up to date",
-		);
-	});
-
-	it("carries an @intent-disambiguated label verbatim", () => {
-		expect(formatUpToDateLine("owner/repo@v2.0.0", 3)).toBe(
-			"owner/repo@v2.0.0: 3 up to date",
-		);
-	});
-});
-
-describe("formatNewerTagsLine", () => {
-	it("renders the pinned-ref notice plus the one member's re-add command inline", () => {
-		expect(
-			formatNewerTagsLine("owner/repo", "v1.0", "v3.0", [
-				"npx agntc add owner/repo@v3.0",
-			]),
-		).toBe(
-			"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo@v3.0",
-		);
-	});
-
-	it("keeps the @intent display label out of the commands", () => {
-		expect(
-			formatNewerTagsLine("owner/repo@main", "v1.0", "v2.0", [
-				"npx agntc add owner/repo/skills/a@v2.0",
-			]),
-		).toBe(
-			"owner/repo@main: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade: npx agntc add owner/repo/skills/a@v2.0",
-		);
-	});
-
-	it("lists several members' commands one per line", () => {
-		expect(
-			formatNewerTagsLine("owner/repo", "v1.0", "v2.0", [
-				"npx agntc add owner/repo/a@v2.0",
-				"npx agntc add owner/repo/tools@v2.0 --pack",
-			]),
-		).toBe(
+	it("counts each outcome in its tally category: absorbed as updated, newer tags as up to date", () => {
+		const outcomes = (
 			[
-				"owner/repo: Pinned to v1.0 — newer tags available (latest: v2.0). To upgrade:",
-				"    npx agntc add owner/repo/a@v2.0",
-				"    npx agntc add owner/repo/tools@v2.0 --pack",
+				"updated",
+				"absorbed",
+				"refreshed",
+				"up-to-date",
+				"newer-tags",
+				"check-failed",
+				"constrained-no-match",
+				"aborted",
+				"blocked",
+				"copy-failed",
+				"failed",
+				"failed",
+				"gone-removed",
+				"gone-kept",
+			] as const
+		).map((status) => ({ status, key: "k" }) as PluginOutcome);
+
+		expect(updateTally(outcomes)).toEqual({
+			updated: 2,
+			refreshed: 1,
+			upToDate: 2,
+			notChecked: 2,
+			notUpdated: 2,
+			failed: 3,
+			removed: 1,
+			kept: 1,
+		});
+	});
+
+	it("counts nothing for a run with no outcomes", () => {
+		expect(updateTally([])).toEqual({});
+	});
+});
+
+describe("a group the run reinstalled", () => {
+	it("carries the shared move, its members hanging under it with their kind and counts", () => {
+		expect(
+			reinstalledRow(HEAD, { move: MOVE }, [
+				{ outcome: packUpdated("owner/repo/laravel") },
+				{ outcome: updated("owner/repo/nuxt") },
+			]),
+		).toEqual({
+			status: "done",
+			...HEAD,
+			detail: { move: MOVE },
+			children: [
+				{ name: "laravel", detail: "pack · 2 skills, 1 folder, 1 agent" },
+				{ name: "nuxt", detail: "skill" },
+			],
+		});
+	});
+
+	it("words a pack's skills even when it has none, and one counted nothing as a pack", () => {
+		const row = reinstalledRow(HEAD, { move: MOVE }, [
+			{
+				outcome: updated("owner/repo/kit", {
+					newEntry: makeEntry({ type: "pack" }),
+					assetCounts: { agents: 1 },
+				}),
+			},
+			{
+				outcome: updated("owner/repo/bare", {
+					newEntry: makeEntry({ type: "pack" }),
+					assetCounts: undefined,
+				}),
+			},
+		]);
+
+		expect(row.children).toEqual([
+			{ name: "kit", detail: "pack · 0 skills, 1 agent" },
+			{ name: "bare", detail: "pack · 0 skills" },
+		]);
+	});
+
+	it("names a member that moved by the key it moved to, and says so", () => {
+		const row = reinstalledRow(HEAD, { move: MOVE }, [
+			{
+				outcome: updated("owner/repo/foo", { previousKey: "owner/repo" }),
+			},
+		]);
+
+		expect(row.children).toEqual([
+			{ name: "foo", detail: "skill · now keyed owner/repo/foo" },
+		]);
+	});
+
+	it("counts the files a single key's reinstall copied", () => {
+		const row = reinstalledRow(HEAD, { move: MOVE }, [
+			{ outcome: updated("owner/repo"), files: 3 },
+		]);
+
+		expect(row.children).toEqual([{ name: "repo", detail: "skill · 3 files" }]);
+	});
+
+	it("says where its members landed when they started apart, each carrying its own move", () => {
+		const row = reinstalledRow(HEAD, { to: "v1.3.0" }, [
+			{
+				outcome: updated("owner/repo/a"),
+				move: { from: "v1.2.0", to: "v1.3.0" },
+			},
+			{
+				outcome: updated("owner/repo/b"),
+				move: { from: "v1.1.0", to: "v1.3.0" },
+			},
+		]);
+
+		expect(row.detail).toEqual({ label: "updated to v1.3.0" });
+		expect(row.children).toEqual([
+			{ name: "a", detail: "v1.2.0 → v1.3.0 · skill" },
+			{ name: "b", detail: "v1.1.0 → v1.3.0 · skill" },
+		]);
+	});
+
+	it("says how it ended beside the move when no member landed, each member's reason as its detail", () => {
+		expect(
+			reinstalledRow(HEAD, { move: MOVE }, [
+				{ outcome: aborted("owner/repo/macos") },
+			]),
+		).toEqual({
+			status: "failed",
+			...HEAD,
+			detail: { move: MOVE, note: "not updated" },
+			children: [{ name: "macos", detail: STILL_IN_SOURCE.detail }],
+		});
+	});
+
+	it("says how it ended alone when its members started apart and none landed", () => {
+		const row = reinstalledRow(HEAD, { to: "v1.3.0" }, [
+			{ outcome: failedOutcome("owner/repo/a", "boom") },
+		]);
+
+		expect(row.detail).toEqual({ label: "failed" });
+		expect(row.children).toEqual([{ name: "a", detail: "boom" }]);
+	});
+
+	it("gives members that ended apart their own glyphs, the row the worst of them", () => {
+		const row = reinstalledRow(HEAD, { move: MOVE }, [
+			{ outcome: updated("owner/repo/a") },
+			{ outcome: aborted("owner/repo/b") },
+			{ outcome: { status: "up-to-date", key: "owner/repo/c" } },
+		]);
+
+		expect(row.status).toBe("failed");
+		expect(row.detail).toEqual({ move: MOVE });
+		expect(row.children).toEqual([
+			{ name: "a", status: "done", detail: "skill" },
+			{ name: "b", status: "failed", detail: STILL_IN_SOURCE.detail },
+			{ name: "c", status: "unchanged", detail: "up to date" },
+		]);
+	});
+
+	it("reads a member a needs-a-look outcome left as worse than one that landed", () => {
+		const row = reinstalledRow(HEAD, { move: MOVE }, [
+			{ outcome: updated("owner/repo/a") },
+			{
+				outcome: {
+					status: "gone-kept",
+					key: "owner/repo/b",
+					summary:
+						"Kept owner/repo/b — it's gone upstream; update will ask again",
+				},
+			},
+		]);
+
+		expect(row.status).toBe("attention");
+		expect(row.children?.[1]).toEqual({
+			name: "b",
+			status: "attention",
+			detail: "Kept owner/repo/b — it's gone upstream; update will ask again",
+		});
+	});
+
+	it("tells a member a pack in its group took over by what became of it", () => {
+		const pack = packUpdated("owner/repo/tools");
+		const row = reinstalledRow(HEAD, { move: MOVE }, [
+			{ outcome: pack },
+			{ outcome: absorbedOutcome("owner/repo/loose", pack) },
+		]);
+
+		expect(row.children).toEqual([
+			{ name: "tools", detail: "pack · 2 skills, 1 folder, 1 agent" },
+			{ name: "loose", detail: "is now part of the pack owner/repo/tools" },
+		]);
+	});
+});
+
+describe("a local entry's row", () => {
+	const LOCAL = { subject: "~/Code/skills/foo", meta: "local" };
+
+	it("says it refreshed, with its kind and the files it copied", () => {
+		expect(
+			localRow(LOCAL, {
+				outcome: {
+					status: "refreshed",
+					key: "/home/lee/Code/skills/foo",
+					summary: "",
+					newEntry: makeEntry({ ref: null, commit: null, type: "skill" }),
+					notes: [],
+					absorbed: [],
+					assetCounts: { skills: 1 },
+				},
+				files: 2,
+			}),
+		).toEqual({
+			status: "done",
+			...LOCAL,
+			detail: { label: "refreshed", aside: "skill · 2 files" },
+		});
+	});
+
+	it("gives a failure's reason as its detail", () => {
+		expect(
+			localRow(LOCAL, {
+				outcome: failedOutcome("/home/lee/Code/skills/foo", "path not found"),
+			}),
+		).toEqual({ status: "failed", ...LOCAL, detail: "path not found" });
+	});
+});
+
+describe("a group whose clone failed", () => {
+	it("names the failure with git's whole reason, and every member it took down", () => {
+		expect(
+			cloneFailedRow(HEAD, "git clone failed: fatal: not found", [
+				"owner/repo/a",
+				"owner/repo/b",
+			]),
+		).toEqual({
+			status: "failed",
+			...HEAD,
+			detail: {
+				label: "clone failed",
+				aside: "git clone failed: fatal: not found",
+			},
+			children: [{ name: "a" }, { name: "b" }],
+		});
+	});
+});
+
+describe("a group the run left alone", () => {
+	it("is up to date, dim", () => {
+		expect(leftAloneRow(HEAD, { status: "up-to-date" })).toEqual({
+			status: "unchanged",
+			...HEAD,
+			detail: "up to date",
+		});
+	});
+
+	it("is up to date with newer tags out", () => {
+		expect(leftAloneRow(HEAD, { status: "newer-tags" })).toEqual({
+			status: "unchanged",
+			...HEAD,
+			detail: "newer tags available",
+		});
+	});
+
+	it("couldn't be checked, the cause the first line of git's error that names it", () => {
+		expect(
+			leftAloneRow(HEAD, { status: "check-failed", reason: SSH_REFUSAL }),
+		).toEqual({
+			status: "attention",
+			...HEAD,
+			detail: {
+				label: "not checked",
+				aside: "git@github.com: Permission denied (publickey).",
+			},
+		});
+	});
+
+	it("has no tag satisfying its constraint", () => {
+		expect(
+			leftAloneRow(HEAD, {
+				status: "constrained-no-match",
+				constraint: "^9.0.0",
+			}),
+		).toEqual({
+			status: "attention",
+			...HEAD,
+			detail: { label: "no tags satisfy ^9.0.0" },
+		});
+	});
+});
+
+describe("a group's block subject", () => {
+	it("measures each member as a child with a glyph's room, whichever way it ends", () => {
+		expect(groupSubject(HEAD, ["owner/repo/a", "owner/repo/b"])).toEqual({
+			...HEAD,
+			children: [
+				{ name: "a", status: "done" },
+				{ name: "b", status: "done" },
+			],
+		});
+	});
+});
+
+describe("Next items", () => {
+	it("puts a message's remedy under its subject, the row having said what happened", () => {
+		expect(remedyItem(STILL_IN_SOURCE)).toEqual({
+			subject: "owner/repo/macos",
+			remedy: STILL_IN_SOURCE.remedy,
+		});
+	});
+
+	it("queues nothing for a message with no remedy", () => {
+		const { remedy: _, ...told } = STILL_IN_SOURCE;
+		expect(remedyItem(told)).toBeNull();
+	});
+
+	it("leads an advice's remedy with what it says, the row having said less", () => {
+		expect(
+			adviceItem(
+				newerTagsMessage("owner/repo", "v1.0.0", "v1.2.0", [
+					"npx agntc add owner/repo@v1.2.0",
+				]),
+			),
+		).toEqual({
+			subject: "owner/repo",
+			remedy: {
+				lead: "Pinned to v1.0.0 — newer tags available (latest: v1.2.0). To upgrade:",
+				steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],
+			},
+		});
+	});
+});
+
+describe("newerTagsMessage", () => {
+	it("words a pinned group's newer tags and the one member's re-add, inline in its sentence", () => {
+		expect(
+			newerTagsMessage("owner/repo", "v1.0.0", "v1.2.0", [
+				"npx agntc add owner/repo@v1.2.0",
+			]),
+		).toEqual({
+			subject: "owner/repo",
+			detail: "Pinned to v1.0.0 — newer tags available (latest: v1.2.0).",
+			text: "owner/repo: Pinned to v1.0.0 — newer tags available (latest: v1.2.0).",
+			remedy: {
+				lead: "To upgrade:",
+				steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],
+			},
+			plain:
+				"owner/repo: Pinned to v1.0.0 — newer tags available (latest: v1.2.0). To upgrade: npx agntc add owner/repo@v1.2.0",
+		});
+	});
+
+	it("keeps the @intent display label out of the commands, and sets several commands a line each", () => {
+		const message = newerTagsMessage("owner/repo@v1.0.0", "v1.0.0", "v1.2.0", [
+			"npx agntc add owner/repo/a@v1.2.0",
+			"npx agntc add owner/repo/tools@v1.2.0 --pack",
+		]);
+
+		expect(message.remedy.steps).toEqual([
+			{ command: "npx agntc add owner/repo/a@v1.2.0" },
+			{ command: "npx agntc add owner/repo/tools@v1.2.0 --pack" },
+		]);
+		expect(message.plain).toBe(
+			[
+				"owner/repo@v1.0.0: Pinned to v1.0.0 — newer tags available (latest: v1.2.0). To upgrade:",
+				"    npx agntc add owner/repo/a@v1.2.0",
+				"    npx agntc add owner/repo/tools@v1.2.0 --pack",
 			].join("\n"),
 		);
 	});
 });
 
-describe("formatCheckFailedLine", () => {
-	it("names the label and the reason, and says the install was left untouched", () => {
+describe("pinnedTagsMessage", () => {
+	it("lists one key's newer tags newest first, and the re-add that pins the newest", () => {
 		expect(
-			formatCheckFailedLine("owner/repo", "ls-remote failed: dead remote"),
-		).toBe(
-			"owner/repo: couldn't check for updates (ls-remote failed: dead remote) — left untouched",
-		);
-	});
-
-	it("keeps one line of git's error: its first, without git's advice", () => {
-		expect(
-			formatCheckFailedLine("leeovery/agentic-workflows", SSH_REFUSAL),
-		).toBe(
-			"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
-		);
-	});
-
-	it("takes git's fatal: off the line it keeps", () => {
-		expect(
-			formatCheckFailedLine(
+			pinnedTagsMessage(
 				"owner/repo",
-				"\nfatal: repository 'https://github.com/owner/repo.git/' not found\n",
+				"v1.0.0",
+				["v1.1.0", "v1.2.0"],
+				"npx agntc add owner/repo@v1.2.0",
 			),
-		).toBe(
-			"owner/repo: couldn't check for updates (repository 'https://github.com/owner/repo.git/' not found) — left untouched",
-		);
-	});
-
-	it("says a check that timed out timed out", () => {
-		expect(
-			formatCheckFailedLine(
-				"owner/repo",
-				"git ls-remote timed out after 15s\nCommand failed: git ls-remote https://github.com/owner/repo.git HEAD\n",
-			),
-		).toBe(
-			"owner/repo: couldn't check for updates (git ls-remote timed out after 15s) — left untouched",
-		);
-	});
-
-	it("names the refusal, not the known-hosts warning before it", () => {
-		expect(
-			formatCheckFailedLine(
-				"owner/repo",
-				`Warning: Permanently added 'github.com' (ED25519) to the list of known hosts.\n${SSH_REFUSAL}`,
-			),
-		).toBe(
-			"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
-		);
-	});
-});
-
-describe("formatConstrainedNoMatchLine", () => {
-	it("renders '<label>: no tags satisfy <constraint> — left untouched'", () => {
-		expect(formatConstrainedNoMatchLine("owner/repo", "^2.0")).toBe(
-			"owner/repo: no tags satisfy ^2.0 — left untouched",
-		);
-	});
-});
-
-describe("formatCloneFailureLine", () => {
-	it("enumerates member basenames with the affected count", () => {
-		expect(formatCloneFailureLine("owner/repo", ["a", "b", "c"])).toBe(
-			"owner/repo: clone failed — affects 3 members: a, b, c",
-		);
-	});
-
-	it("carries an @intent-disambiguated label verbatim", () => {
-		expect(
-			formatCloneFailureLine("owner/repo@^1.2.3", ["design", "macos"]),
-		).toBe(
-			"owner/repo@^1.2.3: clone failed — affects 2 members: design, macos",
-		);
+		).toEqual({
+			subject: "owner/repo",
+			detail: "Pinned to v1.0.0. Newer tags available: v1.2.0, v1.1.0.",
+			text: "Pinned to v1.0.0. Newer tags available: v1.2.0, v1.1.0.",
+			remedy: {
+				lead: "To upgrade:",
+				steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],
+			},
+			plain: [
+				"Pinned to v1.0.0. Newer tags available:",
+				"  v1.2.0",
+				"  v1.1.0",
+				"To upgrade: npx agntc add owner/repo@v1.2.0",
+			].join("\n"),
+		});
 	});
 });

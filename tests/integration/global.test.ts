@@ -278,12 +278,13 @@ describe("at a terminal", () => {
 		await runRemove(FOO(), { yes: true }, ui, scope());
 		await runListLoop(ui, scope());
 
+		// update opens on the header, whose scope the command's action names.
 		expect(ui.intro.mock.calls).toEqual([
 			["agntc add · global"],
-			["agntc update · global"],
 			["agntc remove · global"],
 			["agntc list · global"],
 		]);
+		expect(ui.header).toHaveBeenCalled();
 	});
 
 	it("points an empty global list at add -g", async () => {

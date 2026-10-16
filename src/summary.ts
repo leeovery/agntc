@@ -1,4 +1,5 @@
 import type { AssetCounts } from "./asset-targets.js";
+import type { Advice, Remedy, RichMessage } from "./message.js";
 import { formatVersionMove } from "./version-resolve.js";
 
 export function pluralize(count: number, singular: string): string {
@@ -108,36 +109,6 @@ function installedLine(
 	return `${outcome.label} (pack · ${formatPackCounts(outcome.assetCounts)})`;
 }
 
-interface GitUpdateSummaryInput {
-	key: string;
-	oldRef: string | null;
-	newRef: string | null;
-	oldCommit: string | null;
-	newCommit: string;
-	copiedFiles: string[];
-}
-
-export function renderGitUpdateSummary(input: GitUpdateSummaryInput): string {
-	const move = formatVersionMove({
-		oldRef: input.oldRef,
-		newRef: input.newRef,
-		oldCommit: input.oldCommit,
-		newCommit: input.newCommit,
-	});
-	return `Updated ${input.key}: ${move} — ${input.copiedFiles.length} file(s)`;
-}
-
-interface LocalUpdateSummaryInput {
-	key: string;
-	copiedFiles: string[];
-}
-
-export function renderLocalUpdateSummary(
-	input: LocalUpdateSummaryInput,
-): string {
-	return `Refreshed ${input.key} — ${input.copiedFiles.length} file(s)`;
-}
-
 type UpdateOutcomeInput =
 	| {
 			type: "git-update";
@@ -177,59 +148,56 @@ export function renderRemoveSummary(input: RemoveSummaryInput): string {
 
 export interface OutOfConstraintInfo {
 	/**
-	 * The member key — populated ONLY by the single-key path (runSingleUpdate),
-	 * which has no group. Rendered via the `label ?? key` fallback so this path
-	 * stays byte-identical.
+	 * What the item is about: the group label in all-mode, so an N-member
+	 * group collapses to ONE item and two distinct-intent groups of one repo
+	 * keep their own @intent-disambiguated ones; the key for a single key.
 	 */
-	key?: string;
-	/**
-	 * The group label — populated by the all-mode per-group footer so
-	 * an N-member group collapses to ONE line and two distinct-intent groups
-	 * of one repo keep their own @intent-disambiguated lines. Takes precedence over
-	 * {@link key} when present.
-	 */
-	label?: string;
+	subject: string;
 	/**
 	 * The POST-BUMP current version — the tag this run actually landed on (the
 	 * resolved best-within-constraint tag), NOT the pre-bump `entry.ref`. Naming
-	 * the pre-bump ref would report a stale current, contradicting the inline
-	 * `Updated <old> -> <tag>` line for a same-run safe bump. Rendered as the left
-	 * side of the actionable `<current> -> <latestOverall>` move.
+	 * the pre-bump ref would report a stale current, contradicting the row's
+	 * move for a same-run safe bump.
 	 */
 	current: string;
 	latestOverall: string;
 	/**
-	 * The re-add command of each entry the line covers, without a version: a
+	 * The re-add command of each entry the item covers, without a version: a
 	 * bare add re-resolves the latest semver tag and re-establishes caret at the
 	 * new major, so it jumps the boundary.
 	 */
 	commands: string[];
 }
 
-export function renderOutOfConstraintSection(
-	infos: OutOfConstraintInfo[],
-): string[] {
-	if (infos.length === 0) return [];
-
-	// One informative (non-error, exit-0) line per group: the actionable
-	// current->newer move plus the re-add commands. All-mode sets `label`,
-	// single-key sets `key`.
-	const lines: string[] = ["Newer versions outside constraints:"];
-	for (const info of infos) {
-		lines.push(
-			`  ${info.label ?? info.key}  ${info.current} -> ${info.latestOverall} available. ${upgradeAdvice(info.commands)}`,
-		);
-	}
-	return lines;
+/** A newer version outside the constraint, and the commands that move to it. */
+export function outOfConstraintMessage(info: OutOfConstraintInfo): Advice {
+	const { subject, current, latestOverall } = info;
+	const available = `${current} -> ${latestOverall} available.`;
+	const advice = upgradeAdvice(info.commands);
+	return {
+		subject,
+		detail: `Newer version outside the constraint: ${available}`,
+		text: `${subject}  ${available}`,
+		remedy: advice.remedy,
+		plain: `${subject}  ${available} ${advice.plain}`,
+	};
 }
 
-/** `To upgrade: <command>`, or the commands one per line when there are several. */
-export function upgradeAdvice(commands: string[]): string {
+/**
+ * `To upgrade:` and the commands, once each. Its sentence runs one command
+ * on after the lead, and sets several a line each.
+ */
+export function upgradeAdvice(
+	commands: string[],
+): RichMessage & { remedy: Remedy } {
 	const distinct = [...new Set(commands)];
-	if (distinct.length === 1) {
-		return `To upgrade: ${distinct[0]}`;
-	}
-	return ["To upgrade:", ...distinct.map((command) => `    ${command}`)].join(
-		"\n",
-	);
+	const lead = "To upgrade:";
+	return {
+		text: "",
+		remedy: { lead, steps: distinct.map((command) => ({ command })) },
+		plain:
+			distinct.length === 1
+				? `${lead} ${distinct[0]}`
+				: [lead, ...distinct.map((command) => `    ${command}`)].join("\n"),
+	};
 }

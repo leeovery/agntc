@@ -14,6 +14,19 @@ export interface RichMessage {
 	plain: string;
 }
 
+/**
+ * A message about one subject, an entry or a repo, that a row or a Next item
+ * names apart from what's said of it.
+ */
+export interface SubjectMessage extends RichMessage {
+	subject: string;
+	/** What the text says of the subject, without naming it. */
+	detail: string;
+}
+
+/** A message about a subject that always says what can be done. */
+export type Advice = SubjectMessage & { remedy: Remedy };
+
 export interface Remedy {
 	/** What the steps are for, as `To update it anyway:`. */
 	lead: string;

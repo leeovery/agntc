@@ -1,9 +1,11 @@
+import type { AssetCounts } from "./asset-targets.js";
 import { localItemPath, localRootOf, restoreCommand } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { validateLocalSourcePath } from "./fs-utils.js";
 import { type CloneResult, cleanupTempDir, cloneSource } from "./git-clone.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { addEntry, removeEntry, writeManifest } from "./manifest.js";
+import type { Remedy, Step, SubjectMessage } from "./message.js";
 import {
 	executeNukeAndReinstall,
 	type NukeReinstallOptions,
@@ -88,6 +90,8 @@ interface CloneReinstallSuccess {
 	key: string;
 	manifestEntry: ManifestEntry;
 	copiedFiles: string[];
+	/** What the copy installed, counted as `add` counts it. */
+	assetCounts: AssetCounts;
 	/** What the user should hear about how the entry was reinstalled. */
 	notes: string[];
 	/** Loose skill entries a pack took over: their files are gone, their entries are the caller's to drop. */
@@ -114,7 +118,8 @@ export type CloneReinstallFailed =
 	| {
 			status: "failed";
 			failureReason: "copy-failed";
-			message: string;
+			/** What went wrong, and the re-add that installs it again. */
+			recovery: SubjectMessage;
 			absorbed: string[];
 	  };
 
@@ -131,7 +136,7 @@ export type CloneReinstallFailure =
 
 export interface CloneFailureHandlers<T> {
 	onCloneFailed: (msg: string) => T;
-	onCopyFailed: (msg: string, absorbed: string[]) => T;
+	onCopyFailed: (recovery: SubjectMessage, absorbed: string[]) => T;
 	onAborted: (abort: AbortCause) => T;
 	onBlocked: (reason: string) => T;
 	onRemoveFailed: (msg: string) => T;
@@ -176,7 +181,7 @@ export function mapCloneFailure<T>(
 		case "clone-failed":
 			return handlers.onCloneFailed(result.message);
 		case "copy-failed":
-			return handlers.onCopyFailed(result.message, result.absorbed);
+			return handlers.onCopyFailed(result.recovery, result.absorbed);
 		case "remove-failed":
 			return handlers.onRemoveFailed(result.message);
 	}
@@ -202,10 +207,11 @@ export function failureMessage(
 ): string {
 	return mapCloneFailure<string>(result, {
 		onCloneFailed: (msg) => msg,
-		onCopyFailed: (msg) => msg,
+		onCopyFailed: (recovery) => recovery.plain,
 		onRemoveFailed: (msg) => msg,
-		onAborted: (abort) => buildAbortMessage(key, entry, abort, scope, version),
-		onBlocked: (reason) => buildCopySafetyMessage(key, reason),
+		onAborted: (abort) =>
+			buildAbortMessage(key, entry, abort, scope, version).plain,
+		onBlocked: (reason) => buildCopySafetyMessage(key, reason).plain,
 	});
 }
 
@@ -289,34 +295,36 @@ export function buildAbortMessage(
 	}: AbortCause,
 	scope: ScopeName,
 	version?: string,
-): string {
+): SubjectMessage {
 	if (sourceClash) {
-		return (
-			`${key} can't be updated: in its source, ${reason}, so it can't be ` +
-			`installed as it stands. The existing install is left as it is.`
+		return entryMessage(
+			key,
+			`can't be updated: in its source, ${reason}, so it can't be ` +
+				`installed as it stands. The existing install is left as it is.`,
 		);
 	}
+	const cantUpdate = `can't be updated: ${reason}. The existing install is unchanged.`;
 	const again =
 		version === undefined ? "update again" : `change it to ${version} again`;
 	if (takenKey !== undefined) {
-		const redo =
-			version === undefined ? agntcCommand(scope, "update", [key]) : again;
-		return (
-			`${key} can't be updated: ${reason}. The existing install is ` +
-			`unchanged. To replace that entry with it: ` +
-			`${agntcCommand(scope, "remove", [takenKey])} then ${redo}`
-		);
+		const redo: Step =
+			version === undefined
+				? { command: agntcCommand(scope, "update", [key]) }
+				: { words: again };
+		return entryMessage(key, cantUpdate, {
+			lead: "To replace that entry with it:",
+			steps: [{ command: agntcCommand(scope, "remove", [takenKey]) }, redo],
+		});
 	}
-	const remove = agntcCommand(scope, "remove", [key]);
+	const remove = { command: agntcCommand(scope, "remove", [key]) };
 	if (candidates !== undefined) {
 		const adds = candidates.map((candidate) =>
 			restoreCommand(candidate.key, candidate.entry, scope, version),
 		);
-		return (
-			`${key} can't be updated: ${reason}. The existing install is ` +
-			`unchanged. To follow one of them: ${remove} then one of: ` +
-			adds.join(" or ")
-		);
+		return entryMessage(key, cantUpdate, {
+			lead: "To follow one of them:",
+			steps: [remove, { choice: adds }],
+		});
 	}
 	const reAdd = restoreCommand(
 		replayed?.key ?? key,
@@ -325,23 +333,56 @@ export function buildAbortMessage(
 		version,
 	);
 	if (inTheWay) {
-		return (
-			`${key} can't be updated: ${reason}. The existing install is ` +
-			`unchanged. Clear them and ${again}, or replace them: ` +
-			`${remove} then ${reAdd} --overwrite`
-		);
+		return entryMessage(key, cantUpdate, {
+			lead: `Clear them and ${again}, or replace them:`,
+			steps: [remove, { command: `${reAdd} --overwrite` }],
+		});
 	}
 	if (stillInSource) {
-		return (
-			`${key} can't be updated: ${reason}. The existing install is ` +
-			`unchanged. To update it anyway: ${remove} then ${reAdd}`
-		);
+		return entryMessage(key, cantUpdate, {
+			lead: "To update it anyway:",
+			steps: [remove, { command: reAdd }],
+		});
 	}
-	return (
-		`${key} was installed as a ${entry.type ?? "skill"} and can't be ` +
-		`updated (${reason}). The existing install is unchanged. ` +
-		`To migrate: ${remove} then ${reAdd}`
+	return entryMessage(
+		key,
+		`was installed as a ${entry.type ?? "skill"} and can't be updated ` +
+			`(${reason}). The existing install is unchanged.`,
+		{ lead: "To migrate:", steps: [remove, { command: reAdd }] },
 	);
+}
+
+/**
+ * A message opening with the entry's key, then `detail`. Its sentence runs
+ * the remedy on after the lead: its steps joined by `then`, a choice as
+ * `one of: <a> or <b>`, so no alternative reads as a shell sequence.
+ */
+function entryMessage(
+	key: string,
+	detail: string,
+	remedy?: Remedy,
+): SubjectMessage {
+	const text = `${key} ${detail}`;
+	return {
+		subject: key,
+		detail,
+		text,
+		...(remedy !== undefined ? { remedy } : {}),
+		plain:
+			remedy === undefined
+				? text
+				: `${text} ${remedy.lead} ${remedy.steps.map(stepSentence).join(" then ")}`,
+	};
+}
+
+function stepSentence(step: Step): string {
+	if ("command" in step) {
+		return step.command;
+	}
+	if ("choice" in step) {
+		return `one of: ${step.choice.join(" or ")}`;
+	}
+	return step.words;
 }
 
 /**
@@ -354,11 +395,15 @@ export function buildAbortMessage(
  * a recorded-type change, so it does NOT offer the remove+add migrate remedy —
  * remove+add would only re-trip the same guard.
  */
-export function buildCopySafetyMessage(key: string, reason: string): string {
-	return (
-		`${key}: ${reason}. agntc won't follow that symlink, so the update is ` +
-		`blocked. The existing install is unchanged.`
-	);
+export function buildCopySafetyMessage(
+	key: string,
+	reason: string,
+): SubjectMessage {
+	const detail =
+		`${reason}. agntc won't follow that symlink, so the update is ` +
+		`blocked. The existing install is unchanged.`;
+	const text = `${key}: ${detail}`;
+	return { subject: key, detail, text, plain: text };
 }
 
 /**
@@ -385,14 +430,43 @@ export async function cloneRepoOnce(input: {
 	return cloneSource(parsed);
 }
 
-/**
- * `installed` is every entry the manifest holds, for what a pack's re-walk
- * absorbs or clashes with.
- */
-export async function cloneAndReinstall(
+/** What a reinstall shows while it clones a remote source. */
+export interface CloneProgress {
+	start(): void;
+	stop(cloned: boolean): void;
+}
+
+/** Shows nothing: what the caller shows covers the clone. */
+const QUIET: CloneProgress = { start: () => {}, stop: () => {} };
+
+/** A spinner over the clone, left as a done row once cloned and a failed one when it isn't. */
+function cloneSpinner(ui: Ui): CloneProgress {
+	const spin = ui.spinner();
+	return {
+		start: () => spin.start("Cloning repository..."),
+		stop: (cloned) =>
+			cloned ? spin.stop("Cloned successfully") : spin.stop("Clone failed", 1),
+	};
+}
+
+/** {@link reinstallEntry} under a {@link cloneSpinner}. */
+export function cloneAndReinstall(
 	options: CloneAndReinstallOptions,
 	ui: Ui,
 	installed: Manifest,
+): Promise<CloneReinstallResult> {
+	return reinstallEntry(options, installed, cloneSpinner(ui));
+}
+
+/**
+ * Reinstalls one entry from its local folder, or from a fresh clone of its
+ * remote, which `progress` shows. `installed` is every entry the manifest
+ * holds, for what a pack's re-walk absorbs or clashes with.
+ */
+export async function reinstallEntry(
+	options: CloneAndReinstallOptions,
+	installed: Manifest,
+	progress: CloneProgress = QUIET,
 ): Promise<CloneReinstallResult> {
 	const { key, entry, scope } = options;
 
@@ -426,8 +500,7 @@ export async function cloneAndReinstall(
 	let tempDir: string | undefined;
 
 	try {
-		const spin = ui.spinner();
-		spin.start("Cloning repository...");
+		progress.start();
 
 		let cloneResult: CloneResult;
 		try {
@@ -437,14 +510,14 @@ export async function cloneAndReinstall(
 				newRef: options.newRef,
 			});
 		} catch (err) {
-			spin.stop("Clone failed");
+			progress.stop(false);
 			return {
 				status: "failed",
 				failureReason: "clone-failed",
 				message: errorMessage(err),
 			};
 		}
-		spin.stop("Cloned successfully");
+		progress.stop(true);
 
 		tempDir = cloneResult.tempDir;
 		const newCommit = options.newCommit ?? cloneResult.commit;
@@ -578,7 +651,7 @@ export async function runPipeline(
 			return {
 				status: "failed",
 				failureReason: "copy-failed",
-				message: pipelineResult.recoveryHint,
+				recovery: pipelineResult.recovery,
 				absorbed: pipelineResult.absorbed,
 			};
 		case "remove-failed":
@@ -593,6 +666,7 @@ export async function runPipeline(
 				key: pipelineResult.key,
 				manifestEntry: pipelineResult.entry,
 				copiedFiles: pipelineResult.copiedFiles,
+				assetCounts: pipelineResult.assetCounts,
 				notes: pipelineResult.notes,
 				absorbed: pipelineResult.absorbed,
 			};

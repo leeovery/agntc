@@ -18,7 +18,11 @@ import { cloneAndReinstall } from "../src/clone-reinstall.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { projectScope } from "../src/scope.js";
 import type { GroupTarget } from "../src/update-check.js";
-import { type EntryGroup, processGroupUpdate } from "../src/update-groups.js";
+import {
+	type EntryGroup,
+	failedOutcome,
+	processGroupUpdate,
+} from "../src/update-groups.js";
 import { makeEntry } from "./helpers/factories.js";
 import { testUi } from "./helpers/test-ui.js";
 
@@ -92,12 +96,11 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 		);
 
 		expect(outcomes).toEqual([
-			{
-				status: "failed",
-				key: "owner/repo/evil",
-				summary: `owner/repo/evil: Failed — ${CONTAINMENT_MESSAGE}`,
-			},
+			failedOutcome("owner/repo/evil", CONTAINMENT_MESSAGE),
 		]);
+		expect(outcomes[0]).toMatchObject({
+			summary: `owner/repo/evil: Failed — ${CONTAINMENT_MESSAGE}`,
+		});
 	});
 
 	it("both entry points surface the identical containment error for the same escaping subpath", async () => {
@@ -138,7 +141,9 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 		);
 
 		const singletonMessage =
-			singleton.status === "failed" ? singleton.message : "";
+			singleton.status === "failed" && singleton.failureReason !== "copy-failed"
+				? singleton.message
+				: "";
 		const [grouped] = outcomes;
 		const groupedSummary = grouped?.status === "failed" ? grouped.summary : "";
 		expect(singletonMessage).toBe(CONTAINMENT_MESSAGE);
@@ -174,8 +179,9 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			failureReason: "clone-failed",
 			message,
 		});
-		expect(outcomes).toEqual([
-			{ status: "failed", key, summary: `${key}: Failed — ${message}` },
-		]);
+		expect(outcomes).toEqual([failedOutcome(key, message)]);
+		expect(outcomes[0]).toMatchObject({
+			summary: `${key}: Failed — ${message}`,
+		});
 	});
 });

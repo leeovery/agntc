@@ -57,7 +57,12 @@ describe("settleGone", () => {
 
 		expect(settled).toEqual({
 			removed: false,
-			message: "Kept owner/repo/go — it's gone upstream; update will ask again",
+			message: {
+				subject: KEY,
+				detail: "kept — it's gone upstream; update will ask again",
+				text: "Kept owner/repo/go — it's gone upstream; update will ask again",
+				plain: "Kept owner/repo/go — it's gone upstream; update will ask again",
+			},
 		});
 		expect(mockNuke).not.toHaveBeenCalled();
 	});
@@ -70,7 +75,12 @@ describe("settleGone", () => {
 
 		expect(settled).toEqual({
 			removed: true,
-			message: "Removed owner/repo/go — it's gone upstream",
+			message: {
+				subject: KEY,
+				detail: "removed — it's gone upstream",
+				text: "Removed owner/repo/go — it's gone upstream",
+				plain: "Removed owner/repo/go — it's gone upstream",
+			},
 		});
 		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/project", [
 			".claude/skills/go/",
@@ -103,8 +113,10 @@ describe("settleGone", () => {
 
 		expect(settled).toEqual({
 			removed: false,
-			message:
-				"Kept owner/repo/go — it's gone upstream; npx agntc update owner/repo/go -y removes it",
+			message: expect.objectContaining({
+				plain:
+					"Kept owner/repo/go — it's gone upstream; npx agntc update owner/repo/go -y removes it",
+			}),
 			flags: ["-y"],
 		});
 		expect(mockNuke).not.toHaveBeenCalled();
@@ -116,7 +128,7 @@ describe("settleGone", () => {
 			ui: new MachineUi("update", "global"),
 		});
 
-		expect(settled.message).toBe(
+		expect(settled.message.plain).toBe(
 			"Kept owner/repo/go — it's gone upstream; npx agntc update -g owner/repo/go -y removes it",
 		);
 	});

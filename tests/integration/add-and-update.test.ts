@@ -35,6 +35,7 @@ import { cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags, lsRemote } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
+import type { Row } from "../../src/terminal/types.js";
 import { MachineUi } from "../../src/ui.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
@@ -407,9 +408,15 @@ describe("integration: add and update", () => {
 			expect(
 				SKILLS.map((name) => manifest[`owner/repo/${name}`]?.commit),
 			).toEqual([OLD_SHA, NEW_SHA, OLD_SHA]);
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("owner/repo/b"),
-			);
+			expect(ui.rows()).toEqual([
+				{
+					status: "done",
+					subject: "owner/repo",
+					meta: "HEAD",
+					detail: { move: { from: "aaaaaaa", to: "bbbbbbb" } },
+					children: [{ name: "b", detail: "skill · 1 file" }],
+				},
+			]);
 		});
 	});
 
@@ -887,8 +894,34 @@ describe("integration: add and update", () => {
 			});
 
 			describe("when upstream moved a support folder out of skills/", () => {
-				const MESSAGE =
-					"leeovery/agentic-workflows can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove leeovery/agentic-workflows then npx agntc add leeovery/agentic-workflows --pack";
+				const WHY =
+					"can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged.";
+				const ANYWAY = {
+					subject: KEY,
+					remedy: {
+						lead: "To update it anyway:",
+						steps: [
+							{ command: "npx agntc remove leeovery/agentic-workflows" },
+							{
+								command: "npx agntc add leeovery/agentic-workflows --pack",
+							},
+						],
+					},
+				};
+
+				/** The pack's row: its repo, the entry under it with why it stopped. */
+				function stoppedRow(): Row {
+					return {
+						status: "failed",
+						subject: KEY,
+						meta: "HEAD",
+						detail: {
+							move: { from: "aaaaaaa", to: "bbbbbbb" },
+							note: "not updated",
+						},
+						children: [{ name: "agentic-workflows", detail: WHY }],
+					};
+				}
 
 				beforeEach(async () => {
 					const {
@@ -919,17 +952,16 @@ describe("integration: add and update", () => {
 				it("update by key stops before removing anything, naming the folder", async () => {
 					expect(await updateError(KEY)).toBeInstanceOf(ExitSignal);
 
-					expect(ui.log.error).toHaveBeenCalledWith(MESSAGE);
+					expect(ui.rows()).toEqual([stoppedRow()]);
+					expect(ui.next.mock.calls).toEqual([[ANYWAY]]);
 					await expectInstallIntact();
 				});
 
 				it("update of everything stops it with the same message, the key printed once", async () => {
 					expect(await updateError()).toBeInstanceOf(ExitSignal);
 
-					const stops = ui.spinners.flatMap((spin) =>
-						spin.stop.mock.calls.map(([text]) => text),
-					);
-					expect(stops).toContain(MESSAGE);
+					expect(ui.rows()).toEqual([stoppedRow()]);
+					expect(ui.next.mock.calls).toEqual([[ANYWAY]]);
 					await expectInstallIntact();
 				});
 			});
@@ -1118,10 +1150,10 @@ describe("integration: add and update", () => {
 					ExitSignal,
 				);
 
-				expect(ui.log.error).toHaveBeenCalledWith(
-					expect.stringContaining(
-						"files of owner/repo/shared are in the way: .claude/skills/shared/",
-					),
+				const [stopped] = ui.rows();
+				expect(stopped).toMatchObject({ status: "failed" });
+				expect(stopped?.children?.[0]?.detail).toContain(
+					"files of owner/repo/shared are in the way: .claude/skills/shared/",
 				);
 				expect(await savedManifest()).toEqual(before);
 				expect(await looseText()).toBe("loose");
@@ -1295,8 +1327,9 @@ describe("integration: add and update", () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError("owner/repo"));
-			expect(ui.said("error")).toEqual([
-				`owner/repo/skillB: Failed — ${refusal()}`,
+			expect(ui.rows()[0]?.children).toEqual([
+				{ name: "packA", status: "done", detail: "pack · 1 skill" },
+				{ name: "skillB", status: "failed", detail: refusal() },
 			]);
 		});
 
@@ -1304,8 +1337,9 @@ describe("integration: add and update", () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError());
-			expect(ui.said("error")).toEqual([
-				`owner/repo/skillB: Failed — ${refusal()}`,
+			expect(ui.rows()[0]?.children).toEqual([
+				{ name: "packA", status: "done", detail: "pack · 1 skill" },
+				{ name: "skillB", status: "failed", detail: refusal() },
 			]);
 		});
 	});

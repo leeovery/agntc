@@ -1,3 +1,4 @@
+import type { AssetCounts } from "./asset-targets.js";
 import {
 	buildAbortMessage,
 	buildCopySafetyMessage,
@@ -11,8 +12,10 @@ import {
 } from "./clone-reinstall.js";
 import { errorMessage } from "./errors.js";
 import { cleanupTempDir } from "./git-clone.js";
+import { goneMessage } from "./gone-upstream.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
 import { removeEntry } from "./manifest.js";
+import type { SubjectMessage } from "./message.js";
 import { type SourceWalk, sourceWalk } from "./nuke-reinstall-pipeline.js";
 import type { Scope, ScopeName } from "./scope.js";
 import {
@@ -88,15 +91,14 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
 }
 
 /**
- * Per-entry outcome of an all-mode update, collected across the run for the
- * trailing summary and the `hasFailedOutcome` exit-code decision. Shared by the
- * local path (`processLocalUpdate`) and the grouped orchestrator
+ * Per-entry outcome of an update, collected across the run for its rows, its
+ * tally, its document and the `hasFailedOutcome` exit-code decision. Shared by
+ * the local path (`processLocalUpdate`) and the grouped orchestrator
  * ({@link processGroupUpdate}) so both emit the identical shape.
  *
  * The two success variants (`updated`/`refreshed`) carry the reinstalled
- * `newEntry` (persisted per unit) alongside the pre-rendered `summary` the
- * collapsed group-of-one / local display path consumes verbatim, and the keys
- * of the loose skills a pack `absorbed`, whose entries persistence drops.
+ * `newEntry` (persisted per unit), what it installed (`assetCounts`), and the
+ * keys of the loose skills a pack `absorbed`, whose entries persistence drops.
  *
  * An entry found gone upstream starts as `gone-kept`, which is true until its
  * removal is settled; `-y` or a yes turns it into `gone-removed`. An entry a
@@ -106,6 +108,11 @@ export function groupEntriesForUpdate(manifest: Manifest): EntryGroup[] {
  * `key` is where the entry is recorded once the outcome is applied. A
  * reinstall `add` would key differently moves the entry, and `previousKey`
  * names the key it had ({@link keyBefore}).
+ *
+ * An outcome that says something carries its `summary`, the sentence machine
+ * mode reports, and the `message` it was built from, which a terminal lays
+ * out as a row's detail and a Next remedy. Every constructor here sets both;
+ * an outcome built without a message is told by its summary.
  */
 export type PluginOutcome =
 	| ({
@@ -123,19 +130,37 @@ export type PluginOutcome =
 	| { status: "up-to-date"; key: string }
 	| { status: "newer-tags"; key: string }
 	| { status: "check-failed"; key: string }
-	| { status: "failed"; key: string; summary: string }
-	| { status: "copy-failed"; key: string; summary: string; absorbed: string[] }
-	| { status: "aborted"; key: string; summary: string }
-	| { status: "blocked"; key: string; summary: string }
+	| ({ status: "failed"; key: string } & Told)
+	| ({ status: "copy-failed"; key: string; absorbed: string[] } & Told)
+	| ({ status: "aborted"; key: string } & Told)
+	| ({ status: "blocked"; key: string } & Told)
 	| { status: "constrained-no-match"; key: string }
-	| { status: "gone-kept"; key: string; summary: string; flags?: string[] }
-	| { status: "gone-removed"; key: string; summary: string }
-	| { status: "absorbed"; key: string; into: string; summary: string };
+	| ({ status: "gone-kept"; key: string; flags?: string[] } & Told)
+	| ({ status: "gone-removed"; key: string } & Told)
+	| ({ status: "absorbed"; key: string; into: string } & Told);
 
 interface Reinstalled {
 	notes: string[];
 	absorbed: string[];
 	previousKey?: string;
+	/** What the reinstall installed, counted as `add` counts it. */
+	assetCounts?: AssetCounts;
+}
+
+interface Told {
+	summary: string;
+	message?: SubjectMessage;
+}
+
+/** An outcome's summary, with the message it's the sentence of. */
+export function told(message: SubjectMessage): Required<Told> {
+	return { summary: message.plain, message };
+}
+
+/** A message about the entry keyed `key`, whose sentence is `key` then `detail`. */
+function aboutEntry(key: string, detail: string): SubjectMessage {
+	const text = `${key} ${detail}`;
+	return { subject: key, detail, text, plain: text };
 }
 
 /** The key an outcome's entry had when the run started. */
@@ -156,14 +181,19 @@ export function keyBefore(outcome: PluginOutcome): string {
  * origin is a one-line call).
  */
 export function failedOutcome(key: string, message: string): PluginOutcome {
-	return { status: "failed", key, summary: `${key}: Failed — ${message}` };
+	const text = `${key}: Failed — ${message}`;
+	return {
+		status: "failed",
+		key,
+		...told({ subject: key, detail: message, text, plain: text }),
+	};
 }
 
 /**
  * The SINGLE definition of the two-status "this member updated" success set
  * (`updated` for a git move, `refreshed` for a local re-copy). Narrows to the
  * variants that carry {@link ManifestEntry} `newEntry`, so the persistence and
- * member-line sites read `outcome.newEntry` without a cast. A future success
+ * row sites read `outcome.newEntry` without a cast. A future success
  * variant is a one-line change here.
  */
 export function isSuccessOutcome(
@@ -195,9 +225,14 @@ export function absorbedOutcome(
 		status: "absorbed",
 		key,
 		into,
-		summary: isSuccessOutcome(pack)
-			? `${key} is now part of the pack ${packTakingOver(key, pack)}`
-			: `${key} was removed — the pack ${into} took it over, then failed to install`,
+		...told(
+			aboutEntry(
+				key,
+				isSuccessOutcome(pack)
+					? `is now part of the pack ${packTakingOver(key, pack)}`
+					: `was removed — the pack ${into} took it over, then failed to install`,
+			),
+		),
 	};
 }
 
@@ -294,26 +329,26 @@ export function mapReinstallResultToOutcome(
 		return {
 			status: "gone-kept",
 			key,
-			summary: `Kept ${key} — it's gone upstream`,
+			...told(goneMessage(key, "Kept", "it's gone upstream")),
 		};
 	}
 	if (isCloneReinstallFailure(result)) {
 		return mapCloneFailure<PluginOutcome>(result, {
-			onCopyFailed: (msg, absorbed) => ({
+			onCopyFailed: (recovery, absorbed) => ({
 				status: "copy-failed",
 				key,
-				summary: msg,
+				...told(recovery),
 				absorbed,
 			}),
 			onAborted: (abort) => ({
 				status: "aborted",
 				key,
-				summary: buildAbortMessage(key, entry, abort, scope),
+				...told(buildAbortMessage(key, entry, abort, scope)),
 			}),
 			onBlocked: (reason) => ({
 				status: "blocked",
 				key,
-				summary: buildCopySafetyMessage(key, reason),
+				...told(buildCopySafetyMessage(key, reason)),
 			}),
 			onCloneFailed: (msg) => failedOutcome(key, msg),
 			onRemoveFailed: (msg) => failedOutcome(key, msg),
@@ -324,6 +359,7 @@ export function mapReinstallResultToOutcome(
 		notes: result.notes,
 		absorbed: result.absorbed,
 		...(result.key !== key ? { previousKey: key } : {}),
+		assetCounts: result.assetCounts,
 	};
 
 	if (entry.commit === null) {
@@ -361,8 +397,7 @@ export function mapReinstallResultToOutcome(
  * {@link PluginOutcome} per attempted member — and is the only thing exit
  * accounting and manifest persistence read. `cloneFailed` is a pure DISPLAY
  * signal layered over the N-outcome fan-out: when true, the
- * streaming layer renders one enumerated grouped line naming the
- * affected members instead of N per-member lines, and `reason` carries the
+ * group's row names the clone failure, its members beneath it, and `reason` carries the
  * group's single shared clone-failure message. It does NOT change the outcomes
  * array (still N `failed` outcomes) or the exit.
  */
@@ -374,13 +409,13 @@ export type GroupUpdateResult =
  * The three facets a streamed group's resolved {@link GroupTarget} projects,
  * derived by the SINGLE switch over `GroupTarget.kind` ({@link groupTargetFacets}).
  * Every downstream "what ref/commit does this group land on" question reads one of
- * these instead of re-switching, so the clone, the header "new", the member-line
- * "new", and the collapsed group-of-one "new" cannot drift apart.
+ * these instead of re-switching, so the clone, the row's "new" and each
+ * member's "new" cannot drift apart.
  */
 export interface GroupTargetFacets {
 	/** The commit recorded for every updating member — the group's single resolved
 	 * sha (so all members land on one commit) AND the display "new" commit for the
-	 * header and per-member moves. */
+	 * row's and each member's move. */
 	commit: string;
 	/** The clone `--branch` override and the ref members move to: the resolved tag
 	 * for a constrained group, `undefined` for a branch/HEAD group (clone at, and
@@ -392,7 +427,7 @@ export interface GroupTargetFacets {
 	 * a constrained group (renders as a tag); the group's shared version intent (the
 	 * branch name, or `null` for HEAD-tracked) for a branch/HEAD group — never a
 	 * tag, so those always fall to hashes. Equals each member's own `ref` for a
-	 * branch/HEAD group by the grouping invariant, so routing the member-line move
+	 * branch/HEAD group by the grouping invariant, so routing a member's move
 	 * through it reproduces the old `cloneRef ?? entry.ref`. */
 	displayRef: string | null;
 }
@@ -462,8 +497,6 @@ async function reinstallMember(
 	// or `null` for HEAD), which equals this member's own `ref` by the grouping
 	// invariant. The clone ref (`cloneRef`) stays SEPARATE below — a branch/HEAD
 	// group clones the stored ref (`undefined` override) yet displays its intent.
-	// Sharing this value with the grouped header keeps the collapsed
-	// group-of-one wording identical to the grouped multi-member wording.
 	try {
 		const guarded = resolveGuardedSourceDir(
 			clone.root,
@@ -531,8 +564,8 @@ async function reinstallMember(
  * trip `hasFailedOutcome` → non-zero exit, matching today's per-entry accounting.
  *
  * The return is an additive {@link GroupUpdateResult} wrapper: `cloneFailed` is a
- * DISPLAY-only discriminator letting the streaming layer render one
- * enumerated grouped line for a clone-fatal group instead of N per-member lines;
+ * DISPLAY-only discriminator letting a clone-fatal group draw one row naming
+ * the failure, its members beneath it, instead of N per-member rows;
  * the `outcomes` array is unchanged on both arms — still N `failed` outcomes on
  * clone failure — so exit accounting and manifest persistence are untouched.
  *

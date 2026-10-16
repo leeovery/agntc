@@ -1293,8 +1293,10 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint:
-					"Update failed for owner/repo/packs/foo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo/packs/foo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
+				}),
 			});
 		});
 	});
@@ -1447,8 +1449,10 @@ describe("executeNukeAndReinstall", () => {
 				status: "copy-failed",
 				errorMessage: "disk full",
 				absorbed: ["owner/repo/queues"],
-				recoveryHint:
-					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				}),
 			});
 		});
 
@@ -1980,9 +1984,18 @@ describe("executeNukeAndReinstall", () => {
 			if (result.status !== "copy-failed") return;
 
 			expect(result.errorMessage).toBe("ENOSPC: no space left on device");
-			expect(result.recoveryHint).toBe(
-				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
-			);
+			expect(result.recovery).toEqual({
+				subject: "owner/repo",
+				detail:
+					"update failed after removing old files (ENOSPC: no space left on device). It is currently uninstalled.",
+				text: "Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled.",
+				remedy: {
+					lead: "To install it again:",
+					steps: [{ command: "npx agntc add owner/repo" }],
+				},
+				plain:
+					"Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			});
 		});
 
 		it("names a many-line error by its first line in the hint, keeping the whole of it beside", async () => {
@@ -1996,8 +2009,10 @@ describe("executeNukeAndReinstall", () => {
 			expect(result).toMatchObject({
 				status: "copy-failed",
 				errorMessage: error,
-				recoveryHint:
-					"Update failed for owner/repo after removing old files (EACCES: permission denied, mkdir). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo after removing old files (EACCES: permission denied, mkdir). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				}),
 			});
 		});
 
@@ -2009,8 +2024,10 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint:
-					"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				}),
 			});
 		});
 
@@ -2044,7 +2061,9 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint: expect.stringContaining(`Run \`${reAdd}\``),
+				recovery: expect.objectContaining({
+					plain: expect.stringContaining(`Run \`${reAdd}\``),
+				}),
 			});
 		});
 
@@ -2087,9 +2106,15 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint: expect.stringContaining(
-					"Run `npx agntc add -g owner/repo` to install it again.",
-				),
+				recovery: expect.objectContaining({
+					remedy: {
+						lead: "To install it again:",
+						steps: [{ command: "npx agntc add -g owner/repo" }],
+					},
+					plain: expect.stringContaining(
+						"Run `npx agntc add -g owner/repo` to install it again.",
+					),
+				}),
 			});
 		});
 	});

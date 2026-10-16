@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
+import type { Remedy, SubjectMessage } from "../src/message.js";
 
 vi.mock("../src/manifest.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/manifest.js")>()),
@@ -47,6 +48,7 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 });
 
 import type {
+	AbortCause,
 	CloneFailureHandlers,
 	CloneReinstallResult,
 } from "../src/clone-reinstall.js";
@@ -60,6 +62,7 @@ import {
 	mapCloneFailure,
 	recordCopyFailure,
 	recordReinstall,
+	reinstallEntry,
 } from "../src/clone-reinstall.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPack } from "../src/copy-pack.js";
@@ -250,6 +253,48 @@ describe("cloneAndReinstall", () => {
 			const [spinner] = ui.spinners;
 			expect(spinner!.start).toHaveBeenCalledWith("Cloning repository...");
 			expect(spinner!.stop).toHaveBeenCalledWith("Cloned successfully");
+		});
+
+		it("leaves a failed clone as a failed row, never a done one", async () => {
+			mockCloneSource.mockRejectedValue(new Error("network error"));
+
+			await cloneAndReinstall(
+				{
+					key: "owner/repo",
+					entry: makeEntry(),
+					scope: projectScope("/fake/project"),
+				},
+				ui,
+				{},
+			);
+
+			const [spinner] = ui.spinners;
+			expect(spinner!.stop.mock.calls).toEqual([["Clone failed", 1]]);
+		});
+
+		it("shows nothing over the clone when reinstalled with no progress of its own", async () => {
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-skill/"],
+			});
+
+			const result = await reinstallEntry(
+				{
+					key: "owner/repo",
+					entry: makeEntry(),
+					scope: projectScope("/fake/project"),
+				},
+				{},
+			);
+
+			expect(result).toMatchObject({
+				status: "success",
+				assetCounts: { skills: 1 },
+			});
+			expect(ui.spinner).not.toHaveBeenCalled();
 		});
 	});
 
@@ -498,7 +543,12 @@ describe("cloneAndReinstall", () => {
 			expect(result.status).toBe("failed");
 			if (result.status === "failed") {
 				expect(result.failureReason).toBe("copy-failed");
-				expect(result.message).toContain("npx agntc add owner/repo");
+				expect(
+					result.failureReason === "copy-failed" && result.recovery.remedy,
+				).toEqual({
+					lead: "To install it again:",
+					steps: [{ command: "npx agntc add owner/repo" }],
+				});
 			}
 		});
 
@@ -602,11 +652,11 @@ describe("cloneAndReinstall", () => {
 				{},
 			);
 
-			expect(result.status).toBe("failed");
-			if (result.status === "failed") {
-				expect(result.failureReason).toBe("clone-failed");
-				expect(result.message).toContain("git clone failed");
-			}
+			expect(result).toMatchObject({
+				status: "failed",
+				failureReason: "clone-failed",
+				message: expect.stringContaining("git clone failed"),
+			});
 		});
 
 		it("does not nuke on clone failure", async () => {
@@ -913,8 +963,10 @@ describe("cloneAndReinstall", () => {
 			expect(result).toEqual({
 				status: "failed",
 				failureReason: "copy-failed",
-				message:
-					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				}),
 				absorbed: ["owner/repo/queues"],
 			});
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
@@ -1344,12 +1396,13 @@ describe("cloneAndReinstall", () => {
 					"/tmp/agntc-clone",
 					"../evil",
 				);
-				expect(result.status).toBe("failed");
-				if (result.status === "failed") {
-					expect(result.failureReason).toBe("clone-failed");
-					expect(result.message).toContain("../evil");
-					expect(result.message).toContain("outside the clone root");
-				}
+				expect(result).toMatchObject({
+					status: "failed",
+					failureReason: "clone-failed",
+					message: expect.stringMatching(
+						/"\.\.\/evil".*outside the clone root/,
+					),
+				});
 				// Pre-flight: the guard precedes the source read, nuke, and copy.
 				expect(mockPathExists).not.toHaveBeenCalled();
 				expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
@@ -1568,11 +1621,16 @@ describe("cloneRepoOnce", () => {
 	});
 });
 
+/** A copy failure's recovery whose sentence is `plain`. */
+function recovery(plain: string): SubjectMessage {
+	return { subject: "owner/repo", detail: plain, text: plain, plain };
+}
+
 describe("mapCloneFailure", () => {
 	function makeHandlers(): CloneFailureHandlers<string> {
 		return {
 			onCloneFailed: (msg) => `clone-failed: ${msg}`,
-			onCopyFailed: (msg) => `copy-failed: ${msg}`,
+			onCopyFailed: (recovery) => `copy-failed: ${recovery.plain}`,
 			onAborted: ({ reason, inTheWay }) =>
 				`aborted${inTheWay ? " (in the way)" : ""}: ${reason}`,
 			onBlocked: (reason) => `blocked: ${reason}`,
@@ -1597,7 +1655,7 @@ describe("mapCloneFailure", () => {
 			{
 				status: "failed",
 				failureReason: "copy-failed",
-				message: "disk full",
+				recovery: recovery("disk full"),
 				absorbed: [],
 			},
 			makeHandlers(),
@@ -1701,6 +1759,7 @@ describe("isCloneReinstallFailure", () => {
 			key: "owner/repo",
 			manifestEntry: makeEntry(),
 			copiedFiles: [".claude/skills/my-skill/"],
+			assetCounts: { skills: 1 },
 			notes: [],
 			absorbed: [],
 		};
@@ -1746,7 +1805,7 @@ describe("failureMessage", () => {
 			{
 				status: "failed",
 				failureReason: "copy-failed",
-				message: "disk full hint",
+				recovery: recovery("disk full hint"),
 				absorbed: [],
 			},
 			"owner/repo",
@@ -1780,7 +1839,7 @@ describe("failureMessage", () => {
 			"project",
 		);
 		expect(msg).toBe(
-			buildAbortMessage("owner/repo", entry, { reason }, "project"),
+			buildAbortMessage("owner/repo", entry, { reason }, "project").plain,
 		);
 	});
 
@@ -1793,7 +1852,7 @@ describe("failureMessage", () => {
 			makeEntry(),
 			"project",
 		);
-		expect(msg).toBe(buildCopySafetyMessage("owner/repo", reason));
+		expect(msg).toBe(buildCopySafetyMessage("owner/repo", reason).plain);
 	});
 });
 
@@ -1802,23 +1861,25 @@ describe("buildCopySafetyMessage", () => {
 		'symlink "evil-link" points outside the clone (target: /etc/passwd)';
 
 	it("names the source key", () => {
-		expect(buildCopySafetyMessage("owner/repo", reason)).toContain(
+		expect(buildCopySafetyMessage("owner/repo", reason).plain).toContain(
 			"owner/repo",
 		);
 	});
 
 	it("carries the escape reason verbatim", () => {
-		expect(buildCopySafetyMessage("owner/repo", reason)).toContain(reason);
+		expect(buildCopySafetyMessage("owner/repo", reason).plain).toContain(
+			reason,
+		);
 	});
 
 	it("states the update is blocked and the existing install is left intact", () => {
-		const msg = buildCopySafetyMessage("owner/repo", reason);
+		const msg = buildCopySafetyMessage("owner/repo", reason).plain;
 		expect(msg).toContain("blocked");
 		expect(msg).toContain("unchanged");
 	});
 
 	it("does NOT use the type-migration wording or the remove+add remedy", () => {
-		const msg = buildCopySafetyMessage("owner/repo", reason);
+		const msg = buildCopySafetyMessage("owner/repo", reason).plain;
 		expect(msg).not.toContain("no longer supports that type");
 		expect(msg).not.toContain("npx agntc remove");
 		expect(msg).not.toContain("To migrate");
@@ -1828,17 +1889,17 @@ describe("buildCopySafetyMessage", () => {
 		const onPath =
 			'symlink "skills/foo" is on the path to skills/foo — agntc won\'t copy through it';
 
-		expect(buildCopySafetyMessage("owner/repo/foo", onPath)).toBe(
+		expect(buildCopySafetyMessage("owner/repo/foo", onPath).plain).toBe(
 			`owner/repo/foo: ${onPath}. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.`,
 		);
 	});
 
 	it("describes a symlink escaping the clone (consistent with abort being a different concern)", () => {
-		const msg = buildCopySafetyMessage("owner/repo", reason);
+		const msg = buildCopySafetyMessage("owner/repo", reason).plain;
 		expect(msg.toLowerCase()).toContain("symlink");
 		// Guard against accidental reuse of the derive-before-delete framing.
 		expect(msg).not.toBe(
-			buildAbortMessage("owner/repo", makeEntry(), { reason }, "project"),
+			buildAbortMessage("owner/repo", makeEntry(), { reason }, "project").plain,
 		);
 	});
 
@@ -1850,7 +1911,7 @@ describe("buildCopySafetyMessage", () => {
 		const escapeMessage =
 			'symlink "evil-link" points outside the clone (target: /etc/passwd)';
 		const addFraming = `owner/repo: ${escapeMessage}`;
-		const updateMsg = buildCopySafetyMessage("owner/repo", escapeMessage);
+		const updateMsg = buildCopySafetyMessage("owner/repo", escapeMessage).plain;
 		expect(updateMsg.startsWith(addFraming)).toBe(true);
 		expect(updateMsg).toContain("points outside the clone");
 	});
@@ -1863,7 +1924,7 @@ describe("buildAbortMessage", () => {
 			makeEntry({ type: "pack" }),
 			{ reason: "its folder now contains packs" },
 			"project",
-		);
+		).plain;
 
 		expect(msg).toBe(
 			"owner/repo/laravel was installed as a pack and can't be updated (its folder now contains packs). The existing install is unchanged. To migrate: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel --pack",
@@ -1881,7 +1942,7 @@ describe("buildAbortMessage", () => {
 			},
 			"project",
 			"v2.0.0",
-		);
+		).plain;
 
 		expect(msg).toBe(
 			"owner/repo/laravel can't be updated: in its source, laravel/skills/back/refs and laravel/skills/front/refs would both install to .claude/skills/refs, so it can't be installed as it stands. The existing install is left as it is.",
@@ -1894,7 +1955,7 @@ describe("buildAbortMessage", () => {
 			makeEntry({ type: "skill", sourceSubpath: "skills/go" }),
 			{ reason: "two skills are named go" },
 			"project",
-		);
+		).plain;
 
 		expect(msg).toContain(
 			"npx agntc remove owner/repo/go then npx agntc add owner/repo/skills/go",
@@ -1916,7 +1977,7 @@ describe("buildAbortMessage", () => {
 				},
 			},
 			"project",
-		);
+		).plain;
 
 		expect(msg).toContain(
 			"replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo --overwrite",
@@ -1934,7 +1995,7 @@ describe("buildAbortMessage", () => {
 				inTheWay: true,
 			},
 			"project",
-		);
+		).plain;
 
 		expect(msg).toBe(
 			"owner/repo/laravel can't be updated: files agntc didn't install are in the way: .claude/skills/queues/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel --pack --overwrite",
@@ -1951,7 +2012,7 @@ describe("buildAbortMessage", () => {
 				makeEntry({ type: "skill", commit: null, localRoot: "/src/My Skills" }),
 				{ reason: "files are in the way", inTheWay: true },
 				"project",
-			),
+			).plain,
 		).toContain(
 			"replace them: npx agntc remove '/src/My Skills/go' then npx agntc add '/src/My Skills/go' --overwrite",
 		);
@@ -1966,7 +2027,7 @@ describe("buildAbortMessage", () => {
 				pack,
 				{ reason: "its folder now contains packs" },
 				"global",
-			),
+			).plain,
 		).toContain(
 			"To migrate: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack",
 		);
@@ -1976,7 +2037,7 @@ describe("buildAbortMessage", () => {
 				pack,
 				{ reason: "files are in the way", inTheWay: true },
 				"global",
-			),
+			).plain,
 		).toContain(
 			"replace them: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack --overwrite",
 		);
@@ -2003,7 +2064,7 @@ describe("buildAbortMessage for a key another entry holds", () => {
 					takenKey: "owner/repo/foo",
 				},
 				scope,
-			),
+			).plain,
 		).toBe(message);
 	});
 });
@@ -2034,12 +2095,14 @@ describe("buildAbortMessage for folders still in the source", () => {
 			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove -g owner/repo then npx agntc add -g 'owner/repo@^1.2.0' --pack",
 		],
 	] as const)("names the folders and updates it anyway by a remove and re-add, in %s scope", (scope, message) => {
-		expect(buildAbortMessage("owner/repo", entry, cause, scope)).toBe(message);
+		expect(buildAbortMessage("owner/repo", entry, cause, scope).plain).toBe(
+			message,
+		);
 	});
 
 	it("re-adds at the tag a version change picked", () => {
 		expect(
-			buildAbortMessage("owner/repo", entry, cause, "project", "v2.0.0"),
+			buildAbortMessage("owner/repo", entry, cause, "project", "v2.0.0").plain,
 		).toBe(
 			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo then npx agntc add owner/repo@v2.0.0 --pack",
 		);
@@ -2054,7 +2117,7 @@ describe("buildAbortMessage keeps the version the entry tracks", () => {
 				makeEntry({ type: "pack", ref: "v1.4.0", constraint: "^1.2.0" }),
 				{ reason: "files are in the way", inTheWay: true },
 				"project",
-			),
+			).plain,
 		).toContain(
 			"replace them: npx agntc remove owner/repo/laravel then npx agntc add 'owner/repo/laravel@^1.2.0' --pack --overwrite",
 		);
@@ -2067,7 +2130,7 @@ describe("buildAbortMessage keeps the version the entry tracks", () => {
 				makeEntry({ type: "pack", ref: "main" }),
 				{ reason: "its folder now contains packs" },
 				"project",
-			),
+			).plain,
 		).toContain(
 			"To migrate: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel@main --pack",
 		);
@@ -2080,7 +2143,7 @@ describe("buildAbortMessage keeps the version the entry tracks", () => {
 				makeEntry({ type: "pack", ref: null }),
 				{ reason: "its folder now contains packs" },
 				"project",
-			),
+			).plain,
 		).toMatch(/then npx agntc add owner\/repo\/laravel --pack$/);
 	});
 });
@@ -2107,7 +2170,7 @@ describe("buildAbortMessage for a version change", () => {
 				},
 				"project",
 				"v2.0.0",
-			),
+			).plain,
 		).toBe(
 			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then change it to v2.0.0 again",
 		);
@@ -2121,10 +2184,127 @@ describe("buildAbortMessage for a version change", () => {
 				{ reason: "files are in the way", inTheWay: true, replayed },
 				"project",
 				"v2.0.0",
-			),
+			).plain,
 		).toBe(
 			"owner/repo/packs/foo can't be updated: files are in the way. The existing install is unchanged. Clear them and change it to v2.0.0 again, or replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo@v2.0.0 --overwrite",
 		);
+	});
+});
+
+describe("an abort's parts, as a row and Next lay them out", () => {
+	const KEY = "owner/repo/laravel";
+	const pack = makeEntry({ type: "pack" });
+	const REMOVE = { command: "npx agntc remove owner/repo/laravel" };
+	const READD = "npx agntc add owner/repo/laravel --pack";
+
+	it("tells what happened apart from the key it's about", () => {
+		const message = buildAbortMessage(
+			KEY,
+			pack,
+			{ reason: "its folder now contains packs" },
+			"project",
+		);
+
+		expect(message).toMatchObject({
+			subject: KEY,
+			detail:
+				"was installed as a pack and can't be updated (its folder now contains packs). The existing install is unchanged.",
+			text: `${KEY} was installed as a pack and can't be updated (its folder now contains packs). The existing install is unchanged.`,
+		});
+	});
+
+	it.each<[string, AbortCause, Remedy]>([
+		[
+			"a migration",
+			{ reason: "r" },
+			{ lead: "To migrate:", steps: [REMOVE, { command: READD }] },
+		],
+		[
+			"folders still in the source",
+			{ reason: "r", stillInSource: true },
+			{ lead: "To update it anyway:", steps: [REMOVE, { command: READD }] },
+		],
+		[
+			"files in the way",
+			{ reason: "r", inTheWay: true },
+			{
+				lead: "Clear them and update again, or replace them:",
+				steps: [REMOVE, { command: `${READD} --overwrite` }],
+			},
+		],
+		[
+			"a taken key",
+			{ reason: "r", takenKey: "owner/repo/tools" },
+			{
+				lead: "To replace that entry with it:",
+				steps: [
+					{ command: "npx agntc remove owner/repo/tools" },
+					{ command: "npx agntc update owner/repo/laravel" },
+				],
+			},
+		],
+		[
+			"several namesakes",
+			{
+				reason: "r",
+				candidates: [
+					{ key: "owner/repo/a", entry: makeEntry({ type: "skill" }) },
+					{ key: "owner/repo/b", entry: makeEntry({ type: "skill" }) },
+				],
+			},
+			{
+				lead: "To follow one of them:",
+				steps: [
+					REMOVE,
+					{
+						choice: [
+							"npx agntc add owner/repo/a",
+							"npx agntc add owner/repo/b",
+						],
+					},
+				],
+			},
+		],
+	])("puts the commands of %s on lines of their own", (_, cause, remedy) => {
+		expect(buildAbortMessage(KEY, pack, cause, "project").remedy).toEqual(
+			remedy,
+		);
+	});
+
+	it("redoes a version change in words when a taken key is freed", () => {
+		expect(
+			buildAbortMessage(
+				KEY,
+				pack,
+				{ reason: "r", takenKey: "owner/repo/tools" },
+				"project",
+				"v2.0.0",
+			).remedy?.steps,
+		).toEqual([
+			{ command: "npx agntc remove owner/repo/tools" },
+			{ words: "change it to v2.0.0 again" },
+		]);
+	});
+
+	it("has no remedy when two of the source's folders install to one place", () => {
+		expect(
+			buildAbortMessage(
+				KEY,
+				pack,
+				{ reason: "r", sourceClash: true },
+				"project",
+			),
+		).not.toHaveProperty("remedy");
+	});
+
+	it("tells a copy-safety block apart from its key, with no remedy", () => {
+		expect(buildCopySafetyMessage(KEY, "a link escapes")).toEqual({
+			subject: KEY,
+			detail:
+				"a link escapes. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.",
+			text: `${KEY}: a link escapes. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.`,
+			plain: `${KEY}: a link escapes. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.`,
+		});
 	});
 });
 
@@ -2252,7 +2432,7 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 					candidates: [at("a/go"), at("b/go"), at("c/go")],
 				},
 				"project",
-			),
+			).plain,
 		).toMatch(
 			/then one of: npx agntc add owner\/repo\/a\/go or npx agntc add owner\/repo\/b\/go or npx agntc add owner\/repo\/c\/go$/,
 		);

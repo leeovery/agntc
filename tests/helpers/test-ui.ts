@@ -1,7 +1,7 @@
 import { type Mock, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { type Message, plainText } from "../../src/message.js";
-import type { BlockSubject, Progress } from "../../src/terminal/types.js";
+import type { BlockSubject, Progress, Row } from "../../src/terminal/types.js";
 import type {
 	Block,
 	BlockTask,
@@ -65,6 +65,8 @@ export interface TestUi extends Ui {
 	box: Mock<Ui["box"]>;
 	/** Every block `block()` opened, in the order it opened them. */
 	readonly blocks: TestBlock[];
+	/** Every row the blocks drew, a settled task's included, in the order they were drawn. */
+	rows(): Row[];
 	/** Every handle `spinner()` returned, in the order it returned them. */
 	readonly spinners: TestSpinner[];
 	/** The messages drawn on a channel, in call order across every call that draws there; a rich one as machine mode flattens it. */
@@ -125,6 +127,18 @@ function unsortedLines(ui: TestUi, channel: Channel): Line[] {
 	}
 }
 
+function drawnRows(blocks: readonly TestBlock[]): Row[] {
+	const drawn = blocks.flatMap(({ row, tasks }) =>
+		[row, ...tasks.map(({ settle }) => settle)].flatMap((fn) =>
+			fn.mock.calls.map(([drawnRow], i): [number, Row] => [
+				fn.mock.invocationCallOrder[i]!,
+				drawnRow,
+			]),
+		),
+	);
+	return drawn.sort(([a], [b]) => a - b).map(([, drawnRow]) => drawnRow);
+}
+
 function testBlock(): TestBlock {
 	const tasks: TestTask[] = [];
 	return {
@@ -177,6 +191,7 @@ export function testUi(): TestUi {
 		}),
 		box: vi.fn(),
 		blocks,
+		rows: () => drawnRows(blocks),
 		spinners,
 		said: (channel) => channelLines(ui, channel).map(([, message]) => message),
 		saidOrders: (channel) => channelLines(ui, channel).map(([order]) => order),

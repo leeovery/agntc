@@ -25,6 +25,22 @@ describe("testUi", () => {
 		expect(block.tasks[0]!.clear).toHaveBeenCalledOnce();
 	});
 
+	it("reads every row drawn, a settled task's in its place, across blocks", () => {
+		const ui = testUi();
+		const first = ui.block([{ subject: "a" }, { subject: "b" }]);
+		const task = first.task({ subject: "a", text: "updating…" });
+		first.row({ status: "unchanged", subject: "b" });
+		task.settle({ status: "done", subject: "a" });
+		first.task({ text: "checking…" }).clear();
+		ui.block([{ subject: "c" }]).row({ status: "failed", subject: "c" });
+
+		expect(ui.rows()).toEqual([
+			{ status: "unchanged", subject: "b" },
+			{ status: "done", subject: "a" },
+			{ status: "failed", subject: "c" },
+		]);
+	});
+
 	it("reads a rich message on its channel as machine mode flattens it", () => {
 		const ui = testUi();
 

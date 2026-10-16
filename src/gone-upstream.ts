@@ -5,6 +5,7 @@ import {
 	removeEntry,
 	writeManifest,
 } from "./manifest.js";
+import type { SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import { agntcCommand, type Scope } from "./scope.js";
 import type { Ui } from "./ui.js";
@@ -18,7 +19,7 @@ export interface GoneOptions {
 /** What became of an entry whose source no longer holds it. */
 export interface GoneSettlement {
 	removed: boolean;
-	message: string;
+	message: SubjectMessage;
 	/** The flags that would have removed it, when there was no terminal to ask. */
 	flags?: string[];
 }
@@ -37,8 +38,7 @@ export async function settleGone(
 	if (!yes && ui.mode === "machine") {
 		const removal = agntcCommand(scope.name, "update", [key, "-y"]);
 		return {
-			removed: false,
-			message: `Kept ${key} — it's gone upstream; ${removal} removes it`,
+			...settled(key, "Kept", `it's gone upstream; ${removal} removes it`),
 			flags: ["-y"],
 		};
 	}
@@ -49,13 +49,33 @@ export async function settleGone(
 			initialValue: false,
 		}));
 	if (!remove) {
-		return {
-			removed: false,
-			message: `Kept ${key} — it's gone upstream; update will ask again`,
-		};
+		return settled(key, "Kept", "it's gone upstream; update will ask again");
 	}
 	await nukeManifestFiles(scope.root, entry.files);
-	return { removed: true, message: `Removed ${key} — it's gone upstream` };
+	return settled(key, "Removed", "it's gone upstream");
+}
+
+function settled(
+	key: string,
+	verb: "Kept" | "Removed",
+	why: string,
+): GoneSettlement {
+	return { removed: verb === "Removed", message: goneMessage(key, verb, why) };
+}
+
+/** `<verb> <key> — <why>`, of an entry gone upstream. */
+export function goneMessage(
+	key: string,
+	verb: "Kept" | "Removed",
+	why: string,
+): SubjectMessage {
+	const text = `${verb} ${key} — ${why}`;
+	return {
+		subject: key,
+		detail: `${verb.toLowerCase()} — ${why}`,
+		text,
+		plain: text,
+	};
 }
 
 /** What a `list` action reports; `ok` is false when a chosen removal failed. */
@@ -81,7 +101,7 @@ export async function settleGoneInList(
 		if (settled.removed) {
 			await writeManifest(scope.root, removeEntry(manifest, key));
 		}
-		return { ok: true, message: settled.message };
+		return { ok: true, message: settled.message.plain };
 	} catch (err) {
 		return {
 			ok: false,

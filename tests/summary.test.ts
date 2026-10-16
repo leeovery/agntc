@@ -6,12 +6,9 @@ import {
 	type ItemOutcome,
 	joinWithAnd,
 	renderAddSummary,
-	renderGitUpdateSummary,
-	renderLocalUpdateSummary,
 	renderRemoveSummary,
 	renderUpdateOutcomeSummary,
 } from "../src/summary.js";
-import { formatVersionMove } from "../src/version-resolve.js";
 
 describe("formatRefLabel", () => {
 	it("returns ref when ref is not null", () => {
@@ -202,97 +199,6 @@ describe("renderAddSummary", () => {
 	});
 });
 
-describe("renderGitUpdateSummary", () => {
-	it("shows commit transition and file count", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-		});
-		expect(result).toBe("Updated owner/repo: abc1234 -> def4567 — 1 file(s)");
-	});
-
-	it("uses 'unknown' when old commit is null", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: null,
-			newCommit: "def4567890abc",
-			copiedFiles: [],
-		});
-		expect(result).toContain("unknown -> def4567");
-	});
-
-	it("renders tags for a constrained update (v1.2.3 -> v1.3.0)", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: "v1.2.3",
-			newRef: "v1.3.0",
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-		});
-		// Both refs are semver tags and the ref moved → the shared rule renders tags,
-		// not commit hashes. The file-count tail is unchanged.
-		expect(result).toBe("Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s)");
-	});
-
-	it("falls to short hashes for a branch update (oldRef === newRef)", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: "main",
-			newRef: "main",
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-		});
-		// A branch update keeps the ref name fixed (only the commit moved), so the
-		// "ref actually moved" guard sends it to hashes.
-		expect(result).toBe("Updated owner/repo: abc1234 -> def4567 — 1 file(s)");
-	});
-
-	it("falls to short hashes for a HEAD update (newRef null)", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-		});
-		expect(result).toBe("Updated owner/repo: abc1234 -> def4567 — 1 file(s)");
-	});
-
-	it("still renders unknown -> <newShort> when old commit is null (hash path)", () => {
-		const result = renderGitUpdateSummary({
-			key: "owner/repo",
-			oldRef: null,
-			newRef: null,
-			oldCommit: null,
-			newCommit: "def4567890abc",
-			copiedFiles: [],
-		});
-		expect(result).toContain("unknown -> def4567");
-	});
-});
-
-describe("renderLocalUpdateSummary", () => {
-	it("shows refreshed with file count", () => {
-		const result = renderLocalUpdateSummary({
-			key: "/path/to/plugin",
-			copiedFiles: [
-				".claude/skills/my-skill/file1.md",
-				".claude/skills/my-skill/file2.md",
-			],
-		});
-		expect(result).toBe("Refreshed /path/to/plugin — 2 file(s)");
-	});
-});
-
 describe("renderUpdateOutcomeSummary", () => {
 	it("formats git update outcome with commit transition", () => {
 		const result = renderUpdateOutcomeSummary({
@@ -342,57 +248,6 @@ describe("renderUpdateOutcomeSummary", () => {
 			key: "/path/to/plugin",
 		});
 		expect(plain).toBe("/path/to/plugin: Refreshed from local path");
-	});
-});
-
-describe("shared tag-vs-hash rule across surfaces", () => {
-	it("single-key and all-mode produce the identical move substring for the same old/new refs (shared rule, no divergence)", () => {
-		const move = {
-			oldRef: "v1.2.3",
-			newRef: "v1.3.0",
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-		};
-		const singleKey = renderGitUpdateSummary({
-			key: "owner/repo",
-			...move,
-			copiedFiles: [".claude/skills/my-skill/file1.md"],
-		});
-		const allMode = renderUpdateOutcomeSummary({
-			type: "git-update",
-			key: "owner/repo",
-			...move,
-		});
-
-		// The one shared rule produces the move; both surfaces embed it verbatim.
-		const expectedMove = formatVersionMove(move);
-		expect(expectedMove).toBe("v1.2.3 -> v1.3.0");
-		expect(singleKey).toContain(expectedMove);
-		expect(allMode).toContain(expectedMove);
-	});
-
-	it("both surfaces fall to the identical hash move for a branch update", () => {
-		const move = {
-			oldRef: "main",
-			newRef: "main",
-			oldCommit: "abc1234567890",
-			newCommit: "def4567890abc",
-		};
-		const singleKey = renderGitUpdateSummary({
-			key: "owner/repo",
-			...move,
-			copiedFiles: [],
-		});
-		const allMode = renderUpdateOutcomeSummary({
-			type: "git-update",
-			key: "owner/repo",
-			...move,
-		});
-
-		const expectedMove = formatVersionMove(move);
-		expect(expectedMove).toBe("abc1234 -> def4567");
-		expect(singleKey).toContain(expectedMove);
-		expect(allMode).toContain(expectedMove);
 	});
 });
 

@@ -39,27 +39,42 @@ export interface VersionMoveInput {
 	newCommit: string;
 }
 
+/** A version move's two ends, as {@link versionMove} words them. */
+export interface VersionMove {
+	from: string;
+	to: string;
+}
+
 /**
- * The SINGLE tag-vs-hash decision for a version move, shared by the grouped
- * progress surface ({@link import("./update-render.js")}) and the summary
- * renderers. Renders `<oldRef> -> <newRef>` when BOTH refs are genuine semver
- * tags AND the ref actually moved (`oldRef !== newRef`); otherwise falls back to
- * short (7-char) commit hashes, with `unknown` for a null old commit. The signal
- * is never the string shape alone — {@link isVersionTag} is `clean()`-based, so
- * a `v4` branch (clean() null) and a `v4.0.0` branch whose only the commit moved
- * (`oldRef === newRef`) both land on the hash path. The ` -> ` ASCII arrow is
- * verbatim.
+ * The SINGLE tag-vs-hash decision for a version move, shared by the update
+ * rows and every sentence that words a move. Its ends are the refs when
+ * BOTH are genuine semver tags AND the ref actually moved (`oldRef !==
+ * newRef`); otherwise short (7-char) commit hashes, with `unknown` for a null
+ * old commit. The signal is never the string shape alone — {@link isVersionTag}
+ * is `clean()`-based, so a `v4` branch (clean() null) and a `v4.0.0` branch
+ * whose only the commit moved (`oldRef === newRef`) both land on the hash path.
  */
-export function formatVersionMove(input: VersionMoveInput): string {
+export function versionMove(input: VersionMoveInput): VersionMove {
 	if (
 		isVersionTag(input.oldRef) &&
 		isVersionTag(input.newRef) &&
 		input.oldRef !== input.newRef
 	) {
-		return `${input.oldRef} -> ${input.newRef}`;
+		return { from: input.oldRef!, to: input.newRef! };
 	}
-	const oldShort = input.oldCommit ? input.oldCommit.slice(0, 7) : "unknown";
-	return `${oldShort} -> ${input.newCommit.slice(0, 7)}`;
+	const from = input.oldCommit ? input.oldCommit.slice(0, 7) : "unknown";
+	return { from, to: input.newCommit.slice(0, 7) };
+}
+
+/** {@link versionMove} as one string, the ` -> ` ASCII arrow verbatim. */
+export function formatVersionMove(input: VersionMoveInput): string {
+	const { from, to } = versionMove(input);
+	return `${from} -> ${to}`;
+}
+
+/** Where a move lands, whatever it moves from: the new ref when it's a tag, else the short new commit. */
+export function moveTarget(newRef: string | null, newCommit: string): string {
+	return isVersionTag(newRef) ? newRef! : newCommit.slice(0, 7);
 }
 
 export interface VersionOverrides {
