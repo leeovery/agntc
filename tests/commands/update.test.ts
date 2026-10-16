@@ -1471,7 +1471,6 @@ describe("update command", () => {
 		});
 
 		it("does not tick the spinner per member during reinstall", async () => {
-			const handle = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
@@ -1500,11 +1499,14 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// One group spinner on the header (plus the leading check spinner) — never
-			// a per-member message tick across the three reinstalls.
-			expect(handle.start).toHaveBeenCalledWith(
-				expect.stringContaining("Updating owner/repo"),
-			);
+			expect(
+				ui.spinners.flatMap((spin) =>
+					spin.start.mock.calls.map(([text]) => text),
+				),
+			).toEqual([
+				"Checking for updates...",
+				"Updating owner/repo  aaaaaaa -> bbbbbbb  (3 members)",
+			]);
 		});
 
 		it("starts no Updating spinner for a group whose members are all non-updatable", async () => {

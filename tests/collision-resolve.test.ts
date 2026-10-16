@@ -378,15 +378,22 @@ describe("removeCollidingEntries", () => {
 			"owner/repo-c": entry([".claude/skills/c/"]),
 		};
 
+		const stdout = vi.spyOn(process.stdout, "write");
+		const stderr = vi.spyOn(process.stderr, "write");
+
 		const result = await removeCollidingEntries(
 			["owner/repo-a", "owner/repo-b"],
 			manifest,
 			"/project",
 		);
+		const written = stdout.mock.calls.length + stderr.mock.calls.length;
+		stdout.mockRestore();
+		stderr.mockRestore();
 
 		expect(result).toEqual({ "owner/repo-c": manifest["owner/repo-c"] });
 		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/a/"]);
 		expect(mockedNuke).toHaveBeenCalledWith("/project", [".claude/skills/b/"]);
+		expect(written).toBe(0);
 	});
 
 	describe("when a removal fails", () => {
