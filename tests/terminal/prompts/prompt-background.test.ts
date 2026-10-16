@@ -168,20 +168,47 @@ describe("the background", () => {
 			expect(await answer).toBeNull();
 		});
 
-		it("draws nothing when answered while it's asked, the cursor left where it began", async () => {
+		it("answers a key typed while it's asked only once the reply is in, raw mode on for it", async () => {
 			const { promptSelect } = await freshPrompts();
 			const terminal = terminalAnswering();
 			const answer = promptSelect(
 				{ message: "Pick", options: CHOICES },
 				terminal.context(truecolor),
 			);
-			await terminal.press(KEY.escape);
-			await elapse(50);
-			await elapse(100);
-			expect(await answer).toBeNull();
-			expect(terminal.output.text).toBe(
-				`${BACKGROUND_QUERY}\n\x1b[?25h\r\x1b[1A\x1b[J`,
-			);
+			await elapse(5);
+			await terminal.press(KEY.enter);
+			await elapse(35);
+			const rawForTheReply = terminal.input.isRaw;
+			await terminal.press(DARK_REPLY);
+			expect(await answer).toBe("laravel");
+			expect(rawForTheReply).toBe(true);
+			expect(terminal.output.text).toContain(BAND);
+			expect(terminal.input.isRaw).toBe(false);
+		});
+
+		it("takes out the reply before a ctrl-z typed while it's asked suspends", async () => {
+			const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+			try {
+				const { promptSelect } = await freshPrompts();
+				const terminal = terminalAnswering();
+				const answer = promptSelect(
+					{ message: "Pick", options: CHOICES },
+					terminal.context(truecolor),
+				);
+				await elapse(5);
+				await terminal.press("\x1a");
+				await elapse(25);
+				expect(kill).not.toHaveBeenCalled();
+				await terminal.press(DARK_REPLY);
+				expect(kill).toHaveBeenCalledWith(process.pid, "SIGTSTP");
+				expect(terminal.output.text).toContain(BAND);
+				process.emit("SIGTSTP");
+				process.emit("SIGCONT");
+				await terminal.press(KEY.enter);
+				expect(await answer).toBe("laravel");
+			} finally {
+				kill.mockRestore();
+			}
 		});
 	});
 

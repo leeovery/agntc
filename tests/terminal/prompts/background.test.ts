@@ -69,6 +69,8 @@ describe("queryBackground", () => {
 		filter.on("data", (chunk: Buffer) => {
 			keys += chunk.toString("latin1");
 		});
+		// Released, so whatever wasn't taken out comes through to be seen.
+		filter.release();
 	});
 
 	afterEach(() => {

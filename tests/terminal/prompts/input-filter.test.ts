@@ -17,7 +17,7 @@ const ESCAPE_KEY = {
 	shift: false,
 };
 
-/** A filter read as readline reads one: each chunk as it comes, keys heard. */
+/** A released filter read as readline reads one: each chunk as it comes, keys heard. */
 function filtering() {
 	const source = new FakeStdin();
 	const filter = new InputFilter(source);
@@ -27,8 +27,19 @@ function filtering() {
 	filter.on("data", (chunk: Buffer) => chunks.push(chunk));
 	filter.on("keypress", (...key: unknown[]) => keys.push(key));
 	filter.onSequence((body) => bodies.push(body));
+	filter.release();
 	const read = () => Buffer.concat(chunks).toString("latin1");
 	return { source, filter, read, bodies, keys };
+}
+
+/** Readline reading `filter` as core's prompt does: the keys it makes of what comes, by name. */
+function decoding(filter: InputFilter): string[] {
+	const names: string[] = [];
+	emitKeypressEvents(filter, { escapeCodeTimeout: 50 } as unknown as Interface);
+	filter.on("keypress", (_char: unknown, key: { name?: string }) => {
+		names.push(key.name ?? "?");
+	});
+	return names;
 }
 
 async function send(filter: InputFilter, ...writes: (string | Buffer)[]) {
@@ -163,14 +174,42 @@ describe("InputFilter", () => {
 			expect(keys).toEqual([]);
 		});
 
-		it("pushes a lone ESC when nothing reads keys from it yet, for readline to read in turn", async () => {
+		it("delivers nothing until released, then all of it in order, each escape key between the text either side", async () => {
 			const filter = new InputFilter(new FakeStdin());
-			const keys: unknown[] = [];
-			filter.on("keypress", (...key: unknown[]) => keys.push(key));
+			const names = decoding(filter);
 			await send(filter, "\x1b");
 			await waited(50);
-			expect(keys).toEqual([]);
-			expect(filter.read()?.toString("latin1")).toBe("\x1b");
+			await send(filter, "a", "\x1b");
+			await waited(50);
+			await send(filter, "b\x1b]11;rgb:1e/1e/1e\x07c");
+			expect(names).toEqual([]);
+			filter.release();
+			await send(filter, "d");
+			expect(names).toEqual(["escape", "a", "escape", "b", "c", "d"]);
+		});
+
+		it("joins a held ESC with the key after it, and reads a lone one as escape, as it holds them back", async () => {
+			const filter = new InputFilter(new FakeStdin());
+			const names = decoding(filter);
+			await send(filter, "\x1b");
+			await waited(40);
+			await send(filter, "j", "\x1b");
+			await waited(50);
+			await send(filter, "j");
+			filter.release();
+			await tick();
+			expect(names).toEqual(["j", "escape", "j"]);
+		});
+
+		it("keeps an escape key behind the text ahead of it when readline starts reading at the release", async () => {
+			const filter = new InputFilter(new FakeStdin());
+			await send(filter, "a", "\x1b");
+			await waited(50);
+			await send(filter, "b");
+			const names = decoding(filter);
+			filter.release();
+			await tick();
+			expect(names).toEqual(["a", "escape", "b"]);
 		});
 
 		it("waits afresh when a held ESC turns into a sequence, and takes out a reply ending inside that wait", async () => {
@@ -240,6 +279,17 @@ describe("InputFilter", () => {
 			await waited(1);
 			await send(filter, "a");
 			expect(read()).toBe("a");
+		});
+
+		it("lets every key through once a dropped reply's rest has ended, its old deadline gone by", async () => {
+			const { filter, read } = filtering();
+			await send(filter, "\x1b]11;rgb:aaaa");
+			await waited(100);
+			await send(filter, "/aaa\x07");
+			await waited(150);
+			await send(filter, "a1;");
+			expect(read()).toBe("a1;");
+			expect(vi.getTimerCount()).toBe(0);
 		});
 
 		it("drops a sequence's start as soon as it grows past 64 bytes, a key no reply holds passing straight after", async () => {

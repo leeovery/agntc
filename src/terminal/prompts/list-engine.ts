@@ -1,15 +1,15 @@
-import { Prompt } from "@clack/core";
+import { Engine } from "./engine.js";
 import { firstStop, scrollWindow, stepCursor } from "./list-window.js";
 import { noFrame } from "./session.js";
 
-type EngineOptions = Omit<ConstructorParameters<typeof Prompt>[0], "render">;
+type EngineOptions = Omit<ConstructorParameters<typeof Engine>[0], "render">;
 
 /**
  * Core's prompt over a list of lines: ↑↓ (and core's j and k) move a cursor
  * that passes over headings and wraps round the ends, and a window of
  * `size` lines follows it.
  */
-export class ListEngine extends Prompt {
+export class ListEngine extends Engine {
 	cursor: number;
 	top: number;
 

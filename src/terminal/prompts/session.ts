@@ -1,6 +1,5 @@
 import type { Key } from "node:readline";
 import type { Writable } from "node:stream";
-import type { Prompt } from "@clack/core";
 import {
 	ERASE_DOWN,
 	ERASE_LINE,
@@ -11,6 +10,7 @@ import {
 } from "../control.js";
 import { bandPainter, type Painter, type Rgb, type Style } from "../style.js";
 import { terminalBackground } from "./background.js";
+import type { Engine } from "./engine.js";
 import { InputFilter, type PromptInput } from "./input-filter.js";
 
 /** The stdout a prompt draws on. */
@@ -44,90 +44,90 @@ export interface PromptStreams {
 export const noFrame = (): undefined => undefined;
 
 /**
- * Runs `open`'s engine on the terminal: stdin flows through the filter only
- * while it runs, read by the engine from the start, so keys typed while the
- * background is asked are read as they come. The first frame is drawn once
- * the background is known, then again after each key, in place, and the
- * answer erases it whole, leaving the cursor where its first line began.
- * Resolves with the engine once it's submitted or cancelled; a throw on the
- * way restores the terminal as an exit does.
+ * Runs `open`'s engine on the terminal. Stdin flows through the filter in raw
+ * mode from before the background is asked to the answer, and the engine
+ * opens only once the background is known: no prompt runs while the
+ * terminal's reply may still come. The first frame is drawn, then the filter
+ * lets through the keys typed in the meantime, and each key redraws the frame
+ * in place. The answer erases it whole, leaving the cursor where its first
+ * line began. Resolves with the engine once it's submitted or cancelled; a
+ * throw on the way closes the engine and restores the terminal as an exit does.
  */
-export async function runPrompt<E extends Prompt>(
+export async function runPrompt<E extends Engine>(
 	context: PromptContext,
 	open: (streams: PromptStreams) => E,
 	frame: (engine: E, band: Painter | undefined) => string[],
 ): Promise<E> {
 	const session = new Session(context);
+	let opened: Engine | undefined;
 	try {
-		const engine = open(session.streams);
-		const answered = engine.prompt();
 		const level = context.style.level;
 		const background =
 			context.background ??
 			(await terminalBackground(session.filter, context, level));
 		const band = bandPainter(level, background);
-		if (isOpen(engine)) {
-			session.show(
-				() => frame(engine, band),
-				() => isOpen(engine),
-			);
-		}
+		const engine = open(session.streams);
+		opened = engine;
+		const answered = engine.prompt();
+		session.show(engine, () => frame(engine, band));
+		session.filter.release();
 		await answered;
 		session.answered();
 		return engine;
 	} catch (error) {
-		session.restore();
+		// Closed as a cancel, the engine leaves nothing behind but its closing newline.
+		opened?.abandon();
+		session.restore(opened === undefined ? 0 : 1);
 		throw error;
 	} finally {
 		session.end();
 	}
 }
 
-function isOpen(engine: Prompt): boolean {
+function isOpen(engine: Engine): boolean {
 	return engine.state !== "submit" && engine.state !== "cancel";
 }
 
 /**
  * A prompt's hold on the terminal: stdin piped through the filter in raw
- * mode, the frame on screen, and the process watched for its exit and for a
- * suspend. Each listener it adds goes when it ends.
+ * mode, the frame on screen, and the process watched for its exit and, once
+ * the engine runs, for a suspend. Each listener it adds goes when it ends.
  */
 class Session {
 	readonly filter: InputFilter;
 	private readonly screen: Screen;
-	/** Draws the frame as it stands, once the first is drawn. */
-	private paint: (() => void) | undefined;
 	private readonly stops: (() => void)[] = [];
+	/** From ctrl-z to the stop it leads to: the frame stays erased. */
+	private suspended = false;
 
 	constructor(private readonly context: PromptContext) {
 		this.filter = new InputFilter(context.input);
 		this.screen = new Screen(context.output);
-		context.input.pipe(this.filter);
 		this.filter.setRawMode(true);
+		context.input.pipe(this.filter);
 		this.stops.push(
 			restoreOnExit(context.host ?? process, () => this.restore()),
 		);
-		this.followSuspend();
 	}
 
 	get streams(): PromptStreams {
 		return { input: this.filter, output: this.context.output };
 	}
 
-	/** Draws the first frame, and again after each key while `open`. */
-	show(frame: () => string[], open: () => boolean): void {
+	/** Draws the first frame, then again after each key while `engine` is open, and follows it through a suspend. */
+	show(engine: Engine, frame: () => string[]): void {
 		const paint = () => this.screen.draw(frame());
-		this.paint = paint;
 		this.context.output.write(HIDE_CURSOR);
 		paint();
 		const redraw = () => {
-			if (open()) {
+			if (isOpen(engine) && !this.suspended) {
 				paint();
 			}
 		};
 		// After the engine's own listener, so each frame shows the key's effect.
 		this.filter.on("keypress", redraw);
 		this.stops.push(() => this.filter.off("keypress", redraw));
+		this.followSuspend(engine, paint);
 	}
 
 	/** The engine closes with a newline, shows the cursor and ends raw mode: the frame goes, and the newline with it. */
@@ -135,8 +135,9 @@ class Session {
 		this.screen.erase(1);
 	}
 
-	restore(): void {
-		this.screen.erase();
+	/** Erases the frame, and `below` lines written under it, shows the cursor and ends raw mode. */
+	restore(below = 0): void {
+		this.screen.erase(below);
 		this.context.output.write(SHOW_CURSOR);
 		this.filter.setRawMode(false);
 	}
@@ -151,36 +152,59 @@ class Session {
 	}
 
 	/**
-	 * Readline suspends the process on ctrl-z, raw mode off, and on SIGCONT
-	 * pauses the filter, which nothing then resumes. So ahead of its suspend
-	 * the frame is erased and the cursor shown, for the shell; after its
-	 * SIGCONT listener, which may come after this one, the filter reads again
-	 * in raw mode and the frame is drawn afresh. Both follow readline onto the
-	 * process itself, as that's where it suspends and listens.
+	 * Readline suspends on ctrl-z by turning raw mode off and sending SIGTSTP
+	 * to node alone, and on SIGCONT pauses the filter, which nothing then
+	 * resumes. Ahead of it the frame is erased and the cursor shown, for the
+	 * shell, and kept so until the stop. Its SIGTSTP is caught and sent on to
+	 * the whole process group, as a terminal's ^Z is, so a parent such as npx
+	 * stops too and the shell sees its job stop. Once continued, and again
+	 * after readline's own SIGCONT listener, which may come after this one, the
+	 * filter reads in raw mode and the frame is drawn afresh. All of it is on
+	 * the process itself, where readline suspends and listens.
 	 */
-	private followSuspend(): void {
+	private followSuspend(engine: Engine, paint: () => void): void {
+		const resume = () => {
+			if (!isOpen(engine)) {
+				return;
+			}
+			this.suspended = false;
+			this.filter.setRawMode(true);
+			this.filter.resume();
+			this.context.output.write(HIDE_CURSOR);
+			paint();
+		};
+		const stop = () => {
+			this.suspend();
+			this.filter.setRawMode(false);
+			// With no listener, SIGTSTP stops the process as it does by default.
+			process.off("SIGTSTP", stop);
+			process.kill(0, "SIGTSTP");
+			process.on("SIGTSTP", stop);
+			resume();
+		};
 		const beforeSuspend = (_char: unknown, key: Key | undefined) => {
 			if (suspends(key)) {
-				this.screen.erase();
-				this.context.output.write(SHOW_CURSOR);
+				this.suspend();
 			}
 		};
-		const continued = () => process.nextTick(() => this.resume());
+		const continued = () => process.nextTick(resume);
 		this.filter.prependListener("keypress", beforeSuspend);
+		process.on("SIGTSTP", stop);
 		process.on("SIGCONT", continued);
 		this.stops.push(() => {
 			this.filter.off("keypress", beforeSuspend);
+			process.off("SIGTSTP", stop);
 			process.off("SIGCONT", continued);
 		});
 	}
 
-	private resume(): void {
-		this.filter.setRawMode(true);
-		this.filter.resume();
-		if (this.paint !== undefined) {
-			this.context.output.write(HIDE_CURSOR);
-			this.paint();
+	private suspend(): void {
+		if (this.suspended) {
+			return;
 		}
+		this.suspended = true;
+		this.screen.erase();
+		this.context.output.write(SHOW_CURSOR);
 	}
 }
 

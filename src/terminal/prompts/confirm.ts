@@ -1,7 +1,7 @@
-import { Prompt } from "@clack/core";
 import type { ConfirmPrompt } from "../../ui.js";
 import { indent, visibleWidth } from "../layout.js";
 import type { Style } from "../style.js";
+import { Engine } from "./engine.js";
 import { questionHead, questionLines, TEXT_AT, withHints } from "./lines.js";
 import {
 	noFrame,
@@ -87,7 +87,7 @@ function button(label: string, chosen: boolean, style: Style): string {
  * itself inside its y and n listener and is closed again after it, so this
  * one submits through the state alone and core closes it once.
  */
-class ConfirmEngine extends Prompt {
+class ConfirmEngine extends Engine {
 	constructor(initialValue: boolean, streams: PromptStreams) {
 		super({ ...streams, render: noFrame }, false);
 		this.value = initialValue;

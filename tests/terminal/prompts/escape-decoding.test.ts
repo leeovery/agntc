@@ -52,6 +52,8 @@ class Unfiltered extends PassThrough {
 	onSequence(): () => void {
 		return () => {};
 	}
+
+	release(): void {}
 }
 
 interface Prompts {
@@ -178,7 +180,10 @@ describe.each(
 		Object.entries(FOLLOWS),
 	)("answers the same with the filter and without, %s following it", async (_key, follow) => {
 		const runs = GAPS.map((gap) => ({ ask, follow, gap, closing }));
-		const without = await Promise.all(runs.map(withoutFilter));
+		const without: string[] = [];
+		for (const run of runs) {
+			without.push(await withoutFilter(run));
+		}
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 		const through: string[] = [];
 		try {

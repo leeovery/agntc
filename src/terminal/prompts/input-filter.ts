@@ -19,6 +19,10 @@ const HOLD_BYTES = 64;
 /** A byte of a colour reply's body (`11;rgb:1e1e/1e1e/1e1e`) or of a query's. */
 const REPLY_BYTE = /^[\da-fA-F;:/rg?]$/;
 
+/** Where a lone ESC's wait ran out with nothing after it: readline's escape key. */
+const ESCAPE_KEY = Symbol("escape key");
+type Delivery = string | typeof ESCAPE_KEY;
+
 interface Scan {
 	passed: string;
 	/** A last ESC, or the start of a sequence whose end is still to come. */
@@ -49,6 +53,9 @@ interface SequenceEnd {
  * rest of a reply that may still come is taken out too, up to its BEL or ST:
  * until a byte no reply holds, or another 100 ms.
  *
+ * Until released it reads all the same but delivers nothing, keeping it in
+ * order for the release: while the background is asked, no prompt reads.
+ *
  * It reads as a terminal (`isTTY`), and its raw mode is the source's while
  * it's in use, so the prompt engine sets raw mode on stdin through it.
  */
@@ -59,6 +66,9 @@ export class InputFilter extends Transform {
 	/** Whether what's read is still the rest of a sequence whose start was dropped. */
 	private inTail = false;
 	private timer: NodeJS.Timeout | undefined;
+	private released = false;
+	/** What's held back until released: text, and the escape key wherever a lone ESC's wait ran out. */
+	private readonly queue: Delivery[] = [];
 	private readonly sequenceListeners = new Set<(body: string) => void>();
 
 	constructor(private readonly source: PromptInput) {
@@ -75,6 +85,19 @@ export class InputFilter extends Transform {
 			this.source.setRawMode?.(mode);
 		}
 		return this;
+	}
+
+	/**
+	 * Lets through everything held back, in order, then each key as it comes.
+	 * The session calls it once readline reads the filter, so each push reaches
+	 * readline as it's made and the escape key, handed over at once, lands
+	 * between the text either side.
+	 */
+	release(): void {
+		this.released = true;
+		for (const item of this.queue.splice(0)) {
+			this.send(item);
+		}
 	}
 
 	/** Hears the body of each sequence taken out (`11;rgb:…`); the return stops it. */
@@ -151,7 +174,11 @@ export class InputFilter extends Transform {
 		this.wait(SEQUENCE_MS);
 	}
 
-	/** What of `text` follows a dropped sequence's rest, all of it when there's none to take out; undefined while it's all rest. */
+	/**
+	 * What of `text` follows a dropped sequence's rest, all of it when there's
+	 * none to take out; undefined while it's all rest. Once the rest ends, the
+	 * hold of what follows it ends or restarts the rest's wait.
+	 */
 	private afterTail(text: string): string | undefined {
 		if (!this.inTail) {
 			return text;
@@ -161,7 +188,6 @@ export class InputFilter extends Transform {
 			return undefined;
 		}
 		this.inTail = false;
-		this.stopWaiting();
 		return text.slice(end);
 	}
 
@@ -176,7 +202,7 @@ export class InputFilter extends Transform {
 			this.inTail = false;
 		} else if (this.held === ESC) {
 			this.held = "";
-			this.escape();
+			this.deliver(ESCAPE_KEY);
 		} else {
 			this.dropSequence();
 		}
@@ -187,14 +213,27 @@ export class InputFilter extends Transform {
 		this.timer = undefined;
 	}
 
+	private pass(text: string): void {
+		if (text !== "") {
+			this.deliver(text);
+		}
+	}
+
+	private deliver(item: Delivery): void {
+		if (this.released) {
+			this.send(item);
+		} else {
+			this.queue.push(item);
+		}
+	}
+
 	/**
-	 * The escape key, as readline reads an ESC nothing followed in time. Pushed
-	 * to a readline reading as bytes come, the ESC would start its wait over,
-	 * so it's handed over as the key readline makes of it; with nothing reading
-	 * yet, it's pushed, to be read in turn.
+	 * Text is pushed; the escape key is handed over as the key readline makes
+	 * of an ESC nothing followed in time, as a pushed ESC would start its wait
+	 * over.
 	 */
-	private escape(): void {
-		if (this.listenerCount("keypress") > 0 && this.readableFlowing === true) {
+	private send(item: Delivery): void {
+		if (item === ESCAPE_KEY) {
 			this.emit("keypress", undefined, {
 				sequence: ESC,
 				name: "escape",
@@ -203,13 +242,7 @@ export class InputFilter extends Transform {
 				shift: false,
 			});
 		} else {
-			this.pass(ESC);
-		}
-	}
-
-	private pass(text: string): void {
-		if (text !== "") {
-			this.push(Buffer.from(text, "latin1"));
+			this.push(Buffer.from(item, "latin1"));
 		}
 	}
 
