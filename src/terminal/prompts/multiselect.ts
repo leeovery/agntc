@@ -28,10 +28,14 @@ import {
 export interface MultiselectQuestion<T> extends MultiselectPrompt<T> {
 	/** The key hints on the question's line, in place of the usual ones. */
 	hints?: string;
+	/** Lines over the question, as the row it asks about, erased with it. */
+	above?: readonly string[];
 }
 
 /** A multiselect as it stands: the cursor's option, the window in view from `top`, what's picked. */
 export interface MultiselectView<T> extends ListFit {
+	/** Lines over the question; none unless given. */
+	above?: readonly string[];
 	message: string;
 	hints: string;
 	options: readonly Choice<T>[];
@@ -71,6 +75,7 @@ export async function promptMultiselect<T>(
 			renderMultiselect(
 				{
 					...fit,
+					above: question.above,
 					message: question.message,
 					hints,
 					options: question.options,
@@ -103,7 +108,7 @@ export function multiselectFit<T>(
 	return fitList(
 		{
 			lines: question.options.length,
-			asked: asked.length,
+			asked: (question.above?.length ?? 0) + asked.length,
 			footer: FOOTER_LINES,
 		},
 		rows,
@@ -122,6 +127,7 @@ export function renderMultiselect<T>(
 	);
 	const room = roomFrom(LABEL_AT, width);
 	return [
+		...(view.above ?? []),
 		...questionLines(view.message, view.hints, width, style),
 		...windowLines(
 			view.options,

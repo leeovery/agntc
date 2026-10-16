@@ -52,6 +52,22 @@ describe("testUi", () => {
 		expect(ui.said("error")).toEqual([RICH.plain]);
 	});
 
+	it("answers a block's question as the ui's own of its kind is scripted, keeping the row it's asked under", async () => {
+		const ui = testUi();
+		const block = ui.block([{ subject: "owner/repo" }]);
+		const row = { status: "done" as const, subject: "owner/repo" };
+		const prompt = {
+			message: "Pick any",
+			options: [{ value: "a", label: "a" }],
+		};
+		ui.multiselect.mockResolvedValue(["a"]);
+
+		expect(await block.multiselect(row, prompt)).toEqual(["a"]);
+		expect(block.multiselect).toHaveBeenCalledWith(row, prompt);
+		expect(ui.multiselect).toHaveBeenCalledWith(prompt);
+		expect(ui.rows()).toEqual([]);
+	});
+
 	it("rejects a prompt no test scripted", async () => {
 		const ui = testUi();
 

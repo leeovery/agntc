@@ -2,6 +2,7 @@ import {
 	comparePaths,
 	type Discovery,
 	type FoundPack,
+	type FoundSkill,
 	matchSkills,
 	type SkillMatch,
 	type StrayAssets,
@@ -13,6 +14,7 @@ import {
 	itemPath,
 	pathLabel,
 } from "./install-item.js";
+import type { Advice, SubjectMessage } from "./message.js";
 import { agntcCommand, type ScopeName } from "./scope.js";
 import { locateSource } from "./source-parser.js";
 import { formatPackCounts, joinWithAnd } from "./summary.js";
@@ -63,17 +65,33 @@ export interface MenuOption {
 }
 
 /**
+ * What the choice says of one skill, named by its label: left out, as an
+ * installed pack holds it, or taken out of its pack to install on its own.
+ */
+export interface SkillNote extends SubjectMessage {
+	/** The skill's path in the source. */
+	path: string;
+	leftOut: boolean;
+}
+
+/**
  * `install` with no items installs nothing and is not an error: everything
  * asked for is already installed in a pack, as the notes say.
  */
 export type ChoiceOutcome =
-	| { kind: "install"; items: InstallItem[]; notes: string[] }
-	| { kind: "menu"; options: MenuOption[]; notes: string[] }
+	| { kind: "install"; items: InstallItem[]; notes: SkillNote[] }
+	| { kind: "menu"; options: MenuOption[]; notes: SkillNote[] }
 	| { kind: "refuse"; message: string };
 
+/**
+ * A folder whose agents or hooks won't be installed: advice carrying the
+ * `--pack` line that would install them, or a warning where there's none.
+ */
+export type StrayNotice = string | Advice;
+
 export interface Choice {
-	/** Printed before anything else, a menu or a refusal included. */
-	strayNotices: string[];
+	/** Told before anything else, a menu or a refusal included. */
+	strayNotices: StrayNotice[];
 	outcome: ChoiceOutcome;
 }
 
@@ -128,7 +146,7 @@ export function chooseItems(
 export function strayNotices(
 	discovery: Discovery,
 	ctx: ChoiceContext,
-): string[] {
+): StrayNotice[] {
 	return discovery.strays.map((stray) =>
 		strayNotice(stray, discovery.packs, ctx),
 	);
@@ -187,7 +205,7 @@ function chooseSkills(
 	const taken = matched.filter(({ skill }) => installing.has(skill.path));
 	return install(items, [
 		...notes,
-		...taken.flatMap((match) => packedSkillNotes(match, present, ctx)),
+		...taken.flatMap((match) => takenSkillNotes(match, present, ctx)),
 	]);
 }
 
@@ -225,21 +243,44 @@ function chooseAuto(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
 function withoutPacked(
 	items: InstallItem[],
 	ctx: ChoiceContext,
-): { items: InstallItem[]; notes: string[] } {
+): { items: InstallItem[]; notes: SkillNote[] } {
 	const kept: InstallItem[] = [];
-	const notes: string[] = [];
+	const notes: SkillNote[] = [];
 	for (const item of items) {
 		const pack =
 			item.kind === "skill" ? ctx.packed?.get(item.skill.path) : undefined;
 		if (item.kind === "skill" && pack !== undefined) {
 			notes.push(
-				`${item.skill.name} is already installed as part of the pack ${pack}`,
+				skillNote(
+					item.skill,
+					`already installed as part of the pack ${pack}`,
+					true,
+					ctx,
+				),
 			);
 		} else {
 			kept.push(item);
 		}
 	}
 	return { items: kept, notes };
+}
+
+/** `<name> is <detail>`, said of the skill its label names. */
+function skillNote(
+	skill: FoundSkill,
+	detail: string,
+	leftOut: boolean,
+	ctx: ChoiceContext,
+): SkillNote {
+	const text = `${skill.name} is ${detail}`;
+	return {
+		subject: pathLabel(skill.path, ctx.rootName),
+		detail,
+		text,
+		plain: text,
+		path: skill.path,
+		leftOut,
+	};
 }
 
 /**
@@ -301,19 +342,25 @@ function strayNotice(
 	stray: StrayAssets,
 	packs: FoundPack[],
 	ctx: ChoiceContext,
-): string {
+): StrayNotice {
 	const label = pathLabel(stray.path, ctx.rootName);
-	const dirs = joinWithAnd(stray.assetDirs.map((dir) => `${dir}/`));
+	const left = `has ${joinWithAnd(stray.assetDirs.map((dir) => `${dir}/`))} that won't be installed`;
 	const held = packs.filter((pack) => isWithin(pack.path, stray.path));
 	if (held.length > 0) {
 		const paths = held.map((pack) => pack.path).join(", ");
-		return `${label} has ${dirs} that won't be installed — it contains packs (${paths}), so --pack can't bundle it`;
+		return `${label} ${left} — it contains packs (${paths}), so --pack can't bundle it`;
 	}
 	const command = agntcCommand(ctx.scope, "add", [
 		locateSource(ctx.source, stray.path, ctx.version),
 		"--pack",
 	]);
-	return `${label} has ${dirs} that won't be installed — to install them as a pack: ${command}`;
+	return {
+		subject: label,
+		detail: `${left}.`,
+		text: `${label} ${left}.`,
+		remedy: { lead: "To install them as a pack:", steps: [{ command }] },
+		plain: `${label} ${left} — to install them as a pack: ${command}`,
+	};
 }
 
 /** Whether `path` is below `folder`, both relative to the source root. */
@@ -326,17 +373,18 @@ function isWithin(path: string, folder: string): boolean {
  * pack holds that isn't `present` (installed already, or alongside it), its
  * support folders included.
  */
-function packedSkillNotes(
+function takenSkillNotes(
 	{ skill, pack }: SkillMatch,
 	present: Set<string>,
 	ctx: ChoiceContext,
-): string[] {
+): SkillNote[] {
 	if (pack === undefined) {
 		return [];
 	}
-	const note = `${skill.name} is part of the pack ${pathLabel(pack.path, ctx.rootName)} — installed on its own`;
+	const taken = `part of the pack ${pathLabel(pack.path, ctx.rootName)} — installed on its own`;
 	const leftOut = leftOutOf(pack, present);
-	return [leftOut === "" ? note : `${note}, without ${leftOut}`];
+	const detail = leftOut === "" ? taken : `${taken}, without ${leftOut}`;
+	return [skillNote(skill, detail, false, ctx)];
 }
 
 function leftOutOf(pack: FoundPack, present: Set<string>): string {
@@ -369,7 +417,7 @@ function quote(name: string): string {
 	return `"${name}"`;
 }
 
-function install(items: InstallItem[], notes: string[] = []): ChoiceOutcome {
+function install(items: InstallItem[], notes: SkillNote[] = []): ChoiceOutcome {
 	return { kind: "install", items, notes };
 }
 

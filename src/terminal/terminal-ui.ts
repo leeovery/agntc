@@ -118,7 +118,7 @@ export class TerminalUi implements Ui {
 		this.print([...renderHeader(header, this.width(), this.style), ""]);
 	}
 
-	/** A block after other lines opens a blank line below them, as it first draws. */
+	/** A block after other lines opens a blank line below them, as it first draws or asks. */
 	block(subjects: readonly BlockSubject[]): Block {
 		const width = this.width();
 		const layout = blockLayout(subjects, width);
@@ -144,6 +144,15 @@ export class TerminalUi implements Ui {
 					settle: (row) => spinning.settle(rowLines(row)),
 					clear: () => spinning.clear(),
 				};
+			},
+			multiselect: (row, prompt) => {
+				open();
+				return this.ask((context) =>
+					promptMultiselect(
+						{ ...prompt, above: [...rowLines(row), ""] },
+						context,
+					),
+				);
 			},
 		};
 	}

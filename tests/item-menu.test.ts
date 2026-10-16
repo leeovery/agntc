@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { MenuOption } from "../src/choose-items.js";
 import { promptForItems } from "../src/item-menu.js";
-import { type TestUi, testUi } from "./helpers/test-ui.js";
+import type { Row } from "../src/terminal/types.js";
+import { type TestBlock, type TestUi, testUi } from "./helpers/test-ui.js";
 
 let ui: TestUi;
+let block: TestBlock;
+
+const SOURCE: Row = {
+	status: "done",
+	subject: "owner/repo",
+	meta: "HEAD",
+	detail: "1 pack · 1 skill",
+};
 
 const OPTIONS: MenuOption[] = [
 	{
@@ -25,15 +34,16 @@ const OPTIONS: MenuOption[] = [
 
 beforeEach(() => {
 	ui = testUi();
+	block = ui.block([SOURCE]);
 });
 
 describe("promptForItems", () => {
-	it("offers every option with its label and hint, nothing preselected and none required", async () => {
+	it("asks under the source's row, offering every option with its label and hint, nothing preselected and none required", async () => {
 		ui.multiselect.mockResolvedValue([]);
 
-		await promptForItems(OPTIONS, ui);
+		await promptForItems(OPTIONS, SOURCE, block);
 
-		expect(ui.multiselect).toHaveBeenCalledWith({
+		expect(block.multiselect).toHaveBeenCalledWith(SOURCE, {
 			message: "Select what to install",
 			options: [
 				{ value: 0, label: "p", hint: "pack · 0 skills" },
@@ -46,12 +56,14 @@ describe("promptForItems", () => {
 	it("returns the picked items", async () => {
 		ui.multiselect.mockResolvedValue([1]);
 
-		expect(await promptForItems(OPTIONS, ui)).toEqual([OPTIONS[1]!.value]);
+		expect(await promptForItems(OPTIONS, SOURCE, block)).toEqual([
+			OPTIONS[1]!.value,
+		]);
 	});
 
 	it("returns nothing when the menu is dismissed (an empty pick)", async () => {
 		ui.multiselect.mockResolvedValue([]);
 
-		expect(await promptForItems(OPTIONS, ui)).toEqual([]);
+		expect(await promptForItems(OPTIONS, SOURCE, block)).toEqual([]);
 	});
 });

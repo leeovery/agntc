@@ -81,6 +81,11 @@ export interface Block {
 	row(row: Row): void;
 	/** A row that spins, saying what it's doing, until it settles or clears. */
 	task(progress: Progress): BlockTask;
+	/**
+	 * Asks about `row`, drawn over the question and erased with it, so what
+	 * follows reports the outcome in its place. Resolves empty when cancelled.
+	 */
+	multiselect<T>(row: Row, prompt: MultiselectPrompt<T>): Promise<T[]>;
 }
 
 /** A step running in a block. A warning or note raised meanwhile prints under the row it settles into. */
@@ -210,10 +215,6 @@ export type MachineDocument = {
 
 const ignore = (): void => {};
 const silentSpinner: Spinner = { start: ignore, stop: ignore };
-const silentBlock: Block = {
-	row: ignore,
-	task: () => ({ settle: ignore, clear: ignore }),
-};
 
 export class MachineUi implements Ui {
 	readonly mode = "machine";
@@ -250,8 +251,13 @@ export class MachineUi implements Ui {
 	cancel = ignore;
 	box = ignore;
 
+	/** Draws nothing; asking about a row fails as any prompt does. */
 	block(): Block {
-		return silentBlock;
+		return {
+			row: ignore,
+			task: () => ({ settle: ignore, clear: ignore }),
+			multiselect: (_row, prompt) => this.multiselect(prompt),
+		};
 	}
 
 	spinner(): Spinner {

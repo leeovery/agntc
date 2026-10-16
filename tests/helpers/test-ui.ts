@@ -21,15 +21,21 @@ export interface TestTask extends BlockTask {
 	clear: Mock<BlockTask["clear"]>;
 }
 
+/** A generic prompt keeps its signature, which a `Mock` alone would erase. */
+type Prompt<F extends Ui["select"] | Ui["multiselect"] | Block["multiselect"]> =
+	F & Mock<F>;
+
+/**
+ * A block's own question is answered as the Ui's prompt of its kind is
+ * scripted, so a test scripts every question alike.
+ */
 export interface TestBlock extends Block {
 	row: Mock<Block["row"]>;
 	task: Mock<(progress: Progress) => TestTask>;
+	multiselect: Prompt<Block["multiselect"]>;
 	/** Every task `task()` started, in the order it started them. */
 	readonly tasks: TestTask[];
 }
-
-/** A generic prompt keeps its signature, which a `Mock` alone would erase. */
-type Prompt<F extends Ui["select"] | Ui["multiselect"]> = F & Mock<F>;
 
 /** A line of output as a terminal shows it, whichever `Ui` call drew it. */
 export type Channel =
@@ -139,7 +145,7 @@ function drawnRows(blocks: readonly TestBlock[]): Row[] {
 	return drawn.sort(([a], [b]) => a - b).map(([, drawnRow]) => drawnRow);
 }
 
-function testBlock(): TestBlock {
+function testBlock(ui: Ui): TestBlock {
 	const tasks: TestTask[] = [];
 	return {
 		row: vi.fn(),
@@ -148,6 +154,9 @@ function testBlock(): TestBlock {
 			tasks.push(task);
 			return task;
 		}),
+		multiselect: vi.fn((_row, prompt) => ui.multiselect(prompt)) as Prompt<
+			Block["multiselect"]
+		>,
 		tasks,
 	};
 }
@@ -159,7 +168,7 @@ export function testUi(): TestUi {
 		mode: "interactive",
 		header: vi.fn(),
 		block: vi.fn(() => {
-			const block = testBlock();
+			const block = testBlock(ui);
 			blocks.push(block);
 			return block;
 		}),

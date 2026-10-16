@@ -1,5 +1,5 @@
 import type { AssetCounts } from "./asset-targets.js";
-import type { Advice, WordedRemedy } from "./message.js";
+import type { Advice, SubjectMessage, WordedRemedy } from "./message.js";
 import { formatVersionMove } from "./version-resolve.js";
 
 export function pluralize(count: number, singular: string): string {
@@ -51,63 +51,19 @@ export interface ItemIdentity {
 
 /**
  * What became of one item `add` set out to install. A skipped item carrying
- * `flags` was stopped for want of them, with no terminal to ask.
+ * `flags` was stopped for want of them, with no terminal to ask. One carrying
+ * a `message` says its `reason` with a remedy apart, the reason its `plain`.
  */
 export type ItemOutcome = ItemIdentity &
 	(
 		| { status: "installed"; assetCounts: AssetCounts; files: string[] }
-		| { status: "skipped" | "failed"; reason: string; flags?: string[] }
+		| {
+				status: "skipped" | "failed";
+				reason: string;
+				flags?: string[];
+				message?: SubjectMessage;
+		  }
 	);
-
-interface AddSummaryInput {
-	sourceKey: string;
-	ref: string | null;
-	commit: string | null;
-	outcomes: ItemOutcome[];
-}
-
-/**
- * An add summary: one line per item, grouped by how it ended, plus the
- * `headline` for the closing outro.
- */
-export interface AddSummary {
-	headline: string;
-	installed: string[];
-	skipped: string[];
-	failed: string[];
-}
-
-export function renderAddSummary(input: AddSummaryInput): AddSummary {
-	const summary: AddSummary = {
-		headline: "",
-		installed: [],
-		skipped: [],
-		failed: [],
-	};
-	for (const outcome of input.outcomes) {
-		if (outcome.status === "installed") {
-			summary.installed.push(installedLine(outcome));
-		} else {
-			summary[outcome.status].push(
-				`${outcome.label}: ${outcome.status} — ${outcome.reason}`,
-			);
-		}
-	}
-	summary.headline =
-		summary.installed.length > 0
-			? `Installed ${input.sourceKey}@${formatRefLabel(input.ref, input.commit)}`
-			: `Nothing installed from ${input.sourceKey}`;
-	return summary;
-}
-
-function installedLine(
-	outcome: Extract<ItemOutcome, { status: "installed" }>,
-): string {
-	if (outcome.kind === "skill") {
-		return outcome.label;
-	}
-	return `${outcome.label} (pack · ${formatPackCounts(outcome.assetCounts)})`;
-}
 
 type UpdateOutcomeInput =
 	| {

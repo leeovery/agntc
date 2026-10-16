@@ -29,7 +29,8 @@ src/
   frontmatter.ts            # SKILL.md frontmatter read (name, description); display + --skill matching only
   config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`; declaresPack (`pack` or legacy `plugin`)
   choose-items.ts           # Flags -> Selection; chooseItems decides install / menu / refuse; stray notices; --list lines
-  item-menu.ts              # The add multiselect
+  item-menu.ts              # The add multiselect, asked under the source's row
+  add-render.ts             # add's rows: the source (key, ref and constraint, what it holds) with its items beneath, as listed, asked about or installed; add's tally
   install-item.ts           # InstallItem (skill | pack); keyItem, the one key rule add and update share; keyItems refuses an item's own target clashes, then target and key clashes between items
   asset-targets.ts          # Claude asset routing (.claude/skills|agents|hooks), skillTarget; skillFolderName (the <name> of any path in .claude/skills/<name>/); hookEntryName (the top-level .claude/hooks/ entry a path is or lies in); isSafeSegment
   copy-item.ts              # Copy dispatch: skill vs pack; copyUnits (the folders a copy plans, each with its filter); checkItemLinks, the symlink-escape pre-flight over those units
@@ -60,7 +61,7 @@ src/
   update-render.ts          # All-mode update output: group label, header, per-member/collapsed lines, tag-vs-hash move (re-exports formatVersionMove)
   version-resolve.ts        # Semver tag resolution (resolveVersion, resolveLatestVersion, newestTag); tag-vs-hash rule (isVersionTag, formatVersionMove)
   version.ts                # CLI version from package.json at runtime
-  summary.ts                # Format add/remove/update summaries; actionable out-of-constraint footer
+  summary.ts                # Counts and labels (pack counts, ref label); add's item outcomes; remove/update summaries; actionable out-of-constraint footer
 ```
 
 ## Key Types

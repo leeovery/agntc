@@ -180,6 +180,16 @@ describe("MachineUi", () => {
 			(ui: Ui) => ui.multiselect({ message: "Pick one", options: OPTIONS }),
 		],
 		["confirm", (ui: Ui) => ui.confirm({ message: "Pick one" })],
+		[
+			"block's multiselect",
+			(ui: Ui) =>
+				ui
+					.block([{ subject: "owner/repo" }])
+					.multiselect(
+						{ status: "done", subject: "owner/repo" },
+						{ message: "Pick one", options: OPTIONS },
+					),
+		],
 	])("refuses a %s instead of waiting", async (_, ask) => {
 		const ui = new MachineUi("add", "project");
 

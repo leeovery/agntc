@@ -259,6 +259,33 @@ describe("promptMultiselect", () => {
 		expect(await terminal.lines()).toEqual(["before"]);
 	});
 
+	it("draws the lines it's given over its question, counts them in its fit, and erases them with it", async () => {
+		const terminal = new Terminal(80, 9);
+		terminal.output.write("before\n");
+		const answer = promptMultiselect(
+			{
+				message: "What to install",
+				options: OPTIONS,
+				above: [" ✓ owner/repo   HEAD", ""],
+			},
+			terminal.context(),
+		);
+		await terminal.press(KEY.down, KEY.down, KEY.space);
+		expect((await terminal.lines()).slice(1)).toEqual([
+			" ✓ owner/repo   HEAD",
+			"",
+			` ? What to install${gap(11)}${HINTS}`,
+			"   ↑ 2 more",
+			" ▌ ● python          pack · 11 skills",
+			"   ↓ 2 more",
+			"",
+			`${gap(66)}1 of 5 picked`,
+		]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toEqual(["python"]);
+		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
 	it("picks and unpicks the cursor's option with space", async () => {
 		const terminal = new Terminal(80);
 		const answer = ask(terminal);

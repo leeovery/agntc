@@ -178,7 +178,8 @@ describe("integration: add and update", () => {
 				cloneUrl: "https://github.com/avdlee/swift-skill.git",
 			}),
 		});
-		expect(ui.said("warn")).toEqual([]);
+		expect(ui.warn).not.toHaveBeenCalled();
+		expect(ui.next).not.toHaveBeenCalled();
 	});
 
 	describe("a v1-style plugin root", () => {
@@ -195,12 +196,27 @@ describe("integration: add and update", () => {
 
 			await runAdd("owner/v1-plugin", {}, ui);
 
-			expect(ui.said("warn")).toEqual([
-				"v1-plugin has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/v1-plugin --pack",
+			expect(ui.next.mock.calls).toEqual([
+				[
+					{
+						subject: "v1-plugin",
+						remedy: {
+							lead: "has agents/ and hooks/ that won't be installed. To install them as a pack:",
+							steps: [{ command: "npx agntc add owner/v1-plugin --pack" }],
+						},
+					},
+				],
 			]);
-			expect(ui.saidOrders("warn")[0]).toBeLessThan(
-				ui.multiselect.mock.invocationCallOrder[0]!,
-			);
+			expect(ui.warn.mock.calls).toEqual([
+				[
+					{
+						text: "",
+						plain:
+							"v1-plugin has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/v1-plugin --pack",
+					},
+				],
+			]);
+			expect(ui.next).toHaveBeenCalledBefore(ui.multiselect);
 			const manifest = await savedManifest();
 			expect(Object.keys(manifest)).toEqual([
 				"owner/v1-plugin/a",
@@ -380,6 +396,7 @@ describe("integration: add and update", () => {
 			await runAdd("owner/repo", { skill: SKILLS }, ui);
 			await publish("v2");
 			mockCloneSource.mockClear();
+			ui = testUi();
 		});
 
 		it("update owner/repo clones the repo once and updates every skill", async () => {
@@ -690,9 +707,20 @@ describe("integration: add and update", () => {
 					],
 				}),
 			});
-			expect(ui.log.success).toHaveBeenCalledWith(
-				"agentic-workflows (pack · 2 skills, 2 folders, 1 agent)",
-			);
+			expect(ui.rows()).toEqual([
+				{
+					status: "done",
+					subject: KEY,
+					meta: "HEAD",
+					detail: "1 pack",
+					children: [
+						{
+							name: "agentic-workflows",
+							detail: "pack · 2 skills, 2 folders, 1 agent",
+						},
+					],
+				},
+			]);
 		});
 
 		it("update replaces each support folder whole, bringing in a new one", async () => {
@@ -1035,6 +1063,7 @@ describe("integration: add and update", () => {
 				"laravel/skills/models/SKILL.md": "v2",
 				"skills/jobs/SKILL.md": "v1",
 			});
+			ui = testUi();
 
 			await runAdd("owner/repo/laravel", {}, ui);
 
@@ -1053,9 +1082,11 @@ describe("integration: add and update", () => {
 					"utf-8",
 				),
 			).toBe("v2");
-			expect(ui.said("info")).toEqual([
-				"owner/repo/laravel now includes api, installed on its own before",
+			expect(ui.note.mock.calls).toEqual([
+				["owner/repo/laravel now includes api, installed on its own before"],
 			]);
+			const [copying] = ui.blocks[1]!.tasks;
+			expect(ui.note).toHaveBeenCalledBefore(copying!.settle);
 			expect(ui.select).not.toHaveBeenCalled();
 			expect(ui.confirm).not.toHaveBeenCalled();
 		});
@@ -1067,6 +1098,7 @@ describe("integration: add and update", () => {
 				"skills/other/SKILL.md": "",
 			});
 			await runAdd("owner/repo/laravel", {}, ui);
+			ui = testUi();
 
 			const err = await runAdd(
 				"owner/repo",
@@ -1079,13 +1111,33 @@ describe("integration: add and update", () => {
 				"owner/repo/laravel",
 				"owner/repo/other",
 			]);
-			expect(ui.said("info")).toEqual([
-				"api is already installed as part of the pack owner/repo/laravel",
+			expect(ui.note.mock.calls).toEqual([
+				[
+					{
+						text: "",
+						plain:
+							"api is already installed as part of the pack owner/repo/laravel",
+					},
+				],
 			]);
-			expect(ui.said("info")).not.toContainEqual(
-				expect.stringContaining("installed on its own"),
-			);
-			expect(ui.said("error")).toEqual([]);
+			expect(ui.rows()).toEqual([
+				{
+					status: "done",
+					subject: "owner/repo",
+					meta: "HEAD",
+					detail: "1 pack · 1 skill",
+					children: [
+						{ name: "skills/other", status: "done", detail: "skill" },
+						{
+							name: "laravel/skills/api",
+							status: "note",
+							detail:
+								"already installed as part of the pack owner/repo/laravel",
+						},
+					],
+				},
+			]);
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 
 		describe("with a support folder named like a loose skill", () => {
@@ -1145,6 +1197,7 @@ describe("integration: add and update", () => {
 				await runAdd("owner/repo", { skill: ["shared"] }, ui);
 				const before = await savedManifest();
 				await repo("owner/repo", WITH_SHARED);
+				ui = testUi();
 
 				expect(await updateError("owner/repo/laravel")).toBeInstanceOf(
 					ExitSignal,
@@ -1176,6 +1229,7 @@ describe("integration: add and update", () => {
 					...LARAVEL,
 					"laravel/skills/shared/SKILL.md": "the pack's",
 				});
+				ui = testUi();
 
 				await runUpdate("owner/repo/laravel", {}, ui);
 
