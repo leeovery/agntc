@@ -1,8 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BACKGROUND_QUERY } from "../../../src/terminal/prompts/background.js";
 import { createStyle } from "../../../src/terminal/style.js";
-import { KEY, Terminal } from "./terminal.js";
+import { KEY, Terminal, tick } from "./terminal.js";
 
 // The background is asked once per process, so each test loads the prompts
 // afresh, as a new process would.
@@ -124,21 +124,65 @@ describe("the background", () => {
 		expect(await answer).toEqual(["nuxt"]);
 	});
 
-	it.each([
-		["a key", KEY.down, "nuxt"],
-		["esc", KEY.escape, null],
-	])("keeps %s pressed while it's asked, for the prompt to read once open", async (_what, key, answered) => {
+	it("reads a key pressed while it's asked, the first frame showing it", async () => {
 		const { promptSelect } = await freshPrompts();
 		const terminal = terminalAnswering();
 		const answer = promptSelect(
 			{ message: "Pick", options: CHOICES },
 			terminal.context(truecolor),
 		);
-		await terminal.press(key);
+		await terminal.press(KEY.down);
 		await givenUp();
-		await sleep(60);
+		expect((await terminal.lines())[2]).toBe(" ▌ nuxt");
 		await terminal.press(KEY.enter);
-		expect(await answer).toBe(answered);
+		expect(await answer).toBe("nuxt");
+	});
+
+	describe("on a fake clock", () => {
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		});
+
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		const elapse = async (ms: number) => {
+			vi.advanceTimersByTime(ms);
+			await tick();
+		};
+
+		it("reads an esc pressed while it's asked as the escape key, not the start of the key after it", async () => {
+			const { promptSelect } = await freshPrompts();
+			const terminal = terminalAnswering();
+			const answer = promptSelect(
+				{ message: "Pick", options: CHOICES },
+				terminal.context(createStyle(2)),
+			);
+			await elapse(10);
+			await terminal.press(KEY.escape);
+			await elapse(90);
+			await terminal.press("j");
+			await elapse(300);
+			await terminal.press(KEY.enter);
+			expect(await answer).toBeNull();
+		});
+
+		it("draws nothing when answered while it's asked, the cursor left where it began", async () => {
+			const { promptSelect } = await freshPrompts();
+			const terminal = terminalAnswering();
+			const answer = promptSelect(
+				{ message: "Pick", options: CHOICES },
+				terminal.context(truecolor),
+			);
+			await terminal.press(KEY.escape);
+			await elapse(50);
+			await elapse(100);
+			expect(await answer).toBeNull();
+			expect(terminal.output.text).toBe(
+				`${BACKGROUND_QUERY}\n\x1b[?25h\r\x1b[1A\x1b[J`,
+			);
+		});
 	});
 
 	it("isn't asked for below 256 colours, and nothing is banded", async () => {

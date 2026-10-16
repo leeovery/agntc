@@ -242,14 +242,19 @@ describe("InputFilter", () => {
 			expect(read()).toBe("a");
 		});
 
-		it("drops a sequence's start as soon as it grows past 64 bytes, then the rest of its reply", async () => {
-			const { filter, read } = filtering();
-			await send(filter, `\x1b]${"x".repeat(62)}`);
-			await send(filter, "y");
-			expect(read()).toBe("");
-			await send(filter, "1e1e\x07j");
-			expect(read()).toBe("j");
+		it("drops a sequence's start as soon as it grows past 64 bytes, a key no reply holds passing straight after", async () => {
+			const { filter, read, bodies } = filtering();
+			await send(filter, `\x1b]${"x".repeat(62)}`, "y", "k", "\x07");
+			expect(read()).toBe("k\x07");
+			expect(bodies).toEqual([]);
 			expect(vi.getTimerCount()).toBe(0);
+		});
+
+		it("takes out the rest of a reply whose start grew past 64 bytes", async () => {
+			const { filter, read, bodies } = filtering();
+			await send(filter, `\x1b]${"x".repeat(62)}`, "y", "1e1e\x07j");
+			expect(read()).toBe("j");
+			expect(bodies).toEqual([]);
 		});
 
 		it("clears its wait and lets nothing through once destroyed", async () => {
@@ -282,6 +287,16 @@ describe("InputFilter", () => {
 		expect(filter.isRaw).toBe(true);
 		filter.setRawMode(false);
 		expect(filter.isRaw).toBe(false);
+	});
+
+	it("leaves the source's raw mode be once destroyed", () => {
+		const { source, filter } = filtering();
+		filter.setRawMode(true);
+		filter.setRawMode(false);
+		filter.destroy();
+		filter.setRawMode(true);
+		expect(source.rawModes).toEqual([true, false]);
+		expect(source.isRaw).toBe(false);
 	});
 
 	it("stops reporting to a listener that stopped", async () => {

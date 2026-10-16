@@ -19,6 +19,13 @@ const HOLD_BYTES = 64;
 /** A byte of a colour reply's body (`11;rgb:1e1e/1e1e/1e1e`) or of a query's. */
 const REPLY_BYTE = /^[\da-fA-F;:/rg?]$/;
 
+interface Scan {
+	passed: string;
+	/** A last ESC, or the start of a sequence whose end is still to come. */
+	held: string;
+	bodies: string[];
+}
+
 interface SequenceEnd {
 	/** Where the sequence's body stops. */
 	body: number;
@@ -42,8 +49,8 @@ interface SequenceEnd {
  * rest of a reply that may still come is taken out too, up to its BEL or ST:
  * until a byte no reply holds, or another 100 ms.
  *
- * It reads as a terminal (`isTTY`), and its raw mode is the source's, so the
- * prompt engine sets raw mode on stdin through it.
+ * It reads as a terminal (`isTTY`), and its raw mode is the source's while
+ * it's in use, so the prompt engine sets raw mode on stdin through it.
  */
 export class InputFilter extends Transform {
 	readonly isTTY = true;
@@ -62,8 +69,11 @@ export class InputFilter extends Transform {
 		return this.source.isRaw === true;
 	}
 
+	/** Once destroyed, a late call (readline's own, on a SIGCONT after its prompt) leaves stdin be. */
 	setRawMode(mode: boolean): this {
-		this.source.setRawMode?.(mode);
+		if (!this.destroyed) {
+			this.source.setRawMode?.(mode);
+		}
 		return this;
 	}
 
@@ -114,30 +124,12 @@ export class InputFilter extends Transform {
 		}
 		const previous = this.held;
 		const text = previous + after;
-		let passed = "";
-		let held = "";
-		let at = 0;
-		while (at < text.length) {
-			const start = text.indexOf(OSC_START, at);
-			if (start === -1) {
-				const rest = text.slice(at);
-				held = rest.endsWith(ESC) ? ESC : "";
-				passed += rest.slice(0, rest.length - held.length);
-				break;
-			}
-			passed += text.slice(at, start);
-			const end = sequenceEnd(text, start + OSC_START.length);
-			if (end === undefined) {
-				held = text.slice(start);
-				break;
-			}
-			if (end.complete) {
-				this.report(text.slice(start + OSC_START.length, end.body));
-			}
-			at = end.next;
+		const { passed, held, bodies } = scan(text);
+		for (const body of bodies) {
+			this.report(body);
 		}
 		this.pass(passed);
-		this.hold(held, previous.length > 1 && held === text);
+		this.hold(held, previous.startsWith(OSC_START) && held === text);
 	}
 
 	/** Holds what may open a sequence; its wait starts afresh unless it carries on the sequence already held. */
@@ -199,14 +191,10 @@ export class InputFilter extends Transform {
 	 * The escape key, as readline reads an ESC nothing followed in time. Pushed
 	 * to a readline reading as bytes come, the ESC would start its wait over,
 	 * so it's handed over as the key readline makes of it; with nothing reading
-	 * yet, or reads waiting ahead of it, it's pushed, to be read in turn.
+	 * yet, it's pushed, to be read in turn.
 	 */
 	private escape(): void {
-		if (
-			this.listenerCount("keypress") > 0 &&
-			this.readableFlowing === true &&
-			this.readableLength === 0
-		) {
+		if (this.listenerCount("keypress") > 0 && this.readableFlowing === true) {
 			this.emit("keypress", undefined, {
 				sequence: ESC,
 				name: "escape",
@@ -230,6 +218,32 @@ export class InputFilter extends Transform {
 			listener(body);
 		}
 	}
+}
+
+/** `text` read for its sequences: what passes as keys, what's held for what follows, and each body taken out. */
+function scan(text: string): Scan {
+	const bodies: string[] = [];
+	let passed = "";
+	let at = 0;
+	while (at < text.length) {
+		const start = text.indexOf(OSC_START, at);
+		if (start === -1) {
+			const rest = text.slice(at);
+			const held = rest.endsWith(ESC) ? ESC : "";
+			passed += rest.slice(0, rest.length - held.length);
+			return { passed, held, bodies };
+		}
+		passed += text.slice(at, start);
+		const end = sequenceEnd(text, start + OSC_START.length);
+		if (end === undefined) {
+			return { passed, held: text.slice(start), bodies };
+		}
+		if (end.complete) {
+			bodies.push(text.slice(start + OSC_START.length, end.body));
+		}
+		at = end.next;
+	}
+	return { passed, held: "", bodies };
 }
 
 /** Where a sequence whose body starts at `from` ends; undefined while its end is still to come. */

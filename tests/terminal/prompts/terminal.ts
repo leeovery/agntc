@@ -106,7 +106,11 @@ export class Terminal {
 		};
 	}
 
+	/** Writes each key in turn, a tick after each for it to reach the prompt; with none, waits a tick. */
 	async press(...keys: string[]): Promise<void> {
+		if (keys.length === 0) {
+			await tick();
+		}
 		for (const key of keys) {
 			this.input.write(key);
 			await tick();
