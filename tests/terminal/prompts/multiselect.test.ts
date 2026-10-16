@@ -41,6 +41,8 @@ function view(
 		cursor: 2,
 		top: 0,
 		size: 10,
+		more: true,
+		footer: 2,
 		picked: [0, 3],
 		warning: "",
 		...more,
@@ -128,6 +130,20 @@ describe("renderMultiselect", () => {
 			"",
 			`${gap(66)}2 of 5 picked`,
 		]);
+	});
+
+	it("leaves out the more lines, and the footer's lines from its first, that its fit has no room for", () => {
+		const scrolled = { cursor: 3, top: 3, size: 1, more: false };
+		const row = " ▌ ● git-hygiene     Keep commits small and messages honest";
+		expect(
+			renderMultiselect(view({ ...scrolled, footer: 2 }), 80, plain).slice(1),
+		).toEqual([row, "", `${gap(66)}2 of 5 picked`]);
+		expect(
+			renderMultiselect(view({ ...scrolled, footer: 1 }), 80, plain).slice(1),
+		).toEqual([row, `${gap(66)}2 of 5 picked`]);
+		expect(
+			renderMultiselect(view({ ...scrolled, footer: 0 }), 80, plain).slice(1),
+		).toEqual([row]);
 	});
 
 	describe("in colour", () => {

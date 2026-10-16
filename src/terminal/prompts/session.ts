@@ -47,7 +47,8 @@ export const noFrame = (): undefined => undefined;
  * while it runs, raw mode on from the background query to the answer. Each
  * keypress redraws `frame` in place, and the answer erases it whole,
  * leaving the cursor where its first line began. Resolves with the engine
- * once it's submitted or cancelled.
+ * once it's submitted or cancelled; a throw on the way restores the terminal
+ * as an exit does.
  */
 export async function runPrompt<E extends Prompt>(
 	context: PromptContext,
@@ -59,11 +60,12 @@ export async function runPrompt<E extends Prompt>(
 	const screen = new Screen(output);
 	input.pipe(filter);
 	filter.setRawMode(true);
-	const stopWatching = restoreOnExit(context.host ?? process, () => {
+	const restore = () => {
 		screen.erase();
 		output.write(SHOW_CURSOR);
 		filter.setRawMode(false);
-	});
+	};
+	const stopWatching = restoreOnExit(context.host ?? process, restore);
 	try {
 		const background =
 			context.background ??
@@ -81,12 +83,14 @@ export async function runPrompt<E extends Prompt>(
 			}
 		});
 		await answered;
-		// The engine closes with a newline and shows the cursor.
+		// The engine closes with a newline, shows the cursor and ends raw mode.
 		screen.erase(1);
 		return engine;
+	} catch (error) {
+		restore();
+		throw error;
 	} finally {
 		stopWatching();
-		filter.setRawMode(false);
 		input.unpipe(filter);
 		input.pause();
 		filter.destroy();

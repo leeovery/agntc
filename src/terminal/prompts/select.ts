@@ -12,7 +12,7 @@ import {
 	windowLines,
 } from "./lines.js";
 import { ListEngine } from "./list-engine.js";
-import { windowSize } from "./list-window.js";
+import { fitList, type ListWindow } from "./list-window.js";
 import {
 	type PromptContext,
 	type PromptStreams,
@@ -28,14 +28,13 @@ export interface SelectQuestion<T> extends Omit<SelectPrompt<T>, "options"> {
 	hints?: string;
 }
 
-/** A select as it stands: the cursor's option, and the window of lines in view. */
-export interface SelectView<T> {
+/** A select as it stands: the cursor's option, and the window of lines in view from `top`. */
+export interface SelectView<T> extends ListWindow {
 	message: string;
 	hints: string;
 	options: readonly SelectOption<T>[];
 	cursor: number;
 	top: number;
-	size: number;
 }
 
 export const SELECT_HINTS = listHints("⏎ choose");
@@ -49,19 +48,19 @@ export async function promptSelect<T>(
 ): Promise<T | null> {
 	const { width, style } = context;
 	const hints = question.hints ?? SELECT_HINTS;
-	const size = selectWindowSize(question, context.output.rows, width, style);
+	const window = selectWindow(question, context.output.rows, width, style);
 	const engine = await runPrompt(
 		context,
-		(streams) => new SelectEngine(question.options, size, streams),
+		(streams) => new SelectEngine(question.options, window.size, streams),
 		(engine, band) =>
 			renderSelect(
 				{
+					...window,
 					message: question.message,
 					hints,
 					options: question.options,
 					cursor: engine.cursor,
 					top: engine.top,
-					size,
 				},
 				width,
 				style,
@@ -71,20 +70,28 @@ export async function promptSelect<T>(
 	return engine.answer;
 }
 
-/** The lines of options a select shows at once on a screen of `rows`. */
-export function selectWindowSize<T>(
+/** The lines of options a select shows at once on a screen of `rows`, and whether its more lines show. */
+export function selectWindow<T>(
 	question: SelectQuestion<T>,
 	rows: number | undefined,
 	width: number,
 	style: Style,
-): number {
+): ListWindow {
 	const asked = questionLines(
 		question.message,
 		question.hints ?? SELECT_HINTS,
 		width,
 		style,
 	);
-	return windowSize(question.maxItems, rows, asked.length);
+	const { size, more } = fitList(
+		{
+			lines: question.options.length,
+			maxItems: question.maxItems,
+			asked: asked.length,
+		},
+		rows,
+	);
+	return { size, more };
 }
 
 export function renderSelect<T>(
@@ -108,7 +115,7 @@ export function renderSelect<T>(
 		...windowLines(
 			view.options,
 			view.top,
-			view.size,
+			view,
 			isChoice,
 			(option, index) => {
 				if (!isChoice(option)) {

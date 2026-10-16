@@ -18,7 +18,7 @@ import {
 	windowLines,
 } from "./lines.js";
 import { ListEngine } from "./list-engine.js";
-import { windowSize } from "./list-window.js";
+import { fitList, type ListFit } from "./list-window.js";
 import {
 	type PromptContext,
 	type PromptStreams,
@@ -30,14 +30,13 @@ export interface MultiselectQuestion<T> extends MultiselectPrompt<T> {
 	hints?: string;
 }
 
-/** A multiselect as it stands: the cursor's option, the window in view, what's picked. */
-export interface MultiselectView<T> {
+/** A multiselect as it stands: the cursor's option, the window in view from `top`, what's picked. */
+export interface MultiselectView<T> extends ListFit {
 	message: string;
 	hints: string;
 	options: readonly Choice<T>[];
 	cursor: number;
 	top: number;
-	size: number;
 	/** The picked options' indexes. */
 	picked: readonly number[];
 	/** Why enter didn't submit, until something is picked; empty otherwise. */
@@ -58,30 +57,25 @@ export async function promptMultiselect<T>(
 ): Promise<T[]> {
 	const { width, style } = context;
 	const hints = question.hints ?? MULTISELECT_HINTS;
-	const size = multiselectWindowSize(
-		question,
-		context.output.rows,
-		width,
-		style,
-	);
+	const fit = multiselectFit(question, context.output.rows, width, style);
 	const engine = await runPrompt(
 		context,
 		(streams) =>
 			new MultiselectEngine(
 				question.options,
 				question.required === true,
-				size,
+				fit.size,
 				streams,
 			),
 		(engine, band) =>
 			renderMultiselect(
 				{
+					...fit,
 					message: question.message,
 					hints,
 					options: question.options,
 					cursor: engine.cursor,
 					top: engine.top,
-					size,
 					picked: engine.picked,
 					warning: engine.error,
 				},
@@ -93,20 +87,27 @@ export async function promptMultiselect<T>(
 	return engine.answer;
 }
 
-/** The lines of options a multiselect shows at once on a screen of `rows`. */
-export function multiselectWindowSize<T>(
+/** The lines of options a multiselect shows at once on a screen of `rows`, and what else of its frame shows. */
+export function multiselectFit<T>(
 	question: MultiselectQuestion<T>,
 	rows: number | undefined,
 	width: number,
 	style: Style,
-): number {
+): ListFit {
 	const asked = questionLines(
 		question.message,
 		question.hints ?? MULTISELECT_HINTS,
 		width,
 		style,
 	);
-	return windowSize(undefined, rows, asked.length + FOOTER_LINES);
+	return fitList(
+		{
+			lines: question.options.length,
+			asked: asked.length,
+			footer: FOOTER_LINES,
+		},
+		rows,
+	);
 }
 
 export function renderMultiselect<T>(
@@ -125,7 +126,7 @@ export function renderMultiselect<T>(
 		...windowLines(
 			view.options,
 			view.top,
-			view.size,
+			view,
 			() => true,
 			(option, index) => {
 				const current = index === view.cursor;
@@ -143,13 +144,12 @@ export function renderMultiselect<T>(
 			},
 			style,
 		),
-		"",
-		footer(view, width, style),
+		...["", footerLine(view, width, style)].slice(FOOTER_LINES - view.footer),
 	];
 }
 
 /** `N of M picked` dim at the right margin, after the warning when there is one. */
-function footer<T>(
+function footerLine<T>(
 	view: MultiselectView<T>,
 	width: number,
 	style: Style,

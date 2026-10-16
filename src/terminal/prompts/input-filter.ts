@@ -11,9 +11,13 @@ const OSC_START = "\x1b]";
 const ESC = "\x1b";
 const BEL = "\x07";
 const ST_END = "\\";
+/** How long core's readline waits after an ESC for what follows it (its escapeCodeTimeout). */
+const ESCAPE_MS = 50;
 /** How long, and how far, a sequence split across reads is held for its end. */
-const HOLD_MS = 100;
+const SEQUENCE_MS = 100;
 const HOLD_BYTES = 64;
+/** A byte of a colour reply's body (`11;rgb:1e1e/1e1e/1e1e`) or of a query's. */
+const REPLY_BYTE = /^[\da-fA-F;:/rg?]$/;
 
 interface SequenceEnd {
 	/** Where the sequence's body stops. */
@@ -27,21 +31,27 @@ interface SequenceEnd {
 /**
  * What a prompt reads instead of stdin. Every OSC sequence (`ESC ]` … BEL or
  * ST) is taken out and its body reported, so a terminal's reply never reaches
- * the prompt as keys, however late it comes. Every other byte passes at once,
- * but for a read's last ESC, which may open a sequence split across reads.
+ * the prompt as keys. Every other byte passes at once, read by readline as it
+ * would read stdin, but for a read's last ESC, which may open a sequence split
+ * across reads.
  *
- * What's held waits at most 100 ms from when the hold began. A lone ESC
- * passes as soon as the byte after it isn't `]`, or when the wait ends, as
- * it was the escape key. A sequence's start is dropped when the wait ends or
- * it grows past 64 bytes, as it was never keys.
+ * That ESC is held as long as readline waits after one: a `]` by then starts a
+ * sequence, any other byte passes with it, as readline would join them, and
+ * nothing by then makes it the escape key. A sequence's start is held for its
+ * end 100 ms at most and 64 bytes. Dropped then, as it was never keys, the
+ * rest of a reply that may still come is taken out too, up to its BEL or ST:
+ * until a byte no reply holds, or another 100 ms.
  *
  * It reads as a terminal (`isTTY`), and its raw mode is the source's, so the
  * prompt engine sets raw mode on stdin through it.
  */
 export class InputFilter extends Transform {
 	readonly isTTY = true;
+	/** A read's last ESC, or the start of a sequence whose end is still to come. */
 	private held = "";
-	private holdTimer: NodeJS.Timeout | undefined;
+	/** Whether what's read is still the rest of a sequence whose start was dropped. */
+	private inTail = false;
+	private timer: NodeJS.Timeout | undefined;
 	private readonly sequenceListeners = new Set<(body: string) => void>();
 
 	constructor(private readonly source: PromptInput) {
@@ -70,14 +80,22 @@ export class InputFilter extends Transform {
 		_encoding: BufferEncoding,
 		done: TransformCallback,
 	): void {
-		// latin1 maps each byte to one character and back, so a key's UTF-8
-		// split across reads passes through whole.
-		this.strip(this.held + chunk.toString("latin1"));
+		if (chunk.length > 0) {
+			// latin1 maps each byte to one character and back, so a key's UTF-8
+			// split across reads passes through whole.
+			this.strip(chunk.toString("latin1"));
+		}
 		done();
 	}
 
+	/** A held ESC is stdin's last byte, read in turn; a sequence's start is dropped. */
 	override _flush(done: TransformCallback): void {
-		this.endHold();
+		if (this.held === ESC) {
+			this.pass(ESC);
+		}
+		this.held = "";
+		this.inTail = false;
+		this.stopWaiting();
 		done();
 	}
 
@@ -85,26 +103,32 @@ export class InputFilter extends Transform {
 		error: Error | null,
 		done: (error?: Error | null) => void,
 	): void {
-		this.stopHolding();
+		this.stopWaiting();
 		done(error);
 	}
 
-	private strip(text: string): void {
-		this.held = "";
+	private strip(chunk: string): void {
+		const after = this.afterTail(chunk);
+		if (after === undefined) {
+			return;
+		}
+		const previous = this.held;
+		const text = previous + after;
 		let passed = "";
+		let held = "";
 		let at = 0;
 		while (at < text.length) {
 			const start = text.indexOf(OSC_START, at);
 			if (start === -1) {
 				const rest = text.slice(at);
-				this.held = rest.endsWith(ESC) ? ESC : "";
-				passed += rest.slice(0, rest.length - this.held.length);
+				held = rest.endsWith(ESC) ? ESC : "";
+				passed += rest.slice(0, rest.length - held.length);
 				break;
 			}
 			passed += text.slice(at, start);
 			const end = sequenceEnd(text, start + OSC_START.length);
 			if (end === undefined) {
-				this.held = text.slice(start);
+				held = text.slice(start);
 				break;
 			}
 			if (end.complete) {
@@ -112,32 +136,90 @@ export class InputFilter extends Transform {
 			}
 			at = end.next;
 		}
-		if (this.held.length > HOLD_BYTES) {
-			this.held = "";
-		}
-		this.emitText(passed);
-		if (this.held === "") {
-			this.stopHolding();
-		} else {
-			this.holdTimer ??= setTimeout(() => this.endHold(), HOLD_MS);
+		this.pass(passed);
+		this.hold(held, previous.length > 1 && held === text);
+	}
+
+	/** Holds what may open a sequence; its wait starts afresh unless it carries on the sequence already held. */
+	private hold(held: string, continued: boolean): void {
+		this.held = held;
+		if (held.length > HOLD_BYTES) {
+			this.dropSequence();
+		} else if (held === "") {
+			this.stopWaiting();
+		} else if (!continued) {
+			this.wait(held === ESC ? ESCAPE_MS : SEQUENCE_MS);
 		}
 	}
 
-	/** Lets a held ESC through as the escape key, and drops a sequence's start. */
-	private endHold(): void {
-		this.stopHolding();
-		if (this.held === ESC) {
-			this.emitText(ESC);
-		}
+	/** Drops a sequence's start, then takes out what of its reply is still to come. */
+	private dropSequence(): void {
 		this.held = "";
+		this.inTail = true;
+		this.wait(SEQUENCE_MS);
 	}
 
-	private stopHolding(): void {
-		clearTimeout(this.holdTimer);
-		this.holdTimer = undefined;
+	/** What of `text` follows a dropped sequence's rest, all of it when there's none to take out; undefined while it's all rest. */
+	private afterTail(text: string): string | undefined {
+		if (!this.inTail) {
+			return text;
+		}
+		const end = tailEnd(text);
+		if (end === undefined) {
+			return undefined;
+		}
+		this.inTail = false;
+		this.stopWaiting();
+		return text.slice(end);
 	}
 
-	private emitText(text: string): void {
+	private wait(ms: number): void {
+		clearTimeout(this.timer);
+		this.timer = setTimeout(() => this.waited(), ms);
+	}
+
+	private waited(): void {
+		this.timer = undefined;
+		if (this.inTail) {
+			this.inTail = false;
+		} else if (this.held === ESC) {
+			this.held = "";
+			this.escape();
+		} else {
+			this.dropSequence();
+		}
+	}
+
+	private stopWaiting(): void {
+		clearTimeout(this.timer);
+		this.timer = undefined;
+	}
+
+	/**
+	 * The escape key, as readline reads an ESC nothing followed in time. Pushed
+	 * to a readline reading as bytes come, the ESC would start its wait over,
+	 * so it's handed over as the key readline makes of it; with nothing reading
+	 * yet, or reads waiting ahead of it, it's pushed, to be read in turn.
+	 */
+	private escape(): void {
+		if (
+			this.listenerCount("keypress") > 0 &&
+			this.readableFlowing === true &&
+			this.readableLength === 0
+		) {
+			this.emit("keypress", undefined, {
+				sequence: ESC,
+				name: "escape",
+				ctrl: false,
+				meta: true,
+				shift: false,
+			});
+		} else {
+			this.pass(ESC);
+		}
+	}
+
+	private pass(text: string): void {
 		if (text !== "") {
 			this.push(Buffer.from(text, "latin1"));
 		}
@@ -164,6 +246,23 @@ function sequenceEnd(text: string, from: number): SequenceEnd | undefined {
 			return text.charAt(at + 1) === ST_END
 				? { body: at, next: at + 2, complete: true }
 				: { body: at, next: at, complete: false };
+		}
+	}
+	return undefined;
+}
+
+/** Where what follows a reply's rest starts: past its BEL or ST, or at a byte no reply holds; undefined while it's all reply. */
+function tailEnd(text: string): number | undefined {
+	for (let at = 0; at < text.length; at++) {
+		const char = text.charAt(at);
+		if (char === BEL) {
+			return at + 1;
+		}
+		if (char === ESC && text.charAt(at + 1) === ST_END) {
+			return at + 2;
+		}
+		if (!REPLY_BYTE.test(char)) {
+			return at;
 		}
 	}
 	return undefined;

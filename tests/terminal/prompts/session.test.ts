@@ -1,8 +1,14 @@
 import { setTimeout as sleep } from "node:timers/promises";
+import { Prompt } from "@clack/core";
 import { describe, expect, it } from "vitest";
 import { promptConfirm } from "../../../src/terminal/prompts/confirm.js";
 import { promptMultiselect } from "../../../src/terminal/prompts/multiselect.js";
 import { promptSelect } from "../../../src/terminal/prompts/select.js";
+import {
+	noFrame,
+	type PromptStreams,
+	runPrompt,
+} from "../../../src/terminal/prompts/session.js";
 import { KEY, Terminal } from "./terminal.js";
 
 const HIDE = "\x1b[?25l";
@@ -112,6 +118,17 @@ describe.each(NAMES)("a %s", (name) => {
 		expect(terminal.input.readableFlowing).toBe(false);
 	});
 
+	it("unpipes stdin as it answers, before a prompt after it can pipe it again", async () => {
+		const terminal = new Terminal();
+		let piped: number | undefined;
+		const answer = ask(terminal).then(() => {
+			piped = terminal.input.listenerCount("data");
+		});
+		await terminal.press(KEY.enter);
+		await answer;
+		expect(piped).toBe(0);
+	});
+
 	it.each([
 		["SIGINT", 130],
 		["SIGTERM", 143],
@@ -155,10 +172,10 @@ describe.each(NAMES)("a %s", (name) => {
 });
 
 describe("a terminal's reply split after its ESC while a prompt is open", () => {
-	// Read as keys, its a's would pick everything, and an ESC left alone for
-	// 50 ms would be read as escape and cancel.
+	// Read as keys, its a's would pick everything. Split by readline's 50 ms
+	// or more, the ESC is the escape key, as it is without the filter.
 	it.each([
-		3, 60,
+		3, 40,
 	])("is never read as keys, the rest coming %i ms after the ESC", async (gap) => {
 		const terminal = new Terminal();
 		const answer = PROMPTS.multiselect(terminal);
@@ -174,7 +191,7 @@ describe("a terminal's reply split after its ESC while a prompt is open", () => 
 });
 
 describe("esc", () => {
-	it("still cancels on its own, once the filter has waited to see what follows", async () => {
+	it("cancels on its own once readline's 50 ms go by, the filter's wait in them", async () => {
 		const terminal = new Terminal();
 		let settled = false;
 		const answer = PROMPTS.select(terminal).then((value) => {
@@ -182,9 +199,73 @@ describe("esc", () => {
 			return value;
 		});
 		await terminal.press(KEY.escape);
-		await sleep(80);
-		expect(settled).toBe(false);
+		await sleep(60);
+		expect(settled).toBe(true);
 		expect(await answer).toBeNull();
+	});
+});
+
+describe("a list on a screen with little room", () => {
+	it.each([
+		["select", 3],
+		["select", 4],
+		["select", 5],
+		["multiselect", 3],
+		["multiselect", 4],
+		["multiselect", 5],
+		["multiselect", 6],
+	] as const)("erases itself whole at the foot of it, a %s at %i rows", async (name, rows) => {
+		const above = Array.from(
+			{ length: rows - 1 },
+			(_, index) => `line ${index + 1}`,
+		);
+		for (const downs of [0, 1, 2]) {
+			const terminal = new Terminal(80, rows);
+			terminal.output.write(above.map((line) => `${line}\n`).join(""));
+			const answer = PROMPTS[name](terminal);
+			await terminal.press(
+				...Array.from({ length: downs }, () => KEY.down),
+				KEY.space,
+				KEY.enter,
+			);
+			await answer;
+			terminal.output.write("after\n");
+			expect(await terminal.lines()).toEqual([...above, "after"]);
+		}
+	});
+});
+
+describe("a throw while a prompt opens", () => {
+	class Unopenable extends Prompt {
+		override prompt(): Promise<string | symbol> {
+			throw new Error("can't open");
+		}
+	}
+
+	it.each([
+		[
+			"its first frame",
+			(streams: PromptStreams) => new Prompt({ ...streams, render: noFrame }),
+			() => {
+				throw new Error("can't draw");
+			},
+		],
+		[
+			"its engine, once drawn",
+			(streams: PromptStreams) =>
+				new Unopenable({ ...streams, render: noFrame }),
+			() => [" ? Pick", "   one"],
+		],
+	])("restores the terminal before it reaches the caller, thrown by %s", async (_by, open, frame) => {
+		const terminal = new Terminal();
+		terminal.output.write("before\n");
+		const asked = runPrompt(terminal.context(), open, frame);
+		await expect(asked).rejects.toThrow(/^can't/);
+		expect(await terminal.lines()).toEqual(["before"]);
+		expect(terminal.output.text.endsWith(SHOW)).toBe(true);
+		expect(terminal.input.rawModes).toEqual([true, false]);
+		expect(listening(terminal)).toEqual([0, 0, 0]);
+		expect(terminal.input.listenerCount("data")).toBe(0);
 	});
 });
 

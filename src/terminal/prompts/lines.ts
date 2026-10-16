@@ -11,6 +11,7 @@ import {
 	wrap,
 } from "../layout.js";
 import { identity, type Painter, type Style } from "../style.js";
+import type { ListWindow } from "./list-window.js";
 
 /** ` ? ` before a question; ` ▌ ` or three spaces before an option, a heading or a more line. */
 export const TEXT_AT = 3;
@@ -141,20 +142,23 @@ export function headingLine(
 }
 
 /**
- * The lines of `options` from `top` that fit in `size`, with a dim
- * `↑ N more` above and `↓ N more` below for the options out of view.
+ * The lines of `options` from `top` that fit in the window, with a dim
+ * `↑ N more` above and `↓ N more` below for the options out of view when the
+ * window has room for them.
  */
 export function windowLines<O>(
 	options: readonly O[],
 	top: number,
-	size: number,
+	window: ListWindow,
 	isOption: (option: O) => boolean,
 	line: (option: O, index: number) => string,
 	style: Style,
 ): string[] {
-	const end = top + size;
-	const above = options.slice(0, top).filter(isOption).length;
-	const below = options.slice(end).filter(isOption).length;
+	const end = top + window.size;
+	const hidden = (out: readonly O[]) =>
+		window.more ? out.filter(isOption).length : 0;
+	const above = hidden(options.slice(0, top));
+	const below = hidden(options.slice(end));
 	return [
 		...(above > 0 ? [moreLine("↑", above, style)] : []),
 		...options

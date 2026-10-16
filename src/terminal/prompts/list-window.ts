@@ -2,20 +2,59 @@ const DEFAULT_ROWS = 24;
 /** The `↑ N more` and `↓ N more` lines a scrolled window may add. */
 const MORE_LINES = 2;
 
+/** What of a list's frame its fit on the screen counts. */
+export interface ListFrame {
+	/** Its lines of options, headings included. */
+	lines: number;
+	/** The most it shows at once. */
+	maxItems?: number;
+	/** The question's lines, over the options. */
+	asked: number;
+	/** The footer's lines, under them. */
+	footer?: number;
+}
+
+/** The lines of options a list shows at once, and whether its more lines show. */
+export interface ListWindow {
+	size: number;
+	more: boolean;
+}
+
+/** A list's window, and how many of its footer's last lines show under it. */
+export interface ListFit extends ListWindow {
+	footer: number;
+}
+
 /**
- * How many lines of options a list shows at once: the prompt's own number at
- * most, and no more than keep its frame a line shorter than the screen, with
- * the more lines and the frame's `fixed` ones (its question and footer)
- * counted. The erase needs that line: the prompt's closing newline scrolls a
- * frame as tall as the screen, and its first line out of reach. Never under one.
+ * How a list fits a screen of `rows`: its frame a line shorter than the
+ * screen, as the prompt's closing newline scrolls a frame as tall as the
+ * screen, and its first line out of reach of the erase. The window shows the
+ * list's `maxItems` at most, and keeps room for the more lines only when the
+ * options don't all fit; when one option and the more lines don't, the more
+ * lines go, then the footer's lines from its first. Never under one line, so
+ * the frame fits wherever the question and one option do.
  */
-export function windowSize(
-	maxItems: number | undefined,
-	rows: number | undefined,
-	fixed: number,
-): number {
-	const room = (rows || DEFAULT_ROWS) - 1 - fixed - MORE_LINES;
-	return Math.max(1, Math.min(maxItems ?? room, room));
+export function fitList(frame: ListFrame, rows: number | undefined): ListFit {
+	const { lines, asked, footer = 0 } = frame;
+	const most = Math.max(1, Math.min(frame.maxItems ?? lines, lines));
+	const budget = (rows || DEFAULT_ROWS) - 1 - asked;
+	for (let kept = footer; kept >= 0; kept--) {
+		const room = budget - kept;
+		if (most >= lines && most <= room) {
+			return { size: most, more: false, footer: kept };
+		}
+		if (room > MORE_LINES) {
+			return {
+				size: Math.min(most, room - MORE_LINES),
+				more: true,
+				footer: kept,
+			};
+		}
+		if (room > 0) {
+			return { size: Math.min(most, room), more: false, footer: kept };
+		}
+	}
+	return { size: 1, more: false, footer: 0 };
 }
 
 /** The first line the cursor can stop on, or -1 when every line is a heading. */

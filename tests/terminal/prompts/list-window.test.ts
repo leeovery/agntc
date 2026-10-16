@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	firstStop,
+	fitList,
 	scrollWindow,
 	stepCursor,
-	windowSize,
 } from "../../../src/terminal/prompts/list-window.js";
 
 /** Ten options, none a heading. */
@@ -11,28 +11,59 @@ const flat = Array.from({ length: 10 }, () => false);
 /** Two groups: a heading over two options, then a heading over five. */
 const grouped = [true, false, false, true, false, false, false, false, false];
 
-describe("windowSize", () => {
-	it("leaves the frame a line shorter than the screen, its fixed and more lines counted", () => {
-		expect(windowSize(undefined, 30, 1)).toBe(26);
-		expect(windowSize(undefined, 30, 3)).toBe(24);
+describe("fitList", () => {
+	const scrolled = (size: number, footer = 0) => ({ size, more: true, footer });
+	const whole = (size: number, footer = 0) => ({ size, more: false, footer });
+
+	it("shows every option, with no room kept for more lines, when they all fit", () => {
+		expect(fitList({ lines: 5, asked: 1 }, 30)).toEqual(whole(5));
+		expect(fitList({ lines: 27, asked: 1, footer: 1 }, 30)).toEqual(
+			whole(27, 1),
+		);
 	});
 
-	it("takes the prompt's own number when the rows have room for it", () => {
-		expect(windowSize(3, 40, 1)).toBe(3);
+	it("keeps the frame a line shorter than the screen, its question, more lines and footer counted", () => {
+		expect(fitList({ lines: 40, asked: 1 }, 30)).toEqual(scrolled(26));
+		expect(fitList({ lines: 40, asked: 1, footer: 2 }, 30)).toEqual(
+			scrolled(24, 2),
+		);
+		expect(fitList({ lines: 29, asked: 1 }, 30)).toEqual(scrolled(26));
+	});
+
+	it("takes the prompt's own most when the rows have room for it, scrolling past it", () => {
+		expect(fitList({ lines: 10, maxItems: 3, asked: 1 }, 40)).toEqual(
+			scrolled(3),
+		);
+		expect(fitList({ lines: 3, maxItems: 5, asked: 1 }, 40)).toEqual(whole(3));
 	});
 
 	it("never takes more than the rows leave, whatever the prompt asks", () => {
-		expect(windowSize(15, 12, 1)).toBe(8);
+		expect(fitList({ lines: 30, maxItems: 15, asked: 1 }, 12)).toEqual(
+			scrolled(8),
+		);
 	});
 
 	it("reads 24 rows when the terminal gives none", () => {
-		expect(windowSize(undefined, undefined, 1)).toBe(20);
-		expect(windowSize(undefined, 0, 1)).toBe(20);
+		expect(fitList({ lines: 40, asked: 1 }, undefined)).toEqual(scrolled(20));
+		expect(fitList({ lines: 40, asked: 1 }, 0)).toEqual(scrolled(20));
+	});
+
+	it("gives up the more lines when one option and they don't fit", () => {
+		expect(fitList({ lines: 10, asked: 1 }, 4)).toEqual(whole(2));
+		expect(fitList({ lines: 10, asked: 1, footer: 2 }, 6)).toEqual(whole(2, 2));
+	});
+
+	it("then the footer's lines, its first going first", () => {
+		expect(fitList({ lines: 10, asked: 1, footer: 2 }, 4)).toEqual(whole(1, 1));
+		expect(fitList({ lines: 10, asked: 1, footer: 2 }, 3)).toEqual(whole(1, 0));
+		expect(fitList({ lines: 1, asked: 1, footer: 2 }, 4)).toEqual(whole(1, 1));
 	});
 
 	it("never shows fewer than one line", () => {
-		expect(windowSize(undefined, 4, 3)).toBe(1);
-		expect(windowSize(0, 30, 1)).toBe(1);
+		expect(fitList({ lines: 10, asked: 3 }, 4)).toEqual(whole(1));
+		expect(fitList({ lines: 10, maxItems: 0, asked: 1 }, 30)).toEqual(
+			scrolled(1),
+		);
 	});
 });
 

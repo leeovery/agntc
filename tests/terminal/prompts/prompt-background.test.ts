@@ -124,6 +124,23 @@ describe("the background", () => {
 		expect(await answer).toEqual(["nuxt"]);
 	});
 
+	it.each([
+		["a key", KEY.down, "nuxt"],
+		["esc", KEY.escape, null],
+	])("keeps %s pressed while it's asked, for the prompt to read once open", async (_what, key, answered) => {
+		const { promptSelect } = await freshPrompts();
+		const terminal = terminalAnswering();
+		const answer = promptSelect(
+			{ message: "Pick", options: CHOICES },
+			terminal.context(truecolor),
+		);
+		await terminal.press(key);
+		await givenUp();
+		await sleep(60);
+		await terminal.press(KEY.enter);
+		expect(await answer).toBe(answered);
+	});
+
 	it("isn't asked for below 256 colours, and nothing is banded", async () => {
 		const { promptSelect } = await freshPrompts();
 		const terminal = terminalAnswering(DARK_REPLY);

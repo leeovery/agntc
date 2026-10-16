@@ -50,6 +50,7 @@ function view(
 		cursor,
 		top: 0,
 		size: 10,
+		more: true,
 		...more,
 	};
 }
@@ -187,6 +188,16 @@ describe("renderSelect", () => {
 			expect(renderSelect(view(TEN, 0, { size: 5 }), 80, colour).at(-1)).toBe(
 				"   \x1b[2m↓ 5 more\x1b[22m",
 			);
+		});
+
+		it("leaves the more lines out when the window has no room for them", () => {
+			expect(
+				renderSelect(
+					view(TEN, 5, { top: 4, size: 2, more: false }),
+					80,
+					plain,
+				).slice(1),
+			).toEqual(["   skill-05", " ▌ skill-06"]);
 		});
 	});
 

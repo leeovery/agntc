@@ -268,6 +268,7 @@ function renderPrompts(
 				cursor,
 				top: scrollWindow(selectHeadings, cursor, 0, size),
 				size,
+				more: true,
 			},
 			width,
 			style,
@@ -287,6 +288,8 @@ function renderPrompts(
 				cursor,
 				top: scrollWindow(noHeadings, cursor, 0, size),
 				size,
+				more: true,
+				footer: 2,
 				picked: choices.flatMap((_, index) =>
 					index % 2 === cursor % 2 ? [index] : [],
 				),
