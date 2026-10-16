@@ -6,7 +6,25 @@ import { renderCancel, renderClose } from "../../src/terminal/close.js";
 import { renderHeader } from "../../src/terminal/header.js";
 import { type MessageKind, renderMessage } from "../../src/terminal/message.js";
 import { renderNext } from "../../src/terminal/next.js";
-import { createStyle } from "../../src/terminal/style.js";
+import { renderConfirm } from "../../src/terminal/prompts/confirm.js";
+import { scrollWindow } from "../../src/terminal/prompts/list-window.js";
+import {
+	MULTISELECT_HINTS,
+	PICK_ONE,
+	renderMultiselect,
+} from "../../src/terminal/prompts/multiselect.js";
+import {
+	isChoice,
+	renderSelect,
+	SELECT_HINTS,
+	type SelectOption,
+} from "../../src/terminal/prompts/select.js";
+import {
+	bandPainter,
+	createStyle,
+	type Painter,
+	type Style,
+} from "../../src/terminal/style.js";
 import type {
 	Child,
 	NextItem,
@@ -20,7 +38,9 @@ import type {
 // the module's own visibleWidth, so a miscount can't cancel itself out. The
 // two agree on everything here (ASCII, CJK, the glyphs, box drawing, braille,
 // `…`, `—`, `→`); they part on Indic clusters, which string-width counts by
-// their first code point, so none are in the matrix.
+// their first code point, so none are in the matrix. No line ends in a space
+// either, unless a background paints it: the cursor row's band is drawn to
+// the margin.
 
 const WIDTHS = [40, 59, 60, 80, 100];
 const LONG =
@@ -195,49 +215,205 @@ function renderEverything(width: number, level: 0 | 3): string[] {
 		...renderCancel(width, style),
 		...renderCancel(width, style, PROSE),
 		...renderCancel(width, style, WORD),
+		...renderPrompts(width, style, undefined),
+		...(level === 3
+			? renderPrompts(width, style, bandPainter(3, [30, 30, 30]))
+			: []),
+	];
+}
+
+const hints = [undefined, "", "up to date", PROSE, WORD, CJK];
+/** Every pair of label and hint, as the options of each prompt. */
+const choices = pairs(subjects.length, hints.length).map(([label, hint]) => ({
+	value: label * hints.length + hint,
+	label: pick(subjects, label),
+	...(pick(hints, hint) === undefined ? {} : { hint: pick(hints, hint) }),
+}));
+const headings = [...SHORT_SUBJECTS, LONG, CJK];
+/** The choices in groups of six, each under a heading. */
+const selectOptions: SelectOption<number>[] = choices.flatMap(
+	(choice, index) =>
+		index % 6 === 0
+			? [{ heading: pick(headings, index / 6) }, choice]
+			: [choice],
+);
+const selectHeadings = selectOptions.map((option) => !isChoice(option));
+const noHeadings = choices.map(() => false);
+const questions = ["", "What to install", PROSE, WORD, CJK];
+const keyHints = ["", SELECT_HINTS, MULTISELECT_HINTS, LONG];
+
+/**
+ * The prompts with the cursor on every option, in a scrolling window and in
+ * one holding everything, and every question with every set of key hints.
+ */
+function renderPrompts(
+	width: number,
+	style: Style,
+	band: Painter | undefined,
+): string[] {
+	const stops = selectOptions.flatMap((option, index) =>
+		isChoice(option) ? [index] : [],
+	);
+	const select = (
+		cursor: number,
+		size: number,
+		message = "Pick",
+		hints = SELECT_HINTS,
+	) =>
+		renderSelect(
+			{
+				message,
+				hints,
+				options: selectOptions,
+				cursor,
+				top: scrollWindow(selectHeadings, cursor, 0, size),
+				size,
+				more: true,
+			},
+			width,
+			style,
+			band,
+		);
+	const multiselect = (
+		cursor: number,
+		size: number,
+		message = "Pick",
+		hints = MULTISELECT_HINTS,
+	) =>
+		renderMultiselect(
+			{
+				message,
+				hints,
+				options: choices,
+				cursor,
+				top: scrollWindow(noHeadings, cursor, 0, size),
+				size,
+				more: true,
+				footer: 2,
+				picked: choices.flatMap((_, index) =>
+					index % 2 === cursor % 2 ? [index] : [],
+				),
+				warning: cursor % 3 === 0 ? PICK_ONE : "",
+			},
+			width,
+			style,
+			band,
+		);
+	const everyQuestion = (
+		render: (message: string, hints: string) => string[],
+	) =>
+		questions.flatMap((message) =>
+			keyHints.flatMap((hints) => render(message, hints)),
+		);
+	return [
+		...stops.flatMap((cursor) => [
+			...select(cursor, 5),
+			...select(cursor, selectOptions.length),
+		]),
+		...choices.flatMap((_, cursor) => multiselect(cursor, 5)),
+		...everyQuestion((message, hints) =>
+			select(stops[0] ?? 0, 5, message, hints),
+		),
+		...everyQuestion((message, hints) =>
+			multiselect(0, choices.length, message, hints),
+		),
+		...everyQuestion((message, hints) =>
+			[true, false].flatMap((value) =>
+				renderConfirm({ message, hints, value }, width, style),
+			),
+		),
 	];
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching SGR escape codes
 const SGR = /\x1b\[([0-9;]*)m/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: matching SGR escape codes
+const SGR_PIECE = /(\x1b\[[0-9;]*m)/;
 const stripSgr = (line: string) => line.replace(SGR, "");
 const isCommand = (line: string) => COMMANDS.includes(stripSgr(line).trim());
 
+/** A code's parameters, an extended colour (`38;5;n`, `48;2;r;g;b`) read as one. */
+function parameters(code: string): string[] {
+	const parts = code.split(";");
+	const read: string[] = [];
+	for (let at = 0; at < parts.length; at++) {
+		const part = parts[at] ?? "";
+		read.push(part);
+		if (part === "38" || part === "48") {
+			at += parts[at + 1] === "5" ? 2 : 4;
+		}
+	}
+	return read;
+}
+
+const opensBackground = (parameter: string) =>
+	/^(4[0-8]|10[0-7])$/.test(parameter);
+
 /**
  * What's wrong with a line's escape codes: a full reset, bold and dim nested
- * (they share a close), one colour inside another (likewise), or anything
- * still open at the end of the line.
+ * (they share a close), one colour inside another (likewise), one background
+ * inside another, or anything still open at the end of the line.
  */
 function sgrProblems(line: string): string[] {
 	const problems: string[] = [];
 	let bold = false;
 	let dim = false;
 	let colour = false;
-	for (const [, code] of line.matchAll(SGR)) {
-		if (code === "" || code === "0") {
-			problems.push("a full reset");
-		} else if (code === "1" || code === "2") {
-			if (bold || dim) {
-				problems.push("bold and dim nested");
+	let background = false;
+	for (const [, code = ""] of line.matchAll(SGR)) {
+		for (const parameter of parameters(code)) {
+			if (parameter === "" || parameter === "0") {
+				problems.push("a full reset");
+			} else if (parameter === "1" || parameter === "2") {
+				if (bold || dim) {
+					problems.push("bold and dim nested");
+				}
+				bold ||= parameter === "1";
+				dim ||= parameter === "2";
+			} else if (parameter === "22") {
+				bold = false;
+				dim = false;
+			} else if (parameter === "39") {
+				colour = false;
+			} else if (parameter === "49") {
+				background = false;
+			} else if (opensBackground(parameter)) {
+				if (background) {
+					problems.push("a background inside a background");
+				}
+				background = true;
+			} else {
+				if (colour) {
+					problems.push("a colour inside a colour");
+				}
+				colour = true;
 			}
-			bold ||= code === "1";
-			dim ||= code === "2";
-		} else if (code === "22") {
-			bold = false;
-			dim = false;
-		} else if (code === "39") {
-			colour = false;
-		} else {
-			if (colour) {
-				problems.push("a colour inside a colour");
-			}
-			colour = true;
 		}
 	}
-	if (bold || dim || colour) {
+	if (bold || dim || colour || background) {
 		problems.push("left open");
 	}
 	return problems;
+}
+
+/** Whether the line ends in a space no background paints. */
+function endsInBlank(line: string): boolean {
+	let background = false;
+	let shown = "";
+	line.split(SGR_PIECE).forEach((piece, index) => {
+		if (index % 2 === 0) {
+			shown += background ? piece.replace(/\s/g, "█") : piece;
+			return;
+		}
+		for (const parameter of parameters(piece.slice(2, -1))) {
+			if (opensBackground(parameter)) {
+				background = true;
+			} else if (["49", "0", ""].includes(parameter)) {
+				background = false;
+			}
+		}
+	});
+	return /\s$/.test(shown);
 }
 
 describe("every line fits", () => {
@@ -248,7 +424,7 @@ describe("every line fits", () => {
 					(line) => !isCommand(line),
 				);
 				const over = lines.filter((line) => stringWidth(line) > width - 1);
-				const trailing = lines.filter((line) => /\s$/.test(stripSgr(line)));
+				const trailing = lines.filter(endsInBlank);
 				expect(over).toEqual([]);
 				expect(trailing).toEqual([]);
 			});
