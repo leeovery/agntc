@@ -112,7 +112,7 @@ interface UpdateRun {
 export async function runUpdate(
 	key?: string,
 	options: UpdateOptions = {},
-	ui: Ui = interactiveUi,
+	ui: Ui = interactiveUi(),
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.intro(commandTitle("update", scope.name));

@@ -66,9 +66,11 @@ function present(ui: Ui): void {
 }
 
 describe("interactiveUi", () => {
-	it("is a terminal ui, in interactive mode", () => {
-		expect(interactiveUi).toBeInstanceOf(TerminalUi);
-		expect(interactiveUi.mode).toBe("interactive");
+	it("is a fresh terminal ui each time, in interactive mode", () => {
+		const ui = interactiveUi();
+		expect(ui).toBeInstanceOf(TerminalUi);
+		expect(ui.mode).toBe("interactive");
+		expect(interactiveUi()).not.toBe(ui);
 	});
 });
 
@@ -221,12 +223,44 @@ async function importersOf(module: string): Promise<string[]> {
 	const importers: string[] = [];
 	for (const file of files.filter((name) => name.endsWith(".ts")).sort()) {
 		const text = await readFile(join(srcDir, file), "utf-8");
-		if (text.includes(`from "${module}"`)) {
+		if (namesModule(text, module)) {
 			importers.push(file);
 		}
 	}
 	return importers;
 }
+
+/**
+ * Whether `text` names `module`, or a path inside it, in quotes of any kind:
+ * so every import, re-export, bare import, dynamic import and require.
+ */
+function namesModule(text: string, module: string): boolean {
+	const quote = "[\"'`]";
+	const specifier = module.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+	return new RegExp(`${quote}${specifier}(/[^"'\`]*)?${quote}`).test(text);
+}
+
+describe("namesModule", () => {
+	it.each([
+		`import * as p from "@clack/prompts";`,
+		`import { note } from '@clack/prompts';`,
+		`import "@clack/prompts";`,
+		`export { select } from "@clack/prompts";`,
+		`const p = await import("@clack/prompts");`,
+		"const p = await import(`@clack/prompts`);",
+		`import { x } from "@clack/prompts/dist/index.mjs";`,
+	])("finds %s", (text) => {
+		expect(namesModule(text, "@clack/prompts")).toBe(true);
+	});
+
+	it.each([
+		`import { Prompt } from "@clack/core";`,
+		`import { x } from "@clack/prompts-extra";`,
+		"// clack's prompts are gone",
+	])("passes over %s", (text) => {
+		expect(namesModule(text, "@clack/prompts")).toBe(false);
+	});
+});
 
 describe("clack's reach", () => {
 	it("leaves @clack/prompts imported by nothing", async () => {

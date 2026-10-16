@@ -756,45 +756,74 @@ describe("renderProgress", () => {
 		meta: "^1.0.0",
 		text: "updating to v1.0.1…",
 	};
+	const LOCAL = "~/Code/agntc-sources/a-rather-long-local-folder-name";
 
 	it("puts the frame in the glyph slot and what it's doing in the detail column", () => {
 		expect(
-			renderProgress(progress, "⠁", blockLayout(subjects, 80), 80, plain),
+			renderProgress(progress, "⠁", 80, plain, blockLayout(subjects, 80)),
 		).toBe(` ⠁ owner/alpha${gap(3)}^1.0.0${gap(3)}updating to v1.0.1…`);
 	});
 
-	it("follows the frame with what it's doing when it has no subject", () => {
-		expect(
-			renderProgress(
-				{ text: "Checking 6 repos…" },
-				"⠂",
-				blockLayout(subjects, 80),
-				80,
-				plain,
-			),
-		).toBe(" ⠂ Checking 6 repos…");
+	it("lays a subject out alone without a block's layout", () => {
+		expect(renderProgress(progress, "⠁", 80, plain)).toBe(
+			` ⠁ owner/alpha${gap(3)}^1.0.0${gap(3)}updating to v1.0.1…`,
+		);
 	});
 
-	it("keeps to the subject's own line below 60 columns", () => {
+	it("follows the frame with what it's doing when it has no subject", () => {
+		expect(renderProgress({ text: "Checking 6 repos…" }, "⠂", 80, plain)).toBe(
+			" ⠂ Checking 6 repos…",
+		);
+	});
+
+	it.each([
+		[59, " ⠁ owner/alpha  ^1.0.0  updating to v1.0.1…"],
+		[40, " ⠁ owner/alpha  ^1.0.0  updating to v1…"],
+	])("follows the subject and meta with what it's doing below 60 columns, cut to fit, at %i", (width, line) => {
 		expect(
-			renderProgress(progress, "⠁", blockLayout(subjects, 40), 40, plain),
-		).toBe(" ⠁ owner/alpha  ^1.0.0");
+			renderProgress(progress, "⠁", width, plain, blockLayout(subjects, width)),
+		).toBe(line);
+	});
+
+	it.each([
+		80, 100,
+	])("follows a subject wider than its column with what it's doing at %i", (width) => {
+		const layout = blockLayout([{ subject: LOCAL, meta: "local" }], width);
+		expect(
+			renderProgress(
+				{ subject: LOCAL, meta: "local", text: "reinstalling…" },
+				"⠁",
+				width,
+				plain,
+				layout,
+			),
+		).toBe(` ⠁ ${LOCAL}  reinstalling…`);
+	});
+
+	it("cuts what it's doing to fit, and a line without a subject too", () => {
+		const layout = blockLayout([{ subject: LOCAL }], 70);
+		expect(
+			renderProgress(
+				{ subject: LOCAL, text: "reinstalling from its source…" },
+				"⠁",
+				70,
+				plain,
+				layout,
+			),
+		).toBe(` ⠁ ${LOCAL}  reinstallin…`);
+		expect(renderProgress({ text: "x".repeat(30) }, "⠁", 20, plain)).toBe(
+			` ⠁ ${"x".repeat(15)}…`,
+		);
 	});
 
 	it("paints the frame in the accent, the subject bold and the rest dim", () => {
 		expect(
-			renderProgress(progress, "⠁", blockLayout(subjects, 80), 80, color),
+			renderProgress(progress, "⠁", 80, color, blockLayout(subjects, 80)),
 		).toBe(
 			` \x1b[38;2;167;139;250m⠁\x1b[39m \x1b[1mowner/alpha\x1b[22m${gap(3)}\x1b[2m^1.0.0\x1b[22m${gap(3)}\x1b[2mupdating to v1.0.1…\x1b[22m`,
 		);
-		expect(
-			renderProgress(
-				{ text: "Checking…" },
-				"⠁",
-				blockLayout([], 80),
-				80,
-				color,
-			),
-		).toBe(" \x1b[38;2;167;139;250m⠁\x1b[39m \x1b[2mChecking…\x1b[22m");
+		expect(renderProgress({ text: "Checking…" }, "⠁", 80, color)).toBe(
+			" \x1b[38;2;167;139;250m⠁\x1b[39m \x1b[2mChecking…\x1b[22m",
+		);
 	});
 });

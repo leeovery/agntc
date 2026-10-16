@@ -92,7 +92,7 @@ function groupFilesByType(files: string[]): FileGroup[] {
 export async function runRemove(
 	key?: string,
 	options: RemoveOptions = {},
-	ui: Ui = interactiveUi,
+	ui: Ui = interactiveUi(),
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.intro(commandTitle("remove", scope.name));

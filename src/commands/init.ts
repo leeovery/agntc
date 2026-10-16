@@ -30,7 +30,7 @@ const scaffolds: Record<InitType, Scaffold> = {
 export async function runInit(
 	given: InitType | undefined,
 	options: InitOptions,
-	ui: Ui = interactiveUi,
+	ui: Ui = interactiveUi(),
 ): Promise<void> {
 	ui.intro("agntc init");
 

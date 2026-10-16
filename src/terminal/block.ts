@@ -4,6 +4,7 @@ import {
 	MARGIN,
 	pad,
 	roomFrom,
+	truncate,
 	visibleWidth,
 	wrap,
 } from "./layout.js";
@@ -128,29 +129,32 @@ export function renderRow(
 }
 
 /**
- * A running step's line: the frame in the accent in its glyph slot, then its
- * subject and meta in their columns and what it's doing dim in the detail
- * column. Without a subject, what it's doing follows the frame.
+ * A running step's one line, cut to `width - 1`: the frame in the accent in
+ * its glyph slot, its subject and meta in their columns, then what it's doing
+ * dim in the detail column, or two spaces after them where they reach it or
+ * below 60 columns. Without a subject, what it's doing follows the frame;
+ * without a layout, the subject is laid out alone.
  */
 export function renderProgress(
 	progress: Progress,
 	frame: string,
-	layout: BlockLayout,
 	width: number,
 	style: Style,
+	layout?: BlockLayout,
 ): string {
 	const glyph = style.accent(frame);
-	if (progress.subject === undefined) {
-		return `${MARGIN}${glyph} ${style.dim(progress.text)}`;
+	const text = style.dim(progress.text);
+	const { subject, meta } = progress;
+	if (subject === undefined) {
+		return truncate(`${MARGIN}${glyph} ${text}`, width - 1);
 	}
-	// A label takes its row's tone, and a note's is dim, as progress reads.
-	const row: Row = {
-		status: "note",
-		subject: progress.subject,
-		meta: progress.meta,
-		detail: { label: progress.text },
-	};
-	return rowLines(row, glyph, layout, { width, paint: style })[0] ?? "";
+	const row: Row = { status: "note", subject, meta };
+	const place = layout ?? blockLayout([row], width);
+	const [lead = ""] = rowLines(row, glyph, place, { width, paint: style });
+	const follows = visibleWidth(lead) + MIN_GAP;
+	const at =
+		isNarrow(width) || follows > place.detailAt ? follows : place.detailAt;
+	return truncate(pad(lead, at) + text, width - 1);
 }
 
 interface Pen {

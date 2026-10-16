@@ -68,7 +68,7 @@ async function showListView(
 
 /** The dashboard at a terminal; in machine mode, one document of every entry and its update status. */
 export async function runList(
-	ui: Ui = interactiveUi,
+	ui: Ui = interactiveUi(),
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	if (ui.mode === "machine") {
@@ -80,7 +80,7 @@ export async function runList(
 }
 
 export async function runListLoop(
-	ui: Ui = interactiveUi,
+	ui: Ui = interactiveUi(),
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.intro(commandTitle("list", scope.name));

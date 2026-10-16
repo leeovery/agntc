@@ -261,9 +261,190 @@ describe("a task", () => {
 		task.settle(SETTLED);
 		expect(await term.lines()).toEqual([" ! files in the way", SETTLED_LINE]);
 	});
+
+	describe("with another task", () => {
+		const TWO = [{ subject: "owner/alpha" }, { subject: "owner/beta" }];
+		const done = (subject: string) => ({ status: "done" as const, subject });
+
+		it("prints rows in the order their tasks settle, an older one's above the line spinning", async () => {
+			const { term, ui } = run();
+			const block = ui.block(TWO);
+			const alpha = block.task({ subject: "owner/alpha", text: "updating…" });
+			ui.note("said under alpha");
+			const beta = block.task({ subject: "owner/beta", text: "updating…" });
+			alpha.settle(done("owner/alpha"));
+			expect(await term.lines()).toEqual([
+				" ✓ owner/alpha",
+				" · said under alpha",
+				` ⠁ owner/beta${gap(4)}updating…`,
+			]);
+			beta.settle(done("owner/beta"));
+			expect(await term.lines()).toEqual([
+				" ✓ owner/alpha",
+				" · said under alpha",
+				" ✓ owner/beta",
+			]);
+		});
+
+		it("prints what every task held above a prompt, the newest's last", async () => {
+			const { term, ui } = run();
+			const block = ui.block(TWO);
+			const alpha = block.task({ subject: "owner/alpha", text: "updating…" });
+			ui.note("said under alpha");
+			const beta = block.task({ subject: "owner/beta", text: "updating…" });
+			ui.note("said under beta");
+			const answer = ui.confirm({ message: "Go on?" });
+			await term.press();
+			expect(await term.lines()).toEqual([
+				" · said under alpha",
+				" · said under beta",
+				" ? Go on?   [Yes]  No",
+			]);
+			await term.press("n");
+			expect(await answer).toBe(false);
+			beta.clear();
+			alpha.clear();
+		});
+
+		it("keeps a row that settles while a prompt asks for after its answer, spinning nothing", async () => {
+			const { term, ui } = run();
+			const task = ui.block(SUBJECTS).task(PROGRESS);
+			const answer = ui.confirm({ message: "Go on?" });
+			await term.press();
+			task.settle(SETTLED);
+			expect(await term.lines()).toEqual([" ? Go on?   [Yes]  No"]);
+			await term.press("y");
+			await answer;
+			vi.advanceTimersByTime(160);
+			expect(await term.lines()).toEqual([SETTLED_LINE]);
+			expect(term.output.text.endsWith(`${SETTLED_LINE}\n`)).toBe(true);
+		});
+
+		it("spins a task started while a prompt asks only once it's answered", async () => {
+			const { term, ui } = run();
+			const block = ui.block(SUBJECTS);
+			const answer = ui.confirm({ message: "Go on?" });
+			await term.press();
+			const task = block.task(PROGRESS);
+			expect(await term.lines()).toEqual([" ? Go on?   [Yes]  No"]);
+			await term.press("y");
+			await answer;
+			expect(await term.lines()).toEqual([spinning("⠁")]);
+			task.clear();
+		});
+
+		it("spins the task under one that settles during a prompt once it's answered", async () => {
+			const { term, ui } = run();
+			const block = ui.block(TWO);
+			const alpha = block.task({ subject: "owner/alpha", text: "updating…" });
+			const beta = block.task({ subject: "owner/beta", text: "updating…" });
+			const answer = ui.confirm({ message: "Go on?" });
+			await term.press();
+			beta.settle(done("owner/beta"));
+			await term.press("y");
+			await answer;
+			expect(await term.lines()).toEqual([
+				" ✓ owner/beta",
+				` ⠁ owner/alpha${gap(3)}updating…`,
+			]);
+			alpha.clear();
+		});
+	});
+
+	describe("and the blank line a block opens with", () => {
+		it("comes under what a task holds, a block opened while it spins", async () => {
+			const { term, ui } = run();
+			ui.header();
+			const task = ui.block(SUBJECTS).task(PROGRESS);
+			ui.note("a note");
+			ui.block([{ subject: "owner/beta" }]).row({
+				status: "done",
+				subject: "owner/beta",
+			});
+			task.settle(SETTLED);
+			expect(await term.lines()).toEqual([
+				HEADER_LINE,
+				"",
+				SETTLED_LINE,
+				" · a note",
+				"",
+				" ✓ owner/beta",
+			]);
+		});
+
+		it("is left out under a blank line a task holds", async () => {
+			const { term, ui } = run();
+			const task = ui.block(SUBJECTS).task(PROGRESS);
+			ui.header();
+			ui.block([{ subject: "owner/beta" }]).row({
+				status: "done",
+				subject: "owner/beta",
+			});
+			task.settle(SETTLED);
+			expect(await term.lines()).toEqual([
+				SETTLED_LINE,
+				HEADER_LINE,
+				"",
+				" ✓ owner/beta",
+			]);
+		});
+
+		it("comes under the row a task will settle into, though it holds nothing", async () => {
+			const { term, ui } = run();
+			ui.header();
+			const task = ui.block(SUBJECTS).task(PROGRESS);
+			ui.block([{ subject: "owner/beta" }]).row({
+				status: "done",
+				subject: "owner/beta",
+			});
+			task.settle(SETTLED);
+			expect(await term.lines()).toEqual([
+				HEADER_LINE,
+				"",
+				SETTLED_LINE,
+				"",
+				" ✓ owner/beta",
+			]);
+		});
+
+		it("comes under a row a task settled into", async () => {
+			const { term, ui } = run();
+			ui.header();
+			ui.block(SUBJECTS).task(PROGRESS).settle(SETTLED);
+			ui.block([{ subject: "owner/beta" }]).row({
+				status: "done",
+				subject: "owner/beta",
+			});
+			expect(await term.lines()).toEqual([
+				HEADER_LINE,
+				"",
+				SETTLED_LINE,
+				"",
+				" ✓ owner/beta",
+			]);
+		});
+	});
+
+	it("leaves a dim ○ Cancelled where it spun on a signal, and exits 130", () => {
+		const { term, ui } = run({ env: COLOR });
+		ui.block(SUBJECTS).task(PROGRESS);
+		term.host.emit("SIGINT");
+		expect(
+			term.output.text.endsWith(`${CLEAR} ${DIM}○ Cancelled${NORMAL}\n${SHOW}`),
+		).toBe(true);
+		expect(term.host.exit).toHaveBeenCalledWith(130);
+		ui.end();
+	});
 });
 
 describe("close", () => {
+	const ROW = " ✓ owner/alpha";
+	const row = (ui: TerminalUi) =>
+		ui.block([{ subject: "owner/alpha" }]).row({
+			status: "done",
+			subject: "owner/alpha",
+		});
+
 	it("ends on the row when the run had one outcome and nothing queued", () => {
 		const { term, ui } = run();
 		ui.close({ command: "add", counts: { installed: 1 } });
@@ -274,12 +455,14 @@ describe("close", () => {
 	it("draws the rule, then the tally and the time since the run began, for more than one outcome", async () => {
 		let now = 1000;
 		const { term, ui } = run({ clock: () => now });
+		row(ui);
 		now = 3400;
 		ui.close({
 			command: "update",
 			counts: { updated: 3, upToDate: 2, notChecked: 1, notUpdated: 1 },
 		});
 		expect(await term.lines()).toEqual([
+			ROW,
 			"",
 			RULE,
 			atRight(
@@ -289,18 +472,58 @@ describe("close", () => {
 		]);
 	});
 
+	it("closes on two outcomes with nothing queued", async () => {
+		const { term, ui } = run({ clock: () => 0 });
+		row(ui);
+		ui.close({ command: "remove", counts: { removed: 1, failed: 1 } });
+		expect(await term.lines()).toEqual([
+			ROW,
+			"",
+			RULE,
+			atRight(" 1 removed  ·  1 failed", "0.1s"),
+		]);
+	});
+
 	it("gives Next, the rule and the tally for one outcome with something queued", async () => {
 		let now = 0;
 		const { term, ui } = run({ clock: () => now });
+		row(ui);
 		ui.next(ABORT);
 		now = 72_000;
 		ui.close({ command: "update", counts: { notUpdated: 1 } });
 		expect(await term.lines()).toEqual([
+			ROW,
 			...NEXT_LINES,
 			"",
 			RULE,
 			atRight(" 1 not updated", "1m 12s"),
 		]);
+	});
+
+	it("opens with no second blank line under the header's", async () => {
+		const { term, ui } = run({ clock: () => 0 });
+		ui.header();
+		ui.close({ command: "add", counts: { installed: 2 } });
+		expect(await term.lines()).toEqual([
+			HEADER_LINE,
+			"",
+			RULE,
+			atRight(" 2 installed", "0.1s"),
+		]);
+	});
+
+	it("empties the queue, so nothing after it prints the Next items again", async () => {
+		const { term, ui } = run({ clock: () => 0 });
+		row(ui);
+		ui.next(ABORT);
+		ui.close({ command: "update", counts: { notUpdated: 1 } });
+		const closed = await term.lines();
+		ui.close({ command: "update", counts: { notUpdated: 2 } });
+		ui.end();
+		expect((await term.lines()).filter((line) => line === " Next")).toEqual([
+			" Next",
+		]);
+		expect(closed).toContain(" Next");
 	});
 
 	it("counts in its command's order, each in its glyph's colour", () => {
@@ -309,6 +532,37 @@ describe("close", () => {
 		expect(term.output.text).toContain(
 			`\x1b[32m2 updated${FG}${DIM}  ·  ${NORMAL}\x1b[33m1 kept${FG}`,
 		);
+	});
+});
+
+describe("end", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("prints the Next items a run ended without closing on", async () => {
+		const { term, ui } = run();
+		ui.log.error("laravel can't be updated");
+		ui.next(ABORT);
+		ui.end();
+		expect(await term.lines()).toEqual([
+			" ✗ laravel can't be updated",
+			...NEXT_LINES,
+		]);
+	});
+
+	it("clears what spins, prints what it held, then the Next items", async () => {
+		const { term, ui } = run();
+		ui.next(ABORT);
+		ui.spinner().start("Cloning repository...");
+		ui.note("held");
+		ui.end();
+		expect(await term.lines()).toEqual([" · held", ...NEXT_LINES]);
+		expect(term.output.text).toContain(`${CLEAR}${SHOW}`);
 	});
 });
 
@@ -378,11 +632,39 @@ describe("fail", () => {
 		expect(term.output.text).toBe(` \x1b[31m✗${FG} ${BOLD}broken${NORMAL}\n`);
 	});
 
-	it("prints after the Next items queued so far", async () => {
+	it("prints after the Next items queued so far, and empties the queue", async () => {
 		const { term, ui } = run();
+		ui.log.error("laravel can't be updated");
 		ui.next(ABORT);
 		failure(() => ui.fail("broken"));
-		expect(await term.lines()).toEqual([...NEXT_LINES, "", " ✗ broken"]);
+		ui.end();
+		expect(await term.lines()).toEqual([
+			" ✗ laravel can't be updated",
+			...NEXT_LINES,
+			"",
+			" ✗ broken",
+		]);
+	});
+
+	it("opens its Next items with no second blank line under the header's", async () => {
+		const { term, ui } = run();
+		ui.header();
+		ui.next(ABORT);
+		failure(() => ui.fail("broken"));
+		expect(await term.lines()).toEqual([
+			HEADER_LINE,
+			...NEXT_LINES,
+			"",
+			" ✗ broken",
+		]);
+	});
+
+	it("puts a string's first line in bold and the rest, its cause, dim", () => {
+		const { term, ui } = run({ env: COLOR });
+		failure(() => ui.fail("couldn't clone o/r\nfatal: repository not found\n"));
+		expect(term.output.text).toBe(
+			` \x1b[31m✗${FG} ${BOLD}couldn't clone o/r${NORMAL}\n   ${DIM}fatal: repository not found${NORMAL}\n`,
+		);
 	});
 
 	it("lays out a rich failure, its cause dim under it", async () => {
@@ -509,6 +791,57 @@ describe("the old surface", () => {
 			ui.spinner().stop("Update checks complete.");
 			expect(await term.lines()).toEqual([" ✓ Update checks complete."]);
 		});
+
+		it("leaves one row however often it's stopped, until it starts again", async () => {
+			const { term, ui } = run();
+			const spin = ui.spinner();
+			spin.start("Cloning repository...");
+			spin.stop("Cloned successfully");
+			spin.stop("Cloned successfully");
+			spin.start("Copying skill files...");
+			spin.stop("Copied successfully");
+			expect(await term.lines()).toEqual([
+				" ✓ Cloned successfully",
+				" ✓ Copied successfully",
+			]);
+		});
+
+		it("says what a second start says, spinning on the one line", async () => {
+			const { term, ui } = run();
+			const spin = ui.spinner();
+			spin.start("Cloning repository...");
+			spin.start("Fetching tags...");
+			vi.advanceTimersByTime(80);
+			expect(await term.lines()).toEqual([" ⠂ Fetching tags..."]);
+			spin.stop("Fetched tags");
+			ui.note("nothing spins now");
+			expect(await term.lines()).toEqual([
+				" ✓ Fetched tags",
+				" · nothing spins now",
+			]);
+		});
+	});
+});
+
+describe("blank lines", () => {
+	it("leave out outro's own under the header's", async () => {
+		const { term, ui } = run();
+		ui.header();
+		ui.outro("No skills or packs installed.");
+		expect(await term.lines()).toEqual([
+			HEADER_LINE,
+			"",
+			" No skills or packs installed.",
+		]);
+	});
+
+	it("never end a cancel or a written message", () => {
+		const { term, ui } = run();
+		ui.cancel("Clone failed: fatal: repository not found\n");
+		ui.warn("Some files were left behind\n\n");
+		expect(term.output.text).toBe(
+			" ○ Clone failed: fatal: repository not found\n ! Some files were left behind\n",
+		);
 	});
 });
 

@@ -28,12 +28,7 @@ import type { PromptInput } from "./prompts/input-filter.js";
 import { promptMultiselect } from "./prompts/multiselect.js";
 import { promptSelect } from "./prompts/select.js";
 import type { PromptContext, PromptOutput } from "./prompts/session.js";
-import {
-	createStyle,
-	detectColorLevel,
-	identity,
-	type Style,
-} from "./style.js";
+import { createStyle, detectColorLevel, type Style } from "./style.js";
 import { outcomeCount, tallyItems } from "./tally.js";
 import { startTask, type Task } from "./task.js";
 import type { BlockSubject, Header, NextItem, Row, Status } from "./types.js";
@@ -70,11 +65,15 @@ interface Spinning {
 }
 
 /**
- * A command run at a terminal, drawn by the renderer. One line spins at a
- * time, the newest task's: a task started under another pauses it until it
- * ends, and a prompt pauses it while it asks. What's printed while a task
- * spins prints under the lines it settles into, or above a prompt that opens
- * meanwhile.
+ * A command run at a terminal, drawn by the renderer.
+ *
+ * - One line spins at a time, the newest task's: a task started under
+ *   another pauses it until it ends.
+ * - What's printed while a task spins prints under the lines it settles
+ *   into; rows print in the order their tasks settle, so a task that settles
+ *   under a newer one writes above its spinning line.
+ * - A prompt draws alone: what spins pauses, what it held prints above the
+ *   prompt, and what's printed while it asks waits for its answer.
  */
 export class TerminalUi implements Ui {
 	readonly mode = "interactive";
@@ -93,8 +92,11 @@ export class TerminalUi implements Ui {
 	private readonly queued: NextItem[] = [];
 	/** The newest last, the one spinning. */
 	private readonly live: Live[] = [];
+	/** What's printed while a prompt asks. */
+	private readonly answered: string[] = [];
+	private asking = false;
 	private headed = false;
-	/** Whether the last line written is blank; so it is before anything is, and a first block opens no blank line. */
+	/** Whether the last line written is blank; so it is before any is, and a first section opens without one. */
 	private atBlank = true;
 
 	constructor(options: TerminalUiOptions = {}) {
@@ -123,10 +125,10 @@ export class TerminalUi implements Ui {
 		const rowLines = (row: Row) => renderRow(row, layout, width, this.style);
 		let opened = false;
 		const open = () => {
-			if (!opened && !this.atBlank) {
-				this.print([""]);
+			if (!opened) {
+				opened = true;
+				this.printSection([""]);
 			}
-			opened = true;
 		};
 		return {
 			row: (row) => {
@@ -136,7 +138,7 @@ export class TerminalUi implements Ui {
 			task: (progress) => {
 				open();
 				const spinning = this.spin((frame) =>
-					renderProgress(progress, frame, layout, width, this.style),
+					renderProgress(progress, frame, width, this.style, layout),
 				);
 				return {
 					settle: (row) => spinning.settle(rowLines(row)),
@@ -154,13 +156,12 @@ export class TerminalUi implements Ui {
 		if (outcomeCount(tally) <= 1 && this.queued.length === 0) {
 			return;
 		}
-		const width = this.width();
-		this.print([
-			...renderNext(this.queued.splice(0), width, this.style),
+		this.printSection([
+			...this.takeNext(),
 			...renderClose(
 				tallyItems(tally),
 				this.clock() - this.started,
-				width,
+				this.width(),
 				this.style,
 			),
 		]);
@@ -193,13 +194,13 @@ export class TerminalUi implements Ui {
 	report(): void {}
 
 	/**
-	 * Whatever spins clears first; then the Next items queued so far, and the
-	 * error under them, in either style.
+	 * Whatever spins clears first, and what it held prints; then the Next
+	 * items queued so far, and the error under them, in either style.
 	 */
 	fail(message: Message, _options?: FailOptions): never {
-		this.end();
-		const next = renderNext(this.queued.splice(0), this.width(), this.style);
-		this.print([
+		this.stopSpinning();
+		const next = this.takeNext();
+		this.printSection([
 			...next,
 			...(next.length > 0 ? [""] : []),
 			...this.message("error", message),
@@ -213,29 +214,38 @@ export class TerminalUi implements Ui {
 	}
 
 	outro(message: string): void {
-		this.print(["", ...this.written(undefined, message)]);
+		this.printSection(["", ...this.written(undefined, message)]);
 	}
 
 	box(message: string, title: string): void {
 		this.print([
-			...renderWritten(undefined, title, this.style, this.style.bold),
+			...renderWritten(undefined, title, this.style, {
+				first: this.style.bold,
+			}),
 			...this.written(undefined, message),
 		]);
 	}
 
+	/** Once stopped, a stop does nothing until it starts again; a start while it spins changes what it says. */
 	spinner(): Spinner {
+		let message = "";
 		let spinning: Spinning | undefined;
+		let stopped = false;
 		return {
-			start: (message = "") => {
-				const width = this.width();
-				const layout = blockLayout([], width);
+			start: (text = "") => {
+				message = text;
+				stopped = false;
 				spinning ??= this.spin((frame) =>
-					renderProgress({ text: message }, frame, layout, width, this.style),
+					renderProgress({ text: message }, frame, this.width(), this.style),
 				);
 			},
-			stop: (message, code = 0) => {
-				const lines = message
-					? this.written(code === 0 ? "done" : "failed", message)
+			stop: (text, code = 0) => {
+				if (stopped) {
+					return;
+				}
+				stopped = true;
+				const lines = text
+					? this.written(code === 0 ? "done" : "failed", text)
 					: [];
 				if (spinning === undefined) {
 					this.print(lines);
@@ -248,10 +258,16 @@ export class TerminalUi implements Ui {
 	}
 
 	/**
-	 * Ends the run's drawing: whatever still spins clears, and what it held
-	 * prints. A task that finishes after this leaves no row.
+	 * Ends the run's drawing: whatever still spins clears, what it held
+	 * prints, and then the Next items still queued, so a remedy is never lost.
+	 * A task that finishes after this leaves no row.
 	 */
 	end(): void {
+		this.stopSpinning();
+		this.printSection(this.takeNext());
+	}
+
+	private stopSpinning(): void {
 		const ended = this.live.splice(0);
 		for (const live of ended) {
 			this.pause(live);
@@ -259,16 +275,26 @@ export class TerminalUi implements Ui {
 		this.write(ended.flatMap((live) => live.held));
 	}
 
+	private takeNext(): string[] {
+		return renderNext(this.queued.splice(0), this.width(), this.style);
+	}
+
 	private width(): number {
 		return layoutWidth(this.output.columns);
 	}
 
-	/** A string as written, as every caller's is until its command moves over; a rich message laid out. */
+	/**
+	 * A string as written, an error's first line bold and the rest, its
+	 * cause, dim; a rich message laid out.
+	 */
 	private message(kind: MessageKind, message: Message): string[] {
 		if (typeof message !== "string") {
 			return renderMessage(kind, message, this.width(), this.style);
 		}
-		const paint = kind === "error" ? this.style.bold : identity;
+		const paint =
+			kind === "error"
+				? { first: this.style.bold, rest: this.style.dim }
+				: undefined;
 		return renderWritten(KIND_STATUS[kind], message, this.style, paint);
 	}
 
@@ -276,22 +302,49 @@ export class TerminalUi implements Ui {
 		return renderWritten(status, text, this.style);
 	}
 
-	/** Held while a line spins, else written at once. */
+	/** Where a printed line waits: for the prompt's answer, or for the spinning task to settle. */
+	private pending(): string[] | undefined {
+		return this.asking ? this.answered : this.live.at(-1)?.held;
+	}
+
 	private print(lines: readonly string[]): void {
-		const spinning = this.live.at(-1);
-		if (spinning === undefined) {
+		const pending = this.pending();
+		if (pending === undefined) {
 			this.write(lines);
 		} else {
-			spinning.held.push(...lines);
+			pending.push(...lines);
 		}
 	}
 
-	private write(lines: readonly string[]): void {
-		if (lines.length === 0) {
-			return;
+	/** `lines`, the blank line they open with left off where the line above them is blank already. */
+	private printSection(lines: readonly string[]): void {
+		this.print(lines[0] === "" && this.endsBlank() ? lines.slice(1) : lines);
+	}
+
+	/**
+	 * Whether the next line printed lands under a blank one: the last line
+	 * still waiting, else the last written. A spinning task's row will sit
+	 * above what it holds.
+	 */
+	private endsBlank(): boolean {
+		const pending = this.pending() ?? [];
+		if (pending.length > 0) {
+			return pending.at(-1) === "";
 		}
-		this.output.write(lines.map((line) => `${line}\n`).join(""));
-		this.atBlank = lines.at(-1) === "";
+		return (this.asking || this.live.length === 0) && this.atBlank;
+	}
+
+	private write(lines: readonly string[]): void {
+		if (lines.length > 0) {
+			this.output.write(lines.map((line) => `${line}\n`).join(""));
+			this.wrote(lines);
+		}
+	}
+
+	private wrote(lines: readonly string[]): void {
+		if (lines.length > 0) {
+			this.atBlank = lines.at(-1) === "";
+		}
 	}
 
 	private spin(render: (frame: string) => string): Spinning {
@@ -309,8 +362,9 @@ export class TerminalUi implements Ui {
 	}
 
 	/**
-	 * The spinning line becomes `lines` and what it held, and the task it
-	 * paused spins again. One that was paused prints them as any line is.
+	 * `lines` and what the task held, where its spinning line was; the task
+	 * it paused spins again. A paused one's go above the line spinning now,
+	 * or wait for a prompt's answer.
 	 */
 	private finish(live: Live, lines: readonly string[]): void {
 		const index = this.live.indexOf(live);
@@ -319,18 +373,25 @@ export class TerminalUi implements Ui {
 		}
 		this.live.splice(index, 1);
 		const out = [...lines, ...live.held];
-		if (live.task === undefined) {
-			this.print(out);
+		if (live.task !== undefined) {
+			live.task.settle(out);
+			this.wrote(out);
+		} else if (this.asking) {
+			this.answered.push(...out);
 			return;
+		} else {
+			this.writeAbove(out);
 		}
-		live.task.settle(out);
-		if (out.length > 0) {
-			this.atBlank = out.at(-1) === "";
+		this.resumeTop();
+	}
+
+	/** Clears the spinning line, writes `lines`, and draws it again under them. */
+	private writeAbove(lines: readonly string[]): void {
+		const top = this.live.at(-1);
+		if (top !== undefined) {
+			this.pause(top);
 		}
-		const under = this.live.at(-1);
-		if (under !== undefined) {
-			this.resume(under);
-		}
+		this.write(lines);
 	}
 
 	private pause(live: Live): void {
@@ -338,27 +399,39 @@ export class TerminalUi implements Ui {
 		live.task = undefined;
 	}
 
+	/** The newest task spins, unless a prompt is asking. */
+	private resumeTop(): void {
+		const top = this.live.at(-1);
+		if (top !== undefined) {
+			this.resume(top);
+		}
+	}
+
 	private resume(live: Live): void {
+		if (this.asking) {
+			return;
+		}
 		live.task ??= startTask(this.output, live.render, this.width(), {
 			host: this.options.host,
+			style: this.style,
 		});
 	}
 
-	/** Pauses what spins and prints what it held, so the prompt draws alone; it spins again after. */
 	private async ask<T>(
 		prompt: (context: PromptContext) => Promise<T>,
 	): Promise<T> {
-		const spinning = this.live.at(-1);
-		if (spinning !== undefined) {
-			this.pause(spinning);
+		const top = this.live.at(-1);
+		if (top !== undefined) {
+			this.pause(top);
 		}
 		this.write(this.live.flatMap((live) => live.held.splice(0)));
+		this.asking = true;
 		try {
 			return await prompt(this.promptContext());
 		} finally {
-			if (spinning !== undefined && this.live.at(-1) === spinning) {
-				this.resume(spinning);
-			}
+			this.asking = false;
+			this.write(this.answered.splice(0));
+			this.resumeTop();
 		}
 	}
 

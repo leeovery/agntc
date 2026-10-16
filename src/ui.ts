@@ -185,8 +185,10 @@ export interface Ui {
 	box(message: string, title: string): void;
 }
 
-/** The terminal Ui a command draws on when it isn't given one: no header of its own. */
-export const interactiveUi: Ui = new TerminalUi();
+/** A fresh terminal Ui, with no header, for a command run without one. */
+export function interactiveUi(): Ui {
+	return new TerminalUi();
+}
 
 export interface CommandError {
 	message: string;

@@ -158,7 +158,7 @@ export async function resolveTagConstraint(
 export async function runAdd(
 	source: string,
 	options: AddOptions = {},
-	ui: Ui = interactiveUi,
+	ui: Ui = interactiveUi(),
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.intro(commandTitle("add", scope.name));

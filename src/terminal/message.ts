@@ -32,22 +32,35 @@ export function renderMessage(
 	];
 }
 
+/** How a written text's lines are painted: the first, then the rest, as the first unless given. */
+export interface WrittenPaint {
+	first?: Painter;
+	rest?: Painter;
+}
+
 /**
  * ` ✓ text`, each of the text's lines as written, those after the first at
  * column 3; with no status, every line at the margin. Nothing is wrapped, so
  * a command written into a sentence stays whole for the terminal to wrap.
+ * Blank lines at the end are left off.
  */
 export function renderWritten(
 	status: Status | undefined,
 	text: string,
 	style: Style,
-	paint: Painter = identity,
+	{
+		first: paintFirst = identity,
+		rest: paintRest = paintFirst,
+	}: WrittenPaint = {},
 ): string[] {
-	const [first = "", ...rest] = text.split("\n");
+	const [first = "", ...rest] = text.trimEnd().split("\n");
 	const opening =
 		status === undefined ? MARGIN : `${MARGIN}${statusGlyph(status, style)} `;
 	const after = status === undefined ? MARGIN : indent(LEAD_AT);
-	const line = (lead: string, written: string) =>
+	const line = (lead: string, written: string, paint: Painter) =>
 		written === "" ? lead.trimEnd() : lead + paint(written);
-	return [line(opening, first), ...rest.map((written) => line(after, written))];
+	return [
+		line(opening, first, paintFirst),
+		...rest.map((written) => line(after, written, paintRest)),
+	];
 }

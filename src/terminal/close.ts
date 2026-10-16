@@ -89,15 +89,20 @@ export function formatElapsed(ms: number): string {
 	return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-/** ` ○ Cancelled`, or the caller's words, dim. */
+/** ` ○ Cancelled`, or the caller's words, dim; blank lines at their end left off. */
 export function renderCancel(
 	width: number,
 	style: Style,
 	message = "Cancelled",
 ): string[] {
-	const [first = "", ...rest] = wrap(message, roomFrom(CANCEL_TEXT_AT, width));
+	const [first = "", ...rest] = wrap(
+		message.trimEnd(),
+		roomFrom(CANCEL_TEXT_AT, width),
+	);
 	return [
 		`${MARGIN}${style.dim(`○ ${first}`)}`,
-		...rest.map((line) => indent(CANCEL_TEXT_AT) + style.dim(line)),
+		...rest.map((line) =>
+			line === "" ? "" : indent(CANCEL_TEXT_AT) + style.dim(line),
+		),
 	];
 }

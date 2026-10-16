@@ -223,9 +223,24 @@ describe("renderWritten", () => {
 		]);
 	});
 
-	it("paints the glyph in its colour and the words with the painter given", () => {
-		expect(renderWritten("failed", "broken", color, color.bold)).toEqual([
+	it("paints the glyph in its colour, the first line and the rest as given", () => {
+		expect(
+			renderWritten("failed", "broken\nfatal: no", color, {
+				first: color.bold,
+				rest: color.dim,
+			}),
+		).toEqual([
 			" \x1b[31m✗\x1b[39m \x1b[1mbroken\x1b[22m",
+			"   \x1b[2mfatal: no\x1b[22m",
 		]);
+		expect(
+			renderWritten(undefined, "title\nsubtitle", color, { first: color.bold }),
+		).toEqual([" \x1b[1mtitle\x1b[22m", " \x1b[1msubtitle\x1b[22m"]);
+	});
+
+	it("leaves off the blank lines a text ends with", () => {
+		expect(
+			renderWritten("note", "Could not clone\nfatal: not found\n\n", color),
+		).toEqual([" \x1b[2m·\x1b[22m Could not clone", "   fatal: not found"]);
 	});
 });
