@@ -186,13 +186,30 @@ describe.each(NAMES)("a %s", (name) => {
 		await answer;
 	});
 
-	it("cancels on ctrl-d, on which readline closes, leaving nothing on the screen and the terminal as it was", async () => {
+	it.each<[string, (terminal: Terminal) => Promise<void>]>([
+		[
+			"ctrl-d after an arrow",
+			(terminal) => terminal.press(KEY.down, KEY.ctrlD),
+		],
+		// Readline keeps these in its line, and then reads ctrl-d as delete-right.
+		[
+			"ctrl-d after keys readline keeps",
+			(terminal) => terminal.press(KEY.space, "j", KEY.tab, KEY.ctrlD),
+		],
+		[
+			"stdin's end, on which readline closes",
+			(terminal) => {
+				terminal.input.end();
+				return terminal.press();
+			},
+		],
+	])("cancels on %s, leaving nothing on the screen and the terminal as it was", async (_on, end) => {
 		const terminal = new Terminal();
 		const watching = signalListeners();
 		terminal.output.write("before\n");
 		const answer = ask(terminal);
-		await terminal.press(KEY.down);
-		await terminal.press(KEY.ctrlD);
+		await terminal.press();
+		await end(terminal);
 		expect(await answer).toEqual(CANCELLED[name]);
 		expect(await terminal.lines()).toEqual(["before"]);
 		expect(await terminal.cursor()).toEqual([0, 1]);

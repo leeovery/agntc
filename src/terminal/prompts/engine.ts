@@ -1,10 +1,12 @@
 import type { Interface } from "node:readline";
 import { Prompt } from "@clack/core";
 
+const CTRL_D = "\x04";
+
 /**
- * Core's prompt as a session runs it: one that ends as a cancel when its
- * readline closes under it, that can be closed without an answer, and whose
- * readline the session can reach.
+ * Core's prompt as a session runs it: one that ends as a cancel on ctrl-d
+ * or when its readline closes under it, that can be closed without an
+ * answer, and whose readline the session can reach.
  */
 export class Engine extends Prompt {
 	private closed = false;
@@ -20,10 +22,17 @@ export class Engine extends Prompt {
 	}
 
 	/**
-	 * Readline closes itself on ctrl-d at an empty line, ctrl-c and stdin's
-	 * end, turning raw mode off; core goes on asking, deaf to every key after.
+	 * Ctrl-d cancels whatever readline's line holds: core never clears it, so
+	 * the prompt's own keys (j, space, tab) stay in it, and readline ends its
+	 * input on ctrl-d only when it's empty. Readline also closes itself at
+	 * stdin's end, turning raw mode off, while core goes on asking.
 	 */
 	override prompt(): Promise<string | symbol> {
+		this.on("key", (key) => {
+			if (key === CTRL_D) {
+				this.abandon();
+			}
+		});
 		const answered = super.prompt();
 		this.readline?.once("close", () => {
 			if (this.asking) {

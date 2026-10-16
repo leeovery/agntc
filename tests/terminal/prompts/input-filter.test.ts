@@ -262,6 +262,16 @@ describe("InputFilter", () => {
 			expect(bodies).toEqual([BODY]);
 		});
 
+		it("passes a ] read once an ESC's 50 ms went by as a key, the ESC the escape key", async () => {
+			const { filter, read, keys, bodies } = filtering();
+			await send(filter, "\x1b");
+			await waited(50);
+			await send(filter, "]11;rgb:1e/1e/1e\x07");
+			expect(keys).toEqual([[undefined, ESCAPE_KEY]]);
+			expect(read()).toBe("]11;rgb:1e/1e/1e\x07");
+			expect(bodies).toEqual([]);
+		});
+
 		it("waits afresh when a held ESC turns into a sequence, and takes out a reply ending inside that wait", async () => {
 			const { filter, read, bodies } = filtering();
 			await send(filter, "\x1b");

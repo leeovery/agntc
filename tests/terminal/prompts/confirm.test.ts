@@ -54,6 +54,14 @@ describe("renderConfirm", () => {
 		]);
 	});
 
+	it("keeps the buttons beside the question only while the line leaves the last column free", () => {
+		expect(renderConfirm(proceed(true), YES.length + 1, plain)).toEqual([YES]);
+		expect(renderConfirm(proceed(true), YES.length, plain)).toEqual([
+			" ? Proceed?",
+			"   [Yes]  No",
+		]);
+	});
+
 	it("shows key hints on the right only when given", () => {
 		expect(renderConfirm(proceed(true, "y yes · n no"), 80, plain)).toEqual([
 			`${YES}${gap(44)}y yes · n no`,

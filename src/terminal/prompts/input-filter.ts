@@ -145,7 +145,7 @@ export class InputFilter extends Transform {
 	}
 
 	private strip(chunk: string): void {
-		const opens = this.escapeLast && this.escape !== undefined;
+		const opens = this.escapeLast;
 		this.escapeLast = false;
 		const after = this.afterTail(chunk);
 		if (after === undefined) {
@@ -242,6 +242,7 @@ export class InputFilter extends Transform {
 
 	private escaped(): void {
 		this.escape = undefined;
+		this.escapeLast = false;
 		this.deliver(ESCAPE_KEY);
 	}
 

@@ -142,6 +142,7 @@ export function renderMultiselect<T>(
 					band,
 				);
 			},
+			width,
 			style,
 		),
 		...["", footerLine(view, width, style)].slice(FOOTER_LINES - view.footer),

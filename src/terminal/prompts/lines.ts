@@ -152,6 +152,7 @@ export function windowLines<O>(
 	window: ListWindow,
 	isOption: (option: O) => boolean,
 	line: (option: O, index: number) => string,
+	width: number,
 	style: Style,
 ): string[] {
 	const end = top + window.size;
@@ -159,17 +160,28 @@ export function windowLines<O>(
 		window.more ? out.filter(isOption).length : 0;
 	const above = hidden(options.slice(0, top));
 	const below = hidden(options.slice(end));
+	const more = (arrow: "↑" | "↓", count: number) =>
+		count > 0 ? [moreLine(arrow, count, width, style)] : [];
 	return [
-		...(above > 0 ? [moreLine("↑", above, style)] : []),
+		...more("↑", above),
 		...options
 			.slice(top, end)
 			.map((option, index) => line(option, top + index)),
-		...(below > 0 ? [moreLine("↓", below, style)] : []),
+		...more("↓", below),
 	];
 }
 
-function moreLine(arrow: "↑" | "↓", count: number, style: Style): string {
-	return at(TEXT_AT, style.dim(`${arrow} ${count} more`));
+function moreLine(
+	arrow: "↑" | "↓",
+	count: number,
+	width: number,
+	style: Style,
+): string {
+	const text = truncate(
+		`${arrow} ${count} more`,
+		Math.max(0, roomFrom(TEXT_AT, width)),
+	);
+	return at(TEXT_AT, text === "" ? "" : style.dim(text));
 }
 
 /** `text` from `column`; an empty line stays empty. */

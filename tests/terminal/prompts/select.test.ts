@@ -184,6 +184,14 @@ describe("renderSelect", () => {
 			).toEqual(["   ↑ 2 more", "   github/gh-stack", " ▌   gh-stack   skill"]);
 		});
 
+		it("cuts the more lines to the room the last column leaves", () => {
+			const lines = renderSelect(view(TEN, 5, { top: 3, size: 5 }), 10, plain);
+			expect(lines.filter((line) => /[↑↓]/.test(line))).toEqual([
+				"   ↑ 3 m…",
+				"   ↓ 2 m…",
+			]);
+		});
+
 		it("paints the more lines dim", () => {
 			expect(renderSelect(view(TEN, 0, { size: 5 }), 80, colour).at(-1)).toBe(
 				"   \x1b[2m↓ 5 more\x1b[22m",

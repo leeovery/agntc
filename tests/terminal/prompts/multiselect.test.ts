@@ -132,6 +132,18 @@ describe("renderMultiselect", () => {
 		]);
 	});
 
+	it("cuts its more lines to the room the last column leaves", () => {
+		const lines = renderMultiselect(
+			view({ cursor: 3, top: 2, size: 2 }),
+			10,
+			plain,
+		);
+		expect(lines.filter((line) => /[↑↓]/.test(line))).toEqual([
+			"   ↑ 2 m…",
+			"   ↓ 1 m…",
+		]);
+	});
+
 	it("leaves out the more lines, and the footer's lines from its first, that its fit has no room for", () => {
 		const scrolled = { cursor: 3, top: 3, size: 1, more: false };
 		const row = " ▌ ● git-hygiene     Keep commits small and messages honest";

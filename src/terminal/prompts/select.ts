@@ -130,6 +130,7 @@ export function renderSelect<T>(
 					band,
 				);
 			},
+			width,
 			style,
 		),
 	];
