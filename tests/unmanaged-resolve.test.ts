@@ -128,7 +128,7 @@ describe("resolveUnmanagedConflicts", () => {
 		]);
 	});
 
-	it("treats a cancelled select as cancel", async () => {
+	it("treats a dismissed select (null) as cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
 				pluginKey: "owner/repo-a",
@@ -144,7 +144,7 @@ describe("resolveUnmanagedConflicts", () => {
 		expect(result.cancelled).toEqual([".claude/skills/my-skill/"]);
 	});
 
-	it("treats a cancelled confirm as cancel", async () => {
+	it("treats a dismissed confirm (a no) as cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
 				pluginKey: "owner/repo-a",

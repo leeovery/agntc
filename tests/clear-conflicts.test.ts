@@ -41,8 +41,8 @@ import {
 import { ExitSignal } from "../src/exit-signal.js";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
 import { nukeManifestFiles, removePathsInTheWay } from "../src/nuke-files.js";
-import { interactiveUi } from "../src/ui.js";
 import { resolveUnmanagedConflicts } from "../src/unmanaged-resolve.js";
+import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const actualNuke = await vi.importActual<typeof import("../src/nuke-files.js")>(
 	"../src/nuke-files.js",
@@ -56,9 +56,11 @@ const mockRemovePaths = vi.mocked(removePathsInTheWay);
 const INCOMING = [".claude/skills/a/"];
 
 let projectDir: string;
+let ui: TestUi;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
+	ui = testUi();
 	projectDir = await mkdtemp(join(tmpdir(), "agntc-conflicts-"));
 });
 
@@ -90,7 +92,7 @@ function clear(
 	return clearConflicts(
 		{ incomingFiles, manifest, key: "owner/repo/a", projectDir },
 		policy,
-		interactiveUi,
+		ui,
 	);
 }
 
@@ -171,7 +173,7 @@ describe("clearConflicts", () => {
 			expect((await clear({}, "ask")).stop).toBeNull();
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo/a", files: INCOMING }],
-				interactiveUi,
+				ui,
 			);
 		});
 

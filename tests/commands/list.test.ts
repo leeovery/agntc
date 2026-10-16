@@ -240,7 +240,7 @@ describe("runListLoop", () => {
 			await runListLoop(ui);
 
 			expect(ui.log.error).toHaveBeenCalledWith(failure);
-			expect(ui.log.success).not.toHaveBeenCalled();
+			expect(ui.said("success")).toEqual([]);
 			expect(ui.select).toHaveBeenCalledTimes(2);
 			expect(ui.select.mock.calls[1]?.[0]).toMatchObject({
 				options: expect.arrayContaining([
@@ -269,8 +269,8 @@ describe("runListLoop", () => {
 
 			await runListLoop(ui);
 
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.log.success).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
+			expect(ui.said("success")).toEqual([]);
 		});
 	});
 
@@ -1147,7 +1147,7 @@ describe("runListLoop", () => {
 
 			await runListLoop(ui);
 
-			expect(ui.log.success).not.toHaveBeenCalled();
+			expect(ui.said("success")).toEqual([]);
 		});
 	});
 });

@@ -457,10 +457,7 @@ describe("update command", () => {
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			// Summary should mention newer tags
-			const allLogCalls = [
-				...ui.log.info.mock.calls.map((c) => c[0]),
-				...ui.log.message.mock.calls.map((c) => c[0]),
-			];
+			const allLogCalls = [...ui.said("info"), ...ui.said("message")];
 			const hasNewerTagsInfo = allLogCalls.some(
 				(msg) => typeof msg === "string" && msg.includes("newer tags"),
 			);
@@ -495,10 +492,10 @@ describe("update command", () => {
 			await runUpdate(undefined, {}, ui);
 
 			const allLogCalls = [
-				...ui.log.warn.mock.calls.map((c) => c[0]),
-				...ui.log.message.mock.calls.map((c) => c[0]),
-				...ui.log.info.mock.calls.map((c) => c[0]),
-				...ui.note.mock.calls.map((c) => c[0]),
+				...ui.said("warn"),
+				...ui.said("message"),
+				...ui.said("info"),
+				...ui.said("info"),
 			];
 			const hasFailedNote = allLogCalls.some(
 				(msg) =>
@@ -660,9 +657,9 @@ describe("update command", () => {
 			// streams as its group-of-one spinner stop-frame, repo-b (up-to-date)
 			// via the trailing ui.log summary.
 			const allMessages = [
-				...ui.log.info.mock.calls.map((c) => c[0]),
-				...ui.log.message.mock.calls.map((c) => c[0]),
-				...ui.log.success.mock.calls.map((c) => c[0]),
+				...ui.said("info"),
+				...ui.said("message"),
+				...ui.said("success"),
 				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some(
@@ -1214,9 +1211,7 @@ describe("update command", () => {
 			// (its group-of-one spinner stop-frame), then the interleaved local
 			// (ui.log.success, no spinner), then git B (its stop-frame).
 			expect(stopTexts(handle, 0)).toEqual([A_SUMMARY, B_SUMMARY]);
-			expect(ui.log.success.mock.calls.map((c) => c[0])).toEqual([
-				LOCAL_SUMMARY,
-			]);
+			expect(ui.said("success")).toEqual([LOCAL_SUMMARY]);
 			const stopOrder = (text: string) =>
 				handle.stop.mock.invocationCallOrder[
 					handle.stop.mock.calls.findIndex((c) => c[0] === text)
@@ -1253,7 +1248,7 @@ describe("update command", () => {
 				"owner/repo: Updated aaaaaaa -> bbbbbbb",
 				0,
 			);
-			expect(ui.log.success).not.toHaveBeenCalled();
+			expect(ui.said("success")).toEqual([]);
 			// Neither the start nor the stop carries a `(1 members)` header line.
 			const messages = [
 				...handle.start.mock.calls.map((c) => c[0] as string),
@@ -1298,7 +1293,7 @@ describe("update command", () => {
 				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
 				0,
 			);
-			expect(ui.log.success).not.toHaveBeenCalled();
+			expect(ui.said("success")).toEqual([]);
 			// The spinner still starts on the bare repo label (no member suffix, no count).
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 		});
@@ -1328,8 +1323,7 @@ describe("update command", () => {
 				"Update failed for owner/repo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
 				2,
 			);
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 		});
 
@@ -1417,9 +1411,7 @@ describe("update command", () => {
 
 			// Local streams first (manifest index 0) via ui.log.success; the git group
 			// follows as its group-of-one spinner stop-frame.
-			expect(ui.log.success.mock.calls.map((c) => c[0])).toEqual([
-				LOCAL_SUMMARY,
-			]);
+			expect(ui.said("success")).toEqual([LOCAL_SUMMARY]);
 			expect(stopTexts(handle, 0)).toEqual([
 				"owner/repo-a: Updated aaaaaaa -> bbbbbbb",
 			]);
@@ -1745,7 +1737,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const messageCalls = ui.said("message");
 			// ONE collapsed count line for the 7-member group, keyed by the group.
 			expect(messageCalls).toContain("owner/repo: 7 up to date");
 			// Not 7 near-identical per-member up-to-date lines.
@@ -1773,7 +1765,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls).toContain(
 				[
 					"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
@@ -1801,7 +1793,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls).toContain(
 				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo/a@v3.0",
 			);
@@ -1825,7 +1817,7 @@ describe("update command", () => {
 
 			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
 			expect(err).toBeUndefined();
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			// ONE collapsed line carrying the shared probe reason — no per-member enumeration.
 			expect(warnCalls).toContain(
 				`owner/repo: couldn't check for updates (${REASON}) — left untouched`,
@@ -1847,10 +1839,8 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.log.warn.mock.calls).toEqual([
-				[
-					"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
-				],
+			expect(ui.said("warn")).toEqual([
+				"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
 			]);
 		});
 
@@ -1865,7 +1855,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			// ONE collapsed line carrying the shared constraint.
 			expect(warnCalls).toContain(
 				"owner/repo: no tags satisfy ^2.0 — left untouched",
@@ -1891,8 +1881,8 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
-			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
+			const messageCalls = ui.said("message");
 			expect(warnCalls).toContain(
 				"owner/repo@^1.2.3: no tags satisfy ^1.2.3 — left untouched",
 			);
@@ -1920,7 +1910,7 @@ describe("update command", () => {
 			expect(stopTexts(handle, 0)).toContain(
 				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
 			);
-			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const messageCalls = ui.said("message");
 			// Only the two up-to-date members appear — as the collapsed count (2, not 3).
 			expect(messageCalls).toContain("owner/repo: 2 up to date");
 			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
@@ -1994,8 +1984,7 @@ describe("update command", () => {
 			expect(err).toBeUndefined();
 			expect(ui.outro).toHaveBeenCalledWith("nuxt/ui is already up to date.");
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -2029,10 +2018,8 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => undefined);
 
-			expect(ui.log.error.mock.calls).toEqual([
-				[
-					"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
-				],
+			expect(ui.said("error")).toEqual([
+				"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
 			]);
 		});
 	});
@@ -2297,7 +2284,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.said("error");
 			const msg = errorCalls.find((m) => m.includes("owner/repo"));
 			expect(msg).toBeDefined();
 			expect(msg).toContain("skill");
@@ -2325,7 +2312,7 @@ describe("update command", () => {
 			// Copy-failed removes the entry + writes the manifest; abort must not.
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 			expect(mockRemoveEntry).not.toHaveBeenCalled();
-			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.said("error");
 			// Copy-failed hint tells the user the unit is currently uninstalled;
 			// abort must NOT use that wording (install is intact).
 			const hasRetryHint = errorCalls.some((m) =>
@@ -2461,7 +2448,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.said("error");
 			const msg = errorCalls.find((m) => m.includes("owner/repo"));
 			expect(msg).toBeDefined();
 			expect(msg).toContain("evil-link");
@@ -2940,12 +2927,11 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			expect(ui.cancel).toHaveBeenCalledOnce();
+			expect(ui.said("cancel")).toHaveLength(1);
 			expect(ui.cancel).toHaveBeenCalledWith(
 				expect.stringContaining("git clone failed"),
 			);
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -2983,12 +2969,12 @@ describe("update command", () => {
 
 			// ONE enumerated grouped error line naming the affected member basenames
 			// alongside the count — emitted in place of the header's per-member lines.
-			expect(ui.log.error.mock.calls.map((c) => c[0])).toEqual([
+			expect(ui.said("error")).toEqual([
 				"owner/repo: clone failed — affects 3 members: a, b, c",
 			]);
 			// The interim per-member `<key>: Failed — …` warn lines are gone: the
 			// N-outcome fan-out is a DISPLAY-only collapse now (never one line per member).
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 			// The >=2-member group still opens (and settles) its Updating header spinner.
 			expect(handle.start).toHaveBeenCalledWith(
@@ -3058,10 +3044,10 @@ describe("update command", () => {
 			expect((err as ExitSignal).code).toBe(1);
 			// Group A collapses to ONE enumerated error line; group B streams both
 			// member ✓ lines under its own header.
-			expect(ui.log.error.mock.calls.map((c) => c[0])).toEqual([
+			expect(ui.said("error")).toEqual([
 				"owner/repo-a: clone failed — affects 2 members: x, y",
 			]);
-			expect(ui.log.success.mock.calls.map((c) => c[0])).toEqual(["m", "n"]);
+			expect(ui.said("success")).toEqual(["m", "n"]);
 			// Only group B persisted; group A (clone-failed) wrote nothing.
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			expect(mockAddEntry).toHaveBeenCalledWith(
@@ -3108,12 +3094,11 @@ describe("update command", () => {
 				"owner/repo: Failed — git clone failed",
 			]);
 			// No enumerated grouped line for a group-of-one — no "affects" text anywhere.
-			const errorCalls = ui.log.error.mock.calls.map((c) => c[0] as string);
+			const errorCalls = ui.said("error");
 			expect(errorCalls.some((m) => m.includes("clone failed — affects"))).toBe(
 				false,
 			);
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -3156,7 +3141,7 @@ describe("update command", () => {
 			// The MODEL stays N check-failed outcomes (exit accounting); the DISPLAY
 			// count-collapses to ONE group line (task 2-5) — a group-level probe
 			// failure is one shared reason, never one line per member.
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			const checkFailedLines = warnCalls.filter((m) =>
 				m.includes("couldn't check for updates"),
 			);
@@ -3231,7 +3216,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			// One group line keyed by the group label (task 2-5)...
 			expect(warnCalls).toContain(
 				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
@@ -3354,12 +3339,11 @@ describe("update command", () => {
 			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
 			expect(err).toBeUndefined();
 			// Surfaced via warn, NOT error.
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			expect(warnCalls).toContain(
 				`owner/repo-a: couldn't check for updates (${REASON}) — left untouched`,
 			);
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 			// The check-failed group mutates no manifest state (probe failed before any
 			// clone); the succeeding sibling B still persists.
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
@@ -3396,12 +3380,11 @@ describe("update command", () => {
 			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
 			expect(err).toBeUndefined();
 			// Surfaced via warn, NOT error.
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			expect(warnCalls).toContain(
 				"owner/repo: no tags satisfy ^2.0 — left untouched",
 			);
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 			// Entry left untouched: no clone, no write, no add/remove.
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -3654,9 +3637,9 @@ describe("update command", () => {
 			// None of the four categories is a hasFailedOutcome member -> exit 0.
 			expect(err).toBeUndefined();
 			// Every category was genuinely produced (not swallowed by an early return):
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
-			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
+			const infoCalls = ui.said("info");
+			const messageCalls = ui.said("message");
 			expect(warnCalls).toContain(
 				`owner/checkfail: couldn't check for updates (${CHECK_REASON}) — left untouched`,
 			);
@@ -3669,8 +3652,7 @@ describe("update command", () => {
 			expect(messageCalls.some((m) => m.includes("up to date"))).toBe(true);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			// No hard-failure category surfaced -> no loud error anywhere.
-			expect(ui.log.error).not.toHaveBeenCalled();
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -3992,7 +3974,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			const messageCalls = ui.log.message.mock.calls.map((call) => call[0]);
+			const messageCalls = ui.said("message");
 			expect(messageCalls).toEqual(["  v4.0", "  v3.0", "  v2.0"]);
 		});
 
@@ -4296,12 +4278,11 @@ describe("update command", () => {
 			const err = await runUpdate(LOCAL_KEY, {}, ui).catch((e) => e);
 
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.log.error).toHaveBeenCalledTimes(1);
-			expect(ui.fail).not.toHaveBeenCalled();
+			expect(ui.said("error")).toHaveLength(1);
 			expect(ui.log.error).toHaveBeenCalledWith(
 				expect.stringMatching(new RegExp(`^${LOCAL_KEY}: .*"\\.\\./x"`)),
 			);
-			expect(ui.cancel).not.toHaveBeenCalled();
+			expect(ui.said("cancel")).toEqual([]);
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 	});
@@ -4987,7 +4968,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+			const warnCalls = ui.said("warn");
 			// Collapsed group line carrying the shared constraint (task 2-5).
 			expect(warnCalls).toContain(
 				"owner/repo: no tags satisfy ^2.0 — left untouched",
@@ -5054,9 +5035,9 @@ describe("update command", () => {
 			// Summary should contain info for all three — the updated repo-a streams
 			// as its group-of-one stop-frame; repo-b/repo-c via trailing ui.log lines.
 			const allMessages = [
-				...ui.log.success.mock.calls.map((c) => c[0] as string),
-				...ui.log.message.mock.calls.map((c) => c[0] as string),
-				...ui.log.warn.mock.calls.map((c) => c[0] as string),
+				...ui.said("success"),
+				...ui.said("message"),
+				...ui.said("warn"),
 				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
@@ -5142,9 +5123,9 @@ describe("update command", () => {
 			// standalones stream as group-of-one stop-frames; tagged (info) and local
 			// (ui.log.success) via trailing ui.log lines.
 			const allMessages = [
-				...ui.log.success.mock.calls.map((c) => c[0] as string),
-				...ui.log.message.mock.calls.map((c) => c[0] as string),
-				...ui.log.info.mock.calls.map((c) => c[0] as string),
+				...ui.said("success"),
+				...ui.said("message"),
+				...ui.said("info"),
 				...stopTexts(handle),
 			];
 			const hasConstrained = allMessages.some((msg) =>
@@ -5198,8 +5179,8 @@ describe("update command", () => {
 			// The updated repo-a streams as its group-of-one stop-frame; repo-b
 			// (newer-tags) via the trailing ui.log.info summary.
 			const allMessages = [
-				...ui.log.success.mock.calls.map((c) => c[0] as string),
-				...ui.log.info.mock.calls.map((c) => c[0] as string),
+				...ui.said("success"),
+				...ui.said("info"),
 				...stopTexts(handle),
 			];
 			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
@@ -5297,7 +5278,7 @@ describe("update command", () => {
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			// The never-downgraded member is demoted to up-to-date and reported via the
 			// collapsed per-group count line (task 2-5): one member → "1 up to date".
-			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const messageCalls = ui.said("message");
 			expect(messageCalls).toContain("owner/repo: 1 up to date");
 		});
 
@@ -5466,7 +5447,7 @@ describe("update command", () => {
 			// A same-run safe bump lands v1.3.0; the footer names that POST-BUMP
 			// landed tag (group target.tag), not the pre-bump ref, so it agrees with
 			// the inline Updated line.
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls).toContain(
 				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5497,7 +5478,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const hasHeader = infoCalls.some((msg) =>
 				msg.includes("Newer versions outside constraints"),
 			);
@@ -5537,7 +5518,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const hasRepoA = infoCalls.some(
 				(msg) => msg.includes("owner/repo-a") && msg.includes("v2.0.0"),
 			);
@@ -5574,7 +5555,7 @@ describe("update command", () => {
 
 			// current is the LANDED tag (checkResult.tag = v1.3.0), NOT the pre-bump
 			// entry.ref (v1.2.3) — matching the inline `Updated ... -> v1.3.0` line.
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls).toContain(
 				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5605,7 +5586,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const hasHeader = infoCalls.some((msg) =>
 				msg.includes("Newer versions outside constraints"),
 			);
@@ -5628,7 +5609,7 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			// No safe bump this run: pre/post coincide, so current = entry.ref = v1.3.0.
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls).toContain(
 				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5652,7 +5633,7 @@ describe("update command", () => {
 
 			// A 0.x-minor (^0.3.3 gates 0.4.0) rides the SAME out-of-constraint path as
 			// a major — identical actionable wording, current from the check result.
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls).toContain(
 				"  owner/repo  v0.3.3 -> v0.4.0 available. To upgrade: npx agntc add owner/repo",
 			);
@@ -5673,7 +5654,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const hasHeader = infoCalls.some((msg) =>
 				msg.includes("Newer versions outside constraints"),
 			);
@@ -5711,7 +5692,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			// ONE footer line for the whole collection: current = group target.tag,
 			// keyed by the group label, the group's bare re-add commands.
 			expect(infoCalls).toContain(
@@ -5760,7 +5741,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			// Two footer lines: prefix disambiguated by @intent, command stays bare
 			// (no @intent). current = each group's own target.tag.
 			expect(infoCalls).toContain(
@@ -5789,7 +5770,7 @@ describe("update command", () => {
 			// The footer is the ONLY info output on this all-up-to-date path, so the
 			// exact two lines pin the actionable wording verbatim: current = group
 			// target.tag (v1.2.3), a bare --skill command, no (constraint: ...) tail.
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls).toEqual([
 				"Newer versions outside constraints:",
 				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
@@ -5815,7 +5796,7 @@ describe("update command", () => {
 
 			// The footer does not feed hasFailedOutcome, so all-mode exit stays 0.
 			expect(allModeErr).toBeUndefined();
-			expect(ui.log.info.mock.calls.map((c) => c[0] as string)).toContain(
+			expect(ui.said("info")).toContain(
 				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
 			);
 
@@ -5871,10 +5852,10 @@ describe("update command", () => {
 			await runUpdate(undefined, {}, ui);
 
 			const allLines = [
-				...ui.log.info.mock.calls.map((c) => c[0]),
-				...ui.note.mock.calls.map((c) => c[0]),
-				...ui.log.message.mock.calls.map((c) => c[0]),
-				...ui.log.warn.mock.calls.map((c) => c[0]),
+				...ui.said("info"),
+				...ui.said("info"),
+				...ui.said("message"),
+				...ui.said("warn"),
 				...ui.outro.mock.calls.map((c) => c[0]),
 			].filter((m): m is string => typeof m === "string");
 			// No newer-tags surface at all: neither the "newer tags available" notice...
@@ -5901,7 +5882,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			// The caret out-of-constraint footer: current -> newer with the group's
 			// BARE re-add command (no @ suffix), collapsed to one line for the group.
 			expect(infoCalls).toContain("Newer versions outside constraints:");
@@ -6016,7 +5997,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		// The bare `failed` member renders RED via ui.log.error…
 		expect(ui.log.error).toHaveBeenCalledWith("owner/repo/b: Failed — boom");
 		// …and never the yellow warn glyph.
-		const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+		const warnCalls = ui.said("warn");
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 		// The successful sibling still streams its ✓ line under the shared header.
 		expect(ui.log.success).toHaveBeenCalledWith("a");
@@ -6047,7 +6028,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		expect(ui.log.error).toHaveBeenCalledWith(
 			`${LOCAL_KEY}: Failed — ${LOCAL_KEY}: path does not exist`,
 		);
-		const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+		const warnCalls = ui.said("warn");
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 	});
 
@@ -6076,7 +6057,7 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 			"owner/repo: Failed — git clone failed",
 		]);
 		// No warn glyph for the collapsed failure.
-		const warnCalls = ui.log.warn.mock.calls.map((c) => c[0] as string);
+		const warnCalls = ui.said("warn");
 		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
 	});
 });
@@ -7161,7 +7142,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			expect(stopTexts(handle)).toEqual([
 				expect.stringMatching(/^owner\/repo\/tools: Updated/),
 			]);
-			expect(ui.log.success).not.toHaveBeenCalled();
+			expect(ui.said("success")).toEqual([]);
 		});
 	});
 

@@ -158,7 +158,7 @@ describe("renderDetailView", () => {
 				ui,
 			);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls.some((line) => line.startsWith("Agents:"))).toBe(false);
 			expect(infoCalls.some((line) => /claude/i.test(line))).toBe(false);
 		});
@@ -179,7 +179,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(makeInput(), ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const constraintLines = infoCalls.filter((line) =>
 				line.startsWith("Constraint:"),
 			);
@@ -449,7 +449,7 @@ describe("renderDetailView", () => {
 
 			await renderDetailView(makeInput({ entry: { files: [] } }), ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls.some((line) => line.startsWith("Assets:"))).toBe(false);
 		});
 	});
@@ -467,7 +467,7 @@ describe("renderDetailView", () => {
 				ui,
 			);
 
-			const messages = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const messages = ui.said("message");
 			expect(messages.some((m) => m.includes(".claude/skills/"))).toBe(false);
 			expect(messages.some((m) => m.includes(".claude/hooks/"))).toBe(false);
 		});
@@ -790,10 +790,8 @@ describe("renderDetailView", () => {
 				ui,
 			);
 
-			expect(ui.log.warn.mock.calls).toEqual([
-				[
-					"Couldn't check for updates (git@github.com: Permission denied (publickey).)",
-				],
+			expect(ui.said("warn")).toEqual([
+				"Couldn't check for updates (git@github.com: Permission denied (publickey).)",
 			]);
 		});
 
@@ -805,7 +803,7 @@ describe("renderDetailView", () => {
 				ui,
 			);
 
-			expect(ui.log.warn).not.toHaveBeenCalled();
+			expect(ui.said("warn")).toEqual([]);
 		});
 
 		it("constrained-up-to-date with latestOverall shows info about version outside constraint", async () => {
@@ -841,7 +839,7 @@ describe("renderDetailView", () => {
 				ui,
 			);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const outsideConstraintCalls = infoCalls.filter((line) =>
 				line.includes("outside constraint"),
 			);
@@ -885,7 +883,7 @@ describe("renderDetailView", () => {
 				ui,
 			);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const outsideConstraintCalls = infoCalls.filter((line) =>
 				line.includes("outside constraint"),
 			);

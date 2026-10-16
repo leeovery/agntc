@@ -149,10 +149,6 @@ async function updateError(key?: string): Promise<unknown> {
 	return runUpdate(key, {}, ui).catch((error: unknown) => error);
 }
 
-function warnings(): string[] {
-	return ui.warn.mock.calls.map(([message]) => String(message));
-}
-
 function menuLabels(): string[] {
 	const [options] = ui.multiselect.mock.calls[0]!;
 	return options.options.map((option) => String(option.label));
@@ -181,8 +177,7 @@ describe("integration: add and update", () => {
 				cloneUrl: "https://github.com/avdlee/swift-skill.git",
 			}),
 		});
-		expect(warnings()).toEqual([]);
-		expect(ui.log.warn).not.toHaveBeenCalled();
+		expect(ui.said("warn")).toEqual([]);
 	});
 
 	describe("a v1-style plugin root", () => {
@@ -199,7 +194,7 @@ describe("integration: add and update", () => {
 
 			await runAdd("owner/v1-plugin", {}, ui);
 
-			expect(warnings()).toEqual([
+			expect(ui.said("warn")).toEqual([
 				"v1-plugin has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/v1-plugin --pack",
 			]);
 			expect(ui.warn.mock.invocationCallOrder[0]).toBeLessThan(
@@ -872,7 +867,7 @@ describe("integration: add and update", () => {
 
 				await runUpdate(undefined, {}, ui);
 
-				expect(ui.log.error).not.toHaveBeenCalled();
+				expect(ui.said("error")).toEqual([]);
 				expect(await sharedText()).toBe("v1");
 				expect(await installedFiles()).toEqual(
 					[
@@ -931,11 +926,9 @@ describe("integration: add and update", () => {
 				it("update of everything stops it with the same message, the key printed once", async () => {
 					expect(await updateError()).toBeInstanceOf(ExitSignal);
 
-					const stops = vi
-						.mocked(ui.spinner)
-						.mock.results.flatMap(({ value }) =>
-							value.stop.mock.calls.map(([text]: [string]) => text),
-						);
+					const stops = ui.spinners.flatMap((spin) =>
+						spin.stop.mock.calls.map(([text]) => text),
+					);
 					expect(stops).toContain(MESSAGE);
 					await expectInstallIntact();
 				});
@@ -1057,10 +1050,10 @@ describe("integration: add and update", () => {
 			expect(ui.note).toHaveBeenCalledWith(
 				"api is already installed as part of the pack owner/repo/laravel",
 			);
-			expect(ui.note).not.toHaveBeenCalledWith(
+			expect(ui.said("info")).not.toContainEqual(
 				expect.stringContaining("installed on its own"),
 			);
-			expect(ui.log.error).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
 		});
 
 		describe("with a support folder named like a loose skill", () => {
@@ -1133,7 +1126,7 @@ describe("integration: add and update", () => {
 				expect(await savedManifest()).toEqual(before);
 				expect(await looseText()).toBe("loose");
 				expect(await installed(".claude/skills/shared/notes.md")).toBe(false);
-				expect(ui.note).not.toHaveBeenCalledWith(
+				expect(ui.said("info")).not.toContainEqual(
 					expect.stringContaining("now includes shared"),
 				);
 			});
@@ -1302,20 +1295,18 @@ describe("integration: add and update", () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError("owner/repo"));
-			expect(ui.log.error).toHaveBeenCalledExactlyOnceWith(
+			expect(ui.said("error")).toEqual([
 				`owner/repo/skillB: Failed — ${refusal()}`,
-			);
-			expect(ui.fail).not.toHaveBeenCalled();
+			]);
 		});
 
 		it("in all-mode, records the pack done before it and reports the member as failed", async () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError());
-			expect(ui.log.error).toHaveBeenCalledExactlyOnceWith(
+			expect(ui.said("error")).toEqual([
 				`owner/repo/skillB: Failed — ${refusal()}`,
-			);
-			expect(ui.fail).not.toHaveBeenCalled();
+			]);
 		});
 	});
 });

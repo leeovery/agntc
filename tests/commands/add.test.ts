@@ -192,26 +192,6 @@ async function exitCode(run: Promise<void>): Promise<number | null> {
 	throw err;
 }
 
-function cancelled(): string[] {
-	return ui.cancel.mock.calls.map(([message]) => String(message));
-}
-
-function failed(): string[] {
-	return ui.fail.mock.calls.map(([message]) => message);
-}
-
-function noted(): string[] {
-	return ui.note.mock.calls.map(([message]) => message);
-}
-
-function warned(): string[] {
-	return ui.warn.mock.calls.map(([message]) => message);
-}
-
-function logged(level: "warn" | "success" | "error"): string[] {
-	return ui.log[level].mock.calls.map(([message]) => String(message));
-}
-
 describe("add command", () => {
 	describe("options", () => {
 		function option(flag: string) {
@@ -233,7 +213,9 @@ describe("add command", () => {
 			);
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual(["--skill and --pack can't be combined"]);
+			expect(ui.said("cancel")).toEqual([
+				"--skill and --pack can't be combined",
+			]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -242,7 +224,7 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { plugin: true }, ui);
 
-			expect(noted()).toContain("--plugin is now --pack");
+			expect(ui.said("info")).toContain("--plugin is now --pack");
 			expect(await manifest()).toEqual({
 				"owner/repo": expect.objectContaining({
 					type: "pack",
@@ -279,7 +261,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual(["git clone failed"]);
+			expect(ui.said("cancel")).toEqual(["git clone failed"]);
 			expect(await manifest()).toEqual({});
 		});
 
@@ -412,7 +394,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo@^2.0", {}, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"No tags satisfy constraint ^2.0 for owner/repo",
 			]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -435,7 +417,9 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo/nope", {}, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual(['owner/repo: path "nope" not found in source']);
+			expect(ui.said("cancel")).toEqual([
+				'owner/repo: path "nope" not found in source',
+			]);
 			expect(await installed(".agntc")).toBe(false);
 		});
 
@@ -454,7 +438,7 @@ describe("add command", () => {
 					"https://github.com/owner/repo.git",
 				);
 				expect(mockCloneSource).toHaveBeenCalledTimes(1);
-				expect(failed()).toEqual([
+				expect(ui.said("cancel")).toEqual([
 					'owner/repo: path "skills/new" not found in source at v1.2.0, the latest release — to add it from the default branch, use owner/repo/skills/new@trunk, or name a version',
 				]);
 			});
@@ -464,7 +448,7 @@ describe("add command", () => {
 					runAdd("https://gitlab.com/owner/repo/skills/new", {}, ui),
 				);
 
-				expect(failed()[0]).toContain(
+				expect(ui.said("cancel")[0]).toContain(
 					"use https://gitlab.com/owner/repo/skills/new@main,",
 				);
 			});
@@ -474,7 +458,7 @@ describe("add command", () => {
 
 				await exitCode(runAdd("owner/repo/skills/new", {}, ui));
 
-				expect(failed()[0]).toContain(
+				expect(ui.said("cancel")[0]).toContain(
 					"use owner/repo/skills/new@<branch>, or name a version",
 				);
 			});
@@ -487,7 +471,7 @@ describe("add command", () => {
 				const code = await exitCode(runAdd(source, {}, ui));
 
 				expect(code).toBe(1);
-				expect(failed()).toEqual([
+				expect(ui.said("cancel")).toEqual([
 					'owner/repo: path "skills/new" not found in source',
 				]);
 				expect(mockFetchDefaultBranch).not.toHaveBeenCalled();
@@ -498,7 +482,9 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo/../outside", {}, ui));
 
 			expect(code).toBe(1);
-			expect(failed()[0]).toMatch(/^owner\/repo: subpath "..\/outside"/);
+			expect(ui.said("cancel")[0]).toMatch(
+				/^owner\/repo: subpath "..\/outside"/,
+			);
 		});
 
 		it("refuses --pack on a single skill", async () => {
@@ -507,7 +493,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				`owner/repo: "repo" is a single skill — --pack can't bundle it`,
 			]);
 		});
@@ -518,7 +504,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(failed()[0]).toContain("contains packs (a)");
+			expect(ui.said("cancel")[0]).toContain("contains packs (a)");
 		});
 	});
 
@@ -541,7 +527,7 @@ describe("add command", () => {
 
 			await exitCode(runAdd(source, {}, ui));
 
-			expect(warned()).toEqual([
+			expect(ui.said("warn")).toEqual([
 				`tools has agents/ that won't be installed — to install them as a pack: ${command}`,
 			]);
 		});
@@ -552,10 +538,12 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo@v1.0.0", {}, ui));
 
 			expect(code).toBe(1);
-			expect(warned()).toEqual([
+			expect(ui.said("warn")).toEqual([
 				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo@v1.0.0 --pack",
 			]);
-			expect(failed()).toEqual(["owner/repo: no skills or packs were found"]);
+			expect(ui.said("cancel")).toEqual([
+				"owner/repo: no skills or packs were found",
+			]);
 			expect(ui.warn.mock.invocationCallOrder[0]).toBeLessThan(
 				ui.fail.mock.invocationCallOrder[0]!,
 			);
@@ -567,7 +555,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: nothing to install — repo has no skills, agents or hooks",
 			]);
 		});
@@ -601,14 +589,14 @@ describe("add command", () => {
 			]);
 		});
 
-		it("ends cleanly when the menu is cancelled", async () => {
+		it("ends cleanly when the menu is dismissed (an empty pick)", async () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 			ui.multiselect.mockResolvedValue([]);
 
 			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(0);
-			expect(cancelled()).toEqual(["Cancelled — nothing selected"]);
+			expect(ui.said("cancel")).toEqual(["Cancelled — nothing selected"]);
 			expect(await installed(".agntc")).toBe(false);
 		});
 
@@ -628,7 +616,9 @@ describe("add command", () => {
 			);
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual(['owner/repo: no skill named "missing"']);
+			expect(ui.said("cancel")).toEqual([
+				'owner/repo: no skill named "missing"',
+			]);
 			expect(await installed(".claude")).toBe(false);
 		});
 
@@ -642,7 +632,7 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { skill: ["a"] }, ui);
 
-			expect(noted()).toContain(
+			expect(ui.said("info")).toContain(
 				"a is part of the pack p — installed on its own, without b and its hooks",
 			);
 			expect(await manifest()).toEqual({
@@ -680,7 +670,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: foo and x/foo would share the key owner/repo/foo — choose one",
 			]);
 			expect(await installed(".claude")).toBe(false);
@@ -692,7 +682,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 			]);
 			expect(await installed(".claude")).toBe(false);
@@ -710,7 +700,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: p can't be installed as it stands: p/skills/back/refs and p/skills/front/refs would both install to .claude/skills/refs",
 			]);
 			expect(await installed(".claude")).toBe(false);
@@ -762,7 +752,7 @@ describe("add command", () => {
 				await readFile(join(projectDir, ".claude/skills/s/SKILL.md"), "utf-8"),
 			).toBe("old");
 			expect((await manifest())["owner/repo/p"]).toEqual(OLD_PACK);
-			expect(logged("warn")).toEqual(["p: skipped — conflict not resolved"]);
+			expect(ui.said("warn")).toEqual(["p: skipped — conflict not resolved"]);
 		});
 
 		it("leaves the earlier install and its entry alone when unmanaged files aren't overwritten", async () => {
@@ -799,7 +789,7 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(await installed(".claude/skills/s")).toBe(false);
 			expect(await manifest()).toEqual({});
-			expect(logged("error")).toEqual([
+			expect(ui.said("error")).toEqual([
 				"p: failed — disk full; its earlier install was removed",
 			]);
 		});
@@ -813,7 +803,7 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(mockCopyItem).not.toHaveBeenCalled();
 			expect((await manifest())["owner/repo/p"]).toEqual(OLD_PACK);
-			expect(logged("error")).toEqual([
+			expect(ui.said("error")).toEqual([
 				"p: failed — couldn't remove its earlier install: EACCES",
 			]);
 		});
@@ -842,7 +832,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo/foo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(logged("error")).toEqual([`foo: failed — ${HELD_BY_SKILL}`]);
+			expect(ui.said("error")).toEqual([`foo: failed — ${HELD_BY_SKILL}`]);
 			expect(
 				await readFile(
 					join(projectDir, ".claude/skills/foo/SKILL.md"),
@@ -861,7 +851,9 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }, ui));
 
 			expect(code).toBe(1);
-			expect(logged("error")).toEqual([`skills/foo: failed — ${HELD_BY_PACK}`]);
+			expect(ui.said("error")).toEqual([
+				`skills/foo: failed — ${HELD_BY_PACK}`,
+			]);
 			expect(
 				await readFile(
 					join(projectDir, ".claude/skills/bar/SKILL.md"),
@@ -959,7 +951,7 @@ describe("add command", () => {
 				);
 
 				expect(code).toBe(1);
-				expect(logged("error")).toEqual([
+				expect(ui.said("error")).toEqual([
 					"skills/foo: failed — owner/repo/foo is already installed from https://github.com/owner/repo.git, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again",
 				]);
 				expect(mockNuke).not.toHaveBeenCalled();
@@ -1015,7 +1007,7 @@ describe("add command", () => {
 				);
 
 				expect(code).toBe(1);
-				expect(logged("error")).toEqual([
+				expect(ui.said("error")).toEqual([
 					`skills/foo: failed — ${HELD_BY_PACK}`,
 				]);
 			});
@@ -1066,10 +1058,10 @@ describe("add command", () => {
 			expect(mockResolveCollisions).not.toHaveBeenCalled();
 			expect(await installed(".claude/skills/api")).toBe(false);
 			expect(await manifest()).toEqual({});
-			expect(logged("error")).toEqual([
+			expect(ui.said("error")).toEqual([
 				"p: failed — disk full; the skill it took over was removed: owner/repo/api",
 			]);
-			expect(noted()).toEqual([]);
+			expect(ui.said("info")).toEqual([]);
 		});
 
 		it("--skill on a skill the installed pack holds says so once and installs nothing, exiting 0", async () => {
@@ -1083,7 +1075,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { skill: ["api"] }, ui));
 
 			expect(code).toBeNull();
-			expect(noted()).toEqual([API_NOTE]);
+			expect(ui.said("info")).toEqual([API_NOTE]);
 			expect(mockCopyItem).not.toHaveBeenCalled();
 			expect(await manifest()).toEqual({ "owner/repo/p": PACKED });
 			expect(ui.outro).toHaveBeenCalledWith(
@@ -1101,7 +1093,7 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { skill: ["api", "tools"] }, ui);
 
-			expect(noted()).toEqual([API_NOTE]);
+			expect(ui.said("info")).toEqual([API_NOTE]);
 			expect(Object.keys(await manifest())).toEqual([
 				"owner/repo/p",
 				"owner/repo/tools",
@@ -1124,7 +1116,7 @@ describe("add command", () => {
 				"skills/jobs",
 				"skills/lint",
 			]);
-			expect(noted()).toEqual([API_NOTE]);
+			expect(ui.said("info")).toEqual([API_NOTE]);
 			expect(ui.note.mock.invocationCallOrder[0]).toBeLessThan(
 				ui.multiselect.mock.invocationCallOrder[0]!,
 			);
@@ -1277,7 +1269,7 @@ describe("add command", () => {
 				"other/repo",
 				"owner/repo/b",
 			]);
-			expect(logged("warn")).toEqual(["a: skipped — conflict not resolved"]);
+			expect(ui.said("warn")).toEqual(["a: skipped — conflict not resolved"]);
 		});
 
 		it("skips an item whose unmanaged files the user won't overwrite", async () => {
@@ -1312,7 +1304,7 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/good"]);
 			expect(await installed(".claude/skills/bad")).toBe(false);
-			expect(logged("error")[0]).toMatch(/^bad: failed — symlink "bad\/leak"/);
+			expect(ui.said("error")[0]).toMatch(/^bad: failed — symlink "bad\/leak"/);
 		});
 
 		it("fails an item whose copy throws and exits non-zero after the summary", async () => {
@@ -1328,7 +1320,7 @@ describe("add command", () => {
 
 			expect(code).toBe(1);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/b"]);
-			expect(logged("error")).toEqual(["a: failed — disk full"]);
+			expect(ui.said("error")).toEqual(["a: failed — disk full"]);
 			expect(ui.outro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
 		});
 
@@ -1344,7 +1336,7 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { all: true }, ui);
 
-			expect(logged("success")).toEqual([
+			expect(ui.said("success")).toEqual([
 				"p (pack · 2 skills, 1 agent, 1 hook)\ntools/lint",
 			]);
 			expect(ui.outro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
@@ -1360,13 +1352,7 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", {}, ui);
 
-			const spinners = vi
-				.mocked(ui.spinner)
-				.mock.results.map(
-					(result) =>
-						result.value as { start: { mock: { calls: unknown[][] } } },
-				);
-			const started = spinners.flatMap((spin) =>
+			const started = ui.spinners.flatMap((spin) =>
 				spin.start.mock.calls.map(([text]) => text),
 			);
 			expect(started).toEqual(["Cloning repository..."]);
@@ -1648,7 +1634,7 @@ describe("add command", () => {
 			expect(ui.log.message).toHaveBeenCalledWith(
 				"p (pack · 1 skill)\ntools/a (Does A)",
 			);
-			expect(logged("warn")).toEqual([
+			expect(ui.said("warn")).toEqual([
 				"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
 			]);
 			expect(ui.outro).toHaveBeenCalledWith(
@@ -1725,7 +1711,7 @@ describe("add command", () => {
 			);
 
 			expect(code).toBe(1);
-			expect(failed()).toEqual([message]);
+			expect(ui.said("cancel")).toEqual([message]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 	});

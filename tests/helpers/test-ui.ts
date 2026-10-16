@@ -1,6 +1,6 @@
 import { type Mock, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
-import type { Log, Spinner, Ui } from "../../src/ui.js";
+import type { FailOptions, Log, Spinner, Ui } from "../../src/ui.js";
 
 export interface TestSpinner extends Spinner {
 	start: Mock<Spinner["start"]>;
@@ -9,6 +9,15 @@ export interface TestSpinner extends Spinner {
 
 /** A generic prompt keeps its signature, which a `Mock` alone would erase. */
 type Prompt<F extends Ui["select"] | Ui["multiselect"]> = F & Mock<F>;
+
+/** A line of output as a terminal shows it, whichever `Ui` call drew it. */
+export type Channel =
+	| "info"
+	| "warn"
+	| "error"
+	| "cancel"
+	| "success"
+	| "message";
 
 /**
  * An interactive `Ui` whose every member is a `vi.fn`. Prompts reject until a
@@ -31,6 +40,8 @@ export interface TestUi extends Ui {
 	fail: Mock<Ui["fail"]>;
 	/** Every handle `spinner()` returned, in the order it returned them. */
 	readonly spinners: TestSpinner[];
+	/** The messages drawn on a channel, in call order across every call that draws there. */
+	said(channel: Channel): string[];
 }
 
 function unscripted(name: string) {
@@ -39,9 +50,43 @@ function unscripted(name: string) {
 	});
 }
 
+type Line = [order: number, message: string];
+
+function lines(fn: Mock<(message: string) => void>): Line[] {
+	return fn.mock.calls.map(([message], i) => [
+		fn.mock.invocationCallOrder[i]!,
+		message,
+	]);
+}
+
+function failLines(fn: TestUi["fail"], style: FailOptions["style"]): Line[] {
+	return fn.mock.calls.flatMap(([message, options], i): Line[] =>
+		(options?.style ?? "cancel") === style
+			? [[fn.mock.invocationCallOrder[i]!, message]]
+			: [],
+	);
+}
+
+function channelLines(ui: TestUi, channel: Channel): Line[] {
+	switch (channel) {
+		case "info":
+			return [...lines(ui.log.info), ...lines(ui.note)];
+		case "warn":
+			return [...lines(ui.log.warn), ...lines(ui.warn)];
+		case "error":
+			return [...lines(ui.log.error), ...failLines(ui.fail, "error")];
+		case "cancel":
+			return [...lines(ui.cancel), ...failLines(ui.fail, "cancel")];
+		case "success":
+			return lines(ui.log.success);
+		case "message":
+			return lines(ui.log.message);
+	}
+}
+
 export function testUi(): TestUi {
 	const spinners: TestSpinner[] = [];
-	return {
+	const ui: TestUi = {
 		mode: "interactive",
 		log: {
 			info: vi.fn(),
@@ -69,5 +114,10 @@ export function testUi(): TestUi {
 			throw new ExitSignal(1);
 		}),
 		spinners,
+		said: (channel) =>
+			channelLines(ui, channel)
+				.sort(([a], [b]) => a - b)
+				.map(([, message]) => message),
 	};
+	return ui;
 }

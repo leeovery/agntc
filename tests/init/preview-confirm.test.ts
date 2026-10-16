@@ -91,7 +91,7 @@ describe("previewAndConfirm", () => {
 		expect(await previewAndConfirm(skillFiles, ui)).toBe(false);
 	});
 
-	it("returns false when user cancels", async () => {
+	it("returns false when the confirm is dismissed (a no)", async () => {
 		ui.confirm.mockResolvedValue(false);
 
 		expect(await previewAndConfirm(packFiles, ui)).toBe(false);

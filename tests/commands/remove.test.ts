@@ -291,7 +291,7 @@ describe("remove command", () => {
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
-		it("cancels and exits 0 when confirm is cancelled", async () => {
+		it("cancels and exits 0 when confirm is dismissed (a no)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					ref: "v1.0",
@@ -650,7 +650,7 @@ describe("remove command", () => {
 		});
 
 		describe("cancel and zero selection", () => {
-			it("exits 0 when multiselect is cancelled", async () => {
+			it("exits 0 when the multiselect is dismissed (an empty pick)", async () => {
 				mockReadManifestOrExit.mockResolvedValue({
 					"owner/repo": makeEntry({
 						ref: "v1.0",
@@ -867,7 +867,7 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const messageCalls = ui.said("message");
 			const skillsHeaderIdx = messageCalls.findIndex((m) =>
 				m.includes("Skills"),
 			);
@@ -898,7 +898,7 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			const messageCalls = ui.log.message.mock.calls.map((c) => c[0] as string);
+			const messageCalls = ui.said("message");
 			const hasSkillsHeader = messageCalls.some((m) => m.includes("Skills"));
 			const hasAgentsHeader = messageCalls.some((m) => m.includes("Agents"));
 			const hasHooksHeader = messageCalls.some((m) => m.includes("Hooks"));
@@ -931,7 +931,7 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			const infoCalls = ui.log.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const hasGoPlugin = infoCalls.some((m) => m.includes("owner/repo/go"));
 			const hasPythonPlugin = infoCalls.some((m) =>
 				m.includes("owner/repo/python"),
@@ -955,7 +955,7 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			expect(ui.log.info).not.toHaveBeenCalled();
+			expect(ui.said("info")).toEqual([]);
 		});
 	});
 	describe("-y", () => {

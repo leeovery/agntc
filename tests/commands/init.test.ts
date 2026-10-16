@@ -150,7 +150,7 @@ describe("runInit at a terminal", () => {
 		expect(ui.outro).toHaveBeenCalledWith(
 			expect.stringContaining("hooks/my-hook.sh, agntc.json (already exists)"),
 		);
-		expect(ui.warn).not.toHaveBeenCalled();
+		expect(ui.said("warn")).toEqual([]);
 	});
 
 	it("warns when an agntc.json already there keeps the folder from being a pack", async () => {

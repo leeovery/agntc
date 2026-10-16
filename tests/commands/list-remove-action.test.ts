@@ -191,7 +191,7 @@ describe("executeRemoveAction", () => {
 		});
 	});
 
-	describe("cancel", () => {
+	describe("dismissed confirm (a no)", () => {
 		it("returns removed false, does not nuke", async () => {
 			const entry = makeEntry();
 			const manifest: Manifest = { "owner/repo": entry };

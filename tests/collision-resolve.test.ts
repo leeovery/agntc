@@ -218,7 +218,7 @@ describe("resolveCollisions", () => {
 		);
 	});
 
-	it("treats a cancelled select as cancel", async () => {
+	it("treats a dismissed select (null) as cancel", async () => {
 		const manifest: Manifest = {
 			"owner/repo-a": makeEntry({
 				ref: "main",

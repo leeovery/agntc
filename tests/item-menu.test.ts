@@ -49,7 +49,7 @@ describe("promptForItems", () => {
 		expect(await promptForItems(OPTIONS, ui)).toEqual([OPTIONS[1]!.value]);
 	});
 
-	it("returns nothing when cancelled", async () => {
+	it("returns nothing when the menu is dismissed (an empty pick)", async () => {
 		ui.multiselect.mockResolvedValue([]);
 
 		expect(await promptForItems(OPTIONS, ui)).toEqual([]);

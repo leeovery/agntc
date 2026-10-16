@@ -448,9 +448,7 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 
 	/** The footer lines the run printed. */
 	function footer(): string[] {
-		return ui.log.info.mock.calls
-			.map(([line]) => String(line))
-			.filter((line) => line.includes(" available."));
+		return ui.said("info").filter((line) => line.includes(" available."));
 	}
 
 	it("leaves out a member a pack took over", async () => {
@@ -547,7 +545,7 @@ describe("the streamed line of a member the run moved", () => {
 
 		await runUpdate(undefined, {}, ui);
 
-		const lines = ui.log.success.mock.calls.map(([line]) => line);
+		const lines = ui.said("success");
 		expect(lines).toContain("foo");
 		expect(lines).not.toContain("my-plugin");
 	});
