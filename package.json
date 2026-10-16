@@ -32,6 +32,7 @@
 		"typecheck": "tsc -p tsconfig.test.json"
 	},
 	"dependencies": {
+		"@clack/core": "^0.5.0",
 		"@clack/prompts": "^0.11.0",
 		"commander": "^13.1.0",
 		"picocolors": "^1.1.1",
@@ -41,6 +42,7 @@
 		"@biomejs/biome": "^2.4.4",
 		"@types/node": "^25.3.0",
 		"@types/semver": "^7.7.1",
+		"@xterm/headless": "^6.0.0",
 		"string-width": "^8.3.0",
 		"tsup": "^8.4.0",
 		"typescript": "^5.7.3",
