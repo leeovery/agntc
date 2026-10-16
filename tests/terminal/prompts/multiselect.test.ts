@@ -11,7 +11,7 @@ import { KEY, Terminal } from "./terminal.js";
 const plain = createStyle(0);
 const colour = createStyle(3);
 const gap = (columns: number) => " ".repeat(columns);
-const HINTS = "↑↓ move · space pick · a all · ⏎ done";
+const HINTS = "↑↓ move · space pick · a all · ⏎ done · esc cancel";
 const PICKED = "\x1b[38;2;167;139;250m●\x1b[39m";
 const UNPICKED = "\x1b[2m○\x1b[22m";
 
@@ -49,8 +49,8 @@ function view(
 
 describe("renderMultiselect", () => {
 	it.each([
-		[80, 24, 66],
-		[100, 44, 86],
+		[80, 11, 66],
+		[100, 31, 86],
 	])("marks what's picked and counts it at %i", (width, hintGap, countGap) => {
 		expect(renderMultiselect(view(), width, plain)).toEqual([
 			` ? What to install${gap(hintGap)}${HINTS}`,
@@ -168,6 +168,50 @@ describe("promptMultiselect", () => {
 			{ message: "What to install", options: OPTIONS, required },
 			terminal.context(),
 		);
+
+	it("shows its usual key hints, ending in esc cancel as a select's do", async () => {
+		const terminal = new Terminal(80);
+		const answer = ask(terminal);
+		await terminal.press();
+		expect((await terminal.lines())[0]).toBe(
+			` ? What to install${gap(11)}${HINTS}`,
+		);
+		await terminal.press(KEY.escape);
+		await answer;
+	});
+
+	it("takes its key hints from the question when it gives them", async () => {
+		const terminal = new Terminal(80);
+		const answer = promptMultiselect(
+			{ message: "Pick", options: OPTIONS, hints: "space pick · ⏎ install" },
+			terminal.context(),
+		);
+		await terminal.press();
+		expect((await terminal.lines())[0]).toBe(
+			` ? Pick${gap(50)}space pick · ⏎ install`,
+		);
+		await terminal.press(KEY.escape);
+		await answer;
+	});
+
+	it("shows no more options than leave its frame a line short of the screen", async () => {
+		const terminal = new Terminal(80, 8);
+		terminal.output.write("before\n");
+		const answer = ask(terminal);
+		await terminal.press(KEY.down, KEY.down, KEY.space);
+		expect((await terminal.lines()).slice(1)).toEqual([
+			` ? What to install${gap(11)}${HINTS}`,
+			"   ↑ 1 more",
+			"   ○ nuxt            pack · 9 skills, 2 folders",
+			" ▌ ● python          pack · 11 skills",
+			"   ↓ 2 more",
+			"",
+			`${gap(66)}1 of 5 picked`,
+		]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toEqual(["python"]);
+		expect(await terminal.lines()).toEqual(["before"]);
+	});
 
 	it("picks and unpicks the cursor's option with space", async () => {
 		const terminal = new Terminal(80);

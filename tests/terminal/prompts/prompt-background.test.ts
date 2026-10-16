@@ -26,7 +26,7 @@ async function freshPrompts() {
 	return { ...select, ...multiselect };
 }
 
-function terminalAnswering(reply?: string): Terminal {
+function terminalAnswering(reply?: string | string[]): Terminal {
 	const terminal = new Terminal();
 	terminal.output.isTTY = true;
 	terminal.backgroundReply = reply;
@@ -47,7 +47,7 @@ describe("the background", () => {
 			{ message: "Pick", options: CHOICES },
 			terminal.context(truecolor),
 		);
-		await terminal.press();
+		await sleep(20);
 		const { text } = terminal.output;
 		expect(text.startsWith(BACKGROUND_QUERY)).toBe(true);
 		expect(text).toContain(`${BAND} \x1b[1mlaravel\x1b[22m`);
@@ -90,6 +90,21 @@ describe("the background", () => {
 		expect(terminal.output.text).not.toContain("\x1b[48;");
 		await terminal.press(KEY.enter);
 		await answer;
+	});
+
+	it("takes its colour from an answer split after its ESC, never reading it as keys", async () => {
+		const { promptMultiselect } = await freshPrompts();
+		// Read as keys, its three a's would pick everything.
+		const terminal = terminalAnswering(["\x1b", "]11;rgb:a/a/a\x07"]);
+		const answer = promptMultiselect(
+			{ message: "Pick", options: CHOICES },
+			terminal.context(truecolor),
+		);
+		await sleep(20);
+		expect(terminal.output.text).toContain("\x1b[48;2;169;163;188m");
+		expect((await terminal.lines()).at(-1)?.trim()).toBe("0 of 3 picked");
+		await terminal.press(KEY.enter);
+		expect(await answer).toEqual([]);
 	});
 
 	it("swallows an answer that comes too late, never reading it as keys", async () => {

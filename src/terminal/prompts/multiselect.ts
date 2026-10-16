@@ -1,8 +1,16 @@
 import type { Choice, MultiselectPrompt } from "../../ui.js";
-import { indent, padStart, roomFrom, spread, truncate } from "../layout.js";
+import {
+	indent,
+	padStart,
+	roomFrom,
+	spread,
+	truncate,
+	visibleWidth,
+} from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
 	labelColumn,
+	listHints,
 	optionLine,
 	optionText,
 	questionLines,
@@ -36,19 +44,26 @@ export interface MultiselectView<T> {
 	warning: string;
 }
 
-export const MULTISELECT_HINTS = "↑↓ move · space pick · a all · ⏎ done";
+export const MULTISELECT_HINTS = listHints("space pick", "a all", "⏎ done");
 export const PICK_ONE = "pick at least one";
 /** A mark and its space before each label. */
 const LABEL_AT = TEXT_AT + 2;
-/** The question, both more lines, the footer and the blank line above it, and three lines above the prompt. */
-const RESERVED_ROWS = 8;
+/** The blank line under the options, and the footer. */
+const FOOTER_LINES = 2;
 
 /** Asks for any of the choices: their values in the options' order, or none when cancelled. */
 export async function promptMultiselect<T>(
 	question: MultiselectQuestion<T>,
 	context: PromptContext,
 ): Promise<T[]> {
-	const size = windowSize(undefined, context.output.rows, RESERVED_ROWS);
+	const { width, style } = context;
+	const hints = question.hints ?? MULTISELECT_HINTS;
+	const size = multiselectWindowSize(
+		question,
+		context.output.rows,
+		width,
+		style,
+	);
 	const engine = await runPrompt(
 		context,
 		(streams) =>
@@ -62,7 +77,7 @@ export async function promptMultiselect<T>(
 			renderMultiselect(
 				{
 					message: question.message,
-					hints: question.hints ?? MULTISELECT_HINTS,
+					hints,
 					options: question.options,
 					cursor: engine.cursor,
 					top: engine.top,
@@ -70,12 +85,28 @@ export async function promptMultiselect<T>(
 					picked: engine.picked,
 					warning: engine.error,
 				},
-				context.width,
-				context.style,
+				width,
+				style,
 				band,
 			),
 	);
 	return engine.answer;
+}
+
+/** The lines of options a multiselect shows at once on a screen of `rows`. */
+export function multiselectWindowSize<T>(
+	question: MultiselectQuestion<T>,
+	rows: number | undefined,
+	width: number,
+	style: Style,
+): number {
+	const asked = questionLines(
+		question.message,
+		question.hints ?? MULTISELECT_HINTS,
+		width,
+		style,
+	);
+	return windowSize(undefined, rows, asked.length + FOOTER_LINES);
 }
 
 export function renderMultiselect<T>(
@@ -85,7 +116,7 @@ export function renderMultiselect<T>(
 	band?: Painter,
 ): string[] {
 	const column = labelColumn(
-		view.options.map((option) => option.label),
+		view.options.map((option) => visibleWidth(option.label)),
 		width,
 	);
 	const room = roomFrom(LABEL_AT, width);
@@ -142,11 +173,13 @@ const requireOne = (picked: readonly number[]) =>
 	picked.length === 0 ? PICK_ONE : undefined;
 
 /**
- * Core's prompt over the options' indexes: its value is what's picked, in
- * the options' order, so its validation holds enter back while `required`
- * finds nothing picked, and its error stands until something is.
+ * Core's prompt over the options. What's picked is mirrored into core's
+ * value, which its validation reads on enter, so `required` holds enter back
+ * while nothing is picked; the error that sets stands until something is.
  */
 class MultiselectEngine<T> extends ListEngine {
+	private chosen: readonly number[] = [];
+
 	constructor(
 		private readonly options: readonly Choice<T>[],
 		required: boolean,
@@ -158,7 +191,7 @@ class MultiselectEngine<T> extends ListEngine {
 			size,
 			{ ...streams, validate: required ? requireOne : undefined },
 		);
-		this.value = [];
+		this.value = this.chosen;
 		this.on("cursor", (action) => {
 			if (action === "space") {
 				this.toggle(this.cursor);
@@ -171,14 +204,15 @@ class MultiselectEngine<T> extends ListEngine {
 		});
 	}
 
+	/** The picked options' indexes. */
 	get picked(): readonly number[] {
-		return this.value;
+		return this.chosen;
 	}
 
 	get answer(): T[] {
 		return this.state === "submit"
 			? this.options
-					.filter((_, index) => this.picked.includes(index))
+					.filter((_, index) => this.chosen.includes(index))
 					.map(({ value }) => value)
 			: [];
 	}
@@ -188,21 +222,22 @@ class MultiselectEngine<T> extends ListEngine {
 			return;
 		}
 		this.pick(
-			this.picked.includes(index)
-				? this.picked.filter((picked) => picked !== index)
-				: [...this.picked, index].sort((a, b) => a - b),
+			this.chosen.includes(index)
+				? this.chosen.filter((picked) => picked !== index)
+				: [...this.chosen, index],
 		);
 	}
 
 	private toggleAll(): void {
 		this.pick(
-			this.picked.length === this.options.length
+			this.chosen.length === this.options.length
 				? []
 				: this.options.map((_, index) => index),
 		);
 	}
 
-	private pick(picked: number[]): void {
+	private pick(picked: readonly number[]): void {
+		this.chosen = picked;
 		this.value = picked;
 		if (picked.length > 0) {
 			this.error = "";

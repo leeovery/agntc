@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { promptConfirm } from "../../../src/terminal/prompts/confirm.js";
 import { promptMultiselect } from "../../../src/terminal/prompts/multiselect.js";
@@ -124,9 +125,9 @@ describe.each(NAMES)("a %s", (name) => {
 		expect(terminal.output.text.endsWith(SHOW)).toBe(true);
 		expect(terminal.input.isRaw).toBe(false);
 		expect(terminal.host.exit).toHaveBeenCalledWith(code);
-		expect(listening(terminal)).toEqual([0, 0, 0]);
 		await terminal.press(KEY.escape);
 		await answer;
+		expect(listening(terminal)).toEqual([0, 0, 0]);
 	});
 
 	it("restores the terminal when the process exits while open", async () => {
@@ -150,6 +151,40 @@ describe.each(NAMES)("a %s", (name) => {
 		await terminal.press(KEY.enter);
 		await answer;
 		expect(listening(terminal)).toEqual([0, 0, 0]);
+	});
+});
+
+describe("a terminal's reply split after its ESC while a prompt is open", () => {
+	// Read as keys, its a's would pick everything, and an ESC left alone for
+	// 50 ms would be read as escape and cancel.
+	it.each([
+		3, 60,
+	])("is never read as keys, the rest coming %i ms after the ESC", async (gap) => {
+		const terminal = new Terminal();
+		const answer = PROMPTS.multiselect(terminal);
+		await terminal.press();
+		const opened = await terminal.lines();
+		await terminal.press(KEY.escape);
+		await sleep(gap);
+		await terminal.press("]11;rgb:a/a/a\x07");
+		expect(await terminal.lines()).toEqual(opened);
+		await terminal.press(KEY.down, KEY.space, KEY.enter);
+		expect(await answer).toEqual(["nuxt"]);
+	});
+});
+
+describe("esc", () => {
+	it("still cancels on its own, once the filter has waited to see what follows", async () => {
+		const terminal = new Terminal();
+		let settled = false;
+		const answer = PROMPTS.select(terminal).then((value) => {
+			settled = true;
+			return value;
+		});
+		await terminal.press(KEY.escape);
+		await sleep(80);
+		expect(settled).toBe(false);
+		expect(await answer).toBeNull();
 	});
 });
 
@@ -212,10 +247,10 @@ describe("drawing", () => {
 		);
 		await terminal.press();
 		const opened = (await terminal.lines()).length;
-		await terminal.press(...Array.from({ length: 6 }, () => KEY.down));
+		await terminal.press(...Array.from({ length: 7 }, () => KEY.down));
 		expect((await terminal.lines()).length).toBe(opened + 1);
 		await terminal.press(KEY.enter);
-		expect(await answer).toBe(6);
+		expect(await answer).toBe(7);
 		expect(await terminal.lines()).toEqual(["before"]);
 	});
 });

@@ -41,14 +41,28 @@ describe("parseBackground", () => {
 });
 
 describe("queryBackground", () => {
+	/** A filter that counts who's listening for its sequences. */
+	class CountingFilter extends InputFilter {
+		listening = 0;
+
+		override onSequence(listener: (body: string) => void): () => void {
+			const stop = super.onSequence(listener);
+			this.listening += 1;
+			return () => {
+				this.listening -= 1;
+				stop();
+			};
+		}
+	}
+
 	let stdin: FakeStdin;
-	let filter: InputFilter;
+	let filter: CountingFilter;
 	let output: CaptureStdout;
 	let keys: string;
 
 	beforeEach(() => {
 		stdin = new FakeStdin();
-		filter = new InputFilter(stdin);
+		filter = new CountingFilter(stdin);
 		stdin.pipe(filter);
 		output = new CaptureStdout();
 		keys = "";
@@ -84,6 +98,31 @@ describe("queryBackground", () => {
 		await tick();
 		stdin.write("1e/1e1e\x07");
 		expect(await answer).toEqual([30, 30, 30]);
+	});
+
+	it("resolves with the colour of a reply split after its ESC, no key read", async () => {
+		const answer = queryBackground(filter, output);
+		stdin.write("\x1b");
+		await tick();
+		stdin.write("]11;rgb:aaa/bbb/ccc\x07");
+		expect(await answer).toEqual([170, 187, 204]);
+		expect(keys).toBe("");
+	});
+
+	it("stops listening for sequences once answered", async () => {
+		const answer = queryBackground(filter, output);
+		expect(filter.listening).toBe(1);
+		stdin.write("\x1b]11;rgb:ff/ff/ff\x07");
+		await answer;
+		expect(filter.listening).toBe(0);
+	});
+
+	it("stops listening for sequences once it gives up", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const answer = queryBackground(filter, output);
+		vi.advanceTimersByTime(150);
+		await answer;
+		expect(filter.listening).toBe(0);
 	});
 
 	it("resolves with nothing at once for a reply that isn't a colour", async () => {

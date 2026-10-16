@@ -66,13 +66,13 @@ export function tick(): Promise<void> {
 /**
  * A headless xterm wired to a fake stdin and a capturing stdout, newlines
  * returning to the first column as a terminal's do. Asked its background, it
- * answers only once given a reply to answer with.
+ * answers only once given a reply to answer with, its parts 3 ms apart.
  */
 export class Terminal {
 	readonly input = new FakeStdin();
 	readonly output: CaptureStdout;
 	readonly host = new FakeHost();
-	backgroundReply: string | undefined;
+	backgroundReply: string | readonly string[] | undefined;
 	private readonly term: xterm.Terminal;
 
 	constructor(
@@ -88,7 +88,9 @@ export class Terminal {
 		this.output = new CaptureStdout((text) => {
 			this.term.write(text);
 			if (text === BACKGROUND_QUERY && this.backgroundReply !== undefined) {
-				this.input.write(this.backgroundReply);
+				[this.backgroundReply].flat().forEach((part, index) => {
+					setTimeout(() => this.input.write(part), 3 * index);
+				});
 			}
 		});
 		this.output.rows = rows;

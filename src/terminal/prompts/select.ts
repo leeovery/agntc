@@ -1,9 +1,10 @@
 import type { Choice, SelectPrompt } from "../../ui.js";
-import { roomFrom } from "../layout.js";
+import { roomFrom, visibleWidth } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
 	headingLine,
 	labelColumn,
+	listHints,
 	optionLine,
 	optionText,
 	questionLines,
@@ -37,20 +38,18 @@ export interface SelectView<T> {
 	size: number;
 }
 
-export const SELECT_HINTS = "↑↓ move · ⏎ choose · esc cancel";
-/** The question, both more lines and three lines above the prompt. */
-const RESERVED_ROWS = 6;
+export const SELECT_HINTS = listHints("⏎ choose");
+/** How much further in than its heading a choice sits. */
+const UNDER_HEADING = 2;
 
 /** Asks for one of the choices: its value, or null when cancelled. */
 export async function promptSelect<T>(
 	question: SelectQuestion<T>,
 	context: PromptContext,
 ): Promise<T | null> {
-	const size = windowSize(
-		question.maxItems,
-		context.output.rows,
-		RESERVED_ROWS,
-	);
+	const { width, style } = context;
+	const hints = question.hints ?? SELECT_HINTS;
+	const size = selectWindowSize(question, context.output.rows, width, style);
 	const engine = await runPrompt(
 		context,
 		(streams) => new SelectEngine(question.options, size, streams),
@@ -58,18 +57,34 @@ export async function promptSelect<T>(
 			renderSelect(
 				{
 					message: question.message,
-					hints: question.hints ?? SELECT_HINTS,
+					hints,
 					options: question.options,
 					cursor: engine.cursor,
 					top: engine.top,
 					size,
 				},
-				context.width,
-				context.style,
+				width,
+				style,
 				band,
 			),
 	);
 	return engine.answer;
+}
+
+/** The lines of options a select shows at once on a screen of `rows`. */
+export function selectWindowSize<T>(
+	question: SelectQuestion<T>,
+	rows: number | undefined,
+	width: number,
+	style: Style,
+): number {
+	const asked = questionLines(
+		question.message,
+		question.hints ?? SELECT_HINTS,
+		width,
+		style,
+	);
+	return windowSize(question.maxItems, rows, asked.length);
 }
 
 export function renderSelect<T>(
@@ -78,8 +93,13 @@ export function renderSelect<T>(
 	style: Style,
 	band?: Painter,
 ): string[] {
+	const insets = insetsOf(view.options);
 	const column = labelColumn(
-		view.options.filter(isChoice).map((choice) => choice.label),
+		view.options.flatMap((option, index) =>
+			isChoice(option)
+				? [(insets[index] ?? 0) + visibleWidth(option.label)]
+				: [],
+		),
 		width,
 	);
 	const room = roomFrom(TEXT_AT, width);
@@ -96,7 +116,7 @@ export function renderSelect<T>(
 				}
 				const current = index === view.cursor;
 				return optionLine(
-					optionText(option, column, room, style, current),
+					optionText(option, column, room, style, current, insets[index]),
 					current,
 					width,
 					style,
@@ -110,6 +130,15 @@ export function renderSelect<T>(
 
 export function isChoice<T>(option: SelectOption<T>): option is Choice<T> {
 	return !("heading" in option);
+}
+
+/** Each option's inset: two columns for a choice under a heading, none otherwise. */
+function insetsOf<T>(options: readonly SelectOption<T>[]): number[] {
+	let headed = false;
+	return options.map((option) => {
+		headed ||= !isChoice(option);
+		return headed && isChoice(option) ? UNDER_HEADING : 0;
+	});
 }
 
 class SelectEngine<T> extends ListEngine {

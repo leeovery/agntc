@@ -1,20 +1,21 @@
-const MIN_ROWS = 5;
 const DEFAULT_ROWS = 24;
+/** The `↑ N more` and `↓ N more` lines a scrolled window may add. */
+const MORE_LINES = 2;
 
 /**
- * How many lines of options a list shows at once: the prompt's own number,
- * else what the terminal's rows leave once `reserved` lines are kept for the
- * rest of the frame and what's above it, never under 5.
+ * How many lines of options a list shows at once: the prompt's own number at
+ * most, and no more than keep its frame a line shorter than the screen, with
+ * the more lines and the frame's `fixed` ones (its question and footer)
+ * counted. The erase needs that line: the prompt's closing newline scrolls a
+ * frame as tall as the screen, and its first line out of reach. Never under one.
  */
 export function windowSize(
 	maxItems: number | undefined,
 	rows: number | undefined,
-	reserved: number,
+	fixed: number,
 ): number {
-	return Math.max(
-		1,
-		maxItems ?? Math.max(MIN_ROWS, (rows || DEFAULT_ROWS) - reserved),
-	);
+	const room = (rows || DEFAULT_ROWS) - 1 - fixed - MORE_LINES;
+	return Math.max(1, Math.min(maxItems ?? room, room));
 }
 
 /** The first line the cursor can stop on, or -1 when every line is a heading. */
@@ -54,7 +55,8 @@ export function scrollWindow(
 	if (heading !== undefined && heading < next && cursor - heading < size) {
 		next = heading;
 	}
-	return Math.max(0, Math.min(next, headings.length - size));
+	// Below 0 only when nothing can take the cursor (-1).
+	return Math.max(0, next);
 }
 
 function headingAbove(

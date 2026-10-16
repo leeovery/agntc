@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InputFilter } from "../../../src/terminal/prompts/input-filter.js";
 import { FakeStdin, tick } from "./terminal.js";
 
@@ -78,45 +78,98 @@ describe("InputFilter", () => {
 		expect(bodies).toEqual([]);
 	});
 
-	it("passes a lone ESC at once", async () => {
+	it("passes an ESC with bytes after it in the same read at once", async () => {
+		const { filter, read } = filtering();
+		await send(filter, "\x1b[A", "\x1bj", "\x1b\x1b[B");
+		expect(read()).toBe("\x1b[A\x1bj\x1b\x1b[B");
+	});
+
+	it("takes out a reply split after its ESC", async () => {
+		const { filter, read, bodies } = filtering();
+		await send(filter, "j\x1b");
+		expect(read()).toBe("j");
+		await send(filter, "]11;rgb:aaa/bbb/ccc\x07k");
+		expect(read()).toBe("jk");
+		expect(bodies).toEqual(["11;rgb:aaa/bbb/ccc"]);
+	});
+
+	it("passes a read's last ESC as soon as the byte after it isn't ]", async () => {
 		const { filter, read } = filtering();
 		await send(filter, "\x1b");
-		expect(read()).toBe("\x1b");
-		await send(filter, "j\x1b");
-		expect(read()).toBe("\x1bj\x1b");
+		expect(read()).toBe("");
+		await send(filter, "[A");
+		expect(read()).toBe("\x1b[A");
+		await send(filter, "\x1b", "j");
+		expect(read()).toBe("\x1b[A\x1bj");
 	});
 
-	it("lets a partial sequence through as it stands after 100 ms", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const { filter, read } = filtering();
-		await send(filter, "\x1b]11;rgb:1e");
-		vi.advanceTimersByTime(99);
-		await tick();
-		expect(read()).toBe("");
-		await send(filter, "1e");
-		vi.advanceTimersByTime(1);
-		await tick();
-		expect(read()).toBe("\x1b]11;rgb:1e1e");
-	});
+	describe("holding", () => {
+		beforeEach(() => {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		});
 
-	it("lets a partial sequence through at once at 64 bytes", async () => {
-		const { filter, read } = filtering();
-		const partial = `\x1b]${"x".repeat(61)}`;
-		await send(filter, partial);
-		expect(read()).toBe("");
-		await send(filter, "y");
-		expect(read()).toBe(`${partial}y`);
-	});
+		const waited = async (ms: number) => {
+			vi.advanceTimersByTime(ms);
+			await tick();
+		};
 
-	it("lets nothing through once destroyed, the held part with it", async () => {
-		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-		const { filter, read } = filtering();
-		await send(filter, "\x1b]11;");
-		filter.destroy();
-		vi.advanceTimersByTime(200);
-		await tick();
-		expect(read()).toBe("");
-		expect(vi.getTimerCount()).toBe(0);
+		it("passes a lone ESC, the escape key, once 100 ms go by", async () => {
+			const { filter, read } = filtering();
+			await send(filter, "\x1b");
+			await waited(99);
+			expect(read()).toBe("");
+			await waited(1);
+			expect(read()).toBe("\x1b");
+		});
+
+		it("drops a sequence's start 100 ms after the hold began, and passes what comes after", async () => {
+			const { filter, read, bodies } = filtering();
+			await send(filter, "\x1b");
+			await waited(40);
+			await send(filter, "]11;rgb:1e");
+			await waited(59);
+			expect(read()).toBe("");
+			await send(filter, "1e");
+			await waited(1);
+			expect(read()).toBe("");
+			await send(filter, "j");
+			expect(read()).toBe("j");
+			expect(bodies).toEqual([]);
+			expect(vi.getTimerCount()).toBe(0);
+		});
+
+		it("drops a sequence's start as soon as it grows past 64 bytes", async () => {
+			const { filter, read } = filtering();
+			const start = `\x1b]${"x".repeat(62)}`;
+			await send(filter, start);
+			expect(vi.getTimerCount()).toBe(1);
+			await send(filter, "y");
+			expect(vi.getTimerCount()).toBe(0);
+			await send(filter, "j");
+			await waited(200);
+			expect(read()).toBe("j");
+		});
+
+		it("clears its wait and lets nothing through once destroyed", async () => {
+			const { filter, read } = filtering();
+			await send(filter, "\x1b");
+			expect(vi.getTimerCount()).toBe(1);
+			filter.destroy();
+			expect(vi.getTimerCount()).toBe(0);
+			await waited(200);
+			expect(read()).toBe("");
+		});
+
+		it("passes a held ESC when stdin ends, and drops a sequence's start", async () => {
+			const lone = filtering();
+			lone.filter.end("\x1b");
+			await tick();
+			expect(lone.read()).toBe("\x1b");
+			const started = filtering();
+			started.filter.end("\x1b]11;rgb:1e");
+			await tick();
+			expect(started.read()).toBe("");
+		});
 	});
 
 	it("reads as a terminal, its raw mode the source's", () => {

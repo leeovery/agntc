@@ -1,7 +1,14 @@
 import type { Writable } from "node:stream";
 import type { Prompt } from "@clack/core";
+import {
+	ERASE_DOWN,
+	ERASE_LINE,
+	type ExitHost,
+	HIDE_CURSOR,
+	restoreOnExit,
+	SHOW_CURSOR,
+} from "../control.js";
 import { bandPainter, type Painter, type Rgb, type Style } from "../style.js";
-import type { TaskHost } from "../task.js";
 import { terminalBackground } from "./background.js";
 import { InputFilter, type PromptInput } from "./input-filter.js";
 
@@ -19,7 +26,7 @@ export interface PromptContext {
 	/** The terminal's background when it's known; otherwise asked once per process. */
 	background?: Rgb;
 	/** The process the terminal is restored on the exit of; tests pass their own. */
-	host?: TaskHost;
+	host?: ExitHost;
 }
 
 /** What a prompt engine reads and writes: stdin through the filter. */
@@ -27,11 +34,6 @@ export interface PromptStreams {
 	input: InputFilter;
 	output: PromptOutput;
 }
-
-const HIDE_CURSOR = "\x1b[?25l";
-const SHOW_CURSOR = "\x1b[?25h";
-const ERASE_LINE = "\x1b[2K";
-const ERASE_DOWN = "\x1b[J";
 
 /**
  * Core's own renderer trims every line's leading and trailing spaces (the
@@ -122,29 +124,4 @@ class Screen {
 		const up = Math.max(0, this.height - 1) + below;
 		return up > 0 ? `\r\x1b[${up}A` : "\r";
 	}
-}
-
-type ExitEvent = "exit" | "SIGINT" | "SIGTERM";
-
-/** Restores the terminal if the process ends while a prompt is open; the return stops watching. */
-function restoreOnExit(host: TaskHost, restore: () => void): () => void {
-	const exitWith = (code: number) => () => {
-		stop();
-		restore();
-		host.exit(code);
-	};
-	const handlers: [ExitEvent, () => void][] = [
-		["exit", restore],
-		["SIGINT", exitWith(130)],
-		["SIGTERM", exitWith(143)],
-	];
-	const stop = () => {
-		for (const [event, handler] of handlers) {
-			host.off(event, handler);
-		}
-	};
-	for (const [event, handler] of handlers) {
-		host.on(event, handler);
-	}
-	return stop;
 }

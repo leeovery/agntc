@@ -12,23 +12,27 @@ const flat = Array.from({ length: 10 }, () => false);
 const grouped = [true, false, false, true, false, false, false, false, false];
 
 describe("windowSize", () => {
-	it("takes the prompt's own number", () => {
-		expect(windowSize(3, 40, 6)).toBe(3);
+	it("leaves the frame a line shorter than the screen, its fixed and more lines counted", () => {
+		expect(windowSize(undefined, 30, 1)).toBe(26);
+		expect(windowSize(undefined, 30, 3)).toBe(24);
 	});
 
-	it("leaves the reserved lines of the terminal's rows", () => {
-		expect(windowSize(undefined, 30, 6)).toBe(24);
-		expect(windowSize(undefined, 30, 8)).toBe(22);
+	it("takes the prompt's own number when the rows have room for it", () => {
+		expect(windowSize(3, 40, 1)).toBe(3);
+	});
+
+	it("never takes more than the rows leave, whatever the prompt asks", () => {
+		expect(windowSize(15, 12, 1)).toBe(8);
 	});
 
 	it("reads 24 rows when the terminal gives none", () => {
-		expect(windowSize(undefined, undefined, 6)).toBe(18);
-		expect(windowSize(undefined, 0, 6)).toBe(18);
+		expect(windowSize(undefined, undefined, 1)).toBe(20);
+		expect(windowSize(undefined, 0, 1)).toBe(20);
 	});
 
-	it("never shows fewer than 5 lines for a short terminal, nor fewer than 1", () => {
-		expect(windowSize(undefined, 8, 6)).toBe(5);
-		expect(windowSize(0, 30, 6)).toBe(1);
+	it("never shows fewer than one line", () => {
+		expect(windowSize(undefined, 4, 3)).toBe(1);
+		expect(windowSize(0, 30, 1)).toBe(1);
 	});
 });
 

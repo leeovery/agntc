@@ -27,9 +27,13 @@ interface SequenceEnd {
 /**
  * What a prompt reads instead of stdin. Every OSC sequence (`ESC ]` … BEL or
  * ST) is taken out and its body reported, so a terminal's reply never reaches
- * the prompt as keys, however late it comes; every other byte passes at once,
- * a lone ESC included. A sequence split across reads is held for its end, for
- * at most 100 ms or 64 bytes, then let through as it stands.
+ * the prompt as keys, however late it comes. Every other byte passes at once,
+ * but for a read's last ESC, which may open a sequence split across reads.
+ *
+ * What's held waits at most 100 ms from when the hold began. A lone ESC
+ * passes as soon as the byte after it isn't `]`, or when the wait ends, as
+ * it was the escape key. A sequence's start is dropped when the wait ends or
+ * it grows past 64 bytes, as it was never keys.
  *
  * It reads as a terminal (`isTTY`), and its raw mode is the source's, so the
  * prompt engine sets raw mode on stdin through it.
@@ -73,7 +77,7 @@ export class InputFilter extends Transform {
 	}
 
 	override _flush(done: TransformCallback): void {
-		this.release();
+		this.endHold();
 		done();
 	}
 
@@ -92,7 +96,9 @@ export class InputFilter extends Transform {
 		while (at < text.length) {
 			const start = text.indexOf(OSC_START, at);
 			if (start === -1) {
-				passed += text.slice(at);
+				const rest = text.slice(at);
+				this.held = rest.endsWith(ESC) ? ESC : "";
+				passed += rest.slice(0, rest.length - this.held.length);
 				break;
 			}
 			passed += text.slice(at, start);
@@ -106,27 +112,24 @@ export class InputFilter extends Transform {
 			}
 			at = end.next;
 		}
-		if (this.held.length >= HOLD_BYTES) {
-			passed += this.held;
+		if (this.held.length > HOLD_BYTES) {
 			this.held = "";
 		}
 		this.emitText(passed);
-		this.holdFor(this.held !== "");
-	}
-
-	private holdFor(holding: boolean): void {
-		if (!holding) {
+		if (this.held === "") {
 			this.stopHolding();
-			return;
+		} else {
+			this.holdTimer ??= setTimeout(() => this.endHold(), HOLD_MS);
 		}
-		this.holdTimer ??= setTimeout(() => this.release(), HOLD_MS);
 	}
 
-	private release(): void {
+	/** Lets a held ESC through as the escape key, and drops a sequence's start. */
+	private endHold(): void {
 		this.stopHolding();
-		const held = this.held;
+		if (this.held === ESC) {
+			this.emitText(ESC);
+		}
 		this.held = "";
-		this.emitText(held);
 	}
 
 	private stopHolding(): void {
@@ -135,7 +138,7 @@ export class InputFilter extends Transform {
 	}
 
 	private emitText(text: string): void {
-		if (text !== "" && !this.destroyed) {
+		if (text !== "") {
 			this.push(Buffer.from(text, "latin1"));
 		}
 	}

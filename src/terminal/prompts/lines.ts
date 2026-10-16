@@ -56,19 +56,30 @@ export function withHints(
 	return spread(line, style.dim(hints), width) ?? line;
 }
 
-/**
- * Where hints start, counted from the labels: the widest label and 3, at
- * most 45% of the width, so the hints keep room.
- */
-export function labelColumn(labels: readonly string[], width: number): number {
-	const widest = Math.max(0, ...labels.map(visibleWidth));
-	return Math.min(widest + LABEL_GAP, Math.floor(width * LABEL_SHARE));
+/** A list's usual key hints: moving, its own keys, then cancelling. */
+export function listHints(...keys: string[]): string {
+	return ["↑↓ move", ...keys, "esc cancel"].join(" · ");
 }
 
 /**
- * An option's label and its dim hint in the label column, inside `room`. A
- * label too wide for its column puts its hint two spaces after it; a hint
- * is cut with `…` to fit, and left out when nothing of it would show.
+ * Where hints start, counted from where the options do: the widest label
+ * (with its inset) and 3, at most 45% of the width, so the hints keep room.
+ */
+export function labelColumn(
+	labelWidths: readonly number[],
+	width: number,
+): number {
+	return Math.min(
+		Math.max(0, ...labelWidths) + LABEL_GAP,
+		Math.floor(width * LABEL_SHARE),
+	);
+}
+
+/**
+ * An option's label, `inset` columns in, and its dim hint in the label
+ * column, inside `room`. A label too wide for its column puts its hint two
+ * spaces after it; a hint is cut with `…` to fit, and left out when nothing
+ * of it would show.
  */
 export function optionText<T>(
 	choice: Choice<T>,
@@ -76,15 +87,19 @@ export function optionText<T>(
 	room: number,
 	style: Style,
 	current: boolean,
+	inset = 0,
 ): string {
-	const label = truncate(choice.label, Math.max(0, room));
-	const used = visibleWidth(label);
+	const label = truncate(choice.label, Math.max(0, room - inset));
+	const used = inset + visibleWidth(label);
 	const hintAt = Math.max(column, used + MIN_LABEL_GAP);
 	const hint = fitHint(choice.hint ?? "", room - hintAt);
-	const painted = label === "" ? "" : (current ? style.bold : identity)(label);
-	return hint === ""
-		? painted
-		: `${painted}${indent(hintAt - used)}${style.dim(hint)}`;
+	const lead =
+		indent(inset) +
+		(label === "" ? "" : (current ? style.bold : identity)(label));
+	if (hint === "") {
+		return label === "" ? "" : lead;
+	}
+	return `${lead}${indent(hintAt - used)}${style.dim(hint)}`;
 }
 
 function fitHint(hint: string, room: number): string {

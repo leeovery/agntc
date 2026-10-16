@@ -103,16 +103,36 @@ describe("renderSelect", () => {
 		]);
 	});
 
-	it("draws headings bold at column 3, never under the cursor", () => {
+	it("draws headings bold at column 3, their options two further in, never under the cursor", () => {
 		expect(renderSelect(view(GROUPED, 1), 80, plain).slice(1)).toEqual([
 			"   leeovery/agentic-skills",
-			" ▌ laravel    pack",
-			"   nuxt       pack",
+			" ▌   laravel    pack",
+			"     nuxt       pack",
 			"   github/gh-stack",
-			"   gh-stack   skill",
+			"     gh-stack   skill",
 		]);
 		expect(renderSelect(view(GROUPED, 4), 80, colour)[4]).toBe(
 			"   \x1b[1mgithub/gh-stack\x1b[22m",
+		);
+	});
+
+	it("keeps an option above every heading at column 3, the hints in one column", () => {
+		const options: SelectOption<string>[] = [
+			{ value: "all", label: "all", hint: "every entry" },
+			{ heading: "owner/repo" },
+			{ value: "a", label: "a", hint: "skill" },
+		];
+		expect(renderSelect(view(options, 2), 80, plain).slice(1)).toEqual([
+			"   all   every entry",
+			"   owner/repo",
+			" ▌   a   skill",
+		]);
+	});
+
+	it("bands the whole cursor row under a heading, its inset included", () => {
+		const band = bandPainter(3, [30, 30, 30]);
+		expect(renderSelect(view(GROUPED, 1), 40, colour, band)[2]).toBe(
+			` ${BAR}\x1b[48;2;60;54;78m   \x1b[1mlaravel\x1b[22m    \x1b[2mpack\x1b[22m${gap(19)}\x1b[49m`,
 		);
 	});
 
@@ -160,7 +180,7 @@ describe("renderSelect", () => {
 		it("counts the options hidden, not the headings", () => {
 			expect(
 				renderSelect(view(GROUPED, 4, { top: 3, size: 2 }), 80, plain).slice(1),
-			).toEqual(["   ↑ 2 more", "   github/gh-stack", " ▌ gh-stack   skill"]);
+			).toEqual(["   ↑ 2 more", "   github/gh-stack", " ▌   gh-stack   skill"]);
 		});
 
 		it("paints the more lines dim", () => {
@@ -289,10 +309,10 @@ describe("promptSelect", () => {
 		await terminal.press(KEY.down, KEY.down);
 		expect((await terminal.lines()).slice(1)).toEqual([
 			"   leeovery/agentic-skills",
-			"   laravel    pack",
-			"   nuxt       pack",
+			"     laravel    pack",
+			"     nuxt       pack",
 			"   github/gh-stack",
-			" ▌ gh-stack   skill",
+			" ▌   gh-stack   skill",
 		]);
 		await terminal.press(KEY.enter);
 		expect(await answer).toBe("gh-stack");
@@ -327,21 +347,38 @@ describe("promptSelect", () => {
 		expect(await answer).toBeNull();
 	});
 
-	it("scrolls a list longer than the terminal leaves room for", async () => {
+	it("scrolls a list longer than the terminal leaves room for, a line short of the screen", async () => {
 		const terminal = new Terminal(80, 11);
 		const answer = ask(terminal, TEN);
-		await terminal.press(...Array.from({ length: 6 }, () => KEY.down));
+		await terminal.press(...Array.from({ length: 8 }, () => KEY.down));
 		expect((await terminal.lines()).slice(1)).toEqual([
 			"   ↑ 2 more",
 			"   skill-03",
 			"   skill-04",
 			"   skill-05",
 			"   skill-06",
-			" ▌ skill-07",
-			"   ↓ 3 more",
+			"   skill-07",
+			"   skill-08",
+			" ▌ skill-09",
+			"   ↓ 1 more",
 		]);
 		await terminal.press(KEY.enter);
-		expect(await answer).toBe("skill-07");
+		expect(await answer).toBe("skill-09");
+	});
+
+	it("shows no more of the prompt's own number than the screen has room for", async () => {
+		const terminal = new Terminal(80, 8);
+		terminal.output.write("before\n");
+		const answer = promptSelect(
+			{ message: "Pick a version", options: TEN, maxItems: 15 },
+			terminal.context(),
+		);
+		await terminal.press(KEY.down, KEY.down, KEY.down, KEY.down);
+		const frame = await terminal.lines();
+		expect(frame.length - 1).toBeLessThanOrEqual(7);
+		await terminal.press(KEY.down, KEY.enter);
+		expect(await answer).toBe("skill-06");
+		expect(await terminal.lines()).toEqual(["before"]);
 	});
 
 	it("shows the prompt's own number of lines", async () => {

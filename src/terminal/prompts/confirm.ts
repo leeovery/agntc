@@ -82,9 +82,10 @@ function button(label: string, chosen: boolean, style: Style): string {
 }
 
 /**
- * Core's prompt on yes or no. Core's own confirm closes itself inside its y
- * and n listener and is closed again after it, so this one submits through
- * the state alone and core closes it once.
+ * Core's prompt on yes or no: ← (and core's h) chooses Yes, → (and l) No,
+ * tab the other one, and y or n answers at once. Core's own confirm closes
+ * itself inside its y and n listener and is closed again after it, so this
+ * one submits through the state alone and core closes it once.
  */
 class ConfirmEngine extends Prompt {
 	constructor(initialValue: boolean, streams: PromptStreams) {
@@ -92,7 +93,7 @@ class ConfirmEngine extends Prompt {
 		this.value = initialValue;
 		this.on("cursor", (action) => {
 			if (action === "left" || action === "right") {
-				this.value = !this.value;
+				this.value = action === "left";
 			}
 		});
 		this.on("key", (key) => {

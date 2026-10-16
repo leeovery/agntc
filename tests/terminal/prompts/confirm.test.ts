@@ -108,20 +108,42 @@ describe("promptConfirm", () => {
 		expect(await answer).toBe(false);
 	});
 
-	it.each([
-		["tab", KEY.tab],
-		["→", KEY.right],
-		["←", KEY.left],
-		["l", "l"],
-		["h", "h"],
-	])("changes the choice with %s", async (_name, key) => {
+	it("changes the choice with tab, each way", async () => {
 		const terminal = new Terminal();
 		const answer = ask(terminal);
+		await terminal.press(KEY.tab);
+		expect(await terminal.lines()).toEqual([NO]);
+		await terminal.press(KEY.tab);
+		expect(await terminal.lines()).toEqual([YES]);
+		await terminal.press(KEY.tab, KEY.enter);
+		expect(await answer).toBe(false);
+	});
+
+	it.each([
+		["←", KEY.left],
+		["h", "h"],
+	])("chooses yes with %s, and keeps it there", async (_name, key) => {
+		const terminal = new Terminal();
+		const answer = ask(terminal, false);
+		await terminal.press(key);
+		expect(await terminal.lines()).toEqual([YES]);
+		await terminal.press(key);
+		expect(await terminal.lines()).toEqual([YES]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toBe(true);
+	});
+
+	it.each([
+		["→", KEY.right],
+		["l", "l"],
+	])("chooses no with %s, and keeps it there", async (_name, key) => {
+		const terminal = new Terminal();
+		const answer = ask(terminal, true);
 		await terminal.press(key);
 		expect(await terminal.lines()).toEqual([NO]);
 		await terminal.press(key);
-		expect(await terminal.lines()).toEqual([YES]);
-		await terminal.press(key, KEY.enter);
+		expect(await terminal.lines()).toEqual([NO]);
+		await terminal.press(KEY.enter);
 		expect(await answer).toBe(false);
 	});
 
