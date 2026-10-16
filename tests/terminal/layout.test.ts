@@ -151,8 +151,13 @@ describe("layoutWidth and isNarrow", () => {
 		expect(layoutWidth(160)).toBe(100);
 	});
 
-	it("is 80 when the terminal gives no width", () => {
+	it("is 80 when the terminal gives no width, or 0", () => {
 		expect(layoutWidth()).toBe(80);
+		expect(layoutWidth(0)).toBe(80);
+	});
+
+	it("is at least 20", () => {
+		expect(layoutWidth(12)).toBe(20);
 	});
 
 	it("is narrow below 60", () => {

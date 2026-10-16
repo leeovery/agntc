@@ -20,7 +20,7 @@ export function renderClose(
 	width: number,
 	style: Style,
 ): string[] {
-	const rule = `${MARGIN}${style.dim("─".repeat(roomFrom(MARGIN.length, width)))}`;
+	const rule = `${MARGIN}${style.dim("─".repeat(Math.max(0, roomFrom(MARGIN.length, width))))}`;
 	const counts = tally
 		.filter((item) => item.count > 0)
 		.map((item) => ({

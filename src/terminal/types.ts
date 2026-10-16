@@ -15,7 +15,14 @@ export interface Move {
 	to: string;
 }
 
-export type Detail = string | { move: Move; note?: string };
+/**
+ * A row's detail: plain text, a version move, or a label in the row's own
+ * colour with a dim aside after it (`not checked · <cause>`).
+ */
+export type Detail =
+	| string
+	| { move: Move; note?: string }
+	| { label: string; aside?: string };
 
 export interface Row {
 	status: Status;

@@ -30,13 +30,11 @@ export interface Task {
 	clear(): void;
 }
 
-/** Tasks spinning on each output, so the cursor comes back only with the last. */
-const spinning = new Map<TaskOutput, number>();
-
 /**
  * Spins `render(frame)` on one line until the task settles or clears, the
  * cursor hidden meanwhile. Each frame is cut to `width - 1` columns, as
- * `\r\x1b[2K` erases one row only.
+ * `\r\x1b[2K` erases one row only. A render that throws ends the task first,
+ * so nothing is left registered or hidden.
  */
 export function startTask(
 	out: TaskOutput,
@@ -45,20 +43,15 @@ export function startTask(
 	options: TaskOptions = {},
 ): Task {
 	let frame = 0;
-	const draw = () => {
-		const [line = ""] = render(FRAMES.charAt(frame % FRAMES.length)).split(
+	const line = () => {
+		const [first = ""] = render(FRAMES.charAt(frame % FRAMES.length)).split(
 			"\n",
 		);
-		out.write(`${CLEAR_LINE}${truncate(line, width - 1)}`);
+		return `${CLEAR_LINE}${truncate(first, width - 1)}`;
 	};
+	const opening = line();
 	const release = track(options.host ?? process, out);
-	spinning.set(out, (spinning.get(out) ?? 0) + 1);
-	out.write(HIDE_CURSOR);
-	draw();
-	const timer = setInterval(() => {
-		frame += 1;
-		draw();
-	}, FRAME_MS);
+	out.write(`${HIDE_CURSOR}${opening}`);
 
 	let finished = false;
 	const finish = (text: string) => {
@@ -67,54 +60,58 @@ export function startTask(
 		}
 		finished = true;
 		clearInterval(timer);
-		release();
-		out.write(`${CLEAR_LINE}${text}${stopSpinning(out) ? SHOW_CURSOR : ""}`);
+		out.write(`${CLEAR_LINE}${text}${release() ? SHOW_CURSOR : ""}`);
 	};
+	const timer = setInterval(() => {
+		frame += 1;
+		try {
+			out.write(line());
+		} catch (error) {
+			finish("");
+			throw error;
+		}
+	}, FRAME_MS);
 	return {
-		settle: (lines) => finish(lines.map((line) => `${line}\n`).join("")),
+		settle: (lines) => finish(lines.map((text) => `${text}\n`).join("")),
 		clear: () => finish(""),
 	};
 }
 
-/** Counts a task off its output; true when it was the last there. */
-function stopSpinning(out: TaskOutput): boolean {
-	const left = (spinning.get(out) ?? 1) - 1;
-	if (left === 0) {
-		spinning.delete(out);
-	} else {
-		spinning.set(out, left);
-	}
-	return left === 0;
-}
-
+/** A host's handlers and the tasks spinning on each of its outputs. */
 interface Registration {
-	tasks: Set<{ out: TaskOutput }>;
+	spinning: Map<TaskOutput, number>;
 	handlers: Record<HostEvent, () => void>;
 }
 
 const registrations = new Map<TaskHost, Registration>();
 
 /**
- * Counts a task against its host, whose handlers erase the spinning line and
- * show the cursor on every active task's output: added with the first task,
- * removed with the last.
+ * Counts a task on its host and output, adding the host's handlers with its
+ * first task. The release says whether the output has no task left, and
+ * takes the handlers off with the host's last.
  */
-function track(host: TaskHost, out: TaskOutput): () => void {
+function track(host: TaskHost, out: TaskOutput): () => boolean {
 	const registration = registrations.get(host) ?? register(host);
-	const task = { out };
-	registration.tasks.add(task);
+	const { spinning } = registration;
+	spinning.set(out, (spinning.get(out) ?? 0) + 1);
 	return () => {
-		registration.tasks.delete(task);
-		if (registration.tasks.size === 0) {
+		const left = (spinning.get(out) ?? 1) - 1;
+		if (left > 0) {
+			spinning.set(out, left);
+			return false;
+		}
+		spinning.delete(out);
+		if (spinning.size === 0) {
 			unregister(host, registration);
 		}
+		return true;
 	};
 }
 
 function register(host: TaskHost): Registration {
-	const tasks = new Set<{ out: TaskOutput }>();
+	const spinning = new Map<TaskOutput, number>();
 	const restore = () => {
-		for (const out of new Set([...tasks].map((task) => task.out))) {
+		for (const out of spinning.keys()) {
 			out.write(`${CLEAR_LINE}${SHOW_CURSOR}`);
 		}
 	};
@@ -123,7 +120,7 @@ function register(host: TaskHost): Registration {
 		host.exit(code);
 	};
 	const registration: Registration = {
-		tasks,
+		spinning,
 		handlers: { exit: restore, SIGINT: exitOn(130), SIGTERM: exitOn(143) },
 	};
 	for (const [event, handler] of entries(registration.handlers)) {

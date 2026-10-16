@@ -15,6 +15,12 @@ function block(rows: Row[], width: number, style = plain): string[] {
 const LONG_SUBJECT = "owner/a-very-long-repository-name-here";
 const LONG_META = "feature/a-very-long-branch-name-here";
 const APPLE = "rshankras/claude-code-apple-skills";
+const attentionRow: Row = {
+	status: "attention",
+	subject: "petekp/claude-skills",
+	meta: "HEAD",
+	detail: { label: "not checked", aside: "Could not resolve host: github.com" },
+};
 const REASON =
 	"it would remove macos-hig, which is still in the source but would no longer be installed.";
 
@@ -46,13 +52,28 @@ describe("blockLayout", () => {
 		).toEqual({ subjectWidth: 25, metaWidth: 0, detailAt: 28 });
 	});
 
-	it("caps the meta column so the detail keeps 20 columns", () => {
+	it.each([
+		[100, 20],
+		[80, 16],
+		[60, 12],
+		[40, 10],
+	])("caps the meta column at a fifth of %i, never under 10", (width, cap) => {
+		expect(
+			blockLayout([{ status: "done", subject: "a", meta: LONG_META }], width)
+				.metaWidth,
+		).toBe(cap);
+	});
+
+	it("measures only the metas that fit the cap", () => {
 		expect(
 			blockLayout(
-				[{ status: "done", subject: "owner/alpha", meta: LONG_META }],
+				[
+					{ status: "done", subject: "a", meta: LONG_META },
+					{ status: "done", subject: "b", meta: "^0.10.12" },
+				],
 				60,
-			),
-		).toEqual({ subjectWidth: 14, metaWidth: 22, detailAt: 39 });
+			).metaWidth,
+		).toBe(11);
 	});
 
 	it("gives the meta column the widest meta and 3, from any row", () => {
@@ -335,9 +356,55 @@ describe("renderRow", () => {
 			),
 		).toEqual([
 			` ✓ owner/alpha   ${LONG_META}`,
-			`${gap(39)}pack · 14 skills, 2`,
-			`${gap(39)}folders`,
-			` ✓ owner/beta    ^1.0.0${gap(16)}skill`,
+			`${gap(26)}pack · 14 skills, 2 folders`,
+			" ✓ owner/beta    ^1.0.0   skill",
+		]);
+	});
+
+	it("keeps an 8-character meta in its column at 60, the row on two lines", () => {
+		expect(
+			block(
+				[
+					{
+						status: "failed",
+						subject: APPLE,
+						meta: "^0.10.12",
+						detail: { move: { from: "v0.10.12", to: "v0.11.0" } },
+					},
+				],
+				60,
+			),
+		).toEqual([` ✗ ${APPLE}`, `${gap(30)}^0.10.12   v0.10.12 → v0.11.0`]);
+	});
+
+	it("reads a label then its aside, wrapping as one detail", () => {
+		expect(block([attentionRow], 80)).toEqual([
+			" ! petekp/claude-skills   HEAD   not checked · Could not resolve host:",
+			`${gap(33)}github.com`,
+		]);
+	});
+
+	it("runs a branch's trunk down past a wrapped child with a sibling below", () => {
+		expect(
+			block(
+				[
+					{
+						status: "done",
+						subject: "owner/alpha",
+						children: [
+							{ name: "one", detail: REASON },
+							{ name: "two", detail: REASON },
+						],
+					},
+				],
+				80,
+			),
+		).toEqual([
+			" ✓ owner/alpha",
+			"   ├─ one        it would remove macos-hig, which is still in the source but",
+			`   │${gap(13)}would no longer be installed.`,
+			"   └─ two        it would remove macos-hig, which is still in the source but",
+			`${gap(17)}would no longer be installed.`,
 		]);
 	});
 
@@ -376,6 +443,14 @@ describe("renderRow", () => {
 					40,
 				),
 			).toEqual([` ✓ ${APPLE}`, "   ^1.4.0  v1.4.0 → v1.5.0"]);
+		});
+
+		it("wraps a label's aside under the subject", () => {
+			expect(block([attentionRow], 40)).toEqual([
+				" ! petekp/claude-skills  HEAD",
+				"   not checked · Could not resolve",
+				"   host: github.com",
+			]);
 		});
 
 		it("puts a move's note below it there too", () => {
@@ -432,10 +507,10 @@ describe("renderRow", () => {
 				" ✓ owner/alpha  ^1.0.0",
 				"   v1.0.0 → v1.1.0",
 				"   ├─ one",
-				"      skill",
+				"   │  skill",
 				"   └─ ✗ two",
-				"      it would remove macos-hig, which",
-				"      is still in the source",
+				"        it would remove macos-hig,",
+				"        which is still in the source",
 				" ! owner/beta",
 				"   not checked · Could not resolve",
 				"   host: github.com",
@@ -580,6 +655,47 @@ describe("renderRow", () => {
 			);
 			expect(child("attention")).toBe(
 				`   \x1b[2m└─\x1b[22m b${gap(10)}11 folders`,
+			);
+		});
+
+		it("paints a label in its row's colour and the aside dim", () => {
+			expect(block([attentionRow], 80, color)).toEqual([
+				" \x1b[33m!\x1b[39m \x1b[1mpetekp/claude-skills\x1b[22m   \x1b[2mHEAD\x1b[22m   \x1b[33mnot checked\x1b[39m \x1b[2m· Could not resolve host:\x1b[22m",
+				`${gap(33)}\x1b[2mgithub.com\x1b[22m`,
+			]);
+		});
+
+		it("dims a label on an unchanged row with the rest of it", () => {
+			expect(
+				block(
+					[
+						{
+							status: "unchanged",
+							subject: "a",
+							detail: { label: "up to date" },
+						},
+					],
+					80,
+					color,
+				),
+			).toEqual([" \x1b[2m○ a   up to date\x1b[22m"]);
+		});
+
+		it("draws the trunk dim", () => {
+			expect(
+				block(
+					[
+						{
+							status: "done",
+							subject: "owner/alpha",
+							children: [{ name: "one", detail: REASON }, { name: "two" }],
+						},
+					],
+					80,
+					color,
+				)[2],
+			).toBe(
+				`   \x1b[2m│\x1b[22m${gap(13)}\x1b[2mwould no longer be installed.\x1b[22m`,
 			);
 		});
 

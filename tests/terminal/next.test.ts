@@ -93,6 +93,29 @@ describe("renderNext", () => {
 		]);
 	});
 
+	it("leaves the dash out without a subject, the lead as written", () => {
+		expect(
+			renderNext(
+				[{ subject: "", remedy: { lead: "To retry:", steps: [] } }],
+				80,
+				plain,
+			),
+		).toEqual(["", " Next", "   To retry:"]);
+	});
+
+	it.each([
+		["GitHub rejected the token. To retry:"],
+		["SKILL.md is gone. To restore it:"],
+	])("keeps the case of a lead opening on a name: %s", (lead) => {
+		expect(
+			renderNext(
+				[{ subject: "o/r", remedy: { lead, steps: [] } }],
+				80,
+				plain,
+			)[2],
+		).toBe(`   o/r — ${lead}`);
+	});
+
 	it("leaves the dash out without a lead", () => {
 		expect(
 			renderNext(

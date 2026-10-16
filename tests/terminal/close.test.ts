@@ -107,6 +107,12 @@ describe("renderClose", () => {
 	});
 });
 
+describe("renderClose at a width with no room", () => {
+	it.each([0, 1, 2])("draws no rule at %i rather than throwing", (width) => {
+		expect(renderClose(update, 2400, width, plain)[1]).toBe(" ");
+	});
+});
+
 describe("formatElapsed", () => {
 	it.each([
 		[0, "0.1s"],

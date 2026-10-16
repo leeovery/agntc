@@ -39,18 +39,19 @@ describe("startTask", () => {
 
 	it("hides the cursor and draws the first frame at once", () => {
 		const task = startTask(out, render, 80, { host });
-		expect(out.writes).toEqual([HIDE, `${CLEAR}⠁ updating`]);
+		expect(out.writes).toEqual([`${HIDE}${CLEAR}⠁ updating`]);
 		task.clear();
 	});
 
 	it("redraws the line every 80 ms through the frames, round again", () => {
 		const task = startTask(out, render, 80, { host });
 		vi.advanceTimersByTime(79);
-		expect(out.writes).toHaveLength(2);
+		expect(out.writes).toHaveLength(1);
 		vi.advanceTimersByTime(80 * 8 - 79);
-		expect(out.writes.slice(1)).toEqual(
-			[...FRAMES, "⠁"].map((frame) => `${CLEAR}${frame} updating`),
-		);
+		expect(out.writes).toEqual([
+			`${HIDE}${CLEAR}⠁ updating`,
+			...[...FRAMES.slice(1), "⠁"].map((frame) => `${CLEAR}${frame} updating`),
+		]);
 		task.clear();
 	});
 
@@ -152,9 +153,47 @@ describe("startTask", () => {
 			{ host },
 		);
 		expect(out.writes.at(-1)).toBe(
-			`${CLEAR}\x1b[35m⠁\x1b[39m \x1b[2mChecking\x1b[22m…`,
+			`${HIDE}${CLEAR}\x1b[35m⠁\x1b[39m \x1b[2mChecking\x1b[22m…`,
 		);
 		task.clear();
+	});
+
+	it("leaves nothing registered or hidden when the first frame throws", () => {
+		expect(() =>
+			startTask(
+				out,
+				() => {
+					throw new Error("no frame");
+				},
+				80,
+				{ host },
+			),
+		).toThrow("no frame");
+		expect(out.writes).toEqual([]);
+		expect(listening(host)).toEqual([0, 0, 0]);
+		startTask(out, render, 80, { host }).clear();
+		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
+	});
+
+	it("ends the task and rethrows once when a later frame throws", () => {
+		let calls = 0;
+		startTask(
+			out,
+			(frame) => {
+				calls += 1;
+				if (calls > 1) {
+					throw new Error("bad frame");
+				}
+				return frame;
+			},
+			80,
+			{ host },
+		);
+		expect(() => vi.advanceTimersByTime(80)).toThrow("bad frame");
+		expect(out.writes.at(-1)).toBe(`${CLEAR}${SHOW}`);
+		expect(listening(host)).toEqual([0, 0, 0]);
+		expect(() => vi.advanceTimersByTime(800)).not.toThrow();
+		expect(calls).toBe(2);
 	});
 
 	it("listens on the process by default", () => {

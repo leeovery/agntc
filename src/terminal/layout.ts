@@ -1,12 +1,16 @@
+import { identity, type Painter } from "./style.js";
+
 const MAX_WIDTH = 100;
+const MIN_WIDTH = 20;
 const DEFAULT_COLUMNS = 80;
 const NARROW_BELOW = 60;
 
 /** The one-space margin every line opens with; nothing is drawn in the last column either. */
 export const MARGIN = " ";
 
+/** The terminal's width, at most 100 and at least 20; 80 when it gives none, or 0 as some ptys do. */
 export function layoutWidth(columns?: number): number {
-	return Math.min(columns ?? DEFAULT_COLUMNS, MAX_WIDTH);
+	return Math.max(MIN_WIDTH, Math.min(columns || DEFAULT_COLUMNS, MAX_WIDTH));
 }
 
 export function isNarrow(width: number): boolean {
@@ -19,7 +23,7 @@ export function roomFrom(column: number, width: number): number {
 }
 
 export function indent(columns: number): string {
-	return " ".repeat(columns);
+	return " ".repeat(Math.max(0, columns));
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: SGR escape codes open with ESC
@@ -114,6 +118,8 @@ function inRanges(code: number, ranges: readonly Range[]): boolean {
 }
 
 const graphemes = new Intl.Segmenter();
+// Printable ASCII is one column a character, so it skips the segmenter.
+const PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
 
 // Marks and format characters draw on the character before them, as an
 // emoji's skin tone does on the emoji.
@@ -122,6 +128,9 @@ const ZERO_WIDTH = /[\p{Mn}\p{Me}\p{Cf}\p{Cc}\p{Emoji_Modifier}]/u;
 const EMOJI_SEQUENCE = /^\p{Emoji}.*[\u200d\ufe0f]/su;
 
 function clusterWidth(cluster: string): number {
+	if (PRINTABLE_ASCII.test(cluster)) {
+		return cluster.length;
+	}
 	if (EMOJI_SEQUENCE.test(cluster)) {
 		return 2;
 	}
@@ -135,7 +144,9 @@ function clusterWidth(cluster: string): number {
 }
 
 function clustersOf(text: string): string[] {
-	return [...graphemes.segment(text)].map(({ segment }) => segment);
+	return PRINTABLE_ASCII.test(text)
+		? text.split("")
+		: [...graphemes.segment(text)].map(({ segment }) => segment);
 }
 
 /** The text's escape codes and grapheme clusters, in order. */
@@ -151,8 +162,12 @@ function isSgr(piece: string): boolean {
 
 /** Columns the text takes on screen, escape codes aside. */
 export function visibleWidth(text: string): number {
+	const plain = text.replace(SGR, "");
+	if (PRINTABLE_ASCII.test(plain)) {
+		return plain.length;
+	}
 	let width = 0;
-	for (const cluster of clustersOf(text.replace(SGR, ""))) {
+	for (const cluster of clustersOf(plain)) {
 		width += clusterWidth(cluster);
 	}
 	return width;
@@ -231,7 +246,7 @@ export function prose(
 	text: string,
 	column: number,
 	width: number,
-	paint: (line: string) => string = (line) => line,
+	paint: Painter = identity,
 ): string[] {
 	return text === ""
 		? []
@@ -284,15 +299,16 @@ function wrapParagraph(
 		if (wordWidth > room && room < full) {
 			breakLine();
 		}
-		let rest = clustersOf(word);
-		while (visibleWidth(rest.join("")) > room) {
-			const fits = fitting(rest, room);
-			const piece = fits.length > 0 ? fits : rest.slice(0, 1);
-			line = piece.join("");
-			rest = rest.slice(piece.length);
-			breakLine();
+		let used = 0;
+		for (const cluster of clustersOf(word)) {
+			const columns = clusterWidth(cluster);
+			if (line !== "" && used + columns > room) {
+				breakLine();
+				used = 0;
+			}
+			line += cluster;
+			used += columns;
 		}
-		line = rest.join("");
 	}
 	lines.push(line);
 	return lines;
