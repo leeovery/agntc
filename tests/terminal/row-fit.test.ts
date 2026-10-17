@@ -2,10 +2,12 @@ import stringWidth from "string-width";
 import { describe, expect, it } from "vitest";
 import {
 	blockLayout,
+	renderProgress,
 	renderRow,
 	renderRowsWithin,
 	renderRowWithin,
 } from "../../src/terminal/block.js";
+import { wrap } from "../../src/terminal/layout.js";
 import { createStyle } from "../../src/terminal/style.js";
 import type {
 	Child,
@@ -235,5 +237,87 @@ describe("a row cut to its room", () => {
 			}
 		}
 		expect(problems.slice(0, 10)).toEqual([]);
+	});
+});
+
+describe("a running step's line", () => {
+	// Whatever its subject, meta and text, a progress line is one line inside
+	// the width, opening with its subject or the subject's tail cut from the
+	// left, and its text shows: whole, or at least half the line's room.
+	it.each(
+		WIDTHS,
+	)("is one line inside the width at %i columns, its text shown", (width) => {
+		const problems: string[] = [];
+		for (const seed of SEEDS) {
+			const style = createStyle(seed % 2 === 0 ? 0 : 3);
+			const { row } = generator(seed);
+			const rows = Array.from({ length: 6 }, row);
+			const layout = blockLayout(rows, width);
+			for (const [index, { subject, meta }] of rows.entries()) {
+				const text = WORDS[index % WORDS.length] as string;
+				const line = renderProgress(
+					{ subject, ...(meta === undefined ? {} : { meta }), text },
+					"⠁",
+					width,
+					style,
+					layout,
+				);
+				const at = `seed ${seed}, row ${index}`;
+				if (line.includes("\n") || stringWidth(line) > width - 1) {
+					problems.push(`${at}: ${JSON.stringify(line)}`);
+				}
+				const shown = plain(line).slice(3);
+				const [opening = ""] = shown.split("  ");
+				const named =
+					opening === subject ||
+					(opening.startsWith("…") && subject.endsWith(opening.slice(1)));
+				if (!named) {
+					problems.push(`${at}: opens with ${JSON.stringify(opening)}`);
+				}
+				const textShown = shown.slice(shown.lastIndexOf("  ") + 2);
+				// A wide character never splits, so a cut can fall a column short.
+				const half = Math.floor((width - 6) / 2) - 1;
+				if (
+					textShown !== text &&
+					stringWidth(textShown) < Math.min(half, stringWidth(text))
+				) {
+					problems.push(`${at}: its text gets ${stringWidth(textShown)}`);
+				}
+			}
+		}
+		expect(problems.slice(0, 10)).toEqual([]);
+	});
+});
+
+describe("a long path wrapped", () => {
+	// A path broken across lines breaks after a `/` wherever one past a line's
+	// first character is in reach, and its lines rejoin to the path.
+	const PATHS = [
+		"/Users/someone/code/a-very-long-folder-name/with/more/of/it",
+		"~/Code/agntc-sources/a-rather-long-local-source-folder-name/with-another-level/pack-1",
+		"leeovery/a-very-long-repository-name-for-skills/skills/nuxt",
+		`${"x".repeat(70)}/tail`,
+		"日本語のスキル/日本語のスキル/日本語のスキル/日本語",
+	];
+
+	it.each(WIDTHS)("breaks after a `/` in reach at %i columns", (width) => {
+		const room = width - 4;
+		const problems: string[] = [];
+		for (const path of PATHS) {
+			const lines = wrap(path, room);
+			if (lines.join("") !== path) {
+				problems.push(`${path}: rejoins as ${lines.join("")}`);
+			}
+			for (const [index, line] of lines.entries()) {
+				if (stringWidth(line) > room) {
+					problems.push(`${path}: ${JSON.stringify(line)} overflows`);
+				}
+				const last = index === lines.length - 1;
+				if (!last && !line.endsWith("/") && line.slice(1).includes("/")) {
+					problems.push(`${path}: ${JSON.stringify(line)} passes a /`);
+				}
+			}
+		}
+		expect(problems).toEqual([]);
 	});
 });

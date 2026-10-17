@@ -137,10 +137,11 @@ describe("renderNext", () => {
 				[{ ...abort, subject: "owner/a-very-long-repository-name-here" }],
 				40,
 				plain,
-			).slice(2, 4),
+			).slice(2, 5),
 		).toEqual([
-			"   owner/a-very-long-repository-name-he",
-			"   re — to update it anyway:",
+			"   owner/",
+			"   a-very-long-repository-name-here —",
+			"   to update it anyway:",
 		]);
 	});
 

@@ -481,10 +481,11 @@ function childPen(
 }
 
 /**
- * A running step's one line, cut to `width - 1`: the frame in the accent in
+ * A running step's one line, inside `width - 1`: the frame in the accent in
  * its glyph slot, its subject and meta in their columns, then what it's doing
- * dim in the detail column, or two spaces after them where they reach it or
- * below 60 columns. Without a subject, what it's doing follows the frame;
+ * dim in the detail column. Where that doesn't fit whole, or below 60
+ * columns, each follows the one before two spaces on ({@link flowingProgress}).
+ * Without a subject, what it's doing follows the frame, cut at its end;
  * without a layout, the subject is laid out alone.
  */
 export function renderProgress(
@@ -495,18 +496,60 @@ export function renderProgress(
 	layout?: BlockLayout,
 ): string {
 	const glyph = style.accent(frame);
-	const text = style.dim(progress.text);
-	const { subject, meta } = progress;
+	const { subject, meta, text } = progress;
 	if (subject === undefined) {
-		return truncate(`${MARGIN}${glyph} ${text}`, width - 1);
+		return truncate(`${MARGIN}${glyph} ${style.dim(text)}`, width - 1);
 	}
 	const row: Row = { status: "note", subject, meta };
 	const place = layout ?? blockLayout([row], width);
-	const [lead = ""] = rowLines(row, glyph, place, { width, paint: style });
-	const follows = visibleWidth(lead) + MIN_GAP;
-	const at =
-		isNarrow(width) || follows > place.detailAt ? follows : place.detailAt;
-	return truncate(pad(lead, at) + text, width - 1);
+	const head = rowLines(row, glyph, place, { width, paint: style });
+	const [lead = ""] = head;
+	const columned =
+		!isNarrow(width) &&
+		head.length === 1 &&
+		visibleWidth(lead) + MIN_GAP <= place.detailAt &&
+		visibleWidth(text) <= roomFrom(place.detailAt, width);
+	return columned
+		? pad(lead, place.detailAt) + style.dim(text)
+		: flowingProgress(glyph, subject, progress, width, style);
+}
+
+/** The fewest columns a subject cut to keep its meta beside it is left with. */
+const MIN_CUT_SUBJECT = 12;
+
+/**
+ * The subject, its meta and what it's doing, each two spaces after the one
+ * before, on one line. What it's doing keeps its width, or half the line
+ * where that would cut the subject below {@link MIN_CUT_SUBJECT}; the subject
+ * is cut from the left with `…` to leave it that, the meta left out first
+ * where keeping it would cut the subject that far. Anything still too long is
+ * cut at its end.
+ */
+function flowingProgress(
+	glyph: string,
+	subject: string,
+	{ meta = "", text }: Progress,
+	width: number,
+	style: Style,
+): string {
+	const room = roomFrom(SUBJECT_AT, width);
+	const subjectWidth = visibleWidth(subject);
+	const least = Math.min(subjectWidth, MIN_CUT_SUBJECT);
+	const textRoom = Math.min(
+		visibleWidth(text),
+		Math.max(Math.floor((room - MIN_GAP) / 2), room - MIN_GAP - least),
+	);
+	const left = room - MIN_GAP - textRoom;
+	const metaPart = meta === "" ? 0 : MIN_GAP + visibleWidth(meta);
+	const withMeta = metaPart > 0 && left - metaPart >= least;
+	const shown = style.bold(
+		truncateStart(subject, left - (withMeta ? metaPart : 0)),
+	);
+	const opening = withMeta
+		? `${shown}${indent(MIN_GAP)}${style.dim(meta)}`
+		: shown;
+	const rest = roomFrom(SUBJECT_AT + visibleWidth(opening) + MIN_GAP, width);
+	return `${MARGIN}${glyph} ${opening}${indent(MIN_GAP)}${style.dim(truncate(text, rest))}`;
 }
 
 interface Pen {

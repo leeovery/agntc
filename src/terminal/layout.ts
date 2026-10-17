@@ -324,17 +324,49 @@ function wrapParagraph(
 		if (wordWidth > room && room < full) {
 			breakLine();
 		}
-		let used = 0;
-		for (const cluster of clustersOf(word)) {
-			const columns = clusterWidth(cluster);
-			if (line !== "" && used + columns > room) {
-				breakLine();
-				used = 0;
-			}
-			line += cluster;
-			used += columns;
+		const pieces = breakWord(word, room, full);
+		line = pieces.pop() ?? "";
+		lines.push(...pieces);
+		if (pieces.length > 0) {
+			room = full;
 		}
 	}
 	lines.push(line);
 	return lines;
+}
+
+/**
+ * A word in lines of `rest` columns, the first `first`. A line it overflows
+ * ends after its last `/` past its first character, when what follows the
+ * `/` fits the next line; else where its room runs out.
+ */
+function breakWord(word: string, first: number, rest: number): string[] {
+	const lines: string[] = [];
+	let line: string[] = [];
+	let used = 0;
+	let room = first;
+	let slash = 0;
+	for (const cluster of clustersOf(word)) {
+		const columns = clusterWidth(cluster);
+		if (line.length > 0 && used + columns > room) {
+			const carried = columnsOf(line.slice(slash));
+			const cut = slash > 0 && carried + columns <= rest ? slash : line.length;
+			lines.push(line.slice(0, cut).join(""));
+			line = line.slice(cut);
+			used = cut === slash ? carried : 0;
+			slash = 0;
+			room = rest;
+		}
+		line.push(cluster);
+		used += columns;
+		if (cluster === "/" && line.length > 1) {
+			slash = line.length;
+		}
+	}
+	lines.push(line.join(""));
+	return lines;
+}
+
+function columnsOf(clusters: readonly string[]): number {
+	return clusters.reduce((sum, cluster) => sum + clusterWidth(cluster), 0);
 }

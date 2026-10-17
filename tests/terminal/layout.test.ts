@@ -153,6 +153,33 @@ describe("wrap", () => {
 		]);
 	});
 
+	it("breaks a long word after the last `/` that fits", () => {
+		expect(wrap("see owner/repo/a-long-skill", 15)).toEqual([
+			"see",
+			"owner/repo/",
+			"a-long-skill",
+		]);
+	});
+
+	it("breaks hard where no `/` is in reach, and at a `/` again once one is", () => {
+		expect(
+			wrap("~/Code/agntc-sources/a-rather-long-local-folder-name/nuxt", 30),
+		).toEqual([
+			"~/Code/agntc-sources/",
+			"a-rather-long-local-folder-nam",
+			"e/nuxt",
+		]);
+		expect(wrap("abcdefghijkl/mn", 5)).toEqual(["abcde", "fghij", "kl/mn"]);
+	});
+
+	it("never breaks after a `/` that opens the line", () => {
+		expect(wrap("/abcdefghij", 5)).toEqual(["/abcd", "efghi", "j"]);
+	});
+
+	it("breaks hard when what follows the `/` wouldn't fit the next line either", () => {
+		expect(wrap("ab/cdefghijkl", 4, 12)).toEqual(["ab/cdefghijk", "l"]);
+	});
+
 	it("wraps the first line to its own width", () => {
 		expect(wrap("one two three four", 10, 4)).toEqual([
 			"one",

@@ -479,10 +479,11 @@ describe("a remove at 40 columns", () => {
 
 	it.each([
 		[
-			8,
+			9,
 			[
-				" ● /opt/code/a-local-kit-with-a-long-en",
-				"   ough-name/nuxt",
+				" ● /opt/code/",
+				"   a-local-kit-with-a-long-enough-name/",
+				"   nuxt",
 				"   pack · 11 skills",
 				"   … 11 more folders",
 			],
