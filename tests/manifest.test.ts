@@ -22,25 +22,15 @@ import {
 	writeManifest,
 } from "../src/manifest.js";
 
-vi.mock("@clack/prompts", () => ({
-	log: {
-		error: vi.fn(),
-		info: vi.fn(),
-		warn: vi.fn(),
-		success: vi.fn(),
-		message: vi.fn(),
-	},
-}));
-
-import * as p from "@clack/prompts";
-import { interactiveUi, MachineUi } from "../src/ui.js";
-
-const mockLog = vi.mocked(p.log);
+import { MachineUi } from "../src/ui.js";
+import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 let testDir: string;
+let ui: TestUi;
 
 beforeEach(async () => {
 	testDir = await mkdtemp(join(tmpdir(), "agntc-manifest-test-"));
+	ui = testUi();
 });
 
 afterEach(async () => {
@@ -1169,7 +1159,7 @@ describe("readManifestOrExit", () => {
 			JSON.stringify(manifest),
 		);
 
-		const result = await readManifestOrExit(testDir, interactiveUi);
+		const result = await readManifestOrExit(testDir, ui);
 
 		expect(result).toEqual(manifest);
 	});
@@ -1178,9 +1168,7 @@ describe("readManifestOrExit", () => {
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
 		await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
 
-		const err = await readManifestOrExit(testDir, interactiveUi).catch(
-			(e) => e,
-		);
+		const err = await readManifestOrExit(testDir, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
 		expect((err as ExitSignal).code).toBe(1);
@@ -1190,11 +1178,11 @@ describe("readManifestOrExit", () => {
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
 		await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
 
-		await readManifestOrExit(testDir, interactiveUi).catch(() => {});
+		await readManifestOrExit(testDir, ui).catch(() => {});
 
-		expect(mockLog.error).toHaveBeenCalledWith(
+		expect(ui.said("error")).toEqual([
 			expect.stringContaining("Failed to read manifest:"),
-		);
+		]);
 	});
 
 	it("includes the underlying error message in the log", async () => {
@@ -1204,21 +1192,18 @@ describe("readManifestOrExit", () => {
 		await chmod(manifestPath, 0o000);
 
 		try {
-			await readManifestOrExit(testDir, interactiveUi).catch(() => {});
+			await readManifestOrExit(testDir, ui).catch(() => {});
 
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.said("error")).toEqual([
 				expect.stringMatching(/Failed to read manifest:.*permission/i),
-			);
+			]);
 		} finally {
 			await chmod(manifestPath, 0o644);
 		}
 	});
 
 	it("returns empty object for missing manifest (ENOENT)", async () => {
-		const result = await readManifestOrExit(
-			join(testDir, "nonexistent"),
-			interactiveUi,
-		);
+		const result = await readManifestOrExit(join(testDir, "nonexistent"), ui);
 
 		expect(result).toEqual({});
 	});
@@ -1226,15 +1211,18 @@ describe("readManifestOrExit", () => {
 	it("records the failure as the document's error without a terminal", async () => {
 		await mkdir(join(testDir, ".agntc"), { recursive: true });
 		await writeFile(join(testDir, ".agntc", "manifest.json"), "{bad json}");
-		const ui = new MachineUi("list", "project");
+		const machine = new MachineUi("list", "project");
+		const write = vi.spyOn(process.stdout, "write");
 
-		const err = await readManifestOrExit(testDir, ui).catch((e) => e);
+		const err = await readManifestOrExit(testDir, machine).catch((e) => e);
+		const written = write.mock.calls.length;
+		write.mockRestore();
 
 		expect((err as ExitSignal).code).toBe(1);
-		expect(ui.document(1).error).toEqual({
+		expect(machine.document(1).error).toEqual({
 			message: expect.stringContaining("Failed to read manifest:"),
 		});
-		expect(mockLog.error).not.toHaveBeenCalled();
+		expect(written).toBe(0);
 	});
 });
 

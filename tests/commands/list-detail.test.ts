@@ -9,37 +9,16 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ManifestEntry } from "../../src/manifest.js";
-import type { UpdateCheckResult } from "../../src/update-check.js";
-import { makeEntry } from "../helpers/factories.js";
-import { SSH_REFUSAL } from "../helpers/git-mocks.js";
-
-vi.mock("@clack/prompts", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@clack/prompts")>();
-	return {
-		...actual,
-		select: vi.fn(),
-		isCancel: vi.fn((value: unknown) => typeof value === "symbol"),
-		log: {
-			info: vi.fn(),
-			warn: vi.fn(),
-			error: vi.fn(),
-			success: vi.fn(),
-			message: vi.fn(),
-		},
-	};
-});
-
-import * as p from "@clack/prompts";
 import {
 	type DetailAction,
 	type DetailViewInput,
 	renderDetailView,
 } from "../../src/commands/list-detail.js";
-import { interactiveUi } from "../../src/ui.js";
-
-const mockSelect = vi.mocked(p.select);
-const mockLog = vi.mocked(p.log);
+import type { ManifestEntry } from "../../src/manifest.js";
+import type { UpdateCheckResult } from "../../src/update-check.js";
+import { makeEntry } from "../helpers/factories.js";
+import { SSH_REFUSAL } from "../helpers/git-mocks.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 let installRoot: string;
 
@@ -67,8 +46,11 @@ async function installedFiles(...paths: string[]): Promise<void> {
 	}
 }
 
+let ui: TestUi;
+
 beforeEach(async () => {
 	vi.clearAllMocks();
+	ui = testUi();
 	installRoot = await mkdtemp(join(tmpdir(), "agntc-list-detail-"));
 });
 
@@ -79,131 +61,125 @@ afterEach(async () => {
 describe("renderDetailView", () => {
 	describe("info display", () => {
 		it("displays a skill's key under Skill", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ key: "acme/toolkit", entry: { type: "skill" } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Skill: acme/toolkit");
+			expect(ui.log.info).toHaveBeenCalledWith("Skill: acme/toolkit");
 		});
 
 		it("displays a pack's key under Pack", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ key: "acme/toolkit/laravel", entry: { type: "pack" } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Pack: acme/toolkit/laravel");
+			expect(ui.log.info).toHaveBeenCalledWith("Pack: acme/toolkit/laravel");
 		});
 
 		it("displays an untyped entry's key under Skill", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
-			await renderDetailView(makeInput({ key: "acme/toolkit" }), interactiveUi);
+			await renderDetailView(makeInput({ key: "acme/toolkit" }), ui);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Skill: acme/toolkit");
+			expect(ui.log.info).toHaveBeenCalledWith("Skill: acme/toolkit");
 		});
 
 		it("displays ref as tag value when ref is set", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
-			await renderDetailView(
-				makeInput({ entry: { ref: "v2.3.1" } }),
-				interactiveUi,
-			);
+			await renderDetailView(makeInput({ entry: { ref: "v2.3.1" } }), ui);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Ref: v2.3.1");
+			expect(ui.log.info).toHaveBeenCalledWith("Ref: v2.3.1");
 		});
 
 		it("displays ref as HEAD when ref is null but commit exists", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: { ref: null, commit: "abc1234567890def" } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Ref: HEAD");
+			expect(ui.log.info).toHaveBeenCalledWith("Ref: HEAD");
 		});
 
 		it("displays ref as local when ref and commit are both null", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: { ref: null, commit: null } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Ref: local");
+			expect(ui.log.info).toHaveBeenCalledWith("Ref: local");
 		});
 
 		it("truncates commit to 7 characters", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: { commit: "abc1234567890def" } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Commit: abc1234");
+			expect(ui.log.info).toHaveBeenCalledWith("Commit: abc1234");
 		});
 
 		it("displays em dash when commit is null", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
-			await renderDetailView(
-				makeInput({ entry: { commit: null } }),
-				interactiveUi,
-			);
+			await renderDetailView(makeInput({ entry: { commit: null } }), ui);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Commit: \u2014");
+			expect(ui.log.info).toHaveBeenCalledWith("Commit: \u2014");
 		});
 
 		it("formats install date as date only", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: { installedAt: "2026-02-10T14:22:33.000Z" } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Installed: 2026-02-10");
+			expect(ui.log.info).toHaveBeenCalledWith("Installed: 2026-02-10");
 		});
 
 		it("names no agent anywhere in the detail view", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: { files: [".claude/skills/a/SKILL.md"] } }),
-				interactiveUi,
+				ui,
 			);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls.some((line) => line.startsWith("Agents:"))).toBe(false);
 			expect(infoCalls.some((line) => /claude/i.test(line))).toBe(false);
 		});
 
 		it("displays constraint line when entry has constraint", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: { constraint: "^1.0.0" } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Constraint: ^1.0.0");
+			expect(ui.log.info).toHaveBeenCalledWith("Constraint: ^1.0.0");
 		});
 
 		it("does not display constraint line when entry has no constraint", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
-			await renderDetailView(makeInput(), interactiveUi);
+			await renderDetailView(makeInput(), ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const constraintLines = infoCalls.filter((line) =>
 				line.startsWith("Constraint:"),
 			);
@@ -213,7 +189,7 @@ describe("renderDetailView", () => {
 
 	describe("asset counts", () => {
 		it("displays asset counts on one line", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(
 				".claude/skills/a/SKILL.md",
 				".claude/skills/b/SKILL.md",
@@ -223,14 +199,14 @@ describe("renderDetailView", () => {
 				makeInput({
 					entry: { files: [".claude/skills/a/", ".claude/skills/b/"] },
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 2 skills");
 		});
 
 		it("counts a skill folder once, however many of its paths are recorded", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(".claude/skills/a/SKILL.md");
 
 			await renderDetailView(
@@ -243,14 +219,14 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 1 skill");
 		});
 
 		it("displays mixed asset types", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(
 				".claude/skills/a/SKILL.md",
 				".claude/skills/b/SKILL.md",
@@ -266,14 +242,14 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills, 1 hook");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 2 skills, 1 hook");
 		});
 
 		it("counts a pack's installed folders without a SKILL.md as support folders, worded as add words them", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(
 				".claude/skills/a/SKILL.md",
 				".claude/skills/b/SKILL.md",
@@ -296,30 +272,30 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.log.info).toHaveBeenCalledWith(
 				"Assets: 2 skills, 3 folders, 1 agent",
 			);
 		});
 
 		it("gives a pack's skill count even when it holds only support folders", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(".claude/skills/shared/references/x.md");
 
 			await renderDetailView(
 				makeInput({
 					entry: { type: "pack", files: [".claude/skills/shared/"] },
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 0 skills, 1 folder");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 0 skills, 1 folder");
 		});
 
 		it("never counts a loose file v1 recorded in .claude/skills as a folder", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(
 				".claude/skills/a/SKILL.md",
 				".claude/skills/README.md",
@@ -332,14 +308,14 @@ describe("renderDetailView", () => {
 						files: [".claude/skills/README.md", ".claude/skills/a/"],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 1 skill");
 		});
 
 		it("counts agent files", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -347,28 +323,28 @@ describe("renderDetailView", () => {
 						files: [".claude/agents/agent-a.md"],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 agent");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 1 agent");
 		});
 
 		it("counts a skill entry's folder as a skill without looking at what the install holds", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(".claude/skills/a/notes.md");
 
 			await renderDetailView(
 				makeInput({
 					entry: { type: "skill", files: [".claude/skills/a/"] },
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 1 skill");
 		});
 
 		it("counts a pack's folder as a skill when its SKILL.md is a link or the folder can't be read", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(
 				".claude/skills/linked/notes.md",
 				".claude/skills/locked/SKILL.md",
@@ -389,17 +365,17 @@ describe("renderDetailView", () => {
 							files: [".claude/skills/linked/", ".claude/skills/locked/"],
 						},
 					}),
-					interactiveUi,
+					ui,
 				);
 			} finally {
 				await chmod(locked, 0o755);
 			}
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 2 skills");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 2 skills");
 		});
 
 		it("counts each top-level hook entry once, however many of its paths are recorded", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(".claude/skills/a/SKILL.md");
 
 			await renderDetailView(
@@ -415,14 +391,14 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 1 skill, 2 hooks");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 1 skill, 2 hooks");
 		});
 
 		it("counts a v1 entry's agents and hooks as add does, leaving out the folders it recorded", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 			await installedFiles(".claude/skills/a/SKILL.md");
 
 			await renderDetailView(
@@ -440,16 +416,16 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.log.info).toHaveBeenCalledWith(
 				"Assets: 1 skill, 2 agents, 1 hook",
 			);
 		});
 
 		it("words a legacy pack recording nothing in .claude/ by what it has, with no skill count", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -462,28 +438,25 @@ describe("renderDetailView", () => {
 						],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith("Assets: 3 other");
+			expect(ui.log.info).toHaveBeenCalledWith("Assets: 3 other");
 		});
 
 		it("omits the assets line when the entry has no files", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
-			await renderDetailView(
-				makeInput({ entry: { files: [] } }),
-				interactiveUi,
-			);
+			await renderDetailView(makeInput({ entry: { files: [] } }), ui);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			expect(infoCalls.some((line) => line.startsWith("Assets:"))).toBe(false);
 		});
 	});
 
 	describe("file list", () => {
 		it("does NOT dump the raw file paths (removed for a cleaner detail view)", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -491,10 +464,10 @@ describe("renderDetailView", () => {
 						files: [".claude/skills/a/SKILL.md", ".claude/hooks/lint.sh"],
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			const messages = mockLog.message.mock.calls.map((c) => c[0] as string);
+			const messages = ui.said("message");
 			expect(messages.some((m) => m.includes(".claude/skills/"))).toBe(false);
 			expect(messages.some((m) => m.includes(".claude/hooks/"))).toBe(false);
 		});
@@ -503,7 +476,7 @@ describe("renderDetailView", () => {
 	// Extracts the action options passed to the select prompt from the most
 	// recent renderDetailView call.
 	function renderedActions(): Array<{ value: DetailAction; label: string }> {
-		const selectCall = mockSelect.mock.calls[0]![0];
+		const selectCall = ui.select.mock.calls[0]![0];
 		return selectCall.options as Array<{ value: DetailAction; label: string }>;
 	}
 
@@ -513,14 +486,14 @@ describe("renderDetailView", () => {
 		const headEntry = { ref: null, commit: "a".repeat(40) };
 
 		it("update-available shows Update", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: headEntry,
 					updateStatus: { status: "update-available", remoteCommit: "def456" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -531,11 +504,11 @@ describe("renderDetailView", () => {
 		});
 
 		it("local shows Update", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: headEntry, updateStatus: { status: "local" } }),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -546,11 +519,11 @@ describe("renderDetailView", () => {
 		});
 
 		it("up-to-date shows no Update", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ entry: headEntry, updateStatus: { status: "up-to-date" } }),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -560,14 +533,14 @@ describe("renderDetailView", () => {
 		});
 
 		it("newer-tags on a HEAD ref shows neither Update nor Change version", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: headEntry,
 					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -577,14 +550,14 @@ describe("renderDetailView", () => {
 		});
 
 		it("constrained-no-match shows no Update", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: headEntry,
 					updateStatus: { status: "constrained-no-match" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -596,14 +569,14 @@ describe("renderDetailView", () => {
 
 	describe("change-version availability", () => {
 		it("offers Change version for a tag-pinned install that is up to date", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { ref: "v2.0.0" },
 					updateStatus: { status: "up-to-date" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -614,14 +587,14 @@ describe("renderDetailView", () => {
 		});
 
 		it("offers Change version for newer-tags on a tag-pinned install", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "newer-tags", tags: ["v2.0.0"] },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -632,7 +605,7 @@ describe("renderDetailView", () => {
 		});
 
 		it("offers Update and Change version for constrained-update-available on a tag-pinned install", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -644,7 +617,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -656,7 +629,7 @@ describe("renderDetailView", () => {
 		});
 
 		it("offers Change version for constrained-up-to-date on a tag-pinned install (even without latestOverall)", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -666,7 +639,7 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -677,14 +650,14 @@ describe("renderDetailView", () => {
 		});
 
 		it("offers Change version for constrained-no-match on a tag-pinned install (recovery path)", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "constrained-no-match" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -695,14 +668,14 @@ describe("renderDetailView", () => {
 		});
 
 		it("does NOT offer Change version when the remote is unreachable (check-failed)", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { ref: "v1.0.0" },
 					updateStatus: { status: "check-failed", reason: "timeout" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -712,14 +685,14 @@ describe("renderDetailView", () => {
 		});
 
 		it("does NOT offer Change version for a HEAD-tracking install (ref is null)", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { ref: null, commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -729,14 +702,14 @@ describe("renderDetailView", () => {
 		});
 
 		it("does NOT offer Change version for a branch-tracking install (ref is not a version)", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { ref: "main", commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -749,7 +722,7 @@ describe("renderDetailView", () => {
 			// Cross-surface recovery: with the classification fix a "v4" branch install
 			// reaches the detail view with a real status (update-available), so the
 			// Update action is offered normally — no degraded check-failed rendering.
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -759,7 +732,7 @@ describe("renderDetailView", () => {
 						remoteCommit: "b".repeat(40),
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -773,14 +746,14 @@ describe("renderDetailView", () => {
 			// "v4" resembles a tag but is not full semver, so isVersionTag("v4") is
 			// false — Change version stays disabled by design, even though the status
 			// is now a real one. Re-enabling it for branch refs is out of scope.
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { ref: "v4", commit: "a".repeat(40) },
 					updateStatus: { status: "up-to-date" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
 			expect(renderedActions()).toEqual([
@@ -792,51 +765,49 @@ describe("renderDetailView", () => {
 
 	describe("contextual messages", () => {
 		it("constrained-no-match shows error with constraint expression", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					entry: { constraint: "^1.0.0" },
 					updateStatus: { status: "constrained-no-match" },
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.error).toHaveBeenCalledWith(
+			expect(ui.log.error).toHaveBeenCalledWith(
 				'No matching version found for constraint "^1.0.0"',
 			);
 		});
 
 		it("check-failed says why, in one line", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
 					updateStatus: { status: "check-failed", reason: SSH_REFUSAL },
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.warn.mock.calls).toEqual([
-				[
-					"Couldn't check for updates (git@github.com: Permission denied (publickey).)",
-				],
+			expect(ui.said("warn")).toEqual([
+				"Couldn't check for updates (git@github.com: Permission denied (publickey).)",
 			]);
 		});
 
 		it("a check that didn't fail says nothing of one", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({ updateStatus: { status: "up-to-date" } }),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.warn).not.toHaveBeenCalled();
+			expect(ui.said("warn")).toEqual([]);
 		});
 
 		it("constrained-up-to-date with latestOverall shows info about version outside constraint", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -846,16 +817,16 @@ describe("renderDetailView", () => {
 						latestOverall: "v2.0.0",
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.log.info).toHaveBeenCalledWith(
 				"Constraint: ^1.0.0 (v2.0.0 available outside constraint)",
 			);
 		});
 
 		it("constrained-up-to-date without latestOverall shows no extra info", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -865,10 +836,10 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const outsideConstraintCalls = infoCalls.filter((line) =>
 				line.includes("outside constraint"),
 			);
@@ -876,7 +847,7 @@ describe("renderDetailView", () => {
 		});
 
 		it("constrained-update-available with latestOverall shows info about version outside constraint", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -888,16 +859,16 @@ describe("renderDetailView", () => {
 						latestOverall: "v2.0.0",
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockLog.info).toHaveBeenCalledWith(
+			expect(ui.log.info).toHaveBeenCalledWith(
 				"Constraint: ^1.0.0 (v2.0.0 available outside constraint)",
 			);
 		});
 
 		it("constrained-update-available without latestOverall shows no extra info", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
 			await renderDetailView(
 				makeInput({
@@ -909,10 +880,10 @@ describe("renderDetailView", () => {
 						latestOverall: null,
 					},
 				}),
-				interactiveUi,
+				ui,
 			);
 
-			const infoCalls = mockLog.info.mock.calls.map((c) => c[0] as string);
+			const infoCalls = ui.said("info");
 			const outsideConstraintCalls = infoCalls.filter((line) =>
 				line.includes("outside constraint"),
 			);
@@ -922,17 +893,17 @@ describe("renderDetailView", () => {
 
 	describe("action selection", () => {
 		it("returns selected action value", async () => {
-			mockSelect.mockResolvedValue("remove");
+			ui.select.mockResolvedValue("remove");
 
-			const result = await renderDetailView(makeInput(), interactiveUi);
+			const result = await renderDetailView(makeInput(), ui);
 
 			expect(result).toBe("remove");
 		});
 
 		it("cancel returns back", async () => {
-			mockSelect.mockResolvedValue(Symbol("cancel"));
+			ui.select.mockResolvedValue(null);
 
-			const result = await renderDetailView(makeInput(), interactiveUi);
+			const result = await renderDetailView(makeInput(), ui);
 
 			expect(result).toBe("back");
 		});
@@ -940,11 +911,11 @@ describe("renderDetailView", () => {
 
 	describe("select prompt", () => {
 		it("uses Action as the select message", async () => {
-			mockSelect.mockResolvedValue("back");
+			ui.select.mockResolvedValue("back");
 
-			await renderDetailView(makeInput(), interactiveUi);
+			await renderDetailView(makeInput(), ui);
 
-			const selectCall = mockSelect.mock.calls[0]![0];
+			const selectCall = ui.select.mock.calls[0]![0];
 			expect(selectCall.message).toBe("Action");
 		});
 	});

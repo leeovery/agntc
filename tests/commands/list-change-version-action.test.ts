@@ -6,11 +6,6 @@ import type { Manifest } from "../../src/manifest.js";
 // factories. vitest hoists `vi.mock` to the top of *this* file and needs the
 // literal module path at hoist time, so each `vi.mock(path, ...)` call lives
 // here; the factory contents are delegated to the shared helper.
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack({ select: vi.fn(), isCancel: vi.fn(), confirm: vi.fn() });
-});
-
 vi.mock("../../src/manifest.js", async (importOriginal) => {
 	const { mockManifestModule } = await import(
 		"../helpers/list-action-mock-factories.js"
@@ -95,13 +90,11 @@ vi.mock("../../src/git-utils.js", () => ({
 	fetchRemoteTags: vi.fn(),
 }));
 
-import * as p from "@clack/prompts";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { SymlinkEscapeError } from "../../src/copy-safety.js";
 import { PackConflictError } from "../../src/discover.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
 import { globalScope, projectScope } from "../../src/scope.js";
-import { interactiveUi } from "../../src/ui.js";
 import { makeEntry } from "../helpers/factories.js";
 import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 import {
@@ -110,6 +103,7 @@ import {
 	REMOTE_SHA,
 	setupListActionMocks,
 } from "../helpers/list-action-mocks.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mocks = setupListActionMocks();
 const mockWriteManifest = mocks.writeManifest;
@@ -125,9 +119,6 @@ const mockDiscover = mocks.discover;
 const mockDroppedButInSource = mocks.droppedButInSource;
 // File-specific handles for the change-version flow.
 const mockFetchRemoteTags = vi.mocked(fetchRemoteTags);
-const mockSelect = vi.mocked(p.select);
-const mockIsCancel = vi.mocked(p.isCancel);
-const mockConfirm = vi.mocked(p.confirm);
 
 // Drives the bare-skill clone+copy path to success — every test that reaches the
 // reinstall needs these mocks primed.
@@ -141,12 +132,14 @@ function primeSuccessfulReinstall(): void {
 	});
 }
 
-// File-specific defaults: a non-empty tag list (so select is reached), no
-// cancellation, and the change confirmed.
+let ui: TestUi;
+
+// File-specific defaults: a non-empty tag list (so select is reached) and the
+// change confirmed.
 beforeEach(() => {
+	ui = testUi();
 	mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0", "v2.0.0"]);
-	mockIsCancel.mockReturnValue(false);
-	mockConfirm.mockResolvedValue(true);
+	ui.confirm.mockResolvedValue(true);
 });
 
 describe("executeChangeVersionAction", () => {
@@ -163,7 +156,7 @@ describe("executeChangeVersionAction", () => {
 				"v1.2.0",
 				"v2.0.0",
 			]);
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
 			await executeChangeVersionAction(
@@ -171,10 +164,10 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockSelect).toHaveBeenCalledWith(
+			expect(ui.select).toHaveBeenCalledWith(
 				expect.objectContaining({
 					options: [
 						{ value: "v2.0.0", label: "v2.0.0" },
@@ -191,7 +184,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
 			await executeChangeVersionAction(
@@ -199,10 +192,10 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockSelect).toHaveBeenCalledWith(
+			expect(ui.select).toHaveBeenCalledWith(
 				expect.objectContaining({ maxItems: 15 }),
 			);
 		});
@@ -219,12 +212,12 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe("No tagged versions available");
-			expect(mockSelect).not.toHaveBeenCalled();
+			expect(ui.select).not.toHaveBeenCalled();
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -233,7 +226,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
 			await executeChangeVersionAction(
@@ -241,7 +234,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(mockFetchRemoteTags).toHaveBeenCalledTimes(1);
@@ -254,16 +247,14 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			const cancelSymbol = Symbol("cancel");
-			mockSelect.mockResolvedValue(cancelSymbol);
-			mockIsCancel.mockReturnValue(true);
+			ui.select.mockResolvedValue(null);
 
 			const result = await executeChangeVersionAction(
 				key,
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
@@ -276,18 +267,18 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v2.0.0");
-			mockConfirm.mockResolvedValue(false); // user picks a version, then says no
+			ui.select.mockResolvedValue("v2.0.0");
+			ui.confirm.mockResolvedValue(false); // user picks a version, then says no
 
 			const result = await executeChangeVersionAction(
 				key,
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockConfirm).toHaveBeenCalled();
+			expect(ui.confirm).toHaveBeenCalled();
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe("Cancelled");
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -299,19 +290,19 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v2.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 
 			const result = await executeChangeVersionAction(
 				key,
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
 			expect(result.message).toBe("Already on this version");
-			expect(mockConfirm).not.toHaveBeenCalled();
+			expect(ui.confirm).not.toHaveBeenCalled();
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 	});
@@ -320,8 +311,6 @@ describe("executeChangeVersionAction", () => {
 		it("changes nothing and says why in one line", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
-			const spin = { start: vi.fn(), stop: vi.fn(), message: vi.fn() };
-			vi.mocked(p.spinner).mockReturnValueOnce(spin);
 			mockFetchRemoteTags.mockRejectedValue(new Error(SSH_REFUSAL));
 
 			const result = await executeChangeVersionAction(
@@ -329,7 +318,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -339,11 +328,12 @@ describe("executeChangeVersionAction", () => {
 					"owner/repo: couldn't fetch its versions (git@github.com: Permission denied (publickey).) — left untouched",
 				notes: [],
 			});
-			expect(spin.stop).toHaveBeenCalledWith(
+			const [spin] = ui.spinners;
+			expect(spin!.stop).toHaveBeenCalledWith(
 				"Couldn't fetch available versions",
 				2,
 			);
-			expect(mockSelect).not.toHaveBeenCalled();
+			expect(ui.select).not.toHaveBeenCalled();
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 	});
@@ -354,7 +344,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
 			const result = await executeChangeVersionAction(
@@ -362,7 +352,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(true);
@@ -382,7 +372,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v2.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
 			await executeChangeVersionAction(
@@ -390,7 +380,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
@@ -409,7 +399,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
 			const result = await executeChangeVersionAction(
@@ -417,7 +407,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
@@ -434,7 +424,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
 			await executeChangeVersionAction(
@@ -442,7 +432,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
@@ -453,7 +443,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -465,7 +455,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
@@ -479,7 +469,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 
 			await executeChangeVersionAction(
@@ -487,7 +477,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(mockAddEntry).toHaveBeenCalledWith(
@@ -509,7 +499,7 @@ describe("executeChangeVersionAction", () => {
 				files: [".claude/skills/repo/"],
 			});
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			mockDiscover.mockResolvedValue(looseSkillsAt("skills/repo"));
@@ -519,7 +509,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toMatchObject({
@@ -549,7 +539,7 @@ describe("executeChangeVersionAction", () => {
 				files: [".claude/skills/tools/"],
 			});
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 			mockDiscover.mockResolvedValue(packAt("packs/tools", "a", "tools"));
 			mockCopyPack.mockResolvedValue({
@@ -562,7 +552,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ [key]: entry, "owner/repo/packs/tools": loose },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toMatchObject({
@@ -583,7 +573,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ type: "pack", ref: "v1.0.0" });
 			const other = makeEntry({ type: "pack", files: [".claude/skills/x/"] });
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 			mockDiscover.mockRejectedValue(
 				new PackConflictError("single", "single-skill"),
@@ -594,7 +584,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ [key]: entry, "owner/repo/foo": other },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -615,7 +605,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -629,7 +619,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
@@ -648,7 +638,7 @@ describe("executeChangeVersionAction", () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -660,7 +650,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
@@ -675,7 +665,7 @@ describe("executeChangeVersionAction", () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0" });
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			primeSuccessfulReinstall();
 			mockNukeManifestFiles.mockRejectedValue(new Error("EACCES"));
 
@@ -684,7 +674,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -707,15 +697,15 @@ describe("executeChangeVersionAction", () => {
 				localRoot: "/Users/lee/Code/skills",
 			});
 			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.1.0"]);
-			mockSelect.mockResolvedValue("v1.1.0");
-			mockConfirm.mockResolvedValue(true);
+			ui.select.mockResolvedValue("v1.1.0");
+			ui.confirm.mockResolvedValue(true);
 
 			const result = await executeChangeVersionAction(
 				key,
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -737,7 +727,7 @@ describe("executeChangeVersionAction", () => {
 			});
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -751,7 +741,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
@@ -766,7 +756,7 @@ describe("executeChangeVersionAction", () => {
 
 		it("carries -g in the remedy for a global entry", async () => {
 			const entry = makeEntry({ type: "skill", ref: "v1.0.0" });
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -779,7 +769,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ "owner/repo": entry },
 				globalScope("/home/lee"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.message).toContain(
@@ -794,7 +784,7 @@ describe("executeChangeVersionAction", () => {
 				ref: "v1.0.0",
 				files: [".claude/skills/a/", ".claude/skills/workflow-shared/"],
 			});
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 			mockDiscover.mockResolvedValue(packAt("tools", "a"));
 			mockDroppedButInSource.mockResolvedValue(["workflow-shared"]);
@@ -804,7 +794,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				{ [key]: entry },
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toMatchObject({
@@ -828,7 +818,7 @@ describe("executeChangeVersionAction", () => {
 		const manifest: Manifest = { [key]: entry, "owner/other": other };
 
 		function arrangeGone(removeIt: boolean): void {
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -836,7 +826,7 @@ describe("executeChangeVersionAction", () => {
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			mockDiscover.mockResolvedValue(looseSkillsAt("skills/other"));
 			// The first confirm is the version change itself.
-			mockConfirm.mockResolvedValueOnce(true).mockResolvedValueOnce(removeIt);
+			ui.confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(removeIt);
 		}
 
 		it("asks whether to remove it, no by default, after the change is confirmed", async () => {
@@ -847,11 +837,11 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
-			expect(mockConfirm).toHaveBeenCalledTimes(2);
-			expect(mockConfirm).toHaveBeenLastCalledWith({
+			expect(ui.confirm).toHaveBeenCalledTimes(2);
+			expect(ui.confirm).toHaveBeenLastCalledWith({
 				message: "owner/repo/go is gone upstream — remove it?",
 				initialValue: false,
 			});
@@ -865,7 +855,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -887,7 +877,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -917,7 +907,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result).toEqual({
@@ -941,7 +931,7 @@ describe("executeChangeVersionAction", () => {
 			});
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v1.1.0");
+			ui.select.mockResolvedValue("v1.1.0");
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -955,7 +945,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(false);
@@ -983,7 +973,7 @@ describe("executeChangeVersionAction", () => {
 				"v1.3.0",
 				"v2.0.0",
 			]);
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
 			const result = await executeChangeVersionAction(
@@ -991,7 +981,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(true);
@@ -1006,7 +996,7 @@ describe("executeChangeVersionAction", () => {
 			const entry = makeEntry({ ref: "v1.0.0" });
 			const manifest: Manifest = { [key]: entry };
 
-			mockSelect.mockResolvedValue("v2.0.0");
+			ui.select.mockResolvedValue("v2.0.0");
 			primeSuccessfulReinstall();
 
 			const result = await executeChangeVersionAction(
@@ -1014,7 +1004,7 @@ describe("executeChangeVersionAction", () => {
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 
 			expect(result.changed).toBe(true);

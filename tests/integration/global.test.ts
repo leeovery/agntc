@@ -3,8 +3,8 @@ import {
 	lstat,
 	mkdir,
 	mkdtemp,
-	readFile,
 	readdir,
+	readFile,
 	realpath,
 	rm,
 	symlink,
@@ -14,12 +14,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack();
-});
-
-import * as p from "@clack/prompts";
 import { processIo } from "../../src/command-action.js";
 import { addCommand, runAdd } from "../../src/commands/add.js";
 import { listCommand, runListLoop } from "../../src/commands/list.js";
@@ -27,8 +21,8 @@ import { removeCommand, runRemove } from "../../src/commands/remove.js";
 import { runUpdate, updateCommand } from "../../src/commands/update.js";
 import { readManifest } from "../../src/manifest.js";
 import { globalScope } from "../../src/scope.js";
-import { interactiveUi } from "../../src/ui.js";
 import { runMachine } from "../helpers/machine.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 let testDir: string;
 let home: string;
@@ -37,9 +31,11 @@ let projectDir: string;
 let globalSource: string;
 /** A local source holding one skill, `bar`. */
 let projectSource: string;
+let ui: TestUi;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
+	ui = testUi();
 	testDir = await realpath(await mkdtemp(join(tmpdir(), "agntc-global-")));
 	home = join(testDir, "home");
 	projectDir = join(testDir, "project");
@@ -277,12 +273,12 @@ describe("at a terminal", () => {
 	const scope = () => globalScope(home);
 
 	it("titles each command as global", async () => {
-		await runAdd(globalSource, {}, interactiveUi, scope());
-		await runUpdate(FOO(), {}, interactiveUi, scope());
-		await runRemove(FOO(), { yes: true }, interactiveUi, scope());
-		await runListLoop(interactiveUi, scope());
+		await runAdd(globalSource, {}, ui, scope());
+		await runUpdate(FOO(), {}, ui, scope());
+		await runRemove(FOO(), { yes: true }, ui, scope());
+		await runListLoop(ui, scope());
 
-		expect(vi.mocked(p.intro).mock.calls).toEqual([
+		expect(ui.intro.mock.calls).toEqual([
 			["agntc add · global"],
 			["agntc update · global"],
 			["agntc remove · global"],
@@ -291,9 +287,9 @@ describe("at a terminal", () => {
 	});
 
 	it("points an empty global list at add -g", async () => {
-		await runListLoop(interactiveUi, scope());
+		await runListLoop(ui, scope());
 
-		expect(vi.mocked(p.outro)).toHaveBeenCalledWith(
+		expect(ui.outro).toHaveBeenCalledWith(
 			"No skills or packs installed. Run npx agntc add -g owner/repo to get started.",
 		);
 	});

@@ -12,11 +12,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack({ confirm: vi.fn(), isCancel: vi.fn(() => false) });
-});
-
 vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-clone.js")>()),
 	cloneSource: vi.fn(),
@@ -34,7 +29,6 @@ vi.mock("../../src/update-check.js", async (importOriginal) => ({
 	resolveGroupTarget: vi.fn(),
 }));
 
-import * as p from "@clack/prompts";
 import { addCommand } from "../../src/commands/add.js";
 import { removeCommand } from "../../src/commands/remove.js";
 import { runUpdate, updateCommand } from "../../src/commands/update.js";
@@ -49,6 +43,7 @@ import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 import { type MachineRun, runMachine } from "../helpers/machine.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockLsRemote = vi.mocked(lsRemote);
@@ -66,9 +61,11 @@ let projectDir: string;
 let upstream: Map<string, string>;
 /** The commit a clone lands on and HEAD resolves to. */
 let head: string;
+let ui: TestUi;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
+	ui = testUi();
 	testDir = await realpath(await mkdtemp(join(tmpdir(), "agntc-rekey-")));
 	projectDir = join(testDir, "project");
 	await mkdir(projectDir, { recursive: true });
@@ -401,9 +398,9 @@ describe("the out-of-constraint footer of a run that moves an entry", () => {
 	it("in all-mode, prints the group's command with the entry under the key it moved to", async () => {
 		await arrange();
 
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
-		expect(vi.mocked(p.log).info).toHaveBeenCalledWith(
+		expect(ui.log.info).toHaveBeenCalledWith(
 			"  owner/repo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill bar foo",
 		);
 	});
@@ -411,12 +408,12 @@ describe("the out-of-constraint footer of a run that moves an entry", () => {
 	it("by key, prints the command for the key the entry moved to", async () => {
 		await arrange();
 
-		await runUpdate("owner/repo/packs/foo");
+		await runUpdate("owner/repo/packs/foo", {}, ui);
 
-		expect(vi.mocked(p.outro)).toHaveBeenCalledWith(
+		expect(ui.outro).toHaveBeenCalledWith(
 			"Updated owner/repo/foo: v1.0.0 -> v1.1.0 — 1 file(s)",
 		);
-		expect(vi.mocked(p.log).info).toHaveBeenCalledWith(
+		expect(ui.log.info).toHaveBeenCalledWith(
 			"  owner/repo/foo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo/packs/foo",
 		);
 	});
@@ -451,10 +448,7 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 
 	/** The footer lines the run printed. */
 	function footer(): string[] {
-		return vi
-			.mocked(p.log)
-			.info.mock.calls.map(([line]) => String(line))
-			.filter((line) => line.includes(" available."));
+		return ui.said("info").filter((line) => line.includes(" available."));
 	}
 
 	it("leaves out a member a pack took over", async () => {
@@ -473,7 +467,7 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 			"owner/repo/foo",
 		);
 
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
 		expect(footer()).toEqual([
 			"  owner/repo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo/packs --pack",
@@ -481,7 +475,7 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 	});
 
 	it("leaves out a member removed as gone upstream", async () => {
-		vi.mocked(p.confirm).mockResolvedValueOnce(true);
+		ui.confirm.mockResolvedValueOnce(true);
 		await arrange(
 			{ "foo/SKILL.md": "", "bar/SKILL.md": "" },
 			{ "foo/SKILL.md": "" },
@@ -489,7 +483,7 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 			"owner/repo/bar",
 		);
 
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
 		expect(await savedManifest()).not.toHaveProperty(["owner/repo/bar"]);
 		expect(footer()).toEqual([
@@ -498,9 +492,7 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 	});
 
 	it("prints no line for a group the run left with nothing installed", async () => {
-		vi.mocked(p.confirm)
-			.mockResolvedValueOnce(true)
-			.mockResolvedValueOnce(true);
+		ui.confirm.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
 		await arrange(
 			{ "bar/SKILL.md": "", "foo/SKILL.md": "" },
 			{ "other/SKILL.md": "" },
@@ -508,21 +500,21 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 			"owner/repo/foo",
 		);
 
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
 		expect(await savedManifest()).toEqual({});
 		expect(footer()).toEqual([]);
 	});
 
 	it("by key, prints none for an entry removed as gone upstream", async () => {
-		vi.mocked(p.confirm).mockResolvedValueOnce(true);
+		ui.confirm.mockResolvedValueOnce(true);
 		await arrange(
 			{ "bar/SKILL.md": "" },
 			{ "other/SKILL.md": "" },
 			"owner/repo/bar",
 		);
 
-		await runUpdate("owner/repo/bar");
+		await runUpdate("owner/repo/bar", {}, ui);
 
 		expect(await savedManifest()).toEqual({});
 		expect(footer()).toEqual([]);
@@ -551,9 +543,9 @@ describe("the streamed line of a member the run moved", () => {
 			},
 		);
 
-		await runUpdate();
+		await runUpdate(undefined, {}, ui);
 
-		const lines = vi.mocked(p.log).success.mock.calls.map(([line]) => line);
+		const lines = ui.said("success");
 		expect(lines).toContain("foo");
 		expect(lines).not.toContain("my-plugin");
 	});

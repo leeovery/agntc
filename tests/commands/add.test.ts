@@ -13,16 +13,6 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { CANCEL } = vi.hoisted(() => ({ CANCEL: Symbol("cancel") }));
-
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("../helpers/clack-mock.js");
-	return mockClack({
-		multiselect: vi.fn(),
-		isCancel: vi.fn((value: unknown) => value === CANCEL),
-	});
-});
-
 vi.mock("../../src/git-clone.js", () => ({
 	cloneSource: vi.fn(),
 	cleanupTempDir: vi.fn(),
@@ -59,7 +49,6 @@ vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 	return { ...actual, listAgentFiles: vi.fn(actual.listAgentFiles) };
 });
 
-import * as p from "@clack/prompts";
 import { resolveCollisions } from "../../src/collision-resolve.js";
 import { addCommand, runAdd } from "../../src/commands/add.js";
 import { copyItem } from "../../src/copy-item.js";
@@ -72,9 +61,9 @@ import {
 	nukeManifestFiles,
 	removePathsInTheWay,
 } from "../../src/nuke-files.js";
-import { interactiveUi } from "../../src/ui.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
-import { clackCalls, runMachine } from "../helpers/machine.js";
+import { runMachine } from "../helpers/machine.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const actualNuke = await vi.importActual<
 	typeof import("../../src/nuke-files.js")
@@ -93,10 +82,6 @@ const mockNuke = vi.mocked(nukeManifestFiles);
 const mockRemovePaths = vi.mocked(removePathsInTheWay);
 const mockCopyItem = vi.mocked(copyItem);
 const mockListAgentFiles = vi.mocked(listAgentFiles);
-const mockMultiselect = vi.mocked(p.multiselect);
-const mockCancel = vi.mocked(p.cancel);
-const mockOutro = vi.mocked(p.outro);
-const mockLog = vi.mocked(p.log);
 
 const SHA = "c".repeat(40);
 const PACK = { type: "pack" };
@@ -105,9 +90,11 @@ let testDir: string;
 let projectDir: string;
 let upstreamDir: string;
 let cloneDir: string;
+let ui: TestUi;
 
 beforeEach(async () => {
 	vi.clearAllMocks();
+	ui = testUi();
 	testDir = await realpath(await mkdtemp(join(tmpdir(), "agntc-add-")));
 	projectDir = join(testDir, "project");
 	upstreamDir = join(testDir, "upstream");
@@ -205,14 +192,6 @@ async function exitCode(run: Promise<void>): Promise<number | null> {
 	throw err;
 }
 
-function cancelled(): string[] {
-	return mockCancel.mock.calls.map(([message]) => String(message));
-}
-
-function logged(level: "info" | "warn" | "success" | "error"): string[] {
-	return mockLog[level].mock.calls.map(([message]) => String(message));
-}
-
 describe("add command", () => {
 	describe("options", () => {
 		function option(flag: string) {
@@ -230,20 +209,22 @@ describe("add command", () => {
 	describe("flags", () => {
 		it("refuses clashing flags before reading the source", async () => {
 			const code = await exitCode(
-				runAdd("owner/repo", { skill: ["a"], pack: true }),
+				runAdd("owner/repo", { skill: ["a"], pack: true }, ui),
 			);
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual(["--skill and --pack can't be combined"]);
+			expect(ui.said("cancel")).toEqual([
+				"--skill and --pack can't be combined",
+			]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
 		it("notes --plugin is now --pack and bundles the source as one pack", async () => {
 			await upstream({ "skills/a/SKILL.md": "", "skills/b/SKILL.md": "" });
 
-			await runAdd("owner/repo", { plugin: true });
+			await runAdd("owner/repo", { plugin: true }, ui);
 
-			expect(logged("info")).toContain("--plugin is now --pack");
+			expect(ui.said("info")).toEqual(["--plugin is now --pack"]);
 			expect(await manifest()).toEqual({
 				"owner/repo": expect.objectContaining({
 					type: "pack",
@@ -255,7 +236,7 @@ describe("add command", () => {
 		it("takes --plugin alongside --pack", async () => {
 			await upstream({ "skills/a/SKILL.md": "" });
 
-			await runAdd("owner/repo", { plugin: true, pack: true });
+			await runAdd("owner/repo", { plugin: true, pack: true }, ui);
 
 			expect((await manifest())["owner/repo"]).toMatchObject({ type: "pack" });
 		});
@@ -265,7 +246,7 @@ describe("add command", () => {
 		it("clones a remote source, installs from it and cleans the clone up", async () => {
 			await upstream({ "SKILL.md": "" });
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({ owner: "owner", repo: "repo", ref: null }),
@@ -277,15 +258,15 @@ describe("add command", () => {
 		it("refuses, naming the error, when the clone fails", async () => {
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			const code = await exitCode(runAdd("owner/repo"));
+			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual(["git clone failed"]);
+			expect(ui.said("cancel")).toEqual(["git clone failed"]);
 			expect(await manifest()).toEqual({});
 		});
 
 		it("refuses a malformed source without cloning", async () => {
-			const code = await exitCode(runAdd("not-a-source"));
+			const code = await exitCode(runAdd("not-a-source", {}, ui));
 
 			expect(code).toBe(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
@@ -294,7 +275,7 @@ describe("add command", () => {
 		it("still cleans the clone up when the add fails", async () => {
 			await upstream({ "README.md": "" });
 
-			await exitCode(runAdd("owner/repo"));
+			await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith(cloneDir);
 		});
@@ -303,7 +284,7 @@ describe("add command", () => {
 			const local = join(testDir, "my-skills");
 			await write(local, { "skills/a/SKILL.md": "", "b/SKILL.md": "" });
 
-			await runAdd(local, { all: true });
+			await runAdd(local, { all: true }, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
@@ -320,14 +301,14 @@ describe("add command", () => {
 					localRoot: local,
 				}),
 			});
-			expect(mockOutro).toHaveBeenCalledWith(`Installed ${local}@local`);
+			expect(ui.outro).toHaveBeenCalledWith(`Installed ${local}@local`);
 		});
 
 		it("names a local root skill after the folder", async () => {
 			const local = join(testDir, "solo-skill");
 			await write(local, { "SKILL.md": "" });
 
-			await runAdd(local);
+			await runAdd(local, {}, ui);
 
 			expect(
 				await installed(`.claude/skills/${basename(local)}/SKILL.md`),
@@ -341,7 +322,7 @@ describe("add command", () => {
 				"other/SKILL.md": "",
 			});
 
-			await runAdd("https://github.com/owner/repo/tree/main/tools");
+			await runAdd("https://github.com/owner/repo/tree/main/tools", {}, ui);
 
 			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
 			expect(await manifest()).toEqual({
@@ -365,7 +346,7 @@ describe("add command", () => {
 				"v2.0.0-rc.1",
 			]);
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({ ref: "v1.4.2" }),
@@ -380,7 +361,7 @@ describe("add command", () => {
 			await upstream({ "sub/SKILL.md": "" });
 			mockFetchRemoteTags.mockResolvedValue(["v3.1.0"]);
 
-			await runAdd("owner/repo/sub");
+			await runAdd("owner/repo/sub", {}, ui);
 
 			expect((await manifest())["owner/repo/sub"]).toMatchObject({
 				ref: "v3.1.0",
@@ -389,7 +370,7 @@ describe("add command", () => {
 		});
 
 		it("tracks HEAD with no constraint when the repo has no semver tags", async () => {
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
 			const entry = (await manifest())["owner/repo"]!;
 			expect(entry.ref).toBeNull();
@@ -399,7 +380,7 @@ describe("add command", () => {
 		it("resolves an explicit constraint to its best tag, storing the constraint", async () => {
 			mockFetchRemoteTags.mockResolvedValue(["v1.0.0", "v1.3.0", "v2.0.0"]);
 
-			await runAdd("owner/repo@^1.0");
+			await runAdd("owner/repo@^1.0", {}, ui);
 
 			expect((await manifest())["owner/repo"]).toMatchObject({
 				ref: "v1.3.0",
@@ -410,17 +391,17 @@ describe("add command", () => {
 		it("refuses a constraint no tag satisfies", async () => {
 			mockFetchRemoteTags.mockResolvedValue(["v1.0.0"]);
 
-			const code = await exitCode(runAdd("owner/repo@^2.0"));
+			const code = await exitCode(runAdd("owner/repo@^2.0", {}, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"No tags satisfy constraint ^2.0 for owner/repo",
 			]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
 		it("installs an exact ref as given, with no constraint", async () => {
-			await runAdd("owner/repo@v1.0.0");
+			await runAdd("owner/repo@v1.0.0", {}, ui);
 
 			expect(mockFetchRemoteTags).not.toHaveBeenCalled();
 			const entry = (await manifest())["owner/repo"]!;
@@ -433,10 +414,10 @@ describe("add command", () => {
 		it("refuses a path that isn't in the source, naming the source", async () => {
 			await upstream({ "SKILL.md": "" });
 
-			const code = await exitCode(runAdd("owner/repo/nope"));
+			const code = await exitCode(runAdd("owner/repo/nope", {}, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				'owner/repo: path "nope" not found in source',
 			]);
 			expect(await installed(".agntc")).toBe(false);
@@ -450,22 +431,24 @@ describe("add command", () => {
 			it("says so and how to add it from the default branch, named by the remote", async () => {
 				mockFetchDefaultBranch.mockResolvedValue("trunk");
 
-				const code = await exitCode(runAdd("owner/repo/skills/new"));
+				const code = await exitCode(runAdd("owner/repo/skills/new", {}, ui));
 
 				expect(code).toBe(1);
 				expect(mockFetchDefaultBranch).toHaveBeenCalledWith(
 					"https://github.com/owner/repo.git",
 				);
 				expect(mockCloneSource).toHaveBeenCalledTimes(1);
-				expect(cancelled()).toEqual([
+				expect(ui.said("cancel")).toEqual([
 					'owner/repo: path "skills/new" not found in source at v1.2.0, the latest release — to add it from the default branch, use owner/repo/skills/new@trunk, or name a version',
 				]);
 			});
 
 			it("reaches a repo off GitHub by its URL", async () => {
-				await exitCode(runAdd("https://gitlab.com/owner/repo/skills/new"));
+				await exitCode(
+					runAdd("https://gitlab.com/owner/repo/skills/new", {}, ui),
+				);
 
-				expect(cancelled()[0]).toContain(
+				expect(ui.said("cancel")[0]).toContain(
 					"use https://gitlab.com/owner/repo/skills/new@main,",
 				);
 			});
@@ -473,9 +456,9 @@ describe("add command", () => {
 			it("stands in for the branch when the remote won't name it", async () => {
 				mockFetchDefaultBranch.mockRejectedValue(new Error("network"));
 
-				await exitCode(runAdd("owner/repo/skills/new"));
+				await exitCode(runAdd("owner/repo/skills/new", {}, ui));
 
-				expect(cancelled()[0]).toContain(
+				expect(ui.said("cancel")[0]).toContain(
 					"use owner/repo/skills/new@<branch>, or name a version",
 				);
 			});
@@ -485,10 +468,10 @@ describe("add command", () => {
 				"owner/repo/skills/new@main",
 				"owner/repo/skills/new@^1.0",
 			])("keeps the plain message for a version given: %s", async (source) => {
-				const code = await exitCode(runAdd(source));
+				const code = await exitCode(runAdd(source, {}, ui));
 
 				expect(code).toBe(1);
-				expect(cancelled()).toEqual([
+				expect(ui.said("cancel")).toEqual([
 					'owner/repo: path "skills/new" not found in source',
 				]);
 				expect(mockFetchDefaultBranch).not.toHaveBeenCalled();
@@ -496,19 +479,21 @@ describe("add command", () => {
 		});
 
 		it("refuses a path escaping the source", async () => {
-			const code = await exitCode(runAdd("owner/repo/../outside"));
+			const code = await exitCode(runAdd("owner/repo/../outside", {}, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()[0]).toMatch(/^owner\/repo: subpath "..\/outside"/);
+			expect(ui.said("cancel")[0]).toMatch(
+				/^owner\/repo: subpath "..\/outside"/,
+			);
 		});
 
 		it("refuses --pack on a single skill", async () => {
 			await upstream({ "SKILL.md": "" });
 
-			const code = await exitCode(runAdd("owner/repo", { pack: true }));
+			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				`owner/repo: "repo" is a single skill — --pack can't bundle it`,
 			]);
 		});
@@ -516,10 +501,10 @@ describe("add command", () => {
 		it("refuses --pack on a folder holding packs", async () => {
 			await upstream({ "a/agntc.json": PACK, "a/s/SKILL.md": "" });
 
-			const code = await exitCode(runAdd("owner/repo", { pack: true }));
+			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()[0]).toContain("contains packs (a)");
+			expect(ui.said("cancel")[0]).toContain("contains packs (a)");
 		});
 	});
 
@@ -540,9 +525,9 @@ describe("add command", () => {
 		])("points a stray notice for %s at the same source", async (source, command) => {
 			await upstream({ "tools/agents/a.md": "" });
 
-			await exitCode(runAdd(source));
+			await exitCode(runAdd(source, {}, ui));
 
-			expect(logged("warn")).toEqual([
+			expect(ui.said("warn")).toEqual([
 				`tools has agents/ that won't be installed — to install them as a pack: ${command}`,
 			]);
 		});
@@ -550,27 +535,27 @@ describe("add command", () => {
 		it("prints stray notices first, then refuses when nothing is found", async () => {
 			await upstream({ "agents/a.md": "" });
 
-			const code = await exitCode(runAdd("owner/repo@v1.0.0"));
+			const code = await exitCode(runAdd("owner/repo@v1.0.0", {}, ui));
 
 			expect(code).toBe(1);
-			expect(logged("warn")).toEqual([
+			expect(ui.said("warn")).toEqual([
 				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo@v1.0.0 --pack",
 			]);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: no skills or packs were found",
 			]);
-			expect(mockLog.warn.mock.invocationCallOrder[0]).toBeLessThan(
-				mockCancel.mock.invocationCallOrder[0]!,
+			expect(ui.saidOrders("warn")[0]).toBeLessThan(
+				ui.saidOrders("cancel")[0]!,
 			);
 		});
 
 		it("refuses --pack on an empty folder as nothing to install", async () => {
 			await upstream({ "README.md": "" });
 
-			const code = await exitCode(runAdd("owner/repo", { pack: true }));
+			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: nothing to install — repo has no skills, agents or hooks",
 			]);
 		});
@@ -578,9 +563,9 @@ describe("add command", () => {
 		it("installs the one thing found without a menu", async () => {
 			await upstream({ "p/agntc.json": PACK, "p/s/SKILL.md": "" });
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
-			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(ui.multiselect).not.toHaveBeenCalled();
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/p"]);
 		});
 
@@ -591,12 +576,12 @@ describe("add command", () => {
 				"p/s/SKILL.md": "",
 				"a/SKILL.md": "",
 			});
-			mockMultiselect.mockResolvedValue([0, 2]);
+			ui.multiselect.mockResolvedValue([0, 2]);
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
 			expect(
-				mockMultiselect.mock.calls[0]![0].options.map((o) => o.label),
+				ui.multiselect.mock.calls[0]![0].options.map((o) => o.label),
 			).toEqual(["p", "a", "z"]);
 			expect(Object.keys(await manifest())).toEqual([
 				"owner/repo/p",
@@ -604,22 +589,22 @@ describe("add command", () => {
 			]);
 		});
 
-		it("ends cleanly when the menu is cancelled", async () => {
+		it("ends cleanly when the menu is dismissed (an empty pick)", async () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
-			mockMultiselect.mockResolvedValue(CANCEL);
+			ui.multiselect.mockResolvedValue([]);
 
-			const code = await exitCode(runAdd("owner/repo"));
+			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(0);
-			expect(cancelled()).toEqual(["Cancelled — nothing selected"]);
+			expect(ui.said("cancel")).toEqual(["Cancelled — nothing selected"]);
 			expect(await installed(".agntc")).toBe(false);
 		});
 
 		it("ends cleanly when nothing is picked", async () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
-			mockMultiselect.mockResolvedValue([]);
+			ui.multiselect.mockResolvedValue([]);
 
-			expect(await exitCode(runAdd("owner/repo"))).toBe(0);
+			expect(await exitCode(runAdd("owner/repo", {}, ui))).toBe(0);
 			expect(await installed(".agntc")).toBe(false);
 		});
 
@@ -627,11 +612,13 @@ describe("add command", () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 
 			const code = await exitCode(
-				runAdd("owner/repo", { skill: ["a", "missing"] }),
+				runAdd("owner/repo", { skill: ["a", "missing"] }, ui),
 			);
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual(['owner/repo: no skill named "missing"']);
+			expect(ui.said("cancel")).toEqual([
+				'owner/repo: no skill named "missing"',
+			]);
 			expect(await installed(".claude")).toBe(false);
 		});
 
@@ -643,11 +630,11 @@ describe("add command", () => {
 				"p/hooks/h.sh": "",
 			});
 
-			await runAdd("owner/repo", { skill: ["a"] });
+			await runAdd("owner/repo", { skill: ["a"] }, ui);
 
-			expect(logged("info")).toContain(
+			expect(ui.said("info")).toEqual([
 				"a is part of the pack p — installed on its own, without b and its hooks",
-			);
+			]);
 			expect(await manifest()).toEqual({
 				"owner/repo/a": expect.objectContaining({
 					type: "skill",
@@ -664,9 +651,9 @@ describe("add command", () => {
 				"a/SKILL.md": "",
 			});
 
-			await runAdd("owner/repo", { all: true });
+			await runAdd("owner/repo", { all: true }, ui);
 
-			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(ui.multiselect).not.toHaveBeenCalled();
 			expect(await manifest()).toEqual({
 				"owner/repo/p": expect.objectContaining({ type: "pack" }),
 				"owner/repo/a": expect.objectContaining({ type: "skill" }),
@@ -680,10 +667,10 @@ describe("add command", () => {
 				"x/foo/SKILL.md": "",
 			});
 
-			const code = await exitCode(runAdd("owner/repo", { all: true }));
+			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: foo and x/foo would share the key owner/repo/foo — choose one",
 			]);
 			expect(await installed(".claude")).toBe(false);
@@ -692,10 +679,10 @@ describe("add command", () => {
 		it("refuses two picked skills that would install to one place, naming both paths", async () => {
 			await upstream({ "x/foo/SKILL.md": "", "y/foo/SKILL.md": "" });
 
-			const code = await exitCode(runAdd("owner/repo", { all: true }));
+			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 			]);
 			expect(await installed(".claude")).toBe(false);
@@ -710,10 +697,10 @@ describe("add command", () => {
 				"p/skills/back/refs/x.md": "",
 			});
 
-			const code = await exitCode(runAdd("owner/repo"));
+			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([
+			expect(ui.said("cancel")).toEqual([
 				"owner/repo: p can't be installed as it stands: p/skills/back/refs and p/skills/front/refs would both install to .claude/skills/refs",
 			]);
 			expect(await installed(".claude")).toBe(false);
@@ -731,7 +718,7 @@ describe("add command", () => {
 		it("replaces the earlier install without asking about its own files", async () => {
 			await upstream({ "p/agntc.json": PACK, "p/skills/t/SKILL.md": "" });
 
-			await runAdd("owner/repo/p");
+			await runAdd("owner/repo/p", {}, ui);
 
 			expect(mockResolveCollisions).not.toHaveBeenCalled();
 			expect(mockResolveUnmanaged).not.toHaveBeenCalled();
@@ -758,14 +745,14 @@ describe("add command", () => {
 				updatedManifest: current,
 			}));
 
-			await runAdd("owner/repo/p");
+			await runAdd("owner/repo/p", {}, ui);
 
 			expect(mockNuke).not.toHaveBeenCalled();
 			expect(
 				await readFile(join(projectDir, ".claude/skills/s/SKILL.md"), "utf-8"),
 			).toBe("old");
 			expect((await manifest())["owner/repo/p"]).toEqual(OLD_PACK);
-			expect(logged("warn")).toEqual(["p: skipped — conflict not resolved"]);
+			expect(ui.said("warn")).toEqual(["p: skipped — conflict not resolved"]);
 		});
 
 		it("leaves the earlier install and its entry alone when unmanaged files aren't overwritten", async () => {
@@ -780,11 +767,11 @@ describe("add command", () => {
 				cancelled: [".claude/agents/x.md"],
 			});
 
-			await runAdd("owner/repo/p");
+			await runAdd("owner/repo/p", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo/p", files: [".claude/agents/x.md"] }],
-				interactiveUi,
+				ui,
 			);
 			expect(mockNuke).not.toHaveBeenCalled();
 			expect(
@@ -797,12 +784,12 @@ describe("add command", () => {
 			await upstream({ "p/agntc.json": PACK, "p/skills/s/SKILL.md": "new" });
 			mockCopyItem.mockRejectedValue(new Error("disk full"));
 
-			const code = await exitCode(runAdd("owner/repo/p"));
+			const code = await exitCode(runAdd("owner/repo/p", {}, ui));
 
 			expect(code).toBe(1);
 			expect(await installed(".claude/skills/s")).toBe(false);
 			expect(await manifest()).toEqual({});
-			expect(logged("error")).toEqual([
+			expect(ui.said("error")).toEqual([
 				"p: failed — disk full; its earlier install was removed",
 			]);
 		});
@@ -811,12 +798,12 @@ describe("add command", () => {
 			await upstream({ "p/agntc.json": PACK, "p/skills/s/SKILL.md": "new" });
 			mockNuke.mockRejectedValue(new Error("EACCES"));
 
-			const code = await exitCode(runAdd("owner/repo/p"));
+			const code = await exitCode(runAdd("owner/repo/p", {}, ui));
 
 			expect(code).toBe(1);
 			expect(mockCopyItem).not.toHaveBeenCalled();
 			expect((await manifest())["owner/repo/p"]).toEqual(OLD_PACK);
-			expect(logged("error")).toEqual([
+			expect(ui.said("error")).toEqual([
 				"p: failed — couldn't remove its earlier install: EACCES",
 			]);
 		});
@@ -839,13 +826,13 @@ describe("add command", () => {
 		});
 
 		it("refuses a pack whose key a loose skill from another path holds, removing nothing", async () => {
-			await runAdd("owner/repo", { skill: ["foo"] });
+			await runAdd("owner/repo", { skill: ["foo"] }, ui);
 			const before = await manifest();
 
-			const code = await exitCode(runAdd("owner/repo/foo"));
+			const code = await exitCode(runAdd("owner/repo/foo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(logged("error")).toEqual([`foo: failed — ${HELD_BY_SKILL}`]);
+			expect(ui.said("error")).toEqual([`foo: failed — ${HELD_BY_SKILL}`]);
 			expect(
 				await readFile(
 					join(projectDir, ".claude/skills/foo/SKILL.md"),
@@ -858,13 +845,15 @@ describe("add command", () => {
 		});
 
 		it("refuses a loose skill whose key a pack holds, removing nothing", async () => {
-			await runAdd("owner/repo/foo");
+			await runAdd("owner/repo/foo", {}, ui);
 			const before = await manifest();
 
-			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }, ui));
 
 			expect(code).toBe(1);
-			expect(logged("error")).toEqual([`skills/foo: failed — ${HELD_BY_PACK}`]);
+			expect(ui.said("error")).toEqual([
+				`skills/foo: failed — ${HELD_BY_PACK}`,
+			]);
 			expect(
 				await readFile(
 					join(projectDir, ".claude/skills/bar/SKILL.md"),
@@ -876,11 +865,11 @@ describe("add command", () => {
 		});
 
 		it("refuses it with --overwrite too, which replaces files in the way, not entries", async () => {
-			await runAdd("owner/repo/foo");
+			await runAdd("owner/repo/foo", {}, ui);
 			const before = await manifest();
 
 			const code = await exitCode(
-				runAdd("owner/repo", { skill: ["foo"], overwrite: true }),
+				runAdd("owner/repo", { skill: ["foo"], overwrite: true }, ui),
 			);
 
 			expect(code).toBe(1);
@@ -888,10 +877,10 @@ describe("add command", () => {
 		});
 
 		it("reinstalls the same loose skill from the same path", async () => {
-			await runAdd("owner/repo", { skill: ["foo"] });
+			await runAdd("owner/repo", { skill: ["foo"] }, ui);
 			await upstream({ "skills/foo/SKILL.md": "skill v2" });
 
-			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }, ui));
 
 			expect(code).toBeNull();
 			expect(
@@ -949,7 +938,7 @@ describe("add command", () => {
 			}
 
 			beforeEach(async () => {
-				await runAdd("owner/repo", { skill: ["foo"] });
+				await runAdd("owner/repo", { skill: ["foo"] }, ui);
 				await upstream({ "skills/foo/SKILL.md": "elsewhere" });
 				vi.clearAllMocks();
 			});
@@ -958,11 +947,11 @@ describe("add command", () => {
 				const before = await manifest();
 
 				const code = await exitCode(
-					runAdd("https://gitlab.com/owner/repo", { skill: ["foo"] }),
+					runAdd("https://gitlab.com/owner/repo", { skill: ["foo"] }, ui),
 				);
 
 				expect(code).toBe(1);
-				expect(logged("error")).toEqual([
+				expect(ui.said("error")).toEqual([
 					"skills/foo: failed — owner/repo/foo is already installed from https://github.com/owner/repo.git, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again",
 				]);
 				expect(mockNuke).not.toHaveBeenCalled();
@@ -972,7 +961,7 @@ describe("add command", () => {
 
 			it("reinstalls the same GitHub repo reached over SSH", async () => {
 				const code = await exitCode(
-					runAdd("git@github.com:owner/repo", { skill: ["foo"] }),
+					runAdd("git@github.com:owner/repo", { skill: ["foo"] }, ui),
 				);
 
 				expect(code).toBeNull();
@@ -999,7 +988,7 @@ describe("add command", () => {
 					"owner/repo/foo": legacy({ type: "plugin" }),
 				} as unknown as Manifest);
 
-				const code = await exitCode(runAdd("owner/repo/foo"));
+				const code = await exitCode(runAdd("owner/repo/foo", {}, ui));
 
 				expect(code).toBeNull();
 				expect((await manifest())["owner/repo/foo"]).toMatchObject({
@@ -1013,10 +1002,12 @@ describe("add command", () => {
 					"owner/repo/foo": legacy({ type: "plugin" }),
 				} as unknown as Manifest);
 
-				const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+				const code = await exitCode(
+					runAdd("owner/repo", { skill: ["foo"] }, ui),
+				);
 
 				expect(code).toBe(1);
-				expect(logged("error")).toEqual([
+				expect(ui.said("error")).toEqual([
 					`skills/foo: failed — ${HELD_BY_PACK}`,
 				]);
 			});
@@ -1029,7 +1020,9 @@ describe("add command", () => {
 					}),
 				} as unknown as Manifest);
 
-				const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }));
+				const code = await exitCode(
+					runAdd("owner/repo", { skill: ["foo"] }, ui),
+				);
 
 				expect(code).toBeNull();
 				expect((await manifest())["owner/repo/foo"]).toMatchObject({
@@ -1059,16 +1052,16 @@ describe("add command", () => {
 			});
 			mockCopyItem.mockRejectedValue(new Error("disk full"));
 
-			const code = await exitCode(runAdd("owner/repo/p"));
+			const code = await exitCode(runAdd("owner/repo/p", {}, ui));
 
 			expect(code).toBe(1);
 			expect(mockResolveCollisions).not.toHaveBeenCalled();
 			expect(await installed(".claude/skills/api")).toBe(false);
 			expect(await manifest()).toEqual({});
-			expect(logged("error")).toEqual([
+			expect(ui.said("error")).toEqual([
 				"p: failed — disk full; the skill it took over was removed: owner/repo/api",
 			]);
-			expect(logged("info")).toEqual([]);
+			expect(ui.said("info")).toEqual([]);
 		});
 
 		it("--skill on a skill the installed pack holds says so once and installs nothing, exiting 0", async () => {
@@ -1079,13 +1072,13 @@ describe("add command", () => {
 			});
 			await installPacked();
 
-			const code = await exitCode(runAdd("owner/repo", { skill: ["api"] }));
+			const code = await exitCode(runAdd("owner/repo", { skill: ["api"] }, ui));
 
 			expect(code).toBeNull();
-			expect(logged("info")).toEqual([API_NOTE]);
+			expect(ui.said("info")).toEqual([API_NOTE]);
 			expect(mockCopyItem).not.toHaveBeenCalled();
 			expect(await manifest()).toEqual({ "owner/repo/p": PACKED });
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"Nothing installed from owner/repo",
 			);
 		});
@@ -1098,9 +1091,9 @@ describe("add command", () => {
 			});
 			await installPacked();
 
-			await runAdd("owner/repo", { skill: ["api", "tools"] });
+			await runAdd("owner/repo", { skill: ["api", "tools"] }, ui);
 
-			expect(logged("info")).toEqual([API_NOTE]);
+			expect(ui.said("info")).toEqual([API_NOTE]);
 			expect(Object.keys(await manifest())).toEqual([
 				"owner/repo/p",
 				"owner/repo/tools",
@@ -1114,18 +1107,18 @@ describe("add command", () => {
 				"skills/lint/SKILL.md": "",
 			});
 			await installPacked();
-			mockMultiselect.mockResolvedValue([0]);
+			ui.multiselect.mockResolvedValue([0]);
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
-			const [menu] = mockMultiselect.mock.calls[0]!;
+			const [menu] = ui.multiselect.mock.calls[0]!;
 			expect(menu.options.map((option) => option.label)).toEqual([
 				"skills/jobs",
 				"skills/lint",
 			]);
-			expect(logged("info")).toEqual([API_NOTE]);
-			expect(mockLog.info.mock.invocationCallOrder[0]).toBeLessThan(
-				mockMultiselect.mock.invocationCallOrder[0]!,
+			expect(ui.said("info")).toEqual([API_NOTE]);
+			expect(ui.saidOrders("info")[0]).toBeLessThan(
+				ui.multiselect.mock.invocationCallOrder[0]!,
 			);
 			expect(Object.keys(await manifest())).toEqual([
 				"owner/repo/p",
@@ -1200,7 +1193,7 @@ describe("add command", () => {
 			});
 			mockFetchRemoteTags.mockResolvedValue(["v1.2.0"]);
 
-			await runAdd("owner/repo", { all: true });
+			await runAdd("owner/repo", { all: true }, ui);
 
 			const shared = {
 				ref: "v1.2.0",
@@ -1232,7 +1225,7 @@ describe("add command", () => {
 				"p/agents/reviewer.md": "",
 			});
 
-			await runAdd("owner/repo/p");
+			await runAdd("owner/repo/p", {}, ui);
 
 			expect(mockListAgentFiles).toHaveBeenCalledExactlyOnceWith(
 				join(cloneDir, "p", "agents"),
@@ -1254,7 +1247,7 @@ describe("add command", () => {
 				return { resolved: true, updatedManifest: rest };
 			});
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
 		});
@@ -1269,14 +1262,14 @@ describe("add command", () => {
 				updatedManifest: current,
 			}));
 
-			const code = await exitCode(runAdd("owner/repo", { all: true }));
+			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBeNull();
 			expect(Object.keys(await manifest()).sort()).toEqual([
 				"other/repo",
 				"owner/repo/b",
 			]);
-			expect(logged("warn")).toEqual(["a: skipped — conflict not resolved"]);
+			expect(ui.said("warn")).toEqual(["a: skipped — conflict not resolved"]);
 		});
 
 		it("skips an item whose unmanaged files the user won't overwrite", async () => {
@@ -1287,16 +1280,16 @@ describe("add command", () => {
 				cancelled: [".claude/skills/a/"],
 			});
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo/a", files: [".claude/skills/a/"] }],
-				interactiveUi,
+				ui,
 			);
 			expect(
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
 			).toBe("mine");
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"Nothing installed from owner/repo",
 			);
 		});
@@ -1306,12 +1299,12 @@ describe("add command", () => {
 			await write(testDir, { "secret.txt": "" });
 			await symlink(join(testDir, "secret.txt"), join(upstreamDir, "bad/leak"));
 
-			const code = await exitCode(runAdd("owner/repo", { all: true }));
+			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/good"]);
 			expect(await installed(".claude/skills/bad")).toBe(false);
-			expect(logged("error")[0]).toMatch(/^bad: failed — symlink "bad\/leak"/);
+			expect(ui.said("error")[0]).toMatch(/^bad: failed — symlink "bad\/leak"/);
 		});
 
 		it("fails an item whose copy throws and exits non-zero after the summary", async () => {
@@ -1323,12 +1316,12 @@ describe("add command", () => {
 				return actualCopyItem.copyItem(item, root, dir);
 			});
 
-			const code = await exitCode(runAdd("owner/repo", { all: true }));
+			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/b"]);
-			expect(logged("error")).toEqual(["a: failed — disk full"]);
-			expect(mockOutro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
+			expect(ui.said("error")).toEqual(["a: failed — disk full"]);
+			expect(ui.outro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
 		});
 
 		it("summarises one line per item, with a pack's counts", async () => {
@@ -1341,12 +1334,12 @@ describe("add command", () => {
 				"tools/lint/SKILL.md": "",
 			});
 
-			await runAdd("owner/repo", { all: true });
+			await runAdd("owner/repo", { all: true }, ui);
 
-			expect(logged("success")).toEqual([
+			expect(ui.said("success")).toEqual([
 				"p (pack · 2 skills, 1 agent, 1 hook)\ntools/lint",
 			]);
-			expect(mockOutro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
+			expect(ui.outro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
 		});
 
 		it("copies under a spinner only when something will be copied", async () => {
@@ -1357,15 +1350,9 @@ describe("add command", () => {
 			});
 			await write(projectDir, { ".claude/skills/a/SKILL.md": "" });
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
-			const spinners = vi
-				.mocked(p.spinner)
-				.mock.results.map(
-					(result) =>
-						result.value as { start: { mock: { calls: unknown[][] } } },
-				);
-			const started = spinners.flatMap((spin) =>
+			const started = ui.spinners.flatMap((spin) =>
 				spin.start.mock.calls.map(([text]) => text),
 			);
 			expect(started).toEqual(["Cloning repository..."]);
@@ -1385,7 +1372,7 @@ describe("add command", () => {
 				]),
 			});
 
-			await runAdd("owner/repo", { overwrite: true });
+			await runAdd("owner/repo", { overwrite: true }, ui);
 
 			expect(mockResolveCollisions).not.toHaveBeenCalled();
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
@@ -1397,7 +1384,7 @@ describe("add command", () => {
 		it("replaces files agntc didn't install without asking", async () => {
 			await write(projectDir, { ".claude/skills/a/SKILL.md": "mine" });
 
-			await runAdd("owner/repo", { overwrite: true });
+			await runAdd("owner/repo", { overwrite: true }, ui);
 
 			expect(mockResolveUnmanaged).not.toHaveBeenCalled();
 			expect(
@@ -1606,7 +1593,7 @@ describe("add command", () => {
 		}
 
 		it("is replaced with --overwrite", async () => {
-			await runAdd("owner/repo", { overwrite: true });
+			await runAdd("owner/repo", { overwrite: true }, ui);
 
 			await expectPackInstalled();
 		});
@@ -1617,11 +1604,11 @@ describe("add command", () => {
 				cancelled: [],
 			});
 
-			await runAdd("owner/repo");
+			await runAdd("owner/repo", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo", files: TARGETS }],
-				interactiveUi,
+				ui,
 			);
 			await expectPackInstalled();
 		});
@@ -1639,21 +1626,21 @@ describe("add command", () => {
 		});
 
 		it("shows each pack with its skill count and each skill with its description, installing nothing", async () => {
-			await runAdd("owner/repo@v1.0.0", { list: true });
+			await runAdd("owner/repo@v1.0.0", { list: true }, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({ ref: "v1.0.0" }),
 			);
-			expect(mockLog.message).toHaveBeenCalledWith(
+			expect(ui.log.message).toHaveBeenCalledWith(
 				"p (pack · 1 skill)\ntools/a (Does A)",
 			);
-			expect(logged("warn")).toEqual([
+			expect(ui.said("warn")).toEqual([
 				"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
 			]);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"owner/repo@v1.0.0 holds 1 pack and 1 skill",
 			);
-			expect(mockMultiselect).not.toHaveBeenCalled();
+			expect(ui.multiselect).not.toHaveBeenCalled();
 			expect(await installed(".agntc")).toBe(false);
 			expect(await installed(".claude")).toBe(false);
 		});
@@ -1687,7 +1674,7 @@ describe("add command", () => {
 				warnings: [],
 				notes: [],
 			});
-			expect(clackCalls(p)).toEqual([]);
+			expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 			expect(await installed(".claude")).toBe(false);
 		});
 
@@ -1720,17 +1707,17 @@ describe("add command", () => {
 			[{ all: true }, "--all and --list can't be combined"],
 		])("refuses %o alongside it before reading the source", async (flags, message) => {
 			const code = await exitCode(
-				runAdd("owner/repo", { list: true, ...flags }),
+				runAdd("owner/repo", { list: true, ...flags }, ui),
 			);
 
 			expect(code).toBe(1);
-			expect(cancelled()).toEqual([message]);
+			expect(ui.said("cancel")).toEqual([message]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 	});
 
 	describe("without a terminal", () => {
-		it("prints one document of what it installed, and never touches clack", async () => {
+		it("prints one document of what it installed, and nothing else", async () => {
 			await upstream({
 				"p/agntc.json": PACK,
 				"p/skills/s/SKILL.md": "",
@@ -1768,7 +1755,7 @@ describe("add command", () => {
 				warnings: [],
 				notes: [],
 			});
-			expect(clackCalls(p)).toEqual([]);
+			expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 		});
 
 		it("installs the one thing found without asking", async () => {
@@ -1800,7 +1787,7 @@ describe("add command", () => {
 				packs: [{ name: "p", path: "p", skillCount: 1 }],
 				skills: [{ name: "a", path: "a", description: "Does A" }],
 			});
-			expect(clackCalls(p)).toEqual([]);
+			expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 			expect(await installed(".agntc")).toBe(false);
 		});
 

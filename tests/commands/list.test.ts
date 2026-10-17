@@ -4,29 +4,6 @@ import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
 import { makeEntry, makeManifest } from "../helpers/factories.js";
 
-vi.mock("@clack/prompts", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@clack/prompts")>();
-	return {
-		...actual,
-		intro: vi.fn(),
-		outro: vi.fn(),
-		spinner: vi.fn(() => ({
-			start: vi.fn(),
-			stop: vi.fn(),
-			message: vi.fn(),
-		})),
-		select: vi.fn(),
-		isCancel: vi.fn((value: unknown) => typeof value === "symbol"),
-		log: {
-			info: vi.fn(),
-			warn: vi.fn(),
-			error: vi.fn(),
-			success: vi.fn(),
-			message: vi.fn(),
-		},
-	};
-});
-
 vi.mock("../../src/manifest.js", () => ({
 	readManifest: vi.fn(),
 	readManifestOrExit: vi.fn(),
@@ -59,7 +36,6 @@ vi.mock("../../src/commands/list-change-version-action.js", () => ({
 	executeChangeVersionAction: vi.fn(),
 }));
 
-import * as p from "@clack/prompts";
 import { listCommand, runListLoop } from "../../src/commands/list.js";
 import { executeChangeVersionAction } from "../../src/commands/list-change-version-action.js";
 import { renderDetailView } from "../../src/commands/list-detail.js";
@@ -67,20 +43,16 @@ import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { readManifest, readManifestOrExit } from "../../src/manifest.js";
 import { globalScope, projectScope } from "../../src/scope.js";
-import { interactiveUi } from "../../src/ui.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { checkAllForUpdates } from "../../src/update-check-all.js";
 import { SSH_REFUSAL } from "../helpers/git-mocks.js";
-import { clackCalls, runMachine } from "../helpers/machine.js";
+import { runMachine } from "../helpers/machine.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mockReadManifest = vi.mocked(readManifest);
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockCheckAll = vi.mocked(checkAllForUpdates);
 const mockCheckForUpdate = vi.mocked(checkForUpdate);
-const mockSelect = vi.mocked(p.select);
-const mockSpinner = vi.mocked(p.spinner);
-const mockOutro = vi.mocked(p.outro);
-const mockLog = vi.mocked(p.log);
 const mockRenderDetailView = vi.mocked(renderDetailView);
 const mockExecuteUpdateAction = vi.mocked(executeUpdateAction);
 const mockExecuteRemoveAction = vi.mocked(executeRemoveAction);
@@ -101,8 +73,11 @@ function setupCheckResults(
 	return map;
 }
 
+let ui: TestUi;
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	ui = testUi();
 	vi.spyOn(process, "cwd").mockReturnValue("/fake/project");
 });
 
@@ -111,9 +86,9 @@ describe("runListLoop", () => {
 		it("shows the 'agntc list' intro", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(vi.mocked(p.intro)).toHaveBeenCalledWith("agntc list");
+			expect(ui.intro).toHaveBeenCalledWith("agntc list");
 		});
 	});
 
@@ -121,12 +96,12 @@ describe("runListLoop", () => {
 		it("shows empty message and exits loop", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
-			expect(mockSelect).not.toHaveBeenCalled();
+			expect(ui.select).not.toHaveBeenCalled();
 		});
 	});
 
@@ -135,11 +110,11 @@ describe("runListLoop", () => {
 			const manifest = makeManifest(["owner/skill"]);
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValue(Symbol("cancel"));
+			ui.select.mockResolvedValue(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			const options = mockSelect.mock.calls[0]![0].options as Array<{
+			const options = ui.select.mock.calls[0]![0].options as Array<{
 				value: string;
 				label: string;
 			}>;
@@ -153,11 +128,11 @@ describe("runListLoop", () => {
 	it("asks for a skill or pack to manage", async () => {
 		mockReadManifestOrExit.mockResolvedValue(makeManifest(["owner/skill"]));
 		mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill"]));
-		mockSelect.mockResolvedValue(Symbol("cancel"));
+		ui.select.mockResolvedValue(null);
 
-		await runListLoop();
+		await runListLoop(ui);
 
-		expect(mockSelect.mock.calls[0]![0].message).toBe(
+		expect(ui.select.mock.calls[0]![0].message).toBe(
 			"Select a skill or pack to manage  (Esc when done)",
 		);
 	});
@@ -167,11 +142,11 @@ describe("runListLoop", () => {
 			const manifest = makeManifest(["owner/skill"]);
 			mockReadManifestOrExit.mockResolvedValue(manifest);
 			mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValue(Symbol("cancel"));
+			ui.select.mockResolvedValue(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockSelect).toHaveBeenCalledTimes(1);
+			expect(ui.select).toHaveBeenCalledTimes(1);
 			expect(mockRenderDetailView).not.toHaveBeenCalled();
 		});
 	});
@@ -185,16 +160,16 @@ describe("runListLoop", () => {
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" as const });
 
 			// First iteration: select plugin
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 			// Inner loop reads fresh manifest + checkForUpdate, detail returns "back"
 			mockRenderDetailView.mockResolvedValueOnce("back");
 
 			// Second iteration: user exits (Esc)
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(ui.select).toHaveBeenCalledTimes(2);
 			expect(mockRenderDetailView).toHaveBeenCalledTimes(1);
 			// readManifestOrExit: 2 outer, readManifest: 1 inner
 			expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
@@ -212,7 +187,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				setupCheckResults(["owner/skill-a", "owner/skill-b"]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill-a");
+			ui.select.mockResolvedValueOnce("owner/skill-a");
 
 			// Inner loop: re-read manifest, checkForUpdate, render detail -> remove
 			mockReadManifest.mockResolvedValueOnce(fullManifest);
@@ -228,16 +203,16 @@ describe("runListLoop", () => {
 			// Second outer iteration: reduced manifest
 			mockReadManifestOrExit.mockResolvedValueOnce(reducedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill-b"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockExecuteRemoveAction).toHaveBeenCalledTimes(1);
-			expect(mockLog.success).toHaveBeenCalledWith("Removed owner/skill-a");
+			expect(ui.log.success).toHaveBeenCalledWith("Removed owner/skill-a");
 			// readManifestOrExit: 2 outer, readManifest: 1 inner
 			expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
 			expect(mockReadManifest).toHaveBeenCalledTimes(1);
-			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(ui.select).toHaveBeenCalledTimes(2);
 		});
 
 		it("reports a failed removal and returns to the list, the entry still there", async () => {
@@ -249,9 +224,9 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValue(
 				setupCheckResults(["owner/skill-a", "owner/skill-b"]),
 			);
-			mockSelect
+			ui.select
 				.mockResolvedValueOnce("owner/skill-a")
-				.mockResolvedValueOnce(Symbol("cancel"));
+				.mockResolvedValueOnce(null);
 			mockReadManifest.mockResolvedValueOnce(fullManifest);
 			mockCheckForUpdate.mockResolvedValueOnce({
 				status: "up-to-date" as const,
@@ -262,12 +237,12 @@ describe("runListLoop", () => {
 				message: failure,
 			});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockLog.error).toHaveBeenCalledWith(failure);
-			expect(mockLog.success).not.toHaveBeenCalled();
-			expect(mockSelect).toHaveBeenCalledTimes(2);
-			expect(mockSelect.mock.calls[1]?.[0]).toMatchObject({
+			expect(ui.log.error).toHaveBeenCalledWith(failure);
+			expect(ui.said("success")).toEqual([]);
+			expect(ui.select).toHaveBeenCalledTimes(2);
+			expect(ui.select.mock.calls[1]?.[0]).toMatchObject({
 				options: expect.arrayContaining([
 					expect.objectContaining({ value: "owner/skill-a" }),
 				]),
@@ -279,9 +254,9 @@ describe("runListLoop", () => {
 
 			mockReadManifestOrExit.mockResolvedValue(fullManifest);
 			mockCheckAll.mockResolvedValue(setupCheckResults(["owner/skill-a"]));
-			mockSelect
+			ui.select
 				.mockResolvedValueOnce("owner/skill-a")
-				.mockResolvedValueOnce(Symbol("cancel"));
+				.mockResolvedValueOnce(null);
 			mockReadManifest.mockResolvedValueOnce(fullManifest);
 			mockCheckForUpdate.mockResolvedValueOnce({
 				status: "up-to-date" as const,
@@ -292,10 +267,10 @@ describe("runListLoop", () => {
 				message: "Cancelled",
 			});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockLog.error).not.toHaveBeenCalled();
-			expect(mockLog.success).not.toHaveBeenCalled();
+			expect(ui.said("error")).toEqual([]);
+			expect(ui.said("success")).toEqual([]);
 		});
 	});
 
@@ -308,7 +283,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				setupCheckResults(["owner/only-skill"]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/only-skill");
+			ui.select.mockResolvedValueOnce("owner/only-skill");
 
 			// Inner loop: re-read manifest, checkForUpdate, render detail -> remove
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -324,10 +299,10 @@ describe("runListLoop", () => {
 			// Second outer iteration: empty manifest
 			mockReadManifestOrExit.mockResolvedValueOnce({});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockLog.success).toHaveBeenCalledWith("Removed owner/only-skill");
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.log.success).toHaveBeenCalledWith("Removed owner/only-skill");
+			expect(ui.outro).toHaveBeenCalledWith(
 				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 		});
@@ -349,7 +324,7 @@ describe("runListLoop", () => {
 					],
 				]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner detail loop iteration 1: re-read manifest, checkForUpdate, render detail -> "update"
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -375,18 +350,18 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockExecuteUpdateAction).toHaveBeenCalledTimes(1);
-			expect(mockLog.success).toHaveBeenCalledWith("Updated owner/skill");
+			expect(ui.log.success).toHaveBeenCalledWith("Updated owner/skill");
 			// Detail view rendered twice (once before update, once after)
 			expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
 			// readManifestOrExit: 2 outer, readManifest: 2 inner
 			expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
 			expect(mockReadManifest).toHaveBeenCalledTimes(2);
-			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(ui.select).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -407,7 +382,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/skill", updateStatus]]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner detail loop iteration 1: re-read manifest, checkForUpdate, render detail -> "change-version"
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -430,12 +405,12 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockExecuteChangeVersionAction).toHaveBeenCalledTimes(1);
-			expect(mockLog.success).toHaveBeenCalledWith(
+			expect(ui.log.success).toHaveBeenCalledWith(
 				"Changed owner/skill to v1.1.0",
 			);
 			// Detail view rendered twice (before change, after change)
@@ -443,7 +418,7 @@ describe("runListLoop", () => {
 			// readManifestOrExit: 2 outer, readManifest: 2 inner
 			expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
 			expect(mockReadManifest).toHaveBeenCalledTimes(2);
-			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(ui.select).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -463,7 +438,7 @@ describe("runListLoop", () => {
 			};
 			mockReadManifestOrExit.mockResolvedValueOnce(before);
 			mockCheckAll.mockResolvedValueOnce(new Map([[oldKey, status]]));
-			mockSelect.mockResolvedValueOnce(oldKey);
+			ui.select.mockResolvedValueOnce(oldKey);
 			mockReadManifest.mockResolvedValueOnce(before);
 			mockRenderDetailView.mockResolvedValueOnce(action);
 			const result = { key: newKey, message: `Moved ${newKey}`, notes: [] };
@@ -483,9 +458,9 @@ describe("runListLoop", () => {
 			mockRenderDetailView.mockResolvedValueOnce("back");
 			mockReadManifestOrExit.mockResolvedValueOnce(after);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults([newKey]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockCheckForUpdate).toHaveBeenCalledExactlyOnceWith(newKey, moved);
 			expect(mockRenderDetailView).toHaveBeenLastCalledWith(
@@ -511,7 +486,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/repo/laravel", status]]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/repo/laravel");
+			ui.select.mockResolvedValueOnce("owner/repo/laravel");
 			mockReadManifest.mockResolvedValueOnce(manifest);
 			mockRenderDetailView.mockResolvedValueOnce(action);
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -521,7 +496,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				setupCheckResults(["owner/repo/laravel"]),
 			);
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 		}
 
 		const NOTE =
@@ -536,11 +511,11 @@ describe("runListLoop", () => {
 				notes: [NOTE],
 			});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockLog.info).toHaveBeenCalledWith(NOTE);
-			expect(mockLog.info.mock.invocationCallOrder[0]).toBeLessThan(
-				mockLog.success.mock.invocationCallOrder[0]!,
+			expect(ui.note).toHaveBeenCalledWith(NOTE);
+			expect(ui.saidOrders("info")[0]).toBeLessThan(
+				ui.saidOrders("success")[0]!,
 			);
 		});
 
@@ -553,9 +528,9 @@ describe("runListLoop", () => {
 				notes: [NOTE],
 			});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockLog.info).toHaveBeenCalledWith(NOTE);
+			expect(ui.note).toHaveBeenCalledWith(NOTE);
 		});
 	});
 
@@ -566,7 +541,7 @@ describe("runListLoop", () => {
 			// Outer iteration 1: select plugin
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 			// Inner loop: re-read manifest, checkForUpdate, back
 			mockReadManifest.mockResolvedValueOnce(manifest);
 			mockCheckForUpdate.mockResolvedValueOnce({
@@ -577,7 +552,7 @@ describe("runListLoop", () => {
 			// Outer iteration 2: select plugin
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 			// Inner loop: re-read manifest, checkForUpdate, remove
 			mockReadManifest.mockResolvedValueOnce(manifest);
 			mockCheckForUpdate.mockResolvedValueOnce({
@@ -592,12 +567,12 @@ describe("runListLoop", () => {
 			// Outer iteration 3: empty manifest
 			mockReadManifestOrExit.mockResolvedValueOnce({});
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(ui.select).toHaveBeenCalledTimes(2);
 			expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
 			expect(mockExecuteRemoveAction).toHaveBeenCalledTimes(1);
-			expect(mockOutro).toHaveBeenCalledWith(
+			expect(ui.outro).toHaveBeenCalledWith(
 				"No skills or packs installed. Run npx agntc add owner/repo to get started.",
 			);
 		});
@@ -617,7 +592,7 @@ describe("runListLoop", () => {
 					],
 				]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner detail loop iteration 1: re-read manifest, checkForUpdate, update fails
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -644,18 +619,18 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockExecuteUpdateAction).toHaveBeenCalledTimes(1);
-			expect(mockLog.error).toHaveBeenCalledWith("Clone failed");
+			expect(ui.log.error).toHaveBeenCalledWith("Clone failed");
 			// Detail view rendered twice (before update, after failure)
 			expect(mockRenderDetailView).toHaveBeenCalledTimes(2);
 			// readManifestOrExit: 2 outer, readManifest: 2 inner
 			expect(mockReadManifestOrExit).toHaveBeenCalledTimes(2);
 			expect(mockReadManifest).toHaveBeenCalledTimes(2);
-			expect(mockSelect).toHaveBeenCalledTimes(2);
+			expect(ui.select).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -672,7 +647,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/skill", updateStatus]]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner loop: re-read manifest, checkForUpdate for single plugin, then "back"
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -684,9 +659,9 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/skill", updateStatus]]),
 			);
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockRenderDetailView).toHaveBeenCalledWith(
 				{
@@ -695,7 +670,7 @@ describe("runListLoop", () => {
 					updateStatus,
 					installRoot: "/fake/project",
 				},
-				interactiveUi,
+				ui,
 			);
 		});
 	});
@@ -713,7 +688,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/skill", updateStatus]]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner loop iteration 1: re-read manifest, checkForUpdate, render detail -> update
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -736,16 +711,16 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockExecuteUpdateAction).toHaveBeenCalledWith(
 				"owner/skill",
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 				undefined,
 			);
 		});
@@ -769,7 +744,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/skill", constrainedStatus]]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner loop iteration 1: re-read manifest, checkForUpdate returns constrained-update, render detail -> update
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -793,16 +768,16 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockExecuteUpdateAction).toHaveBeenCalledWith(
 				"owner/skill",
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 				{ newRef: "v1.3.0", newCommit: constrainedCommit },
 			);
 		});
@@ -819,7 +794,7 @@ describe("runListLoop", () => {
 			mockCheckAll.mockResolvedValueOnce(
 				new Map([["owner/skill", updateStatus]]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			mockReadManifest.mockResolvedValueOnce(manifest);
 			mockCheckForUpdate.mockResolvedValueOnce(updateStatus);
@@ -839,9 +814,9 @@ describe("runListLoop", () => {
 
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			// 6th arg should be undefined (no overrides for non-constrained)
 			const callArgs = mockExecuteUpdateAction.mock.calls[0]!;
@@ -854,7 +829,7 @@ describe("runListLoop", () => {
 
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner loop: re-read manifest, checkForUpdate, render detail -> remove
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -870,14 +845,14 @@ describe("runListLoop", () => {
 			// Second outer iteration: empty
 			mockReadManifestOrExit.mockResolvedValueOnce({});
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			expect(mockExecuteRemoveAction).toHaveBeenCalledWith(
 				"owner/skill",
 				entry,
 				manifest,
 				projectScope("/fake/project"),
-				interactiveUi,
+				ui,
 			);
 		});
 
@@ -888,7 +863,7 @@ describe("runListLoop", () => {
 
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 			mockReadManifest.mockResolvedValueOnce(manifest);
 			mockCheckForUpdate.mockResolvedValueOnce({
 				status: "up-to-date" as const,
@@ -900,23 +875,20 @@ describe("runListLoop", () => {
 			});
 			mockReadManifestOrExit.mockResolvedValueOnce({});
 
-			await runListLoop(interactiveUi, scope);
+			await runListLoop(ui, scope);
 
-			expect(mockReadManifestOrExit).toHaveBeenCalledWith(
-				"/home/lee",
-				interactiveUi,
-			);
+			expect(mockReadManifestOrExit).toHaveBeenCalledWith("/home/lee", ui);
 			expect(mockReadManifest).toHaveBeenCalledWith("/home/lee");
 			expect(mockRenderDetailView).toHaveBeenCalledWith(
 				expect.objectContaining({ installRoot: "/home/lee" }),
-				interactiveUi,
+				ui,
 			);
 			expect(mockExecuteRemoveAction).toHaveBeenCalledWith(
 				"owner/skill",
 				entry,
 				manifest,
 				scope,
-				interactiveUi,
+				ui,
 			);
 		});
 	});
@@ -925,18 +897,10 @@ describe("runListLoop", () => {
 		it("shows spinner during update checks each outer iteration", async () => {
 			const manifest = makeManifest(["owner/skill"]);
 
-			const spinStart = vi.fn();
-			const spinStop = vi.fn();
-			mockSpinner.mockReturnValue({
-				start: spinStart,
-				stop: spinStop,
-				message: vi.fn(),
-			});
-
 			// First outer iteration: back
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 			// Inner loop: re-read manifest, checkForUpdate, back
 			mockReadManifest.mockResolvedValueOnce(manifest);
 			mockCheckForUpdate.mockResolvedValueOnce({
@@ -947,12 +911,16 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(spinStart).toHaveBeenCalledTimes(2);
-			expect(spinStop).toHaveBeenCalledTimes(2);
+			expect(ui.spinners.flatMap((spin) => spin.start.mock.calls)).toHaveLength(
+				2,
+			);
+			expect(ui.spinners.flatMap((spin) => spin.stop.mock.calls)).toHaveLength(
+				2,
+			);
 		});
 	});
 
@@ -965,9 +933,9 @@ describe("runListLoop", () => {
 				"owner/skill": makeEntry(entry),
 			});
 			mockCheckAll.mockResolvedValue(new Map([["owner/skill", result]]));
-			mockSelect.mockResolvedValue(Symbol("cancel"));
-			await runListLoop();
-			const options = mockSelect.mock.calls.at(-1)![0].options as Array<{
+			ui.select.mockResolvedValue(null);
+			await runListLoop(ui);
+			const options = ui.select.mock.calls.at(-1)![0].options as Array<{
 				value: string;
 				label: string;
 				hint: string;
@@ -1073,7 +1041,7 @@ describe("runListLoop", () => {
 		it("throws ExitSignal on manifest read failure", async () => {
 			mockReadManifestOrExit.mockRejectedValue(new ExitSignal(1));
 
-			const err = await runListLoop().catch((e) => e);
+			const err = await runListLoop(ui).catch((e) => e);
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
@@ -1097,7 +1065,7 @@ describe("runListLoop", () => {
 					],
 				]),
 			);
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner detail loop iteration 1: re-read manifest (returns original), checkForUpdate, update
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -1122,9 +1090,9 @@ describe("runListLoop", () => {
 			// Outer loop iteration 2: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(updatedManifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
 			// First detail render: original entry with update-available status
 			expect(mockRenderDetailView).toHaveBeenNthCalledWith(
@@ -1135,7 +1103,7 @@ describe("runListLoop", () => {
 					updateStatus: { status: "update-available", remoteCommit: "def456" },
 					installRoot: "/fake/project",
 				},
-				interactiveUi,
+				ui,
 			);
 
 			// Second detail render: updated entry with fresh status
@@ -1147,7 +1115,7 @@ describe("runListLoop", () => {
 					updateStatus: newUpdateStatus,
 					installRoot: "/fake/project",
 				},
-				interactiveUi,
+				ui,
 			);
 		});
 	});
@@ -1158,7 +1126,7 @@ describe("runListLoop", () => {
 
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce("owner/skill");
+			ui.select.mockResolvedValueOnce("owner/skill");
 
 			// Inner loop: re-read manifest, checkForUpdate, render detail -> remove (cancelled)
 			mockReadManifest.mockResolvedValueOnce(manifest);
@@ -1175,11 +1143,11 @@ describe("runListLoop", () => {
 			// Second outer iteration: Done
 			mockReadManifestOrExit.mockResolvedValueOnce(manifest);
 			mockCheckAll.mockResolvedValueOnce(setupCheckResults(["owner/skill"]));
-			mockSelect.mockResolvedValueOnce(Symbol("cancel"));
+			ui.select.mockResolvedValueOnce(null);
 
-			await runListLoop();
+			await runListLoop(ui);
 
-			expect(mockLog.success).not.toHaveBeenCalled();
+			expect(ui.said("success")).toEqual([]);
 		});
 	});
 });
@@ -1270,7 +1238,7 @@ describe("list without a terminal", () => {
 			warnings: [],
 			notes: [],
 		});
-		expect(clackCalls(p)).toEqual([]);
+		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
 		expect(mockRenderDetailView).not.toHaveBeenCalled();
 	});
 

@@ -2,11 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/git-utils.js");
 
-vi.mock("@clack/prompts", async () => {
-	const { mockClack } = await import("./helpers/clack-mock.js");
-	return mockClack();
-});
-
 vi.mock("../src/git-clone.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/git-clone.js")>()),
 	cloneSource: vi.fn(),

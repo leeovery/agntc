@@ -63,8 +63,8 @@ export interface ListActionMocks {
  *
  * Call once at module scope in each test file; the returned object is the
  * single source for the shared handles. File-specific mocks (the change-version
- * `select`/`isCancel`/`fetchRemoteTags`, the list-update `stat`) are wired up
- * by each file on top of this.
+ * `fetchRemoteTags`, the list-update `stat`) are wired up by each file on top
+ * of this.
  */
 export function setupListActionMocks(): ListActionMocks {
 	const handles: ListActionMocks = {
