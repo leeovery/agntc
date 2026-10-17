@@ -4,16 +4,22 @@
 # scripts/gate has recorded its tree as passing every gate, or the tree of a
 # commit before it from which only inert paths have changed: the README,
 # CLAUDE.md, CHANGELOG.md and .mint.toml at the root, and design/, art/,
-# demo/, .workflows/ and .claude/, which no gate reads (tsc reads src/ and
-# tests/, tsup bundles what src/cli.ts imports, and vitest runs only
-# tests/). Anything else, package.json and the lockfile among them, is read
-# by a gate. The walk back, along first parents, stops at a commit that
-# changes anything else, at a merge, at the first commit (or a shallow
-# clone's boundary), or after 50 commits, and then scripts/gate runs every
-# gate on HEAD, which passes only once its tree is recorded. A checkout with
+# demo/, .workflows/, .claude/, .tick/, .agntc/ and .github/, which no gate
+# reads (tsc reads src/ and tests/, tsup bundles what src/cli.ts imports, and
+# vitest runs only tests/). That holds only while src/ and tests/ never read
+# or import an inert path; scripts/declared-imports.mjs refuses an import
+# from outside them, and a read is the reviewer's to catch. Anything else,
+# package.json and the lockfile among them, is read by a gate. The walk
+# back, along first parents, stops at a commit that changes anything else,
+# at a merge, at the first commit (or a shallow clone's boundary), or after
+# 50 commits, and then scripts/gate runs every gate on HEAD, which passes
+# only once its tree is recorded. Whichever way it passes, HEAD must still
+# be the commit it judged, as mint tags HEAD once this ends. A checkout with
 # changes of its own outside the inert paths, staged or not, untracked files
-# included, is refused before anything runs: a release is of HEAD. mint shows
-# only this script's exit, so run it directly to see why it failed.
+# included, or a copy of scripts/gate or scripts/gated unlike HEAD's, however
+# git is told to see it, is refused before anything runs: a release is of
+# HEAD. mint shows only this script's exit, so run it directly to see why it
+# failed.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -21,12 +27,14 @@ cd "$repo"
 
 record=$(git rev-parse --path-format=absolute --git-common-dir)/agntc/gated
 bound=50
+judged_commit=$(git rev-parse HEAD)
+judged=$(git rev-parse "$judged_commit^{tree}")
 
 # inert reports whether the path given is one no gate reads. git quotes a
 # path with unusual characters, which then matches none of these.
 inert() {
 	case $1 in
-	README.md | CLAUDE.md | CHANGELOG.md | .mint.toml | design/* | art/* | demo/* | .workflows/* | .claude/*) return 0 ;;
+	README.md | CLAUDE.md | CHANGELOG.md | .mint.toml | design/* | art/* | demo/* | .workflows/* | .claude/* | .tick/* | .agntc/* | .github/*) return 0 ;;
 	esac
 	return 1
 }
@@ -43,26 +51,42 @@ short() {
 	git rev-parse --short "$1"
 }
 
-# full runs every gate on HEAD, after saying why, and passes only once that
-# has recorded HEAD's tree.
-full() {
-	local tree
-	tree=$(git rev-parse 'HEAD^{tree}')
-	echo "gated: $1: running the gates"
-	"$repo/scripts/gate"
-	if ! grep -qxF "$tree" "$record" 2>/dev/null; then
-		echo "gated: scripts/gate passed but recorded nothing for tree $(short "$tree"), so HEAD isn't gated" >&2
-		exit 1
+refuse() {
+	echo "gated: $1" >&2
+	exit 1
+}
+
+# pass ends the run passing, once HEAD is still the commit judged.
+pass() {
+	local now
+	now=$(git rev-parse 'HEAD^{tree}')
+	if [ "$now" != "$judged" ]; then
+		refuse "HEAD moved to tree $(short "$now") while tree $(short "$judged") was judged, so the commit mint would tag isn't the one checked"
 	fi
 	exit 0
 }
 
-changed=$(git diff --name-only --no-renames HEAD)
+# full runs every gate on HEAD, after saying why, and passes only once that
+# has recorded the tree judged.
+full() {
+	echo "gated: $1: running the gates"
+	"$repo/scripts/gate"
+	if ! grep -qxF "$judged" "$record" 2>/dev/null; then
+		refuse "scripts/gate passed but recorded nothing for tree $(short "$judged"), so HEAD isn't gated"
+	fi
+	pass
+}
+
+changed=$(git diff --name-only --no-renames "$judged_commit")
 untracked=$(git ls-files --others --exclude-standard)
 if ! all_inert "$changed" || ! all_inert "$untracked"; then
-	echo "gated: the checkout has changes outside the inert paths, and a release is of HEAD: commit them or set them aside" >&2
-	exit 1
+	refuse "the checkout has changes outside the inert paths, and a release is of HEAD: commit them or set them aside"
 fi
+for script in scripts/gate scripts/gated; do
+	if [ "$(git hash-object "$script")" != "$(git rev-parse "$judged_commit:$script")" ]; then
+		refuse "$script isn't HEAD's, and a release is of HEAD: commit it or set the change aside"
+	fi
+done
 
 known=
 if [ -f "$record" ]; then
@@ -73,7 +97,7 @@ fi
 # its tree and parents. Then each commit's changed paths, under a tab and its
 # hash, read in one call for the whole walk, as a call a commit took two
 # seconds over 50.
-walk=$(git rev-list --first-parent --max-count=$((bound + 1)) --no-commit-header --format='%H %T %P' HEAD)
+walk=$(git rev-list --first-parent --max-count=$((bound + 1)) --no-commit-header --format='%H %T %P' "$judged_commit")
 diffs=$(cut -d ' ' -f 1 <<<"$walk" | git diff-tree --stdin -r --name-only --no-renames --format='%x09%H')
 
 # code is the first commit along the walk that changes a path not inert.
@@ -100,7 +124,7 @@ while read -r commit tree parent others; do
 		else
 			echo "gated: gates passed on tree $(short "$tree"), at $(short "$commit"), and nothing since changes code ✓"
 		fi
-		exit 0
+		pass
 	fi
 	head=${head:-$commit}
 	if [ -z "$parent" ]; then

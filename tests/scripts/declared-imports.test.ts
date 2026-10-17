@@ -102,14 +102,47 @@ describe("scripts/declared-imports.mjs", () => {
 	});
 
 	it.each([
-		["relative", "./b.js"],
-		["relative to a parent", "../c.js"],
-		["absolute", "/opt/lib/d.js"],
-		["a package import", "#internal/e"],
-	])("passes a %s specifier", async (_, specifier) => {
-		tree({ "src/a.ts": `import x from "${specifier}";` });
+		["a relative", "src/a.ts", "./b.js"],
+		["a parent's", "src/sub/a.ts", "../c.js"],
+		["src/'s, from tests/", "tests/a.test.ts", "../src/cli.js"],
+		["a package import", "src/a.ts", "#internal/e"],
+	])("passes %s path", async (_, file, specifier) => {
+		tree({ [file]: `import x from "${specifier}";` });
 
 		expect(await check(root)).toEqual(PASSED);
+	});
+
+	it.each([
+		[
+			"a file at the root, from src/",
+			"src/a.ts",
+			`import x from "../README.md";`,
+		],
+		[
+			"tests/, from src/",
+			"src/a.ts",
+			`import { y } from "../tests/helpers/y.js";`,
+		],
+		[
+			"design/, by a dynamic import",
+			"src/sub/a.ts",
+			`await import("../../design/x.js");`,
+		],
+		[
+			"the root, by a require",
+			"tests/a.test.ts",
+			`require("../package.json");`,
+		],
+		["an absolute path", "src/a.ts", `import z from "/opt/lib/z.js";`],
+	])("refuses a path outside the gates' folders: %s", async (_, file, line) => {
+		tree({ [file]: line });
+
+		const { status, errors } = await check(root);
+
+		expect(status).toBe(1);
+		expect(errors).toMatch(
+			new RegExp(`^${file}: imports \\S+, which lies outside src/`),
+		);
 	});
 
 	it("reduces a subpath to its package", async () => {

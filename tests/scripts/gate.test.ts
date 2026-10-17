@@ -1,16 +1,16 @@
-import { existsSync, mkdirSync, readdirSync, symlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	commit,
 	GATES,
 	gateCalls,
 	git,
+	leftNothing,
 	npmFolders,
 	recorded,
 	repoPath,
 	run,
 	scratchPath,
-	start,
 	useGateRepo,
 	write,
 } from "../helpers/script-repo.js";
@@ -21,22 +21,6 @@ function headTree(): string {
 	return git("rev-parse", "HEAD^{tree}");
 }
 
-/** Whether the gate left no checkout behind: none in TMPDIR, none in git's list. */
-function leftNothing(): boolean {
-	return (
-		readdirSync(scratchPath("tmp")).length === 0 &&
-		git("worktree", "list", "--porcelain")
-			.split("\n")
-			.filter((line) => line.startsWith("worktree ")).length === 1
-	);
-}
-
-async function until(file: string): Promise<void> {
-	while (!existsSync(file)) {
-		await new Promise((resume) => setTimeout(resume, 20));
-	}
-}
-
 describe("scripts/gate", () => {
 	it("runs every gate in order, in a fresh checkout of HEAD outside the repo, and records its tree", async () => {
 		const { status, output } = await run("gate");
@@ -45,7 +29,7 @@ describe("scripts/gate", () => {
 		expect(gateCalls()).toEqual(GATES);
 		for (const folder of npmFolders()) {
 			expect(folder.startsWith(repoPath())).toBe(false);
-			expect(folder).toContain("agntc-gate.");
+			expect(folder).toMatch(/\/agntc-gate\.\w+\/agntc$/);
 		}
 		expect(recorded()).toEqual([headTree()]);
 		expect(output).toContain(
@@ -81,17 +65,43 @@ describe("scripts/gate", () => {
 		expect(recorded()).toEqual([]);
 	});
 
-	it("stops at the first gate that fails, recording nothing", async () => {
-		const { status, output } = await run("gate", {
-			extra: { NPM_FAIL: "run build" },
-		});
+	it("runs HEAD's steps, not those of an edited copy of itself", async () => {
+		commit({ "src/cli.ts": "broken" });
+		const edited = readFileSync(repoPath("scripts/gate"), "utf-8").replace(
+			/^run npm (run typecheck|run build|test .*)$/gm,
+			"",
+		);
+		writeFileSync(repoPath("scripts/gate"), edited);
+		git("update-index", "--assume-unchanged", "scripts/gate");
+
+		const { status } = await run("gate");
 
 		expect(status).not.toBe(0);
-		expect(gateCalls()).toEqual(GATES.slice(0, 4));
+		expect(gateCalls()).toEqual(GATES);
 		expect(recorded()).toEqual([]);
+	});
+
+	it("records the tree it checked, though HEAD moves while it runs", async () => {
+		const checked = headTree();
+
+		const { status } = await run("gate", { extra: { NPM_MOVE: repoPath() } });
+
+		expect(status).toBe(0);
+		expect(headTree()).not.toBe(checked);
+		expect(recorded()).toEqual([checked]);
+	});
+
+	it("refuses a node whose major version isn't the one HEAD's .nvmrc names", async () => {
+		commit({ ".nvmrc": "99\n" });
+
+		const { status, output } = await run("gate");
+
+		expect(status).toBe(1);
 		expect(output).toContain(
-			"gate: npm run build failed, so nothing is recorded",
+			`gate: node ${process.versions.node.split(".")[0]} is on PATH, but HEAD's .nvmrc names node 99, so nothing is run or recorded`,
 		);
+		expect(gateCalls()).toEqual([]);
+		expect(leftNothing()).toBe(true);
 	});
 
 	it("refuses to run under a folder holding node_modules", async () => {
@@ -122,32 +132,6 @@ describe("scripts/gate", () => {
 
 		expect(status).toBe(1);
 		expect(gateCalls()).toEqual([]);
-	});
-
-	it.each([
-		["passes", {}],
-		["fails", { NPM_FAIL: "run typecheck" }],
-	])("removes its checkout when it %s", async (_, extra) => {
-		await run("gate", { extra });
-
-		expect(gateCalls()).not.toEqual([]);
-		expect(leftNothing()).toBe(true);
-	});
-
-	it.each([
-		["SIGINT", 130],
-		["SIGTERM", 143],
-	] as const)("removes its checkout when stopped by %s", async (signal, code) => {
-		const hung = scratchPath("hung");
-		const gate = start("gate", { extra: { NPM_HANG: hung } });
-		await until(hung);
-
-		process.kill(-gate.pid, signal);
-		const { status } = await gate.done;
-
-		expect(status).toBe(code);
-		expect(recorded()).toEqual([]);
-		expect(leftNothing()).toBe(true);
 	});
 
 	it.each([

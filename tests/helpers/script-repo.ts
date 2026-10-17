@@ -6,6 +6,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
 	rmSync,
 	writeFileSync,
@@ -17,28 +18,39 @@ import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 const SCRIPTS = resolve(import.meta.dirname, "../../scripts");
 
 // npm as the gates call it, wherever they run: each call logged, with the
-// folder it ran in, and failing when NPM_FAIL names it. ci installs; test
-// fails on a src/cli.ts that reads `broken`, and when NPM_HANG names a file,
-// writes it and waits to be stopped.
+// folder it ran in, and failing when NPM_FAIL names it. ci installs and logs
+// the environment it was given. test fails on a src/cli.ts that reads
+// `broken`; commits a change to the repo NPM_MOVE names, as HEAD moving under
+// the gate; and when NPM_HANG names a file, writes it and waits to be
+// stopped, as one process, so no signal lands between the two, catching
+// the signal and exiting 1 when NPM_CATCH is set, as vitest does.
 const FAKE_NPM = `#!/usr/bin/env bash
 echo "$*" >>"$NPM_LOG"
 pwd -P >>"$NPM_LOG.where"
 if [ "$1" = ci ]; then
 	mkdir -p node_modules
+	env >"$NPM_LOG.env"
 fi
 if [ "$1" = test ]; then
+	if [ -n "\${NPM_MOVE:-}" ]; then
+		echo moved >"$NPM_MOVE/src/moved.ts"
+		git -C "$NPM_MOVE" add -A
+		git -C "$NPM_MOVE" commit -qm moved
+	fi
 	if [ -n "\${NPM_HANG:-}" ]; then
-		touch "$NPM_HANG"
-		sleep 30
+		exec perl -e '
+			$SIG{INT} = $SIG{TERM} = sub { exit 1 } if $ENV{NPM_CATCH};
+			open my $f, ">", $ENV{NPM_HANG}; close $f; sleep 30'
 	fi
 	[ "$(cat src/cli.ts)" != broken ] || exit 1
 fi
 [ "$*" != "\${NPM_FAIL:-}" ]
 `;
 
-// The import check, logged as npm's calls are.
+// The import check, logged as npm's calls are, failing when NPM_FAIL names it.
 const STUB_DECLARED_IMPORTS = `import { appendFileSync } from "node:fs";
 appendFileSync(process.env.NPM_LOG, "declared-imports\\n");
+if (process.env.NPM_FAIL === "declared-imports") process.exit(1);
 `;
 
 /** What scripts/gate runs, in order, as the call log names it. */
@@ -70,6 +82,7 @@ export function useGateRepo(): void {
 		commit(
 			{
 				".gitignore": "node_modules/\ndist/\n",
+				".nvmrc": `${process.versions.node.split(".")[0]}\n`,
 				"package.json": "{}",
 				"package-lock.json": "{}",
 				"src/cli.ts": "one",
@@ -274,6 +287,31 @@ export function gateCalls(): string[] {
 /** The folders npm ran in, one a call. */
 export function npmFolders(): string[] {
 	return lines(`${npmLog}.where`);
+}
+
+/** The folders of the repo's worktrees, its own first. */
+export function worktrees(): string[] {
+	return git("worktree", "list", "--porcelain")
+		.split("\n")
+		.filter((line) => line.startsWith("worktree "))
+		.map((line) => line.slice("worktree ".length));
+}
+
+/** Whether the gate left no checkout behind: none in TMPDIR, none in git's list. */
+export function leftNothing(): boolean {
+	return (
+		readdirSync(scratchPath("tmp")).length === 0 && worktrees().length === 1
+	);
+}
+
+/** The environment npm ci was given, by name. */
+export function npmEnv(): Map<string, string> {
+	return new Map(
+		lines(`${npmLog}.env`).map((line) => {
+			const at = line.indexOf("=");
+			return [line.slice(0, at), line.slice(at + 1)] as const;
+		}),
+	);
 }
 
 function lines(file: string): string[] {

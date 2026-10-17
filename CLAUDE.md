@@ -91,4 +91,4 @@ Every word and question goes through one `Ui` (`src/ui.ts`); commands never writ
 
 ## Gates
 
-While working, run `npm run typecheck`, `npm run build` (`dist/cli.js`) and `npm test`. Once the work is committed, run `scripts/gate`: it checks HEAD in a fresh checkout outside the repo (`npm ci`, a check that `src/` imports only `dependencies` and `tests/` nothing undeclared, then those three) and records its tree, so a release finds the record and doesn't run them again (`scripts/gated`, mint's `pre_tag`).
+While working, run `npm run typecheck`, `npm run build` (`dist/cli.js`) and `npm test`. Once the work is committed, run `scripts/gate`: it checks HEAD in a fresh checkout outside the repo (`npm ci`, a check of what `src/` and `tests/` import, then those three) and records its tree, so a release finds the record and doesn't run them again (`scripts/gated`, mint's `pre_tag`). `src/` and `tests/` never read or import an inert path (`scripts/gated` lists them): a commit changing only those passes the release without the gates.

@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	commit,
@@ -58,6 +59,9 @@ describe("scripts/gated", () => {
 			"demo/run.tape": "tape",
 			".workflows/spec.md": "spec",
 			".claude/settings.json": "{}",
+			".tick/tasks.jsonl": "{}",
+			".agntc/manifest.json": "{}",
+			".github/workflows/publish.yml": "on: push",
 		});
 
 		const { status, output } = await run("gated");
@@ -130,7 +134,9 @@ describe("scripts/gated", () => {
 
 		const { output } = await run("gated");
 
-		expect(output).toContain("no record of the gates within 50 commits");
+		expect(output).toContain(
+			`no record of the gates within 50 commits of ${git("rev-parse", "--short", "HEAD")}: running the gates`,
+		);
 		expect(output).toContain("stub gate ran");
 	});
 
@@ -221,5 +227,64 @@ describe("scripts/gated", () => {
 		expect(output).toContain(
 			"gated: scripts/gate passed but recorded nothing for tree",
 		);
+	});
+
+	it("fails when HEAD moves while the gate runs, though the tree it judged passed", async () => {
+		commitGate(
+			`${STUB_GATE}echo moved >src/moved.ts\ngit add -A\ngit commit -qm moved\n`,
+		);
+		const judged = git("rev-parse", "--short", "HEAD^{tree}");
+
+		const { status, output } = await run("gated");
+
+		expect(status).toBe(1);
+		expect(output).toContain(
+			`gated: HEAD moved to tree ${git("rev-parse", "--short", "HEAD^{tree}")} while tree ${judged} was judged`,
+		);
+	});
+
+	it("fails when HEAD moves while a recorded tree is judged", async () => {
+		recordHead();
+		const judged = git("rev-parse", "--short", "HEAD^{tree}");
+		// git as gated calls it, committing once gated has read the walk.
+		const wrapper = scratchPath("moving", "git");
+		mkdirSync(dirname(wrapper));
+		writeFileSync(
+			wrapper,
+			`#!/usr/bin/env bash
+real=$(PATH=\${PATH#*:} command -v git)
+status=0
+"$real" "$@" || status=$?
+if [ "$1" = rev-list ]; then
+	echo moved >src/moved.ts
+	"$real" add -A
+	"$real" commit -qm moved
+fi
+exit "$status"
+`,
+		);
+		chmodSync(wrapper, 0o755);
+
+		const { status, output } = await run("gated", {
+			extra: { PATH: `${dirname(wrapper)}:${process.env.PATH}` },
+		});
+
+		expect(status).toBe(1);
+		expect(output).toContain(`while tree ${judged} was judged`);
+	});
+
+	it.each([
+		["scripts/gate"],
+		["scripts/gated"],
+	])("refuses a copy of %s unlike HEAD's, however git is told to see it", async (path) => {
+		recordHead();
+		write(path, `${readFileSync(repoPath(path), "utf-8")}\n# edited\n`);
+		git("update-index", "--assume-unchanged", path);
+
+		const { status, output } = await run("gated");
+
+		expect(status).toBe(1);
+		expect(output).toContain(`gated: ${path} isn't HEAD's`);
+		expect(output).not.toContain("stub gate ran");
 	});
 });
