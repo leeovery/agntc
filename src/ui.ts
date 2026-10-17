@@ -8,6 +8,8 @@ import type {
 	NextItem,
 	Progress,
 	Row,
+	Status,
+	TallyItem,
 } from "./terminal/types.js";
 
 /**
@@ -36,6 +38,17 @@ export interface Choice<T> {
 	value: T;
 	label: string;
 	hint?: string;
+	/** Columns after the label, lined up across the choices, in place of a hint. */
+	cells?: readonly ChoiceCell[];
+}
+
+/** One column of a choice's line: its text, after a status's glyph when it has one, then a dim aside. */
+export interface ChoiceCell {
+	text: string;
+	aside?: string;
+	status?: Status;
+	/** The text dim, as a kind or a quiet status. */
+	dim?: boolean;
 }
 
 /** A bold heading over the choices after it, which the cursor passes over. */
@@ -49,6 +62,16 @@ export interface SelectPrompt<T> {
 	message: string;
 	options: SelectOption<T>[];
 	maxItems?: number;
+	/** A line under the options, taking the key hints off the question's. */
+	footer?: SelectFooter;
+}
+
+/** Under a select's options: its keys on the left, counts on the right. */
+export interface SelectFooter {
+	/** What the keys besides moving do, as `⏎ manage`. */
+	keys: readonly string[];
+	/** Each in its status's colour, those counting none left out. */
+	counts?: readonly TallyItem[];
 }
 
 export interface MultiselectPrompt<T> {

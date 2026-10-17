@@ -1,36 +1,21 @@
-import {
-	cloneAndReinstall,
-	failureMessage,
-	isCloneReinstallFailure,
-	prepareReinstall,
-	recordReinstall,
-} from "../clone-reinstall.js";
 import { errorMessage, gitErrorCause } from "../errors.js";
-import { fetchRemoteTags } from "../git-utils.js";
-import { settleGoneInList } from "../gone-upstream.js";
+import { fetchRemoteTagRefs, type TagRef } from "../git-utils.js";
+import { keyHead, type UpdateRun, updateUnderRow } from "../key-update.js";
+import {
+	type ListActionResult,
+	reinstallResult,
+	versionUnchangedRow,
+} from "../list-render.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
-import { writeManifest } from "../manifest.js";
-import { plainText } from "../message.js";
-import type { Scope } from "../scope.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
-import type { Ui } from "../ui.js";
+import type { Detail, Row, Status } from "../terminal/types.js";
+import type { Block } from "../ui.js";
+import type { GroupMember } from "../update-groups.js";
 
 /**
- * `changed` is false when no change was made: cancelled, or failed. Removing
- * or keeping an entry gone upstream at the chosen version is a change made.
+ * Caps the version list's window, so a repo with hundreds of tags scrolls
+ * within it rather than flooding the terminal.
  */
-export interface ChangeVersionResult {
-	changed: boolean;
-	/** The key the entry is recorded under now: the one it moved to, if it moved. */
-	key: string;
-	newEntry?: ManifestEntry;
-	message: string;
-	notes: string[];
-}
-
-// Cap the visible version list so a repo with hundreds of tags scrolls within a
-// fixed window instead of flooding the terminal. clack's select does the
-// scrolling — this is just the window height.
 const MAX_VISIBLE_VERSIONS = 15;
 
 function stripConstraint(manifestEntry: ManifestEntry): ManifestEntry {
@@ -38,123 +23,103 @@ function stripConstraint(manifestEntry: ManifestEntry): ManifestEntry {
 	return rest;
 }
 
+/**
+ * Pins the entry to a tag the user picks, newer or older, under the entry's
+ * row, then reinstalls it there under the row `update <key>` draws. The pick
+ * and its confirmation erase with the question, leaving nothing when either
+ * is turned down.
+ */
 export async function executeChangeVersionAction(
-	key: string,
-	entry: ManifestEntry,
+	member: GroupMember,
+	row: Row,
 	manifest: Manifest,
-	scope: Scope,
-	ui: Ui,
-): Promise<ChangeVersionResult> {
+	run: UpdateRun,
+	progress: Block,
+): Promise<ListActionResult> {
+	const { key, entry } = member;
+	const unchanged = (status: Status, detail: Detail): ListActionResult => {
+		const said = versionUnchangedRow(
+			keyHead(member, run.home),
+			key,
+			status,
+			detail,
+		);
+		run.ui.block([said]).row(said);
+		return { key, change: null };
+	};
+
 	const fetched = await fetchVersions(
+		key,
 		deriveCloneUrlFromKey(key, entry.cloneUrl),
-		ui,
+		progress,
 	);
 	if ("cause" in fetched) {
-		return unchanged(
-			key,
-			`${key}: couldn't fetch its versions (${fetched.cause}) — left untouched`,
-		);
+		return unchanged("attention", {
+			label: "couldn't fetch its versions",
+			aside: fetched.cause,
+		});
 	}
-	const { tags } = fetched;
-
-	if (tags.length === 0) {
-		return unchanged(key, "No tagged versions available");
+	if (fetched.tags.length === 0) {
+		return unchanged("attention", { label: "no tagged versions available" });
 	}
 
-	// Newest-first, with the currently-installed tag flagged so the user can see
-	// where they are and pick anything above (upgrade) or below (downgrade) it.
-	const options = tags.map((tag) => ({
-		value: tag,
-		label: tag,
-		...(tag === entry.ref ? { hint: "current" } : {}),
-	}));
-
-	const selectedTag = await ui.select({
+	const block = run.ui.block([row]);
+	const picked = await block.select(row, {
 		message: "Select a version",
-		options,
+		// Newest first, the installed tag flagged, so either way is in view.
+		options: fetched.tags.map((tag) => ({
+			value: tag,
+			label: tag.tag,
+			...(tag.tag === entry.ref ? { hint: "current" } : {}),
+		})),
 		maxItems: MAX_VISIBLE_VERSIONS,
 	});
-
-	if (selectedTag === null) {
-		return unchanged(key, "Cancelled");
+	if (picked === null) {
+		return { key, change: null };
+	}
+	if (picked.tag === entry.ref) {
+		return unchanged("unchanged", `already on ${picked.tag}`);
 	}
 
-	if (selectedTag === entry.ref) {
-		return unchanged(key, "Already on this version");
-	}
-
-	// Changing version re-installs (nuke + re-copy) and pins to the exact tag
-	// (dropping any constraint) — confirm before mutating anything.
-	const confirmed = await ui.confirm({
-		message: `Change ${key} to ${selectedTag}? This re-installs it at the new version.`,
+	// Changing version reinstalls at the exact tag, dropping any constraint:
+	// confirmed before anything changes.
+	const confirmed = await block.confirm(row, {
+		message: `Change ${key} to ${picked.tag}? This re-installs it at the new version.`,
 	});
 	if (!confirmed) {
-		return unchanged(key, "Cancelled");
+		return { key, change: null };
 	}
 
-	// The change pins the entry to the chosen tag, dropping its constraint, so
-	// it reinstalls as the entry it becomes: a recovery re-adds that tag.
-	const prepared = await prepareReinstall(key, stripConstraint(entry), scope, {
+	// It reinstalls as the entry it becomes, pinned to the tag, so a recovery
+	// re-adds that tag.
+	const outcome = await updateUnderRow(
+		{ key, entry: stripConstraint(entry) },
 		manifest,
-		newRef: selectedTag,
-	});
-	if (!prepared.ok) {
-		return unchanged(key, prepared.reason);
-	}
-
-	const result = await cloneAndReinstall(prepared.options, ui, manifest);
-
-	if (result.status === "gone") {
-		const settled = await settleGoneInList(key, entry, manifest, scope, ui);
-		return { changed: settled.ok, key, message: settled.message, notes: [] };
-	}
-	if (isCloneReinstallFailure(result)) {
-		return unchanged(
-			key,
-			failureMessage(result, key, entry, scope.name, selectedTag),
-		);
-	}
-
-	await writeManifest(
-		scope.root,
-		recordReinstall(
-			manifest,
-			key,
-			result.key,
-			result.manifestEntry,
-			result.absorbed,
-		),
+		run,
+		{
+			target: { newRef: picked.tag, newCommit: picked.sha },
+			overrides: { newRef: picked.tag },
+			version: picked.tag,
+		},
 	);
-
-	return {
-		changed: true,
-		key: result.key,
-		newEntry: result.manifestEntry,
-		message: `Changed ${result.key} to ${selectedTag}`,
-		notes: result.notes.map(plainText),
-	};
+	return reinstallResult(key, outcome, "versionChanged");
 }
 
 /**
- * The remote's tags, newest first, or why they couldn't be listed. Listing
- * them is a network round-trip (git ls-remote), so a spinner covers the pause.
+ * The remote's tags, newest first, or why they couldn't be listed: a network
+ * round-trip, under progress that clears.
  */
 async function fetchVersions(
+	key: string,
 	url: string,
-	ui: Ui,
-): Promise<{ tags: string[] } | { cause: string }> {
-	const spin = ui.spinner();
-	spin.start("Fetching available versions...");
+	progress: Block,
+): Promise<{ tags: TagRef[] } | { cause: string }> {
+	const fetching = progress.task({ text: `fetching the versions of ${key}…` });
 	try {
-		const tags = await fetchRemoteTags(url);
-		spin.stop("Fetched available versions");
-		return { tags: [...tags].reverse() };
+		return { tags: [...(await fetchRemoteTagRefs(url))].reverse() };
 	} catch (err: unknown) {
-		spin.stop("Couldn't fetch available versions", 2);
 		return { cause: gitErrorCause(errorMessage(err)) };
+	} finally {
+		fetching.clear();
 	}
-}
-
-function unchanged(key: string, message: string): ChangeVersionResult {
-	return { changed: false, key, message, notes: [] };
 }

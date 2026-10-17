@@ -771,6 +771,112 @@ describe("renderRowWithin", () => {
 	});
 });
 
+describe("a row's fields", () => {
+	const DETAIL: Row = {
+		status: "subject",
+		subject: "owner/repo",
+		meta: "v1.2.0",
+		detail: "pack",
+		fields: [
+			{ label: "version", value: "v1.2.0" },
+			{
+				label: "constraint",
+				value: "^1.0.0 (v2.0.0 available outside constraint)",
+			},
+			{
+				label: "installs",
+				value: ["2 skills", "3 folders", "1 agent", "4 hooks"],
+			},
+			{ label: "status", value: "v1.3.0 available", status: "newer" },
+		],
+		children: [{ name: "a", status: "note", detail: "short" }],
+	};
+
+	it("lines their values up past the widest label and 2, under the row's head and over its children", () => {
+		expect(block([DETAIL], 80)).toEqual([
+			" ● owner/repo   v1.2.0   pack",
+			"   version     v1.2.0",
+			"   constraint  ^1.0.0 (v2.0.0 available outside constraint)",
+			"   installs    2 skills  3 folders  1 agent  4 hooks",
+			"   status      v1.3.0 available",
+			`   └─ · a${gap(16)}short`,
+		]);
+	});
+
+	it("wraps a value in the room beside its label, a list of them between its items", () => {
+		expect(block([DETAIL], 40).slice(2, 7)).toEqual([
+			"   version     v1.2.0",
+			"   constraint  ^1.0.0 (v2.0.0 available",
+			"               outside constraint)",
+			"   installs    2 skills  3 folders",
+			"               1 agent  4 hooks",
+		]);
+	});
+
+	it("caps the label column at 45% of the width", () => {
+		const row: Row = {
+			status: "subject",
+			subject: "x",
+			fields: [{ label: "a-label-long-enough-to-pass-the-cap", value: "v" }],
+		};
+		const lines = block([row], 40).slice(1);
+		expect(lines.every((line) => line.length <= 39)).toBe(true);
+		expect(lines.at(-1)?.indexOf("v", 6)).toBe(3 + Math.floor(40 * 0.45));
+	});
+
+	it("paints the labels dim and a value with a status in its colour", () => {
+		expect(block([DETAIL], 80, color).slice(1, 5)).toEqual([
+			"   \x1b[2mversion\x1b[22m     v1.2.0",
+			"   \x1b[2mconstraint\x1b[22m  ^1.0.0 (v2.0.0 available outside constraint)",
+			"   \x1b[2minstalls\x1b[22m    2 skills  3 folders  1 agent  4 hooks",
+			"   \x1b[2mstatus\x1b[22m      \x1b[38;2;167;139;250mv1.3.0 available\x1b[39m",
+		]);
+	});
+
+	it("dims them whole on an unchanged row", () => {
+		const quiet: Row = { ...DETAIL, status: "unchanged", children: [] };
+		expect(block([quiet], 80, color).slice(1, 3)).toEqual([
+			" \x1b[2m  version     v1.2.0\x1b[22m",
+			" \x1b[2m  constraint  ^1.0.0 (v2.0.0 available outside constraint)\x1b[22m",
+		]);
+	});
+
+	describe("within a room", () => {
+		const layout = blockLayout([DETAIL], 80);
+		const within = (room: number) =>
+			renderRowWithin(DETAIL, room, layout, 80, plain);
+		const HEAD = " ● owner/repo   v1.2.0   pack";
+
+		it("keeps the fields before the children", () => {
+			expect(within(5)).toEqual([
+				HEAD,
+				"   version     v1.2.0",
+				"   constraint  ^1.0.0 (v2.0.0 available outside constraint)",
+				"   installs    2 skills  3 folders  1 agent  4 hooks",
+				"   … 2 more",
+			]);
+		});
+
+		it("counts what it leaves out under the fields when a field is the first of it", () => {
+			expect(within(3)).toEqual([HEAD, "   version     v1.2.0", "   … 4 more"]);
+			expect(within(2)).toEqual([HEAD, "   … 5 more"]);
+		});
+
+		it("counts it as a child once every field is kept", () => {
+			const twoChildren: Row = {
+				...DETAIL,
+				children: [
+					{ name: "a", status: "note" },
+					{ name: "b", status: "note" },
+				],
+			};
+			expect(
+				renderRowWithin(twoChildren, 6, layout, 80, plain).slice(-2),
+			).toEqual(["   status      v1.3.0 available", "   └─ … 2 more"]);
+		});
+	});
+});
+
 describe("blockLayout from subjects alone", () => {
 	it("fixes the same columns as the rows those subjects will be", () => {
 		const rows: Row[] = [

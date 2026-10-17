@@ -1,10 +1,4 @@
-import { errorMessage } from "./errors.js";
-import {
-	type Manifest,
-	type ManifestEntry,
-	removeEntry,
-	writeManifest,
-} from "./manifest.js";
+import type { ManifestEntry } from "./manifest.js";
 import type { SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import { agntcCommand, type Scope } from "./scope.js";
@@ -76,36 +70,4 @@ export function goneMessage(
 		text,
 		plain: text,
 	};
-}
-
-/** What a `list` action reports; `ok` is false when a chosen removal failed. */
-export interface ListGoneSettlement {
-	ok: boolean;
-	message: string;
-}
-
-/**
- * Settles an entry a `list` action found gone upstream. `list` only runs at a
- * terminal, so it asks; a removal is recorded at once, and one that fails
- * leaves the entry recorded.
- */
-export async function settleGoneInList(
-	key: string,
-	entry: ManifestEntry,
-	manifest: Manifest,
-	scope: Scope,
-	ui: Ui,
-): Promise<ListGoneSettlement> {
-	try {
-		const settled = await settleGone(key, entry, scope, { yes: false, ui });
-		if (settled.removed) {
-			await writeManifest(scope.root, removeEntry(manifest, key));
-		}
-		return { ok: true, message: settled.message.plain };
-	} catch (err) {
-		return {
-			ok: false,
-			message: `Couldn't remove ${key}: ${errorMessage(err)}; it stays recorded`,
-		};
-	}
 }

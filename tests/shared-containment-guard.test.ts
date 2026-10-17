@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // This regression test deliberately does NOT mock copy-safety, so both clone
 // entry points run against the REAL assertSubpathWithinClone via the single
 // shared resolveGuardedSourceDir helper. It proves the singleton path
-// (cloneAndReinstall) and the grouped path (processGroupUpdate/reinstallMember)
+// (reinstallEntry) and the grouped path (processGroupUpdate/reinstallMember)
 // reject the SAME escaping sourceSubpath pre-flight through that one helper — so
 // a one-sided divergence (removing or weakening the guard at only one site)
 // would fail here.
@@ -14,7 +14,7 @@ vi.mock("../src/git-clone.js", async (importOriginal) => ({
 	cleanupTempDir: vi.fn(),
 }));
 
-import { cloneAndReinstall } from "../src/clone-reinstall.js";
+import { reinstallEntry } from "../src/clone-reinstall.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { projectScope } from "../src/scope.js";
 import type { GroupTarget } from "../src/update-check.js";
@@ -24,7 +24,6 @@ import {
 	processGroupUpdate,
 } from "../src/update-groups.js";
 import { makeEntry } from "./helpers/factories.js";
-import { testUi } from "./helpers/test-ui.js";
 
 const mockCloneSource = vi.mocked(cloneSource);
 const mockCleanupTempDir = vi.mocked(cleanupTempDir);
@@ -43,19 +42,18 @@ beforeEach(() => {
 });
 
 describe("shared sourceSubpath containment guard — both clone entry points", () => {
-	it("singleton path (cloneAndReinstall) rejects an escaping sourceSubpath pre-flight (clone-failed, install intact)", async () => {
+	it("singleton path (reinstallEntry) rejects an escaping sourceSubpath pre-flight (clone-failed, install intact)", async () => {
 		const entry = makeEntry({
 			files: [".claude/skills/evil/"],
 			sourceSubpath: ESCAPING_SUBPATH,
 		});
 
-		const result = await cloneAndReinstall(
+		const result = await reinstallEntry(
 			{
 				key: "owner/repo/evil",
 				entry,
 				scope: projectScope("/fake/project"),
 			},
-			testUi(),
 			{ "owner/repo/evil": entry },
 		);
 
@@ -108,13 +106,12 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 			files: [".claude/skills/evil/"],
 			sourceSubpath: ESCAPING_SUBPATH,
 		});
-		const singleton = await cloneAndReinstall(
+		const singleton = await reinstallEntry(
 			{
 				key: "owner/repo/evil",
 				entry: singletonEntry,
 				scope: projectScope("/fake/project"),
 			},
-			testUi(),
 			{ "owner/repo/evil": singletonEntry },
 		);
 
@@ -155,9 +152,8 @@ describe("shared sourceSubpath containment guard — both clone entry points", (
 		const message = 'subpath "../evil" resolves outside the clone root';
 		const entry = makeEntry({ ref: "main", files: [".claude/skills/evil/"] });
 
-		const singleton = await cloneAndReinstall(
+		const singleton = await reinstallEntry(
 			{ key, entry, scope: projectScope("/fake/project") },
-			testUi(),
 			{ [key]: entry },
 		);
 		const member = { key, entry };

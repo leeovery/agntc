@@ -123,7 +123,7 @@ export class TerminalUi implements Ui {
 		this.print([...renderHeader(header, this.width(), this.style), ""]);
 	}
 
-	/** A block after other lines opens a blank line below them, as it first draws or asks. */
+	/** A block after other lines opens a blank line below them as it first draws; a question asked before then carries that line in its frame. */
 	block(subjects: readonly BlockSubject[]): Block {
 		const width = this.width();
 		const layout = blockLayout(subjects, width);
@@ -142,10 +142,18 @@ export class TerminalUi implements Ui {
 				context: PromptContext,
 			) => Promise<A>,
 		): Promise<A> => {
-			open();
+			// Until the block draws, the blank line it opens with is the
+			// question's, and goes with it: a block that only asks leaves nothing.
 			const above = (room: number) => {
-				const lines = renderRowWithin(row, room - 1, layout, width, this.style);
-				return lines.length === 0 ? [] : [...lines, ""];
+				const opening = opened || this.endsBlank() ? [] : [""];
+				const lines = renderRowWithin(
+					row,
+					room - 1 - opening.length,
+					layout,
+					width,
+					this.style,
+				);
+				return lines.length === 0 ? opening : [...opening, ...lines, ""];
 			};
 			return this.ask((context) => prompt(above, context));
 		};

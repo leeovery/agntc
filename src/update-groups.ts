@@ -316,7 +316,8 @@ export function withAbsorptions(outcomes: PluginOutcome[]): PluginOutcome[] {
  *
  * A success is keyed where the reinstall recorded it, with the member's key as
  * `previousKey` when that moved. A `gone` result maps to an unsettled
- * `gone-kept`: nothing was touched yet.
+ * `gone-kept`: nothing was touched yet. `version` is the tag a version
+ * change asked for, which an abort's remedy changes it to again.
  */
 export function mapReinstallResultToOutcome(
 	key: string,
@@ -324,6 +325,7 @@ export function mapReinstallResultToOutcome(
 	result: CloneReinstallResult,
 	newRef: string | null,
 	scope: ScopeName,
+	version?: string,
 ): PluginOutcome {
 	if (result.status === "gone") {
 		return {
@@ -343,7 +345,7 @@ export function mapReinstallResultToOutcome(
 			onAborted: (abort) => ({
 				status: "aborted",
 				key,
-				...told(buildAbortMessage(key, entry, abort, scope)),
+				...told(buildAbortMessage(key, entry, abort, scope, version)),
 			}),
 			onBlocked: (reason) => ({
 				status: "blocked",
@@ -476,7 +478,7 @@ interface SharedClone {
  * own try/catch so one member's throw can never abort its siblings. Obtains its
  * guarded source dir via the shared {@link resolveGuardedSourceDir} — the single
  * home of the per-member lexical `sourceSubpath` containment guard, composed
- * identically by the singleton path (`cloneAndReinstall`). Dropping it would be
+ * identically by the singleton path (`reinstallEntry`). Dropping it would be
  * a path-traversal regression; a rejected subpath maps to the same clone-failed
  * pre-flight outcome the singleton path emits (no nuke, no copy, install intact).
  * `cloneRoot` stays the whole clone so within-clone cross-member symlinks are

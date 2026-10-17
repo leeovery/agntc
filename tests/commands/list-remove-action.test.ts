@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Manifest } from "../../src/manifest.js";
+import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import { makeEntry } from "../helpers/factories.js";
 
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
@@ -12,7 +12,10 @@ vi.mock("../../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
+import {
+	executeRemoveAction,
+	type RemovedEntry,
+} from "../../src/commands/list-remove-action.js";
 import { writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { globalScope, projectScope } from "../../src/scope.js";
@@ -20,6 +23,7 @@ import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
+const PROJECT = projectScope("/fake/project");
 let ui: TestUi;
 
 beforeEach(() => {
@@ -29,267 +33,162 @@ beforeEach(() => {
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 });
 
+function removing(
+	entry: ManifestEntry,
+	key = "owner/repo",
+	kind = "skill",
+): RemovedEntry {
+	return { key, entry, subject: key, kind };
+}
+
 describe("executeRemoveAction", () => {
-	describe("shows file list before confirmation", () => {
-		it("displays each file with indent via ui.log.message", async () => {
-			const entry = makeEntry({
-				files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
-			});
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(false);
+	it("asks under the entry's row, naming what it installed, in a block of its own", async () => {
+		const entry = makeEntry({
+			files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
+		});
+		ui.confirm.mockResolvedValue(false);
 
-			await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+		await executeRemoveAction(
+			removing(entry, "owner/repo", "pack · 1 skill, 1 agent"),
+			{ "owner/repo": entry },
+			PROJECT,
+			ui,
+		);
 
-			expect(ui.log.message).toHaveBeenCalledWith("  .claude/skills/my-skill/");
-			expect(ui.log.message).toHaveBeenCalledWith(
-				"  .claude/agents/executor.md",
-			);
+		const row = {
+			status: "subject",
+			subject: "owner/repo",
+			detail: "pack · 1 skill, 1 agent",
+			fields: [
+				{ label: ".claude/skills/", value: ["my-skill"] },
+				{ label: ".claude/agents/", value: ["executor.md"] },
+			],
+		};
+		expect(ui.block).toHaveBeenCalledWith([row]);
+		expect(ui.blocks[0]!.confirm).toHaveBeenCalledWith(row, {
+			message: "Remove owner/repo? 2 file(s) will be deleted.",
 		});
 	});
 
-	describe("confirmation prompt", () => {
-		it("includes key name and file count", async () => {
-			const entry = makeEntry({
-				files: [".claude/skills/a/", ".claude/skills/b/", ".claude/hooks/c.sh"],
-			});
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(false);
+	it("removes nothing, draws nothing and changes nothing when declined", async () => {
+		const entry = makeEntry();
+		ui.confirm.mockResolvedValue(false);
 
-			await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+		const result = await executeRemoveAction(
+			removing(entry),
+			{ "owner/repo": entry },
+			PROJECT,
+			ui,
+		);
 
-			expect(ui.confirm).toHaveBeenCalledWith({
-				message: "Remove owner/repo? 3 file(s) will be deleted.",
-			});
-		});
+		expect(result).toEqual({ key: "owner/repo", change: null });
+		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+		expect(ui.rows()).toEqual([]);
 	});
 
-	describe("confirmed removal", () => {
-		it("removes a global entry's files and record below the home directory", async () => {
-			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
-			ui.confirm.mockResolvedValue(true);
+	it("removes the files and the entry, keeping the rest, then draws the removed row", async () => {
+		const entry = makeEntry({ files: [".claude/skills/a/"] });
+		const other = makeEntry({ files: [".claude/skills/b/"] });
+		const manifest: Manifest = { "owner/repo": entry, "owner/other": other };
+		ui.confirm.mockResolvedValue(true);
 
-			await executeRemoveAction(
-				"owner/repo",
-				entry,
-				{ "owner/repo": entry },
-				globalScope("/home/lee"),
-				ui,
-			);
+		const result = await executeRemoveAction(
+			removing(entry),
+			manifest,
+			PROJECT,
+			ui,
+		);
 
-			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/home/lee", [
-				".claude/skills/my-skill/",
-			]);
-			expect(mockWriteManifest).toHaveBeenCalledWith("/home/lee", {});
+		expect(result).toEqual({ key: "owner/repo", change: "removed" });
+		expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
+			".claude/skills/a/",
+		]);
+		expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
+			"owner/other": other,
 		});
-
-		it("nukes files, removes entry from manifest, writes manifest, returns removed true", async () => {
-			const entry = makeEntry({
-				files: [".claude/skills/my-skill/"],
-			});
-			const otherEntry = makeEntry({
-				files: [".claude/skills/other/"],
-			});
-			const manifest: Manifest = {
-				"owner/repo": entry,
-				"other/plugin": otherEntry,
-			};
-			ui.confirm.mockResolvedValue(true);
-
-			const result = await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result.removed).toBe(true);
-			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
-				".claude/skills/my-skill/",
-			]);
-			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
-				"other/plugin": otherEntry,
-			});
-		});
-
-		it("succeeds when nuke skips missing files (ENOENT tolerance)", async () => {
-			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(true);
-			mockNukeManifestFiles.mockResolvedValue({
-				removed: [],
-				skipped: [".claude/skills/my-skill/"],
-			});
-
-			const result = await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result.removed).toBe(true);
-			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
-		});
-
-		it("keeps the entry recorded and says why when removing its files fails", async () => {
-			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(true);
-			mockNukeManifestFiles.mockRejectedValue(
-				new Error("EACCES: permission denied"),
-			);
-
-			const result = await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result).toEqual({
-				removed: false,
-				message:
-					"Couldn't remove owner/repo: EACCES: permission denied; it stays recorded",
-			});
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
+		expect(ui.rows()).toEqual([
+			{
+				status: "done",
+				subject: "owner/repo",
+				detail: { label: "removed", aside: "skill" },
+			},
+		]);
+		expect(ui.blocks.at(-1)!.row).toHaveBeenCalledOnce();
 	});
 
-	describe("declined removal", () => {
-		it("returns removed false, does not nuke, does not write manifest", async () => {
-			const entry = makeEntry();
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(false);
+	it("writes an empty manifest once the last entry is removed", async () => {
+		const entry = makeEntry();
+		ui.confirm.mockResolvedValue(true);
 
-			const result = await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+		await executeRemoveAction(
+			removing(entry),
+			{ "owner/repo": entry },
+			PROJECT,
+			ui,
+		);
 
-			expect(result.removed).toBe(false);
-			expect(result.message).toBe("Cancelled");
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
+		expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
 	});
 
-	describe("dismissed confirm (a no)", () => {
-		it("returns removed false, does not nuke", async () => {
-			const entry = makeEntry();
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(false);
+	it("removes a global entry's files and record below the home directory", async () => {
+		const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
+		ui.confirm.mockResolvedValue(true);
 
-			const result = await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+		await executeRemoveAction(
+			removing(entry),
+			{ "owner/repo": entry },
+			globalScope("/fake/home"),
+			ui,
+		);
 
-			expect(result.removed).toBe(false);
-			expect(result.message).toBe("Cancelled");
-			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			expect(mockWriteManifest).not.toHaveBeenCalled();
-		});
+		expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/home", [
+			".claude/skills/my-skill/",
+		]);
+		expect(mockWriteManifest).toHaveBeenCalledWith("/fake/home", {});
 	});
 
-	describe("manifest preserves other entries after removal", () => {
-		it("keeps unrelated entries in manifest", async () => {
-			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
-			const otherEntry = makeEntry({ files: [".claude/skills/other/"] });
-			const thirdEntry = makeEntry({ files: [".claude/skills/third/"] });
-			const manifest: Manifest = {
-				"owner/repo": entry,
-				"other/plugin": otherEntry,
-				"third/plugin": thirdEntry,
-			};
-			ui.confirm.mockResolvedValue(true);
+	it("keeps the entry recorded and draws why when removing its files fails", async () => {
+		const entry = makeEntry();
+		ui.confirm.mockResolvedValue(true);
+		mockNukeManifestFiles.mockRejectedValue(
+			new Error("EACCES: permission denied"),
+		);
 
-			await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+		const result = await executeRemoveAction(
+			removing(entry),
+			{ "owner/repo": entry },
+			PROJECT,
+			ui,
+		);
 
-			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {
-				"other/plugin": otherEntry,
-				"third/plugin": thirdEntry,
-			});
-		});
+		expect(result).toEqual({ key: "owner/repo", change: null });
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+		expect(ui.rows()).toEqual([
+			{
+				status: "failed",
+				subject: "owner/repo",
+				detail: {
+					label: "failed",
+					aside: "EACCES: permission denied; it stays recorded",
+				},
+			},
+		]);
 	});
 
-	describe("last plugin removal", () => {
-		it("writes empty manifest when last plugin is removed", async () => {
-			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(true);
+	it("never draws through the old surface", async () => {
+		const entry = makeEntry();
+		ui.confirm.mockResolvedValue(true);
 
-			await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+		await executeRemoveAction(
+			removing(entry),
+			{ "owner/repo": entry },
+			PROJECT,
+			ui,
+		);
 
-			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
-		});
-	});
-
-	describe("message on success", () => {
-		it("includes key in message", async () => {
-			const entry = makeEntry({ files: [".claude/skills/my-skill/"] });
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(true);
-
-			const result = await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result.message).toBe("Removed owner/repo");
-		});
-	});
-
-	describe("message on decline", () => {
-		it("says Cancelled", async () => {
-			const entry = makeEntry();
-			const manifest: Manifest = { "owner/repo": entry };
-			ui.confirm.mockResolvedValue(false);
-
-			const result = await executeRemoveAction(
-				"owner/repo",
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result.message).toBe("Cancelled");
-		});
+		for (const channel of Object.values(ui.log)) {
+			expect(channel).not.toHaveBeenCalled();
+		}
 	});
 });

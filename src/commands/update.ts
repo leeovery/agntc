@@ -1,33 +1,38 @@
 import { homedir } from "node:os";
 import { Command } from "commander";
-import {
-	type CloneReinstallResult,
-	prepareReinstall,
-	reinstallEntry,
-} from "../clone-reinstall.js";
+import { prepareReinstall, reinstallEntry } from "../clone-reinstall.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { updateBody } from "../documents.js";
 import { groupReAddCommands, reAddCommand } from "../entry-source.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
-import { settleGone } from "../gone-upstream.js";
-import type { Manifest, ManifestEntry } from "../manifest.js";
-import { readManifestOrExit, writeManifest } from "../manifest.js";
-import { resolveTargetKeys } from "../resolve-target-keys.js";
 import {
-	homeShortened,
-	projectScope,
-	type Scope,
-	type ScopeName,
-} from "../scope.js";
-import { repoFromKey } from "../source-parser.js";
+	keyHead,
+	keySubject,
+	localHead,
+	persistUnitOutcomes,
+	REFRESHING,
+	type RowProgress,
+	reinstallKey,
+	reportOutcomes,
+	rowProgress,
+	type SettledKey,
+	settleGoneOutcome,
+	type UpdateRun,
+	updatePlan,
+	updatingTo,
+} from "../key-update.js";
+import type { Manifest, ManifestEntry } from "../manifest.js";
+import { readManifestOrExit } from "../manifest.js";
+import { resolveTargetKeys } from "../resolve-target-keys.js";
+import { projectScope, type Scope, type ScopeName } from "../scope.js";
 import {
 	type OutOfConstraintInfo,
 	outOfConstraintMessage,
 } from "../summary.js";
-import { adviceItem, remedyItem } from "../terminal/next.js";
-import type { BlockSubject, Row, RowHead } from "../terminal/types.js";
-import { type Block, type BlockTask, interactiveUi, type Ui } from "../ui.js";
+import { adviceItem } from "../terminal/next.js";
+import type { RowHead } from "../terminal/types.js";
+import { type Block, interactiveUi, type Ui } from "../ui.js";
 import type { GroupTarget, UpdateCheckResult } from "../update-check.js";
 import {
 	categorizeMember,
@@ -38,7 +43,6 @@ import {
 import {
 	absorbedBy,
 	absorbedOutcome,
-	applyOutcome,
 	type EntryGroup,
 	failedOutcome,
 	type GroupMember,
@@ -50,7 +54,6 @@ import {
 	type PluginOutcome,
 	packsFirst,
 	processGroupUpdate,
-	told,
 	withAbsorptions,
 } from "../update-groups.js";
 import {
@@ -73,7 +76,6 @@ import {
 	moveTarget,
 	newestTag,
 	type VersionMove,
-	type VersionOverrides,
 	versionMove,
 } from "../version-resolve.js";
 
@@ -105,20 +107,10 @@ const KEY_FAILURES = new Set<PluginOutcome["status"]>([
 
 const NOTHING_INSTALLED = "No skills or packs installed.";
 const CHECKING = "checking for updates…";
-const REFRESHING = "refreshing…";
 
 export interface UpdateOptions {
 	/** Remove entries gone upstream without asking. */
 	yes?: boolean;
-}
-
-/** What every step of one update run shares. */
-interface UpdateRun {
-	scope: Scope;
-	yes: boolean;
-	ui: Ui;
-	/** The home folder a local entry's path is shortened against. */
-	home: string;
 }
 
 export async function runUpdate(
@@ -165,46 +157,6 @@ function pick(manifest: Manifest, keys: string[]): Manifest {
 	return Object.fromEntries(
 		Object.entries(manifest).filter(([key]) => wanted.has(key)),
 	);
-}
-
-/** A local entry's row: its folder, shortened against the home folder. */
-function localHead(key: string, home: string): RowHead {
-	return { subject: homeShortened(key, home), meta: "local" };
-}
-
-/** One key's row: a remote entry under its repo and intent, a local one under its folder. */
-function keyHead({ key, entry }: GroupMember, home: string): RowHead {
-	if (entry.commit === null) {
-		return localHead(key, home);
-	}
-	return {
-		subject: repoFromKey(key),
-		meta: intentMeta(entry.constraint ?? entry.ref),
-	};
-}
-
-function keySubject(member: GroupMember, head: RowHead): BlockSubject {
-	return member.entry.commit === null ? head : groupSubject(head, [member.key]);
-}
-
-/**
- * A row's place in a block while its step runs: what it says it's doing can
- * change, the step before clearing as the next starts, until it settles.
- */
-interface RowProgress {
-	say(text: string): void;
-	settle(row: Row): void;
-}
-
-function rowProgress(block: Block, head: RowHead): RowProgress {
-	let task: BlockTask | undefined;
-	return {
-		say: (text) => {
-			task?.clear();
-			task = block.task({ ...head, text });
-		},
-		settle: (row) => task?.settle(row),
-	};
 }
 
 /**
@@ -322,12 +274,6 @@ function memberAfter(
 	return UNINSTALLED.has(outcome.status) ? null : member;
 }
 
-/** A key's outcome, and the row it settles into. */
-interface SettledKey {
-	outcome: PluginOutcome;
-	row: Row;
-}
-
 async function settleKey(
 	member: GroupMember,
 	check: UpdateCheckResult,
@@ -354,22 +300,26 @@ async function settleKey(
 				{ status: check.status, constraint: entry.constraint! },
 				{ status: "constrained-no-match", key },
 			);
-		case "constrained-update-available": {
+		case "constrained-update-available":
 			if (isAtOrAboveVersion(entry.ref, check.tag)) {
 				return leftAlone({ status: "up-to-date" }, upToDateOutcome(key));
 			}
-			const resolved = { newRef: check.tag, newCommit: check.commit };
-			return reinstallKey(member, installed, progress, run, {
-				target: resolved,
-				overrides: resolved,
-			});
-		}
+			return reinstallKey(
+				member,
+				installed,
+				progress,
+				run,
+				updatePlan(entry, check),
+			);
 		case "update-available":
-			return reinstallKey(member, installed, progress, run, {
-				target: { newRef: entry.ref, newCommit: check.remoteCommit },
-			});
 		case "local":
-			return reinstallKey(member, installed, progress, run);
+			return reinstallKey(
+				member,
+				installed,
+				progress,
+				run,
+				updatePlan(entry, check),
+			);
 	}
 }
 
@@ -380,167 +330,6 @@ function queueNewerTags(
 ): void {
 	const reAdd = reAddCommand(key, entry, scope.name, newestTag(tags));
 	ui.next(adviceItem(pinnedTagsMessage(key, entry.ref!, tags, reAdd)));
-}
-
-/**
- * Where a remote key moves to, which its row names while it updates and
- * after: a constrained one to its resolved tag; any other to its ref's new
- * commit.
- */
-interface KeyTarget {
-	newRef: string | null;
-	newCommit: string;
-}
-
-/**
- * How a remote key reinstalls: where it's going, and the version a
- * constrained one is cloned and recorded at. Without overrides, the clone
- * takes the recorded ref.
- */
-interface KeyPlan {
-	target: KeyTarget;
-	overrides?: VersionOverrides;
-}
-
-/** A local key reinstalls with no plan: it refreshes from its folder. */
-async function reinstallKey(
-	member: GroupMember,
-	installed: Manifest,
-	progress: RowProgress,
-	run: UpdateRun,
-	plan?: KeyPlan,
-): Promise<SettledKey> {
-	const { key, entry } = member;
-	const { scope } = run;
-	if (plan !== undefined) {
-		progress.say(updatingTo(plan.target.newRef, plan.target.newCommit));
-	}
-	const prepared = await prepareReinstall(key, entry, scope, plan?.overrides);
-	if (!prepared.ok) {
-		const outcome = failedOutcome(key, prepared.reason);
-		return { outcome, row: keyRow(member, { outcome }, plan, run) };
-	}
-
-	const result = await reinstallEntry(prepared.options, installed);
-	const outcome = await keyOutcome(member, result, run);
-	reportOutcomes([outcome], run.ui);
-	const cloneFailure = remoteCloneFailure(entry, result);
-	if (cloneFailure !== null) {
-		const head = keyHead(member, run.home);
-		return { outcome, row: cloneFailedRow(head, cloneFailure, [key]) };
-	}
-	const files =
-		result.status === "success" ? result.copiedFiles.length : undefined;
-	return { outcome, row: keyRow(member, { outcome, files }, plan, run) };
-}
-
-async function keyOutcome(
-	member: GroupMember,
-	result: CloneReinstallResult,
-	run: UpdateRun,
-): Promise<PluginOutcome> {
-	if (result.status === "gone") {
-		return settleGoneOutcome(member, run);
-	}
-	const newRef = result.status === "success" ? result.manifestEntry.ref : null;
-	return mapReinstallResultToOutcome(
-		member.key,
-		member.entry,
-		result,
-		newRef,
-		run.scope.name,
-	);
-}
-
-/**
- * Why a remote entry's clone failed, or null when it didn't. A local
- * source's clone failure is its path failing the guard, told as its own.
- */
-function remoteCloneFailure(
-	entry: ManifestEntry,
-	result: CloneReinstallResult,
-): string | null {
-	return entry.commit !== null &&
-		result.status === "failed" &&
-		result.failureReason === "clone-failed"
-		? result.message
-		: null;
-}
-
-/**
- * One key's row: a local entry's own, else its repo's with the entry under
- * it. A reinstalled entry's move is the one it made; any other's, the one it
- * set out to make.
- */
-function keyRow(
-	member: GroupMember,
-	result: MemberResult,
-	plan: KeyPlan | undefined,
-	run: UpdateRun,
-): Row {
-	const head = keyHead(member, run.home);
-	if (plan === undefined) {
-		return localRow(head, result);
-	}
-	const { entry } = member;
-	const { outcome } = result;
-	const landed = isSuccessOutcome(outcome) ? outcome.newEntry : null;
-	const move = versionMove({
-		oldRef: entry.ref,
-		newRef: landed?.ref ?? plan.target.newRef,
-		oldCommit: entry.commit,
-		newCommit: landed?.commit ?? plan.target.newCommit,
-	});
-	return reinstalledRow(head, { move }, [result]);
-}
-
-function updatingTo(newRef: string | null, newCommit: string): string {
-	return `updating to ${moveTarget(newRef, newCommit)}…`;
-}
-
-/**
- * Removes or keeps a member found gone upstream. Gone is never a failure, but
- * a removal that can't delete the member's files is.
- */
-async function settleGoneOutcome(
-	{ key, entry }: GroupMember,
-	{ scope, yes, ui }: UpdateRun,
-): Promise<PluginOutcome> {
-	try {
-		const settled = await settleGone(key, entry, scope, { yes, ui });
-		if (settled.removed) {
-			return { status: "gone-removed", key, ...told(settled.message) };
-		}
-		return {
-			status: "gone-kept",
-			key,
-			...told(settled.message),
-			...(settled.flags !== undefined ? { flags: settled.flags } : {}),
-		};
-	} catch (err) {
-		return failedOutcome(key, errorMessage(err));
-	}
-}
-
-/**
- * What a unit's outcomes leave the reader: a reinstall's notes, which print
- * under the row the unit settles into, and a failure's remedy, under Next.
- */
-function reportOutcomes(outcomes: PluginOutcome[], ui: Ui): void {
-	for (const outcome of outcomes) {
-		if (isSuccessOutcome(outcome)) {
-			for (const note of outcome.notes) {
-				ui.note(note);
-			}
-		}
-		const item =
-			"message" in outcome && outcome.message !== undefined
-				? remedyItem(outcome.message)
-				: null;
-		if (item !== null) {
-			ui.next(item);
-		}
-	}
 }
 
 // --- All-mode helpers ---
@@ -1137,25 +926,6 @@ async function streamLocalWork(
 	reportOutcomes(unit.outcomes, run.ui);
 	task.settle(localRow(head, { outcome: unit.outcomes[0]! }));
 	return unit;
-}
-
-/**
- * Folds ONE unit's (group, local or single key) outcomes into the working
- * manifest via {@link applyOutcome} and writes it — the per-unit persistence
- * boundary. The write is SKIPPED for a no-op unit. Returns the
- * (possibly-updated) manifest so the caller threads it into the next unit,
- * keeping each write cumulative.
- */
-async function persistUnitOutcomes(
-	root: string,
-	manifest: Manifest,
-	outcomes: PluginOutcome[],
-): Promise<Manifest> {
-	const updatedManifest = outcomes.reduce(applyOutcome, manifest);
-	if (updatedManifest !== manifest) {
-		await writeManifest(root, updatedManifest);
-	}
-	return updatedManifest;
 }
 
 /**

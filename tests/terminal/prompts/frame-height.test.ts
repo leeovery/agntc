@@ -179,6 +179,72 @@ describe("an open prompt's frame", () => {
 
 	it.each(
 		WIDTHS,
+	)("is a line shorter than the screen, a select with a footer and cells at %i columns", (width) => {
+		const footer = {
+			keys: ["⏎ manage", "esc done"],
+			counts: [{ count: 3, label: "updates", status: "newer" as const }],
+		};
+		const over: string[] = [];
+		for (const message of QUESTIONS) {
+			for (const rows of roomy(message, "", width)) {
+				for (const [count, lines] of COUNTS.flatMap((count) =>
+					ABOVES.map((above) => [count, above] as const),
+				)) {
+					const options = selectOptions(count, true).map((option) =>
+						isChoice(option)
+							? {
+									...option,
+									cells: [
+										{ text: "pack", dim: true },
+										{ text: "v1.0.0", aside: "^1.0.0" },
+										{ status: "newer" as const, text: "v1.1.0" },
+									],
+								}
+							: option,
+					);
+					const above = aboveFor(lines, width);
+					const question = { message, options, above, footer };
+					const window = selectWindow(question, rows, width, style);
+					if (
+						window.above.length > 0 &&
+						window.size < share(options.length, rows)
+					) {
+						over.push(
+							`${rows} rows, ${count} options, ${lines} above: ${window.size} options shown`,
+						);
+					}
+					const headings = options.map((option) => !isChoice(option));
+					const stops = options.flatMap((option, index) =>
+						isChoice(option) ? [index] : [],
+					);
+					for (const cursor of sampled(stops)) {
+						const height = renderSelect(
+							{
+								...window,
+								message,
+								hints: "",
+								options,
+								cursor,
+								top: scrollWindow(headings, cursor, 0, window.size),
+								footer,
+							},
+							width,
+							style,
+						).length;
+						if (height > rows - 1) {
+							over.push(
+								`${rows} rows, ${count} options, ${lines} above: ${height} lines`,
+							);
+						}
+					}
+				}
+			}
+		}
+		expect(over).toEqual([]);
+	});
+
+	it.each(
+		WIDTHS,
 	)("is a line shorter than the screen, a multiselect at %i columns", (width) => {
 		const over: string[] = [];
 		for (const message of QUESTIONS) {

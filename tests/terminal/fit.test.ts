@@ -14,6 +14,7 @@ import {
 	renderMultiselect,
 } from "../../src/terminal/prompts/multiselect.js";
 import {
+	footerLine,
 	isChoice,
 	renderSelect,
 	SELECT_HINTS,
@@ -26,12 +27,13 @@ import {
 } from "../../src/terminal/style.js";
 import type {
 	Child,
+	Field,
 	NextItem,
 	Row,
 	Status,
 	TallyItem,
 } from "../../src/terminal/types.js";
-import type { SelectOption } from "../../src/ui.js";
+import type { ChoiceCell, SelectFooter, SelectOption } from "../../src/ui.js";
 
 // The one rule: no line reaches the last column. Commands are exempt, as
 // they're never wrapped or cut. Lines are measured by string-width, not by
@@ -87,6 +89,7 @@ const statuses: Status[] = [
 	"subject",
 	"newer",
 	"note",
+	"local",
 ];
 const SHORT_CHILDREN: Child[] = [
 	{ name: "one", detail: "skill" },
@@ -98,6 +101,21 @@ const children: Child[] = [
 	...SHORT_CHILDREN,
 	{ name: LONG, status: "failed", detail: PROSE },
 	{ name: CJK, status: "done", detail: CJK },
+];
+
+const fieldSets: Field[][] = [
+	[],
+	[
+		{ label: "version", value: "v1.2.0" },
+		{ label: "installs", value: ["2 skills", LONG, CJK, WORD] },
+		{ label: "status", value: PROSE, status: "attention" },
+	],
+	[{ label: WORD, value: WORD, status: "failed" }],
+	[
+		{ label: CJK, value: CJK },
+		{ label: "", value: "" },
+		{ label: "items", value: [] },
+	],
 ];
 
 const pick = <T>(list: readonly T[], index: number): T =>
@@ -128,6 +146,7 @@ function rowsMatrix(
 		subject: pick(subjectsIn, s),
 		meta: pick(metas, m),
 		detail: pick(details, d),
+		fields: pick(fieldSets, index),
 		children: childrenIn.slice(0, index % (childrenIn.length + 1)),
 	}));
 }
@@ -239,6 +258,37 @@ const selectOptions: SelectOption<number>[] = choices.flatMap(
 );
 const selectHeadings = selectOptions.map((option) => !isChoice(option));
 const noHeadings = choices.map(() => false);
+const cellSets: ChoiceCell[][] = [
+	[
+		{ text: "pack", dim: true },
+		{ text: "v0.2.4", aside: "^0.2.4" },
+		{ status: "newer", text: "v0.2.5" },
+	],
+	[
+		{ text: LONG, aside: WORD },
+		{ status: "local", text: CJK, dim: true },
+	],
+	[],
+	[{ status: "failed", text: PROSE }],
+	[{ text: "" }, { text: WORD, aside: PROSE }, { status: "done", text: "" }],
+];
+/** The select's options, each carrying cells, which take the hints' place. */
+const cellOptions: SelectOption<number>[] = selectOptions.map(
+	(option, index) =>
+		isChoice(option) ? { ...option, cells: pick(cellSets, index) } : option,
+);
+/** The same, every choice's one cell wider than any line. */
+const wideCellOptions: SelectOption<number>[] = selectOptions.map((option) =>
+	isChoice(option)
+		? { ...option, cells: [{ status: "failed", text: PROSE, aside: WORD }] }
+		: option,
+);
+const footers: SelectFooter[] = [
+	{ keys: ["⏎ manage", "esc done"], counts: tally },
+	{ keys: [LONG, WORD], counts: [] },
+	{ keys: [], counts: tally },
+	{ keys: ["⏎ manage"] },
+];
 const questions = ["", "What to install", PROSE, WORD, CJK];
 const keyHints = ["", SELECT_HINTS, MULTISELECT_HINTS, LONG];
 
@@ -269,6 +319,27 @@ function renderPrompts(
 				top: scrollWindow(selectHeadings, cursor, 0, size),
 				size,
 				more: true,
+			},
+			width,
+			style,
+			band,
+		);
+	const cellSelect = (
+		cursor: number,
+		size: number,
+		footer: SelectFooter,
+		options = cellOptions,
+	) =>
+		renderSelect(
+			{
+				message: "Select a skill or pack to manage",
+				hints: "",
+				options,
+				cursor,
+				top: scrollWindow(selectHeadings, cursor, 0, size),
+				size,
+				more: true,
+				footer,
 			},
 			width,
 			style,
@@ -310,6 +381,12 @@ function renderPrompts(
 			...select(cursor, 5),
 			...select(cursor, selectOptions.length),
 		]),
+		...stops.flatMap((cursor, index) => [
+			...cellSelect(cursor, 5, pick(footers, index)),
+			...cellSelect(cursor, cellOptions.length, pick(footers, index + 1)),
+			...cellSelect(cursor, 5, pick(footers, index), wideCellOptions),
+		]),
+		...footers.map((footer) => footerLine(footer, width, style)),
 		...choices.flatMap((_, cursor) => multiselect(cursor, 5)),
 		...everyQuestion((message, hints) =>
 			select(stops[0] ?? 0, 5, message, hints),

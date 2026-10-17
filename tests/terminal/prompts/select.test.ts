@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+	footerLine,
 	promptSelect,
 	renderSelect,
 	type SelectView,
+	selectWindow,
 } from "../../../src/terminal/prompts/select.js";
 import { bandPainter, createStyle } from "../../../src/terminal/style.js";
-import type { SelectOption } from "../../../src/ui.js";
+import type { SelectFooter, SelectOption } from "../../../src/ui.js";
 import { KEY, Terminal } from "./terminal.js";
 
 const plain = createStyle(0);
@@ -295,6 +297,213 @@ describe("renderSelect", () => {
 			expect(renderSelect(view(OPTIONS, 0), 40, colour, band)[2]).toBe(
 				"   nuxt          \x1b[2mpack · 9 skills, 2 fo…\x1b[22m",
 			);
+		});
+	});
+});
+
+describe("a select's cells", () => {
+	const DASHBOARD: SelectOption<string>[] = [
+		{ heading: "leeovery/agentic-skills" },
+		{
+			value: "laravel",
+			label: "laravel",
+			cells: [
+				{ text: "pack", dim: true },
+				{ text: "v0.2.4", aside: "^0.2.4" },
+				{ status: "newer", text: "v0.2.5" },
+			],
+		},
+		{
+			value: "agentic-workflows",
+			label: "agentic-workflows",
+			cells: [
+				{ text: "skill", dim: true },
+				{ text: "v0.8.18", aside: "^0.8.18" },
+				{ status: "done", text: "up to date", dim: true },
+			],
+		},
+		{ heading: "~/Code/my-skills" },
+		{
+			value: "drafting",
+			label: "drafting",
+			cells: [
+				{ text: "skill", dim: true },
+				{ text: "local" },
+				{ status: "local", text: "local", dim: true },
+			],
+		},
+	];
+	const lines = (width: number, cursor = 1, style = plain) =>
+		renderSelect(view(DASHBOARD, cursor), width, style).slice(1);
+
+	it("lines its cells up in columns laid out from every choice, the widest and 3 apart", () => {
+		expect(lines(100)).toEqual([
+			"   leeovery/agentic-skills",
+			" ▌   laravel             pack    v0.2.4 ^0.2.4     ↑ v0.2.5",
+			"     agentic-workflows   skill   v0.8.18 ^0.8.18   ✓ up to date",
+			"   ~/Code/my-skills",
+			"     drafting            skill   local             ◇ local",
+		]);
+	});
+
+	it("drops the asides first where the line is too wide", () => {
+		expect(lines(60)).toEqual([
+			"   leeovery/agentic-skills",
+			" ▌   laravel             pack    v0.2.4    ↑ v0.2.5",
+			"     agentic-workflows   skill   v0.8.18   ✓ up to date",
+			"   ~/Code/my-skills",
+			"     drafting            skill   local     ◇ local",
+		]);
+	});
+
+	it("then the cells before the last, from the right, keeping the status", () => {
+		expect(lines(46)).toEqual([
+			"   leeovery/agentic-skills",
+			" ▌   laravel             pack    ↑ v0.2.5",
+			"     agentic-workflows   skill   ✓ up to date",
+			"   ~/Code/my-skills",
+			"     drafting            skill   ◇ local",
+		]);
+		expect(lines(40)).toEqual([
+			"   leeovery/agentic-skills",
+			" ▌   laravel             ↑ v0.2.5",
+			"     agentic-workflows   ✓ up to date",
+			"   ~/Code/my-skills",
+			"     drafting            ◇ local",
+		]);
+	});
+
+	it("then cuts the labels at their start, as a name is told apart by its tail", () => {
+		const long: SelectOption<string>[] = [
+			{
+				value: "a",
+				label: "a-skill-with-a-name-long-enough-to-crowd-its-status",
+				cells: [{ status: "failed", text: "no matching version" }],
+			},
+		];
+		const [line] = renderSelect(view(long, 0), 40, plain).slice(1);
+		expect(line).toBe(" ▌ …-its-status   ✗ no matching version");
+		expect(line!.length).toBeLessThanOrEqual(39);
+	});
+
+	it("cuts a line its last cell alone overflows at the margin", () => {
+		const wide: SelectOption<string>[] = [
+			{
+				value: "a",
+				label: "a",
+				cells: [{ status: "failed", text: "x".repeat(60) }],
+			},
+		];
+		const [line] = renderSelect(view(wide, 0), 40, plain).slice(1);
+		expect(line).toBe(` ▌ ✗ ${"x".repeat(33)}…`);
+	});
+
+	it("paints the kind dim, the constraint dim, each glyph in its status's colour, and bolds the cursor's label", () => {
+		const [, cursorRow, other] = lines(100, 1, colour);
+		expect(cursorRow).toBe(
+			` ${BAR}   \x1b[1mlaravel\x1b[22m             \x1b[2mpack\x1b[22m    v0.2.4 \x1b[2m^0.2.4\x1b[22m     ${ACCENT}↑\x1b[39m v0.2.5`,
+		);
+		expect(other).toBe(
+			"     agentic-workflows   \x1b[2mskill\x1b[22m   v0.8.18 \x1b[2m^0.8.18\x1b[22m   \x1b[32m✓\x1b[39m \x1b[2mup to date\x1b[22m",
+		);
+	});
+});
+
+describe("a select's footer", () => {
+	const FOOTER: SelectFooter = {
+		keys: ["⏎ manage", "esc done"],
+		counts: [
+			{ count: 3, label: "updates", status: "newer" },
+			{ count: 0, label: "with newer tags", status: "attention" },
+			{ count: 1, label: "check failed", status: "failed" },
+		],
+	};
+	const footed = (width: number, more: Partial<SelectView<string>> = {}) =>
+		renderSelect(
+			view(GROUPED, 1, { hints: "", footer: FOOTER, ...more }),
+			width,
+			plain,
+		);
+
+	it("sits under the options a blank line apart: its keys on the left, the counts it has on the right", () => {
+		expect(footed(100).slice(-2)).toEqual([
+			"",
+			` ↑↓ move   ⏎ manage   esc done${gap(43)}3 updates · 1 check failed`,
+		]);
+	});
+
+	it("cuts the counts before the keys where both don't fit", () => {
+		const crowded: SelectFooter = {
+			keys: FOOTER.keys,
+			counts: [
+				...(FOOTER.counts ?? []),
+				{ count: 2, label: "with no match", status: "failed" },
+			],
+		};
+		const line = footerLine(crowded, 60, plain);
+		expect(line).toBe(
+			" ↑↓ move   ⏎ manage   esc done  3 updates · 1 check failed…",
+		);
+		expect(line.length).toBe(59);
+	});
+
+	it("drops the keys below 60 columns, the counts at the right margin", () => {
+		expect(footed(59).slice(-1)).toEqual([
+			`${gap(32)}3 updates · 1 check failed`,
+		]);
+	});
+
+	it("is the keys alone when nothing is counted", () => {
+		expect(footerLine({ keys: ["⏎ manage"], counts: [] }, 80, plain)).toBe(
+			" ↑↓ move   ⏎ manage",
+		);
+	});
+
+	it("paints the keys dim and each count in its status's colour", () => {
+		expect(footerLine(FOOTER, 100, colour)).toBe(
+			` \x1b[2m↑↓ move   ⏎ manage   esc done\x1b[22m${gap(43)}${ACCENT}3 updates\x1b[39m\x1b[2m · \x1b[22m\x1b[31m1 check failed\x1b[39m`,
+		);
+	});
+
+	it("shows only as many of its lines as the window leaves it, its last first", () => {
+		expect(footed(100, { footerLines: 1 }).slice(-1)[0]).toMatch(/^ ↑↓ move/);
+		expect(footed(100, { footerLines: 1 }).at(-2)).not.toBe("");
+		expect(footed(100, { footerLines: 0 }).at(-1)).toBe(
+			"     gh-stack   skill",
+		);
+	});
+
+	it("takes the key hints off the question's line", async () => {
+		const terminal = new Terminal(100, 20);
+		const answer = promptSelect(
+			{ message: "Manage", options: GROUPED, footer: FOOTER },
+			terminal.context(),
+		);
+		await terminal.press();
+		const frame = await terminal.lines();
+		expect(frame[0]).toBe(" ? Manage");
+		expect(frame.at(-1)).toMatch(
+			/^ ↑↓ move {3}⏎ manage {3}esc done +3 updates/,
+		);
+		await terminal.press(KEY.escape);
+		expect(await answer).toBeNull();
+	});
+
+	it("counts in the frame's fit, giving up the more lines, then its blank line, before the options", () => {
+		const question = { message: "Manage", options: TEN, footer: FOOTER };
+		expect(selectWindow(question, 24, 100, plain)).toMatchObject({
+			size: 10,
+			footerLines: 2,
+		});
+		expect(selectWindow(question, 13, 100, plain)).toMatchObject({
+			size: 7,
+			more: true,
+			footerLines: 2,
+		});
+		expect(selectWindow(question, 4, 100, plain)).toMatchObject({
+			size: 1,
+			more: false,
+			footerLines: 1,
 		});
 	});
 });

@@ -4,20 +4,13 @@ vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../src/manifest.js", async (importOriginal) => ({
-	...(await importOriginal<typeof import("../src/manifest.js")>()),
-	writeManifest: vi.fn(),
-}));
-
-import { settleGone, settleGoneInList } from "../src/gone-upstream.js";
-import { type Manifest, writeManifest } from "../src/manifest.js";
+import { settleGone } from "../src/gone-upstream.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { globalScope, projectScope } from "../src/scope.js";
 import { MachineUi, type Ui } from "../src/ui.js";
 import { makeEntry } from "./helpers/factories.js";
 
 const mockNuke = vi.mocked(nukeManifestFiles);
-const mockWriteManifest = vi.mocked(writeManifest);
 
 const KEY = "owner/repo/go";
 const PROJECT = projectScope("/project");
@@ -34,7 +27,6 @@ function terminal(answer: boolean): Ui & { confirm: ReturnType<typeof vi.fn> } {
 beforeEach(() => {
 	vi.clearAllMocks();
 	mockNuke.mockResolvedValue({ removed: [], skipped: [] });
-	mockWriteManifest.mockResolvedValue(undefined);
 });
 
 describe("settleGone", () => {
@@ -142,56 +134,5 @@ describe("settleGone", () => {
 		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/home/lee", [
 			".claude/skills/go/",
 		]);
-	});
-});
-
-describe("settleGoneInList", () => {
-	const other = makeEntry({ files: [".claude/skills/other/"] });
-	const manifest: Manifest = { [KEY]: entry, "owner/other": other };
-
-	it("records the removal at once on yes, after the files are gone", async () => {
-		await settleGoneInList(KEY, entry, manifest, PROJECT, terminal(true));
-
-		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/project", {
-			"owner/other": other,
-		});
-		expect(mockNuke.mock.invocationCallOrder[0]).toBeLessThan(
-			mockWriteManifest.mock.invocationCallOrder[0]!,
-		);
-	});
-
-	it("writes nothing on no", async () => {
-		const settled = await settleGoneInList(
-			KEY,
-			entry,
-			manifest,
-			PROJECT,
-			terminal(false),
-		);
-
-		expect(settled).toEqual({
-			ok: true,
-			message: "Kept owner/repo/go — it's gone upstream; update will ask again",
-		});
-		expect(mockWriteManifest).not.toHaveBeenCalled();
-	});
-
-	it("keeps it recorded and says why when removing its files fails", async () => {
-		mockNuke.mockRejectedValue(new Error("EACCES: permission denied"));
-
-		const settled = await settleGoneInList(
-			KEY,
-			entry,
-			manifest,
-			PROJECT,
-			terminal(true),
-		);
-
-		expect(settled).toEqual({
-			ok: false,
-			message:
-				"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
-		});
-		expect(mockWriteManifest).not.toHaveBeenCalled();
 	});
 });

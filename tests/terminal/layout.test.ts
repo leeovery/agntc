@@ -9,6 +9,7 @@ import {
 	truncateStart,
 	visibleWidth,
 	wrap,
+	wrapItems,
 } from "../../src/terminal/layout.js";
 
 describe("visibleWidth", () => {
@@ -90,6 +91,34 @@ describe("spread", () => {
 	it("needs a gap of two", () => {
 		expect(spread("abc", "def", 9)).toBe("abc  def");
 		expect(spread("abc", "def", 8)).toBeUndefined();
+	});
+});
+
+describe("wrapItems", () => {
+	it("lays the items two spaces apart", () => {
+		expect(wrapItems(["laravel", "nuxt", "go"], 40)).toEqual([
+			"laravel  nuxt  go",
+		]);
+	});
+
+	it("breaks between items, never inside one that fits a line", () => {
+		expect(wrapItems(["laravel", "nuxt-ui", "go"], 14)).toEqual([
+			"laravel",
+			"nuxt-ui  go",
+		]);
+	});
+
+	it("wraps an item too long for a line of its own as prose, the next item after it", () => {
+		expect(wrapItems(["a", "abcdefghij", "b"], 6)).toEqual([
+			"a",
+			"abcdef",
+			"ghij",
+			"b",
+		]);
+	});
+
+	it("gives no lines for no items", () => {
+		expect(wrapItems([], 10)).toEqual([]);
 	});
 });
 

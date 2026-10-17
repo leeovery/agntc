@@ -272,6 +272,31 @@ export function wrap(
 		);
 }
 
+const ITEM_GAP = "  ";
+
+/**
+ * Items two spaces apart, in lines of `width` columns broken between them;
+ * an item too long for a line of its own wraps as prose does.
+ */
+export function wrapItems(items: readonly string[], width: number): string[] {
+	const lines: string[] = [];
+	let line = "";
+	for (const item of items) {
+		const joined = line === "" ? item : `${line}${ITEM_GAP}${item}`;
+		if (visibleWidth(joined) <= width) {
+			line = joined;
+			continue;
+		}
+		if (line !== "") {
+			lines.push(line);
+		}
+		const pieces = wrap(item, width);
+		line = pieces.pop() ?? "";
+		lines.push(...pieces);
+	}
+	return line === "" ? lines : [...lines, line];
+}
+
 function wrapParagraph(
 	text: string,
 	width: number,

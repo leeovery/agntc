@@ -1,6 +1,9 @@
 import type { Stats } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Manifest } from "../../src/manifest.js";
+import type { UpdatableCheck, UpdateRun } from "../../src/key-update.js";
+import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import type { Scope } from "../../src/scope.js";
+import type { Row } from "../../src/terminal/types.js";
 
 // The clone-reinstall dependency surface shared with list-change-version-action
 // is mocked via factory bodies authored once in ../helpers/list-action-mocks.
@@ -120,77 +123,139 @@ beforeEach(() => {
 	ui = testUi();
 });
 
+const PROJECT = projectScope("/fake/project");
+const REMOTE: UpdatableCheck = {
+	status: "update-available",
+	remoteCommit: REMOTE_SHA,
+};
+
+function runIn(scope: Scope = PROJECT): UpdateRun {
+	return { scope, yes: false, ui, home: "/home/me" };
+}
+
+/** Updates the entry as the list's action does, a remote one as its check found a newer commit. */
+function update(
+	key: string,
+	entry: ManifestEntry,
+	manifest: Manifest = { [key]: entry },
+	check: UpdatableCheck = entry.commit === null ? { status: "local" } : REMOTE,
+	scope: Scope = PROJECT,
+) {
+	return executeUpdateAction({ key, entry }, check, manifest, runIn(scope));
+}
+
+/** The row the update settled into. */
+function settled(): Row {
+	const rows = ui.rows();
+	expect(rows).toHaveLength(1);
+	return rows[0]!;
+}
+
+/** What was written as the manifest, the last time it was. */
+function written(): Manifest {
+	return mockWriteManifest.mock.calls.at(-1)![1];
+}
+
+function cloned(commit = REMOTE_SHA): void {
+	mockCloneSource.mockResolvedValue({ tempDir: "/tmp/agntc-clone", commit });
+}
+
 describe("executeUpdateAction", () => {
+	it("updates under the row `update <key>` draws: progress as its block's task, settling into the repo's row", async () => {
+		const key = "owner/repo";
+		const entry = makeEntry({ type: "skill" });
+		cloned();
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/my-skill/"],
+		});
+
+		const result = await update(key, entry);
+
+		expect(result).toEqual({ key, change: "updated" });
+		expect(ui.block).toHaveBeenCalledWith([
+			{
+				subject: "owner/repo",
+				meta: "HEAD",
+				children: [{ name: "repo", status: "done" }],
+			},
+		]);
+		const [task] = ui.blocks[0]!.tasks;
+		expect(ui.blocks[0]!.task).toHaveBeenCalledWith({
+			subject: "owner/repo",
+			meta: "HEAD",
+			text: "updating to bbbbbbb…",
+		});
+		expect(task!.settle).toHaveBeenCalledWith({
+			status: "done",
+			subject: "owner/repo",
+			meta: "HEAD",
+			detail: { move: { from: "aaaaaaa", to: "bbbbbbb" } },
+			children: [{ name: "repo", detail: "skill · 1 file" }],
+		});
+	});
+
 	describe("remote update (commit is not null)", () => {
-		it("clones, nukes, copies, writes manifest, returns success with newEntry", async () => {
+		it("clones, nukes, copies and records the reinstalled entry", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry();
 			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			await update(key, entry, manifest);
 
-			expect(result.success).toBe(true);
-			expect(result.newEntry).toBeDefined();
-			expect(result.newEntry!.commit).toBe(REMOTE_SHA);
-			expect(result.newEntry!.files).toEqual([".claude/skills/my-skill/"]);
 			expect(mockCloneSource).toHaveBeenCalled();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/my-skill/",
 			]);
 			expect(mockCopyBareSkill).toHaveBeenCalled();
-			expect(mockWriteManifest).toHaveBeenCalled();
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				manifest,
 				key,
 				expect.objectContaining({ commit: REMOTE_SHA }),
 			);
+			expect(written()[key]).toMatchObject({
+				commit: REMOTE_SHA,
+				files: [".claude/skills/my-skill/"],
+			});
 		});
 	});
 
 	describe("local update (commit is null)", () => {
-		it("validates path, nukes, copies, writes manifest, returns success", async () => {
+		it("validates the path, refreshes from it without cloning, and counts it as updated", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null });
-			const manifest: Manifest = { [key]: entry };
-
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry);
 
-			expect(result.success).toBe(true);
-			expect(result.newEntry).toBeDefined();
-			expect(result.newEntry!.commit).toBeNull();
-			expect(result.newEntry!.ref).toBeNull();
-			expect(result.newEntry!.files).toEqual([".claude/skills/my-plugin/"]);
+			expect(result).toEqual({ key, change: "updated" });
 			expect(mockStat).toHaveBeenCalledWith(key);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/my-skill/",
 			]);
-			expect(mockWriteManifest).toHaveBeenCalled();
+			expect(written()[key]).toMatchObject({
+				commit: null,
+				ref: null,
+				files: [".claude/skills/my-plugin/"],
+			});
+			expect(ui.blocks[0]!.task).toHaveBeenCalledWith({
+				subject: key,
+				meta: "local",
+				text: "refreshing…",
+			});
+			expect(settled()).toMatchObject({
+				status: "done",
+				subject: key,
+				meta: "local",
+				detail: { label: "refreshed" },
+			});
 		});
 
 		it("names the recorded root, not the key, when that folder is gone", async () => {
@@ -202,43 +267,28 @@ describe("executeUpdateAction", () => {
 			});
 			mockStat.mockRejectedValue(new Error("ENOENT"));
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				{ [key]: entry },
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry);
 
-			expect(result).toEqual({
-				success: false,
-				key,
-				message: "/Users/lee/Code/skills: path does not exist",
-				notes: [],
+			expect(result).toEqual({ key, change: null });
+			expect(settled()).toMatchObject({
+				status: "failed",
+				detail: "/Users/lee/Code/skills: path does not exist",
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		});
 	});
 
 	describe("clone failure", () => {
-		it("returns failure, does not nuke, does not write manifest", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry();
-			const manifest: Manifest = { [key]: entry };
-
+		it("says so on the row, and neither nukes nor writes the manifest", async () => {
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update("owner/repo", makeEntry());
 
-			expect(result.success).toBe(false);
-			expect(result.message).toContain("git clone failed");
-			expect(result.newEntry).toBeUndefined();
+			expect(result).toEqual({ key: "owner/repo", change: null });
+			expect(settled()).toMatchObject({
+				status: "failed",
+				detail: { label: "clone failed", aside: "git clone failed" },
+			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
@@ -246,205 +296,165 @@ describe("executeUpdateAction", () => {
 
 	describe("temp dir cleanup", () => {
 		it("cleans up on success", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry();
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			await update("owner/repo", makeEntry());
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
 
 		it("cleans up on failure", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry();
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update("owner/repo", makeEntry());
 
-			expect(result.success).toBe(false);
+			expect(result.change).toBeNull();
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
 	});
 
 	describe("collection key (3+ parts)", () => {
-		it("resolves sourceDir correctly for collection plugin", async () => {
+		it("clones the repo and reads the entry's folder in it", async () => {
 			const key = "owner/repo/go";
-			const entry = makeEntry({
-				type: "skill",
-				files: [".claude/skills/go/"],
-			});
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
+			cloned();
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry);
 
-			expect(result.success).toBe(true);
-			// Clone uses owner/repo
+			expect(result.change).toBe("updated");
 			expect(mockCloneSource).toHaveBeenCalledWith(
-				expect.objectContaining({
-					owner: "owner",
-					repo: "repo",
-				}),
+				expect.objectContaining({ owner: "owner", repo: "repo" }),
 			);
-			// The recorded-skill validation gate uses the subdir
 			expect(mockAccess).toHaveBeenCalledWith("/tmp/agntc-clone/go/SKILL.md");
 		});
 	});
 
 	describe("copy-failed — remote update", () => {
-		it("removes entry from manifest and returns failure with a recovery hint naming the copy error", async () => {
+		it("drops the entry, says why on the row, and puts the re-add that installs it again under Next", async () => {
 			const key = "owner/repo";
-			const entry = makeEntry();
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockCopyBareSkill.mockRejectedValue(
 				new Error("ENOSPC: no space left on device, write"),
 			);
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, makeEntry());
 
-			expect(result.success).toBe(false);
-			expect(result.message).toBe(
-				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
-			);
-			expect(mockWriteManifest).toHaveBeenCalledWith(
-				"/fake/project",
-				expect.not.objectContaining({ "owner/repo": expect.anything() }),
-			);
+			expect(result).toEqual({ key, change: null });
+			expect(settled()).toMatchObject({
+				status: "failed",
+				children: [
+					{
+						name: "repo",
+						detail:
+							"update failed after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled.",
+					},
+				],
+			});
+			expect(ui.next).toHaveBeenCalledWith({
+				subject: key,
+				remedy: {
+					lead: "To install it again:",
+					steps: [{ command: "npx agntc add owner/repo" }],
+				},
+			});
+			expect(written()).not.toHaveProperty(key);
 		});
 	});
 
 	describe("copy-failed — local update", () => {
-		it("removes entry from manifest and returns failure with recovery hint", async () => {
+		it("drops the entry, its re-add naming the folder under Next", async () => {
 			const key = "/Users/lee/Code/my-plugin";
 			const entry = makeEntry({ commit: null, ref: null });
-			const manifest: Manifest = { [key]: entry };
-
 			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			await update(key, entry);
 
-			expect(result.success).toBe(false);
-			expect(result.message).toContain(`npx agntc add ${key}`);
-			expect(mockWriteManifest).toHaveBeenCalledWith(
-				"/fake/project",
-				expect.not.objectContaining({ [key]: expect.anything() }),
-			);
+			const item = ui.next.mock.calls[0]?.[0];
+			expect(item!.remedy.steps).toEqual([{ command: `npx agntc add ${key}` }]);
+			expect(written()).not.toHaveProperty(key);
 		});
 	});
 
 	describe("aborted (derive-before-delete)", () => {
-		it("renders the canonical buildAbortMessage, its remedy adding either skill, and leaves the install intact", async () => {
+		it("leaves the install intact, says why on the row, and puts the remedy adding either skill under Next", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({
 				type: "skill",
 				files: [".claude/skills/my-skill/"],
 			});
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			// The recorded SKILL.md is gone and two skills now carry its name → abort.
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry);
 
-			expect(result.success).toBe(false);
-			expect(result.message).toBe(
-				"owner/repo can't be updated: its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo. The existing install is unchanged. To follow one of them: npx agntc remove owner/repo then one of: npx agntc add owner/repo/a/repo or npx agntc add owner/repo/b/repo",
-			);
-			expect(result.newEntry).toBeUndefined();
-			// Install intact: no nuke, no manifest write.
+			expect(result).toEqual({ key, change: null });
+			expect(settled()).toMatchObject({
+				status: "failed",
+				detail: {
+					move: { from: "aaaaaaa", to: "bbbbbbb" },
+					note: "not updated",
+				},
+				children: [
+					{
+						name: "repo",
+						detail:
+							"can't be updated: its SKILL.md is gone from repo and 2 skills are now named repo: a/repo, b/repo. The existing install is unchanged.",
+					},
+				],
+			});
+			expect(ui.next).toHaveBeenCalledExactlyOnceWith({
+				subject: key,
+				remedy: {
+					lead: "To follow one of them:",
+					steps: [
+						{ command: "npx agntc remove owner/repo" },
+						{
+							choice: [
+								"npx agntc add owner/repo/a/repo",
+								"npx agntc add owner/repo/b/repo",
+							],
+						},
+					],
+				},
+			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
 		it("carries -g in the remedy for a global entry", async () => {
 			const entry = makeEntry({ type: "skill", ref: "v1.0.0" });
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			mockDiscover.mockResolvedValue(looseSkillsAt("a/repo", "b/repo"));
 
-			const result = await executeUpdateAction(
+			await update(
 				"owner/repo",
 				entry,
 				{ "owner/repo": entry },
+				REMOTE,
 				globalScope("/home/lee"),
-				ui,
 			);
 
-			expect(result.message).toContain(
-				"To follow one of them: npx agntc remove -g owner/repo then one of: npx agntc add -g owner/repo/a/repo@v1.0.0 or npx agntc add -g owner/repo/b/repo@v1.0.0",
-			);
+			const item = ui.next.mock.calls[0]?.[0];
+			expect(item!.remedy.steps).toEqual([
+				{ command: "npx agntc remove -g owner/repo" },
+				{
+					choice: [
+						"npx agntc add -g owner/repo/a/repo@v1.0.0",
+						"npx agntc add -g owner/repo/b/repo@v1.0.0",
+					],
+				},
+			]);
 		});
 
 		it("names the folders it would remove that the source still has, and how to update anyway", async () => {
@@ -453,25 +463,28 @@ describe("executeUpdateAction", () => {
 				type: "pack",
 				files: [".claude/skills/a/", ".claude/skills/workflow-shared/"],
 			});
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockDiscover.mockResolvedValue(packAt("tools", "a"));
 			mockDroppedButInSource.mockResolvedValue(["workflow-shared"]);
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				{ [key]: entry },
-				projectScope("/fake/project"),
-				ui,
-			);
+			await update(key, entry);
 
-			expect(result).toMatchObject({
-				success: false,
-				message:
-					"owner/repo/tools can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack",
+			expect(settled().children).toEqual([
+				{
+					name: "tools",
+					detail:
+						"can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged.",
+				},
+			]);
+			expect(ui.next).toHaveBeenCalledWith({
+				subject: key,
+				remedy: {
+					lead: "To update it anyway:",
+					steps: [
+						{ command: "npx agntc remove owner/repo/tools" },
+						{ command: "npx agntc add owner/repo/tools --pack" },
+					],
+				},
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -479,31 +492,20 @@ describe("executeUpdateAction", () => {
 	});
 
 	describe("a skill that moved upstream", () => {
-		it("follows it, records its new path, and returns the move as a note", async () => {
+		it("follows it, records its new path, and says so as a note, as a Message", async () => {
 			const key = "owner/repo/go";
 			const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			mockDiscover.mockResolvedValue(looseSkillsAt("skills/go"));
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				{ [key]: entry },
-				projectScope("/fake/project"),
-				ui,
-			);
+			await update(key, entry);
 
-			expect(result.success).toBe(true);
-			expect(result.newEntry!.sourceSubpath).toBe("skills/go");
-			expect(result.notes).toEqual([
+			expect(written()[key]).toMatchObject({ sourceSubpath: "skills/go" });
+			expect(ui.said("info")).toEqual([
 				"owner/repo/go moved from go to skills/go",
 			]);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
@@ -513,45 +515,40 @@ describe("executeUpdateAction", () => {
 	});
 
 	describe("a root skill that moved upstream", () => {
-		it("moves the entry to the key add gives it, the old key gone in the same write", async () => {
+		it("moves the entry to the key add gives it, the old key gone in the same write, and follows it", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({
 				type: "skill",
 				files: [".claude/skills/repo/"],
 			});
 			const other = makeEntry({ files: [".claude/skills/other/"] });
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			mockDiscover.mockResolvedValue(looseSkillsAt("skills/repo"));
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/repo/"],
 			});
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				{ [key]: entry, "owner/other": other },
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result).toMatchObject({
-				success: true,
-				key: "owner/repo/repo",
-				message: "Updated owner/repo/repo",
-				notes: [
-					"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
-				],
+			const result = await update(key, entry, {
+				[key]: entry,
+				"owner/other": other,
 			});
-			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
-				"/fake/project",
-				{ "owner/other": other, "owner/repo/repo": result.newEntry },
-			);
-			expect(result.newEntry).toMatchObject({ sourceSubpath: "skills/repo" });
+
+			expect(result).toEqual({ key: "owner/repo/repo", change: "updated" });
+			expect(ui.said("info")).toEqual([
+				"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+			]);
+			expect(mockWriteManifest).toHaveBeenCalledOnce();
+			expect(Object.keys(written())).toEqual([
+				"owner/other",
+				"owner/repo/repo",
+			]);
+			expect(written()["owner/repo/repo"]).toMatchObject({
+				sourceSubpath: "skills/repo",
+			});
+			expect(settled().children).toEqual([
+				{ name: "repo", detail: "skill · 1 file · now keyed owner/repo/repo" },
+			]);
 		});
 	});
 
@@ -564,34 +561,27 @@ describe("executeUpdateAction", () => {
 				files: [".claude/skills/a/"],
 			});
 			const loose = makeEntry({ files: [".claude/skills/tools/"] });
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockDiscover.mockResolvedValue(packAt("packs/tools", "a", "tools"));
 			mockCopyPack.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/", ".claude/skills/tools/"],
 				assetCounts: { skills: 2 },
 			});
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				{ [key]: entry, "owner/repo/packs/tools": loose },
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result).toMatchObject({
-				success: true,
-				key: "owner/repo/packs/tools",
-				newEntry: { type: "pack" },
+			const result = await update(key, entry, {
+				[key]: entry,
+				"owner/repo/packs/tools": loose,
 			});
-			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
-				"/fake/project",
-				{ "owner/repo/packs/tools": result.newEntry },
-			);
+
+			expect(result).toEqual({
+				key: "owner/repo/packs/tools",
+				change: "updated",
+			});
+			expect(mockWriteManifest).toHaveBeenCalledOnce();
+			expect(Object.keys(written())).toEqual(["owner/repo/packs/tools"]);
+			expect(written()["owner/repo/packs/tools"]).toMatchObject({
+				type: "pack",
+			});
 		});
 	});
 
@@ -602,10 +592,7 @@ describe("executeUpdateAction", () => {
 		const manifest: Manifest = { [key]: entry, "owner/other": other };
 
 		function arrangeGone(): void {
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			mockDiscover.mockResolvedValue(looseSkillsAt("skills/other"));
 		}
@@ -614,13 +601,7 @@ describe("executeUpdateAction", () => {
 			arrangeGone();
 			ui.confirm.mockResolvedValue(false);
 
-			await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			await update(key, entry, manifest);
 
 			expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
 				message: "owner/repo/go is gone upstream — remove it?",
@@ -628,47 +609,34 @@ describe("executeUpdateAction", () => {
 			});
 		});
 
-		it("keeps it on no: nothing removed or written", async () => {
+		it("keeps it on no: nothing removed, written or counted, the row saying so", async () => {
 			arrangeGone();
 			ui.confirm.mockResolvedValue(false);
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry, manifest);
 
-			expect(result).toEqual({
-				success: true,
-				key,
-				message:
-					"Kept owner/repo/go — it's gone upstream; update will ask again",
-				notes: [],
+			expect(result).toEqual({ key, change: null });
+			expect(settled()).toMatchObject({
+				status: "attention",
+				detail: { label: "kept" },
+				children: [
+					{
+						name: "go",
+						detail: "kept — it's gone upstream; update will ask again",
+					},
+				],
 			});
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
-		it("removes its files and then its entry on yes", async () => {
+		it("removes its files and then its entry on yes, counted as removed", async () => {
 			arrangeGone();
 			ui.confirm.mockResolvedValue(true);
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry, manifest);
 
-			expect(result).toEqual({
-				success: true,
-				key,
-				message: "Removed owner/repo/go — it's gone upstream",
-				notes: [],
-			});
+			expect(result).toEqual({ key, change: "removed" });
 			expect(mockNukeManifestFiles).toHaveBeenCalledExactlyOnceWith(
 				"/fake/project",
 				[".claude/skills/go/"],
@@ -680,163 +648,136 @@ describe("executeUpdateAction", () => {
 			expect(mockNukeManifestFiles.mock.invocationCallOrder[0]).toBeLessThan(
 				mockWriteManifest.mock.invocationCallOrder[0]!,
 			);
+			expect(settled()).toMatchObject({
+				status: "done",
+				detail: { label: "removed" },
+			});
 		});
 
-		it("keeps it and reports the failure when removing it fails", async () => {
+		it("keeps it and says why when removing it fails", async () => {
 			arrangeGone();
 			ui.confirm.mockResolvedValue(true);
 			mockNukeManifestFiles.mockRejectedValue(
 				new Error("EACCES: permission denied"),
 			);
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry, manifest);
 
-			expect(result).toEqual({
-				success: false,
-				key,
-				message:
-					"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
-				notes: [],
+			expect(result).toEqual({ key, change: null });
+			expect(settled()).toMatchObject({
+				status: "failed",
+				children: [{ name: "go", detail: "EACCES: permission denied" }],
 			});
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 	});
 
 	describe("blocked (symlink-escape copy-safety)", () => {
-		it("renders the copy-safety message (symlink escape, no type-migration remedy), leaves install intact", async () => {
+		it("names the link on the row, offers no remedy, and leaves the install intact", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({
 				type: "skill",
 				files: [".claude/skills/my-skill/"],
 			});
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockScanForEscapingSymlinks.mockRejectedValue(
 				new SymlinkEscapeError("evil-link", "/etc/passwd"),
 			);
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
+			const result = await update(key, entry);
 
-			expect(result.success).toBe(false);
-			expect(result.message).toContain("evil-link");
-			expect(result.message.toLowerCase()).toContain("symlink");
-			expect(result.message).toContain("unchanged");
-			expect(result.message).not.toContain("no longer supports that type");
-			expect(result.message).not.toContain("npx agntc remove");
-			expect(result.newEntry).toBeUndefined();
-			// Install intact: no nuke, no manifest write.
+			expect(result).toEqual({ key, change: null });
+			const row = settled();
+			expect(row.status).toBe("failed");
+			const detail = row.children?.[0]?.detail ?? "";
+			expect(detail).toContain("evil-link");
+			expect(detail.toLowerCase()).toContain("symlink");
+			expect(detail).toContain("unchanged");
+			expect(ui.next).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 	});
 
-	describe("constrained update overrides", () => {
-		it("forwards newRef and newCommit to cloneAndReinstall when overrides provided", async () => {
+	describe("what the check found", () => {
+		it("clones and records a constrained entry at the tag its check resolved", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
-			const manifest: Manifest = { [key]: entry };
-			const overrideCommit = "c".repeat(40);
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: overrideCommit,
-			});
+			const resolved = "c".repeat(40);
+			cloned(resolved);
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await executeUpdateAction(
+			await update(
 				key,
 				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-				{ newRef: "v1.2.0", newCommit: overrideCommit },
+				{ [key]: entry },
+				{
+					status: "constrained-update-available",
+					tag: "v1.2.0",
+					commit: resolved,
+					latestOverall: null,
+				},
 			);
 
-			expect(result.success).toBe(true);
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({ ref: "v1.2.0" }),
 			);
-			expect(result.newEntry).toBeDefined();
-			expect(result.newEntry!.ref).toBe("v1.2.0");
-			expect(result.newEntry!.commit).toBe(overrideCommit);
-		});
-
-		it("behaves as before when no overrides provided", async () => {
-			const key = "owner/repo";
-			const entry = makeEntry({ ref: "v1.0.0", constraint: "^1.0.0" });
-			const manifest: Manifest = { [key]: entry };
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
+			expect(written()[key]).toMatchObject({ ref: "v1.2.0", commit: resolved });
+			expect(settled().detail).toEqual({
+				move: { from: "v1.0.0", to: "v1.2.0" },
 			});
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				manifest,
-				projectScope("/fake/project"),
-				ui,
-			);
-
-			expect(result.success).toBe(true);
-			// Without overrides, cloneSource uses entry.ref
-			expect(mockCloneSource).toHaveBeenCalledWith(
-				expect.objectContaining({ ref: "v1.0.0" }),
-			);
-			expect(result.newEntry!.commit).toBe(REMOTE_SHA);
 		});
 
 		it("keeps a branch entry on its branch, at the clone's commit", async () => {
 			const key = "owner/repo";
 			const entry = makeEntry({ ref: "dev" });
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
+			cloned();
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await executeUpdateAction(
-				key,
-				entry,
-				{ [key]: entry },
-				projectScope("/fake/project"),
-				ui,
-			);
+			await update(key, entry);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({ ref: "dev" }),
 			);
-			expect(result.newEntry).toMatchObject({ ref: "dev", commit: REMOTE_SHA });
 			expect(mockAddEntry).toHaveBeenCalledWith(
 				{ [key]: entry },
 				key,
-				expect.objectContaining({ ref: "dev" }),
+				expect.objectContaining({ ref: "dev", commit: REMOTE_SHA }),
 			);
 		});
+	});
+
+	it("settles its row as failed, the manifest as it was, when a step throws", async () => {
+		cloned();
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/my-skill/"],
+		});
+		mockWriteManifest.mockRejectedValue(new Error("EROFS: read-only"));
+
+		const result = await update("owner/repo", makeEntry());
+
+		expect(result).toEqual({ key: "owner/repo", change: null });
+		expect(settled()).toMatchObject({
+			status: "failed",
+			children: [{ name: "repo", detail: "EROFS: read-only" }],
+		});
+	});
+
+	it("never draws through the old surface", async () => {
+		cloned();
+		mockCopyBareSkill.mockResolvedValue({
+			copiedFiles: [".claude/skills/my-skill/"],
+		});
+
+		await update("owner/repo", makeEntry());
+
+		expect(ui.spinner).not.toHaveBeenCalled();
+		for (const channel of Object.values(ui.log)) {
+			expect(channel).not.toHaveBeenCalled();
+		}
 	});
 });

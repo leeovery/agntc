@@ -17,7 +17,6 @@ import {
 	guardSourceDir,
 	resolveGuardedSourceDir,
 } from "./source-parser.js";
-import type { Ui } from "./ui.js";
 
 export interface CloneAndReinstallOptions {
 	key: string;
@@ -185,34 +184,6 @@ export function mapCloneFailure<T>(
 		case "remove-failed":
 			return handlers.onRemoveFailed(result.message);
 	}
-}
-
-/**
- * Collapses any {@link CloneReinstallFailure} to a single user-facing message,
- * shared by the two `list` actions (update + change-version) whose failure tails
- * were otherwise byte-identical. Implemented in terms of {@link mapCloneFailure}
- * so the dispatch logic isn't re-authored: clone-failed/copy-failed/remove-failed
- * pass through the failure's own message, `aborted` routes through
- * {@link buildAbortMessage} and `blocked` through
- * {@link buildCopySafetyMessage}. A new failure variant is a single edit here;
- * the list actions can't drift. update.ts keeps its richer per-status handler.
- * `version` is the tag a version change asked for ({@link buildAbortMessage}).
- */
-export function failureMessage(
-	result: CloneReinstallFailure,
-	key: string,
-	entry: ManifestEntry,
-	scope: ScopeName,
-	version?: string,
-): string {
-	return mapCloneFailure<string>(result, {
-		onCloneFailed: (msg) => msg,
-		onCopyFailed: (recovery) => recovery.plain,
-		onRemoveFailed: (msg) => msg,
-		onAborted: (abort) =>
-			buildAbortMessage(key, entry, abort, scope, version).plain,
-		onBlocked: (reason) => buildCopySafetyMessage(key, reason).plain,
-	});
 }
 
 /**
@@ -411,11 +382,10 @@ export function buildCopySafetyMessage(
  * an optional `newRef` override — the constrained resolved-tag, forwarded as
  * `clone --branch <resolved-tag>`) and clones once via {@link cloneSource},
  * letting a clone failure propagate. Retry lives inside `cloneSource` (3×
- * internally), so a throw here is final. Shared by {@link cloneAndReinstall}
- * (which wraps it in its own spinner + clone-failed mapping) and the group
- * orchestrator, which clones once per repo then reinstalls many members against
- * the shared temp dir. Deliberately spinner-free: the grouped path owns its own
- * clone-progress rendering.
+ * internally), so a throw here is final. Shared by {@link reinstallEntry}
+ * (which maps a throw to clone-failed) and the group orchestrator, which
+ * clones once per repo then reinstalls many members against the shared temp
+ * dir. Neither shows the clone: each caller's own progress covers it.
  */
 export async function cloneRepoOnce(input: {
 	key: string;
@@ -430,43 +400,14 @@ export async function cloneRepoOnce(input: {
 	return cloneSource(parsed);
 }
 
-/** What a reinstall shows while it clones a remote source. */
-export interface CloneProgress {
-	start(): void;
-	stop(cloned: boolean): void;
-}
-
-/** Shows nothing: what the caller shows covers the clone. */
-const QUIET: CloneProgress = { start: () => {}, stop: () => {} };
-
-/** A spinner over the clone, left as a done row once cloned and a failed one when it isn't. */
-function cloneSpinner(ui: Ui): CloneProgress {
-	const spin = ui.spinner();
-	return {
-		start: () => spin.start("Cloning repository..."),
-		stop: (cloned) =>
-			cloned ? spin.stop("Cloned successfully") : spin.stop("Clone failed", 1),
-	};
-}
-
-/** {@link reinstallEntry} under a {@link cloneSpinner}. */
-export function cloneAndReinstall(
-	options: CloneAndReinstallOptions,
-	ui: Ui,
-	installed: Manifest,
-): Promise<CloneReinstallResult> {
-	return reinstallEntry(options, installed, cloneSpinner(ui));
-}
-
 /**
  * Reinstalls one entry from its local folder, or from a fresh clone of its
- * remote, which `progress` shows. `installed` is every entry the manifest
- * holds, for what a pack's re-walk absorbs or clashes with.
+ * remote. `installed` is every entry the manifest holds, for what a pack's
+ * re-walk absorbs or clashes with.
  */
 export async function reinstallEntry(
 	options: CloneAndReinstallOptions,
 	installed: Manifest,
-	progress: CloneProgress = QUIET,
 ): Promise<CloneReinstallResult> {
 	const { key, entry, scope } = options;
 
@@ -500,8 +441,6 @@ export async function reinstallEntry(
 	let tempDir: string | undefined;
 
 	try {
-		progress.start();
-
 		let cloneResult: CloneResult;
 		try {
 			cloneResult = await cloneRepoOnce({
@@ -510,14 +449,12 @@ export async function reinstallEntry(
 				newRef: options.newRef,
 			});
 		} catch (err) {
-			progress.stop(false);
 			return {
 				status: "failed",
 				failureReason: "clone-failed",
 				message: errorMessage(err),
 			};
 		}
-		progress.stop(true);
 
 		tempDir = cloneResult.tempDir;
 		const newCommit = options.newCommit ?? cloneResult.commit;
@@ -633,7 +570,7 @@ export interface PipelineInput
  * already-resolved `sourceDir` and its containment `cloneRoot`, it runs the
  * symlink-escape pre-flight, derive-before-delete gate, nuke, and re-copy via
  * {@link executeNukeAndReinstall}, mapping the result to a
- * {@link CloneReinstallResult}. {@link cloneAndReinstall} calls it after its own
+ * {@link CloneReinstallResult}. {@link reinstallEntry} calls it after its own
  * single clone; the group orchestrator ({@link processGroupUpdate}) calls it
  * once per member against a shared clone, so the two owners cannot drift.
  */

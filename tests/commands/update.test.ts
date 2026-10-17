@@ -5255,7 +5255,7 @@ describe("update command", () => {
 			]);
 		});
 
-		it("passes new tag as newRef and new commit as newCommit to cloneAndReinstall", async () => {
+		it("passes new tag as newRef and new commit as newCommit to reinstallEntry", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,

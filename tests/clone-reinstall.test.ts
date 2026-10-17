@@ -55,9 +55,7 @@ import type {
 import {
 	buildAbortMessage,
 	buildCopySafetyMessage,
-	cloneAndReinstall,
 	cloneRepoOnce,
-	failureMessage,
 	isCloneReinstallFailure,
 	mapCloneFailure,
 	recordCopyFailure,
@@ -116,7 +114,7 @@ beforeEach(() => {
 	});
 });
 
-describe("cloneAndReinstall", () => {
+describe("reinstallEntry", () => {
 	describe("git (remote) path — success", () => {
 		it("returns success with manifest entry and copied files", async () => {
 			const entry = makeEntry({
@@ -131,13 +129,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -170,13 +167,12 @@ describe("cloneAndReinstall", () => {
 				return { copiedFiles: [".claude/skills/my-skill/"] };
 			});
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -194,13 +190,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -216,63 +211,19 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
 
-		it("uses spinner for clone", async () => {
-			const entry = makeEntry();
-
-			mockCloneSource.mockResolvedValue({
-				tempDir: "/tmp/agntc-clone",
-				commit: REMOTE_SHA,
-			});
-			mockCopyBareSkill.mockResolvedValue({
-				copiedFiles: [".claude/skills/my-skill/"],
-			});
-
-			await cloneAndReinstall(
-				{
-					key: "owner/repo",
-					entry,
-					scope: projectScope("/fake/project"),
-				},
-				ui,
-				{},
-			);
-
-			const [spinner] = ui.spinners;
-			expect(spinner!.start).toHaveBeenCalledWith("Cloning repository...");
-			expect(spinner!.stop).toHaveBeenCalledWith("Cloned successfully");
-		});
-
-		it("leaves a failed clone as a failed row, never a done one", async () => {
-			mockCloneSource.mockRejectedValue(new Error("network error"));
-
-			await cloneAndReinstall(
-				{
-					key: "owner/repo",
-					entry: makeEntry(),
-					scope: projectScope("/fake/project"),
-				},
-				ui,
-				{},
-			);
-
-			const [spinner] = ui.spinners;
-			expect(spinner!.stop.mock.calls).toEqual([["Clone failed", 1]]);
-		});
-
-		it("shows nothing over the clone when reinstalled with no progress of its own", async () => {
+		it("shows nothing over the clone: its caller's own progress covers it", async () => {
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -323,13 +274,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove();
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -347,13 +297,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove();
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -368,14 +317,13 @@ describe("cloneAndReinstall", () => {
 			const manifest: Manifest = { "owner/repo": entry };
 			arrangeAmbiguousMove();
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				manifest,
 			);
 
@@ -390,13 +338,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove();
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -410,13 +357,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove("go");
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -451,13 +397,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -497,13 +442,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -530,13 +474,12 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -562,14 +505,13 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				{},
 			);
 
@@ -589,13 +531,12 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -614,14 +555,13 @@ describe("cloneAndReinstall", () => {
 				new Error("EACCES: permission denied"),
 			);
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest: { "owner/repo": entry },
 				},
-				ui,
 				{},
 			);
 
@@ -642,13 +582,12 @@ describe("cloneAndReinstall", () => {
 
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -664,13 +603,12 @@ describe("cloneAndReinstall", () => {
 
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -691,14 +629,13 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key,
 					entry,
 					scope: projectScope("/fake/project"),
 					sourceDir: key,
 				},
-				ui,
 				{},
 			);
 
@@ -722,14 +659,13 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/hooks/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "/Users/lee/Code/skills/hooks",
 					entry,
 					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
-				ui,
 				{},
 			);
 
@@ -757,14 +693,13 @@ describe("cloneAndReinstall", () => {
 				throw new PathTraversalError("../evil");
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "/Users/lee/Code/skills/evil",
 					entry,
 					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
-				ui,
 				{},
 			);
 
@@ -789,7 +724,7 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/swift/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/swift",
 					entry: makeEntry({
@@ -798,7 +733,6 @@ describe("cloneAndReinstall", () => {
 					}),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -821,13 +755,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/swift/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/packs/swift",
 					entry: makeEntry({ type: "pack" }),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -847,13 +780,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/repo/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry: makeEntry({ type: "skill" }),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -894,13 +826,12 @@ describe("cloneAndReinstall", () => {
 				assetCounts: { skills: 2 },
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/laravel",
 					entry: pack,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				manifest,
 			);
 
@@ -949,14 +880,13 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyPack.mockRejectedValue(new Error("disk full"));
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/laravel",
 					entry: pack,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				manifest,
 			);
 
@@ -991,14 +921,13 @@ describe("cloneAndReinstall", () => {
 			const manifest: Manifest = { "owner/repo/go": entry };
 			arrangeGoneSkill();
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				manifest,
 			);
 
@@ -1013,14 +942,13 @@ describe("cloneAndReinstall", () => {
 			mockPathExists.mockResolvedValue(false);
 			mockDiscover.mockResolvedValue({ packs: [], skills: [], strays: [] });
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "/src/kit",
 					entry: makeEntry({ type: "skill", commit: null }),
 					scope: projectScope("/fake/project"),
 					sourceDir: "/src/kit",
 				},
-				ui,
 				{},
 			);
 
@@ -1044,14 +972,13 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					newRef: "v2.0.0",
 				},
-				ui,
 				{},
 			);
 
@@ -1073,13 +1000,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry: makeEntry({ ref }),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -1107,13 +1033,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -1137,13 +1062,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1169,13 +1093,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/go/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo/go",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1199,14 +1122,13 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-plugin/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key,
 						entry,
 						scope: projectScope("/fake/project"),
 						sourceDir: key,
 					},
-					ui,
 					{},
 				);
 
@@ -1232,13 +1154,12 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1267,14 +1188,13 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 						manifest,
 					},
-					ui,
 					{},
 				);
 
@@ -1310,13 +1230,12 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1346,13 +1265,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo/my-skill",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1382,13 +1300,12 @@ describe("cloneAndReinstall", () => {
 					throw new PathTraversalError("../evil");
 				});
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo/evil",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1428,14 +1345,13 @@ describe("cloneAndReinstall", () => {
 					throw new PathTraversalError("../evil");
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo/evil",
 						entry,
 						scope: projectScope("/fake/project"),
 						manifest,
 					},
-					ui,
 					{},
 				);
 
@@ -1461,13 +1377,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/go/"],
 				});
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo/go",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1498,13 +1413,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1525,13 +1439,12 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil", "../escape"),
 				);
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1782,77 +1695,6 @@ describe("isCloneReinstallFailure", () => {
 			});
 			expect(mapped).toBe("aborted");
 		}
-	});
-});
-
-describe("failureMessage", () => {
-	it("returns the failure's own message for clone-failed", () => {
-		const msg = failureMessage(
-			{
-				status: "failed",
-				failureReason: "clone-failed",
-				message: "network error",
-			},
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe("network error");
-	});
-
-	it("returns the failure's own message for copy-failed", () => {
-		const msg = failureMessage(
-			{
-				status: "failed",
-				failureReason: "copy-failed",
-				recovery: recovery("disk full hint"),
-				absorbed: [],
-			},
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe("disk full hint");
-	});
-
-	it("returns the failure's own message for remove-failed", () => {
-		const msg = failureMessage(
-			{
-				status: "failed",
-				failureReason: "remove-failed",
-				message: "couldn't remove its old files: EACCES",
-			},
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe("couldn't remove its old files: EACCES");
-	});
-
-	it("returns buildAbortMessage output for aborted", () => {
-		const reason = "its folder now contains packs";
-		const entry = makeEntry({ type: "pack" });
-		const msg = failureMessage(
-			{ status: "aborted", reason },
-			"owner/repo",
-			entry,
-			"project",
-		);
-		expect(msg).toBe(
-			buildAbortMessage("owner/repo", entry, { reason }, "project").plain,
-		);
-	});
-
-	it("returns buildCopySafetyMessage output for blocked", () => {
-		const reason =
-			'symlink "evil-link" points outside the clone (target: /etc/passwd)';
-		const msg = failureMessage(
-			{ status: "blocked", reason },
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe(buildCopySafetyMessage("owner/repo", reason).plain);
 	});
 });
 
@@ -2334,7 +2176,7 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 			strays: [],
 		});
 
-		const result = await cloneAndReinstall(
+		const result = await reinstallEntry(
 			{
 				key,
 				entry,
@@ -2342,15 +2184,14 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 				...(sourceDir !== undefined ? { sourceDir } : {}),
 				...(newRef !== undefined ? { newRef } : {}),
 			},
-			ui,
 			{ [key]: entry },
 		);
 
 		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-		if (!isCloneReinstallFailure(result)) {
+		if (result.status !== "aborted") {
 			throw new Error(`expected an abort, got ${result.status}`);
 		}
-		return failureMessage(result, key, entry, "project", version);
+		return buildAbortMessage(key, entry, result, "project", version).plain;
 	}
 
 	it("removes a remote skill recorded at a path, then adds one of those skills", async () => {
@@ -2508,14 +2349,14 @@ describe("recordCopyFailure", () => {
 	});
 });
 
-describe("failureMessage for a global entry", () => {
+describe("buildAbortMessage for a global entry", () => {
 	it("carries -g in an abort's remedy", () => {
-		const msg = failureMessage(
-			{ status: "aborted", reason: "its folder now contains packs" },
+		const msg = buildAbortMessage(
 			"owner/repo",
 			makeEntry({ type: "pack" }),
+			{ reason: "its folder now contains packs" },
 			"global",
-		);
+		).plain;
 
 		expect(msg).toContain(
 			"npx agntc remove -g owner/repo then npx agntc add -g owner/repo --pack",

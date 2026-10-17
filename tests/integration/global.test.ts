@@ -278,20 +278,21 @@ describe("at a terminal", () => {
 		await runRemove(FOO(), { yes: true }, ui, scope());
 		await runListLoop(ui, scope());
 
-		// add and update open on the header, whose scope the command's action names.
-		expect(ui.intro.mock.calls).toEqual([
-			["agntc remove · global"],
-			["agntc list · global"],
-		]);
-		expect(ui.header).toHaveBeenCalledTimes(2);
+		// add, update and list open on the header, whose scope the command's action names.
+		expect(ui.intro.mock.calls).toEqual([["agntc remove · global"]]);
+		expect(ui.header).toHaveBeenCalledTimes(3);
 	});
 
 	it("points an empty global list at add -g", async () => {
 		await runListLoop(ui, scope());
 
-		expect(ui.outro).toHaveBeenCalledWith(
-			"No skills or packs installed. Run npx agntc add -g owner/repo to get started.",
-		);
+		expect(ui.next).toHaveBeenCalledWith({
+			subject: "",
+			remedy: {
+				lead: "To get started:",
+				steps: [{ command: "npx agntc add -g owner/repo" }],
+			},
+		});
 	});
 });
 

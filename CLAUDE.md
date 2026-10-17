@@ -21,7 +21,7 @@ src/
   commands/                 # add, remove, update, list (+ list-*-action, list-detail), init
   init/                     # Skill and pack scaffolding, type select, preview/confirm
   command-action.ts         # Commander action wrapper: resolves mode (resolveMode), runs with the matching Ui, writes the machine document, maps ExitSignal to exit code
-  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row, fitted to the room the question and its options' share leave (children cut whole, `… N more`), erased with the question; stoppingUi (fail and cancel draw what the run owes first)
+  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row, fitted to the room the question and its options' share leave (children cut whole, `… N more`), erased with the question; a select's choices may carry cells, lined up in columns laid out from every choice, and a footer of key hints and counts; stoppingUi (fail and cancel draw what the run owes first)
   message.ts                # Message (string | RichMessage), SubjectMessage, Advice, Remedy; plainText, isMachineOnly; machineOnly, sentence and failure word a plain string for both modes
   documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
   scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
@@ -50,7 +50,7 @@ src/
   absorb.ts                 # A pack taking over loose skills from its own source, through its skills only; skills already in an installed pack (installed there as skills)
   entry-source.ts           # SourceId / isSameSource; sourceKeyOf (the source key add gives an entry's source); reAddCommand + groupReAddCommands (path, --pack, --skill line); restoreCommand (a remedy's re-add at the entry's version intent)
   gone-upstream.ts          # settleGone: -y removes, terminal asks (default no), machine keeps + reports
-  clone-reinstall.ts        # Shared clone-and-reinstall (singletons); cloneRepoOnce primitive + runPipeline for the grouped path; recordReinstall (an entry and its key move in one write); recordCopyFailure (the one place a copy failure drops the entry and what it took over); abort/blocked messages
+  clone-reinstall.ts        # reinstallEntry, one entry's clone and reinstall (`update <key>`, list's update and change version); cloneRepoOnce primitive + runPipeline for the grouped path; recordReinstall (an entry and its key move in one write); recordCopyFailure (the one place a copy failure drops the entry and what it took over); abort/blocked messages
   nuke-reinstall-pipeline.ts# Derive-before-delete replay (pack re-walk, moved skill, gone) + nuke-and-reinstall
   dropped-folders.ts        # droppedButInSource: recorded .claude/skills/<name>/ folders a reinstall won't write whose name is still in the item's source outside every folder it installs (a category of installed folders aside)
   manifest.ts               # Read/write .agntc/manifest.json; legacy normalization on read
@@ -58,10 +58,14 @@ src/
   git-utils.ts              # execGit (a timed-out command's message opens `git <cmd> timed out after Ns`); withGitRetry, the one retry (GIT_ATTEMPTS, delays) clones and remote reads share; isFinalGitError, what isn't retried (HTTPS credential failures and timeouts; an SSH "Permission denied" is retried); lsRemote, every remote read (tags, default branch, update-check probes), each attempt under its own timeout
   update-check.ts           # Per-member categorization vs remote (categorizeMember, GroupTarget); constrained checks
   update-check-all.ts       # Checks for every entry (list)
+  key-update.ts             # One entry's update under its own row, as `update <key>` draws it (updateUnderRow, updatePlan); list's update and change version share it
   update-groups.ts          # All-mode group-first dedup: group by (cloneUrl, versionIntent), resolve/clone once per group, orchestrate reinstalls (packs first); PluginOutcome model
   update-render.ts          # All-mode update output: group label, header, per-member/collapsed lines, tag-vs-hash move (re-exports formatVersionMove)
   version-resolve.ts        # Semver tag resolution (resolveVersion, resolveLatestVersion, newestTag); tag-vs-hash rule (isVersionTag, formatVersionMove)
   version.ts                # CLI version from package.json at runtime
+  list-render.ts            # list's rows: the dashboard's options (grouped by source, cells for kind, ref and status) and footer counts, the detail view's row and its fields, the empty manifest's row and Next item; what an action changed, counted into the tally
+  remove-render.ts          # The rows of a removal: the entry with its folders under each asset folder, then removed or failed
+  entry-assets.ts           # What an entry installs, counted and worded as add counts it (assetSummary, kindAndCounts)
   summary.ts                # Counts and labels (pack counts, ref label); add's item outcomes; remove/update summaries; actionable out-of-constraint footer
 ```
 
@@ -134,7 +138,7 @@ Nuke-and-reinstall: delete manifest `files`, re-clone, re-copy. Constrained entr
 
 ### All-mode group-first dedup (`update` with no key, or a key naming several entries → `runGroupedUpdates`)
 
-All-mode is a group-first pipeline (`update-groups.ts`); a key naming several entries (a prefix such as `owner/repo`) runs the same pipeline over just those entries, threading and writing the whole manifest so entries outside it stay recorded, with group labels computed from the groups it holds. The three singleton entry points (`update <key>` naming one entry, list update, list change-version) stay on `cloneAndReinstall`.
+All-mode is a group-first pipeline (`update-groups.ts`); a key naming several entries (a prefix such as `owner/repo`) runs the same pipeline over just those entries, threading and writing the whole manifest so entries outside it stay recorded, with group labels computed from the groups it holds. The three singleton entry points (`update <key>` naming one entry, list update, list change-version) stay on `reinstallEntry`, through `updateUnderRow` (`key-update.ts`).
 
 - **Group → resolve/check once → categorize members → clone once → reinstall.** Non-local entries are grouped by `(deriveCloneUrlFromKey, versionIntent = constraint ?? ref)` — a constrained entry keys on its stable `constraint` and *excludes* the mutating `ref`, so a singly-updated member stays grouped with its behind siblings. One resolution probe, one `cloneRepoOnce` and at most one whole-source walk (`sourceWalk`, shared by members whose skill moved; a walk that fails isn't kept, so the next member walks again) per group; each member categorizes against the shared `GroupTarget` using its own installed commit, so genuine-state splits are preserved. Local entries (`commit === null`) are excluded from grouping — one reinstall each.
 - **Failure isolation.** Clone-fatal → N `failed` outcomes (no manifest mutation, non-zero exit, rendered as one enumerated line); check/resolve-fatal → N `check-failed` (no clone, all-mode exit 0), printed as one line (`formatCheckFailedLine`: `<label>: couldn't check for updates (<cause>) — left untouched`, the cause the first line of git's error that names the failure, passing over `warning:`/`hint:`/`Cloning into` lines, without `fatal: `, as with a single key) while the JSON `reason` keeps git's whole error; per-member `copy-failed`/`aborted`/`blocked` stay isolated with remove-vs-intact semantics. Manifest persists per group; the per-member `sourceSubpath` containment guard runs per member via `resolveGuardedSourceDir`.

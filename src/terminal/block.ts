@@ -7,6 +7,7 @@ import {
 	truncate,
 	visibleWidth,
 	wrap,
+	wrapItems,
 } from "./layout.js";
 import {
 	createStyle,
@@ -102,27 +103,24 @@ function widest(widths: readonly number[]): number {
 	return Math.max(0, ...widths);
 }
 
-/** A row and its children, as lines no wider than `width - 1`. */
+/** A row, its fields and its children, as lines no wider than `width - 1`. */
 export function renderRow(
 	row: Row,
 	layout: BlockLayout,
 	width: number,
 	style: Style,
 ): string[] {
-	const children = row.children ?? [];
-	const child = childPen(row, layout, width, style);
 	return [
 		...headLines(row, layout, width, style),
-		...children.flatMap((each, index) =>
-			child(each, index === children.length - 1),
-		),
+		...bodyUnits(row, layout, width, style).flat(),
 	];
 }
 
 /**
- * The row in at most `room` lines: its head, as many of its children as fit
- * whole, then a dim `… N more` child counting those left out. Its head alone
- * when not even that line fits beside it; nothing when the head doesn't fit.
+ * The row in at most `room` lines: its head, as many of its fields and then
+ * its children as fit whole, then a dim `… N more` line counting those left
+ * out, a child's when a child is the first of them. Its head alone when not
+ * even that line fits beside it; nothing when the head doesn't fit.
  */
 export function renderRowWithin(
 	row: Row,
@@ -132,17 +130,21 @@ export function renderRowWithin(
 	style: Style,
 ): string[] {
 	const head = headLines(row, layout, width, style);
-	const children = row.children ?? [];
+	const units = bodyUnits(row, layout, width, style);
+	const fields = row.fields?.length ?? 0;
 	const child = childPen(row, layout, width, style);
-	const more = (left: number) =>
-		child({ name: `… ${left} more`, dim: true }, true);
+	const more = (from: number) => {
+		const text = `… ${units.length - from} more`;
+		return from < fields
+			? [indent(FIELD_AT) + style.dim(text)]
+			: child({ name: text, dim: true }, true);
+	};
 	const kept: string[] = [];
-	for (const [index, each] of children.entries()) {
-		const last = index === children.length - 1;
-		const lines = child(each, last);
-		const after = last ? [] : more(children.length - index - 1);
+	for (const [index, lines] of units.entries()) {
+		const last = index === units.length - 1;
+		const after = last ? [] : more(index + 1);
 		if (head.length + kept.length + lines.length + after.length > room) {
-			const cut = [...head, ...kept, ...more(children.length - index)];
+			const cut = [...head, ...kept, ...more(index)];
 			if (cut.length <= room) {
 				return cut;
 			}
@@ -151,6 +153,54 @@ export function renderRowWithin(
 		kept.push(...lines);
 	}
 	return head.length + kept.length <= room ? [...head, ...kept] : [];
+}
+
+/** What hangs under a row's own lines, each whole: its fields' lines, then its children's. */
+function bodyUnits(
+	row: Row,
+	layout: BlockLayout,
+	width: number,
+	style: Style,
+): string[][] {
+	const children = row.children ?? [];
+	const child = childPen(row, layout, width, style);
+	return [
+		...fieldUnits(row, width, style),
+		...children.map((each, index) =>
+			child(each, index === children.length - 1),
+		),
+	];
+}
+
+/** ` ✓ ` before a field's label, as before a row's subject. */
+const FIELD_AT = SUBJECT_AT;
+
+/**
+ * Each of the row's fields as its lines: the label dim, in a column as wide
+ * as the widest label and 2 (at most 45% of the width), the value beside it,
+ * wrapped in the room that leaves. A row dim whole dims its fields too.
+ */
+function fieldUnits(row: Row, width: number, style: Style): string[][] {
+	const fields = row.fields ?? [];
+	const quiet = row.status === "unchanged";
+	const paint = quiet ? PLAIN : style;
+	const column = Math.min(
+		widest(fields.map(({ label }) => visibleWidth(label))) + MIN_GAP,
+		Math.floor(width * SUBJECT_SHARE),
+	);
+	const valueAt = FIELD_AT + column;
+	const room = Math.max(1, roomFrom(valueAt, width));
+	return fields.map(({ label, value, status }) => {
+		const tone = status === undefined ? identity : statusTone(status, paint);
+		const valueLines =
+			typeof value === "string" ? wrap(value, room) : wrapItems(value, room);
+		return flow(
+			paintLines(wrap(label, Math.max(1, column - MIN_GAP)), paint.dim).map(
+				(line) => (line === "" ? "" : indent(FIELD_AT) + line),
+			),
+			[{ at: valueAt, lines: paintLines(valueLines, tone) }],
+		).map(dimWhole(quiet, style));
+	});
 }
 
 /** A row's own lines, dim whole when it's unchanged. */

@@ -157,11 +157,58 @@ describe("the terminal ui's prompts", () => {
 			[{ above: (room: number) => string[] }],
 		];
 		const head = ` ✓ owner/repo${" ".repeat(13)}2 skills`;
-		expect(above(4)).toEqual([head, "   ├─ a", "   └─ b", ""]);
-		expect(above(3)).toEqual([head, "   └─ … 2 more", ""]);
-		expect(above(2)).toEqual([head, ""]);
-		expect(above(1)).toEqual([]);
-		expect(term.output.text).toBe(" · before\n\n");
+		expect(above(5)).toEqual(["", head, "   ├─ a", "   └─ b", ""]);
+		expect(above(4)).toEqual(["", head, "   └─ … 2 more", ""]);
+		expect(above(3)).toEqual(["", head, ""]);
+		expect(above(2)).toEqual([""]);
+		expect(term.output.text).toBe(" · before\n");
+	});
+
+	it.each([
+		{
+			why: "nothing is above it yet",
+			before: () => {},
+		},
+		{
+			why: "the block has drawn",
+			before: (ui: TerminalUi, block: Block) => {
+				ui.note("before");
+				block.row({ status: "done", subject: "owner/drawn" });
+			},
+		},
+	])("ask a block's question with no blank line of its own when $why", async ({
+		before,
+	}) => {
+		const { ui } = run();
+		vi.mocked(promptConfirm).mockResolvedValueOnce(true);
+		const block = ui.block([{ subject: "owner/repo" }]);
+		before(ui, block);
+
+		await block.confirm(
+			{ status: "subject", subject: "owner/repo" },
+			{ message: "Proceed?" },
+		);
+
+		const [[{ above }]] = vi.mocked(promptConfirm).mock.calls as unknown as [
+			[{ above: (room: number) => string[] }],
+		];
+		expect(above(5)).toEqual([" ● owner/repo", ""]);
+	});
+
+	it("leave nothing of a block that only asked: its row is drawn a blank line under what's above", async () => {
+		const { term, ui } = run();
+		ui.note("before");
+		vi.mocked(promptConfirm).mockResolvedValueOnce(true);
+		const block = ui.block([{ subject: "owner/repo" }]);
+
+		await block.confirm(
+			{ status: "subject", subject: "owner/repo" },
+			{ message: "Proceed?" },
+		);
+		expect(term.output.text).toBe(" · before\n");
+
+		block.row({ status: "done", subject: "owner/repo" });
+		expect(term.output.text).toBe(" · before\n\n ✓ owner/repo\n");
 	});
 
 	it("open with nothing spinning, and the spinner back once answered", async () => {

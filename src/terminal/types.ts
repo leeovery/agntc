@@ -8,7 +8,8 @@ export type Status =
 	| "failed"
 	| "subject"
 	| "newer"
-	| "note";
+	| "note"
+	| "local";
 
 export interface Move {
 	from: string;
@@ -29,7 +30,18 @@ export interface Row {
 	subject: string;
 	meta?: string;
 	detail?: Detail;
+	/** Labelled lines under the row's own, above its children. */
+	fields?: Field[];
 	children?: Child[];
+}
+
+/** A labelled line under a row: its label dim, in a column as wide as the row's widest. */
+export interface Field {
+	label: string;
+	/** Words wrapped beside the label, or items two spaces apart, wrapping between them. */
+	value: string | readonly string[];
+	/** Paints the value in the status's colour, as a failed check's reason does; plain without. */
+	status?: Status;
 }
 
 /** A row's subject and its dim meta: a repo and the intent it tracks, or a local entry's folder. */

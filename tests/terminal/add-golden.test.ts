@@ -304,7 +304,7 @@ describe("an add of one thing", () => {
 });
 
 describe("an add with files in the way", () => {
-	it("asks about them where the menu was, then draws the source's row under them", async () => {
+	it("asks about them where the menu was, then draws the source's row under them, a blank line apart", async () => {
 		await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 		await write(projectDir, {
 			".claude/skills/a/SKILL.md": "theirs",
@@ -330,6 +330,7 @@ describe("an add with files in the way", () => {
 			"",
 			' File collision with "other/repo"',
 			"   - .claude/skills/a/",
+			"",
 			" ✓ owner/repo   HEAD   1 of 2 installed",
 			"   └─ a                skill",
 		]);

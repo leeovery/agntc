@@ -1,6 +1,20 @@
-import type { Choice, SelectOption, SelectPrompt } from "../../ui.js";
-import { roomFrom, visibleWidth } from "../layout.js";
-import type { Painter, Style } from "../style.js";
+import type {
+	Choice,
+	SelectFooter,
+	SelectOption,
+	SelectPrompt,
+} from "../../ui.js";
+import {
+	isNarrow,
+	MARGIN,
+	padStart,
+	roomFrom,
+	spread,
+	truncate,
+	visibleWidth,
+} from "../layout.js";
+import { type Painter, type Style, statusTone } from "../style.js";
+import { cellLayout, cellsText, hasCells, type PlacedChoice } from "./cells.js";
 import {
 	headingLine,
 	labelColumn,
@@ -30,9 +44,11 @@ export interface SelectQuestion<T> extends SelectPrompt<T> {
 	above?: (room: number) => readonly string[];
 }
 
-/** What of a select's frame a screen shows: its window, and the lines over its question. */
+/** What of a select's frame a screen shows: its window, its footer's lines, and the lines over its question. */
 export interface SelectFit extends ListWindow {
 	above: readonly string[];
+	/** How many of the footer's two lines, the blank one and its own, show. */
+	footerLines: number;
 }
 
 /** A select as it stands: the cursor's option, and the window of lines in view from `top`. */
@@ -44,11 +60,18 @@ export interface SelectView<T> extends ListWindow {
 	options: readonly SelectOption<T>[];
 	cursor: number;
 	top: number;
+	footer?: SelectFooter;
+	/** How many of the footer's two lines show, its last ones; both unless given. */
+	footerLines?: number;
 }
 
 export const SELECT_HINTS = listHints("⏎ choose");
 /** How much further in than its heading a choice sits. */
 const UNDER_HEADING = 2;
+/** The blank line under the options, and the footer. */
+const FOOTER_LINES = 2;
+const KEY_GAP = "   ";
+const COUNT_SEPARATOR = " · ";
 
 /** Asks for one of the choices: its value, or null when cancelled. */
 export async function promptSelect<T>(
@@ -56,7 +79,7 @@ export async function promptSelect<T>(
 	context: PromptContext,
 ): Promise<T | null> {
 	const { width, style } = context;
-	const hints = question.hints ?? SELECT_HINTS;
+	const hints = hintsOf(question);
 	const window = selectWindow(question, context.output.rows, width, style);
 	const engine = await runPrompt(
 		context,
@@ -70,6 +93,7 @@ export async function promptSelect<T>(
 					options: question.options,
 					cursor: engine.cursor,
 					top: engine.top,
+					...(question.footer === undefined ? {} : { footer: question.footer }),
 				},
 				width,
 				style,
@@ -79,10 +103,15 @@ export async function promptSelect<T>(
 	return engine.answer;
 }
 
+/** The question line's key hints: none when a footer carries them. */
+function hintsOf<T>(question: SelectQuestion<T>): string {
+	return question.hints ?? (question.footer === undefined ? SELECT_HINTS : "");
+}
+
 /**
  * The lines of options a select shows at once on a screen of `rows`, whether
- * its more lines show, and the lines over its question in the room its
- * question and its options' share leave.
+ * its more lines show, how much of its footer does, and the lines over its
+ * question in the room its question, its options' share and its footer leave.
  */
 export function selectWindow<T>(
 	question: SelectQuestion<T>,
@@ -92,7 +121,7 @@ export function selectWindow<T>(
 ): SelectFit {
 	const asked = questionLines(
 		question.message,
-		question.hints ?? SELECT_HINTS,
+		hintsOf(question),
 		width,
 		style,
 	).length;
@@ -100,13 +129,14 @@ export function selectWindow<T>(
 		lines: question.options.length,
 		maxItems: question.maxItems,
 		asked,
+		footer: question.footer === undefined ? 0 : FOOTER_LINES,
 	};
 	const above = linesAbove(question.above, aboveRoom(frame, rows));
-	const { size, more } = fitList(
+	const { size, more, footer } = fitList(
 		{ ...frame, asked: above.length + asked },
 		rows,
 	);
-	return { size, more, above };
+	return { size, more, above, footerLines: footer };
 }
 
 export function renderSelect<T>(
@@ -115,16 +145,9 @@ export function renderSelect<T>(
 	style: Style,
 	band?: Painter,
 ): string[] {
-	const insets = insetsOf(view.options);
-	const column = labelColumn(
-		view.options.flatMap((option, index) =>
-			isChoice(option)
-				? [(insets[index] ?? 0) + visibleWidth(option.label)]
-				: [],
-		),
-		width,
-	);
 	const room = roomFrom(TEXT_AT, width);
+	const text = choiceText(view.options, width, style);
+	const { footer } = view;
 	return [
 		...(view.above ?? []),
 		...questionLines(view.message, view.hints, width, style),
@@ -139,7 +162,7 @@ export function renderSelect<T>(
 				}
 				const current = index === view.cursor;
 				return optionLine(
-					optionText(option, column, room, style, current, insets[index]),
+					text(option, index, room, current),
 					current,
 					width,
 					style,
@@ -149,7 +172,88 @@ export function renderSelect<T>(
 			width,
 			style,
 		),
+		...(footer === undefined
+			? []
+			: ["", footerLine(footer, width, style)].slice(
+					FOOTER_LINES - (view.footerLines ?? FOOTER_LINES),
+				)),
 	];
+}
+
+type ChoiceText<T> = (
+	choice: Choice<T>,
+	index: number,
+	room: number,
+	current: boolean,
+) => string;
+
+/**
+ * How each choice's line reads: its cells lined up in columns laid out once
+ * from every choice when they carry cells, else its label and its hint in the
+ * hint column.
+ */
+function choiceText<T>(
+	options: readonly SelectOption<T>[],
+	width: number,
+	style: Style,
+): ChoiceText<T> {
+	const insets = insetsOf(options);
+	const placed = options.flatMap((option, index): PlacedChoice<T>[] =>
+		isChoice(option) ? [{ choice: option, inset: insets[index] ?? 0 }] : [],
+	);
+	const choices = placed.map(({ choice }) => choice);
+	if (hasCells(choices)) {
+		const layout = cellLayout(placed, roomFrom(TEXT_AT, width));
+		return (choice, index, room, current) =>
+			cellsText(
+				{ choice, inset: insets[index] ?? 0 },
+				layout,
+				room,
+				style,
+				current,
+			);
+	}
+	const column = labelColumn(
+		placed.map(({ choice, inset }) => inset + visibleWidth(choice.label)),
+		width,
+	);
+	return (choice, index, room, current) =>
+		optionText(choice, column, room, style, current, insets[index]);
+}
+
+/**
+ * `↑↓ move` and the footer's keys dim on the left, its counts on the right,
+ * each in its status's colour. Below 60 columns the keys drop, as the key
+ * hints do; where the two don't fit, the counts are cut first.
+ */
+export function footerLine(
+	footer: SelectFooter,
+	width: number,
+	style: Style,
+): string {
+	const keys = isNarrow(width)
+		? ""
+		: `${MARGIN}${style.dim(
+				truncate(
+					["↑↓ move", ...footer.keys].join(KEY_GAP),
+					roomFrom(MARGIN.length, width),
+				),
+			)}`;
+	const counts = (footer.counts ?? [])
+		.filter(({ count }) => count > 0)
+		.map(({ count, label, status }) =>
+			statusTone(status, style)(`${count} ${label}`),
+		)
+		.join(style.dim(COUNT_SEPARATOR));
+	const room =
+		width - 1 - (keys === "" ? MARGIN.length : visibleWidth(keys) + 2);
+	const right = room < 2 ? "" : truncate(counts, room);
+	if (visibleWidth(right) === 0) {
+		return keys;
+	}
+	return keys === ""
+		? padStart(right, width - 1)
+		: (spread(keys, right, width) ?? keys);
 }
 
 export function isChoice<T>(option: SelectOption<T>): option is Choice<T> {
