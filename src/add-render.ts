@@ -1,7 +1,8 @@
-import { skillFolderName } from "./asset-targets.js";
-import { heldDetail, type MenuOption, type SkillNote } from "./choose-items.js";
+import { type AssetCounts, skillFolderName } from "./asset-targets.js";
+import { heldDetail, type SkillNote, skillHint } from "./choose-items.js";
 import type { Clearance } from "./clear-conflicts.js";
-import type { InstallItem } from "./install-item.js";
+import { folderName } from "./discover.js";
+import { type InstallItem, itemPath, pathLabel } from "./install-item.js";
 import { homeShortened } from "./scope.js";
 import {
 	formatPackCounts,
@@ -18,7 +19,7 @@ import type {
 	RowHead,
 	Status,
 } from "./terminal/types.js";
-import type { AddTally } from "./ui.js";
+import type { AddTally, Choice } from "./ui.js";
 
 /** The version a source was read at, as its row shows it. */
 export interface SourceVersion {
@@ -36,6 +37,59 @@ export function sourceHead(
 		.filter((part) => part !== "")
 		.join(" ");
 	return { subject, meta };
+}
+
+/** An item as add's rows name it: its folder's name, and dim beside it the path telling it apart. */
+export type ItemName = Pick<Child, "name" | "aside">;
+
+/** How add's rows name the item at a path in the source. */
+export type ItemNames = (path: string) => ItemName;
+
+/**
+ * Names each item by its folder's name, as `update` and `list` do. Where
+ * items at two of `paths` share a name, each carries its path as an aside,
+ * unless the path is the name itself.
+ */
+export function itemNames(
+	paths: readonly string[],
+	rootName: string,
+): ItemNames {
+	const seen = new Map<string, Set<string>>();
+	for (const path of paths) {
+		const name = folderName(path, rootName);
+		seen.set(name, (seen.get(name) ?? new Set()).add(path));
+	}
+	return (path) => {
+		const name = folderName(path, rootName);
+		const aside = pathLabel(path, rootName);
+		return (seen.get(name)?.size ?? 0) > 1 && aside !== name
+			? { name, aside }
+			: { name };
+	};
+}
+
+/** A pack's kind and what it installs, as its menu option and its installed row say it. */
+export function packKind(counts: AssetCounts): string {
+	return `pack · ${formatPackCounts(counts)}`;
+}
+
+/**
+ * An item as the menu and `--list` offer it: by name, then a pack's kind and
+ * what it installs, `counts` ({@link packKind}), or a skill's description.
+ */
+export function itemChoice(
+	item: InstallItem,
+	names: ItemNames,
+	counts: AssetCounts,
+): Choice<InstallItem> {
+	const { name, aside } = names(itemPath(item));
+	const hint = item.kind === "pack" ? packKind(counts) : skillHint(item.skill);
+	return {
+		value: item,
+		label: name,
+		...(aside === undefined ? {} : { aside }),
+		...(hint ? { hint } : {}),
+	};
 }
 
 /** What a source offers, counted as `add` counts it: `3 packs · 2 skills`, none left out at 0. */
@@ -64,27 +118,37 @@ export function pickedDetail(
 }
 
 /**
- * What a block measures the source's row from: its head, the items it may
- * hang beneath it, and every skill left out it may tell of, as asked and as
- * told. A left-out skill carries its glyph, and so do items where there's
- * more than one, as items that end differently do.
+ * What a block measures the source's row from: its head, the items at
+ * `paths` it may hang beneath it, and every skill left out it may tell of,
+ * as asked and as told, each named by `names`. A left-out skill carries its
+ * glyph, and so do items where there's more than one, as items that end
+ * differently do.
  */
 export function sourceSubject(
 	head: RowHead,
-	items: readonly string[],
+	paths: readonly string[],
 	notes: readonly SkillNote[],
+	names: ItemNames,
 ): BlockSubject {
-	const itemNames = [...new Set(items)];
-	const status: Status | undefined = itemNames.length > 1 ? "done" : undefined;
-	const noteNames = new Set([
-		...leftOut(notes).map(({ subject }) => subject),
-		...askedNotes(notes).map(({ name }) => name),
-	]);
+	const items = [...new Set(paths)].map(names);
+	const status: Status | undefined = items.length > 1 ? "done" : undefined;
+	const told = new Map(
+		[
+			...leftOut(notes).map((note) => noteChild(note, names)),
+			...askedNotes(notes, names),
+		].map(({ name, aside }) => [
+			`${name} ${aside ?? ""}`,
+			{ name, ...(aside === undefined ? {} : { aside }) },
+		]),
+	);
 	return {
 		...head,
 		children: [
-			...itemNames.map((name) => ({ name, ...(status ? { status } : {}) })),
-			...[...noteNames].map((name) => ({ name, status: "note" as const })),
+			...items.map((item) => ({ ...item, ...(status ? { status } : {}) })),
+			...[...told.values()].map((each) => ({
+				...each,
+				status: "note" as const,
+			})),
 		],
 	};
 }
@@ -98,12 +162,13 @@ export function askedRow(
 	head: RowHead,
 	held: string,
 	notes: readonly SkillNote[],
+	names: ItemNames,
 ): Row {
 	return {
 		status: "done",
 		...head,
 		detail: held,
-		...withChildren(askedNotes(notes)),
+		...withChildren(askedNotes(notes, names)),
 	};
 }
 
@@ -115,13 +180,14 @@ export function stoppedRow(
 	head: RowHead,
 	held: string,
 	notes: readonly SkillNote[],
+	names: ItemNames,
 	status: "unchanged" | "failed",
 ): Row {
 	return {
 		status,
 		...head,
 		detail: held,
-		...withChildren(leftOut(notes).map(noteChild)),
+		...withChildren(leftOut(notes).map((note) => noteChild(note, names))),
 	};
 }
 
@@ -134,38 +200,40 @@ function leftOut(notes: readonly SkillNote[]): SkillNote[] {
 	return notes.filter(({ heldBy }) => heldBy !== undefined);
 }
 
-/** `--list`: the source and everything it offers, each with its kind and counts or its description. */
+/** `--list`: the source and everything it offers, as its menu would offer it ({@link itemChoice}). */
 export function listedRow(
 	head: RowHead,
 	held: string,
-	options: readonly MenuOption[],
+	choices: readonly Choice<InstallItem>[],
 ): Row {
 	return {
 		status: "done",
 		...head,
 		detail: held,
 		...withChildren(
-			options.map(({ label, hint }) => ({
+			choices.map(({ label, aside, hint }) => ({
 				name: label,
-				...(hint !== undefined ? { detail: hint } : {}),
+				...(aside === undefined ? {} : { aside }),
+				...(hint === undefined ? {} : { detail: hint }),
 			})),
 		),
 	};
 }
 
 /**
- * What `add` did with the source: each item's outcome beneath it, a skill
- * taken from its pack and installed with its note under its kind, then the
- * skills left out. Glyph by its worst outcome, or nothing to do when there's
- * none. Outcomes that ended alike carry no glyph of their own; a note always
- * carries its own. A local entry cleared out of an item's way is named as
- * its row named it, shortened against `home`.
+ * What `add` did with the source: each item's outcome beneath it, named by
+ * `names`, a skill taken from its pack and installed with its note under its
+ * kind, then the skills left out. Glyph by its worst outcome, or nothing to
+ * do when there's none. Outcomes that ended alike carry no glyph of their
+ * own; a note always carries its own. A local entry cleared out of an item's
+ * way is named as its row named it, shortened against `home`.
  */
 export function addedRow(
 	head: RowHead,
 	detail: string,
 	outcomes: readonly ItemOutcome[],
 	notes: readonly SkillNote[],
+	names: ItemNames,
 	home: string,
 ): Row {
 	const statuses = outcomes.map(outcomeStatus);
@@ -176,10 +244,11 @@ export function addedRow(
 		detail,
 		...withChildren([
 			...outcomes.map((outcome, index) => ({
-				...outcomeChild(outcome, notes, home),
+				...names(outcome.path),
+				detail: outcomeLines(outcome, notes, home).join("\n"),
 				...(alike ? {} : { status: statuses[index] }),
 			})),
-			...leftOut(notes).map(noteChild),
+			...leftOut(notes).map((note) => noteChild(note, names)),
 		]),
 	};
 }
@@ -188,15 +257,15 @@ function withChildren(children: Child[]): Pick<Row, "children"> {
 	return children.length === 0 ? {} : { children };
 }
 
-function noteChild({ subject, detail }: SkillNote): Child {
-	return { name: subject, detail, status: "note" };
+function noteChild({ path, detail }: SkillNote, names: ItemNames): Child {
+	return { ...names(path), detail, status: "note" };
 }
 
 /**
  * The skills left out as a question's row tells them: those one installed
  * pack holds as one line counting them, a lone one by name.
  */
-function askedNotes(notes: readonly SkillNote[]): Child[] {
+function askedNotes(notes: readonly SkillNote[], names: ItemNames): Child[] {
 	const byPack = new Map<string, SkillNote[]>();
 	for (const note of leftOut(notes)) {
 		const pack = note.heldBy ?? "";
@@ -204,7 +273,7 @@ function askedNotes(notes: readonly SkillNote[]): Child[] {
 	}
 	return [...byPack].map(([pack, packed]) =>
 		packed.length === 1 && packed[0] !== undefined
-			? noteChild(packed[0])
+			? noteChild(packed[0], names)
 			: {
 					name: pluralize(packed.length, "skill"),
 					detail: heldDetail(pack),
@@ -218,19 +287,18 @@ function askedNotes(notes: readonly SkillNote[]): Child[] {
  * of its way, a line each; an installed skill taken from its pack with that
  * pack's note under its kind.
  */
-function outcomeChild(
+function outcomeLines(
 	outcome: ItemOutcome,
 	notes: readonly SkillNote[],
 	home: string,
-): Child {
-	const lines = [
-		...outcomeLines(outcome, notes),
+): string[] {
+	return [
+		...resultLines(outcome, notes),
 		...(outcome.cleared ?? []).map((each) => clearedWords(each, home)),
 	];
-	return { name: outcome.label, detail: lines.join("\n") };
 }
 
-function outcomeLines(
+function resultLines(
 	outcome: ItemOutcome,
 	notes: readonly SkillNote[],
 ): string[] {
@@ -241,9 +309,7 @@ function outcomeLines(
 		(note) => note.heldBy === undefined && note.path === outcome.path,
 	);
 	const kind =
-		outcome.kind === "pack"
-			? `pack · ${formatPackCounts(outcome.assetCounts)}`
-			: "skill";
+		outcome.kind === "pack" ? packKind(outcome.assetCounts) : "skill";
 	return taken === undefined ? [kind] : [kind, taken.detail];
 }
 

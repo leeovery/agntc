@@ -107,14 +107,36 @@ export function optionText<T>(
 			? ""
 			: fitHint(choice.hint ?? "", room - column);
 	const labelRoom = (hint === "" ? room : column - MIN_LABEL_GAP) - inset;
-	const label = truncateStart(choice.label, Math.max(0, labelRoom));
-	const lead =
-		indent(inset) +
-		(label === "" ? "" : (current ? style.bold : identity)(label));
+	const label = labelText(choice, labelRoom, style, current);
 	if (hint === "") {
-		return label === "" ? "" : lead;
+		return label === "" ? "" : indent(inset) + label;
 	}
-	return `${pad(lead, column)}${style.dim(hint)}`;
+	return `${pad(indent(inset) + label, column)}${style.dim(hint)}`;
+}
+
+/** How wide a choice's label reads, its aside with it. */
+export function labelWidth<T>({ label, aside }: Choice<T>): number {
+	return visibleWidth(label) + (aside ? 1 + visibleWidth(aside) : 0);
+}
+
+/**
+ * A choice's label inside `room`, bold on the cursor's row, then its aside
+ * dim where both fit; else the label alone, cut at its start.
+ */
+export function labelText<T>(
+	choice: Choice<T>,
+	room: number,
+	style: Style,
+	current: boolean,
+): string {
+	const label = truncateStart(choice.label, Math.max(0, room));
+	if (label === "") {
+		return "";
+	}
+	const lead = (current ? style.bold : identity)(label);
+	return choice.aside && labelWidth(choice) <= room
+		? `${lead} ${style.dim(choice.aside)}`
+		: lead;
 }
 
 function fitHint(hint: string, room: number): string {

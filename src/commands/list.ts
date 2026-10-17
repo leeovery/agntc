@@ -2,7 +2,12 @@ import { homedir } from "node:os";
 import { Command } from "commander";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { listBody } from "../documents.js";
-import { assetSummary, kindAndCounts } from "../entry-assets.js";
+import {
+	assetSummary,
+	countAssets,
+	type EntryAssets,
+	kindAndCounts,
+} from "../entry-assets.js";
 import { isUpdatable, type UpdateRun } from "../key-update.js";
 import {
 	checkingEntries,
@@ -158,7 +163,7 @@ interface EntryView {
 	manifest: Manifest;
 	check: UpdateCheckResult;
 	/** What it installs, counted as `add` counts it. */
-	assets: string;
+	assets: EntryAssets;
 	/** Its key as its rows name it: a local one shortened against the home folder. */
 	subject: string;
 	row: Row;
@@ -178,9 +183,14 @@ async function viewEntry(
 	}
 	const member = { key, entry };
 	const check = known ?? (await checkOne(member, session));
-	const assets = await assetSummary(entry, scope.root);
+	const assets = await countAssets(entry, scope.root);
 	const subject = entry.commit === null ? homeShortened(key, home) : key;
-	const row = detailRow({ subject, entry, check, assets });
+	const row = detailRow({
+		subject,
+		entry,
+		check,
+		assets: assetSummary(entry, assets),
+	});
 	return { member, manifest, check, assets, subject, row };
 }
 
@@ -192,7 +202,12 @@ async function act(
 	switch (action) {
 		case "remove":
 			return executeRemoveAction(
-				{ ...member, subject, kind: kindAndCounts(member.entry, assets) },
+				{
+					...member,
+					subject,
+					kind: kindAndCounts(member.entry, assetSummary(member.entry, assets)),
+					assets,
+				},
 				manifest,
 				session.scope,
 				session.ui,

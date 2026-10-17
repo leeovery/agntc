@@ -1,6 +1,12 @@
 import { join } from "node:path";
+import type { AssetCounts } from "./asset-targets.js";
 import { copyBareSkill, skillUnit } from "./copy-bare-skill.js";
-import { type CopyResult, copyPack, packUnits } from "./copy-pack.js";
+import {
+	type CopyResult,
+	copyPack,
+	packCounts,
+	packUnits,
+} from "./copy-pack.js";
 import {
 	type CopySource,
 	type CopyUnit,
@@ -27,7 +33,19 @@ export async function copyItem(
 		projectDir: installRoot,
 		skillName: item.skill.name,
 	});
-	return { copiedFiles, assetCounts: { skills: 1 } };
+	return { copiedFiles, assetCounts: skillCounts() };
+}
+
+function skillCounts(): AssetCounts {
+	return { skills: 1 };
+}
+
+/** What {@link copyItem} would install, counted as its copy counts it, without copying. */
+export async function countItem(
+	item: InstallItem,
+	root: string,
+): Promise<AssetCounts> {
+	return item.kind === "pack" ? packCounts(item.pack, root) : skillCounts();
 }
 
 /** The folders {@link copyItem} plans for an item, each with its filter. */

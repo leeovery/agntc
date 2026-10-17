@@ -26,10 +26,21 @@ export function formatRefLabel(
 
 /** One line naming the non-zero asset counts, e.g. `2 skills, 1 agent`. */
 export function formatAssetCounts(counts: AssetCounts): string {
+	return countedAssets(counts)
+		.map(({ count, noun }) => pluralize(count, noun))
+		.join(", ");
+}
+
+export interface AssetCount {
+	count: number;
+	noun: string;
+}
+
+/** The non-zero asset counts in the order counted, each with what one of it is. */
+export function countedAssets(counts: AssetCounts): AssetCount[] {
 	return Object.entries(counts)
 		.filter(([, count]) => count > 0)
-		.map(([type, count]) => pluralize(count, type.replace(/s$/, "")))
-		.join(", ");
+		.map(([type, count]) => ({ count, noun: type.replace(/s$/, "") }));
 }
 
 /** A pack's counts, skills always first: `2 skills, 3 folders, 1 agent`. */
@@ -44,7 +55,6 @@ export function formatPackCounts({
 
 /** Which item an add outcome is about. */
 export interface ItemIdentity {
-	label: string;
 	key: string;
 	kind: "skill" | "pack";
 	path: string;

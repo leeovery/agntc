@@ -9,7 +9,12 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { assetSummary, kindAndCounts } from "../src/entry-assets.js";
+import {
+	assetSummary,
+	countAssets,
+	kindAndCounts,
+} from "../src/entry-assets.js";
+import type { ManifestEntry } from "../src/manifest.js";
 import { makeEntry } from "./helpers/factories.js";
 
 let installRoot: string;
@@ -22,6 +27,11 @@ async function installedFiles(...paths: string[]): Promise<void> {
 		await mkdir(dirname(full), { recursive: true });
 		await writeFile(full, "");
 	}
+}
+
+/** What the entry installs, counted under `root` and worded. */
+async function summaryOf(entry: ManifestEntry, root: string): Promise<string> {
+	return assetSummary(entry, await countAssets(entry, root));
 }
 
 beforeEach(async () => {
@@ -39,7 +49,7 @@ describe("assetSummary", () => {
 			".claude/skills/b/SKILL.md",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({ files: [".claude/skills/a/", ".claude/skills/b/"] }),
 			installRoot,
 		);
@@ -50,7 +60,7 @@ describe("assetSummary", () => {
 	it("counts a skill folder once, however many of its paths are recorded", async () => {
 		await installedFiles(".claude/skills/a/SKILL.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				files: [
 					".claude/skills/a/",
@@ -70,7 +80,7 @@ describe("assetSummary", () => {
 			".claude/skills/b/SKILL.md",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				files: [
 					".claude/skills/a/",
@@ -93,7 +103,7 @@ describe("assetSummary", () => {
 			".claude/skills/rows/hooks/hooks.json",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [
@@ -114,7 +124,7 @@ describe("assetSummary", () => {
 	it("gives a pack's skill count even when it holds only support folders", async () => {
 		await installedFiles(".claude/skills/shared/references/x.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({ type: "pack", files: [".claude/skills/shared/"] }),
 			installRoot,
 		);
@@ -128,7 +138,7 @@ describe("assetSummary", () => {
 			".claude/skills/README.md",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [".claude/skills/README.md", ".claude/skills/a/"],
@@ -140,7 +150,7 @@ describe("assetSummary", () => {
 	});
 
 	it("counts agent files", async () => {
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				files: [".claude/agents/agent-a.md"],
 			}),
@@ -153,7 +163,7 @@ describe("assetSummary", () => {
 	it("counts a skill entry's folder as a skill without looking at what the install holds", async () => {
 		await installedFiles(".claude/skills/a/notes.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({ type: "skill", files: [".claude/skills/a/"] }),
 			installRoot,
 		);
@@ -175,7 +185,7 @@ describe("assetSummary", () => {
 		await chmod(locked, 0o000);
 
 		try {
-			assets = await assetSummary(
+			assets = await summaryOf(
 				makeEntry({
 					type: "pack",
 					files: [".claude/skills/linked/", ".claude/skills/locked/"],
@@ -192,7 +202,7 @@ describe("assetSummary", () => {
 	it("counts each top-level hook entry once, however many of its paths are recorded", async () => {
 		await installedFiles(".claude/skills/a/SKILL.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [
@@ -212,7 +222,7 @@ describe("assetSummary", () => {
 	it("counts a v1 entry's agents and hooks as add does, leaving out the folders it recorded", async () => {
 		await installedFiles(".claude/skills/a/SKILL.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [
@@ -232,7 +242,7 @@ describe("assetSummary", () => {
 	});
 
 	it("words a legacy pack recording nothing in .claude/ by what it has, with no skill count", async () => {
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [".agents/skills/a/", ".agents/skills/b/", ".cursor/skills/a/"],
@@ -244,7 +254,7 @@ describe("assetSummary", () => {
 	});
 
 	it("is empty for an entry recording no files", async () => {
-		expect(await assetSummary(makeEntry({ files: [] }), installRoot)).toBe("");
+		expect(await summaryOf(makeEntry({ files: [] }), installRoot)).toBe("");
 	});
 });
 

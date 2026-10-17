@@ -96,9 +96,14 @@ function subjectMeasures(row: BlockSubject): number[] {
 	return [
 		visibleWidth(row.subject),
 		...(row.children ?? []).map(
-			(child) => nameAt(child) - SUBJECT_AT + visibleWidth(child.name),
+			(child) => nameAt(child) - SUBJECT_AT + nameWidth(child),
 		),
 	];
+}
+
+/** How wide a child's name reads, its aside with it. */
+function nameWidth({ name, aside }: Pick<Child, "name" | "aside">): number {
+	return visibleWidth(name) + (aside ? 1 + visibleWidth(aside) : 0);
 }
 
 /** Where a child's name starts: past its branch, a level further in for each it hangs below, and past its glyph. */
@@ -767,14 +772,15 @@ function renderChild(
 	const rails = runs
 		.map((on) => (on ? paint.dim("│") : " ") + indent(LEVEL - 1))
 		.join("");
+	const lead = leadLines(
+		`${indent(BRANCH_AT)}${rails}${paint.dim(last ? "└─" : "├─")} ${glyph}`,
+		name,
+		child.name,
+		identity,
+		width,
+	);
 	const lines = flow(
-		leadLines(
-			`${indent(BRANCH_AT)}${rails}${paint.dim(last ? "└─" : "├─")} ${glyph}`,
-			name,
-			child.name,
-			identity,
-			width,
-		),
+		child.aside ? withAside(lead, child.aside, name, width, paint) : lead,
 		[
 			{
 				at,
@@ -791,6 +797,25 @@ function renderChild(
 	return lines
 		.map((line, index) => (index === 0 ? line : trunk + line.slice(trunkWidth)))
 		.map(dimWhole(quiet, style));
+}
+
+/** A child's name lines, its aside dim a space on from the last, or below it at the name's column where it doesn't fit. */
+function withAside(
+	lead: readonly string[],
+	aside: string,
+	at: number,
+	width: number,
+	paint: Style,
+): string[] {
+	const last = lead.at(-1) ?? "";
+	const room = roomFrom(at, width);
+	if (visibleWidth(last) + 1 + visibleWidth(aside) <= at + room) {
+		return [...lead.slice(0, -1), `${last} ${paint.dim(aside)}`];
+	}
+	return [
+		...lead,
+		...wrap(aside, room).map((line) => indent(at) + paint.dim(line)),
+	];
 }
 
 /** A failure's or a warning's reason is read, so it stays normal; the rest is quiet. */

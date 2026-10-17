@@ -654,7 +654,7 @@ describe("executeUpdateAction", () => {
 			await update(key, entry, manifest);
 
 			expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-				message: "Remove it and its folder?",
+				message: "Remove it and its skill?",
 				initialValue: false,
 			});
 		});

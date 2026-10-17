@@ -51,6 +51,8 @@ export type RowHead = Required<Pick<Row, "subject" | "meta">>;
 
 export interface Child {
 	name: string;
+	/** Dim after the name, a space on, as a path telling two children of one name apart. */
+	aside?: string;
 	/** Set by the caller when the child's own outcome is worth a glyph. */
 	status?: Status;
 	detail?: string;

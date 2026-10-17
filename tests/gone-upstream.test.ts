@@ -44,7 +44,7 @@ describe("settleGone", () => {
 		};
 		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
 		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(row, {
-			message: "Remove it and its folder?",
+			message: "Remove it and its skill?",
 			initialValue: false,
 		});
 		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
@@ -72,7 +72,7 @@ describe("settleGone", () => {
 				detail: { label: "gone upstream", aside: "pack · 1 skill, 1 agent" },
 			}),
 			{
-				message: "Remove it and its 1 folder and 1 agent?",
+				message: "Remove it and its 1 skill and 1 agent?",
 				initialValue: false,
 			},
 		);

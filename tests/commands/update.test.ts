@@ -7546,7 +7546,7 @@ describe("an entry gone upstream", () => {
 		fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
 	};
 	const QUESTION = {
-		message: "Remove it and its folder?",
+		message: "Remove it and its skill?",
 		initialValue: false,
 	};
 

@@ -1,3 +1,4 @@
+import type { EntryAssets } from "../entry-assets.js";
 import { errorMessage } from "../errors.js";
 import type { ListActionResult } from "../list-render.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
@@ -21,6 +22,8 @@ export interface RemovedEntry {
 	subject: string;
 	/** Its kind, a pack's with what it installs. */
 	kind: string;
+	/** What it installs, as its question counts it. */
+	assets: EntryAssets;
 }
 
 /**
@@ -29,14 +32,14 @@ export interface RemovedEntry {
  * leaves the entry recorded, so whatever is left stays tracked.
  */
 export async function executeRemoveAction(
-	{ key, entry, subject, kind }: RemovedEntry,
+	{ key, entry, subject, kind, assets }: RemovedEntry,
 	manifest: Manifest,
 	scope: Scope,
 	ui: Ui,
 ): Promise<ListActionResult> {
 	const asked = removalRow(subject, kind, entry.files);
 	const confirmed = await ui.block([asked]).confirm(asked, {
-		message: removalQuestion([entry.files]),
+		message: removalQuestion([assets]),
 	});
 	if (!confirmed) {
 		return { key, change: null };

@@ -2,7 +2,12 @@ import { homedir } from "node:os";
 import { Command } from "commander";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { type Removal, removeBody } from "../documents.js";
-import { assetSummary, kindAndCounts } from "../entry-assets.js";
+import {
+	assetSummary,
+	countAssets,
+	type EntryAssets,
+	kindAndCounts,
+} from "../entry-assets.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import { nothingInstalledRow } from "../list-render.js";
@@ -48,6 +53,8 @@ interface Target {
 	subject: string;
 	/** Its kind, a pack's with what it installs. */
 	kind: string;
+	/** What it installs, as its question counts it. */
+	assets: EntryAssets;
 }
 
 /**
@@ -206,12 +213,13 @@ async function describeTarget(
 	installRoot: string,
 	home: string,
 ): Promise<Target> {
-	const assets = await assetSummary(entry, installRoot);
+	const assets = await countAssets(entry, installRoot);
 	return {
 		key,
 		entry,
 		subject: subjectOf(key, entry, home),
-		kind: kindAndCounts(entry, assets),
+		kind: kindAndCounts(entry, assetSummary(entry, assets)),
+		assets,
 	};
 }
 
@@ -226,7 +234,7 @@ async function confirmRemoval(
 	const confirmed = await ui.block(rows).confirm(
 		{ rows, noun: ENTRY },
 		{
-			message: removalQuestion(targets.map(({ entry }) => entry.files)),
+			message: removalQuestion(targets.map(({ assets }) => assets)),
 		},
 	);
 	if (!confirmed) {

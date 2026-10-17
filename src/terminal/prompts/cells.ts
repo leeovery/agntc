@@ -1,13 +1,8 @@
 import type { Choice, ChoiceCell } from "../../ui.js";
-import {
-	indent,
-	pad,
-	truncate,
-	truncateStart,
-	visibleWidth,
-} from "../layout.js";
-import { createStyle, identity, type Style, statusGlyph } from "../style.js";
-import { LABEL_FLOOR } from "./lines.js";
+import { indent, pad, truncate, visibleWidth } from "../layout.js";
+import { createStyle, type Style, statusGlyph } from "../style.js";
+import type { Status } from "../types.js";
+import { LABEL_FLOOR, labelText, labelWidth } from "./lines.js";
 
 /** The columns between a label and its first cell, and between cells. */
 const CELL_GAP = 3;
@@ -49,7 +44,7 @@ export function cellLayout<T>(
 		...choices.map(({ choice }) => cellsOf(choice).length),
 	);
 	const label = widest(
-		choices.map(({ choice, inset }) => inset + visibleWidth(choice.label)),
+		choices.map(({ choice, inset }) => inset + labelWidth(choice)),
 	);
 	const widths = (asides: boolean) =>
 		Array.from({ length: count }, (_, index) =>
@@ -109,12 +104,8 @@ export function cellsText<T>(
 ): string {
 	const labelEnd =
 		layout.cells.length === 0 ? room : layout.labelColumn - CELL_GAP;
-	const labelRoom = Math.max(0, labelEnd - inset);
-	const label = truncateStart(choice.label, labelRoom);
-	let line =
-		label === ""
-			? ""
-			: indent(inset) + (current ? style.bold : identity)(label);
+	const label = labelText(choice, labelEnd - inset, style, current);
+	let line = label === "" ? "" : indent(inset) + label;
 	const cells = cellsOf(choice);
 	for (const { index, at } of layout.cells) {
 		const cell = cells[index];
@@ -152,15 +143,25 @@ function cellWidth(cell: ChoiceCell, asides: boolean): number {
 	return visibleWidth(cellText(cell, asides, PLAIN));
 }
 
-/** Its glyph, its text and its aside, a space apart, leaving out what it hasn't. */
+/** Its glyph, its text and its aside, a space apart, leaving out what it hasn't; a dim cell dim whole. */
 function cellText(cell: ChoiceCell, asides: boolean, style: Style): string {
 	return [
-		cell.status === undefined ? "" : statusGlyph(cell.status, style),
+		cell.status === undefined ? "" : glyphOf(cell.status, cell.dim, style),
 		cell.dim ? style.dim(cell.text) : cell.text,
 		asides && cell.aside ? style.dim(cell.aside) : "",
 	]
 		.filter((part) => visibleWidth(part) > 0)
 		.join(" ");
+}
+
+function glyphOf(
+	status: Status,
+	dim: boolean | undefined,
+	style: Style,
+): string {
+	return dim
+		? style.dim(statusGlyph(status, PLAIN))
+		: statusGlyph(status, style);
 }
 
 function widest(widths: readonly number[]): number {

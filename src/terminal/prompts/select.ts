@@ -19,6 +19,7 @@ import {
 	headingLine,
 	KEY_GAP,
 	labelColumn,
+	labelWidth,
 	linesAbove,
 	listHints,
 	optionLine,
@@ -225,7 +226,7 @@ export function choiceText<T>(
 			);
 	}
 	const column = labelColumn(
-		placed.map(({ choice, inset }) => inset + visibleWidth(choice.label)),
+		placed.map(({ choice, inset }) => inset + labelWidth(choice)),
 		width,
 	);
 	return (choice, index, room, current) =>

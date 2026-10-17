@@ -525,6 +525,41 @@ describe("renderRow", () => {
 		});
 	});
 
+	describe("a child's aside", () => {
+		const shared: Row = {
+			status: "done",
+			subject: "owner/repo",
+			meta: "HEAD",
+			detail: "2 of 3 installed",
+			children: [
+				{ name: "laravel", detail: "pack · 2 skills" },
+				{ name: "laravel", aside: "skills/laravel", detail: "skill" },
+			],
+		};
+
+		it("follows the name a space on, the detail column measured past it", () => {
+			expect(block([shared], 80)).toEqual([
+				" ✓ owner/repo                  HEAD   2 of 3 installed",
+				"   ├─ laravel                         pack · 2 skills",
+				"   └─ laravel skills/laravel          skill",
+			]);
+		});
+
+		it("is dim", () => {
+			expect(block([shared], 80, color).at(-1)).toBe(
+				`   \x1b[2m└─\x1b[22m laravel \x1b[2mskills/laravel\x1b[22m${gap(10)}\x1b[2mskill\x1b[22m`,
+			);
+		});
+
+		it("goes under the name, at its column, where it won't fit beside it", () => {
+			expect(block([shared], 24).slice(-3)).toEqual([
+				"   └─ laravel",
+				"      skills/laravel",
+				"      skill",
+			]);
+		});
+	});
+
 	describe("in colour", () => {
 		it("paints the glyph, a bold subject, dim meta and a dim-then-bold move", () => {
 			expect(

@@ -12,6 +12,9 @@ import {
 	addTally,
 	askedRow,
 	holdings,
+	type ItemNames,
+	itemChoice,
+	itemNames,
 	listedRow,
 	pickedDetail,
 	sourceHead,
@@ -23,7 +26,6 @@ import {
 	type ChoiceOutcome,
 	chooseItems,
 	heldDetail,
-	menuOption,
 	offeredItems,
 	type Selection,
 	type SelectionFlags,
@@ -40,7 +42,7 @@ import {
 	conflictPolicy,
 } from "../clear-conflicts.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
-import { checkItemLinks, copyItem } from "../copy-item.js";
+import { checkItemLinks, copyItem, countItem } from "../copy-item.js";
 import { type CopySource, PathTraversalError } from "../copy-safety.js";
 import {
 	type Discovery,
@@ -62,7 +64,6 @@ import { cleanupTempDir, cloneSource } from "../git-clone.js";
 import { fetchDefaultBranch, fetchRemoteTags } from "../git-utils.js";
 import {
 	type InstallItem,
-	itemLabel,
 	itemPath,
 	type KeyedItem,
 	keyItems,
@@ -104,7 +105,13 @@ import {
 import type { ItemIdentity, ItemOutcome } from "../summary.js";
 import { adviceItem, remedyItem } from "../terminal/next.js";
 import type { Row, RowHead } from "../terminal/types.js";
-import { type Block, type BlockTask, stoppingUi, type Ui } from "../ui.js";
+import {
+	type Block,
+	type BlockTask,
+	type Choice,
+	stoppingUi,
+	type Ui,
+} from "../ui.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
 export interface AddOptions extends SelectionFlags {
@@ -156,6 +163,7 @@ class SourceRow {
 		readonly head: RowHead,
 		readonly held: string,
 		readonly notes: readonly SkillNote[],
+		readonly names: ItemNames,
 	) {}
 
 	copying(): void {
@@ -177,7 +185,7 @@ class SourceRow {
 	/** Unchanged before the copy begins; failed once it has, as files may be on disk. */
 	stop(): void {
 		const status = this.copy === undefined ? "unchanged" : "failed";
-		this.draw(stoppedRow(this.head, this.held, this.notes, status));
+		this.draw(stoppedRow(this.head, this.held, this.notes, this.names, status));
 	}
 }
 
@@ -395,10 +403,11 @@ async function listSource(
 	if (ui.mode === "interactive") {
 		tellStrays(strayNotices(discovery, choiceContext(src, scope)), ui);
 	}
+	const names = itemNames(items.map(itemPath), src.rootName);
 	const row = listedRow(
 		headOf(src, items),
 		holdings(items),
-		items.map((item) => menuOption(item, src.rootName)),
+		await itemChoices(items, names, src.root),
 	);
 	ui.block([row]).row(row);
 	ui.close({ command: "add", counts: {} });
@@ -491,14 +500,27 @@ function sourceRow(
 	const offered = offeredItems(discovery);
 	const head = headOf(src, offered);
 	const notes = notesOf(outcome).map(shownHeld);
-	const names = choiceItems(outcome).map((item) =>
-		itemLabel(item, src.rootName),
-	);
+	const items = choiceItems(outcome).map(itemPath);
+	const names = itemNames([...offered.map(itemPath), ...items], src.rootName);
 	return new SourceRow(
-		ui.block([sourceSubject(head, names, notes)]),
+		ui.block([sourceSubject(head, items, notes, names)]),
 		head,
 		holdings(offered),
 		notes,
+		names,
+	);
+}
+
+/** The items as the menu and `--list` offer them, each counted as its copy would count it. */
+function itemChoices(
+	items: readonly InstallItem[],
+	names: ItemNames,
+	root: string,
+): Promise<Choice<InstallItem>[]> {
+	return Promise.all(
+		items.map(async (item) =>
+			itemChoice(item, names, await countItem(item, root)),
+		),
 	);
 }
 
@@ -599,8 +621,13 @@ async function settle(
 				ui.report(listingBody(sourceJson(src), offered, discovery.strays));
 				return refuse(src, unansweredMenu(outcome.options), ui, MENU_FLAGS);
 			}
-			const asked = askedRow(row.head, row.held, row.notes);
-			const picked = await promptForItems(outcome.options, asked, row.block);
+			const asked = askedRow(row.head, row.held, row.notes, row.names);
+			const choices = await itemChoices(
+				outcome.options.map(({ value }) => value),
+				row.names,
+				src.root,
+			);
+			const picked = await promptForItems(choices, asked, row.block);
 			if (picked.length === 0) {
 				ui.cancel("Cancelled — nothing selected");
 				throw new ExitSignal(0);
@@ -642,6 +669,7 @@ async function installItems(
 			offered === undefined ? row.held : pickedDetail(outcomes, offered),
 			inItemOrder(outcomes, items),
 			row.notes,
+			row.names,
 			home,
 		),
 	);
@@ -746,9 +774,8 @@ function failsTheRun(outcome: ItemOutcome): boolean {
 	return outcome.status === "failed" || outcome.flags !== undefined;
 }
 
-function identify({ item, key }: KeyedItem, rootName: string): ItemIdentity {
+function identify({ item, key }: KeyedItem): ItemIdentity {
 	return {
-		label: itemLabel(item, rootName),
 		key,
 		kind: item.kind,
 		path: itemPath(item),
@@ -802,7 +829,7 @@ async function checkItem(
 	installRoot: string,
 	{ policy, ui, home, source, scope }: CheckContext,
 ): Promise<CheckedItem> {
-	const identity = identify(keyed, src.rootName);
+	const identity = identify(keyed);
 	const refusal =
 		keyTaken(keyed, src, manifest, scope) ??
 		(await escapingSymlink(keyed, src));
@@ -956,7 +983,7 @@ async function installKeyedItem(
 ): Promise<InstalledItem> {
 	const { item, key, sourceSubpath } = keyed;
 	const identity = {
-		...identify(keyed, src.rootName),
+		...identify(keyed),
 		...withCleared(cleared),
 	};
 	const failed = (reason: string): ItemOutcome => ({

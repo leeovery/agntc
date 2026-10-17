@@ -311,8 +311,13 @@ export function menuOption(item: InstallItem, rootName: string): MenuOption {
 					skills: item.pack.skills.length,
 					folders: item.pack.supportFolders.length,
 				})}`
-			: item.skill.description?.split("\n")[0]?.trim();
+			: skillHint(item.skill);
 	return { value: item, label, ...(hint ? { hint } : {}) };
+}
+
+/** What a skill's option says of it: its description's first line. */
+export function skillHint(skill: FoundSkill): string | undefined {
+	return skill.description?.split("\n")[0]?.trim();
 }
 
 /** A menu option as one line of text, for when there's no menu to show it in. */

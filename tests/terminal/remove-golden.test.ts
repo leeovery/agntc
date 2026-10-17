@@ -201,7 +201,7 @@ describe("a remove of one entry", () => {
 			"",
 			...NUXT_ROW,
 			"",
-			" ? Remove it and its 11 folders?   [Yes]  No",
+			" ? Remove it and its 9 skills and 2 folders?   [Yes]  No",
 		]);
 		expect(ended).toEqual([
 			HEADER,
@@ -227,7 +227,7 @@ describe("a remove of one entry", () => {
 			" ● leeovery/agentic-skills/nuxt   pack · 9 skills, 2 folders",
 			"   … 11 more folders",
 			"",
-			" ? Remove it and its 11 folders?   [Yes]  No",
+			" ? Remove it and its 9 skills and 2 folders?   [Yes]  No",
 		]);
 	});
 
@@ -274,7 +274,7 @@ describe("a remove of a prefix", () => {
 			"   .claude/skills/  eloquent",
 			"   .claude/agents/  reviewer.md",
 			"",
-			" ? Remove them and their 12 folders and 1 agent?   [Yes]  No",
+			" ? Remove them and their 10 skills, 2 folders and 1 agent?   [Yes]  No",
 		]);
 		expect(ended).toEqual([
 			HEADER,
@@ -341,7 +341,7 @@ describe("a remove of a prefix", () => {
 			"",
 			...fitted,
 			"",
-			" ? Remove them and their 12 folders and 1 agent?   [Yes]  No",
+			" ? Remove them and their 10 skills, 2 folders and 1 agent?   [Yes]  No",
 		]);
 	});
 
@@ -416,15 +416,15 @@ describe("a remove at 40 columns", () => {
 			"   … 11 more folders, 1 more agent, 1",
 			"   more hook",
 			"",
-			" ? Remove it and its 11 folders, 1",
-			"   agent and 1 hook?",
+			" ? Remove it and its 11 skills, 1 agent",
+			"   and 1 hook?",
 			"   [Yes]  No",
 		]);
 		expect(ended).toEqual([HEADER_40, "", " ○ Cancelled"]);
 	});
 
 	const QUESTION_40 = [
-		" ? Remove them and their 12 folders, 2",
+		" ? Remove them and their 12 skills, 2",
 		"   agents and 1 hook?",
 		"   [Yes]  No",
 	];
@@ -515,7 +515,7 @@ describe("a remove at 40 columns", () => {
 			"",
 			...fitted,
 			"",
-			" ? Remove it and its 11 folders?",
+			" ? Remove it and its 11 skills?",
 			"   [Yes]  No",
 		]);
 	});
@@ -551,7 +551,7 @@ describe("a remove picked from the list", () => {
 			" ● leeovery/git-hygiene           skill",
 			"   .claude/skills/  git-hygiene",
 			"",
-			" ? Remove them and their 12 folders?   [Yes]  No",
+			" ? Remove them and their 10 skills and 2 folders?   [Yes]  No",
 		]);
 		expect(ended).toEqual([
 			HEADER,

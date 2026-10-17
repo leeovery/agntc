@@ -16,6 +16,7 @@ import {
 	executeRemoveAction,
 	type RemovedEntry,
 } from "../../src/commands/list-remove-action.js";
+import type { EntryAssets } from "../../src/entry-assets.js";
 import { writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { globalScope, projectScope } from "../../src/scope.js";
@@ -37,8 +38,9 @@ function removing(
 	entry: ManifestEntry,
 	key = "owner/repo",
 	kind = "skill",
+	assets: EntryAssets = { counts: { skills: 1 }, other: 0 },
 ): RemovedEntry {
-	return { key, entry, subject: key, kind };
+	return { key, entry, subject: key, kind, assets };
 }
 
 describe("executeRemoveAction", () => {
@@ -49,7 +51,10 @@ describe("executeRemoveAction", () => {
 		ui.confirm.mockResolvedValue(false);
 
 		await executeRemoveAction(
-			removing(entry, "owner/repo", "pack · 1 skill, 1 agent"),
+			removing(entry, "owner/repo", "pack · 1 skill, 1 agent", {
+				counts: { skills: 1, agents: 1 },
+				other: 0,
+			}),
 			{ "owner/repo": entry },
 			PROJECT,
 			ui,
@@ -66,7 +71,7 @@ describe("executeRemoveAction", () => {
 		};
 		expect(ui.block).toHaveBeenCalledWith([row]);
 		expect(ui.blocks[0]!.confirm).toHaveBeenCalledWith(row, {
-			message: "Remove it and its 1 folder and 1 agent?",
+			message: "Remove it and its 1 skill and 1 agent?",
 		});
 	});
 

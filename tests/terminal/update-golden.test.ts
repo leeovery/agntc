@@ -59,7 +59,7 @@ const ASKED_GONE = [
 	" ! owner/repo/gone   gone upstream · skill",
 	"   .claude/skills/  gone",
 	"",
-	" ? Remove it and its folder?    Yes  [No]",
+	" ? Remove it and its skill?    Yes  [No]",
 ];
 const RULE = ` ${"─".repeat(98)}`;
 const close = (tally: string) => ["", RULE, atRight(` ${tally}`, "2.4s")];
@@ -628,7 +628,7 @@ describe("an update of one key", () => {
 			"",
 			...fitted,
 			"",
-			" ? Remove it and its folder?",
+			" ? Remove it and its skill?",
 			"    Yes  [No]",
 		]);
 	});

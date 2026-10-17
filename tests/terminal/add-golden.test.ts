@@ -220,6 +220,45 @@ describe("an add through the menu", () => {
 		]);
 	});
 
+	it("names each item by its folder, a pack counted in full as its installed row counts it, the path aside where two share a name, in the menu and in what installed", async () => {
+		await upstream({
+			"laravel/agntc.json": PACK,
+			"laravel/skills/eloquent/SKILL.md": "",
+			"laravel/skills/testing/SKILL.md": "",
+			"laravel/skills/shared/notes.md": "",
+			"laravel/agents/reviewer.md": "",
+			"laravel/hooks/pre-commit.sh": "",
+			"skills/go/SKILL.md":
+				"---\ndescription: Idiomatic Go: errors, interfaces and tests\n---\n",
+			"skills/laravel/SKILL.md": "---\ndescription: Laravel on its own\n---\n",
+		});
+
+		const { asking, ended } = await session({
+			answer: [KEY.down, KEY.space, KEY.down, KEY.space, KEY.enter],
+		});
+
+		expect(asking).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo                    HEAD   1 pack · 2 skills",
+			"",
+			QUESTION,
+			" ▌ ○ laravel                  pack · 2 skills, 1 folder, 1 agent, 1 hook",
+			"   ○ go                       Idiomatic Go: errors, interfaces and tests",
+			"   ○ laravel skills/laravel   Laravel on its own",
+			"",
+			atRight("", "0 of 3 picked"),
+		]);
+		expect(ended).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo                    HEAD   2 of 3 installed",
+			"   ├─ go                                skill",
+			"   └─ laravel skills/laravel            skill",
+			...close("2 installed"),
+		]);
+	});
+
 	it("counts the skills an installed pack holds on one line while asking, naming each once it has installed", async () => {
 		await upstream({
 			"skills/api/SKILL.md": "",
@@ -250,23 +289,23 @@ describe("an add through the menu", () => {
 		expect(asking).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo         HEAD   5 skills",
-			"   └─ · 3 skills             already installed as part of the pack owner/repo/p",
+			" ✓ owner/repo      HEAD   5 skills",
+			"   └─ · 3 skills          already installed as part of the pack owner/repo/p",
 			"",
 			QUESTION,
-			" ▌ ○ skills/jobs",
-			"   ○ skills/lint",
+			" ▌ ○ jobs",
+			"   ○ lint",
 			"",
 			atRight("", "0 of 2 picked"),
 		]);
 		expect(ended).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo         HEAD   1 of 2 installed",
-			"   ├─ skills/jobs            skill",
-			"   ├─ · skills/api           already installed as part of the pack owner/repo/p",
-			"   ├─ · skills/db            already installed as part of the pack owner/repo/p",
-			"   └─ · skills/ui            already installed as part of the pack owner/repo/p",
+			" ✓ owner/repo      HEAD   1 of 2 installed",
+			"   ├─ jobs                skill",
+			"   ├─ · api               already installed as part of the pack owner/repo/p",
+			"   ├─ · db                already installed as part of the pack owner/repo/p",
+			"   └─ · ui                already installed as part of the pack owner/repo/p",
 		]);
 	});
 
@@ -312,9 +351,9 @@ describe("an add of one thing", () => {
 		expect(await drawn({ options: { skill: ["a"] } })).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo      HEAD   1 pack",
-			"   └─ p/skills/a          skill",
-			"                          part of the pack p — installed on its own, without b and its hooks",
+			" ✓ owner/repo   HEAD   1 pack",
+			"   └─ a                skill",
+			"                       part of the pack p — installed on its own, without b and its hooks",
 		]);
 	});
 });
@@ -607,7 +646,7 @@ describe("an add refused", () => {
 		).toEqual([
 			HEADER,
 			"",
-			" ○ owner/repo   HEAD   2 skills",
+			" ○ owner/repo       HEAD   2 skills",
 			"",
 			" ✗ owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 		]);
@@ -692,9 +731,9 @@ describe("an add with an item that fails", () => {
 		expect(await drawn({ options: { all: true } })).toEqual([
 			HEADER,
 			"",
-			" ✗ owner/repo        HEAD   2 skills",
-			"   ├─ ✗ skills/foo          already installed from foo, as a pack",
-			"   └─ ✓ tools               skill",
+			" ✗ owner/repo   HEAD   2 skills",
+			"   ├─ ✗ foo            already installed from foo, as a pack",
+			"   └─ ✓ tools          skill",
 			"",
 			" Next",
 			"   owner/repo/foo — to replace it:",

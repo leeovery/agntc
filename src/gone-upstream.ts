@@ -1,4 +1,4 @@
-import { assetSummary, kindAndCounts } from "./entry-assets.js";
+import { assetSummary, countAssets, kindAndCounts } from "./entry-assets.js";
 import type { EntryHead } from "./entry-head.js";
 import type { ManifestEntry } from "./manifest.js";
 import type { SubjectMessage } from "./message.js";
@@ -57,10 +57,11 @@ async function askToRemove(
 	scope: Scope,
 	ui: Ui,
 ): Promise<boolean> {
-	const kind = kindAndCounts(entry, await assetSummary(entry, scope.root));
+	const assets = await countAssets(entry, scope.root);
+	const kind = kindAndCounts(entry, assetSummary(entry, assets));
 	const row = goneRow(head, kind, entry.files);
 	return ui.block([row]).confirm(row, {
-		message: removalQuestion([entry.files]),
+		message: removalQuestion([assets]),
 		initialValue: false,
 	});
 }

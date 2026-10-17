@@ -9,24 +9,24 @@ import type { ManifestEntry } from "./manifest.js";
 import { formatAssetCounts, formatPackCounts } from "./summary.js";
 
 /** What an entry's recorded files install; `other` counts files under no asset type. */
-interface EntryAssets {
+export interface EntryAssets {
 	counts: AssetCounts;
 	other: number;
 }
 
 /**
- * What the entry installs, on one line: a pack's counts as `add` words them,
- * once it records something in `.claude/`; otherwise, a skill's included,
- * only the counts it has. Empty for an entry recording no files.
+ * What the entry installs ({@link countAssets}), on one line: a pack's
+ * counts as `add` words them, once it records something in `.claude/`;
+ * otherwise, a skill's included, only the counts it has. Empty for an entry
+ * recording no files.
  */
-export async function assetSummary(
+export function assetSummary(
 	entry: ManifestEntry,
-	installRoot: string,
-): Promise<string> {
+	{ counts, other }: EntryAssets,
+): string {
 	if (entry.files.length === 0) {
 		return "";
 	}
-	const { counts, other } = await countAssets(entry, installRoot);
 	const assets = usesPackWording(entry)
 		? formatPackCounts(counts)
 		: formatAssetCounts(counts);
@@ -49,7 +49,7 @@ export function kindAndCounts(entry: ManifestEntry, assets: string): string {
  * ({@link isInstalledSkill}), as the manifest records the two alike; a skill
  * entry's is a skill by definition.
  */
-async function countAssets(
+export async function countAssets(
 	entry: ManifestEntry,
 	installRoot: string,
 ): Promise<EntryAssets> {

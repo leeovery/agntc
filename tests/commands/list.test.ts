@@ -252,6 +252,7 @@ describe("a list session", () => {
 					entry: before["owner/skill-a"],
 					subject: "owner/skill-a",
 					kind: "skill",
+					assets: { counts: expect.objectContaining({ skills: 1 }), other: 0 },
 				},
 				before,
 				expect.objectContaining({ root: "/fake/project" }),

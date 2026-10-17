@@ -278,11 +278,20 @@ function copying(head: RowHead = SOURCE): Progress {
 }
 
 /** The source's block subject: its head, and every name it measures, several each given a glyph's room. */
-function measured(head: RowHead, ...names: string[]): BlockSubject {
+/** An item as its row names it: by name, or by name with the path telling it apart. */
+type Named = string | { name: string; aside: string };
+
+function named(each: Named): Child {
+	return typeof each === "string" ? { name: each } : each;
+}
+
+function measured(head: RowHead, ...names: Named[]): BlockSubject {
 	return {
 		...head,
-		children: names.map((name) =>
-			names.length > 1 ? { name, status: "done" as const } : { name },
+		children: names.map((each) =>
+			names.length > 1
+				? { ...named(each), status: "done" as const }
+				: named(each),
 		),
 	};
 }
@@ -290,7 +299,7 @@ function measured(head: RowHead, ...names: string[]): BlockSubject {
 /** The same, with the skills left out the row may tell of, each given its glyph's room. */
 function measuredWith(
 	head: RowHead,
-	items: string[],
+	items: Named[],
 	notes: string[],
 ): BlockSubject {
 	const { children = [] } = measured(head, ...items);
@@ -516,16 +525,9 @@ describe("add command", () => {
 			const head = { subject: local, meta: "local" };
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[measured(head, "b", "skills/a")]],
+					subjects: [[measured(head, "b", "a")]],
 					progress: [copying(head)],
-					rows: [
-						sourceRow(
-							"2 skills",
-							[skill("b"), skill("skills/a")],
-							"done",
-							head,
-						),
-					],
+					rows: [sourceRow("2 skills", [skill("b"), skill("a")], "done", head)],
 					tally: closed({ installed: 2 }),
 				}),
 			);
@@ -575,9 +577,9 @@ describe("add command", () => {
 				sourceRow(
 					"2 skills",
 					[
-						skill("skills/jobs"),
+						skill("jobs"),
 						{
-							name: "skills/api",
+							name: "api",
 							status: "note",
 							detail: "already installed as part of the pack ~/my-skills/p",
 						},
@@ -941,6 +943,42 @@ describe("add command", () => {
 			]);
 		});
 
+		it("offers each item by name, in path order, a pack counted as its installed row counts it, the path aside where names are shared", async () => {
+			await upstream({
+				"laravel/agntc.json": PACK,
+				"laravel/skills/eloquent/SKILL.md": "",
+				"laravel/skills/testing/SKILL.md": "",
+				"laravel/skills/shared/notes.md": "",
+				"laravel/agents/reviewer.md": "",
+				"laravel/hooks/pre-commit.sh": "",
+				"skills/go/SKILL.md": "---\ndescription: Idiomatic Go\n---\n",
+				"skills/laravel/SKILL.md": "",
+			});
+			ui.multiselect.mockResolvedValue([0, 1]);
+
+			await runAdd("owner/repo", {}, ui);
+
+			const [menu] = ui.multiselect.mock.calls[0]!;
+			expect(menu.options).toEqual([
+				{
+					value: 0,
+					label: "laravel",
+					hint: "pack · 2 skills, 1 folder, 1 agent, 1 hook",
+				},
+				{ value: 1, label: "go", hint: "Idiomatic Go" },
+				{ value: 2, label: "laravel", aside: "skills/laravel" },
+			]);
+			expect(ui.rows()).toEqual([
+				sourceRow("2 of 3 installed", [
+					{
+						name: "laravel",
+						detail: "pack · 2 skills, 1 folder, 1 agent, 1 hook",
+					},
+					skill("go"),
+				]),
+			]);
+		});
+
 		it("ends cleanly on the source's row, unchanged, when the menu is dismissed (an empty pick)", async () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 			ui.multiselect.mockResolvedValue([]);
@@ -1021,12 +1059,10 @@ describe("add command", () => {
 				"part of the pack p — installed on its own, without b and its hooks";
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[], [measured(SOURCE, "p/skills/a")]],
+					subjects: [[], [measured(SOURCE, "a")]],
 					progress: [CLONING, copying()],
 					rows: [
-						sourceRow("1 pack", [
-							{ name: "p/skills/a", detail: `skill\n${note}` },
-						]),
+						sourceRow("1 pack", [{ name: "a", detail: `skill\n${note}` }]),
 					],
 					notes: [machineOnly(`a is ${note}`)],
 					tally: closed({ installed: 1 }),
@@ -1071,7 +1107,10 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: foo and x/foo would share the key owner/repo/foo — choose one",
 					{
-						subjects: [[], [measured(SOURCE, "foo", "x/foo")]],
+						subjects: [
+							[],
+							[measured(SOURCE, "foo", { name: "foo", aside: "x/foo" })],
+						],
 						rows: [unchanged("1 pack · 1 skill")],
 					},
 				),
@@ -1089,7 +1128,16 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 					{
-						subjects: [[], [measured(SOURCE, "x/foo", "y/foo")]],
+						subjects: [
+							[],
+							[
+								measured(
+									SOURCE,
+									{ name: "foo", aside: "x/foo" },
+									{ name: "foo", aside: "y/foo" },
+								),
+							],
+						],
 						rows: [unchanged("2 skills")],
 					},
 				),
@@ -1107,7 +1155,16 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 					{
-						subjects: [[], [measured(SOURCE, "x/foo", "y/foo")]],
+						subjects: [
+							[],
+							[
+								measured(
+									SOURCE,
+									{ name: "foo", aside: "x/foo" },
+									{ name: "foo", aside: "y/foo" },
+								),
+							],
+						],
 						asked: [sourceRow("2 skills")],
 						rows: [unchanged("2 skills")],
 					},
@@ -1361,14 +1418,18 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[], [measured(SOURCE, "skills/foo")]],
+					subjects: [
+						[],
+						[measured(SOURCE, { name: "foo", aside: "skills/foo" })],
+					],
 					progress: [CLONING],
 					rows: [
 						sourceRow(
 							"1 pack · 2 skills",
 							[
 								{
-									name: "skills/foo",
+									name: "foo",
+									aside: "skills/foo",
 									detail: "already installed from foo, as a pack",
 								},
 							],
@@ -1483,7 +1544,8 @@ describe("add command", () => {
 						"1 pack · 2 skills",
 						[
 							{
-								name: "skills/foo",
+								name: "foo",
+								aside: "skills/foo",
 								detail:
 									"already installed from https://github.com/owner/repo.git, as a skill",
 							},
@@ -1550,7 +1612,8 @@ describe("add command", () => {
 						"1 pack · 2 skills",
 						[
 							{
-								name: "skills/foo",
+								name: "foo",
+								aside: "skills/foo",
 								detail: "already installed from foo, as a pack",
 							},
 						],
@@ -1646,11 +1709,9 @@ describe("add command", () => {
 			expect(code).toBeNull();
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[], [measuredWith(SOURCE, [], ["p/skills/api"])]],
+					subjects: [[], [measuredWith(SOURCE, [], ["api"])]],
 					progress: [CLONING],
-					rows: [
-						sourceRow("1 pack", [PACKED_API("p/skills/api")], "unchanged"),
-					],
+					rows: [sourceRow("1 pack", [PACKED_API("api")], "unchanged")],
 					notes: [machineOnly(API_NOTE)],
 					tally: closed({}),
 				}),
@@ -1671,13 +1732,10 @@ describe("add command", () => {
 
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[], [measuredWith(SOURCE, ["tools"], ["p/skills/api"])]],
+					subjects: [[], [measuredWith(SOURCE, ["tools"], ["api"])]],
 					progress: [CLONING, copying()],
 					rows: [
-						sourceRow("1 pack · 1 skill", [
-							skill("tools"),
-							PACKED_API("p/skills/api"),
-						]),
+						sourceRow("1 pack · 1 skill", [skill("tools"), PACKED_API("api")]),
 					],
 					notes: [machineOnly(API_NOTE)],
 					tally: closed({ installed: 1 }),
@@ -1702,28 +1760,16 @@ describe("add command", () => {
 
 			const [menu] = ui.multiselect.mock.calls[0]!;
 			expect(menu.options.map((option) => option.label)).toEqual([
-				"skills/jobs",
-				"skills/lint",
+				"jobs",
+				"lint",
 			]);
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [
-						[],
-						[
-							measuredWith(
-								SOURCE,
-								["skills/jobs", "skills/lint"],
-								["skills/api"],
-							),
-						],
-					],
+					subjects: [[], [measuredWith(SOURCE, ["jobs", "lint"], ["api"])]],
 					progress: [CLONING, copying()],
-					asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
+					asked: [sourceRow("3 skills", [PACKED_API("api")])],
 					rows: [
-						sourceRow("1 of 2 installed", [
-							skill("skills/jobs"),
-							PACKED_API("skills/api"),
-						]),
+						sourceRow("1 of 2 installed", [skill("jobs"), PACKED_API("api")]),
 					],
 					notes: [machineOnly(API_NOTE)],
 					tally: closed({ installed: 1 }),
@@ -1757,22 +1803,16 @@ describe("add command", () => {
 				screen({
 					subjects: [
 						[],
-						[
-							measuredWith(
-								SOURCE,
-								["skills/jobs"],
-								["skills/api", "skills/db", "skills/ui", "3 skills"],
-							),
-						],
+						[measuredWith(SOURCE, ["jobs"], ["api", "db", "ui", "3 skills"])],
 					],
 					progress: [CLONING, copying()],
 					asked: [sourceRow("4 skills", [PACKED_API("3 skills")])],
 					rows: [
 						sourceRow("1 of 1 installed", [
-							skill("skills/jobs"),
-							PACKED_API("skills/api"),
-							PACKED_API("skills/db"),
-							PACKED_API("skills/ui"),
+							skill("jobs"),
+							PACKED_API("api"),
+							PACKED_API("db"),
+							PACKED_API("ui"),
 						]),
 					],
 					notes: ["api", "db", "ui"].map((name) =>
@@ -1798,21 +1838,10 @@ describe("add command", () => {
 
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [
-						[],
-						[
-							measuredWith(
-								SOURCE,
-								["skills/jobs", "skills/lint"],
-								["skills/api"],
-							),
-						],
-					],
+					subjects: [[], [measuredWith(SOURCE, ["jobs", "lint"], ["api"])]],
 					progress: [CLONING],
-					asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
-					rows: [
-						sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
-					],
+					asked: [sourceRow("3 skills", [PACKED_API("api")])],
+					rows: [sourceRow("3 skills", [PACKED_API("api")], "unchanged")],
 					notes: [machineOnly(API_NOTE)],
 					cancelled: ["Cancelled — nothing selected"],
 				}),
@@ -1835,11 +1864,18 @@ describe("add command", () => {
 					{
 						subjects: [
 							[],
-							[measuredWith(SOURCE, ["x/foo", "y/foo"], ["skills/api"])],
+							[
+								measuredWith(
+									SOURCE,
+									[
+										{ name: "foo", aside: "x/foo" },
+										{ name: "foo", aside: "y/foo" },
+									],
+									["api"],
+								),
+							],
 						],
-						rows: [
-							sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
-						],
+						rows: [sourceRow("3 skills", [PACKED_API("api")], "unchanged")],
 						notes: [machineOnly(API_NOTE)],
 					},
 				),
@@ -1864,12 +1900,19 @@ describe("add command", () => {
 					{
 						subjects: [
 							[],
-							[measuredWith(SOURCE, ["x/foo", "y/foo"], ["skills/api"])],
+							[
+								measuredWith(
+									SOURCE,
+									[
+										{ name: "foo", aside: "x/foo" },
+										{ name: "foo", aside: "y/foo" },
+									],
+									["api"],
+								),
+							],
 						],
-						asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
-						rows: [
-							sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
-						],
+						asked: [sourceRow("3 skills", [PACKED_API("api")])],
+						rows: [sourceRow("3 skills", [PACKED_API("api")], "unchanged")],
 						notes: [machineOnly(API_NOTE)],
 					},
 				),
@@ -1897,12 +1940,9 @@ describe("add command", () => {
 			}
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [
-						[],
-						[measuredWith(SOURCE, ["skills/jobs"], ["skills/api"])],
-					],
+					subjects: [[], [measuredWith(SOURCE, ["jobs"], ["api"])]],
 					progress: [CLONING, copying()],
-					rows: [sourceRow("2 skills", [PACKED_API("skills/api")], "failed")],
+					rows: [sourceRow("2 skills", [PACKED_API("api")], "failed")],
 					notes: [machineOnly(API_NOTE)],
 					failed: [expect.stringContaining("EACCES")],
 				}),
@@ -2333,12 +2373,12 @@ describe("add command", () => {
 
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[], [measured(SOURCE, "p", "tools/lint")]],
+					subjects: [[], [measured(SOURCE, "p", "lint")]],
 					progress: [CLONING, copying()],
 					rows: [
 						sourceRow("1 pack · 1 skill", [
 							{ name: "p", detail: "pack · 2 skills, 1 agent, 1 hook" },
-							skill("tools/lint"),
+							skill("lint"),
 						]),
 					],
 					tally: closed({ installed: 2 }),
@@ -2659,8 +2699,8 @@ describe("add command", () => {
 			const listed = sourceRow(
 				"1 pack · 1 skill",
 				[
-					{ name: "p", detail: "pack · 1 skill" },
-					{ name: "tools/a", detail: "Does A" },
+					{ name: "p", detail: "pack · 1 skill, 1 hook" },
+					{ name: "a", detail: "Does A" },
 				],
 				"done",
 				{ subject: "owner/repo", meta: "v1.0.0" },

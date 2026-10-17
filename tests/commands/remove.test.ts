@@ -163,7 +163,7 @@ describe("remove command", () => {
 			];
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 				{ rows: [expect.objectContaining({ fields: folders })], noun: ENTRY },
-				{ message: "Remove it and its 3 folders?" },
+				{ message: "Remove it and its 1 skill and 2 other items?" },
 			);
 			expect(ui.rows()).toEqual([expect.objectContaining({ fields: folders })]);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
@@ -245,7 +245,7 @@ describe("remove command", () => {
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 				{ rows: rows, noun: ENTRY },
 				{
-					message: "Remove them and their 2 folders and 1 agent?",
+					message: "Remove them and their 2 skills and 1 agent?",
 				},
 			);
 			expect(ui.rows()).toEqual([
@@ -309,7 +309,7 @@ describe("remove command", () => {
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 				{ rows: [row], noun: ENTRY },
 				{
-					message: "Remove it and its 1 folder and 1 agent?",
+					message: "Remove it and its 1 skill and 1 agent?",
 				},
 			);
 			expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
@@ -543,7 +543,7 @@ describe("remove command", () => {
 
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 				expect.anything(),
-				{ message: "Remove it and its folder?" },
+				{ message: "Remove it and its skill?" },
 			);
 		});
 	});
@@ -957,7 +957,7 @@ describe("remove command", () => {
 						],
 						noun: ENTRY,
 					},
-					{ message: "Remove them and their 2 folders and 1 agent?" },
+					{ message: "Remove them and their 2 skills and 1 agent?" },
 				);
 				expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 					command: "remove",
@@ -1012,7 +1012,7 @@ describe("remove command", () => {
 					],
 					noun: ENTRY,
 				},
-				{ message: "Remove it and its 2 folders, 1 agent and 1 hook?" },
+				{ message: "Remove it and its 2 skills, 1 agent and 1 hook?" },
 			);
 		});
 	});

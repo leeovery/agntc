@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { EntryAssets } from "../src/entry-assets.js";
 import {
 	installedFolders,
 	removalQuestion,
@@ -78,50 +79,57 @@ describe("removalRow", () => {
 });
 
 describe("removalQuestion", () => {
-	const PACK = [
-		".claude/skills/nuxt-pages/",
-		".claude/skills/nuxt-pages/SKILL.md",
-		".claude/skills/nuxt-data/",
-		".claude/agents/reviewer.md",
-	];
+	const PACK: EntryAssets = {
+		counts: { skills: 2, folders: 1, agents: 1, hooks: 1 },
+		other: 0,
+	};
+	const SKILL: EntryAssets = { counts: { skills: 1 }, other: 0 };
 
-	it("asks about one entry as it, counting its items by noun as its row names them", () => {
+	it("asks about one entry as it, counting what it installs as its row words it", () => {
 		expect(removalQuestion([PACK])).toBe(
-			"Remove it and its 2 folders and 1 agent?",
+			"Remove it and its 2 skills, 1 folder, 1 agent and 1 hook?",
 		);
 	});
 
-	it("words a lone item by its noun alone", () => {
+	it("words a lone one by its noun alone", () => {
+		expect(removalQuestion([SKILL])).toBe("Remove it and its skill?");
 		expect(
-			removalQuestion([[".claude/skills/go/", ".claude/skills/go/x"]]),
-		).toBe("Remove it and its folder?");
-		expect(removalQuestion([[".claude/agents/reviewer.md"]])).toBe(
-			"Remove it and its agent?",
-		);
+			removalQuestion([{ counts: { skills: 0, agents: 1 }, other: 0 }]),
+		).toBe("Remove it and its agent?");
 	});
 
-	it("asks about several entries as them, adding up their items by noun", () => {
+	it("leaves out what it counts none of, a pack's skills included", () => {
+		expect(
+			removalQuestion([{ counts: { skills: 0, folders: 2 }, other: 0 }]),
+		).toBe("Remove it and its 2 folders?");
+	});
+
+	it("asks about several entries as them, adding up what they install", () => {
 		expect(
 			removalQuestion([
 				PACK,
-				[".claude/skills/go/"],
-				[".claude/hooks/lint.sh"],
+				SKILL,
+				{ counts: { skills: 0, hooks: 1 }, other: 0 },
 			]),
-		).toBe("Remove them and their 3 folders, 1 agent and 1 hook?");
-		expect(
-			removalQuestion([[".claude/skills/a/"], [".claude/skills/b/"]]),
-		).toBe("Remove them and their 2 folders?");
+		).toBe("Remove them and their 3 skills, 1 folder, 1 agent and 2 hooks?");
+		expect(removalQuestion([SKILL, SKILL])).toBe(
+			"Remove them and their 2 skills?",
+		);
 	});
 
-	it("counts an item in a folder with no noun of its own as an item", () => {
-		expect(removalQuestion([["notes.md", ".claude/skills/a/"]])).toBe(
-			"Remove it and its 1 item and 1 folder?",
+	it("counts what a legacy entry records outside .claude/ as other items", () => {
+		expect(removalQuestion([{ counts: { skills: 0 }, other: 3 }])).toBe(
+			"Remove it and its 3 other items?",
+		);
+		expect(removalQuestion([{ counts: { skills: 1 }, other: 1 }])).toBe(
+			"Remove it and its 1 skill and 1 other item?",
 		);
 	});
 
 	it("asks only about the entry when it records nothing", () => {
-		expect(removalQuestion([[]])).toBe("Remove it?");
-		expect(removalQuestion([[], []])).toBe("Remove them?");
+		const none: EntryAssets = { counts: {}, other: 0 };
+		expect(removalQuestion([none])).toBe("Remove it?");
+		expect(removalQuestion([none, none])).toBe("Remove them?");
 	});
 });
 

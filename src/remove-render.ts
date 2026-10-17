@@ -1,4 +1,10 @@
-import { joinWithAnd, pluralize } from "./summary.js";
+import type { EntryAssets } from "./entry-assets.js";
+import {
+	type AssetCount,
+	countedAssets,
+	joinWithAnd,
+	pluralize,
+} from "./summary.js";
 import { LOOKS } from "./terminal/tally.js";
 import type { Field, Row } from "./terminal/types.js";
 
@@ -12,8 +18,8 @@ const NOUNS: Readonly<Record<string, string>> = {
 	hooks: "hook",
 };
 
-/** What a question counts an item in a folder with no noun of its own as. */
-const ITEM = "item";
+/** What a question counts a recorded path under no asset type as. */
+const OTHER = "other item";
 
 interface AssetFolder {
 	label: string;
@@ -81,32 +87,41 @@ export function removalRow(
 }
 
 /**
- * The question asked under the rows of entries recording `entries`' files:
- * whether to remove them and what their rows show, counted by noun across
- * them, in the order the nouns first come. `Remove it and its 9 folders and
- * 1 agent?`, `Remove them and their 14 folders?`; a lone item by its noun
- * alone, `Remove it and its folder?`; nothing recorded, `Remove it?`.
+ * The question asked under the rows of entries installing `assets`: whether
+ * to remove them and what they install, counted and worded as their rows
+ * word it and added up across them, those counting none left out. `Remove it
+ * and its 2 skills, 1 folder and 1 agent?`, `Remove them and their 14
+ * skills?`; a lone one by its noun alone, `Remove it and its skill?`;
+ * nothing recorded, `Remove it?`. Files under no asset type, which a row
+ * counts as `other`, are other items.
  */
-export function removalQuestion(
-	entries: readonly (readonly string[])[],
-): string {
-	const [it, its] = entries.length === 1 ? ["it", "its"] : ["them", "their"];
-	const counts = new Map<string, number>();
-	for (const files of entries) {
-		for (const { items, noun = ITEM } of assetFolders(files)) {
-			counts.set(noun, (counts.get(noun) ?? 0) + items.length);
-		}
-	}
-	const [lone] = [...counts];
+export function removalQuestion(assets: readonly EntryAssets[]): string {
+	const [it, its] = assets.length === 1 ? ["it", "its"] : ["them", "their"];
+	const counts = totals(assets);
+	const [lone] = counts;
 	if (lone === undefined) {
 		return `Remove ${it}?`;
 	}
-	const [noun, count] = lone;
 	const what =
-		counts.size === 1 && count === 1
-			? noun
-			: joinWithAnd([...counts].map(([each, n]) => pluralize(n, each)));
+		counts.length === 1 && lone.count === 1
+			? lone.noun
+			: joinWithAnd(counts.map(({ count, noun }) => pluralize(count, noun)));
 	return `Remove ${it} and ${its} ${what}?`;
+}
+
+function totals(assets: readonly EntryAssets[]): AssetCount[] {
+	const sum = (count: (each: EntryAssets) => number | undefined) =>
+		assets.reduce((total, each) => total + (count(each) ?? 0), 0);
+	const other = sum((each) => each.other);
+	return [
+		...countedAssets({
+			skills: sum((each) => each.counts.skills),
+			folders: sum((each) => each.counts.folders),
+			agents: sum((each) => each.counts.agents),
+			hooks: sum((each) => each.counts.hooks),
+		}),
+		...(other > 0 ? [{ count: other, noun: OTHER }] : []),
+	];
 }
 
 /**
