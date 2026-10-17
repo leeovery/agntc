@@ -13,6 +13,10 @@ agntc finds the skills in any repo, installs them into `.claude/`, and records w
 
 [Install](#install) · [Quick start](#quick-start) · [Packs](#skills-packs-and-support-folders) · [Commands](#commands) · [Scripts and agents](#scripts-and-agents) · [Authoring](#authoring)
 
+<br>
+
+<img src="art/tour.webp" alt="A tour of agntc: add with its menu and what installed as a tree, list's dashboard and a pack's detail view, then update with its version move, Next and the tally" width="840">
+
 </div>
 
 ---
@@ -68,36 +72,10 @@ npx agntc@latest init pack                         # scaffold a pack of your own
 
 ## What it looks like
 
-Each command opens with a header and draws what it does as rows. A run with more than one outcome to count, or anything under Next, closes with a tally; a run with one outcome and nothing under Next ends on its row. A row's contents sit beneath it as a tree. An update of a pack whose repo added one skill and removed another, with a new major version out:
-
-```
- ■ agntc update                                                       ~/project
-
- ✓ acme/team-skills   ^1.2.0   v1.2.0 → v1.3.0
-   └─ team-skills              pack · 2 skills, 1 folder, 1 agent, 1 hook
-
- Next
-   acme/team-skills — newer version outside the constraint: v1.3.0 → v2.0.0
-   available. To upgrade:
-     npx agntc add acme/team-skills --pack
-
- ──────────────────────────────────────────────────────────────────────────────
- 1 updated                                                                 0.1s
-```
+Each command opens with a header and draws what it does as rows. A run with more than one outcome to count, or anything under Next, closes with a tally; a run with one outcome and nothing under Next ends on its row. A row's contents sit beneath it as a tree.
 
 - **Work in progress spins on its row** (`cloning`, `updating to v1.3.0…`), then settles into the result.
-- **A question is asked under the row it's about**, and is gone once answered:
-
-  ```
-   ✓ ~/team-skills   local   1 pack · 1 skill
-
-   ? Select what to install    ↑↓ move   space pick   a all   ⏎ done   esc cancel
-   ▌ ● laravel   pack · 2 skills, 1 folder
-     ○ go        go conventions
-
-                                                                    1 of 2 picked
-  ```
-
+- **A question is asked under the row it's about**, and is gone once answered.
 - **Next** lists what you can do about the run: a newer version and the command to reach it, or the `remove` and `add` that mend an update that couldn't go ahead.
 - **The tally** counts the run's outcomes, with the time it took.
 
@@ -144,6 +122,8 @@ Agents and hooks install only as part of a pack. A folder holding `agents/` or `
 npx agntc@latest add <source> [--skill <names...> | --pack | --all] [--list] [--overwrite] [-g] [--json]
 ```
 
+<img src="art/add.webp" alt="add acme/team-skills: the source's row, with the menu of its pack and loose skills asked under it" width="840">
+
 | Source | Example |
 |---|---|
 | GitHub shorthand | `owner/repo` |
@@ -182,6 +162,8 @@ npx agntc@latest add <source> [--skill <names...> | --pack | --all] [--list] [--
 npx agntc@latest update [key] [-y] [-g] [--json]
 ```
 
+<img src="art/update.webp" alt="update: a repo's pack and skill moved from v1.2.0 to v1.3.0 as one row, a local skill refreshed, a pinned skill with newer tags, Next with the adds that reach them, and the tally" width="840">
+
 With no key, every install updates; a key updates that install, or every install under it (`owner/repo`). Installs from one repo at one version intent are checked and cloned once, and update as one row.
 
 An update deletes the install's files and installs it again at the new version. Everything that could stop it is checked first, so an update that can't go ahead leaves the install as it was and prints, under Next, the `remove` and `add` that would mend it.
@@ -200,13 +182,7 @@ An install that fails or can't go ahead doesn't stop the others; the command exi
 npx agntc@latest list [-g] [--json]
 ```
 
-```
- ? Select a skill or pack to manage
-   acme/team-skills
- ▌   team-skills   pack   v1.3.0 ^1.2.0   ✓ up to date
-
- ↑↓ move   ⏎ manage   esc done
-```
+<img src="art/list.webp" alt="list's dashboard: installs grouped by repo, each with its kind, version, constraint and status, and the counts of what wants attention" width="840">
 
 Installs are grouped by repo, each with its kind, version, constraint and status: up to date, an update available, newer tags, local, check failed, or no matching version. Pick one for its details (what it installs, its constraint and any newer version outside it) and its actions: Update, Change version, Remove. Change version installs the tag you pick and drops the constraint.
 
@@ -216,6 +192,8 @@ Installs are grouped by repo, each with its kind, version, constraint and status
 npx agntc@latest remove [key] [-y] [-g] [--json]
 ```
 
+<img src="art/remove.webp" alt="remove: a pack's row with its folders under each asset folder, and the confirm under it" width="840">
+
 A key removes that install, or every install under it (`owner/repo`). Without a key you pick from a list. agntc asks before deleting files; `-y` skips the question.
 
 ### `init`
@@ -223,6 +201,8 @@ A key removes that install, or every install under it (`owner/repo`). Without a 
 ```bash
 npx agntc@latest init [skill|pack] [-y] [--json]
 ```
+
+<img src="art/init.webp" alt="init pack: the folder's row with the files it will create as a tree, and the confirm" width="840">
 
 | Type | Creates |
 |---|---|
