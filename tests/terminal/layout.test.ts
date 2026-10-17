@@ -162,6 +162,69 @@ describe("wrap", () => {
 		expect(wrap("a list of 3", 9)).toEqual(["a list of", "3"]);
 	});
 
+	it("keeps a `…` with the count it leads", () => {
+		expect(wrap("… 33 more folders, 2 more", 20)).toEqual([
+			"… 33 more folders,",
+			"2 more",
+		]);
+	});
+
+	it("breaks a count and its noun apart, between their words, when together they're wider than a line", () => {
+		expect(wrap("… 33 more folders, 2 more", 15)).toEqual([
+			"… 33 more",
+			"folders, 2 more",
+		]);
+		expect(wrap("… 33 more folders, 2 more", 9)).toEqual([
+			"… 33 more",
+			"folders,",
+			"2 more",
+		]);
+		expect(wrap("3 more skills already held by ex/kit", 6)).toEqual([
+			"3 more",
+			"skills",
+			"alread",
+			"y held",
+			"by",
+			"ex/kit",
+		]);
+	});
+
+	it("keeps only a number as a count, never a word with a digit in it", () => {
+		expect(wrap("go v2 now", 6)).toEqual(["go v2", "now"]);
+		expect(wrap("go x1 now", 6)).toEqual(["go x1", "now"]);
+		expect(wrap("tag 1.2.0 is out", 9)).toEqual(["tag 1.2.0", "is out"]);
+	});
+
+	it("cuts a word a character short rather than open the next line on a `,`", () => {
+		expect(wrap("folders, 2 more", 7)).toEqual(["folder", "s,", "2 more"]);
+	});
+
+	it("never cuts a word that fits a line, nor leaves a line opening or ending on a space or opening on a `,`", () => {
+		const texts = [
+			"… 33 more folders, 2 more",
+			"… 11 more folders, 1 more agent",
+			"3 more skills already held by ex/kit",
+			"pack · 12 skills, 3 folders, 1 agent and 1 hook",
+			"Remove them and their 12 skills, 3 folders, 1 agent and 1 hook?",
+			"14 skills already held by leeovery/agentic-skills/kit",
+		];
+		for (const text of texts) {
+			const words = new Set(text.split(" "));
+			const longest = Math.max(...[...words].map((word) => word.length));
+			for (let width = 4; width <= 40; width++) {
+				const lines = wrap(text, width);
+				for (const line of lines) {
+					expect(line).not.toMatch(/^ | $|^,/);
+					if (width >= longest) {
+						for (const word of line.split(" ")) {
+							expect(words).toContain(word);
+						}
+					}
+				}
+			}
+		}
+	});
+
 	it("breaks at spaces inside the width", () => {
 		expect(wrap("the quick brown fox jumps", 10)).toEqual([
 			"the quick",

@@ -917,6 +917,31 @@ describe("renderRowWithin", () => {
 		]);
 	});
 
+	it("breaks a count too wide for its room between words, never inside one", () => {
+		const many: Row = {
+			status: "done",
+			subject: "owner/repo",
+			children: [
+				...Array.from({ length: 33 }, (_, index) => ({
+					name: `s${index}`,
+					noun: "skill",
+				})),
+				{ name: "x", detail: "a" },
+				{ name: "y", detail: "b" },
+			],
+		};
+		expect(
+			renderRowWithin(many, 6, blockLayout([many], 20), 20, plain),
+		).toEqual([
+			" ✓ owner/repo",
+			"   ├─ s0",
+			"   ├─ s1",
+			"   └─ … 31 more",
+			"      skills,",
+			"      2 more",
+		]);
+	});
+
 	it("paints the count dim", () => {
 		expect(within(2, color)[1]).toBe(" \x1b[2m  └─ … 3 more\x1b[22m");
 	});

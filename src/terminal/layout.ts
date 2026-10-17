@@ -331,7 +331,7 @@ function wrapParagraph(
 		room = full;
 	};
 
-	for (const word of wordsOf(text)) {
+	for (const word of unitsOf(text, full)) {
 		const wordWidth = visibleWidth(word);
 		const used = line === "" ? 0 : visibleWidth(line) + 1;
 		if (used + wordWidth <= room) {
@@ -363,24 +363,38 @@ function wrapParagraph(
 }
 
 /**
- * The words a line breaks between: a count stays with the noun after it,
- * through a `more` between them, so neither `1 hook` nor `3 more skills`
- * splits across lines.
+ * What a line breaks between: its words, but a count stays with the noun
+ * after it, through a `more` between them, and a `…` with what it leads, so
+ * neither `1 hook` nor `… 3 more skills` splits across lines. A unit wider
+ * than `full` breaks between its words instead, so no word in it is cut.
  */
-function wordsOf(text: string): string[] {
-	const words: string[] = [];
-	let count: string | undefined;
+function unitsOf(text: string, full: number): string[] {
+	const units: string[][] = [];
+	let unit: string[] = [];
 	for (const word of text.split(" ").filter((each) => each !== "")) {
-		if (count === undefined && COUNT.test(word)) {
-			count = word;
-		} else if (count !== undefined && word === "more") {
-			count = `${count} ${word}`;
-		} else {
-			words.push(count === undefined ? word : `${count} ${word}`);
-			count = undefined;
+		unit.push(word);
+		if (!leads(word, unit)) {
+			units.push(unit);
+			unit = [];
 		}
 	}
-	return count === undefined ? words : [...words, count];
+	if (unit.length > 0) {
+		units.push(unit);
+	}
+	return units.flatMap((words) => {
+		const joined = words.join(" ");
+		return visibleWidth(joined) <= full ? [joined] : words;
+	});
+}
+
+/** Whether `word`, last in `unit`, holds on to the word after it. */
+function leads(word: string, unit: readonly string[]): boolean {
+	const before = unit.at(-2);
+	return (
+		word === "…" ||
+		COUNT.test(word) ||
+		(word === "more" && before !== undefined && COUNT.test(before))
+	);
 }
 
 const COUNT = /^\d+$/;
@@ -441,7 +455,7 @@ function breakWord(word: string, first: number, rest: number): string[] {
 /**
  * Where a line `next` overflows is cut: after its last `/` (at `slash`) when
  * what follows it and `next` fit `rest`; else before `next`, or a character
- * sooner when `next` is a `/`, so the line after doesn't open on it.
+ * sooner when `next` is a `/` or a `,`, so the line after doesn't open on it.
  */
 function cutAt(
 	line: readonly string[],
@@ -455,7 +469,9 @@ function cutAt(
 		return slash;
 	}
 	const sooner = line.length - 1;
-	return next === "/" && sooner > 0 && fits(sooner) ? sooner : line.length;
+	return (next === "/" || next === ",") && sooner > 0 && fits(sooner)
+		? sooner
+		: line.length;
 }
 
 function columnsOf(clusters: readonly string[]): number {
