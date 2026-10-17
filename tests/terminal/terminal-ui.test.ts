@@ -451,17 +451,6 @@ describe("a task", () => {
 			]);
 		});
 	});
-
-	it("leaves a dim ○ Cancelled where it spun on a signal, and exits 130", () => {
-		const { term, ui } = run({ env: COLOR });
-		ui.block(SUBJECTS).task(PROGRESS);
-		term.host.emit("SIGINT");
-		expect(
-			term.output.text.endsWith(`${CLEAR} ${DIM}○ Cancelled${NORMAL}\n${SHOW}`),
-		).toBe(true);
-		expect(term.host.exit).toHaveBeenCalledWith(130);
-		ui.end();
-	});
 });
 
 describe("close", () => {

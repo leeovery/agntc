@@ -55,7 +55,7 @@ afterEach(() => {
 });
 
 describe("the terminal ui's prompts", () => {
-	it("reach the prompts with the terminal's streams, width, style and process", async () => {
+	it("reach the prompts with the terminal's streams, width and style, and the run that owns the signals", async () => {
 		const { term, ui } = run(100, { FORCE_COLOR: "2" });
 		vi.mocked(promptSelect).mockResolvedValueOnce("a");
 		vi.mocked(promptMultiselect).mockResolvedValueOnce(["a"]);
@@ -65,7 +65,7 @@ describe("the terminal ui's prompts", () => {
 			output: term.output,
 			width: 100,
 			style: expect.objectContaining({ level: 2 }),
-			host: term.host,
+			owner: { hold: expect.any(Function), suspend: expect.any(Function) },
 		};
 
 		const select = { message: "Pick one", options: OPTIONS, maxItems: 5 };

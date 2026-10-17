@@ -116,13 +116,17 @@ export function commandAction<A extends unknown[]>(
 /** The signalled exit code, or null when the command ran to its end. */
 type ExitCode = number | null;
 
-/** The header first; whatever still spins at the end, however it ends, clears. */
+/**
+ * The header first; whatever still spins at the end, however it ends, clears.
+ * The run owns the process's signals throughout.
+ */
 async function runInteractive(
 	ui: TerminalUi,
 	start: (ui: Ui) => Promise<void>,
 ): Promise<ExitCode> {
-	ui.header();
+	ui.begin();
 	try {
+		ui.header();
 		await start(ui);
 		return null;
 	} catch (err) {

@@ -73,14 +73,18 @@ interface FakeIo extends CommandIo {
 	exits: number[];
 	/** What a terminal run drew, colour off. */
 	screen: CaptureStdout;
+	/** The process a terminal run's signals come from. */
+	host: FakeHost;
 }
 
 function fakeIo(terminal: boolean, cwd = CWD): FakeIo {
 	const screen = new CaptureStdout();
+	const host = new FakeHost();
 	const io: FakeIo = {
 		written: [],
 		exits: [],
 		screen,
+		host,
 		stdinIsTTY: () => terminal,
 		stdoutIsTTY: () => terminal,
 		cwd: () => cwd,
@@ -97,7 +101,7 @@ function fakeIo(terminal: boolean, cwd = CWD): FakeIo {
 				input: new FakeStdin(),
 				output: screen,
 				env: {},
-				host: new FakeHost(),
+				host,
 			}),
 	};
 	return io;
@@ -220,6 +224,47 @@ describe("commandAction", () => {
 					throw new Error("unexpected");
 				}, io),
 			).rejects.toThrow("unexpected");
+		});
+
+		it("owns the process's signals while the command runs, however it ends", async () => {
+			const events = ["exit", "SIGINT", "SIGTERM", "SIGTSTP"] as const;
+			for (const ending of [
+				async () => {},
+				async () => {
+					throw new ExitSignal(1);
+				},
+				async () => {
+					throw new Error("unexpected");
+				},
+			]) {
+				const io = fakeIo(true);
+				const listening = () =>
+					events.map((event) => io.host.listenerCount(event));
+				let during: number[] = [];
+
+				await act(async () => {
+					during = listening();
+					await ending();
+				}, io).catch(() => {});
+
+				expect(during).toEqual([1, 1, 1, 1]);
+				expect(listening()).toEqual([0, 0, 0, 0]);
+			}
+		});
+
+		it("prints the Next items queued before a SIGINT, then ○ Cancelled, and exits 130", async () => {
+			const io = fakeIo(true);
+
+			await act(async (ui) => {
+				ui.next({ subject: "laravel", remedy: { lead: "Then:", steps: [] } });
+				ui.block([]).task({ text: "Cloning repository..." });
+				io.host.emit("SIGINT");
+			}, io);
+
+			expect(io.host.exit).toHaveBeenCalledExactlyOnceWith(130);
+			expect(io.screen.text).toMatch(
+				/ Next\n {3}laravel — then:\n\n ○ Cancelled\n$/,
+			);
 		});
 	});
 
