@@ -4,15 +4,16 @@
 // declare: src/ may import only `dependencies`, which tsup leaves external,
 // so the published bundle needs them installed beside it; tests/ may import
 // dependencies or devDependencies. Node's builtins, `node:` or bare, need
-// no declaration. Every import counts, `import type`, `export … from` and
-// `import("…")` among them, each reduced to its package (`@scope/pkg/x` to
-// `@scope/pkg`, `pkg/x` to `pkg`). The other gates can't catch an
-// undeclared import in a worktree: node, tsc, vite and esbuild resolve a
-// package from every ancestor's node_modules, and agents' worktrees sit
-// under the primary checkout's.
+// no declaration, nor does a relative, absolute or `#` specifier. Every
+// import counts, `import type`, `export … from`, `import("…")` and
+// `require("…")` among them, each reduced to its package (`@scope/pkg/x` to
+// `@scope/pkg`, `pkg/x` to `pkg`), in every .js, .ts and .jsx/.tsx file,
+// .mjs/.cjs/.mts/.cts included, links followed. No other gate sees src/
+// import a devDependency: npm ci installs those, so typecheck, build and
+// test all pass, and the published bundle then fails for its users.
 //
 // Takes the repo root to check, this script's own by default.
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
@@ -33,12 +34,28 @@ const folders = [
 
 const SOURCE = /\.[cm]?[jt]sx?$/;
 
-function sources(folder) {
-	const dir = join(root, folder);
-	return readdirSync(dir, { recursive: true, withFileTypes: true })
-		.filter((entry) => entry.isFile() && SOURCE.test(entry.name))
-		.map((entry) => join(entry.parentPath, entry.name))
-		.sort();
+/**
+ * Every source file under `dir`, through links to files and folders alike,
+ * as tsc and vitest read them; each real folder is entered once, so a link
+ * back up the tree ends.
+ */
+function sources(dir, entered = new Set()) {
+	const real = realpathSync(dir);
+	if (entered.has(real)) {
+		return [];
+	}
+	entered.add(real);
+	const files = [];
+	for (const name of readdirSync(dir).sort()) {
+		const path = join(dir, name);
+		const stats = statSync(path, { throwIfNoEntry: false });
+		if (stats?.isDirectory()) {
+			files.push(...sources(path, entered));
+		} else if (stats?.isFile() && SOURCE.test(name)) {
+			files.push(path);
+		}
+	}
+	return files;
 }
 
 /** The package a bare specifier names; null for a relative, absolute or `#` one. */
@@ -52,7 +69,7 @@ function packageOf(specifier) {
 
 const undeclared = [];
 for (const { folder, allowed, named } of folders) {
-	for (const file of sources(folder)) {
+	for (const file of sources(join(root, folder))) {
 		const { importedFiles } = ts.preProcessFile(
 			readFileSync(file, "utf-8"),
 			true,

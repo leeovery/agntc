@@ -1,4 +1,4 @@
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import {
 	chmodSync,
 	copyFileSync,
@@ -8,7 +8,6 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
-	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,53 +16,39 @@ import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 
 const SCRIPTS = resolve(import.meta.dirname, "../../scripts");
 
-// npm as the gates call it: each call logged, and failing when NPM_FAIL
-// names it. ci installs, writing npm's record of the install, before it
-// would fail; test writes the file NPM_TOUCH names, or commits one when
-// NPM_COMMIT is set, as a checkout changing under the gates.
+// npm as the gates call it, wherever they run: each call logged, with the
+// folder it ran in, and failing when NPM_FAIL names it. ci installs; test
+// fails on a src/cli.ts that reads `broken`, and when NPM_HANG names a file,
+// writes it and waits to be stopped.
 const FAKE_NPM = `#!/usr/bin/env bash
 echo "$*" >>"$NPM_LOG"
+pwd -P >>"$NPM_LOG.where"
 if [ "$1" = ci ]; then
-	rm -rf node_modules
-	mkdir node_modules
-	echo installed >node_modules/.package-lock.json
+	mkdir -p node_modules
 fi
-if [ "$1" = test ] && [ -n "\${NPM_TOUCH:-}" ]; then
-	echo touched >"$NPM_TOUCH"
-fi
-if [ "$1" = test ] && [ -n "\${NPM_COMMIT:-}" ]; then
-	echo moved >src/moved.ts
-	git add src/moved.ts
-	git commit -qm moved
+if [ "$1" = test ]; then
+	if [ -n "\${NPM_HANG:-}" ]; then
+		touch "$NPM_HANG"
+		sleep 30
+	fi
+	[ "$(cat src/cli.ts)" != broken ] || exit 1
 fi
 [ "$*" != "\${NPM_FAIL:-}" ]
 `;
 
-// node and uname as the gate's stamp reads them, from FAKE_NODE_VERSION and
-// FAKE_UNAME; node runs anything else as the real one does.
-const FAKE_NODE = `#!/usr/bin/env bash
-if [ "$1" = --version ]; then
-	echo "\${FAKE_NODE_VERSION:-v24.0.0}"
-	exit 0
-fi
-exec "${process.execPath}" "$@"
-`;
-const FAKE_UNAME = `#!/usr/bin/env bash
-echo "\${FAKE_UNAME:-Darwin arm64}"
-`;
-
-// The import check, logged as the gates are.
+// The import check, logged as npm's calls are.
 const STUB_DECLARED_IMPORTS = `import { appendFileSync } from "node:fs";
 appendFileSync(process.env.NPM_LOG, "declared-imports\\n");
 `;
 
-/** What scripts/gate runs after npm ci, in order, as the call log names it. */
-export const GATES = ["declared-imports", "run typecheck", "run build", "test"];
-
-function tool(name: string, content: string): void {
-	writeFileSync(join(bin, name), content);
-	chmodSync(join(bin, name), 0o755);
-}
+/** What scripts/gate runs, in order, as the call log names it. */
+export const GATES = [
+	"ci",
+	"declared-imports",
+	"run typecheck",
+	"run build",
+	"test -- --allowOnly=false",
+];
 
 let root: string;
 let repo: string;
@@ -94,17 +79,11 @@ export function useGateRepo(): void {
 	});
 }
 
-/** Writes a file dated a minute ahead, so newer than anything the gate wrote. */
-export function writeLater(path: string): void {
-	write(path, "later");
-	const later = new Date(Date.now() + 60_000);
-	utimesSync(repoPath(path), later, later);
-}
-
 /**
- * A git repo of its own for each test, with npm on its PATH faked, in which
- * the repo's scripts run as copies. `setup` builds it once, in a template
- * each test gets a copy of, as git takes most of a test's time.
+ * A git repo of its own for each test, with npm on its PATH faked and TMPDIR
+ * a folder of the test's own, in which the repo's scripts run as copies.
+ * `setup` builds it once, in a template each test gets a copy of, as git
+ * takes most of a test's time.
  */
 export function useScriptRepo(setup: () => void): void {
 	let template: string;
@@ -112,11 +91,11 @@ export function useScriptRepo(setup: () => void): void {
 	beforeAll(() => {
 		template = mkdtempSync(join(tmpdir(), "agntc-gate-template-"));
 		enter(template);
-		mkdirSync(repo);
-		mkdirSync(bin);
-		tool("npm", FAKE_NPM);
-		tool("node", FAKE_NODE);
-		tool("uname", FAKE_UNAME);
+		for (const folder of [repo, bin, scratchPath("tmp"), scratchPath("xdg")]) {
+			mkdirSync(folder);
+		}
+		writeFileSync(join(bin, "npm"), FAKE_NPM);
+		chmodSync(join(bin, "npm"), 0o755);
 		git("init", "-q", "-b", "main");
 		setup();
 	});
@@ -126,8 +105,11 @@ export function useScriptRepo(setup: () => void): void {
 		cpSync(template, root, { recursive: true });
 	});
 
-	afterEach(() => {
+	// The git calls are synchronous; a turn of the event loop between tests
+	// lets vitest's worker answer its runner.
+	afterEach(async () => {
 		rmSync(root, { recursive: true, force: true });
+		await new Promise((resume) => setImmediate(resume));
 	});
 
 	afterAll(() => {
@@ -151,6 +133,9 @@ function env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 		...kept,
 		GIT_CONFIG_GLOBAL: "/dev/null",
 		GIT_CONFIG_NOSYSTEM: "1",
+		// git reads $XDG_CONFIG_HOME/git/ignore and the like whatever
+		// GIT_CONFIG_GLOBAL says.
+		XDG_CONFIG_HOME: scratchPath("xdg"),
 		// A commit otherwise starts maintenance in the background, which can
 		// still hold a lock file in .git as the next test copies the template.
 		GIT_CONFIG_COUNT: "1",
@@ -161,6 +146,7 @@ function env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 		GIT_COMMITTER_NAME: "test",
 		GIT_COMMITTER_EMAIL: "test@example.com",
 		PATH: `${bin}:${process.env.PATH}`,
+		TMPDIR: scratchPath("tmp"),
 		NPM_LOG: npmLog,
 		...extra,
 	};
@@ -221,19 +207,47 @@ export function script(name: string, content?: string): void {
 	chmodSync(file, 0o755);
 }
 
-export function run(
+export interface Ran {
+	status: number | null;
+	output: string;
+}
+
+export interface RunOptions {
+	/** The checkout whose scripts/ the script is taken from; the repo by default. */
+	from?: string;
+	/** Where it runs; `from` by default. */
+	cwd?: string;
+	extra?: Record<string, string>;
+}
+
+/**
+ * Starts scripts/<name> in a process group of its own, so a signal sent to
+ * `-pid` reaches it and whatever it is running.
+ */
+export function start(
 	name: string,
-	{
-		cwd = repo,
-		extra = {},
-	}: { cwd?: string; extra?: Record<string, string> } = {},
-): { status: number | null; output: string } {
-	const result = spawnSync(join(cwd, "scripts", name), {
+	{ from = repo, cwd = from, extra = {} }: RunOptions = {},
+): { pid: number; done: Promise<Ran> } {
+	const child = spawn(join(from, "scripts", name), [], {
 		cwd,
 		env: env(extra),
-		encoding: "utf-8",
+		detached: true,
 	});
-	return { status: result.status, output: result.stdout + result.stderr };
+	let output = "";
+	child.stdout.on("data", (chunk) => {
+		output += chunk;
+	});
+	child.stderr.on("data", (chunk) => {
+		output += chunk;
+	});
+	const done = new Promise<Ran>((settle) => {
+		child.on("close", (status) => settle({ status, output }));
+	});
+	return { pid: child.pid!, done };
+}
+
+export function run(name: string, options: RunOptions = {}): Promise<Ran> {
+	return start(name, options).done;
 }
 
 function recordFile(): string {
@@ -252,13 +266,14 @@ export function recordHead(): void {
 	});
 }
 
-/** The npm calls made since the last `forgetGateCalls`. */
+/** The calls the gates made to npm and the import check, in order. */
 export function gateCalls(): string[] {
 	return lines(npmLog);
 }
 
-export function forgetGateCalls(): void {
-	rmSync(npmLog, { force: true });
+/** The folders npm ran in, one a call. */
+export function npmFolders(): string[] {
+	return lines(`${npmLog}.where`);
 }
 
 function lines(file: string): string[] {

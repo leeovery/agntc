@@ -9,9 +9,11 @@
 # tests/). Anything else, package.json and the lockfile among them, is read
 # by a gate. The walk back, along first parents, stops at a commit that
 # changes anything else, at a merge, at the first commit (or a shallow
-# clone's boundary), or after 50 commits, and then the gates run in full,
-# through scripts/gate, as they do when the checkout has changes of its own
-# outside the inert paths, staged or not, untracked files included.
+# clone's boundary), or after 50 commits, and then scripts/gate runs every
+# gate on HEAD, which passes only once its tree is recorded. A checkout with
+# changes of its own outside the inert paths, staged or not, untracked files
+# included, is refused before anything runs: a release is of HEAD. mint shows
+# only this script's exit, so run it directly to see why it failed.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -37,20 +39,29 @@ all_inert() {
 	done <<<"$1"
 }
 
-# full runs the gates in full, after saying why.
-full() {
-	echo "gated: $1: running the gates"
-	exec "$repo/scripts/gate"
-}
-
 short() {
 	git rev-parse --short "$1"
+}
+
+# full runs every gate on HEAD, after saying why, and passes only once that
+# has recorded HEAD's tree.
+full() {
+	local tree
+	tree=$(git rev-parse 'HEAD^{tree}')
+	echo "gated: $1: running the gates"
+	"$repo/scripts/gate"
+	if ! grep -qxF "$tree" "$record" 2>/dev/null; then
+		echo "gated: scripts/gate passed but recorded nothing for tree $(short "$tree"), so HEAD isn't gated" >&2
+		exit 1
+	fi
+	exit 0
 }
 
 changed=$(git diff --name-only --no-renames HEAD)
 untracked=$(git ls-files --others --exclude-standard)
 if ! all_inert "$changed" || ! all_inert "$untracked"; then
-	full "the checkout has changes outside the inert paths"
+	echo "gated: the checkout has changes outside the inert paths, and a release is of HEAD: commit them or set them aside" >&2
+	exit 1
 fi
 
 known=

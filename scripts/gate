@@ -1,38 +1,40 @@
 #!/usr/bin/env bash
 #
-# Runs every gate, stopping at the first that fails: scripts/declared-imports.mjs,
-# then npm run typecheck, npm run build and npm test in the CI job's order,
-# on node_modules as npm ci installs them from package-lock.json. npm ci
-# runs first unless node_modules carries the stamp this script left after
-# its own npm ci on the same package.json, package-lock.json, node and
-# platform, with npm's record of node_modules (node_modules/.package-lock.json)
-# unchanged since and nothing in node_modules newer than the stamp but the
-# caches vitest keeps there, so any install npm has made since, or any edit
-# by hand, forces a clean one again.
-# When every gate passes on a checkout that was clean as they began and
-# still is, the tree they passed on is recorded in the git common directory,
-# at agntc/gated, one hash a line, shared by every worktree. Clean means
-# git sees no change, submodules and every untracked file included, marks
-# no file to skip or assume unchanged, and ignores nothing in src/ or
-# tests/. scripts/gated, the release's gate, reads it to pass a tree
-# already gated. A checkout with changes runs the gates all the same, but
-# records nothing: its tree isn't the one they checked.
+# Runs every gate on the commit at HEAD, in a fresh checkout of it outside
+# the repo, stopping at the first that fails: npm ci, then
+# scripts/declared-imports.mjs, npm run typecheck, npm run build and npm test
+# in the CI job's order, the tests refusing a committed .only as CI does.
+# Changes not committed are no part of it, whatever git is told to show or
+# pass over. The checkout is a worktree of its own in a new folder under
+# TMPDIR, removed however the run ends; a node_modules in any folder above it
+# stops the run before anything is installed, as node, tsc and npm run would
+# find packages there that package-lock.json doesn't install, which is how a
+# worktree under the primary checkout passes on the primary's packages.
+# When every gate passes, HEAD's tree is recorded in the git common
+# directory, at agntc/gated, one hash a line, shared by every worktree.
+# scripts/gated, the release's gate, reads it to pass a tree already gated.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
-cd "$repo"
 
-record=$(git rev-parse --path-format=absolute --git-common-dir)/agntc/gated
-stamp=node_modules/.agntc-gate
+record=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/agntc/gated
+commit=$(git -C "$repo" rev-parse HEAD)
+tree=$(git -C "$repo" rev-parse 'HEAD^{tree}')
+short=$(git -C "$repo" rev-parse --short HEAD)
 
-# clean reports whether the checkout holds nothing a fresh clone of its
-# tree wouldn't: no change git sees, however it is configured, no file it
-# is told to pass over, and nothing ignored where the gates read.
-clean() {
-	[ -z "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ] &&
-		[ -z "$(git ls-files -v | grep '^[a-zS] ')" ] &&
-		[ -z "$(git ls-files --others --ignored --exclude-standard -- src tests)" ]
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/agntc-gate.XXXXXX")
+checkout=$scratch/agntc
+
+# cleanup removes the checkout and its folder, and git's note of it.
+cleanup() {
+	cd "$repo"
+	git worktree remove --force "$checkout" >/dev/null 2>&1 || true
+	rm -rf "$scratch"
+	git worktree prune
 }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # run runs a gate, and on its failure says so and exits with its status.
 run() {
@@ -45,48 +47,41 @@ run() {
 	fi
 }
 
-# installed describes what node_modules was installed from and as: the
-# manifests, npm's record of the install, node and the platform. It fails
-# when node_modules holds no install npm recorded.
-installed() {
-	git hash-object package.json package-lock.json node_modules/.package-lock.json 2>/dev/null &&
-		node --version &&
-		uname -sm
+# above names the first node_modules in the folder given or one above it,
+# its real path and the path it was reached by both walked.
+above() {
+	local dir
+	for dir in "$1" "$(cd "$1" && pwd -P)"; do
+		while :; do
+			if [ -e "$dir/node_modules" ]; then
+				echo "$dir/node_modules"
+				return
+			fi
+			[ "$dir" != / ] || break
+			dir=$(dirname "$dir")
+		done
+	done
 }
 
-# untouched reports whether nothing in node_modules is newer than the stamp,
-# vitest's caches aside, as the gates write those themselves.
-untouched() {
-	[ -z "$(find node_modules -mindepth 1 \
-		\( -path node_modules/.vite -o -path node_modules/.vite-temp \) -prune \
-		-o -newer "$stamp" -print)" ]
-}
-
-tree=$(git rev-parse 'HEAD^{tree}')
-began_clean=true
-clean || began_clean=false
-
-if [ -f "$stamp" ] && [ "$(installed)" = "$(<"$stamp")" ] && untouched; then
-	echo "gate: node_modules is as npm ci installed it from package-lock.json"
-else
-	rm -f "$stamp"
-	run npm ci
-	installed >"$stamp"
+found=$(above "$scratch")
+if [ -n "$found" ]; then
+	echo "gate: $found lies above the checkout the gates would run in, $checkout, and node and tsc would find packages there that package-lock.json doesn't install, so nothing is run or recorded: set TMPDIR to a folder with no node_modules above it" >&2
+	exit 1
 fi
+
+echo "gate: checking HEAD $short in a fresh checkout at $checkout; changes not committed are no part of it"
+git -C "$repo" worktree add --quiet --detach "$checkout" "$commit"
+cd "$checkout"
+unset NODE_PATH
+
+run npm ci
 run node scripts/declared-imports.mjs
 run npm run typecheck
 run npm run build
-run npm test
+run npm test -- --allowOnly=false
 
-short=$(git rev-parse --short "$tree")
-if [ "$began_clean" = false ]; then
-	echo "gate: every gate passed, but nothing is recorded: the checkout had changes as they began"
-elif ! clean || [ "$(git rev-parse 'HEAD^{tree}')" != "$tree" ]; then
-	echo "gate: every gate passed, but nothing is recorded: the checkout changed while they ran"
-else
-	mkdir -p "$(dirname "$record")"
-	if ! grep -qxF "$tree" "$record" 2>/dev/null; then
-		printf '%s\n' "$tree" >>"$record"
-	fi
-	echo "gate: every gate passed on tree $short, recorded"
+mkdir -p "$(dirname "$record")"
+if ! grep -qxF "$tree" "$record" 2>/dev/null; then
+	printf '%s\n' "$tree" >>"$record"
 fi
+echo "gate: every gate passed on HEAD $short, tree $(git rev-parse --short "$tree"), recorded"
