@@ -490,13 +490,14 @@ describe("applyOutcome", () => {
 	});
 });
 
-/** An absorbed outcome, its summary the sentence of its message. */
+/** An absorbed outcome, its summary the sentence of its message; its pack landed unless it was removed. */
 function absorbedAs(key: string, into: string, detail: string): PluginOutcome {
 	const text = `${key} ${detail}`;
 	return {
 		status: "absorbed",
 		key,
 		into,
+		landed: !detail.startsWith("was removed"),
 		summary: text,
 		message: { subject: key, detail, text, plain: text },
 	};

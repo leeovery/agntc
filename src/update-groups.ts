@@ -137,7 +137,13 @@ export type PluginOutcome =
 	| { status: "constrained-no-match"; key: string }
 	| ({ status: "gone-kept"; key: string; flags?: string[] } & Told)
 	| ({ status: "gone-removed"; key: string } & Told)
-	| ({ status: "absorbed"; key: string; into: string } & Told);
+	| ({
+			status: "absorbed";
+			key: string;
+			into: string;
+			/** Whether the pack that took it over installed; the document leaves it out. */
+			landed: boolean;
+	  } & Told);
 
 interface Reinstalled {
 	notes: Message[];
@@ -221,19 +227,26 @@ export function absorbedOutcome(
 	pack: PluginOutcome,
 ): PluginOutcome {
 	const into = pack.key;
+	const landed = isSuccessOutcome(pack);
+	const named = landed ? packTakingOver(key, pack) : into;
 	return {
 		status: "absorbed",
 		key,
 		into,
-		...told(
-			aboutEntry(
-				key,
-				isSuccessOutcome(pack)
-					? `is now part of the pack ${packTakingOver(key, pack)}`
-					: `was removed — the pack ${into} took it over, then failed to install`,
-			),
-		),
+		landed,
+		...told(aboutEntry(key, takenOverDetail(`the pack ${named}`, landed))),
 	};
+}
+
+/**
+ * What became of an entry `pack` took over: part of it, or removed when the
+ * pack then failed to install. `pack` names it as the line naming the entry
+ * does: `the pack <key>`, or `this pack` under the pack's own row.
+ */
+export function takenOverDetail(pack: string, landed: boolean): string {
+	return landed
+		? `is now part of ${pack}`
+		: `was removed — ${pack} took it over, then failed to install`;
 }
 
 /**

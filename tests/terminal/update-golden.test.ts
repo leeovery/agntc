@@ -1,4 +1,12 @@
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	cp,
+	mkdir,
+	mkdtemp,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -435,6 +443,75 @@ describe("an update of everything", () => {
 		]);
 	});
 
+	it("fails a skill from another group with the pack that took it over and then failed to install", async () => {
+		await repo(
+			"owner/repo",
+			{
+				"tools/agntc.json": PACK,
+				...prefixed("tools/", SKILLS("a", "b")),
+				"tools/agents/ag.md": "new",
+			},
+			{ kind: "head", resolvedSha: NEW },
+		);
+		const clone = vi.mocked(cloneSource).getMockImplementation()!;
+		vi.mocked(cloneSource).mockImplementation(async (parsed) => {
+			const cloned = await clone(parsed);
+			await chmod(join(cloned.tempDir, "tools/agents/ag.md"), 0o000);
+			return cloned;
+		});
+		await installed({
+			"owner/repo/tools": entry("owner/repo", {
+				type: "pack",
+				files: [".claude/skills/b/", ".claude/skills/b/SKILL.md"],
+			}),
+			"owner/repo/a": entry("owner/repo", {
+				ref: "main",
+				files: [".claude/skills/a/", ".claude/skills/a/SKILL.md"],
+			}),
+		});
+
+		const ended = await drawn();
+		// The copy's error names the temporary folders, so its lines aren't
+		// pinned whole: the row's head, the skill's line and the tally are.
+		expect(ended[2]).toBe(
+			" ✗ owner/repo@HEAD   HEAD   aaaaaaa → bbbbbbb  failed",
+		);
+		expect(ended).toContain(
+			"   └─ a                     was removed — the pack owner/repo/tools took it over, then failed to",
+		);
+		expect(ended.slice(-3)).toEqual(close("2 failed"));
+		expect(ended.filter((line) => line.includes("✓"))).toEqual([]);
+	});
+
+	it("names an up-to-date skill its group's pack took over once, as taken over", async () => {
+		await repo(
+			"owner/repo",
+			{ "kit/agntc.json": PACK, ...prefixed("kit/", SKILLS("k1", "s1")) },
+			{ kind: "head", resolvedSha: NEW },
+		);
+		await installed({
+			"owner/repo/kit": entry("owner/repo", {
+				type: "pack",
+				files: [".claude/skills/k1/", ".claude/skills/k1/SKILL.md"],
+			}),
+			// Already followed into the pack by `update owner/repo/s1`.
+			"owner/repo/s1": entry("owner/repo", {
+				commit: NEW,
+				sourceSubpath: "kit/skills/s1",
+				files: [".claude/skills/s1/", ".claude/skills/s1/SKILL.md"],
+			}),
+		});
+
+		expect(await drawn()).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo   HEAD   aaaaaaa → bbbbbbb",
+			"   ├─ kit              pack · 2 skills",
+			"   └─ s1               is now part of the pack owner/repo/kit",
+			...close("2 updated"),
+		]);
+	});
+
 	it("says once that nothing is installed", async () => {
 		expect(await drawn()).toEqual([
 			HEADER,
@@ -758,6 +835,99 @@ describe("a local pack taking over a loose skill from its folder", () => {
 			"   └─ s1                 is now part of this pack",
 			...close("1 updated  ·  1 refreshed"),
 		]);
+	});
+
+	it("keeps a long skill's line in its row's columns when a key naming the pack but not the skill updates it", async () => {
+		const root = join(testDir, "src/L");
+		const long = "a-rather-long-skill-name-here";
+		await write(root, {
+			"a/kit/agntc.json": PACK,
+			"a/kit/skills/k1/SKILL.md": "new",
+			[`a/kit/skills/${long}/SKILL.md`]: "new",
+			"a/other/SKILL.md": "new",
+		});
+		const recorded = (type: "skill" | "pack", folder: string) => ({
+			ref: null,
+			commit: null,
+			installedAt: "2026-10-01T00:00:00.000Z",
+			files: [`.claude/skills/${folder}/`],
+			type,
+			cloneUrl: null,
+			localRoot: root,
+		});
+		await write(projectDir, {
+			".agntc/manifest.json": {
+				[join(root, "a/kit")]: recorded("pack", "k1"),
+				[join(root, "a/other")]: recorded("skill", "other"),
+				[join(root, long)]: recorded("skill", long),
+			},
+		});
+		vi.mocked(checkForUpdate).mockResolvedValue({ status: "local" });
+
+		expect((await drawn({ key: join(root, "a") })).slice(2, 4)).toEqual([
+			" ✓ ~/src/L/a/kit                        local   refreshed · pack · 2 skills",
+			`   └─ ${long}             is now part of this pack`,
+		]);
+	});
+
+	it("keeps a long skill's line in its row's columns when the pack's key updates it", async () => {
+		const root = join(testDir, "src/L");
+		const long = "a-rather-long-skill-name-here";
+		await write(root, {
+			"kit/agntc.json": PACK,
+			"kit/skills/k1/SKILL.md": "new",
+			[`kit/skills/${long}/SKILL.md`]: "new",
+		});
+		const recorded = (type: "skill" | "pack", folder: string) => ({
+			ref: null,
+			commit: null,
+			installedAt: "2026-10-01T00:00:00.000Z",
+			files: [`.claude/skills/${folder}/`],
+			type,
+			cloneUrl: null,
+			localRoot: root,
+		});
+		await write(projectDir, {
+			".agntc/manifest.json": {
+				[join(root, "kit")]: recorded("pack", "k1"),
+				[join(root, long)]: recorded("skill", long),
+			},
+		});
+		vi.mocked(checkForUpdate).mockResolvedValue({ status: "local" });
+
+		// The block opens before the update, so it measures the skill as one
+		// the pack may take over.
+		expect((await drawn({ key: join(root, "kit") })).slice(2, 4)).toEqual([
+			" ✓ ~/src/L/kit                          local   refreshed · pack · 2 skills",
+			`   └─ ${long}             is now part of this pack`,
+		]);
+	});
+
+	it.each([
+		["everything", () => undefined],
+		["the pack's key", (root: string) => join(root, "kit")],
+	])("fails the skill with the pack when the pack's copy fails, updating %s", async (_, keyOf) => {
+		const root = await arrangeTakeover();
+		const unreadable = join(root, "kit/agents/ag.md");
+		await write(root, { "kit/agents/ag.md": "new" });
+		await chmod(unreadable, 0o000);
+
+		const ended = await drawn({ key: keyOf(root) });
+		// The copy's error names the temporary folders, so its lines aren't
+		// pinned whole: the row's head, the skill's line and the tally are.
+		expect(ended[2]).toMatch(
+			/^ ✗ ~\/src\/L\/kit {3}local {3}update failed after removing old files \(EACCES/,
+		);
+		const child = ended.indexOf(
+			"   └─ s1                 was removed — this pack took it over, then failed to install",
+		);
+		expect(ended.slice(child + 1, child + 4)).toEqual([
+			"",
+			" Next",
+			"   ~/src/L/kit — to install it again:",
+		]);
+		expect(ended.slice(-3)).toEqual(close("2 failed"));
+		expect(ended.filter((line) => line.includes("✓"))).toEqual([]);
 	});
 });
 

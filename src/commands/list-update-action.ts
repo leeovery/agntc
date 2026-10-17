@@ -50,7 +50,7 @@ export async function reinstallInSession(
 	run: UpdateRun,
 	plan?: KeyPlan,
 ): Promise<PluginOutcome> {
-	const progress = keyRowProgress(member, run, plan?.version);
+	const progress = keyRowProgress(member, manifest, run, plan?.version);
 	if (plan === undefined) {
 		progress.say(REFRESHING);
 	}

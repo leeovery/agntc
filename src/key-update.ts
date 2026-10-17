@@ -5,6 +5,7 @@ import {
 	reinstallEntry,
 } from "./clone-reinstall.js";
 import { entryHead, localHead } from "./entry-head.js";
+import { isSameSource, sourceIdOf } from "./entry-source.js";
 import { errorMessage } from "./errors.js";
 import { settleGone } from "./gone-upstream.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
@@ -61,8 +62,47 @@ export function keyHead(
 	};
 }
 
-function keySubject(member: GroupMember, head: RowHead): BlockSubject {
-	return member.entry.commit === null ? head : groupSubject(head, [member.key]);
+/**
+ * The loose skill entries from the source of a pack among `members` that its
+ * update may take over, which its row then names: a block measures them with
+ * its subjects, so a long name keeps the columns. Members aside.
+ */
+export function mayTakeOver(
+	members: readonly GroupMember[],
+	manifest: Manifest,
+): string[] {
+	const own = new Set(members.map(({ key }) => key));
+	const sources = members
+		.filter(({ entry }) => entry.type === "pack")
+		.map(({ key, entry }) => sourceIdOf(key, entry));
+	return Object.entries(manifest)
+		.filter(
+			([key, entry]) =>
+				!own.has(key) &&
+				entry.type === "skill" &&
+				sources.some((source) => isSameSource(source, sourceIdOf(key, entry))),
+		)
+		.map(([key]) => key);
+}
+
+/** A local entry's subject: its head, with the loose entries it may take over as a pack. */
+export function localSubject(
+	member: GroupMember,
+	head: RowHead,
+	manifest: Manifest,
+): BlockSubject {
+	const taken = mayTakeOver([member], manifest);
+	return taken.length === 0 ? head : groupSubject(head, taken);
+}
+
+function keySubject(
+	member: GroupMember,
+	head: RowHead,
+	manifest: Manifest,
+): BlockSubject {
+	return member.entry.commit === null
+		? localSubject(member, head, manifest)
+		: groupSubject(head, [member.key, ...mayTakeOver([member], manifest)]);
 }
 
 /**
@@ -80,11 +120,12 @@ export interface RowProgress {
  */
 export function keyRowProgress(
 	member: GroupMember,
+	manifest: Manifest,
 	run: UpdateRun,
 	version?: string,
 ): RowProgress {
 	const head = keyHead(member, run.home, version);
-	return rowProgress(run.ui.block([keySubject(member, head)]), head);
+	return rowProgress(run.ui.block([keySubject(member, head, manifest)]), head);
 }
 
 function rowProgress(block: Block, head: RowHead): RowProgress {

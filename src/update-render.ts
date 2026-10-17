@@ -19,6 +19,7 @@ import {
 	isSuccessOutcome,
 	keyBefore,
 	type PluginOutcome,
+	takenOverDetail,
 } from "./update-groups.js";
 import type { VersionMove } from "./version-resolve.js";
 
@@ -70,20 +71,30 @@ const CATEGORY: Record<PluginOutcome["status"], keyof UpdateTally> = {
 	"gone-kept": "kept",
 };
 
+/**
+ * The tally category that counts an outcome. An entry taken over by a pack
+ * that then failed to install is a failure too: its files are gone.
+ */
+function categoryOf(outcome: PluginOutcome): keyof UpdateTally {
+	return outcome.status === "absorbed" && !outcome.landed
+		? "failed"
+		: CATEGORY[outcome.status];
+}
+
 /** How an outcome reads: as the tally category that counts it. */
-function lookOf(status: PluginOutcome["status"]): Look {
-	return LOOKS.update[CATEGORY[status]];
+function lookOf(outcome: PluginOutcome): Look {
+	return LOOKS.update[categoryOf(outcome)];
 }
 
 export function outcomeStatus(outcome: PluginOutcome): Status {
-	return lookOf(outcome.status).status;
+	return lookOf(outcome).status;
 }
 
 /** The run's outcomes counted by update's tally categories. */
 export function updateTally(outcomes: readonly PluginOutcome[]): UpdateTally {
 	const counts: UpdateTally = {};
-	for (const { status } of outcomes) {
-		const category = CATEGORY[status];
+	for (const outcome of outcomes) {
+		const category = categoryOf(outcome);
 		counts[category] = (counts[category] ?? 0) + 1;
 	}
 	return counts;
@@ -129,22 +140,23 @@ export interface MemberResult {
 }
 
 /**
- * The members, then the loose entries their packs took over that aren't
- * among them already (up to date, in another group or a local entry of their
- * own), so every row a pack settles into says where those went.
+ * The members, then each loose entry a pack among them took over, as what
+ * became of it, whether it was a member too (skipped, or up to date) or not
+ * (in another group, or a local entry of its own): every row a pack settles
+ * into says where those went, and says it once.
  */
 function withTakenOver(members: readonly MemberResult[]): MemberResult[] {
-	const present = new Set(
-		members
-			.filter(({ outcome }) => outcome.status === "absorbed")
-			.map(({ outcome }) => outcome.key),
+	const takenBy = new Map(
+		members.flatMap(({ outcome: pack }) =>
+			absorbedBy(pack).map((key) => [key, pack] as const),
+		),
 	);
-	const taken = members.flatMap(({ outcome: pack }) =>
-		absorbedBy(pack)
-			.filter((key) => !present.has(key))
-			.map((key) => ({ outcome: absorbedOutcome(key, pack) })),
-	);
-	return [...members, ...taken];
+	return [
+		...members.filter(({ outcome }) => !takenBy.has(keyBefore(outcome))),
+		...[...takenBy].map(([key, pack]) => ({
+			outcome: absorbedOutcome(key, pack),
+		})),
+	];
 }
 
 /** Whether every one of the outcomes reads alike, so none needs a glyph of its own. */
@@ -189,7 +201,7 @@ function groupDetail(
 	outcomes: readonly PluginOutcome[],
 	worst: PluginOutcome,
 ): Detail {
-	const ended = lookOf(worst.status).label;
+	const ended = lookOf(worst).label;
 	if (outcomes.every(({ status }) => GONE.has(status))) {
 		return { label: ended };
 	}
@@ -237,7 +249,7 @@ function kindAndCounts({ newEntry, assetCounts }: Reinstalled): string {
 /** What an outcome that didn't reinstall says of its entry: its message, else how it reads. */
 function outcomeDetail(outcome: PluginOutcome): string {
 	if (isSuccessOutcome(outcome) || !("summary" in outcome)) {
-		return lookOf(outcome.status).label;
+		return lookOf(outcome).label;
 	}
 	return outcome.message?.detail ?? outcome.summary;
 }
@@ -245,28 +257,26 @@ function outcomeDetail(outcome: PluginOutcome): string {
 /**
  * A local entry: its own row, how it ended in its detail, and the loose
  * entries it took over as a pack as its children, each told where it went
- * as its row's pack: the row names the pack.
+ * as its row's pack: the row names the pack. Each ends as the pack did,
+ * landed or failed, so none carries a glyph of its own.
  */
 export function localRow(head: RowHead, result: MemberResult): Row {
 	const { outcome } = result;
 	const [, ...taken] = withTakenOver([result]);
-	const alike = endedAlike([outcome, ...taken.map((each) => each.outcome)]);
-	const into = isSuccessOutcome(outcome)
-		? "is now part of this pack"
-		: "was removed — this pack took it over, then failed to install";
+	const into = takenOverDetail("this pack", isSuccessOutcome(outcome));
 	return {
 		status: outcomeStatus(outcome),
 		...head,
 		detail: isSuccessOutcome(outcome)
 			? {
-					label: lookOf(outcome.status).label,
+					label: lookOf(outcome).label,
 					aside: reinstalledDetail(outcome, undefined),
 				}
 			: withoutOwnPath(outcomeDetail(outcome), outcome.key),
 		...(taken.length > 0
 			? {
-					children: taken.map((member) => ({
-						...memberChild(member, alike),
+					children: taken.map(({ outcome: entry }) => ({
+						name: memberName(entry.key),
 						detail: into,
 					})),
 				}
@@ -326,7 +336,7 @@ export function leftAloneRow(
 	keys: readonly string[] = [],
 ): Row {
 	return {
-		status: lookOf(why.status).status,
+		status: LOOKS.update[CATEGORY[why.status]].status,
 		...head,
 		detail: leftAloneDetail(why),
 		...(keys.length > 0

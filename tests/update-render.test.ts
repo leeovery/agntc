@@ -119,6 +119,11 @@ const STILL_IN_SOURCE: SubjectMessage = {
 	plain: "the machine sentence",
 };
 
+/** An entry taken over by a pack, which `landed` or not. */
+function absorbedInto(landed: boolean): PluginOutcome {
+	return { status: "absorbed", key: "k", into: "p", landed, summary: "" };
+}
+
 function aborted(key: string): PluginOutcome {
 	return {
 		status: "aborted",
@@ -132,7 +137,6 @@ describe("how an outcome reads", () => {
 	it.each<[PluginOutcome["status"], Row["status"]]>([
 		["updated", "done"],
 		["refreshed", "done"],
-		["absorbed", "done"],
 		["gone-removed", "done"],
 		["up-to-date", "unchanged"],
 		["newer-tags", "unchanged"],
@@ -147,25 +151,35 @@ describe("how an outcome reads", () => {
 		expect(outcomeStatus({ status, key: "k" } as PluginOutcome)).toBe(glyph);
 	});
 
-	it("counts each outcome in its tally category: absorbed as updated, newer tags as up to date", () => {
-		const outcomes = (
-			[
-				"updated",
-				"absorbed",
-				"refreshed",
-				"up-to-date",
-				"newer-tags",
-				"check-failed",
-				"constrained-no-match",
-				"aborted",
-				"blocked",
-				"copy-failed",
-				"failed",
-				"failed",
-				"gone-removed",
-				"gone-kept",
-			] as const
-		).map((status) => ({ status, key: "k" }) as PluginOutcome);
+	it.each([
+		[true, "done"],
+		[false, "failed"],
+	])("draws absorbed, its pack landed %s, with the %s glyph", (landed, glyph) => {
+		expect(outcomeStatus(absorbedInto(landed))).toBe(glyph);
+	});
+
+	it("counts each outcome in its tally category: absorbed as updated, or failed when its pack didn't land, newer tags as up to date", () => {
+		const outcomes = [
+			absorbedInto(true),
+			absorbedInto(false),
+			...(
+				[
+					"updated",
+					"refreshed",
+					"up-to-date",
+					"newer-tags",
+					"check-failed",
+					"constrained-no-match",
+					"aborted",
+					"blocked",
+					"copy-failed",
+					"failed",
+					"failed",
+					"gone-removed",
+					"gone-kept",
+				] as const
+			).map((status) => ({ status, key: "k" }) as PluginOutcome),
+		];
 
 		expect(updateTally(outcomes)).toEqual({
 			updated: 2,
@@ -173,7 +187,7 @@ describe("how an outcome reads", () => {
 			upToDate: 2,
 			notChecked: 2,
 			notUpdated: 2,
-			failed: 3,
+			failed: 4,
 			removed: 1,
 			kept: 1,
 		});

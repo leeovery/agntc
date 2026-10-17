@@ -8049,7 +8049,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			screen({
 				subjects: [
 					[
-						group("owner/repo@HEAD", "HEAD", "tools"),
+						group("owner/repo@HEAD", "HEAD", "tools", "a"),
 						group("owner/repo@main", "main", "a"),
 					],
 				],
@@ -8145,7 +8145,7 @@ describe("a pack taking over loose skills from its own source", () => {
 					subjects: [
 						[
 							group("owner/repo@main", "main", "a"),
-							group("owner/repo@HEAD", "HEAD", "tools"),
+							group("owner/repo@HEAD", "HEAD", "tools", "a"),
 						],
 					],
 					rows: [
@@ -8231,7 +8231,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			expect(run.document.notes).toEqual([]);
 		});
 
-		it("a key naming both drops the loose entry with the pack's", async () => {
+		it("a key naming both drops the loose entry with the pack's, failed as the pack is", async () => {
 			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
 			mockCopyPack.mockRejectedValue(new Error("disk full"));
 
@@ -8254,13 +8254,11 @@ describe("a pack taking over loose skills from its own source", () => {
 							children: [
 								{
 									name: "tools",
-									status: "failed",
 									detail:
 										"update failed after removing old files (disk full), and the skill it took over was removed: owner/repo/a. It is currently uninstalled.",
 								},
 								{
 									name: "a",
-									status: "done",
 									detail:
 										"was removed — the pack owner/repo/tools took it over, then failed to install",
 								},
@@ -8276,7 +8274,7 @@ describe("a pack taking over loose skills from its own source", () => {
 							},
 						},
 					],
-					tally: closed({ failed: 1, updated: 1 }),
+					tally: closed({ failed: 2 }),
 				}),
 			);
 		});
@@ -8303,7 +8301,7 @@ describe("a pack taking over loose skills from its own source", () => {
 
 		expect(drawn()).toEqual(
 			screen({
-				subjects: [[group("owner/repo", "HEAD", "tools")]],
+				subjects: [[group("owner/repo", "HEAD", "tools", "a")]],
 				rows: [
 					updated(
 						"owner/repo",

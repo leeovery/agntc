@@ -10,6 +10,8 @@ import { ExitSignal } from "../exit-signal.js";
 import {
 	keyHead,
 	keyRowProgress,
+	localSubject,
+	mayTakeOver,
 	REFRESHING,
 	type RowProgress,
 	reinstallKey,
@@ -175,7 +177,7 @@ async function runKeyUpdate(
 	run: UpdateRun,
 ): Promise<void> {
 	const { ui } = run;
-	const progress = keyRowProgress(member, run);
+	const progress = keyRowProgress(member, manifest, run);
 	progress.say(member.entry.commit === null ? REFRESHING : CHECKING);
 	const check = await checkForUpdate(member.key, member.entry);
 	const outcome = await updateUnderRow(progress, manifest, run, () =>
@@ -415,12 +417,14 @@ async function runGroupedUpdates(
 
 	const block = ui.block([
 		...groups.map((group) =>
-			groupSubject(
-				groupHead(group, groups),
-				group.members.map(({ key }) => key),
-			),
+			groupSubject(groupHead(group, groups), [
+				...group.members.map(({ key }) => key),
+				...mayTakeOver(group.members, manifest),
+			]),
 		),
-		...localEntries.map(([key]) => localHead(key, run.home)),
+		...localEntries.map(([key, entry]) =>
+			localSubject({ key, entry }, localHead(key, run.home), manifest),
+		),
 	]);
 	const resolved = await checkGroups(groups, block);
 	const categorized = categorizeGroups(resolved);
@@ -794,12 +798,10 @@ async function streamGroupWork(
 		task.settle(cloneFailedRow(head, result.reason, keys));
 		return unit;
 	}
-	const takenOver = new Set(unit.outcomes.flatMap(absorbedBy));
-	const upToDate = item.upToDate.filter(({ key }) => !takenOver.has(key));
 	task.settle(
 		reinstalledRow(head, groupMove(item, facets), [
 			...memberResults(item, unit.outcomes, facets),
-			...upToDate.map((outcome) => ({ outcome })),
+			...item.upToDate.map((outcome) => ({ outcome })),
 		]),
 	);
 	return unit;
