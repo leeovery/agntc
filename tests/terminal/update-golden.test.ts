@@ -33,7 +33,7 @@ import { runUpdate } from "../../src/commands/update.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
 import type { ManifestEntry } from "../../src/manifest.js";
-import { projectScope } from "../../src/scope.js";
+import { agntcCommand, projectScope } from "../../src/scope.js";
 import { repoFromKey } from "../../src/source-parser.js";
 import { TerminalUi } from "../../src/terminal/terminal-ui.js";
 import {
@@ -691,8 +691,8 @@ describe("an update of one key", () => {
 			"",
 			" Next",
 			"   ~/src/mypack — clear them and update again, or replace them:",
-			`     npx agntc remove ${folder}`,
-			`     npx agntc add ${folder} --pack --overwrite`,
+			`     ${agntcCommand("project", "remove", [folder])}`,
+			`     ${agntcCommand("project", "add", [folder, "--pack", "--overwrite"])}`,
 			...close("1 not updated"),
 		]);
 	});

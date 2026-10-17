@@ -36,7 +36,7 @@ import { copyItem } from "../../src/copy-item.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags } from "../../src/git-utils.js";
-import { projectScope } from "../../src/scope.js";
+import { agntcCommand, projectScope } from "../../src/scope.js";
 import { TerminalUi } from "../../src/terminal/terminal-ui.js";
 import { KEY, Terminal } from "./prompts/terminal.js";
 
@@ -806,7 +806,7 @@ describe("an add with an item that fails", () => {
 		expect(ended.slice(ended.indexOf(" Next"), -3)).toEqual([
 			" Next",
 			"   ~/src/kit — to replace it:",
-			`     npx agntc remove ${kit}`,
+			`     ${agntcCommand("project", "remove", [kit])}`,
 			"     then add again",
 		]);
 	});

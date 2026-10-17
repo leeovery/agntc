@@ -31,5 +31,13 @@ diff_exclude = [
 # Gate the release on a clean-install type-check + build + test BEFORE the tag
 # PONR. npm publish (.github/workflows/publish.yml) only runs AFTER the tag is
 # pushed, so without this a broken build/test would leave an orphaned tag +
-# GitHub release. Mirrors the CI job exactly (clean install included).
-pre_tag = ['npm ci', 'npm run typecheck', 'npm run build', 'npm test']
+# GitHub release. scripts/gated passes at once a commit whose tree
+# scripts/gate recorded as passing every gate, or one that changes only docs
+# and the like since such a tree; anything else runs scripts/gate, which
+# checks HEAD in a fresh checkout outside the repo, clean install included,
+# as the CI job does. It runs on this Mac, not on CI's Linux; CI re-runs
+# every gate on Linux, on the tag, before it publishes. As mint commits the
+# checkout after this hook, scripts/gated refuses a change outside the inert
+# paths in it, and checks again as it passes. mint shows only the hook's
+# exit, so run scripts/gated directly to see why it failed.
+pre_tag = ['scripts/gated']

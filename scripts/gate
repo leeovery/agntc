@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+#
+# Runs every gate on the commit at HEAD, in a fresh checkout of it outside
+# the repo, stopping at the first that fails: npm ci, then
+# scripts/declared-imports.mjs, npm run typecheck, npm run build and npm test
+# in the CI job's order, the tests refusing a committed .only as CI does.
+# Changes not committed are no part of it, this script's own included,
+# whatever git is told to show or pass over: whichever copy is called reads
+# HEAD and makes the checkout, a worktree of its own in a new folder under
+# TMPDIR, and hands the rest to the checkout's copy, HEAD's, which runs the
+# steps and removes the checkout however the run ends. The checkout is
+# whole, a sparse caller's patterns aside, and is refused unless git holds
+# every file in it as checked out.
+# The steps run on the checkout alone. A node_modules in any folder above it
+# stops the run before anything is installed, as node, tsc and npm run would
+# find packages there that package-lock.json doesn't install, which is how a
+# worktree under the primary checkout passes on the primary's packages; so
+# does a node whose major version isn't the one HEAD's .nvmrc names. The
+# steps see no npm config but HEAD's own, no NODE_PATH or NODE_OPTIONS, and no
+# node_modules/.bin on PATH. They keep TMPDIR, made absolute.
+# No git environment reaches it, as a hook exports (GIT_DIR, GIT_INDEX_FILE),
+# which would turn the checkout's git on the caller's repo and index.
+# When every step passes, the tree of the commit checked is recorded in the
+# git common directory, at agntc/gated, one hash a line, shared by every
+# worktree. scripts/gated, the release's gate, reads it to pass a tree
+# already gated.
+set -euo pipefail
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
+
+# ours reports whether the folder given is one a gate made, the only kind
+# it ever deletes.
+ours() {
+	case $1 in
+	/*/agntc-gate.??????) return 0 ;;
+	esac
+	return 1
+}
+
+# noted prints the worktree a note in .git/worktrees/ points at, its gitdir
+# file resolved against the note, as git resolves a relative one
+# (worktree.useRelativePaths).
+noted() {
+	local gitdir folder
+	gitdir=$(<"$1/gitdir")
+	case $gitdir in
+	/*) ;;
+	*) gitdir=$1/$gitdir ;;
+	esac
+	if folder=$(cd "$(dirname "$gitdir")" 2>/dev/null && pwd -P); then
+		echo "$folder/.git"
+	else
+		echo "$gitdir"
+	fi
+}
+
+# forget removes git's note of the worktree at the folder given, which
+# `git worktree remove` leaves when an add was stopped midway. Unlike
+# `git worktree prune` it touches no other worktree, so none whose folder is
+# away for a while (an unmounted volume) loses its entry.
+forget() {
+	local entry
+	for entry in "$common"/worktrees/*; do
+		if [ -f "$entry/gitdir" ] && [ "$(noted "$entry")" = "$1/.git" ]; then
+			rm -rf "$entry"
+		fi
+	done
+}
+
+# forget_stale removes git's note of every checkout a gate made whose folder
+# is gone, as a gate killed outright leaves once TMPDIR is cleaned. One whose
+# folder is there may be another gate's, still running, so it stays, as does
+# a locked one.
+forget_stale() {
+	local entry gitdir
+	for entry in "$common"/worktrees/*; do
+		[ -f "$entry/gitdir" ] || continue
+		gitdir=$(noted "$entry")
+		case $gitdir in
+		*/agntc-gate.??????/agntc/.git)
+			if [ ! -e "$(dirname "$gitdir")" ] && [ ! -e "$entry/locked" ]; then
+				rm -rf "$entry"
+			fi
+			;;
+		esac
+	done
+}
+
+# cleanup removes the checkout, its folder and git's note of it.
+cleanup() {
+	cd /
+	git -C "$repo" worktree remove --force "$checkout" >/dev/null 2>&1 || true
+	# Before the folder goes, as a relative note resolves only through it.
+	forget "$checkout"
+	if ours "$scratch"; then
+		rm -rf "$scratch"
+	fi
+}
+
+# stopped says the run was stopped and ends it with the signal's status.
+stopped() {
+	echo "gate: stopped by SIG$1, so nothing is recorded" >&2
+	exit "$2"
+}
+
+# refuse says why nothing is run and ends the run.
+refuse() {
+	echo "gate: $1, so nothing is run or recorded" >&2
+	exit 1
+}
+
+if [ "${1:-}" != --in-checkout ]; then
+	repo=$(cd "$(dirname "$0")/.." && pwd -P)
+	common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
+	commit=$(git -C "$repo" rev-parse HEAD)
+	tmp=${TMPDIR:-/tmp}
+	case $tmp in
+	/*) ;;
+	*) export TMPDIR=$PWD/$tmp tmp=$PWD/$tmp ;;
+	esac
+	made=$(mktemp -d "${tmp%/}/agntc-gate.XXXXXX") ||
+		refuse "no folder could be made in TMPDIR, $tmp"
+	scratch=$(cd "$made" && pwd -P)
+	ours "$scratch" || refuse "the folder made in TMPDIR, $scratch, isn't named as a gate's"
+	checkout=$scratch/agntc
+
+	trap cleanup EXIT
+	trap 'stopped INT 130' INT
+	trap 'stopped TERM 143' TERM
+	forget_stale
+	# Added bare, then checked out whole: an add would copy a sparse
+	# caller's patterns.
+	git -C "$repo" worktree add --quiet --detach --no-checkout "$checkout" "$commit"
+	git -C "$checkout" -c core.sparseCheckout=false reset --quiet --hard "$commit"
+	[ -x "$checkout/scripts/gate" ] || refuse "HEAD has no scripts/gate to run"
+	# An exec that fails goes on below: with errexit set bash 3.2 ends the
+	# script there, and it has dropped the traps by then, so cleanup is
+	# called here.
+	shopt -s execfail
+	set +e
+	exec "$checkout/scripts/gate" --in-checkout "$repo" "$commit" "$scratch"
+	trap - EXIT
+	cleanup
+	refuse "HEAD's scripts/gate won't run"
+fi
+
+repo=$2
+commit=$3
+scratch=$4
+checkout=$scratch/agntc
+# Nothing is deleted before the folder handed over is known to be a gate's.
+ours "$scratch" && [ -d "$checkout" ] ||
+	refuse "$scratch isn't a checkout a gate made"
+common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
+record=$common/agntc/gated
+short=$(git -C "$repo" rev-parse --short "$commit")
+
+trap cleanup EXIT
+trap 'stopped INT 130' INT
+trap 'stopped TERM 143' TERM
+
+# run runs a step, and on its failure says so and exits with its status.
+run() {
+	local status=0
+	echo "gate: $*"
+	"$@" || status=$?
+	if [ "$status" != 0 ]; then
+		echo "gate: $* failed or was stopped, so nothing is recorded" >&2
+		exit "$status"
+	fi
+}
+
+# above names the first node_modules in the folder given or one above it,
+# its real path and the path it was reached by both walked.
+above() {
+	local dir real parent
+	real=$(cd "$1" 2>/dev/null && pwd -P) || real=
+	for dir in "$1" "$real"; do
+		[ -n "$dir" ] || continue
+		while :; do
+			if [ -e "$dir/node_modules" ]; then
+				echo "$dir/node_modules"
+				return
+			fi
+			# Ends at / and at a relative path's . alike, each its own dirname.
+			parent=$(dirname "$dir")
+			[ "$parent" != "$dir" ] || break
+			dir=$parent
+		done
+	done
+}
+
+# Called with TMPDIR as given, as the folder made from it is a real path.
+found=$(above "${TMPDIR:-/tmp}")
+if [ -n "$found" ]; then
+	refuse "$found lies above the checkout the gates would run in, $checkout, and node and tsc would find packages there that package-lock.json doesn't install: set TMPDIR to a folder with no node_modules above it"
+fi
+
+cd "$checkout"
+
+left_out=$(git ls-files -t | grep -v '^H ' || true)
+if [ -n "$left_out" ]; then
+	refuse "the checkout leaves out files git holds, $(head -1 <<<"$left_out" | cut -c3-) among them"
+fi
+
+unset NODE_PATH NODE_OPTIONS
+shopt -s nocasematch
+for name in $(compgen -e); do
+	case $name in
+	npm_config_*) unset "$name" ;;
+	esac
+done
+shopt -u nocasematch
+# Two empty files, as npm refuses one file read as both.
+: >"$scratch/user.npmrc"
+: >"$scratch/global.npmrc"
+export NPM_CONFIG_USERCONFIG=$scratch/user.npmrc NPM_CONFIG_GLOBALCONFIG=$scratch/global.npmrc
+kept=
+IFS=: read -ra entries <<<"$PATH"
+for entry in "${entries[@]}"; do
+	case $entry in
+	node_modules/.bin | node_modules/.bin/ | */node_modules/.bin | */node_modules/.bin/) ;;
+	*) kept=${kept:+$kept:}$entry ;;
+	esac
+done
+export PATH=$kept
+
+[ -f .nvmrc ] || refuse "HEAD $short has no .nvmrc to name the node it runs on"
+wanted=$(tr -d '[:space:]' <.nvmrc)
+wanted=${wanted#v}
+wanted=${wanted%%.*}
+case $wanted in
+'' | *[!0-9]*) refuse "HEAD's .nvmrc names no major version of node: $(<.nvmrc)" ;;
+esac
+running=$(node --version 2>/dev/null) || refuse "node won't run from PATH"
+running=${running#v}
+running=${running%%.*}
+if [ "$running" != "$wanted" ]; then
+	refuse "node $running is on PATH, but HEAD's .nvmrc names node $wanted"
+fi
+
+echo "gate: checking HEAD $short in a fresh checkout at $checkout; changes not committed are no part of it"
+run npm ci
+run node scripts/declared-imports.mjs
+run npm run typecheck
+run npm run build
+run npm test -- --allowOnly=false
+
+tree=$(git -C "$repo" rev-parse "$commit^{tree}")
+mkdir -p "$(dirname "$record")"
+if ! grep -qxF "$tree" "$record" 2>/dev/null; then
+	printf '%s\n' "$tree" >>"$record"
+fi
+echo "gate: every gate passed on HEAD $short, tree $(git -C "$repo" rev-parse --short "$tree"), recorded"

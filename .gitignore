@@ -9,6 +9,7 @@ coverage/
 *.swp
 *.swo
 .claude/settings.local.json
+.claude/worktrees/
 .tick/cache.db
 .tick/lock
 .tick/.tasks-*.jsonl.tmp
