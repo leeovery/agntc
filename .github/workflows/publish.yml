@@ -22,6 +22,8 @@ jobs:
 
       - run: npm ci
 
+      - run: node scripts/declared-imports.mjs
+
       - run: npm run typecheck
 
       - run: npm run build

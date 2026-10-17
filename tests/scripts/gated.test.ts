@@ -90,6 +90,10 @@ describe("scripts/gated", () => {
 		["tsconfig.test.json"],
 		["tsup.config.ts"],
 		["docs/guide.md"],
+		[".nvmrc"],
+		[".npmignore"],
+		["release"],
+		["LICENSE"],
 	])("runs the gate when a commit since the recorded tree changes %s", async (path) => {
 		recordHead();
 		commit({ [path]: "changed" });
@@ -175,7 +179,7 @@ describe("scripts/gated", () => {
 
 		expect(status).toBe(1);
 		expect(output).toContain(
-			"gated: the checkout has changes outside the inert paths, and a release is of HEAD",
+			"gated: the checkout has changes outside the inert paths before anything ran, and mint would release them",
 		);
 		expect(output).not.toContain("stub gate ran");
 	});
@@ -231,7 +235,7 @@ describe("scripts/gated", () => {
 
 	it("fails when HEAD moves while the gate runs, though the tree it judged passed", async () => {
 		commitGate(
-			`${STUB_GATE}echo moved >src/moved.ts\ngit add -A\ngit commit -qm moved\n`,
+			`${STUB_GATE}echo moved >>README.md\ngit add -A\ngit commit -qm moved\n`,
 		);
 		const judged = git("rev-parse", "--short", "HEAD^{tree}");
 
@@ -256,7 +260,7 @@ real=$(PATH=\${PATH#*:} command -v git)
 status=0
 "$real" "$@" || status=$?
 if [ "$1" = rev-list ]; then
-	echo moved >src/moved.ts
+	echo moved >>README.md
 	"$real" add -A
 	"$real" commit -qm moved
 fi
@@ -276,15 +280,80 @@ exit "$status"
 	it.each([
 		["scripts/gate"],
 		["scripts/gated"],
-	])("refuses a copy of %s unlike HEAD's, however git is told to see it", async (path) => {
+	])("refuses a copy of %s unlike HEAD's that a clean filter hides from git", async (path) => {
 		recordHead();
-		write(path, `${readFileSync(repoPath(path), "utf-8")}\n# edited\n`);
-		git("update-index", "--assume-unchanged", path);
+		// An edit of the same size, as git takes a change of size as a change
+		// whatever a filter says.
+		const edited = readFileSync(repoPath(path), "utf-8").replace(
+			/(\n[^a-z]*)([a-z])/,
+			(_found, before: string, letter: string) =>
+				`${before}${letter.toUpperCase()}`,
+		);
+		write(path, edited);
+		git("config", "filter.hide.clean", "git show HEAD:%f");
+		write(".git/info/attributes", `${path} filter=hide\n`);
+		expect(git("status", "--porcelain")).toBe("");
 
 		const { status, output } = await run("gated");
 
 		expect(status).toBe(1);
-		expect(output).toContain(`gated: ${path} isn't HEAD's`);
+		expect(output).toContain(`gated: ${path} isn't HEAD's before anything ran`);
 		expect(output).not.toContain("stub gate ran");
+	});
+
+	it.each([
+		["assume unchanged", "--assume-unchanged"],
+		["skip", "--skip-worktree"],
+	])("refuses a code file git is told to %s", async (_, flag) => {
+		recordHead();
+		write("src/cli.ts", "edited");
+		git("update-index", flag, "src/cli.ts");
+
+		const { status, output } = await run("gated");
+
+		expect(status).toBe(1);
+		expect(output).toContain(
+			"gated: git is told to pass over src/cli.ts before anything ran",
+		);
+	});
+
+	it("passes an inert file git is told to assume unchanged", async () => {
+		recordHead();
+		git("update-index", "--assume-unchanged", "README.md");
+
+		expect((await run("gated")).status).toBe(0);
+	});
+
+	it.each([
+		["an untracked code file", `echo bad >src/evil.ts\n`],
+		["an edit to a code file", `echo bad >>src/cli.ts\n`],
+		[
+			"a code file it's told to assume unchanged",
+			`echo bad >>src/cli.ts\ngit update-index --assume-unchanged src/cli.ts\n`,
+		],
+	])("fails when the checkout gains %s while the gate runs, as mint would release it", async (_, change) => {
+		commitGate(`${STUB_GATE}${change}`);
+
+		const { status, output } = await run("gated");
+
+		expect(status).toBe(1);
+		expect(output).toContain("as it passed");
+	});
+
+	it("passes when the checkout gains only CHANGELOG.md while the gate runs", async () => {
+		commitGate(`${STUB_GATE}echo notes >>CHANGELOG.md\n`);
+
+		expect((await run("gated")).status).toBe(0);
+	});
+
+	it("runs the gate on a commit that renames code into an inert folder", async () => {
+		recordHead();
+		mkdirSync(repoPath("design"));
+		git("mv", "src/cli.ts", "design/cli.ts");
+		git("commit", "-q", "-m", "move");
+
+		const { output } = await run("gated");
+
+		expect(output).toContain("(it changes code): running the gates");
 	});
 });

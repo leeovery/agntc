@@ -800,7 +800,9 @@ describe("an add with an item that fails", () => {
 			},
 		});
 
-		const ended = await drawn({ source: kit });
+		// A screen wider than the 100 columns agntc lays out to, so the
+		// command, as long as the temp folder makes it, is seen whole.
+		const ended = await drawn({ source: kit, columns: 400 });
 		expect(ended.slice(ended.indexOf(" Next"), -3)).toEqual([
 			" Next",
 			"   ~/src/kit — to replace it:",

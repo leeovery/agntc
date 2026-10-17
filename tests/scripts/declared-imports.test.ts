@@ -4,6 +4,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -134,6 +135,16 @@ describe("scripts/declared-imports.mjs", () => {
 			`require("../package.json");`,
 		],
 		["an absolute path", "src/a.ts", `import z from "/opt/lib/z.js";`],
+		[
+			"a folder sharing src/'s prefix",
+			"src/a.ts",
+			`import w from "../srcfoo/w.js";`,
+		],
+		[
+			"design/, by a reference path",
+			"src/a.ts",
+			`/// <reference path="../design/x.d.ts" />`,
+		],
 	])("refuses a path outside the gates' folders: %s", async (_, file, line) => {
 		tree({ [file]: line });
 
@@ -141,8 +152,54 @@ describe("scripts/declared-imports.mjs", () => {
 
 		expect(status).toBe(1);
 		expect(errors).toMatch(
-			new RegExp(`^${file}: imports \\S+, which lies outside src/`),
+			new RegExp(`^${file}: names \\S+, which lies outside src/`),
 		);
+	});
+
+	it.each([
+		["tsup.config.ts", `import { x } from "./design/x.js";`],
+		["vitest.config.ts", `import { y } from "undeclared";`],
+	])("reads %s as tests/ are read", async (config, line) => {
+		tree({ [config]: line });
+
+		const { status, errors } = await check(root);
+
+		expect(status).toBe(1);
+		expect(errors).toMatch(new RegExp(`^${config}: `));
+	});
+
+	it("passes the config files' devDependencies and paths into tests/", async () => {
+		tree({
+			"vitest.config.ts": `import { defineConfig } from "vitest/config";\nimport "./tests/setup.js";`,
+		});
+
+		expect(await check(root)).toEqual(PASSED);
+	});
+
+	it.each([
+		["a declared package's", `/// <reference types="commander" />`],
+		["@types/ of a declared package", `/// <reference types="node" />`],
+		["TypeScript's own library", `/// <reference lib="es2022" />`],
+	])("passes a reference to %s types", async (_, line) => {
+		tree(
+			{ "src/a.ts": line },
+			{
+				...PACKAGE,
+				dependencies: { ...PACKAGE.dependencies, "@types/node": "^25" },
+			},
+		);
+
+		expect(await check(root)).toEqual(PASSED);
+	});
+
+	it("refuses a reference to the types of an undeclared package", async () => {
+		tree({ "src/a.ts": `/// <reference types="undeclared" />` });
+
+		expect(await check(root)).toEqual({
+			status: 1,
+			errors:
+				"src/a.ts: references the types of undeclared, which package.json's dependencies don't declare\n",
+		});
 	});
 
 	it("reduces a subpath to its package", async () => {
@@ -226,16 +283,39 @@ describe("scripts/declared-imports.mjs", () => {
 	});
 
 	it.each([
-		["file", "outside/a.ts", "src/a.ts"],
-		["folder", "outside", "src/linked"],
+		["file", "src/real/a.ts", "src/a.ts"],
+		["folder", "src/real", "src/linked"],
+		["folder in src/, from tests/", "src/real", "tests/linked"],
 	])("reads through a link to a %s", async (_, target, link) => {
-		tree({ "outside/a.ts": `import x from "undeclared";` });
+		tree({ "src/real/a.ts": `import x from "undeclared";` });
+		symlinkSync(join(root, target), join(root, link));
+
+		const { errors } = await check(root);
+
+		expect(errors).toContain(`${link}`);
+		expect(errors).not.toContain("links to");
+	});
+
+	it.each([
+		["file in design/", "design/a.ts", "src/a.ts", "src/"],
+		["folder in design/", "design", "src/shared", "src/"],
+		["folder in tests/, from src/", "tests", "src/tests", "src/"],
+		[
+			"file at the root, from tests/",
+			"README.md",
+			"tests/README.md",
+			"src/ and tests/",
+		],
+	])("refuses a link to a %s", async (_, target, link, within) => {
+		tree({ "design/a.ts": "export const a = 1;\n", "README.md": "" });
 		symlinkSync(join(root, target), join(root, link));
 
 		const { status, errors } = await check(root);
 
 		expect(status).toBe(1);
-		expect(errors).toContain(`${link}`);
+		expect(errors).toContain(
+			`${link}: links to ${realpathSync(join(root, target))}, which lies outside ${within}`,
+		);
 	});
 
 	it("ends at a link back up the tree", async () => {

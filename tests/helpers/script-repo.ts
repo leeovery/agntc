@@ -8,6 +8,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -18,7 +19,8 @@ import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 const SCRIPTS = resolve(import.meta.dirname, "../../scripts");
 
 // npm as the gates call it, wherever they run: each call logged, with the
-// folder it ran in, and failing when NPM_FAIL names it. ci installs and logs
+// folder it ran in, and failing when NPM_FAIL names it, with the status
+// NPM_FAIL_STATUS gives (1 by default). ci installs and logs
 // the environment it was given. test fails on a src/cli.ts that reads
 // `broken`; commits a change to the repo NPM_MOVE names, as HEAD moving under
 // the gate; and when NPM_HANG names a file, writes it and waits to be
@@ -29,7 +31,7 @@ echo "$*" >>"$NPM_LOG"
 pwd -P >>"$NPM_LOG.where"
 if [ "$1" = ci ]; then
 	mkdir -p node_modules
-	env >"$NPM_LOG.env"
+	node -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify(process.env))' "$NPM_LOG.env"
 	cat "$NPM_CONFIG_USERCONFIG" "$NPM_CONFIG_GLOBALCONFIG" >"$NPM_LOG.npmrc"
 fi
 if [ "$1" = test ]; then
@@ -45,14 +47,22 @@ if [ "$1" = test ]; then
 	fi
 	[ "$(cat src/cli.ts)" != broken ] || exit 1
 fi
-[ "$*" != "\${NPM_FAIL:-}" ]
+if [ "$*" = "\${NPM_FAIL:-}" ]; then
+	exit "\${NPM_FAIL_STATUS:-1}"
+fi
 `;
 
-// The import check, logged as npm's calls are, failing when NPM_FAIL names it.
+// The import check, logged as npm's calls are, failing as npm does.
 const STUB_DECLARED_IMPORTS = `import { appendFileSync } from "node:fs";
 appendFileSync(process.env.NPM_LOG, "declared-imports\\n");
-if (process.env.NPM_FAIL === "declared-imports") process.exit(1);
+if (process.env.NPM_FAIL === "declared-imports") {
+	process.exit(Number(process.env.NPM_FAIL_STATUS ?? 1));
+}
 `;
+
+// The bash the scripts' `#!/usr/bin/env bash` finds, when AGNTC_SCRIPT_BASH
+// names one, as macOS's own /bin/bash 3.2.
+const SCRIPT_BASH = process.env.AGNTC_SCRIPT_BASH;
 
 /** What scripts/gate runs, in order, as the call log names it. */
 export const GATES = [
@@ -67,6 +77,14 @@ let root: string;
 let repo: string;
 let bin: string;
 let npmLog: string;
+
+let testing = false;
+const running = new Set<{ abandon(): void }>();
+
+function tool(name: string, content: string): void {
+	writeFileSync(join(bin, name), content);
+	chmodSync(join(bin, name), 0o755);
+}
 
 function enter(dir: string): void {
 	root = dir;
@@ -103,25 +121,37 @@ export function useScriptRepo(setup: () => void): void {
 	let template: string;
 
 	beforeAll(() => {
-		template = mkdtempSync(join(tmpdir(), "agntc-gate-template-"));
+		template = realpathSync(
+			mkdtempSync(join(tmpdir(), "agntc-gate-template-")),
+		);
 		enter(template);
 		for (const folder of [repo, bin, scratchPath("tmp"), scratchPath("xdg")]) {
 			mkdirSync(folder);
 		}
-		writeFileSync(join(bin, "npm"), FAKE_NPM);
-		chmodSync(join(bin, "npm"), 0o755);
+		tool("npm", FAKE_NPM);
+		if (SCRIPT_BASH) {
+			tool("bash", `#!/bin/sh\nexec "${SCRIPT_BASH}" "$@"\n`);
+		}
 		git("init", "-q", "-b", "main");
 		setup();
 	});
 
 	beforeEach(() => {
-		enter(mkdtempSync(join(tmpdir(), "agntc-gate-test-")));
+		enter(realpathSync(mkdtempSync(join(tmpdir(), "agntc-gate-test-"))));
 		cpSync(template, root, { recursive: true });
+		testing = true;
 	});
 
-	// The git calls are synchronous; a turn of the event loop between tests
-	// lets vitest's worker answer its runner.
+	// A test that timed out leaves its script running: its group is killed
+	// and its result never settles, so the test can't go on in the next
+	// one's repo. The git calls are synchronous; a turn of the event loop
+	// between tests lets vitest's worker answer its runner.
 	afterEach(async () => {
+		testing = false;
+		for (const child of running) {
+			child.abandon();
+		}
+		running.clear();
 		rmSync(root, { recursive: true, force: true });
 		await new Promise((resume) => setImmediate(resume));
 	});
@@ -129,6 +159,18 @@ export function useScriptRepo(setup: () => void): void {
 	afterAll(() => {
 		rmSync(template, { recursive: true, force: true });
 	});
+}
+
+/**
+ * Puts a program of the content given ahead of everything else on the
+ * scripts' PATH, and returns that PATH, for `extra`.
+ */
+export function shadow(name: string, content: string): string {
+	const folder = scratchPath("shadow");
+	mkdirSync(folder, { recursive: true });
+	writeFileSync(join(folder, name), content);
+	chmodSync(join(folder, name), 0o755);
+	return `${folder}:${bin}:${process.env.PATH}`;
 }
 
 export function repoPath(...parts: string[]): string {
@@ -232,6 +274,10 @@ export interface RunOptions {
 	/** Where it runs; `from` by default. */
 	cwd?: string;
 	extra?: Record<string, string>;
+	/** What the script is called with. */
+	args?: string[];
+	/** The bash that runs it, in place of the one its first line finds. */
+	shell?: string;
 }
 
 /**
@@ -240,9 +286,16 @@ export interface RunOptions {
  */
 export function start(
 	name: string,
-	{ from = repo, cwd = from, extra = {} }: RunOptions = {},
+	{ from = repo, cwd = from, extra = {}, args = [], shell }: RunOptions = {},
 ): { pid: number; done: Promise<Ran> } {
-	const child = spawn(join(from, "scripts", name), [], {
+	if (!testing) {
+		throw new Error(`scripts/${name} started outside a running test`);
+	}
+	const script = join(from, "scripts", name);
+	const [command, commandArgs] = shell
+		? [shell, [script, ...args]]
+		: [script, args];
+	const child = spawn(command, commandArgs, {
 		cwd,
 		env: env(extra),
 		detached: true,
@@ -254,8 +307,25 @@ export function start(
 	child.stderr.on("data", (chunk) => {
 		output += chunk;
 	});
+	let abandoned = false;
+	const handle = {
+		abandon() {
+			abandoned = true;
+			try {
+				process.kill(-child.pid!, "SIGKILL");
+			} catch {
+				// The group is gone already.
+			}
+		},
+	};
+	running.add(handle);
 	const done = new Promise<Ran>((settle) => {
-		child.on("close", (status) => settle({ status, output }));
+		child.on("close", (status) => {
+			running.delete(handle);
+			if (!abandoned) {
+				settle({ status, output });
+			}
+		});
 	});
 	return { pid: child.pid!, done };
 }
@@ -313,10 +383,12 @@ export function npmConfigRead(): string {
 /** The environment npm ci was given, by name. */
 export function npmEnv(): Map<string, string> {
 	return new Map(
-		lines(`${npmLog}.env`).map((line) => {
-			const at = line.indexOf("=");
-			return [line.slice(0, at), line.slice(at + 1)] as const;
-		}),
+		Object.entries(
+			JSON.parse(readFileSync(`${npmLog}.env`, "utf-8")) as Record<
+				string,
+				string
+			>,
+		),
 	);
 }
 

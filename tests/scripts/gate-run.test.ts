@@ -10,6 +10,7 @@ import {
 	recorded,
 	run,
 	scratchPath,
+	shadow,
 	start,
 	useGateRepo,
 	worktrees,
@@ -115,5 +116,54 @@ describe("scripts/gate's checkout", () => {
 		expect(left).not.toContain(stale);
 		expect(left).toContain(away);
 		expect(left).toContain(running);
+	});
+
+	it("is kept by a later gate while a killed gate's is locked", async () => {
+		const locked = scratchPath("old", "agntc-gate.LOCKED", "agntc");
+		git("worktree", "add", "-q", "--detach", locked);
+		git("worktree", "lock", locked);
+		rmSync(locked, { recursive: true, force: true });
+
+		await run("gate");
+
+		expect(worktrees()).toContain(locked);
+	});
+
+	it("is told from another gate's by a note relative to the repo (worktree.useRelativePaths)", async () => {
+		git("config", "worktree.useRelativePaths", "true");
+		const running = scratchPath("other", "agntc-gate.XYZ789", "agntc");
+		git("worktree", "add", "-q", "--detach", running);
+
+		const { status } = await run("gate");
+
+		expect(status).toBe(0);
+		expect(worktrees()).toEqual([expect.any(String), running]);
+	});
+
+	it("is removed, and git's note of it, when the gate is stopped while adding it", async () => {
+		const added = scratchPath("added");
+		// git as the gate calls it, leaving the add half done (the checkout
+		// without its .git) and waiting there to be stopped.
+		const path = shadow(
+			"git",
+			`#!/usr/bin/env bash
+real=$(PATH=\${PATH#*:} command -v git)
+if [ "$3" = worktree ] && [ "$4" = add ]; then
+	"$real" "$@"
+	rm -f "\${@: -2:1}/.git"
+	exec perl -e 'open my $f, ">", $ARGV[0]; close $f; sleep 30' "${added}"
+fi
+exec "$real" "$@"
+`,
+		);
+		const gate = start("gate", { extra: { PATH: path } });
+		await until(added);
+
+		process.kill(-gate.pid, "SIGINT");
+		const { status, output } = await gate.done;
+
+		expect(status).toBe(130);
+		expect(output).toContain("gate: stopped by SIGINT");
+		expect(leftNothing()).toBe(true);
 	});
 });

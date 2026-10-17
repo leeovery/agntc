@@ -8,20 +8,47 @@
 # whatever git is told to show or pass over: whichever copy is called reads
 # HEAD and makes the checkout, a worktree of its own in a new folder under
 # TMPDIR, and hands the rest to the checkout's copy, HEAD's, which runs the
-# steps and removes the checkout however the run ends.
+# steps and removes the checkout however the run ends. The checkout is
+# whole, a sparse caller's patterns aside, and is refused unless git holds
+# every file in it as checked out.
 # The steps run on the checkout alone. A node_modules in any folder above it
 # stops the run before anything is installed, as node, tsc and npm run would
 # find packages there that package-lock.json doesn't install, which is how a
 # worktree under the primary checkout passes on the primary's packages; so
 # does a node whose major version isn't the one HEAD's .nvmrc names. The
 # steps see no npm config but HEAD's own, no NODE_PATH or NODE_OPTIONS, and no
-# node_modules/.bin on PATH. They keep TMPDIR, as golden tests lay out the
-# temp paths they show by its length.
+# node_modules/.bin on PATH. They keep TMPDIR.
 # When every step passes, the tree of the commit checked is recorded in the
 # git common directory, at agntc/gated, one hash a line, shared by every
 # worktree. scripts/gated, the release's gate, reads it to pass a tree
 # already gated.
 set -euo pipefail
+
+# ours reports whether the folder given is one a gate made, the only kind
+# it ever deletes.
+ours() {
+	case $1 in
+	/*/agntc-gate.??????) return 0 ;;
+	esac
+	return 1
+}
+
+# noted prints the worktree a note in .git/worktrees/ points at, its gitdir
+# file resolved against the note, as git resolves a relative one
+# (worktree.useRelativePaths).
+noted() {
+	local gitdir folder
+	gitdir=$(<"$1/gitdir")
+	case $gitdir in
+	/*) ;;
+	*) gitdir=$1/$gitdir ;;
+	esac
+	if folder=$(cd "$(dirname "$gitdir")" 2>/dev/null && pwd -P); then
+		echo "$folder/.git"
+	else
+		echo "$gitdir"
+	fi
+}
 
 # forget removes git's note of the worktree at the folder given, which
 # `git worktree remove` leaves when an add was stopped midway. Unlike
@@ -30,7 +57,7 @@ set -euo pipefail
 forget() {
 	local entry
 	for entry in "$common"/worktrees/*; do
-		if [ -f "$entry/gitdir" ] && [ "$(<"$entry/gitdir")" = "$1/.git" ]; then
+		if [ -f "$entry/gitdir" ] && [ "$(noted "$entry")" = "$1/.git" ]; then
 			rm -rf "$entry"
 		fi
 	done
@@ -38,14 +65,15 @@ forget() {
 
 # forget_stale removes git's note of every checkout a gate made whose folder
 # is gone, as a gate killed outright leaves once TMPDIR is cleaned. One whose
-# folder is there may be another gate's, still running, so it stays.
+# folder is there may be another gate's, still running, so it stays, as does
+# a locked one.
 forget_stale() {
 	local entry gitdir
 	for entry in "$common"/worktrees/*; do
 		[ -f "$entry/gitdir" ] || continue
-		gitdir=$(<"$entry/gitdir")
+		gitdir=$(noted "$entry")
 		case $gitdir in
-		*/agntc-gate.*/agntc/.git)
+		*/agntc-gate.??????/agntc/.git)
 			if [ ! -e "$(dirname "$gitdir")" ] && [ ! -e "$entry/locked" ]; then
 				rm -rf "$entry"
 			fi
@@ -58,7 +86,9 @@ forget_stale() {
 cleanup() {
 	cd /
 	git -C "$repo" worktree remove --force "$checkout" >/dev/null 2>&1 || true
-	rm -rf "$scratch"
+	if ours "$scratch"; then
+		rm -rf "$scratch"
+	fi
 	forget "$checkout"
 }
 
@@ -68,19 +98,32 @@ stopped() {
 	exit "$2"
 }
 
+# refuse says why nothing is run and ends the run.
+refuse() {
+	echo "gate: $1, so nothing is run or recorded" >&2
+	exit 1
+}
+
 if [ "${1:-}" != --in-checkout ]; then
 	repo=$(cd "$(dirname "$0")/.." && pwd -P)
 	common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
 	commit=$(git -C "$repo" rev-parse HEAD)
 	tmp=${TMPDIR:-/tmp}
-	scratch=$(cd "$(mktemp -d "${tmp%/}/agntc-gate.XXXXXX")" && pwd -P)
+	made=$(mktemp -d "${tmp%/}/agntc-gate.XXXXXX") ||
+		refuse "no folder could be made in TMPDIR, $tmp"
+	scratch=$(cd "$made" && pwd -P)
+	ours "$scratch" || refuse "the folder made in TMPDIR, $scratch, isn't named as a gate's"
 	checkout=$scratch/agntc
 
 	trap cleanup EXIT
 	trap 'stopped INT 130' INT
 	trap 'stopped TERM 143' TERM
 	forget_stale
-	git -C "$repo" worktree add --quiet --detach "$checkout" "$commit"
+	# Added bare, then checked out whole: an add would copy a sparse
+	# caller's patterns.
+	git -C "$repo" worktree add --quiet --detach --no-checkout "$checkout" "$commit"
+	git -C "$checkout" -c core.sparseCheckout=false reset --quiet --hard "$commit"
+	[ -x "$checkout/scripts/gate" ] || refuse "HEAD has no scripts/gate to run"
 	trap - EXIT INT TERM
 	exec "$checkout/scripts/gate" --in-checkout "$repo" "$commit" "$scratch"
 fi
@@ -89,6 +132,9 @@ repo=$2
 commit=$3
 scratch=$4
 checkout=$scratch/agntc
+# Nothing is deleted before the folder handed over is known to be a gate's.
+ours "$scratch" && [ -d "$checkout" ] ||
+	refuse "$scratch isn't a checkout a gate made"
 common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
 record=$common/agntc/gated
 short=$(git -C "$repo" rev-parse --short "$commit")
@@ -96,12 +142,6 @@ short=$(git -C "$repo" rev-parse --short "$commit")
 trap cleanup EXIT
 trap 'stopped INT 130' INT
 trap 'stopped TERM 143' TERM
-
-# refuse says why nothing is run and ends the run.
-refuse() {
-	echo "gate: $1, so nothing is run or recorded" >&2
-	exit 1
-}
 
 # run runs a step, and on its failure says so and exits with its status.
 run() {
@@ -117,8 +157,10 @@ run() {
 # above names the first node_modules in the folder given or one above it,
 # its real path and the path it was reached by both walked.
 above() {
-	local dir
-	for dir in "$1" "$(cd "$1" && pwd -P)"; do
+	local dir real
+	real=$(cd "$1" 2>/dev/null && pwd -P) || real=
+	for dir in "$1" "$real"; do
+		[ -n "$dir" ] || continue
 		while :; do
 			if [ -e "$dir/node_modules" ]; then
 				echo "$dir/node_modules"
@@ -137,6 +179,11 @@ if [ -n "$found" ]; then
 fi
 
 cd "$checkout"
+
+left_out=$(git ls-files -t | grep -v '^H ' || true)
+if [ -n "$left_out" ]; then
+	refuse "the checkout leaves out files git holds, $(head -1 <<<"$left_out" | cut -c3-) among them"
+fi
 
 unset NODE_PATH NODE_OPTIONS
 shopt -s nocasematch
@@ -161,9 +208,13 @@ done
 export PATH=$kept
 
 [ -f .nvmrc ] || refuse "HEAD $short has no .nvmrc to name the node it runs on"
-wanted=$(tr -d '[:space:]v' <.nvmrc)
+wanted=$(tr -d '[:space:]' <.nvmrc)
+wanted=${wanted#v}
 wanted=${wanted%%.*}
-running=$(node --version)
+case $wanted in
+'' | *[!0-9]*) refuse "HEAD's .nvmrc names no major version of node: $(<.nvmrc)" ;;
+esac
+running=$(node --version 2>/dev/null) || refuse "node won't run from PATH"
 running=${running#v}
 running=${running%%.*}
 if [ "$running" != "$wanted" ]; then
