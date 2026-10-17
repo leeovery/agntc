@@ -422,6 +422,102 @@ describe("a remove at 40 columns", () => {
 		]);
 		expect(ended).toEqual([HEADER_40, "", " ○ Cancelled"]);
 	});
+
+	const QUESTION_40 = [
+		" ? Remove them and their 12 folders, 2",
+		"   agents and 1 hook?",
+		"   [Yes]  No",
+	];
+
+	it.each([
+		[
+			11,
+			[
+				" ● leeovery/agentic-skills/nuxt",
+				"   pack · 11 skills, 1 agent, 1 hook",
+				"   … 11 more folders, 1 more agent, 1",
+				"   more hook",
+				" … 1 more entry",
+			],
+		],
+		[
+			9,
+			[
+				" ● leeovery/agentic-skills/nuxt",
+				"   … 11 more folders, 1 more agent, 1",
+				"   more hook",
+				" … 1 more entry",
+			],
+		],
+	])("charges the first row its wrapped count, on a screen of %i rows, before counting the rest", async (rows, fitted) => {
+		await write({
+			".agntc/manifest.json": {
+				"leeovery/agentic-skills/nuxt": entry({
+					type: "pack",
+					files: [
+						...NUXT.map((name) => `.claude/skills/${name}/`),
+						".claude/agents/reviewer.md",
+						".claude/hooks/lint.sh",
+					],
+				}),
+				"leeovery/agentic-skills/laravel": entry({
+					type: "pack",
+					files: [...folders("eloquent"), ".claude/agents/reviewer.md"],
+				}),
+			},
+		});
+
+		const { asking } = await session({
+			key: "leeovery/agentic-skills",
+			answer: ["n"],
+			columns: 40,
+			rows,
+		});
+
+		expect(asking).toEqual([HEADER_40, "", ...fitted, "", ...QUESTION_40]);
+	});
+
+	it.each([
+		[
+			8,
+			[
+				" ● /opt/code/a-local-kit-with-a-long-en",
+				"   ough-name/nuxt",
+				"   pack · 11 skills",
+				"   … 11 more folders",
+			],
+		],
+		[7, [" ● …al-kit-with-a-long-enough-name/nuxt", "   … 11 more folders"]],
+	])("keeps naming a long local entry on a screen of %i rows, on one line once its head doesn't fit", async (rows, fitted) => {
+		const key = "/opt/code/a-local-kit-with-a-long-enough-name/nuxt";
+		await write({
+			".agntc/manifest.json": {
+				[key]: entry({
+					ref: null,
+					commit: null,
+					cloneUrl: null,
+					type: "pack",
+					files: NUXT.map((name) => `.claude/skills/${name}/`),
+				}),
+			},
+		});
+
+		const { asking } = await session({
+			key,
+			answer: ["n"],
+			columns: 40,
+			rows,
+		});
+
+		expect(asking).toEqual([
+			HEADER_40,
+			"",
+			...fitted,
+			"",
+			" ? Remove it and its 11 folders?",
+			"   [Yes]  No",
+		]);
+	});
 });
 
 describe("a remove picked from the list", () => {

@@ -1,8 +1,8 @@
+import { entryHead } from "./entry-head.js";
 import { errorMessage } from "./errors.js";
 import { collisionRow } from "./in-the-way-render.js";
 import { type Manifest, removeEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
-import { homeShortened } from "./scope.js";
 import type { Ui } from "./ui.js";
 
 export interface CollisionResolution {
@@ -18,7 +18,7 @@ export interface CollisionResolution {
  * @param collisions - Map of manifest key to overlapping file paths
  * @param manifest - Current manifest
  * @param installRoot - The folder `.claude` and `.agntc` sit in, for either scope
- * @param home - The home folder a local entry's row shortens its key against
+ * @param home - The home folder a local entry's row, marked local, shortens its key against
  */
 export async function resolveCollisions(
 	collisions: Map<string, string[]>,
@@ -30,7 +30,8 @@ export async function resolveCollisions(
 	let updatedManifest = manifest;
 
 	for (const [key, files] of collisions) {
-		const row = collisionRow(homeShortened(key, home), files);
+		const local = updatedManifest[key]?.commit === null;
+		const row = collisionRow(entryHead(key, local, home), files);
 		const choice = await ui.block([row]).select(row, {
 			message: "How would you like to proceed?",
 			options: [

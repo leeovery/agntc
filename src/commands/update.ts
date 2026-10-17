@@ -3,13 +3,13 @@ import { Command } from "commander";
 import { prepareReinstall, reinstallEntry } from "../clone-reinstall.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { updateBody } from "../documents.js";
+import { localHead } from "../entry-head.js";
 import { groupReAddCommands, reAddCommand } from "../entry-source.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import {
 	keyHead,
 	keyRowProgress,
-	localHead,
 	REFRESHING,
 	type RowProgress,
 	reinstallKey,

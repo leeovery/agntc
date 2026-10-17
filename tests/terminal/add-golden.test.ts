@@ -110,6 +110,8 @@ interface Run {
 	answer?: string[];
 	/** Keys pressed once the run asks a second question, as its words show. */
 	later?: { asked: string; answer: string[] };
+	columns?: number;
+	rows?: number;
 }
 
 /** The terminal while the run asks its first question and its second, and once it has ended. */
@@ -118,12 +120,14 @@ async function session({
 	options = {},
 	answer,
 	later,
+	columns = 100,
+	rows = 60,
 }: Run = {}): Promise<{
 	asking: string[];
 	askingLater: string[];
 	ended: string[];
 }> {
-	const term = new Terminal(100, 60);
+	const term = new Terminal(columns, rows);
 	let asking: string[] = [];
 	let askingLater: string[] = [];
 	let now = 0;
@@ -355,7 +359,7 @@ describe("an add with files in the way", () => {
 			"",
 			" ✓ owner/repo   HEAD   1 of 2 installed",
 			"   └─ a                skill",
-			"                       removed other/repo, whose files were in the way: .claude/skills/a/",
+			"                       removed other/repo, whose files were in the way: a",
 		]);
 	});
 
@@ -395,7 +399,7 @@ describe("an add with files in the way", () => {
 			"",
 			" ✓ owner/repo   HEAD   1 skill",
 			"   └─ a                skill",
-			"                       replaced files agntc didn't install: .claude/skills/a/",
+			"                       replaced files agntc didn't install: a",
 		]);
 	});
 
@@ -421,13 +425,68 @@ describe("an add with files in the way", () => {
 		const { asking, ended } = await session({ answer: [KEY.enter] });
 
 		expect(asking.slice(2, 4)).toEqual([
-			" ! ~/src/kit/a            its files are in the way",
+			" ! ~/src/kit/a            local   its files are in the way",
 			"   └─ .claude/skills/a/",
 		]);
 		expect(ended.slice(2)).toEqual([
 			" ✓ owner/repo   HEAD   1 skill",
 			"   └─ a                skill",
-			"                       removed ~/src/kit/a, whose files were in the way: .claude/skills/a/",
+			"                       removed ~/src/kit/a, whose files were in the way: a",
+		]);
+	});
+
+	it.each([
+		[
+			100,
+			6,
+			[
+				HEADER,
+				"",
+				" ! ~/src/a-kit-with-a-long-enough-name/a   local   its files are in the way",
+			],
+		],
+		[
+			40,
+			8,
+			[
+				" ■ agntc add",
+				"",
+				" ! …src/a-kit-with-a-long-enough-name/a",
+				"   └─ … 1 more folder",
+			],
+		],
+	])("keeps naming the entry in the way above its question at %i columns and %i rows", async (columns, rows, fitted) => {
+		vi.mocked(homedir).mockReturnValue(testDir);
+		const kit = join(testDir, "src", "a-kit-with-a-long-enough-name", "a");
+		await upstream({ "a/SKILL.md": "" });
+		await write(projectDir, {
+			".claude/skills/a/SKILL.md": "theirs",
+			".agntc/manifest.json": {
+				[kit]: {
+					ref: null,
+					commit: null,
+					installedAt: "2026-01-01T00:00:00.000Z",
+					files: [".claude/skills/a/"],
+					type: "skill",
+					cloneUrl: null,
+					localRoot: kit,
+				},
+			},
+		});
+
+		const { asking } = await session({
+			answer: [KEY.down, KEY.enter],
+			columns,
+			rows,
+		});
+
+		expect(asking.slice(0, fitted.length + 1)).toEqual([...fitted, ""]);
+		expect(
+			asking.slice(fitted.length + 1).map((line) => line.trimEnd()),
+		).toEqual([
+			expect.stringMatching(/^ \? How would you like to proceed\?/),
+			" ▌ Remove it and continue",
+			"   Cancel installation",
 		]);
 	});
 

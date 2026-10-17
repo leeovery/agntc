@@ -345,8 +345,8 @@ describe("addedRow", () => {
 				status: "done",
 				detail: [
 					"skill",
-					"removed other/repo, whose files were in the way: .claude/skills/a/",
-					"replaced files agntc didn't install: .claude/agents/x.md",
+					"removed other/repo, whose files were in the way: a",
+					"replaced files agntc didn't install: x.md",
 				].join("\n"),
 			},
 			{
@@ -354,7 +354,7 @@ describe("addedRow", () => {
 				status: "attention",
 				detail: [
 					"files in the way belong to other/two: .claude/skills/b/",
-					"removed other/one, whose files were in the way: .claude/skills/c/",
+					"removed other/one, whose files were in the way: c",
 				].join("\n"),
 			},
 		]);
@@ -479,9 +479,7 @@ describe("clearedWords", () => {
 				},
 				HOME,
 			),
-		).toBe(
-			"removed other/repo, whose files were in the way: .claude/skills/a/, .claude/agents/x.md",
-		);
+		).toBe("removed other/repo, whose files were in the way: a and x.md");
 	});
 
 	it("names a local entry removed as its row named it, shortened against the home folder", () => {
@@ -494,15 +492,56 @@ describe("clearedWords", () => {
 				},
 				HOME,
 			),
-		).toBe(
-			"removed ~/src/kit/a, whose files were in the way: .claude/skills/a/",
-		);
+		).toBe("removed ~/src/kit/a, whose files were in the way: a");
 	});
 
 	it("names files agntc didn't install, replaced", () => {
 		expect(
 			clearedWords({ kind: "unmanaged", files: [".claude/skills/a/"] }, HOME),
-		).toBe("replaced files agntc didn't install: .claude/skills/a/");
+		).toBe("replaced files agntc didn't install: a");
+	});
+
+	it("names a skill folder once, by its folder, and any other path by its last segment", () => {
+		expect(
+			clearedWords(
+				{
+					kind: "unmanaged",
+					files: [
+						".claude/skills/nuxt-data/",
+						".claude/skills/nuxt-data/SKILL.md",
+						".claude/hooks/lint/",
+					],
+				},
+				HOME,
+			),
+		).toBe("replaced files agntc didn't install: nuxt-data and lint");
+	});
+
+	it("names a few, then counts the rest", () => {
+		const names = ["nuxt-data", "nuxt-i18n", "nuxt-seo", "nuxt-a", "nuxt-b"];
+		expect(
+			clearedWords(
+				{
+					kind: "entry",
+					key: `${HOME}/src/kit/a`,
+					files: names.map((name) => `.claude/skills/${name}/`),
+				},
+				HOME,
+			),
+		).toBe(
+			"removed ~/src/kit/a, whose files were in the way: nuxt-data, nuxt-i18n, nuxt-seo and 2 more",
+		);
+		expect(
+			clearedWords(
+				{
+					kind: "unmanaged",
+					files: names.slice(0, 3).map((name) => `.claude/skills/${name}/`),
+				},
+				HOME,
+			),
+		).toBe(
+			"replaced files agntc didn't install: nuxt-data, nuxt-i18n and nuxt-seo",
+		);
 	});
 });
 

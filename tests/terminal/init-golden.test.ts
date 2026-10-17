@@ -139,13 +139,14 @@ describe("an init of a pack", () => {
 
 	it.each([
 		[
-			8,
+			10,
 			[
 				" ● ~/my-pack           pack · will create 4 files",
 				"   ├─ agntc.json",
 				"   ├─ skills/",
 				"   │  └─ my-skill/",
-				"   └─ … 3 more files",
+				"   │     └─ SKILL.md",
+				"   └─ … 2 more files",
 			],
 		],
 		[
@@ -163,7 +164,7 @@ describe("an init of a pack", () => {
 				"   └─ … 4 more files",
 			],
 		],
-	])("cuts the tree to a screen of %i rows, counting the files left out, not the folders", async (rows, fitted) => {
+	])("cuts the tree to a screen of %i rows, counting the files left out, not the folders, and no folder whose files are all cut", async (rows, fitted) => {
 		const { asking } = await session({ type: "pack", answer: ["n"], rows });
 
 		expect(asking).toEqual([

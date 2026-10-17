@@ -276,8 +276,8 @@ describe("resolveCollisions", () => {
 			subject: "owner/repo-a",
 			detail: "its files are in the way",
 			children: [
-				{ name: ".claude/skills/skill-a/", dim: true },
-				{ name: ".claude/agents/executor.md", dim: true },
+				{ name: ".claude/skills/skill-a/", dim: true, noun: "folder" },
+				{ name: ".claude/agents/executor.md", dim: true, noun: "file" },
 			],
 		};
 		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
@@ -291,7 +291,7 @@ describe("resolveCollisions", () => {
 		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
 	});
 
-	it("names a local entry on its row by its folder, shortened against the home folder, and nowhere in the question", async () => {
+	it("names a local entry on its row by its folder, shortened against the home folder, as local, and nowhere in the question", async () => {
 		const key = `${HOME}/src/kit/loose1`;
 		const manifest: Manifest = {
 			[key]: makeEntry({
@@ -307,7 +307,7 @@ describe("resolveCollisions", () => {
 		await resolveCollisions(collisions, manifest, "/project", ui, HOME);
 
 		const [row, prompt] = ui.blocks[0]!.select.mock.calls[0]!;
-		expect(row).toMatchObject({ subject: "~/src/kit/loose1" });
+		expect(row).toMatchObject({ subject: "~/src/kit/loose1", meta: "local" });
 		expect(JSON.stringify(prompt)).not.toContain("kit");
 	});
 
@@ -339,11 +339,15 @@ describe("resolveCollisions", () => {
 		expect(ui.blocks.map((block) => block.select.mock.calls[0]![0])).toEqual([
 			expect.objectContaining({
 				subject: "owner/repo-a",
-				children: [{ name: ".claude/skills/skill-a/", dim: true }],
+				children: [
+					{ name: ".claude/skills/skill-a/", dim: true, noun: "folder" },
+				],
 			}),
 			expect.objectContaining({
 				subject: "owner/repo-b",
-				children: [{ name: ".claude/agents/my-agent.md", dim: true }],
+				children: [
+					{ name: ".claude/agents/my-agent.md", dim: true, noun: "file" },
+				],
 			}),
 		]);
 	});

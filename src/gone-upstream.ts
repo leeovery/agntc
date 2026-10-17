@@ -1,10 +1,10 @@
 import { assetSummary, kindAndCounts } from "./entry-assets.js";
+import type { EntryHead } from "./entry-head.js";
 import type { ManifestEntry } from "./manifest.js";
 import type { SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import { goneRow, removalQuestion } from "./remove-render.js";
 import { agntcCommand, type Scope } from "./scope.js";
-import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
 
 export interface GoneOptions {
@@ -12,7 +12,7 @@ export interface GoneOptions {
 	yes: boolean;
 	ui: Ui;
 	/** How the question's row names the entry: a local one as the row it settles into does. */
-	head: Pick<Row, "subject" | "meta">;
+	head: EntryHead;
 }
 
 /** What became of an entry whose source no longer holds it. */
@@ -51,7 +51,7 @@ export async function settleGone(
 
 /** Asks under the entry's row, which names it, its kind and counts, and what it installed. */
 async function askToRemove(
-	head: Pick<Row, "subject" | "meta">,
+	head: EntryHead,
 	entry: ManifestEntry,
 	scope: Scope,
 	ui: Ui,

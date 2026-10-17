@@ -49,6 +49,7 @@ import {
 	StartPathError,
 } from "../discover.js";
 import { addBody, listingBody, type SourceJson } from "../documents.js";
+import { entryHead } from "../entry-head.js";
 import {
 	installedFrom,
 	isSameSource,
@@ -828,6 +829,7 @@ async function checkItem(
 			manifest,
 			key: keyed.key,
 			projectDir: installRoot,
+			head: entryHead(keyed.key, src.cloneUrl === null, home),
 			home,
 		},
 		policy,

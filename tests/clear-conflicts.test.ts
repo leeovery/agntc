@@ -56,6 +56,7 @@ const mockRemovePaths = vi.mocked(removePathsInTheWay);
 const INCOMING = [".claude/skills/a/"];
 
 const HOME = "/home/lee";
+const HEAD = { subject: "owner/repo/a" };
 let projectDir: string;
 let ui: TestUi;
 
@@ -91,7 +92,14 @@ function clear(
 	incomingFiles = INCOMING,
 ) {
 	return clearConflicts(
-		{ incomingFiles, manifest, key: "owner/repo/a", projectDir, home: HOME },
+		{
+			incomingFiles,
+			manifest,
+			key: "owner/repo/a",
+			projectDir,
+			head: HEAD,
+			home: HOME,
+		},
 		policy,
 		ui,
 	);
@@ -220,9 +228,8 @@ describe("clearConflicts", () => {
 				cleared: [{ kind: "unmanaged", files: INCOMING }],
 			});
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
-				[{ pluginKey: "owner/repo/a", files: INCOMING }],
+				[{ head: HEAD, files: INCOMING }],
 				ui,
-				HOME,
 			);
 		});
 

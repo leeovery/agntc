@@ -2,6 +2,7 @@ import stringWidth from "string-width";
 import { describe, expect, it } from "vitest";
 import {
 	blockLayout,
+	renderRow,
 	renderRowsWithin,
 	renderRowWithin,
 } from "../../src/terminal/block.js";
@@ -14,10 +15,12 @@ import type {
 	Status,
 } from "../../src/terminal/types.js";
 
-// Generated rows, cut to every room at every width: whatever a cut keeps, no
-// line reaches the last column, so the terminal never wraps one and a frame
-// takes exactly the lines the fit counted. Measured by string-width, not by
-// the module's own visibleWidth.
+// Generated rows, cut to every room at the widths the layout changes at:
+// whatever a cut keeps, no line reaches the last column, so the terminal never
+// wraps one and a frame takes exactly the lines the fit counted (measured by
+// string-width, not by the module's own visibleWidth). And it's honest: the
+// first row's subject is always named, a cut row keeps its count once it can,
+// and every row is shown or counted.
 
 /** A small seeded generator (mulberry32), so a failure replays. */
 function random(seed: number): () => number {
@@ -106,55 +109,129 @@ function generator(seed: number) {
 	return { row, count };
 }
 
-const WIDTHS = Array.from({ length: 81 }, (_, index) => 20 + index);
+/** The widths the layout changes at: the narrowest, either side of 40, 60 and 80, and the widest. */
+const WIDTHS = [
+	...Array.from({ length: 11 }, (_, index) => 20 + index),
+	39,
+	40,
+	41,
+	59,
+	60,
+	61,
+	79,
+	80,
+	81,
+	99,
+	100,
+];
 const ROOMS = Array.from({ length: 40 }, (_, index) => 1 + index);
 const SEEDS = [1, 2, 3];
 const ENTRY = { one: "entry", many: "entries" };
+/** A noun long enough that the count of rows left out wraps at the narrowest widths. */
+const LONG_NOUN = {
+	one: "entry asked about here",
+	many: "entries asked about here",
+};
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: escape codes
+const SGR = /\x1b\[[0-9;]*m/g;
+const plain = (line: string) => line.replace(SGR, "");
+/** A cut row's count of what it leaves out, as its first line opens it. */
+const COUNT = /… \d+ more/;
+/** The count of rows left out, at the rows' own level. */
+const ROWS_LEFT_OUT = /^ … (\d+) more /;
 
 /**
- * Every width, each with its seeds' rows cut to a third of the rooms, a
- * different third for each seed, and in colour at every other width: every
- * room and both colour levels are reached at every width's neighbours, in a
- * few seconds rather than a minute.
+ * Whether the line opens with a row's glyph and its subject: the subject's
+ * first wrapped line, or its tail cut from the left on one line.
  */
-function cases(width: number) {
-	const style = createStyle(width % 2 === 0 ? 0 : 3);
-	return SEEDS.flatMap((seed) => {
-		const { row, count } = generator(seed);
-		const rows = Array.from({ length: 1 + count(4) }, row);
-		return ROOMS.filter((room) => (room + width + seed) % 3 === 0).map(
-			(room) => ({ seed, rows, room, style }),
-		);
-	});
+function names(line: string, subject: string): boolean {
+	const [shown = ""] = plain(line).slice(3).split("  ");
+	return (
+		shown !== "" &&
+		(subject.startsWith(shown) ||
+			(shown.startsWith("…") && subject.endsWith(shown.slice(1))))
+	);
 }
+
+/** The rows the lines show by a head, a glyph at the margin, and those they count as left out. */
+function accounted(lines: readonly string[]): number {
+	return lines.reduce((sum, line) => {
+		const text = plain(line);
+		const left = ROWS_LEFT_OUT.exec(text);
+		if (left !== null) {
+			return sum + Number(left[1]);
+		}
+		return sum + (text[1] === undefined || text[1] === " " ? 0 : 1);
+	}, 0);
+}
+
+const counts = (lines: readonly string[]) =>
+	lines.some((line) => COUNT.test(plain(line)));
 
 describe("a row cut to its room", () => {
 	// Every line under width - 1 is drawn on one line of the terminal, so the
 	// lines returned are the frame's lines, and the room bounds those too.
-	it.each(WIDTHS)("fits every line and its room at %i columns", (width) => {
+	it.each(
+		WIDTHS,
+	)("fits every line and its room at %i columns, honestly", (width) => {
 		const problems: string[] = [];
-		for (const { seed, rows, room, style } of cases(width)) {
+		for (const seed of SEEDS) {
+			const style = createStyle(seed % 2 === 0 ? 0 : 3);
+			const { row, count } = generator(seed);
+			const rows = Array.from({ length: 2 + count(3) }, row);
+			const [first] = rows as [Row, ...Row[]];
 			const layout = blockLayout(rows, width);
-			const fitted = {
-				row: renderRowWithin(rows[0] as Row, room, layout, width, style),
-				rows: renderRowsWithin(
-					{ rows, noun: ENTRY },
+			const whole = renderRow(first, layout, width, style).join("\n");
+			let counted = false;
+			let allBefore = false;
+			let before = 0;
+			for (const room of ROOMS) {
+				const at = (name: string) => `seed ${seed}, ${name}, room ${room}`;
+				const lone = renderRowWithin(first, room, layout, width, style);
+				const several = renderRowsWithin(
+					{ rows, noun: seed === 3 ? LONG_NOUN : ENTRY },
 					room,
 					layout,
 					width,
 					style,
-				),
-			};
-			for (const [name, lines] of Object.entries(fitted)) {
-				const at = `seed ${seed}, ${name}, room ${room}`;
-				if (lines.length > room) {
-					problems.push(`${at}: ${lines.length} lines`);
+				);
+				for (const [name, lines] of [
+					["row", lone],
+					["rows", several],
+				] as const) {
+					if (lines.length > room) {
+						problems.push(`${at(name)}: ${lines.length} lines`);
+					}
+					for (const line of lines.filter(
+						(each) => stringWidth(each) > width - 1,
+					)) {
+						problems.push(`${at(name)}: ${JSON.stringify(line)}`);
+					}
+					if (!names(lines[0] ?? "", first.subject)) {
+						problems.push(`${at(name)}: doesn't name its subject`);
+					}
 				}
-				for (const line of lines.filter(
-					(each) => stringWidth(each) > width - 1,
-				)) {
-					problems.push(`${at}: ${JSON.stringify(line)}`);
+				// Once a cut row can keep the count of what it leaves out, it
+				// always does, and more room never shows less of it.
+				counted ||= counts(lone);
+				if (counted && lone.join("\n") !== whole && !counts(lone)) {
+					problems.push(`${at("row")}: drops its count`);
 				}
+				if (lone.length < before) {
+					problems.push(`${at("row")}: ${lone.length} lines after ${before}`);
+				}
+				before = lone.length;
+				// Each row shown by its head or counted once the count fits beside
+				// the first's one line, as it does in 3 (a count takes 2 at most
+				// here), and ever after.
+				const all = accounted(several) === rows.length;
+				if (!all && (allBefore || room >= 3)) {
+					problems.push(
+						`${at("rows")}: accounts for ${accounted(several)} of ${rows.length}`,
+					);
+				}
+				allBefore ||= all;
 			}
 		}
 		expect(problems.slice(0, 10)).toEqual([]);

@@ -167,6 +167,8 @@ interface Run {
 	yes?: boolean;
 	/** Keys pressed once the run asks its first question. */
 	answer?: string[];
+	columns?: number;
+	rows?: number;
 }
 
 /** The run as the terminal shows it once it has ended. */
@@ -175,11 +177,17 @@ async function drawn(run: Run = {}): Promise<string[]> {
 }
 
 /** The terminal while the run asks its question, and once it has ended. */
-async function session({ key, yes, answer }: Run = {}): Promise<{
+async function session({
+	key,
+	yes,
+	answer,
+	columns = 100,
+	rows = 60,
+}: Run = {}): Promise<{
 	asking: string[];
 	ended: string[];
 }> {
-	const term = new Terminal(100, 60);
+	const term = new Terminal(columns, rows);
 	let asking: string[] = [];
 	let now = 0;
 	const ui = new TerminalUi({
@@ -495,6 +503,48 @@ describe("an update of one key", () => {
 			"",
 			" ! owner/repo   ^1.0.0   kept",
 			"   └─ gone               kept — it's gone upstream; update will ask again",
+		]);
+	});
+
+	it.each([
+		[
+			7,
+			[
+				" ! owner/repo/gone",
+				"   gone upstream · skill",
+				"   .claude/skills/  gone",
+			],
+		],
+		[6, [" ! owner/repo/gone", "   … 1 more folder"]],
+		[5, [" ! owner/repo/gone"]],
+	])("keeps naming the entry gone upstream above its question on a 40-column screen of %i rows", async (rows, fitted) => {
+		await repo(
+			"owner/repo",
+			{ "other/SKILL.md": "new" },
+			constrained("v1.1.0"),
+		);
+		await installed({
+			"owner/repo/gone": entry("owner/repo", {
+				ref: "v1.0.0",
+				constraint: "^1.0.0",
+				files: [".claude/skills/gone/", ".claude/skills/gone/SKILL.md"],
+			}),
+		});
+
+		const { asking } = await session({
+			key: "owner/repo/gone",
+			answer: ["n"],
+			columns: 40,
+			rows,
+		});
+
+		expect(asking).toEqual([
+			" ■ agntc update",
+			"",
+			...fitted,
+			"",
+			" ? Remove it and its folder?",
+			"    Yes  [No]",
 		]);
 	});
 

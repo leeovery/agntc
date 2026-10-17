@@ -4,6 +4,7 @@ import {
 	removeCollidingEntries,
 	resolveCollisions,
 } from "./collision-resolve.js";
+import type { EntryHead } from "./entry-head.js";
 import { errorMessage } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
 import type { Manifest } from "./manifest.js";
@@ -33,7 +34,9 @@ export interface ConflictCheck {
 	/** The item's own key: files recorded under it are its own, not in the way. */
 	key: string;
 	projectDir: string;
-	/** The home folder a question's row shortens a local key against. */
+	/** The item, as a question's row names it. */
+	head: EntryHead;
+	/** The home folder a question's row shortens a local entry's key against. */
 	home: string;
 }
 
@@ -202,7 +205,7 @@ function collisionReason(collisions: Map<string, string[]>): string {
  */
 async function clearUnmanaged(
 	files: string[],
-	{ key, projectDir, home }: ConflictCheck,
+	{ head, projectDir }: ConflictCheck,
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<Stop | null> {
@@ -215,9 +218,8 @@ async function clearUnmanaged(
 	}
 	if (policy === "ask") {
 		const { cancelled } = await resolveUnmanagedConflicts(
-			[{ pluginKey: key, files }],
+			[{ head, files }],
 			ui,
-			home,
 		);
 		if (cancelled.length > 0) {
 			return { status: "skipped", reason };

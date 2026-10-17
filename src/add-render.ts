@@ -1,3 +1,4 @@
+import { skillFolderName } from "./asset-targets.js";
 import { heldDetail, type MenuOption, type SkillNote } from "./choose-items.js";
 import type { Clearance } from "./clear-conflicts.js";
 import type { InstallItem } from "./install-item.js";
@@ -6,6 +7,7 @@ import {
 	formatPackCounts,
 	formatRefLabel,
 	type ItemOutcome,
+	joinWithAnd,
 	pluralize,
 } from "./summary.js";
 import { LOOKS } from "./terminal/tally.js";
@@ -246,15 +248,40 @@ function outcomeLines(
 }
 
 /**
- * What went out of an item's way, and its files: another entry, removed,
- * named as the question's row named it, or files agntc didn't install,
- * replaced.
+ * What went out of an item's way, and its files ({@link namedFiles}):
+ * another entry, removed, named as the question's row named it, or files
+ * agntc didn't install, replaced.
  */
 export function clearedWords(clearance: Clearance, home: string): string {
-	const files = clearance.files.join(", ");
+	const files = namedFiles(clearance.files);
 	return clearance.kind === "entry"
 		? `removed ${homeShortened(clearance.key, home)}, whose files were in the way: ${files}`
 		: `replaced files agntc didn't install: ${files}`;
+}
+
+/** How many files a cleared line names before counting the rest. */
+const NAMED_FILES = 3;
+
+/**
+ * Paths by name, once each: a skill folder's by its folder, any other by its
+ * last segment; past a few, how many more.
+ */
+function namedFiles(paths: readonly string[]): string {
+	const names = [...new Set(paths.map(fileName))];
+	return names.length <= NAMED_FILES
+		? joinWithAnd(names)
+		: `${names.slice(0, NAMED_FILES).join(", ")} and ${names.length - NAMED_FILES} more`;
+}
+
+function fileName(path: string): string {
+	return (
+		skillFolderName(path) ??
+		path
+			.split("/")
+			.filter((segment) => segment !== "")
+			.at(-1) ??
+		path
+	);
 }
 
 export function outcomeStatus({ status }: ItemOutcome): Status {

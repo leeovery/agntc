@@ -1,3 +1,4 @@
+import type { EntryHead } from "./entry-head.js";
 import { joinWithAnd, pluralize } from "./summary.js";
 import { LOOKS } from "./terminal/tally.js";
 import type { Field, Row } from "./terminal/types.js";
@@ -144,7 +145,7 @@ export function removeFailedRow(subject: string, reason: string): Row {
  * counts, then what it installed under each asset folder.
  */
 export function goneRow(
-	head: Pick<Row, "subject" | "meta">,
+	head: EntryHead,
 	kind: string,
 	files: readonly string[],
 ): Row {

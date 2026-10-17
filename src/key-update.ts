@@ -4,10 +4,11 @@ import {
 	prepareReinstall,
 	reinstallEntry,
 } from "./clone-reinstall.js";
+import { entryHead, localHead } from "./entry-head.js";
 import { errorMessage } from "./errors.js";
 import { settleGone } from "./gone-upstream.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
-import { homeShortened, type Scope } from "./scope.js";
+import type { Scope } from "./scope.js";
 import { repoFromKey } from "./source-parser.js";
 import type { BlockSubject, Row, RowHead } from "./terminal/types.js";
 import type { Block, BlockTask, Ui } from "./ui.js";
@@ -39,11 +40,6 @@ export interface UpdateRun {
 	ui: Ui;
 	/** The home folder a local entry's path is shortened against. */
 	home: string;
-}
-
-/** A local entry's row: its folder, shortened against the home folder. */
-export function localHead(key: string, home: string): RowHead {
-	return { subject: homeShortened(key, home), meta: "local" };
 }
 
 /**
@@ -307,8 +303,7 @@ export async function settleGoneOutcome(
 	{ scope, yes, ui, home }: UpdateRun,
 ): Promise<PluginOutcome> {
 	try {
-		const head =
-			entry.commit === null ? localHead(key, home) : { subject: key };
+		const head = entryHead(key, entry.commit === null, home);
 		const settled = await settleGone(key, entry, scope, { yes, ui, head });
 		if (settled.removed) {
 			return { status: "gone-removed", key, ...told(settled.message) };

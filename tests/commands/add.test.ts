@@ -12,7 +12,15 @@ import {
 } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
 
 vi.mock("node:os", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:os")>();
@@ -1216,9 +1224,8 @@ describe("add command", () => {
 			await runAdd("owner/repo/p", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
-				[{ pluginKey: "owner/repo/p", files: [".claude/agents/x.md"] }],
+				[{ head: { subject: "owner/repo/p" }, files: [".claude/agents/x.md"] }],
 				interactive(),
-				homedir(),
 			);
 			expect(mockNuke).not.toHaveBeenCalled();
 			expect(
@@ -2031,8 +2038,7 @@ describe("add command", () => {
 				sourceRow("1 skill", [
 					{
 						name: "a",
-						detail:
-							"skill\nremoved other/repo, whose files were in the way: .claude/skills/a/",
+						detail: "skill\nremoved other/repo, whose files were in the way: a",
 					},
 				]),
 			]);
@@ -2064,7 +2070,7 @@ describe("add command", () => {
 							name: "p",
 							detail: [
 								"files in the way belong to other/two: .claude/skills/t/",
-								"removed other/one, whose files were in the way: .claude/skills/s/",
+								"removed other/one, whose files were in the way: s",
 							].join("\n"),
 						},
 					],
@@ -2194,6 +2200,33 @@ describe("add command", () => {
 			);
 		});
 
+		it("names a local item on the question's row by its folder from home, as local", async () => {
+			const home = join(testDir, "home");
+			vi.mocked(homedir).mockReturnValue(home);
+			onTestFinished(() => {
+				vi.mocked(homedir).mockReset();
+			});
+			const local = join(home, "my-skills");
+			await write(local, { "a/SKILL.md": "", "b/SKILL.md": "" });
+			await write(projectDir, { ".claude/skills/a/SKILL.md": "mine" });
+			mockResolveUnmanaged.mockResolvedValue({
+				approved: [],
+				cancelled: [".claude/skills/a/"],
+			});
+
+			await runAdd(local, { all: true }, ui);
+
+			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
+				[
+					{
+						head: { subject: "~/my-skills/a", meta: "local" },
+						files: [".claude/skills/a/"],
+					},
+				],
+				interactive(),
+			);
+		});
+
 		it("skips an item whose unmanaged files the user won't overwrite", async () => {
 			await upstream({ "a/SKILL.md": "" });
 			await write(projectDir, { ".claude/skills/a/SKILL.md": "mine" });
@@ -2205,9 +2238,8 @@ describe("add command", () => {
 			await runAdd("owner/repo", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
-				[{ pluginKey: "owner/repo/a", files: [".claude/skills/a/"] }],
+				[{ head: { subject: "owner/repo/a" }, files: [".claude/skills/a/"] }],
 				interactive(),
-				homedir(),
 			);
 			expect(
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
@@ -2353,8 +2385,7 @@ describe("add command", () => {
 				sourceRow("1 skill", [
 					{
 						name: "a",
-						detail:
-							"skill\nremoved other/repo, whose files were in the way: .claude/skills/a/",
+						detail: "skill\nremoved other/repo, whose files were in the way: a",
 					},
 				]),
 			]);
@@ -2374,8 +2405,7 @@ describe("add command", () => {
 				sourceRow("1 skill", [
 					{
 						name: "a",
-						detail:
-							"skill\nreplaced files agntc didn't install: .claude/skills/a/",
+						detail: "skill\nreplaced files agntc didn't install: a",
 					},
 				]),
 			]);
@@ -2595,15 +2625,15 @@ describe("add command", () => {
 			await runAdd("owner/repo", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
-				[{ pluginKey: "owner/repo", files: TARGETS }],
+				[{ head: { subject: "owner/repo" }, files: TARGETS }],
 				interactive(),
-				homedir(),
 			);
 			await expectPackInstalled();
 			expect(ui.rows()[0]!.children).toEqual([
 				{
 					name: "repo",
-					detail: `pack · 1 skill, 1 agent, 1 hook\nreplaced files agntc didn't install: ${TARGETS.join(", ")}`,
+					detail:
+						"pack · 1 skill, 1 agent, 1 hook\nreplaced files agntc didn't install: foo.md and x.sh",
 				},
 			]);
 		});

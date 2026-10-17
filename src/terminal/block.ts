@@ -5,6 +5,7 @@ import {
 	pad,
 	roomFrom,
 	truncate,
+	truncateStart,
 	visibleWidth,
 	wrap,
 	wrapItems,
@@ -133,9 +134,12 @@ export function renderRow(
 /**
  * The row in at most `room` lines: its head, as many of its fields and then
  * its children as fit whole, then a dim `… N more` line counting those left
- * out ({@link leftOut}), a child's when a child is the first of them. Its
- * head alone when not even that line fits beside it; nothing when the head
- * doesn't fit.
+ * out ({@link leftOut}), a child's when a child is the first of them; a
+ * folder in a tree whose contents are all left out goes with them. Else its
+ * one-line head ({@link shortHead}) and the count, as what it leaves out
+ * outweighs its meta and detail; else its head alone; else its one-line head
+ * alone, so a row with a line to itself always names its subject. Nothing in
+ * no room.
  */
 export function renderRowWithin(
 	row: Row,
@@ -144,21 +148,43 @@ export function renderRowWithin(
 	width: number,
 	style: Style,
 ): string[] {
-	const { head, units, more } = rowParts(row, layout, width, style);
-	const kept: string[] = [];
+	const { head, units, more, keptEnd } = rowParts(row, layout, width, style);
+	let used = head.length;
+	let shown = 0;
 	for (const [index, lines] of units.entries()) {
-		const last = index === units.length - 1;
-		const after = last ? [] : more(index + 1);
-		if (head.length + kept.length + lines.length + after.length > room) {
-			const cut = [...head, ...kept, ...more(index)];
-			if (cut.length <= room) {
-				return cut;
-			}
-			return head.length <= room ? head : [];
+		const after = index === units.length - 1 ? [] : more(index + 1);
+		if (used + lines.length + after.length > room) {
+			break;
 		}
-		kept.push(...lines);
+		used += lines.length;
+		shown += 1;
 	}
-	return head.length + kept.length <= room ? [...head, ...kept] : [];
+	const short = [shortHead(row, width, style)];
+	const count = units.length === 0 ? [] : more(0);
+	const fitted =
+		shown === units.length
+			? [[...head, ...units.flat()]]
+			: [[...head, ...units.slice(0, keptEnd(shown)).flat(), ...more(shown)]];
+	return (
+		[...fitted, [...short, ...count], head, short].find(
+			(lines) => lines.length <= room,
+		) ?? []
+	);
+}
+
+/**
+ * A row's head on one line, the last resort when its own lines don't fit:
+ * its glyph and its subject, cut from the left with `…` as the header cuts a
+ * folder, its meta and detail left out.
+ */
+function shortHead(row: Row, width: number, style: Style): string {
+	const quiet = row.status === "unchanged";
+	const paint = quiet ? PLAIN : style;
+	const subject = truncateStart(row.subject, roomFrom(SUBJECT_AT, width));
+	return dimWhole(
+		quiet,
+		style,
+	)(`${MARGIN}${statusGlyph(row.status, paint)} ${paint.bold(subject)}`);
 }
 
 /**
@@ -166,8 +192,9 @@ export function renderRowWithin(
  * ({@link fewestLines}), then a dim `… N more` line at the rows' own level
  * counting any left out by their noun, the room to spare going to the rows in
  * turn, each fitted as {@link renderRowWithin} fits one, so rows that all fit
- * show whole. When not even the first fits at its fewest, its head and the
- * count; else its head alone; else the count alone; else nothing.
+ * show whole. When not even the first fits at its fewest, the first as
+ * {@link renderRowWithin} fits it beside the count of the rest; else the
+ * first alone, as it fits. Nothing in no room.
  */
 export function renderRowsWithin(
 	{ rows, noun }: Rows,
@@ -197,12 +224,17 @@ export function renderRowsWithin(
 		shown -= 1;
 	}
 	if (shown === 0) {
-		const head = headLines(first, layout, width, style);
-		return (
-			[[...head, ...more(1)], head, more(0)].find(
-				(lines) => lines.length <= room,
-			) ?? []
+		const rest = more(1);
+		const fitted = renderRowWithin(
+			first,
+			room - rest.length,
+			layout,
+			width,
+			style,
 		);
+		return fitted.length === 0
+			? renderRowWithin(first, room, layout, width, style)
+			: [...fitted, ...rest];
 	}
 	let spare = room - cost(shown);
 	const lines: string[] = [];
@@ -231,11 +263,16 @@ function rowsLeftOut(
 	);
 }
 
-/** A row as a room cuts it: its own lines, its body's units, and the lines counting those left out from one on. */
+/**
+ * A row as a room cuts it: its own lines, its body's units, the lines
+ * counting those left out from one on, and where the units kept before a cut
+ * there end.
+ */
 interface RowParts {
 	head: string[];
 	units: string[][];
 	more: (from: number) => string[];
+	keptEnd: (cut: number) => number;
 }
 
 function rowParts(
@@ -260,7 +297,15 @@ function rowParts(
 			? countLines(text, FIELD_AT, width, style)
 			: child({ name: text, dim: true }, CLOSING);
 	};
-	return { head: headLines(row, layout, width, style), units, more };
+	// A folder kept last has its contents cut, as what hangs below it comes next.
+	const keptEnd = (cut: number) => {
+		let end = cut;
+		while (end > fields.length && !isLeaf(children, end - 1 - fields.length)) {
+			end -= 1;
+		}
+		return end;
+	};
+	return { head: headLines(row, layout, width, style), units, more, keptEnd };
 }
 
 /** A dim count of what a cut leaves out, at `at`, wrapped in the room from there. */

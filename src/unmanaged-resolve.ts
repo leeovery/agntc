@@ -1,10 +1,11 @@
+import type { EntryHead } from "./entry-head.js";
 import { unmanagedRow } from "./in-the-way-render.js";
-import { homeShortened } from "./scope.js";
 import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
 
 export interface UnmanagedPluginConflicts {
-	pluginKey: string;
+	/** The item, as its question's row names it. */
+	head: EntryHead;
 	files: string[];
 }
 
@@ -19,19 +20,17 @@ export interface UnmanagedResolution {
  * entry's install.
  *
  * @param conflicts - Per-entry conflict groups
- * @param home - The home folder a local entry's row shortens its key against
  * @returns Approved files (OK to overwrite) and cancelled files (skip install)
  */
 export async function resolveUnmanagedConflicts(
 	conflicts: UnmanagedPluginConflicts[],
 	ui: Ui,
-	home: string,
 ): Promise<UnmanagedResolution> {
 	const approved: string[] = [];
 	const cancelled: string[] = [];
 
-	for (const { pluginKey, files } of conflicts) {
-		const row = unmanagedRow(homeShortened(pluginKey, home), files);
+	for (const { head, files } of conflicts) {
+		const row = unmanagedRow(head, files);
 		if (await approveOverwrite(row, ui)) {
 			approved.push(...files);
 		} else {

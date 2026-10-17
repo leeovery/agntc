@@ -1013,7 +1013,13 @@ describe("integration: add and update", () => {
 				expect(ui.blocks[2]!.select).toHaveBeenCalledWith(
 					expect.objectContaining({
 						subject: KEY,
-						children: [{ name: ".claude/skills/workflow-shared/", dim: true }],
+						children: [
+							{
+								name: ".claude/skills/workflow-shared/",
+								dim: true,
+								noun: "folder",
+							},
+						],
 					}),
 					expect.objectContaining({
 						message: "How would you like to proceed?",
