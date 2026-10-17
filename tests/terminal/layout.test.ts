@@ -164,11 +164,23 @@ describe("wrap", () => {
 		expect(wrap("a list of 3", 9)).toEqual(["a list of", "3"]);
 	});
 
-	it("keeps a `…` with the count it leads", () => {
+	it("keeps a `…` with the count it leads, never alone on its line", () => {
 		expect(wrap("… 33 more folders, 2 more", 20)).toEqual([
 			"… 33 more folders,",
 			"2 more",
 		]);
+		expect(wrap("… 33 more folders, 2 more", 16)).toEqual([
+			"… 33 more",
+			"folders, 2 more",
+		]);
+	});
+
+	it("keeps a count with its noun when together they fill a line exactly", () => {
+		expect(wrap("x 3 more skills", 13)).toEqual(["x", "3 more skills"]);
+	});
+
+	it("holds a `more` to the next word only after a count", () => {
+		expect(wrap("one more thing here", 10)).toEqual(["one more", "thing here"]);
 	});
 
 	it("breaks a count and its noun apart, between their words, when together they're wider than a line", () => {
