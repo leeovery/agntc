@@ -1,6 +1,6 @@
 <div align="center">
 
-# agntc
+# 📦 agntc
 
 **Install Claude skills, agents and hooks from git repos, and keep them current**
 
