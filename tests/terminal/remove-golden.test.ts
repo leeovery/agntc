@@ -371,8 +371,11 @@ describe("a remove of a prefix", () => {
 			"   .claude/agents/  reviewer.md",
 			" ✗ leeovery/agentic-skills/broken    failed · won't delete ../outside/ — not a plain path below",
 		]);
-		expect(ended.slice(6, -3).join(" ").replace(/\s+/g, " ")).toBe(
-			` ${projectDir}; it stays recorded`,
+		// Compared without its spaces, as where the path breaks moves with its
+		// length: after a `/`, or within a part too long for a line.
+		const unspaced = (text: string) => text.replace(/\s+/g, "");
+		expect(unspaced(ended.slice(6, -3).join(""))).toBe(
+			unspaced(`${projectDir}; it stays recorded`),
 		);
 		expect(ended.slice(-3)).toEqual(close("1 removed  ·  1 failed"));
 	});
