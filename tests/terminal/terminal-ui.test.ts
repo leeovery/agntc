@@ -195,6 +195,28 @@ describe("a task", () => {
 		expect(await term.lines()).toEqual([SETTLED_LINE]);
 	});
 
+	it("spins on one line with a long subject's tail, then settles into the row with its subject whole", async () => {
+		const { term, ui } = run();
+		const subject =
+			"/Volumes/Scratch/sources/a-rather-long-local-source-folder-name/with-another-level";
+		const task = ui
+			.block([{ subject, meta: "local" }])
+			.task({ subject, meta: "local", text: "copying…" });
+		expect(await term.lines()).toEqual([
+			` ⠁ …${subject.slice(-58)}  local  copying…`,
+		]);
+		task.settle({
+			status: "done",
+			subject,
+			meta: "local",
+			detail: "installed",
+		});
+		expect(await term.lines()).toEqual([
+			" ✓ /Volumes/Scratch/sources/a-rather-long-local-source-folder-name/",
+			`   with-another-level${gap(18)}local   installed`,
+		]);
+	});
+
 	it("hides the cursor while it spins, the frame in the accent and its words dim", () => {
 		const { term, ui } = run({ env: COLOR });
 		const task = ui.block(SUBJECTS).task(PROGRESS);

@@ -6,8 +6,9 @@ import {
 	renderRowsWithin,
 	renderRowWithin,
 } from "../../src/terminal/block.js";
+import { visibleWidth } from "../../src/terminal/layout.js";
 import { createStyle } from "../../src/terminal/style.js";
-import type { Row } from "../../src/terminal/types.js";
+import type { Progress, Row } from "../../src/terminal/types.js";
 
 const plain = createStyle(0);
 const color = createStyle(3);
@@ -1324,18 +1325,21 @@ describe("renderProgress", () => {
 		);
 	});
 
-	it.each([
-		[59, " ⠁ owner/alpha  ^1.0.0  updating to v1.0.1…"],
-		[40, " ⠁ owner/alpha  ^1.0.0  updating to v1…"],
-	])("follows the subject and meta with what it's doing below 60 columns, cut to fit, at %i", (width, line) => {
+	it("follows the subject and meta with what it's doing below 60 columns", () => {
 		expect(
-			renderProgress(progress, "⠁", width, plain, blockLayout(subjects, width)),
-		).toBe(line);
+			renderProgress(progress, "⠁", 59, plain, blockLayout(subjects, 59)),
+		).toBe(" ⠁ owner/alpha  ^1.0.0  updating to v1.0.1…");
+	});
+
+	it("leaves the meta out for what it's doing before cutting the subject below 12 columns", () => {
+		expect(
+			renderProgress(progress, "⠁", 40, plain, blockLayout(subjects, 40)),
+		).toBe(" ⠁ owner/alpha  updating to v1.0.1…");
 	});
 
 	it.each([
 		80, 100,
-	])("follows a subject wider than its column with what it's doing at %i", (width) => {
+	])("follows a subject wider than its column with its meta and what it's doing at %i", (width) => {
 		const layout = blockLayout([{ subject: LOCAL, meta: "local" }], width);
 		expect(
 			renderProgress(
@@ -1345,10 +1349,10 @@ describe("renderProgress", () => {
 				plain,
 				layout,
 			),
-		).toBe(` ⠁ ${LOCAL}  reinstalling…`);
+		).toBe(` ⠁ ${LOCAL}  local  reinstalling…`);
 	});
 
-	it("cuts what it's doing to fit, and a line without a subject too", () => {
+	it("cuts the subject from the left so what it's doing shows whole", () => {
 		const layout = blockLayout([{ subject: LOCAL }], 70);
 		expect(
 			renderProgress(
@@ -1358,10 +1362,105 @@ describe("renderProgress", () => {
 				plain,
 				layout,
 			),
-		).toBe(` ⠁ ${LOCAL}  reinstallin…`);
+		).toBe(` ⠁ …${LOCAL.slice(-34)}  reinstalling from its source…`);
+	});
+
+	it("follows the meta with what it's doing where the detail column can't hold it whole", () => {
+		const text = "reinstalling from its first source…";
+		expect(
+			renderProgress(
+				{ ...progress, text },
+				"⠁",
+				60,
+				plain,
+				blockLayout(subjects, 60),
+			),
+		).toBe(` ⠁ owner/alpha  ^1.0.0  ${text}`);
+	});
+
+	it("cuts a line without a subject at its end", () => {
 		expect(renderProgress({ text: "x".repeat(30) }, "⠁", 20, plain)).toBe(
 			` ⠁ ${"x".repeat(15)}…`,
 		);
+	});
+
+	describe("with a subject too long for the line", () => {
+		const KEY =
+			"/Volumes/Scratch/sources/a-rather-long-local-source-folder-name";
+		const REMOTE =
+			"leeovery/a-very-long-repository-name-for-skills/skills/nuxt";
+		const BARE = "x".repeat(80);
+		const copying = (subject: string, meta?: string) => ({
+			subject,
+			...(meta === undefined ? {} : { meta }),
+			text: "copying…",
+		});
+		const draw = (shown: Progress & { subject: string }, width: number) =>
+			renderProgress(shown, "⠁", width, plain, blockLayout([shown], width));
+		/** The subject's tail, after `…`, on the room the line leaves it. */
+		const tail = (subject: string, room: number) =>
+			`…${subject.slice(-(room - 1))}`;
+
+		it.each([
+			[40, KEY, "local", 19],
+			[60, KEY, "local", 39],
+			[80, KEY, "local", 59],
+			[40, REMOTE, "^1.0.0", 18],
+			[60, REMOTE, "^1.0.0", 38],
+			[80, REMOTE, "^1.0.0", 58],
+			[40, BARE, "local", 19],
+			[100, BARE, "local", 79],
+		])("keeps its tail, its meta and what it's doing on one line at %i", (width, subject, meta, room) => {
+			expect(draw(copying(subject, meta), width)).toBe(
+				` ⠁ ${tail(subject, room)}  ${meta}  copying…`,
+			);
+		});
+
+		it("shows it whole at 100 columns where it fits", () => {
+			expect(draw(copying(KEY, "local"), 100)).toBe(
+				` ⠁ ${KEY}  local  copying…`,
+			);
+		});
+
+		it("leaves its meta out before cutting it below 12 columns", () => {
+			expect(draw(copying(KEY, "a-long-constraint"), 40)).toBe(
+				` ⠁ ${tail(KEY, 26)}  copying…`,
+			);
+		});
+
+		const LONG_TEXT = "reinstalling from the source it was added from…";
+
+		it("cuts a long text at its end once the subject is down to 12 columns", () => {
+			expect(draw({ subject: KEY, text: LONG_TEXT }, 40)).toBe(
+				` ⠁ ${tail(KEY, 12)}  ${LONG_TEXT.slice(0, 21)}…`,
+			);
+		});
+
+		it("gives a long text half the line where 12 columns of subject would leave it less", () => {
+			expect(draw({ subject: KEY, text: LONG_TEXT }, 24)).toBe(
+				` ⠁ ${tail(KEY, 9)}  ${LONG_TEXT.slice(0, 8)}…`,
+			);
+		});
+
+		it.each([
+			20, 40, 60, 80, 100,
+		])("is one line inside the width at %i, painted or not", (width) => {
+			for (const style of [plain, color]) {
+				for (const subject of [KEY, REMOTE, BARE]) {
+					const line = renderProgress(
+						copying(subject, "local"),
+						"⠁",
+						width,
+						style,
+						blockLayout([{ subject, meta: "local" }], width),
+					);
+					expect(line).not.toContain("\n");
+					expect(visibleWidth(line)).toBeLessThanOrEqual(width - 1);
+					// At 20, 12 columns of subject would leave the text less than half.
+					expect(line).toContain(width === 20 ? "copyin…" : "copying…");
+				}
+			}
+		});
 	});
 
 	it("paints the frame in the accent, the subject bold and the rest dim", () => {
@@ -1373,5 +1472,120 @@ describe("renderProgress", () => {
 		expect(renderProgress({ text: "Checking…" }, "⠁", 80, color)).toBe(
 			" \x1b[38;2;167;139;250m⠁\x1b[39m \x1b[2mChecking…\x1b[22m",
 		);
+	});
+});
+
+describe("a long path in a row", () => {
+	const KEY =
+		"/Volumes/Scratch/sources/a-rather-long-local-source-folder-name/with-another-level";
+	const REMOTE = "leeovery/a-very-long-repository-name-for-skills/nuxt";
+	const BARE = "y".repeat(60);
+	const local: Row = {
+		status: "done",
+		subject: KEY,
+		meta: "local",
+		detail: "installed",
+	};
+	const remote: Row = {
+		status: "done",
+		subject: REMOTE,
+		detail: `already installed in ${KEY}`,
+	};
+	const bare: Row = {
+		status: "failed",
+		subject: BARE,
+		fields: [{ label: "from", value: KEY }],
+		children: [{ name: "pack-1", detail: `copied from ${KEY}/pack-1` }],
+	};
+	const draw = (row: Row, width: number) =>
+		renderRow(row, blockLayout([local, remote, bare], width), width, plain);
+
+	it.each([
+		[
+			40,
+			[
+				" ✓ /Volumes/Scratch/sources/",
+				"   a-rather-long-local-source-folder-na",
+				"   me/with-another-level  local",
+				"   installed",
+			],
+		],
+		[
+			60,
+			[
+				" ✓ /Volumes/Scratch/sources/",
+				"   a-rather-long-local-source-folder-name/",
+				`   with-another-level${gap(9)}local   installed`,
+			],
+		],
+		[
+			80,
+			[
+				" ✓ /Volumes/Scratch/sources/a-rather-long-local-source-folder-name/",
+				`   with-another-level${gap(18)}local   installed`,
+			],
+		],
+		[100, [` ✓ ${KEY}`, `${gap(48)}local   installed`]],
+	])("breaks a local subject after the last `/` that fits at %i, hard where none is in reach", (width, lines) => {
+		expect(draw(local, width)).toEqual(lines);
+	});
+
+	it.each([
+		[
+			40,
+			[
+				" ✓ leeovery/",
+				"   a-very-long-repository-name-for-skil",
+				"   ls/nuxt",
+				"   already installed in",
+				"   /Volumes/Scratch/sources/",
+				"   a-rather-long-local-source-folder-na",
+				"   me/with-another-level",
+			],
+		],
+		[
+			100,
+			[
+				` ✓ ${REMOTE}`,
+				`${gap(56)}already installed in`,
+				`${gap(56)}/Volumes/Scratch/sources/`,
+				`${gap(56)}a-rather-long-local-source-folder-name/`,
+				`${gap(56)}with-another-level`,
+			],
+		],
+	])("breaks a remote subject and a path in its detail at a `/` at %i", (width, lines) => {
+		expect(draw(remote, width)).toEqual(lines);
+	});
+
+	it.each([
+		[
+			40,
+			[
+				` ✗ ${BARE.slice(0, 36)}`,
+				`   ${BARE.slice(36)}`,
+				"   from  /Volumes/Scratch/sources/",
+				"         a-rather-long-local-source-fol",
+				"         der-name/with-another-level",
+				"   └─ pack-1",
+				"      copied from",
+				"      /Volumes/Scratch/sources/",
+				"      a-rather-long-local-source-folder",
+				"      -name/with-another-level/pack-1",
+			],
+		],
+		[
+			80,
+			[
+				` ✗ ${BARE}`,
+				"   from  /Volumes/Scratch/sources/a-rather-long-local-source-folder-name/",
+				"         with-another-level",
+				`   └─ pack-1${gap(35)}copied from`,
+				`${gap(47)}/Volumes/Scratch/sources/`,
+				`${gap(47)}a-rather-long-local-source-folde`,
+				`${gap(47)}r-name/with-another-level/pack-1`,
+			],
+		],
+	])("breaks a path in a field's value and a child's detail at a `/`, and a subject with none hard, at %i", (width, lines) => {
+		expect(draw(bare, width)).toEqual(lines);
 	});
 });
