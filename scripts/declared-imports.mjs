@@ -126,9 +126,17 @@ function sourcesIn(dir) {
 
 /** A fault for each committed link outside the inert paths. */
 function linkFaults() {
-	const index = execFileSync("git", ["-C", root, "ls-files", "-s", "-z"], {
-		encoding: "utf-8",
-	});
+	let index;
+	try {
+		index = execFileSync("git", ["-C", root, "ls-files", "-s", "-z"], {
+			encoding: "utf-8",
+			stdio: ["ignore", "pipe", "ignore"],
+		});
+	} catch {
+		return [
+			`${root}: isn't a git checkout, so which files are links is unknown`,
+		];
+	}
 	return index
 		.split("\0")
 		.filter((entry) => entry.startsWith("120000 "))

@@ -301,6 +301,19 @@ describe("scripts/declared-imports.mjs", () => {
 		expect(await check(root)).toEqual(PASSED);
 	});
 
+	it("refuses a root git holds no index for", async () => {
+		tree({});
+
+		const failed = await promisify(execFile)(process.execPath, [SCRIPT, root], {
+			env: { ...GIT_ENV, GIT_CEILING_DIRECTORIES: dirname(root) },
+		}).catch((error: { code: number; stderr: string }) => error);
+
+		expect(failed).toMatchObject({
+			code: 1,
+			stderr: `${root}: isn't a git checkout, so which files are links is unknown\n`,
+		});
+	});
+
 	it.each([
 		["dangling, into design/", "src/later.ts", "../design/later.ts"],
 		["deeper down, to a folder in src/", "src/a/b/l", "../../z"],
