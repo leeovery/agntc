@@ -27,6 +27,17 @@ describe("optionText", () => {
 		).toBe("…ong-skill  skill");
 	});
 
+	it("leaves out a hint that would cut the label below ten columns, its inset with them, the label taking the room", () => {
+		const named = { value: "x", label: "a-skill-02", hint: "Menu of things" };
+		expect(optionText(named, 9, 14, plain, false)).toBe("a-skill-02");
+		expect(optionText(named, 12, 20, plain, false)).toBe(
+			"a-skill-02  Menu of…",
+		);
+		expect(optionText({ ...named, label: "ab" }, 9, 14, plain, false)).toBe(
+			"ab       Menu…",
+		);
+	});
+
 	it("leaves a label's inset out of its room", () => {
 		expect(
 			optionText(

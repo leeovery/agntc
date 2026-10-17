@@ -3,8 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../src/exit-signal.js";
 import type { RichMessage } from "../src/message.js";
-import { TerminalUi } from "../src/terminal/terminal-ui.js";
-import { interactiveUi, MachineUi, stoppingUi, type Ui } from "../src/ui.js";
+import { MachineUi, stoppingUi, type Ui } from "../src/ui.js";
 import { testUi } from "./helpers/test-ui.js";
 
 const OPTIONS = [
@@ -54,15 +53,6 @@ function present(ui: Ui): void {
 	ui.note("a note");
 	ui.report({ items: [] });
 }
-
-describe("interactiveUi", () => {
-	it("is a fresh terminal ui each time, in interactive mode", () => {
-		const ui = interactiveUi();
-		expect(ui).toBeInstanceOf(TerminalUi);
-		expect(ui.mode).toBe("interactive");
-		expect(interactiveUi()).not.toBe(ui);
-	});
-});
 
 describe("MachineUi", () => {
 	it("draws nothing", async () => {

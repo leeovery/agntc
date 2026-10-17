@@ -11,6 +11,7 @@ import {
 import { packScaffold } from "../init/scaffold-pack.js";
 import { skillScaffold } from "../init/scaffold-skill.js";
 import {
+	existingFiles,
 	type Scaffold,
 	type ScaffoldFile,
 	writeScaffold,
@@ -22,7 +23,7 @@ import {
 } from "../init/type-select.js";
 import { sentence } from "../message.js";
 import { homeShortened } from "../scope.js";
-import { interactiveUi, type Ui } from "../ui.js";
+import type { Ui } from "../ui.js";
 
 export interface InitOptions {
 	/** Scaffold without the preview and its confirmation. */
@@ -42,7 +43,7 @@ const scaffolds: Record<InitType, Scaffold> = {
 export async function runInit(
 	given: InitType | undefined,
 	options: InitOptions,
-	ui: Ui = interactiveUi(),
+	ui: Ui,
 ): Promise<void> {
 	ui.header();
 
@@ -51,13 +52,7 @@ export async function runInit(
 	const scaffold = scaffolds[type];
 	const files = scaffold.files(targetDir);
 
-	await confirmScaffold(
-		type,
-		homeShortened(targetDir, homedir()),
-		files,
-		options,
-		ui,
-	);
+	await confirmScaffold(type, targetDir, files, options, ui);
 
 	const result = await writeScaffold(targetDir, files);
 	const rows = scaffoldedRows(
@@ -97,11 +92,11 @@ async function chooseType(ui: Ui): Promise<InitType> {
 /**
  * `-y` answers the question; without it, machine mode refuses before
  * anything is written, and a terminal asks under the row of the files, the
- * folder named as the row shows it.
+ * folder named as the row shows it, those already there marked so.
  */
 async function confirmScaffold(
 	type: InitType,
-	folder: string,
+	targetDir: string,
 	files: ScaffoldFile[],
 	options: InitOptions,
 	ui: Ui,
@@ -116,9 +111,10 @@ async function confirmScaffold(
 		);
 	}
 	const row = scaffoldRow(
-		folder,
+		homeShortened(targetDir, homedir()),
 		type,
 		files.map(({ path }) => path),
+		await existingFiles(targetDir, files),
 	);
 	if (!(await ui.block([row]).confirm(row, { message: "Proceed?" }))) {
 		cancel(ui);

@@ -4,7 +4,7 @@ import { basename, join, sep } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
-import type { Message } from "../../src/message.js";
+import { type Message, machineOnly, sentence } from "../../src/message.js";
 import type {
 	BlockSubject,
 	NextItem,
@@ -308,54 +308,45 @@ const OLD7 = "aaaaaaa";
 const NEW7 = "bbbbbbb";
 const HASHES = { from: OLD7, to: NEW7 };
 
-/** A key's left-alone row names its one entry beneath it; a group's names none. */
-function entryUnder(member: string | undefined): Pick<Row, "children"> {
-	return member === undefined ? {} : { children: [{ name: member }] };
+/**
+ * Who ran the update: a key's check that failed or found no tag fails the
+ * run, so its row is failed; all-mode's only needs a look.
+ */
+type RunBy = "all" | "key";
+
+function leftAloneStatus(by: RunBy): Row["status"] {
+	return by === "key" ? "failed" : "attention";
 }
 
-function upToDate(subject: string, meta: string, member?: string): Row {
-	return {
-		status: "unchanged",
-		subject,
-		meta,
-		detail: "up to date",
-		...entryUnder(member),
-	};
+function upToDate(subject: string, meta: string): Row {
+	return { status: "unchanged", subject, meta, detail: "up to date" };
 }
 
 function notChecked(
 	subject: string,
 	meta: string,
 	cause: string,
-	member?: string,
+	by: RunBy = "all",
 ): Row {
 	return {
-		status: "attention",
+		status: leftAloneStatus(by),
 		subject,
 		meta,
 		detail: { label: "not checked", aside: cause },
-		...entryUnder(member),
 	};
 }
 
-function noMatch(subject: string, constraint: string, member?: string): Row {
+function noMatch(subject: string, constraint: string, by: RunBy = "all"): Row {
 	return {
-		status: "attention",
+		status: leftAloneStatus(by),
 		subject,
 		meta: constraint,
 		detail: { label: `no tags satisfy ${constraint}` },
-		...entryUnder(member),
 	};
 }
 
-function newerTags(subject: string, meta: string, member?: string): Row {
-	return {
-		status: "unchanged",
-		subject,
-		meta,
-		detail: "newer tags available",
-		...entryUnder(member),
-	};
+function newerTags(subject: string, meta: string): Row {
+	return { status: "unchanged", subject, meta, detail: "newer tags available" };
 }
 
 /** A group whose members all updated along `move`, each `[name, detail]`. */
@@ -445,7 +436,7 @@ function pinnedKey(
 	return {
 		subject,
 		remedy: {
-			lead: `Pinned to ${ref}. Newer tags available: ${tags.join(", ")}. To upgrade:`,
+			lead: `Pinned to ${ref}, newer tags available (latest: ${tags[0]}). To upgrade:`,
 			steps: [{ command }],
 		},
 	};
@@ -2341,7 +2332,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [upToDate("owner/repo", "HEAD", "repo")],
+					rows: [upToDate("owner/repo", "HEAD")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -2365,7 +2356,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("nuxt/ui", "v4", "ui")]],
-					rows: [upToDate("nuxt/ui", "v4", "ui")],
+					rows: [upToDate("nuxt/ui", "v4")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -2390,7 +2381,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [notChecked("owner/repo", "HEAD", "network timeout", "repo")],
+					rows: [notChecked("owner/repo", "HEAD", "network timeout", "key")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -2412,7 +2403,7 @@ describe("update command", () => {
 					"owner/repo",
 					"HEAD",
 					"git@github.com: Permission denied (publickey).",
-					"repo",
+					"key",
 				),
 			]);
 		});
@@ -2536,9 +2527,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [
-						updated("owner/repo", "HEAD", HASHES, ["repo", "skill · 1 file"]),
-					],
+					rows: [updated("owner/repo", "HEAD", HASHES, ["repo", "skill"])],
 					tally: closed({ updated: 1 }),
 				}),
 			);
@@ -2640,7 +2629,7 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			expect(drawn().rows).toEqual([
-				updated("owner/repo", "HEAD", HASHES, ["repo", "skill · 1 file"]),
+				updated("owner/repo", "HEAD", HASHES, ["repo", "skill"]),
 			]);
 		});
 	});
@@ -3764,7 +3753,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [notChecked("owner/repo", "HEAD", "network timeout", "repo")],
+					rows: [notChecked("owner/repo", "HEAD", "network timeout", "key")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -3787,7 +3776,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^2.0", "repo")]],
-					rows: [noMatch("owner/repo", "^2.0", "repo")],
+					rows: [noMatch("owner/repo", "^2.0", "key")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -4380,11 +4369,11 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "swift")]],
-					rows: [
-						updated("owner/repo", "HEAD", HASHES, ["swift", "skill · 1 file"]),
-					],
+					rows: [updated("owner/repo", "HEAD", HASHES, ["swift", "skill"])],
 					notes: [
-						"owner/repo/swift is a single skill — reinstalled as a skill",
+						sentence(
+							"owner/repo/swift is a single skill — reinstalled as a skill",
+						),
 					],
 					tally: closed({ updated: 1 }),
 				}),
@@ -4438,7 +4427,9 @@ describe("update command", () => {
 					subjects: [[group("owner/repo", "HEAD", "swift")]],
 					rows: [updated("owner/repo", "HEAD", HASHES, ["swift", "skill"])],
 					notes: [
-						"owner/repo/swift is a single skill — reinstalled as a skill",
+						sentence(
+							"owner/repo/swift is a single skill — reinstalled as a skill",
+						),
 					],
 					tally: closed({ updated: 1 }),
 				}),
@@ -4493,7 +4484,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v1.0", "repo")]],
-					rows: [newerTags("owner/repo", "v1.0", "repo")],
+					rows: [newerTags("owner/repo", "v1.0")],
 					next: [
 						pinnedKey(
 							"owner/repo",
@@ -4570,7 +4561,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v1.0", "go")]],
-					rows: [newerTags("owner/repo", "v1.0", "go")],
+					rows: [newerTags("owner/repo", "v1.0")],
 					next: [
 						pinnedKey(
 							"owner/repo/go",
@@ -4650,7 +4641,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v3.0", "repo")]],
-					rows: [upToDate("owner/repo", "v3.0", "repo")],
+					rows: [upToDate("owner/repo", "v3.0")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -4803,7 +4794,7 @@ describe("update command", () => {
 							status: "done",
 							subject: LOCAL_KEY,
 							meta: "local",
-							detail: { label: "refreshed", aside: "skill · 1 file" },
+							detail: { label: "refreshed", aside: "skill" },
 						},
 					],
 					tally: closed({ refreshed: 1 }),
@@ -5309,7 +5300,7 @@ describe("update command", () => {
 					rows: [
 						updated("owner/repo", "^1.0", { from: "v1.2.3", to: "v1.3.0" }, [
 							"repo",
-							"skill · 1 file",
+							"skill",
 						]),
 					],
 					tally: closed({ updated: 1 }),
@@ -5438,7 +5429,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0", "repo")],
+					rows: [upToDate("owner/repo", "^1.0")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -5463,7 +5454,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0", "repo")],
+					rows: [upToDate("owner/repo", "^1.0")],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -5523,7 +5514,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^2.0", "repo")]],
-					rows: [noMatch("owner/repo", "^2.0", "repo")],
+					rows: [noMatch("owner/repo", "^2.0", "key")],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -6352,7 +6343,7 @@ describe("update command", () => {
 					rows: [
 						updated("owner/repo", "^1.0", { from: "v1.2.3", to: "v1.3.0" }, [
 							"repo",
-							"skill · 1 file",
+							"skill",
 						]),
 					],
 					next: [
@@ -6414,7 +6405,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0", "repo")],
+					rows: [upToDate("owner/repo", "^1.0")],
 					next: [
 						upgrade(
 							"owner/repo",
@@ -7378,7 +7369,7 @@ describe("a key naming several entries", () => {
 				],
 				rows: [
 					updated("owner/two", "HEAD", HASHES, ["b", "skill"]),
-					notChecked("owner/one", "HEAD", "network timeout"),
+					notChecked("owner/one", "HEAD", "network timeout", "key"),
 				],
 				tally: closed({ updated: 1, notChecked: 1 }),
 			}),
@@ -7510,7 +7501,7 @@ describe("a key naming several entries", () => {
 		expect(drawn()).toEqual(
 			screen({
 				subjects: [[group("owner/repo", "HEAD", "go")]],
-				rows: [updated("owner/repo", "HEAD", HASHES, ["go", "skill · 1 file"])],
+				rows: [updated("owner/repo", "HEAD", HASHES, ["go", "skill"])],
 				tally: closed({ updated: 1 }),
 			}),
 		);
@@ -7938,6 +7929,8 @@ describe("a pack taking over loose skills from its own source", () => {
 		assetDirs: [],
 	};
 	const NOTE = "owner/repo/tools now includes a, installed on its own before";
+	/** The note machine mode prints; at a terminal the skill's own line under the pack tells it. */
+	const TOLD = machineOnly(NOTE);
 
 	function packEntry(): ManifestEntry {
 		return makeEntry({
@@ -8006,7 +7999,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			".claude/skills/a/",
 			".claude/skills/b/",
 		]);
-		expect(ui.note).toHaveBeenCalledWith(NOTE);
+		expect(ui.note).toHaveBeenCalledWith(TOLD);
 	});
 
 	it("all-mode skips a taken-over loose entry whose own group comes after the pack's", async () => {
@@ -8041,7 +8034,7 @@ describe("a pack taking over loose skills from its own source", () => {
 						["a", "is now part of the pack owner/repo/tools"],
 					),
 				],
-				notes: [NOTE],
+				notes: [TOLD],
 				tally: closed({ updated: 2 }),
 			}),
 		);
@@ -8136,7 +8129,7 @@ describe("a pack taking over loose skills from its own source", () => {
 							["a", "is now part of the pack owner/repo/tools"],
 						),
 					],
-					notes: [NOTE],
+					notes: [TOLD],
 					tally: closed({ updated: 2 }),
 				}),
 			);
@@ -8272,7 +8265,30 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
 			[PACK_KEY]: expect.objectContaining({ commit: REMOTE_SHA }),
 		});
-		expect(ui.note).toHaveBeenCalledWith(NOTE);
+		expect(ui.note).toHaveBeenCalledWith(TOLD);
+	});
+
+	it("a key naming the pack alone draws the skill it took over under its row, as a group's row does", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		await runUpdate(PACK_KEY, {}, ui);
+
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "tools")]],
+				rows: [
+					updated(
+						"owner/repo",
+						"HEAD",
+						HASHES,
+						["tools", "pack · 2 skills"],
+						["a", "is now part of the pack owner/repo/tools"],
+					),
+				],
+				notes: [TOLD],
+				tally: closed({ updated: 2 }),
+			}),
+		);
 	});
 
 	it("aborts the pack, install intact, when its skills would land on another source's files", async () => {

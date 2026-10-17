@@ -169,7 +169,7 @@ Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved 
 - **Moved skills are followed.** A loose skill whose folder moved is found again when exactly one skill in the repo has its name. New skills are never picked up for loose skills; install the folder as a pack for that.
 - **Keys follow what's installed.** When an install comes back as something `add` would key differently, such as a pack whose folder is now a single skill or a skill that moved out of the repo root, it moves to that key and a note names both. If another install already has that key, the update stops and says how to free it, unless that install is a loose skill the pack takes over.
 - **Nothing the repo still has is dropped.** If an update would remove a folder from `.claude/skills/` that the repo still holds outside anything the new install includes, it stops, names the folders and prints the `remove` and `add` that update it anyway. A folder that now installs nested inside a skill, and a category folder an older agntc installed whole whose skills now install on their own, go without stopping.
-- **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
+- **Gone upstream.** A skill or declared pack that no longer exists upstream asks, under the entry's row, `Remove it and its folder?` (what it installs counted, as in `Remove it and its 3 folders?`). Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
 - **Packs absorb loose skills.** When a pack now holds a skill you installed on its own from the same repo, the pack takes it over and the loose entry goes.
 
 **Update-all is grouped and streamed.** Installs from the same repo at the same version intent are checked once and cloned once per group. A key naming several installs, such as `update owner/repo` over its loose skills, updates those installs the same way. Each group is a row that spins while it updates, then settles with its members beneath; Next lists what you can do about the run, and a tally closes it:
@@ -208,7 +208,7 @@ npx agntc@latest list
 
 Installs are listed under their repo, each with its name, kind, version and status: `✓ up to date`, `↑ <version>` when an update is available, `! newer tags`, `◇ local`, `✗ check failed` or `✗ no matching version`.
 
-Select an install for a detail view with actions: Update, Remove, Change version, Back. The detail view shows the constraint and any version outside it. "Change version" lets you pick any tag and strips the constraint (pins to that tag).
+Select an install for a detail view with actions: Update, Change version, Remove, Back. The detail view shows the constraint and any version outside it. "Change version" lets you pick any tag and strips the constraint (pins to that tag).
 
 ### `init`
 

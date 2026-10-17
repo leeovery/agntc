@@ -11,7 +11,7 @@ import { KEY, Terminal } from "./terminal.js";
 const plain = createStyle(0);
 const colour = createStyle(3);
 const gap = (columns: number) => " ".repeat(columns);
-const HINTS = "↑↓ move · space pick · a all · ⏎ done · esc cancel";
+const HINTS = "↑↓ move   space pick   a all   ⏎ done   esc cancel";
 const PICKED = "\x1b[38;2;167;139;250m●\x1b[39m";
 const UNPICKED = "\x1b[2m○\x1b[22m";
 

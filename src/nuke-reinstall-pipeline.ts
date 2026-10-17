@@ -41,7 +41,12 @@ import {
 	type Manifest,
 	type ManifestEntry,
 } from "./manifest.js";
-import type { Message, SubjectMessage } from "./message.js";
+import {
+	type Message,
+	machineOnly,
+	type SubjectMessage,
+	sentence,
+} from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import type { Scope } from "./scope.js";
 import { memberName, repoFromKey } from "./source-parser.js";
@@ -372,7 +377,10 @@ async function reinstall(
 		assetCounts,
 		notes: [
 			...replayNotes(key, keyed.key, replay.note),
-			...absorbed.map((looseKey) => absorptionNote(keyed.key, looseKey)),
+			// The absorbed entry's own line under the pack's row tells it at a terminal.
+			...absorbed.map((looseKey) =>
+				machineOnly(absorptionNote(keyed.key, looseKey)),
+			),
 		],
 		absorbed,
 	};
@@ -389,7 +397,7 @@ function replayNotes(
 	note: string | undefined,
 ): Message[] {
 	if (newKey === key) {
-		return note === undefined ? [] : [note];
+		return note === undefined ? [] : [sentence(note)];
 	}
 	return [
 		{

@@ -20,12 +20,7 @@ import { renderCancel, renderClose } from "./close.js";
 import type { ExitHost } from "./control.js";
 import { renderHeader } from "./header.js";
 import { layoutWidth } from "./layout.js";
-import {
-	KIND_STATUS,
-	type MessageKind,
-	renderMessage,
-	renderWritten,
-} from "./message.js";
+import { type MessageKind, renderMessage } from "./message.js";
 import { renderNext } from "./next.js";
 import { promptConfirm } from "./prompts/confirm.js";
 import type { PromptInput } from "./prompts/input-filter.js";
@@ -140,10 +135,23 @@ export class TerminalUi implements Ui {
 					: renderRowsWithin(asked, room, layout, width, this.style);
 			// Until the block draws, the blank line it opens with is the
 			// question's, and goes with it: a block that only asks leaves nothing.
+			// Where the row and both blank lines don't fit, the blanks give way
+			// to it, the one under it first, so a question with a line to spare
+			// always names what it asks about.
 			const above = (room: number) => {
 				const opening = opened ? [] : this.opening();
-				const lines = within(room - 1 - opening.length);
-				return lines.length === 0 ? opening : [...opening, ...lines, ""];
+				const framings: [string[], string[]][] = [
+					[opening, [""]],
+					[opening, []],
+					[[], []],
+				];
+				for (const [before, after] of framings) {
+					const lines = within(room - before.length - after.length);
+					if (lines.length > 0) {
+						return [...before, ...lines, ...after];
+					}
+				}
+				return opening;
 			};
 			return this.ask((context) => prompt(above, context));
 		};
@@ -279,19 +287,8 @@ export class TerminalUi implements Ui {
 		return layoutWidth(this.output.columns);
 	}
 
-	/**
-	 * A string as written, an error's first line bold and the rest, its
-	 * cause, dim; a rich message laid out.
-	 */
 	private message(kind: MessageKind, message: Message): string[] {
-		if (typeof message !== "string") {
-			return renderMessage(kind, message, this.width(), this.style);
-		}
-		const paint =
-			kind === "error"
-				? { first: this.style.bold, rest: this.style.dim }
-				: undefined;
-		return renderWritten(KIND_STATUS[kind], message, this.style, paint);
+		return renderMessage(kind, message, this.width(), this.style);
 	}
 
 	/** Where a printed line waits: for the prompt's answer, or for the spinning task to settle. */

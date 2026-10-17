@@ -7,9 +7,12 @@ import {
 	visibleWidth,
 } from "../layout.js";
 import { createStyle, identity, type Style, statusGlyph } from "../style.js";
+import { LABEL_FLOOR } from "./lines.js";
 
 /** The columns between a label and its first cell, and between cells. */
 const CELL_GAP = 3;
+/** The fewest columns a cell is kept in: its glyph, a space and the `…` it's cut to. */
+const MIN_CELL = 3;
 const PLAIN = createStyle(0);
 
 /** A choice as its line lays it out: the columns its label is indented by. */
@@ -33,7 +36,9 @@ export interface CellLayout {
  * inset) and 3, then each cell as wide as the widest in its column and 3.
  * Where that's too wide, the asides go first, then the columns in the order
  * their cells' `drop` gives; then the label column narrows, its labels cut
- * at their start, as a name is told apart by its tail.
+ * at their start, as a name is told apart by its tail, but never below
+ * {@link LABEL_FLOOR}, so choices still read apart: past it the cells are
+ * cut at the margin, and those left fewer than {@link MIN_CELL} columns go.
  */
 export function cellLayout<T>(
 	choices: readonly PlacedChoice<T>[],
@@ -72,20 +77,28 @@ export function cellLayout<T>(
 		}
 		kept = kept.filter((index) => index !== dropped);
 	}
-	const labelColumn = Math.max(0, Math.min(label + CELL_GAP, room - span()));
+	const floor = Math.min(label, LABEL_FLOOR) + CELL_GAP;
+	const labelColumn = Math.min(
+		label + CELL_GAP,
+		Math.max(floor, room - span()),
+	);
+	const cells: { index: number; at: number }[] = [];
 	let at = labelColumn;
-	const cells = kept.map((index) => {
-		const placed = { index, at };
+	for (const index of kept) {
+		if (at + MIN_CELL > room) {
+			break;
+		}
+		cells.push({ index, at });
 		at += (columns[index] ?? 0) + CELL_GAP;
-		return placed;
-	});
+	}
 	return { labelColumn, cells, asides };
 }
 
 /**
  * A choice's line inside `room`, from where the options start: its label,
  * bold on the cursor's row and cut at its start to end 3 short of the first
- * cell, then each kept cell at its column.
+ * cell, or the room's end when no cell is kept, then each kept cell at its
+ * column.
  */
 export function cellsText<T>(
 	{ choice, inset }: PlacedChoice<T>,
@@ -94,7 +107,9 @@ export function cellsText<T>(
 	style: Style,
 	current: boolean,
 ): string {
-	const labelRoom = Math.max(0, layout.labelColumn - CELL_GAP - inset);
+	const labelEnd =
+		layout.cells.length === 0 ? room : layout.labelColumn - CELL_GAP;
+	const labelRoom = Math.max(0, labelEnd - inset);
 	const label = truncateStart(choice.label, labelRoom);
 	let line =
 		label === ""

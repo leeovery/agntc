@@ -215,13 +215,14 @@ async function installEveryKind(): Promise<void> {
 
 /** A list session at a terminal, its questions answered as each comes. */
 class Session {
-	readonly term = new Terminal(100, 60);
+	readonly term: Terminal;
 	readonly ended: Promise<void>;
 	private readonly ui: TerminalUi;
 	/** How much of the output had been written when the last answer began. */
 	private mark = 0;
 
-	constructor() {
+	constructor(columns = 100, rows = 60) {
+		this.term = new Terminal(columns, rows);
 		let now = 0;
 		this.ui = new TerminalUi({
 			header: { command: "list", where: "~/project", version: "1.2.3" },
@@ -309,7 +310,54 @@ describe("a list session", () => {
 			"   installs    2 skills",
 			"   status      v0.2.5 available",
 			"",
-			" ? Action                                                             ↑↓ move · ⏎ choose · esc back",
+			" ? Action                                                             ↑↓ move   ⏎ choose   esc back",
+			" ▌ Update",
+			"   Change version",
+			"   Remove",
+			"   Back",
+		]);
+
+		await session.answer("Action", KEY.escape);
+		await session.answer(DASHBOARD, KEY.escape);
+		await session.ended;
+	});
+
+	it.each([
+		{
+			columns: 80,
+			rows: 8,
+			row: [" ● leeovery/agentic-skills/laravel   pack", ""],
+		},
+		{
+			columns: 80,
+			rows: 7,
+			row: [" ● leeovery/agentic-skills/laravel   pack"],
+		},
+		{ columns: 40, rows: 7, row: [" ● leeovery/agentic-skills/laravel"] },
+		{
+			columns: 80,
+			rows: 10,
+			row: [
+				" ● leeovery/agentic-skills/laravel   pack",
+				"   version     v0.2.4",
+				"   … 5 more",
+				"",
+			],
+		},
+	])("names the entry over its actions on a screen of $columns×$rows, whatever it has to leave out", async ({
+		columns,
+		rows,
+		row,
+	}) => {
+		await installEveryKind();
+		const session = new Session(columns, rows);
+		await session.answer(DASHBOARD, KEY.enter);
+		await session.asking("Action");
+
+		const screen = await session.term.screen();
+		const asked = screen.findIndex((line) => line.startsWith(" ? Action"));
+		expect(screen.slice(asked - row.length, asked)).toEqual(row);
+		expect(screen.slice(asked + 1)).toEqual([
 			" ▌ Update",
 			"   Change version",
 			"   Remove",
@@ -329,7 +377,7 @@ describe("a list session", () => {
 		await session.answer("Action", KEY.escape);
 		expect((await session.asking(DASHBOARD)).slice(2, 6)).toEqual([
 			" ✓ leeovery/agentic-skills   ^0.2.4   v0.2.4 → v0.2.5",
-			"   └─ laravel                         pack · 2 skills · 2 files",
+			"   └─ laravel                         pack · 2 skills",
 			"",
 			" ? Select a skill or pack to manage",
 		]);
@@ -337,7 +385,7 @@ describe("a list session", () => {
 		await session.answer("Action", KEY.enter);
 		expect((await session.asking("Select a version")).slice(2)).toEqual([
 			" ✓ leeovery/agentic-skills   ^0.2.4   v0.2.4 → v0.2.5",
-			"   └─ laravel                         pack · 2 skills · 2 files",
+			"   └─ laravel                         pack · 2 skills",
 			"",
 			" ● referodesign/refero_skill/refero-design   skill",
 			"   version    v1.0.2",
@@ -346,7 +394,7 @@ describe("a list session", () => {
 			"   installs   1 skill",
 			"   status     newer tags available",
 			"",
-			" ? Select a version                                                   ↑↓ move · ⏎ choose · esc back",
+			" ? Select a version                                                   ↑↓ move   ⏎ choose   esc back",
 			" ▌ v2.0.0",
 			"   v1.0.3",
 			"   v1.0.2   current",
@@ -355,7 +403,7 @@ describe("a list session", () => {
 		await session.answer("Select a version", KEY.enter);
 		expect((await session.asking("Change")).slice(2)).toEqual([
 			" ✓ leeovery/agentic-skills   ^0.2.4   v0.2.4 → v0.2.5",
-			"   └─ laravel                         pack · 2 skills · 2 files",
+			"   └─ laravel                         pack · 2 skills",
 			"",
 			" ● referodesign/refero_skill/refero-design   skill",
 			"   version    v1.0.2",
@@ -374,10 +422,10 @@ describe("a list session", () => {
 		await session.answer("Action", KEY.down, KEY.enter);
 		expect((await session.asking("Remove")).slice(2)).toEqual([
 			" ✓ leeovery/agentic-skills   ^0.2.4   v0.2.4 → v0.2.5",
-			"   └─ laravel                         pack · 2 skills · 2 files",
+			"   └─ laravel                         pack · 2 skills",
 			"",
 			" ✓ referodesign/refero_skill   v2.0.0   v1.0.2 → v2.0.0",
-			"   └─ refero-design                     skill · 1 file",
+			"   └─ refero-design                     skill",
 			"",
 			" ● leeovery/agentic-workflows   skill",
 			"   .claude/skills/  agentic-workflows",
@@ -391,10 +439,10 @@ describe("a list session", () => {
 			HEADER,
 			"",
 			" ✓ leeovery/agentic-skills   ^0.2.4   v0.2.4 → v0.2.5",
-			"   └─ laravel                         pack · 2 skills · 2 files",
+			"   └─ laravel                         pack · 2 skills",
 			"",
 			" ✓ referodesign/refero_skill   v2.0.0   v1.0.2 → v2.0.0",
-			"   └─ refero-design                     skill · 1 file",
+			"   └─ refero-design                     skill",
 			"",
 			" ✓ leeovery/agentic-workflows   removed · skill",
 			...close("1 updated  ·  1 version changed  ·  1 removed"),

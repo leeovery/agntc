@@ -202,7 +202,7 @@ describe("a list session", () => {
 					{ label: "commit", value: "aaaaaaa" },
 					{ label: "installed", value: "2026-02-01" },
 					{ label: "installs", value: "1 skill" },
-					{ label: "status", value: "v1.1.0 available" },
+					{ label: "status", value: "v1.1.0 available", status: "newer" },
 				],
 			},
 			"v1.0.0",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RichMessage } from "../../src/message.js";
-import { renderMessage, renderWritten } from "../../src/terminal/message.js";
+import { renderMessage } from "../../src/terminal/message.js";
 import { createStyle } from "../../src/terminal/style.js";
 
 const plain = createStyle(0);
@@ -208,35 +208,53 @@ describe("renderMessage", () => {
 	});
 });
 
-describe("renderWritten", () => {
-	it("keeps each line as written, those after the first at column 3, wrapping none", () => {
-		const long = "x".repeat(120);
+describe("a string", () => {
+	it("wraps as a rich text does, from column 3", () => {
 		expect(
-			renderWritten("attention", `first\n  - indented\n\n${long}`, plain),
-		).toEqual([" ! first", "     - indented", "", `   ${long}`]);
-	});
-
-	it("paints the glyph in its colour, the first line and the rest as given", () => {
-		expect(
-			renderWritten("failed", "broken\nfatal: no", color, {
-				first: color.bold,
-				rest: color.dim,
-			}),
+			renderMessage(
+				"note",
+				"owner/repo/kit moved from skills/old/kit to skills/new/kit, now keyed owner/repo/kit",
+				40,
+				plain,
+			),
 		).toEqual([
-			" \x1b[31m✗\x1b[39m \x1b[1mbroken\x1b[22m",
-			"   \x1b[2mfatal: no\x1b[22m",
-		]);
-		expect(
-			renderWritten("done", "title\nsubtitle", color, { first: color.bold }),
-		).toEqual([
-			" \x1b[32m✓\x1b[39m \x1b[1mtitle\x1b[22m",
-			"   \x1b[1msubtitle\x1b[22m",
+			" · owner/repo/kit moved from",
+			"   skills/old/kit to skills/new/kit,",
+			"   now keyed owner/repo/kit",
 		]);
 	});
 
-	it("leaves off the blank lines a text ends with", () => {
+	it("as an error, bolds its first line and dims the rest, its cause, both wrapped", () => {
 		expect(
-			renderWritten("note", "Could not clone\nfatal: not found\n\n", color),
-		).toEqual([" \x1b[2m·\x1b[22m Could not clone", "   fatal: not found"]);
+			renderMessage(
+				"error",
+				"Failed to read manifest: Unexpected token } in JSON\nat position 12 of .agntc/manifest.json, the project's",
+				40,
+				color,
+			),
+		).toEqual([
+			" \x1b[31m✗\x1b[39m \x1b[1mFailed to read manifest: Unexpected\x1b[22m",
+			"   \x1b[1mtoken } in JSON\x1b[22m",
+			"   \x1b[2mat position 12 of\x1b[22m",
+			"   \x1b[2m.agntc/manifest.json, the project's\x1b[22m",
+		]);
+	});
+
+	it("leaves a warning's later lines its own, not a cause", () => {
+		expect(renderMessage("warn", "first\nsecond", 80, color)).toEqual([
+			" \x1b[33m!\x1b[39m first",
+			"   second",
+		]);
+	});
+
+	it("leaves off the blank lines it ends with", () => {
+		expect(
+			renderMessage(
+				"error",
+				"Could not clone\nfatal: not found\n\n",
+				80,
+				plain,
+			),
+		).toEqual([" ✗ Could not clone", "   fatal: not found"]);
 	});
 });

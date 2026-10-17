@@ -215,36 +215,45 @@ function detailFields(
 	];
 }
 
-/** What the entry's check found, in words; a local entry's says nothing its version doesn't. */
+/**
+ * What the entry's check found, in words, in the colour the dashboard gives
+ * its status; a local entry's says nothing its version doesn't.
+ */
 function statusField(
 	entry: ManifestEntry,
 	check: UpdateCheckResult,
 ): Field | null {
-	const field = (value: string, status?: Field["status"]): Field => ({
+	const value = statusWords(entry, check);
+	if (value === null) {
+		return null;
+	}
+	const cell = statusCell(entry, check);
+	const status = cell.dim ? "unchanged" : cell.status;
+	return {
 		label: "status",
 		value,
 		...(status === undefined ? {} : { status }),
-	});
+	};
+}
+
+function statusWords(
+	entry: ManifestEntry,
+	check: UpdateCheckResult,
+): string | null {
 	switch (check.status) {
 		case "up-to-date":
 		case "constrained-up-to-date":
-			return field("up to date");
+			return "up to date";
 		case "update-available":
-			return field(`${moveTarget(entry.ref, check.remoteCommit)} available`);
+			return `${moveTarget(entry.ref, check.remoteCommit)} available`;
 		case "constrained-update-available":
-			return field(`${check.tag} available`);
+			return `${check.tag} available`;
 		case "newer-tags":
-			return field("newer tags available");
+			return "newer tags available";
 		case "check-failed":
-			return field(
-				`couldn't check for updates (${gitErrorCause(check.reason)})`,
-				"attention",
-			);
+			return `couldn't check for updates (${gitErrorCause(check.reason)})`;
 		case "constrained-no-match":
-			return field(
-				`no matching version found for constraint "${entry.constraint}"`,
-				"failed",
-			);
+			return `no matching version found for constraint "${entry.constraint}"`;
 		case "local":
 			return null;
 	}

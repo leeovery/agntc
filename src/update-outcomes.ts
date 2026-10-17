@@ -10,9 +10,14 @@ import {
 
 /**
  * What a unit's outcomes leave the reader: a reinstall's notes, which print
- * under the row the unit settles into, and a failure's remedy, under Next.
+ * under the row the unit settles into, and a failure's remedy, under Next,
+ * named as its row names it, a local entry's folder shortened against `home`.
  */
-export function reportOutcomes(outcomes: PluginOutcome[], ui: Ui): void {
+export function reportOutcomes(
+	outcomes: PluginOutcome[],
+	ui: Ui,
+	home: string,
+): void {
 	for (const outcome of outcomes) {
 		if (isSuccessOutcome(outcome)) {
 			for (const note of outcome.notes) {
@@ -21,7 +26,7 @@ export function reportOutcomes(outcomes: PluginOutcome[], ui: Ui): void {
 		}
 		const item =
 			"message" in outcome && outcome.message !== undefined
-				? remedyItem(outcome.message)
+				? remedyItem(outcome.message, home)
 				: null;
 		if (item !== null) {
 			ui.next(item);

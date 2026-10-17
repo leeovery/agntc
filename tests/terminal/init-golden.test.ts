@@ -194,6 +194,27 @@ describe("an init of a pack", () => {
 		]);
 	});
 
+	it("asks counting only the files it will create, those already there marked so in the tree", async () => {
+		await writeFile(join(folder, "agntc.json"), "{}");
+
+		const { asking } = await session({ type: "pack", answer: ["n"] });
+		expect(asking).toEqual([
+			HEADER,
+			"",
+			" ● ~/my-pack           pack · will create 3 files",
+			"   ├─ agntc.json       already there",
+			"   ├─ skills/",
+			"   │  └─ my-skill/",
+			"   │     └─ SKILL.md",
+			"   ├─ agents/",
+			"   │  └─ my-agent.md",
+			"   └─ hooks/",
+			"      └─ my-hook.sh",
+			"",
+			" ? Proceed?   [Yes]  No",
+		]);
+	});
+
 	it("leaves nothing but the cancel when the question is answered no", async () => {
 		expect((await session({ type: "pack", answer: ["n"] })).ended).toEqual([
 			HEADER,
@@ -213,7 +234,7 @@ describe("an init of a skill", () => {
 		expect(asking).toEqual([
 			HEADER,
 			"",
-			atRight(" ? What are you creating?", "↑↓ move · ⏎ choose · esc cancel"),
+			atRight(" ? What are you creating?", "↑↓ move   ⏎ choose   esc cancel"),
 			" ▌ Skill   a single skill (SKILL.md)",
 			"   Pack    skills, agents and hooks that install together as one",
 		]);

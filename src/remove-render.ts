@@ -1,4 +1,3 @@
-import type { EntryHead } from "./entry-head.js";
 import { joinWithAnd, pluralize } from "./summary.js";
 import { LOOKS } from "./terminal/tally.js";
 import type { Field, Row } from "./terminal/types.js";
@@ -136,23 +135,5 @@ export function removeFailedRow(subject: string, reason: string): Row {
 			label: LOOKS.remove.failed.label,
 			aside: `${reason}; it stays recorded`,
 		},
-	};
-}
-
-/**
- * An entry gone upstream, as `update` asks whether to remove it: its head, a
- * local one's meta with it as the row it settles into has, its kind and
- * counts, then what it installed under each asset folder.
- */
-export function goneRow(
-	head: EntryHead,
-	kind: string,
-	files: readonly string[],
-): Row {
-	return {
-		status: "attention",
-		...head,
-		detail: { label: "gone upstream", aside: kind },
-		fields: installedFolders(files),
 	};
 }

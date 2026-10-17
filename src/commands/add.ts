@@ -104,13 +104,7 @@ import {
 import type { ItemIdentity, ItemOutcome } from "../summary.js";
 import { adviceItem, remedyItem } from "../terminal/next.js";
 import type { Row, RowHead } from "../terminal/types.js";
-import {
-	type Block,
-	type BlockTask,
-	interactiveUi,
-	stoppingUi,
-	type Ui,
-} from "../ui.js";
+import { type Block, type BlockTask, stoppingUi, type Ui } from "../ui.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
 export interface AddOptions extends SelectionFlags {
@@ -236,8 +230,8 @@ export async function resolveTagConstraint(
 
 export async function runAdd(
 	source: string,
-	options: AddOptions = {},
-	ui: Ui = interactiveUi(),
+	options: AddOptions,
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.header();
@@ -298,7 +292,7 @@ async function fetchSource(
 		return { root: parsed.resolvedPath, commit: null };
 	}
 
-	const cloning = ui.block([]).task({ text: `Cloning ${parsed.manifestKey}…` });
+	const cloning = ui.block([]).task({ text: `cloning ${parsed.manifestKey}…` });
 	try {
 		const { tempDir, commit } = await cloneSource(parsed);
 		return { root: tempDir, commit, tempDir };
@@ -374,10 +368,17 @@ function sourceJson(src: FetchedSource): SourceJson {
 	};
 }
 
-/** The source's row head: its key, a local one's folder shortened against the home folder. */
-function headOf(src: FetchedSource): RowHead {
-	const subject =
-		src.cloneUrl === null ? homeShortened(src.key, homedir()) : src.key;
+/**
+ * The source's row head: its key, a local one's folder shortened against the
+ * home folder. A walk from a start path that offers nothing names the path,
+ * as the rest of the source may hold plenty.
+ */
+function headOf(src: FetchedSource, items: readonly InstallItem[]): RowHead {
+	const key =
+		items.length === 0 && src.startPath !== undefined
+			? `${src.key}/${src.startPath}`
+			: src.key;
+	const subject = src.cloneUrl === null ? homeShortened(key, homedir()) : key;
 	return sourceHead(subject, src);
 }
 
@@ -395,7 +396,7 @@ async function listSource(
 		tellStrays(strayNotices(discovery, choiceContext(src, scope)), ui);
 	}
 	const row = listedRow(
-		headOf(src),
+		headOf(src, items),
 		holdings(items),
 		items.map((item) => menuOption(item, src.rootName)),
 	);
@@ -412,7 +413,7 @@ function tellStrays(notices: readonly StrayNotice[], ui: Ui): void {
 	for (const notice of notices) {
 		if ("subject" in notice) {
 			ui.warn(machineOnly(notice.plain));
-			ui.next(adviceItem(notice));
+			ui.next(adviceItem(notice, homedir()));
 		} else {
 			ui.warn(notice);
 		}
@@ -487,7 +488,8 @@ function sourceRow(
 	{ outcome, discovery }: Chosen,
 	ui: Ui,
 ): SourceRow {
-	const head = headOf(src);
+	const offered = offeredItems(discovery);
+	const head = headOf(src, offered);
 	const notes = notesOf(outcome).map(shownHeld);
 	const names = choiceItems(outcome).map((item) =>
 		itemLabel(item, src.rootName),
@@ -495,7 +497,7 @@ function sourceRow(
 	return new SourceRow(
 		ui.block([sourceSubject(head, names, notes)]),
 		head,
-		holdings(offeredItems(discovery)),
+		holdings(offered),
 		notes,
 	);
 }
@@ -643,7 +645,7 @@ async function installItems(
 			home,
 		),
 	);
-	queueRemedies(outcomes, ui);
+	queueRemedies(outcomes, ui, home);
 	ui.close({ command: "add", counts: addTally(outcomes) });
 	ui.report(addBody(sourceJson(src), outcomes));
 
@@ -720,11 +722,15 @@ function inItemOrder(
 }
 
 /** What the reader can do about an item that didn't install, under Next. */
-function queueRemedies(outcomes: readonly ItemOutcome[], ui: Ui): void {
+function queueRemedies(
+	outcomes: readonly ItemOutcome[],
+	ui: Ui,
+	home: string,
+): void {
 	for (const outcome of outcomes) {
 		const item =
 			outcome.status !== "installed" && outcome.message !== undefined
-				? remedyItem(outcome.message)
+				? remedyItem(outcome.message, home)
 				: null;
 		if (item !== null) {
 			ui.next(item);

@@ -3,7 +3,6 @@ import {
 	footerLine,
 	promptSelect,
 	renderSelect,
-	SELECT_HINTS,
 	type SelectView,
 	selectWindow,
 } from "../../../src/terminal/prompts/select.js";
@@ -14,7 +13,7 @@ import { KEY, Terminal } from "./terminal.js";
 const plain = createStyle(0);
 const colour = createStyle(3);
 const gap = (columns: number) => " ".repeat(columns);
-const HINTS = "↑↓ move · ⏎ choose · esc cancel";
+const HINTS = "↑↓ move   ⏎ choose   esc cancel";
 const ACCENT = "\x1b[38;2;167;139;250m";
 const BAR = `${ACCENT}▌\x1b[39m`;
 
@@ -402,6 +401,35 @@ describe("a select's cells", () => {
 		expect(line!.length).toBeLessThanOrEqual(39);
 	});
 
+	it("keeps ten columns of a label, its inset with them, before its status, cutting the status at the margin", () => {
+		expect(lines(25)).toEqual([
+			"   …overy/agentic-skills",
+			" ▌   laravel    ↑ v0.2.5",
+			"     …rkflows   ✓ up to…",
+			"   ~/Code/my-skills",
+			"     drafting   ◇ local",
+		]);
+		expect(lines(20)).toEqual([
+			"   …/agentic-skills",
+			" ▌   laravel    ↑ …",
+			"     …rkflows   ✓ …",
+			"   ~/Code/my-skills",
+			"     drafting   ◇ …",
+		]);
+	});
+
+	it("leaves out a cell the label's ten columns leave fewer than three for, the label then taking the room", () => {
+		const named: SelectOption<string>[] = [
+			{
+				value: "a",
+				label: "a-skill-named-at-length",
+				cells: [{ status: "newer", text: "v1.1.0" }],
+			},
+		];
+		const line = renderSelect(view(named, 0), 18, plain).at(-1);
+		expect(line).toBe(" ▌ …med-at-length");
+	});
+
 	it("cuts a line its last cell alone overflows at the margin", () => {
 		const wide: SelectOption<string>[] = [
 			{
@@ -411,7 +439,7 @@ describe("a select's cells", () => {
 			},
 		];
 		const [line] = renderSelect(view(wide, 0), 40, plain).slice(1);
-		expect(line).toBe(` ▌ ✗ ${"x".repeat(33)}…`);
+		expect(line).toBe(` ▌ a   ✗ ${"x".repeat(29)}…`);
 	});
 
 	it("paints the kind dim, the constraint dim, each glyph in its status's colour, and bolds the cursor's label", () => {
@@ -448,7 +476,7 @@ describe("a select's footer", () => {
 		]);
 	});
 
-	it("cuts the counts before the keys where both don't fit", () => {
+	it("drops whole counts from the right before the keys where both don't fit", () => {
 		const crowded: SelectFooter = {
 			keys: FOOTER.keys,
 			counts: [
@@ -456,11 +484,23 @@ describe("a select's footer", () => {
 				{ count: 2, label: "with no match", status: "failed" },
 			],
 		};
-		const line = footerLine(crowded, 60, plain);
-		expect(line).toBe(
-			" ↑↓ move   ⏎ manage   esc done  3 updates · 1 check failed…",
+		expect(footerLine(crowded, 60, plain)).toBe(
+			` ↑↓ move   ⏎ manage   esc done${gap(3)}3 updates · 1 check failed`,
 		);
-		expect(line.length).toBe(59);
+		expect(footerLine(crowded, 76, plain)).toBe(
+			` ↑↓ move   ⏎ manage   esc done${gap(19)}3 updates · 1 check failed`,
+		);
+		expect(footerLine(crowded, 77, plain)).toBe(
+			" ↑↓ move   ⏎ manage   esc done  3 updates · 1 check failed · 2 with no match",
+		);
+	});
+
+	it("cuts the first count where not even it fits whole", () => {
+		const one: SelectFooter = {
+			keys: [],
+			counts: [{ count: 12, label: "updates and more", status: "newer" }],
+		};
+		expect(footerLine(one, 20, plain)).toBe(" 12 updates and mo…");
 	});
 
 	it("drops the keys below 60 columns, the counts at the right margin", () => {
@@ -550,14 +590,23 @@ describe("a select's key hints", () => {
 		);
 		await terminal.press();
 		expect((await terminal.lines())[0]).toBe(
-			` ? Action${gap(41)}↑↓ move · ⏎ choose · esc back`,
+			` ? Action${gap(41)}↑↓ move   ⏎ choose   esc back`,
 		);
 		await terminal.press(KEY.escape);
 		expect(await answer).toBeNull();
 	});
 
-	it("say esc cancels where it doesn't", () => {
-		expect(SELECT_HINTS).toBe("↑↓ move · ⏎ choose · esc cancel");
+	it("say esc cancels where it doesn't, three spaces apart as the footer's keys are", async () => {
+		const terminal = new Terminal(80);
+		const answer = promptSelect(
+			{ message: "Action", options: OPTIONS },
+			terminal.context(),
+		);
+		await terminal.press();
+		expect((await terminal.lines())[0]).toBe(` ? Action${gap(39)}${HINTS}`);
+		expect(HINTS).toBe("↑↓ move   ⏎ choose   esc cancel");
+		await terminal.press(KEY.escape);
+		await answer;
 	});
 });
 

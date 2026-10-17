@@ -1378,6 +1378,51 @@ describe("renderProgress", () => {
 		).toBe(` ⠁ owner/alpha  ^1.0.0  ${text}`);
 	});
 
+	it("keeps what it's doing in the detail column while it fills the column exactly, and follows the meta once it's a column over", () => {
+		const layout = blockLayout(subjects, 80);
+		// 80 columns: the detail column starts at 26, leaving 53 to the margin.
+		expect(
+			renderProgress(
+				{ ...progress, text: "y".repeat(53) },
+				"⠁",
+				80,
+				plain,
+				layout,
+			),
+		).toBe(` ⠁ owner/alpha${gap(3)}^1.0.0${gap(3)}${"y".repeat(53)}`);
+		expect(
+			renderProgress(
+				{ ...progress, text: "y".repeat(54) },
+				"⠁",
+				80,
+				plain,
+				layout,
+			),
+		).toBe(` ⠁ owner/alpha  ^1.0.0  ${"y".repeat(54)}`);
+	});
+
+	it.each([
+		// 21 columns past the glyph: the half the subject's cut leaves what it's
+		// doing is 9, rounded down, so the subject keeps 10.
+		[25, " ⠁ …lder-name  reinstal…"],
+		[26, " ⠁ …lder-name  reinstall…"],
+	])("gives what it's doing half the line, rounded down, where its width would cut the subject below 12, at %i", (width, line) => {
+		const KEY =
+			"/Volumes/Scratch/sources/a-rather-long-local-source-folder-name";
+		expect(
+			renderProgress(
+				{
+					subject: KEY,
+					text: "reinstalling from the source it was added from…",
+				},
+				"⠁",
+				width,
+				plain,
+				blockLayout([{ subject: KEY }], width),
+			),
+		).toBe(line);
+	});
+
 	it("cuts a line without a subject at its end", () => {
 		expect(renderProgress({ text: "x".repeat(30) }, "⠁", 20, plain)).toBe(
 			` ⠁ ${"x".repeat(15)}…`,
@@ -1537,8 +1582,8 @@ describe("a long path in a row", () => {
 				" ✓ leeovery/",
 				"   a-very-long-repository-name-for-skil",
 				"   ls/nuxt",
-				"   already installed in",
-				"   /Volumes/Scratch/sources/",
+				"   already installed in /Volumes/",
+				"   Scratch/sources/",
 				"   a-rather-long-local-source-folder-na",
 				"   me/with-another-level",
 			],
@@ -1547,13 +1592,13 @@ describe("a long path in a row", () => {
 			100,
 			[
 				` ✓ ${REMOTE}`,
-				`${gap(56)}already installed in`,
-				`${gap(56)}/Volumes/Scratch/sources/`,
+				`${gap(56)}already installed in /Volumes/Scratch/`,
+				`${gap(56)}sources/`,
 				`${gap(56)}a-rather-long-local-source-folder-name/`,
 				`${gap(56)}with-another-level`,
 			],
 		],
-	])("breaks a remote subject and a path in its detail at a `/` at %i", (width, lines) => {
+	])("breaks a remote subject and a path in its detail at a `/` at %i, the path starting beside the words before it", (width, lines) => {
 		expect(draw(remote, width)).toEqual(lines);
 	});
 
@@ -1567,8 +1612,8 @@ describe("a long path in a row", () => {
 				"         a-rather-long-local-source-fol",
 				"         der-name/with-another-level",
 				"   └─ pack-1",
-				"      copied from",
-				"      /Volumes/Scratch/sources/",
+				"      copied from /Volumes/Scratch/",
+				"      sources/",
 				"      a-rather-long-local-source-folder",
 				"      -name/with-another-level/pack-1",
 			],
@@ -1579,8 +1624,8 @@ describe("a long path in a row", () => {
 				` ✗ ${BARE}`,
 				"   from  /Volumes/Scratch/sources/a-rather-long-local-source-folder-name/",
 				"         with-another-level",
-				`   └─ pack-1${gap(35)}copied from`,
-				`${gap(47)}/Volumes/Scratch/sources/`,
+				`   └─ pack-1${gap(35)}copied from /Volumes/Scratch/`,
+				`${gap(47)}sources/`,
 				`${gap(47)}a-rather-long-local-source-folde`,
 				`${gap(47)}r-name/with-another-level/pack-1`,
 			],

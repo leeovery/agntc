@@ -4,17 +4,18 @@ import {
 	confirmAbove,
 	renderConfirm,
 } from "../../../src/terminal/prompts/confirm.js";
-import { questionLines } from "../../../src/terminal/prompts/lines.js";
+import {
+	listHints,
+	questionLines,
+} from "../../../src/terminal/prompts/lines.js";
 import { scrollWindow } from "../../../src/terminal/prompts/list-window.js";
 import {
-	MULTISELECT_HINTS,
 	multiselectFit,
 	renderMultiselect,
 } from "../../../src/terminal/prompts/multiselect.js";
 import {
 	isChoice,
 	renderSelect,
-	SELECT_HINTS,
 	selectWindow,
 } from "../../../src/terminal/prompts/select.js";
 import { createStyle } from "../../../src/terminal/style.js";
@@ -29,6 +30,9 @@ import type { Choice, SelectOption } from "../../../src/ui.js";
 // as half the frame's room, or all of them when they take less.
 
 const style = createStyle(0);
+/** The key hints each prompt is asked with, so the frame it fits and the one drawn agree. */
+const SELECT_KEYS = listHints(["⏎ choose"]);
+const MULTISELECT_KEYS = listHints(["space pick", "a all", "⏎ done"]);
 const ROWS = Array.from({ length: 38 }, (_, index) => index + 3);
 const WIDTHS = [40, 80];
 const COUNTS = [1, 2, 4, 30];
@@ -128,7 +132,7 @@ describe("an open prompt's frame", () => {
 	)("is a line shorter than the screen, a select at %i columns", (width) => {
 		const over: string[] = [];
 		for (const message of QUESTIONS) {
-			for (const rows of roomy(message, SELECT_HINTS, width)) {
+			for (const rows of roomy(message, SELECT_KEYS, width)) {
 				for (const count of COUNTS) {
 					for (const headed of [false, true]) {
 						for (const [maxItems, lines] of MAX_ITEMS.flatMap((most) =>
@@ -136,7 +140,13 @@ describe("an open prompt's frame", () => {
 						)) {
 							const options = selectOptions(count, headed);
 							const above = aboveFor(lines, width);
-							const question = { message, options, maxItems, above };
+							const question = {
+								message,
+								options,
+								maxItems,
+								above,
+								hints: SELECT_KEYS,
+							};
 							const window = selectWindow(question, rows, width, style);
 							if (
 								window.above.length > 0 &&
@@ -155,7 +165,7 @@ describe("an open prompt's frame", () => {
 									{
 										...window,
 										message,
-										hints: SELECT_HINTS,
+										hints: SELECT_KEYS,
 										options,
 										cursor,
 										top: scrollWindow(headings, cursor, 0, window.size),
@@ -248,14 +258,14 @@ describe("an open prompt's frame", () => {
 	)("is a line shorter than the screen, a multiselect at %i columns", (width) => {
 		const over: string[] = [];
 		for (const message of QUESTIONS) {
-			for (const rows of roomy(message, MULTISELECT_HINTS, width)) {
+			for (const rows of roomy(message, MULTISELECT_KEYS, width)) {
 				for (const [count, lines] of COUNTS.flatMap((count) =>
 					ABOVES.map((above) => [count, above] as const),
 				)) {
 					const options = choices(count);
 					const above = aboveFor(lines, width);
 					const fit = multiselectFit(
-						{ message, options, above },
+						{ message, options, above, hints: MULTISELECT_KEYS },
 						rows,
 						width,
 						style,
@@ -271,7 +281,7 @@ describe("an open prompt's frame", () => {
 							{
 								...fit,
 								message,
-								hints: MULTISELECT_HINTS,
+								hints: MULTISELECT_KEYS,
 								options,
 								cursor,
 								top: scrollWindow(headings, cursor, 0, fit.size),

@@ -51,6 +51,31 @@ describe("scaffoldRow", () => {
 			"pack · will create 4 files",
 		);
 	});
+
+	it("counts only the files it will create, marking those already there in the tree", () => {
+		const row = scaffoldRow("~/my-pack", "pack", PACK, [
+			"agntc.json",
+			"hooks/my-hook.sh",
+		]);
+		expect(row.detail).toBe("pack · will create 2 files");
+		expect(row.children).toContainEqual({
+			name: "agntc.json",
+			depth: 0,
+			noun: "file",
+			detail: "already there",
+		});
+		expect(row.children).toContainEqual({
+			name: "my-hook.sh",
+			depth: 1,
+			noun: "file",
+			detail: "already there",
+		});
+		expect(row.children).toContainEqual({
+			name: "SKILL.md",
+			depth: 2,
+			noun: "file",
+		});
+	});
 });
 
 describe("scaffoldedRows", () => {

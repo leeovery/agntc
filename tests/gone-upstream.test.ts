@@ -4,7 +4,7 @@ vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-import { settleGone } from "../src/gone-upstream.js";
+import { goneRow, settleGone } from "../src/gone-upstream.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { globalScope, projectScope } from "../src/scope.js";
 import { MachineUi } from "../src/ui.js";
@@ -178,5 +178,27 @@ describe("settleGone", () => {
 		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/home/lee", [
 			".claude/skills/go/",
 		]);
+	});
+});
+
+describe("goneRow", () => {
+	it("needs a look: the entry, gone upstream with its kind and counts, then what it installed", () => {
+		expect(
+			goneRow({ subject: "owner/repo/go" }, "skill", [
+				".claude/skills/go/",
+				".claude/skills/go/SKILL.md",
+			]),
+		).toEqual({
+			status: "attention",
+			subject: "owner/repo/go",
+			detail: { label: "gone upstream", aside: "skill" },
+			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+		});
+	});
+
+	it("keeps the meta its head carries, as a local entry's", () => {
+		expect(
+			goneRow({ subject: "~/src/kit", meta: "local" }, "skill", []),
+		).toMatchObject({ subject: "~/src/kit", meta: "local" });
 	});
 });

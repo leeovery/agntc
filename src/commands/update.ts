@@ -29,8 +29,8 @@ import {
 	outOfConstraintMessage,
 } from "../summary.js";
 import { adviceItem } from "../terminal/next.js";
-import type { RowHead } from "../terminal/types.js";
-import { type Block, interactiveUi, type Ui } from "../ui.js";
+import type { Row, RowHead } from "../terminal/types.js";
+import type { Block, Ui } from "../ui.js";
 import type { GroupTarget, UpdateCheckResult } from "../update-check.js";
 import {
 	categorizeMember,
@@ -40,7 +40,6 @@ import {
 } from "../update-check.js";
 import {
 	absorbedBy,
-	absorbedOutcome,
 	type EntryGroup,
 	failedOutcome,
 	type GroupMember,
@@ -56,6 +55,7 @@ import {
 } from "../update-groups.js";
 import { persistUnitOutcomes, reportOutcomes } from "../update-outcomes.js";
 import {
+	absorbedMembers,
 	cloneFailedRow,
 	type GroupMove,
 	groupLabel,
@@ -97,6 +97,20 @@ const KEY_FAILURES = new Set<PluginOutcome["status"]>([
 	"constrained-no-match",
 ]);
 
+/**
+ * A row left alone, why it was, failed where that ends the run non-zero, as
+ * a check that failed does when a key names the entries: every run that
+ * fails ends on a failed row.
+ */
+function leftAloneRowAmong(
+	head: RowHead,
+	why: LeftAlone,
+	failures: Set<PluginOutcome["status"]>,
+): Row {
+	const row = leftAloneRow(head, why);
+	return failures.has(why.status) ? { ...row, status: "failed" } : row;
+}
+
 const NOTHING_INSTALLED = "No skills or packs installed.";
 const CHECKING = "checking for updates…";
 
@@ -106,9 +120,9 @@ export interface UpdateOptions {
 }
 
 export async function runUpdate(
-	key?: string,
-	options: UpdateOptions = {},
-	ui: Ui = interactiveUi(),
+	key: string | undefined,
+	options: UpdateOptions,
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.header();
@@ -175,7 +189,7 @@ async function runKeyUpdate(
 		run.scope.name,
 	);
 	if (!failed && outOfConstraint !== null) {
-		queueOutOfConstraint([outOfConstraint], ui);
+		queueOutOfConstraint([outOfConstraint], run);
 	}
 	const checks = new Map([[keyBefore(outcome), check]]);
 	const outcomes = withAbsorptions([outcome]);
@@ -256,7 +270,7 @@ async function settleKey(
 	const { key, entry } = member;
 	const leftAlone = (why: LeftAlone, outcome: PluginOutcome): SettledKey => ({
 		outcome,
-		row: leftAloneRow(keyHead(member, run.home), why, [key]),
+		row: leftAloneRowAmong(keyHead(member, run.home), why, KEY_FAILURES),
 	});
 	switch (check.status) {
 		case "up-to-date":
@@ -298,10 +312,10 @@ async function settleKey(
 function queueNewerTags(
 	{ key, entry }: GroupMember,
 	tags: string[],
-	{ scope, ui }: UpdateRun,
+	{ scope, ui, home }: UpdateRun,
 ): void {
 	const reAdd = reAddCommand(key, entry, scope.name, newestTag(tags));
-	ui.next(adviceItem(pinnedTagsMessage(key, entry.ref!, tags, reAdd)));
+	ui.next(adviceItem(pinnedTagsMessage(key, entry.ref!, tags, reAdd), home));
 }
 
 // --- All-mode helpers ---
@@ -428,7 +442,13 @@ async function runGroupedUpdates(
 
 	for (const nonActioned of categorized.nonActionedGroups) {
 		if (!actioned.drawn.has(nonActioned.group)) {
-			drawLeftAlone(withoutAbsorbed(nonActioned, absorbed), groups, block, run);
+			drawLeftAlone(
+				withoutAbsorbed(nonActioned, absorbed),
+				groups,
+				block,
+				failures,
+				run,
+			);
 		}
 	}
 	queueOutOfConstraint(
@@ -436,7 +456,7 @@ async function runGroupedUpdates(
 			(group) =>
 				groupOutOfConstraintInfo(group, groups, outcomes, scope.name) ?? [],
 		),
-		ui,
+		run,
 	);
 
 	ui.close({ command: "update", counts: updateTally(outcomes) });
@@ -768,7 +788,7 @@ async function streamGroupWork(
 		manifest,
 		run,
 	);
-	reportOutcomes(unit.outcomes, ui);
+	reportOutcomes(unit.outcomes, ui, run.home);
 	if (result.cloneFailed) {
 		const keys = item.updating.map(({ key }) => key);
 		task.settle(cloneFailedRow(head, result.reason, keys));
@@ -797,9 +817,9 @@ function takenFromOutside(outcomes: PluginOutcome[]): MemberResult[] {
 			.map(({ key }) => key),
 	);
 	return outcomes.flatMap((pack) =>
-		absorbedBy(pack)
-			.filter((key) => !reinstalledInTurn.has(key))
-			.map((key) => ({ outcome: absorbedOutcome(key, pack) })),
+		absorbedMembers(pack).filter(
+			({ outcome }) => !reinstalledInTurn.has(outcome.key),
+		),
 	);
 }
 
@@ -895,7 +915,7 @@ async function streamLocalWork(
 		outcome,
 	]);
 	const unit = await settleGoneMembers([outcome], [member], manifest, run);
-	reportOutcomes(unit.outcomes, run.ui);
+	reportOutcomes(unit.outcomes, run.ui, run.home);
 	task.settle(localRow(head, { outcome: unit.outcomes[0]! }));
 	return unit;
 }
@@ -903,14 +923,16 @@ async function streamLocalWork(
 /**
  * The row of a group the run left alone, why read off its shared target: the
  * check that failed, the constraint no tag satisfies, a pin with newer tags
- * (whose re-add commands at the newest tag go to Next), or up to date. A
- * group whose every non-actioned member was absorbed has no row.
+ * (whose re-add commands at the newest tag go to Next), or up to date;
+ * failed where `failures` ends the run on it. A group whose every
+ * non-actioned member was absorbed has no row.
  */
 function drawLeftAlone(
 	nonActioned: NonActionedGroup,
 	groups: EntryGroup[],
 	block: Block,
-	{ scope, ui }: UpdateRun,
+	failures: Set<PluginOutcome["status"]>,
+	{ scope, ui, home }: UpdateRun,
 ): void {
 	const { group, target, outcomes } = nonActioned;
 	if (outcomes.length === 0) {
@@ -929,10 +951,11 @@ function drawLeftAlone(
 		ui.next(
 			adviceItem(
 				newerTagsMessage(head.subject, group.versionIntent!, newest, commands),
+				home,
 			),
 		);
 	}
-	block.row(leftAloneRow(head, leftAloneOf(target, group)));
+	block.row(leftAloneRowAmong(head, leftAloneOf(target, group), failures));
 }
 
 function leftAloneOf(target: GroupTarget, group: EntryGroup): LeftAlone {
@@ -961,9 +984,12 @@ function hasFailedOutcome(
 }
 
 /** Each newer version outside a constraint, and how to move to it, under Next. */
-function queueOutOfConstraint(infos: OutOfConstraintInfo[], ui: Ui): void {
+function queueOutOfConstraint(
+	infos: OutOfConstraintInfo[],
+	{ ui, home }: UpdateRun,
+): void {
 	for (const info of infos) {
-		ui.next(adviceItem(outOfConstraintMessage(info)));
+		ui.next(adviceItem(outOfConstraintMessage(info), home));
 	}
 }
 

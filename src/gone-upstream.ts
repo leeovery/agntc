@@ -3,8 +3,9 @@ import type { EntryHead } from "./entry-head.js";
 import type { ManifestEntry } from "./manifest.js";
 import type { SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
-import { goneRow, removalQuestion } from "./remove-render.js";
+import { installedFolders, removalQuestion } from "./remove-render.js";
 import { agntcCommand, type Scope } from "./scope.js";
+import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
 
 export interface GoneOptions {
@@ -84,5 +85,23 @@ export function goneMessage(
 		detail: `${verb.toLowerCase()} — ${why}`,
 		text,
 		plain: text,
+	};
+}
+
+/**
+ * An entry gone upstream, as `update` asks whether to remove it: its head, a
+ * local one's meta with it as the row it settles into has, its kind and
+ * counts, then what it installed under each asset folder.
+ */
+export function goneRow(
+	head: EntryHead,
+	kind: string,
+	files: readonly string[],
+): Row {
+	return {
+		status: "attention",
+		...head,
+		detail: { label: "gone upstream", aside: kind },
+		fields: installedFolders(files),
 	};
 }

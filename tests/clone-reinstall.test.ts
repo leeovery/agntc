@@ -734,7 +734,13 @@ describe("reinstallEntry", () => {
 
 			expect(result).toMatchObject({
 				status: "success",
-				notes: ["owner/repo/swift is a single skill — reinstalled as a skill"],
+				notes: [
+					{
+						text: "owner/repo/swift is a single skill — reinstalled as a skill",
+						plain:
+							"owner/repo/swift is a single skill — reinstalled as a skill",
+					},
+				],
 				manifestEntry: { type: "skill" },
 			});
 		});
@@ -839,7 +845,12 @@ describe("reinstallEntry", () => {
 				status: "success",
 				absorbed: ["owner/repo/queues"],
 				notes: [
-					"owner/repo/laravel now includes queues, installed on its own before",
+					// The absorbed entry's own line tells it at a terminal.
+					{
+						text: "",
+						plain:
+							"owner/repo/laravel now includes queues, installed on its own before",
+					},
 				],
 			});
 			expect(mockWriteManifest).not.toHaveBeenCalled();

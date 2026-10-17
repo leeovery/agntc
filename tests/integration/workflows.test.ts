@@ -992,8 +992,13 @@ describe("integration: core workflows", () => {
 			expect(result.status).toBe("success");
 			if (result.status !== "success") throw new Error("unexpected");
 			expect(result.absorbed).toEqual(["owner/repo/review"]);
+			// Machine mode's alone: at a terminal the skill's line under the pack tells it.
 			expect(result.notes).toEqual([
-				"owner/repo/tools now includes review, installed on its own before",
+				{
+					text: "",
+					plain:
+						"owner/repo/tools now includes review, installed on its own before",
+				},
 			]);
 			expect(result.copiedFiles).toContain(".claude/skills/review/");
 			expect(

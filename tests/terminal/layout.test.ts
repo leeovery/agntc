@@ -154,10 +154,76 @@ describe("wrap", () => {
 	});
 
 	it("breaks a long word after the last `/` that fits", () => {
-		expect(wrap("see owner/repo/a-long-skill", 15)).toEqual([
-			"see",
+		expect(wrap("owner/repo/a-long-skill", 15)).toEqual([
 			"owner/repo/",
 			"a-long-skill",
+		]);
+	});
+
+	it("starts a word too long for a line of its own on the line it would join, up to the last `/` that fits there", () => {
+		expect(wrap("see owner/repo/a-long-skill", 15)).toEqual([
+			"see owner/repo/",
+			"a-long-skill",
+		]);
+		expect(wrap("fatal: /aa/bbbb/cccccccc", 12)).toEqual([
+			"fatal: /aa/",
+			"bbbb/",
+			"cccccccc",
+		]);
+	});
+
+	it("starts such a word on a first line narrower than the rest too", () => {
+		expect(wrap("ab/cdefghij", 10, 5)).toEqual(["ab/", "cdefghij"]);
+	});
+
+	it("moves a word that fits a line of its own there whole, and one with no `/` in reach of its line", () => {
+		expect(wrap("see owner/repo/ski", 15)).toEqual(["see", "owner/repo/ski"]);
+		expect(wrap("fatal: abcdefghijklmnop/q", 10)).toEqual([
+			"fatal:",
+			"abcdefghij",
+			"klmnop/q",
+		]);
+		// The `/` a path opens with is no break.
+		expect(wrap("fatal: /abcdefghijklmnop", 10)).toEqual([
+			"fatal:",
+			"/abcdefghi",
+			"jklmnop",
+		]);
+	});
+
+	it("never opens a line on a `/` its hard break would leave there, cutting a character sooner", () => {
+		expect(wrap("abcdefgh/ij", 8)).toEqual(["abcdefg", "h/ij"]);
+		expect(wrap("x abcdefgh/ijklmnopqr", 8)).toEqual([
+			"x",
+			"abcdefg",
+			"h/",
+			"ijklmnop",
+			"qr",
+		]);
+	});
+
+	it("looks for a `/` afresh on each line a break leaves", () => {
+		expect(wrap(`aaaa/${"b".repeat(20)}`, 8)).toEqual([
+			"aaaa/",
+			"bbbbbbbb",
+			"bbbbbbbb",
+			"bbbb",
+		]);
+	});
+
+	it("breaks after a `/` that is a word's second character", () => {
+		expect(wrap("~/abcdefghij", 6)).toEqual(["~/", "abcdef", "ghij"]);
+	});
+
+	it("carries what follows a `/` when it and the overflowing character fill the next line exactly, wide ones included", () => {
+		expect(wrap("a/bcd日", 5)).toEqual(["a/", "bcd日"]);
+	});
+
+	it("gives the line after a broken word its whole room, past a first line wider than the rest", () => {
+		expect(wrap("abcdefghijklmnop qr", 4, 12)).toEqual([
+			"abcdefghijkl",
+			"mnop",
+			"qr",
 		]);
 	});
 
@@ -178,6 +244,9 @@ describe("wrap", () => {
 
 	it("breaks hard when what follows the `/` wouldn't fit the next line either", () => {
 		expect(wrap("ab/cdefghijkl", 4, 12)).toEqual(["ab/cdefghijk", "l"]);
+		// What follows fills the next line exactly, but the character that
+		// overflowed would push it over.
+		expect(wrap("ab/cdefg", 4, 7)).toEqual(["ab/cdef", "g"]);
 	});
 
 	it("wraps the first line to its own width", () => {

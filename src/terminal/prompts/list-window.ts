@@ -61,13 +61,15 @@ export function fitList(frame: ListFrame, rows: number | undefined): ListFit {
  * The lines a list's frame leaves for a row over its question on a screen of
  * `rows`. The question, the footer and the list's share come first: its
  * options, as many as half the frame's room at the least, with the more
- * lines they then need. What the row doesn't take goes back to the list.
+ * lines they then need, or the lines it takes whole when that's fewer. What
+ * the row doesn't take goes back to the list.
  */
 export function aboveRoom(frame: ListFrame, rows: number | undefined): number {
 	const { lines, asked, footer = 0 } = frame;
 	const most = Math.max(1, Math.min(frame.maxItems ?? lines, lines));
 	const share = Math.max(1, Math.min(most, Math.floor(frameRoom(rows) / 2)));
-	const list = share < lines ? share + MORE_LINES : share;
+	const whole = most < lines ? most + MORE_LINES : most;
+	const list = Math.min(whole, share < lines ? share + MORE_LINES : share);
 	return Math.max(0, frameRoom(rows) - asked - footer - list);
 }
 

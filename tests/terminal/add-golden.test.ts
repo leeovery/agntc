@@ -51,7 +51,7 @@ const atRight = (left: string, right: string) =>
 const HEADER = atRight(" ■ agntc add", "~/project · v1.2.3");
 const QUESTION = atRight(
 	" ? Select what to install",
-	"↑↓ move · space pick · a all · ⏎ done · esc cancel",
+	"↑↓ move   space pick   a all   ⏎ done   esc cancel",
 );
 const RULE = ` ${"─".repeat(98)}`;
 const close = (tally: string) => ["", RULE, atRight(` ${tally}`, "2.4s")];
@@ -349,7 +349,7 @@ describe("an add with files in the way", () => {
 			"",
 			atRight(
 				" ? How would you like to proceed?",
-				"↑↓ move · ⏎ choose · esc cancel",
+				"↑↓ move   ⏎ choose   esc cancel",
 			),
 			" ▌ Remove it and continue",
 			"   Cancel installation",
@@ -385,7 +385,7 @@ describe("an add with files in the way", () => {
 			...asked,
 			atRight(
 				" ? How would you like to proceed?",
-				"↑↓ move · ⏎ choose · esc cancel",
+				"↑↓ move   ⏎ choose   esc cancel",
 			),
 			" ▌ Overwrite all — replace these files",
 			"   Cancel this install",
@@ -578,6 +578,22 @@ describe("an add refused", () => {
 			" Next",
 			"   repo — has agents/ that won't be installed. To install them as a pack:",
 			"     npx agntc add owner/repo@v1.0.0 --pack",
+			"",
+			" ✗ owner/repo: no skills or packs were found",
+		]);
+	});
+
+	it("names the path it started at when nothing is found there", async () => {
+		await upstream({ "tools/agents/a.md": "", "lint/SKILL.md": "" });
+
+		expect(await drawn({ source: "owner/repo/tools" })).toEqual([
+			HEADER,
+			"",
+			" ○ owner/repo/tools   HEAD   no skills or packs",
+			"",
+			" Next",
+			"   tools — has agents/ that won't be installed. To install them as a pack:",
+			"     npx agntc add owner/repo/tools --pack",
 			"",
 			" ✗ owner/repo: no skills or packs were found",
 		]);

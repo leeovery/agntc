@@ -23,6 +23,7 @@ import {
 } from "./update-groups.js";
 import { persistUnitOutcomes, reportOutcomes } from "./update-outcomes.js";
 import {
+	absorbedMembers,
 	cloneFailedRow,
 	groupSubject,
 	localRow,
@@ -216,15 +217,13 @@ export async function reinstallKey(
 
 	const result = await reinstallEntry(prepared.options, installed);
 	const outcome = await keyOutcome(member, result, run, plan?.version);
-	reportOutcomes([outcome], run.ui);
+	reportOutcomes([outcome], run.ui, run.home);
 	const cloneFailure = remoteCloneFailure(entry, result);
 	if (cloneFailure !== null) {
 		const head = keyHead(member, run.home, plan?.version);
 		return { outcome, row: cloneFailedRow(head, cloneFailure, [key]) };
 	}
-	const files =
-		result.status === "success" ? result.copiedFiles.length : undefined;
-	return { outcome, row: keyRow(member, { outcome, files }, plan, run) };
+	return { outcome, row: keyRow(member, { outcome }, plan, run) };
 }
 
 async function keyOutcome(
@@ -264,8 +263,9 @@ function remoteCloneFailure(
 
 /**
  * One key's row: a local entry's own, else its repo's with the entry under
- * it. A reinstalled entry's move is the one it made; any other's, the one it
- * set out to make.
+ * it, and the loose entries it took over, as a group's row has them. A
+ * reinstalled entry's move is the one it made; any other's, the one it set
+ * out to make.
  */
 function keyRow(
 	member: GroupMember,
@@ -286,7 +286,7 @@ function keyRow(
 		oldCommit: entry.commit,
 		newCommit: landed?.commit ?? plan.target.newCommit,
 	});
-	return reinstalledRow(head, { move }, [result]);
+	return reinstalledRow(head, { move }, [result, ...absorbedMembers(outcome)]);
 }
 
 /** What a reinstall says while it runs: where it's going. */

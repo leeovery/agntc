@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-	goneRow,
 	installedFolders,
 	removalQuestion,
 	removalRow,
@@ -150,28 +149,6 @@ describe("removedRow", () => {
 				{ label: ".claude/agents/", value: ["reviewer.md"], noun: "agent" },
 			],
 		});
-	});
-});
-
-describe("goneRow", () => {
-	it("needs a look: the entry, gone upstream with its kind and counts, then what it installed", () => {
-		expect(
-			goneRow({ subject: "owner/repo/go" }, "skill", [
-				".claude/skills/go/",
-				".claude/skills/go/SKILL.md",
-			]),
-		).toEqual({
-			status: "attention",
-			subject: "owner/repo/go",
-			detail: { label: "gone upstream", aside: "skill" },
-			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
-		});
-	});
-
-	it("keeps the meta its head carries, as a local entry's", () => {
-		expect(
-			goneRow({ subject: "~/src/kit", meta: "local" }, "skill", []),
-		).toMatchObject({ subject: "~/src/kit", meta: "local" });
 	});
 });
 

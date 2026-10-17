@@ -422,9 +422,7 @@ describe("the out-of-constraint footer of a run that moves an entry", () => {
 				subject: "owner/repo",
 				meta: "^1.0.0",
 				detail: { move: { from: "v1.0.0", to: "v1.1.0" } },
-				children: [
-					{ name: "foo", detail: "skill · 1 file · now keyed owner/repo/foo" },
-				],
+				children: [{ name: "foo", detail: "skill · now keyed owner/repo/foo" }],
 			},
 		]);
 		expect(ui.next).toHaveBeenCalledWith(

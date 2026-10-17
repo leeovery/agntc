@@ -14,6 +14,7 @@ import {
 	versionUnchangedRow,
 } from "../src/list-render.js";
 import type { ManifestEntry } from "../src/manifest.js";
+import type { Status } from "../src/terminal/types.js";
 import type { UpdateCheckResult } from "../src/update-check.js";
 import type { PluginOutcome } from "../src/update-groups.js";
 import { makeEntry } from "./helpers/factories.js";
@@ -304,7 +305,7 @@ describe("detailRow", () => {
 				{ label: "commit", value: "aaaaaaa" },
 				{ label: "installed", value: "2026-02-01" },
 				{ label: "installs", value: "2 skills" },
-				{ label: "status", value: "up to date" },
+				{ label: "status", value: "up to date", status: "unchanged" },
 			],
 		});
 	});
@@ -361,7 +362,7 @@ describe("detailRow", () => {
 		expect(labels).toEqual(["version", "commit", "installed", "status"]);
 	});
 
-	it("says why a check failed, in one line, needing a look", () => {
+	it("says why a check failed, in one line, failed as the dashboard has it", () => {
 		expect(
 			detailRow(
 				detail({}, { status: "check-failed", reason: SSH_REFUSAL }),
@@ -370,7 +371,7 @@ describe("detailRow", () => {
 			label: "status",
 			value:
 				"couldn't check for updates (git@github.com: Permission denied (publickey).)",
-			status: "attention",
+			status: "failed",
 		});
 	});
 
@@ -386,8 +387,12 @@ describe("detailRow", () => {
 		});
 	});
 
-	it.each<[UpdateCheckResult, string]>([
-		[{ status: "update-available", remoteCommit: NEW }, "bbbbbbb available"],
+	it.each<[UpdateCheckResult, string, Status]>([
+		[
+			{ status: "update-available", remoteCommit: NEW },
+			"bbbbbbb available",
+			"newer",
+		],
 		[
 			{
 				status: "constrained-update-available",
@@ -396,13 +401,34 @@ describe("detailRow", () => {
 				latestOverall: null,
 			},
 			"v1.3.0 available",
+			"newer",
 		],
-		[{ status: "newer-tags", tags: ["v2.0.0"] }, "newer tags available"],
-	])("says what its check found (%o)", (check, value) => {
+		[
+			{ status: "newer-tags", tags: ["v2.0.0"] },
+			"newer tags available",
+			"attention",
+		],
+	])("says what its check found, in the dashboard's colour for it (%o)", (check, value, status) => {
 		expect(detailRow(detail({ ref: null }, check)).fields?.at(-1)).toEqual({
 			label: "status",
 			value,
+			status,
 		});
+	});
+
+	it.each<UpdateCheckResult>([
+		{ status: "up-to-date" },
+		{ status: "constrained-up-to-date", latestOverall: null },
+		{ status: "update-available", remoteCommit: NEW },
+		{ status: "newer-tags", tags: ["v2.0.0"] },
+		{ status: "check-failed", reason: SSH_REFUSAL },
+		{ status: "constrained-no-match" },
+	])("agrees with the dashboard's status cell (%o)", (check) => {
+		const entry = { ref: null, constraint: "^1.0.0" };
+		const cell = statusCell(makeEntry(entry), check);
+		expect(detailRow(detail(entry, check)).fields?.at(-1)?.status).toBe(
+			cell.dim ? "unchanged" : cell.status,
+		);
 	});
 });
 

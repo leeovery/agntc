@@ -3,6 +3,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const home = vi.hoisted(() => ({ dir: "" }));
+
+vi.mock("node:os", async (importOriginal) => {
+	const os = await importOriginal<typeof import("node:os")>();
+	return { ...os, homedir: () => home.dir };
+});
+
 vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-clone.js")>()),
 	cloneSource: vi.fn(),
@@ -65,6 +72,7 @@ function notFound(repo: string): string {
 beforeEach(async () => {
 	vi.clearAllMocks();
 	testDir = await realpath(await mkdtemp(join(tmpdir(), "agntc-golden-")));
+	home.dir = testDir;
 	projectDir = join(testDir, "project");
 	await mkdir(projectDir, { recursive: true });
 	upstream = new Map();
@@ -456,7 +464,7 @@ describe("an update of one key", () => {
 			HEADER,
 			"",
 			" ✓ owner/repo   ^1.0.0   v1.0.0 → v1.1.0",
-			"   └─ tools              pack · 2 skills · 2 files",
+			"   └─ tools              pack · 2 skills",
 		]);
 	});
 
@@ -474,7 +482,6 @@ describe("an update of one key", () => {
 			HEADER,
 			"",
 			" ○ owner/repo   ^1.1.0   up to date",
-			"   └─ repo",
 		]);
 	});
 
@@ -576,6 +583,56 @@ describe("an update of one key", () => {
 			"     npx agntc remove owner/repo/tools",
 			"     npx agntc add 'owner/repo/tools@^1.0.0' --pack --overwrite",
 			...close("1 not updated"),
+		]);
+	});
+
+	it("names a local entry under Next by its folder shortened against home, as its row does, its commands whole", async () => {
+		const folder = join(testDir, "src/mypack");
+		await write(folder, { "agntc.json": PACK, ...SKILLS("a", "b") });
+		await installed({
+			[folder]: {
+				ref: null,
+				commit: null,
+				installedAt: "2026-10-01T00:00:00.000Z",
+				files: [".claude/skills/a/", ".claude/skills/a/SKILL.md"],
+				type: "pack",
+				cloneUrl: null,
+				localRoot: folder,
+			},
+		});
+		await write(projectDir, { ".claude/skills/b/SKILL.md": "mine" });
+		vi.mocked(checkForUpdate).mockResolvedValueOnce({ status: "local" });
+
+		expect(await drawn({ key: folder })).toEqual([
+			HEADER,
+			"",
+			" ✗ ~/src/mypack   local   can't be updated: files agntc didn't install are in the way:",
+			"                          .claude/skills/b/. The existing install is unchanged.",
+			"",
+			" Next",
+			"   ~/src/mypack — clear them and update again, or replace them:",
+			`     npx agntc remove ${folder}`,
+			`     npx agntc add ${folder} --pack --overwrite`,
+			...close("1 not updated"),
+		]);
+	});
+
+	it("ends on a failed row when its check fails, as the run then fails", async () => {
+		targets.set("owner/repo", {
+			kind: "check-failed",
+			reason: "fatal: unable to access: Could not resolve host: github.com",
+		});
+		await installed({
+			"owner/repo": entry("owner/repo", {
+				ref: "v1.0.0",
+				constraint: "^1.0.0",
+			}),
+		});
+
+		expect(await drawn({ key: "owner/repo" })).toEqual([
+			HEADER,
+			"",
+			" ✗ owner/repo   ^1.0.0   not checked · unable to access: Could not resolve host: github.com",
 		]);
 	});
 

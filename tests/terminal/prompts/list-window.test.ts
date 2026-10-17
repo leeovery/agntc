@@ -78,6 +78,14 @@ describe("aboveRoom", () => {
 		expect(aboveRoom({ lines: 30, asked: 1, footer: 2 }, 24)).toBe(7);
 	});
 
+	it("keeps the options only the lines they take whole when that's fewer than their share with its more lines", () => {
+		// 7 lines of frame: half is 3 options and two more lines, but all 4 take 4.
+		expect(aboveRoom({ lines: 4, asked: 1 }, 8)).toBe(2);
+		expect(aboveRoom({ lines: 5, asked: 1 }, 10)).toBe(3);
+		// A list cut to its most still keeps its more lines.
+		expect(aboveRoom({ lines: 4, maxItems: 3, asked: 1 }, 8)).toBe(1);
+	});
+
 	it("keeps no more than the list's own most", () => {
 		expect(aboveRoom({ lines: 30, maxItems: 3, asked: 1 }, 24)).toBe(17);
 	});

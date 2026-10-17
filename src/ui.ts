@@ -2,7 +2,6 @@ import { errorMessage } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
 import { type Message, plainText } from "./message.js";
 import type { ScopeName } from "./scope.js";
-import { TerminalUi } from "./terminal/terminal-ui.js";
 import type {
 	BlockSubject,
 	NextItem,
@@ -211,11 +210,6 @@ export interface Ui {
 	report(body: object): void;
 	/** Ends the command with exit code 1, after the Next items queued so far. */
 	fail(message: Message, options?: FailOptions): never;
-}
-
-/** A fresh terminal Ui, with no header, for a command run without one. */
-export function interactiveUi(): Ui {
-	return new TerminalUi();
 }
 
 /**

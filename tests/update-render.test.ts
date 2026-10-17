@@ -238,14 +238,6 @@ describe("a group the run reinstalled", () => {
 		]);
 	});
 
-	it("counts the files a single key's reinstall copied", () => {
-		const row = reinstalledRow(HEAD, { move: MOVE }, [
-			{ outcome: updated("owner/repo"), files: 3 },
-		]);
-
-		expect(row.children).toEqual([{ name: "repo", detail: "skill · 3 files" }]);
-	});
-
 	it("says where its members landed when they started apart, each carrying its own move", () => {
 		const row = reinstalledRow(HEAD, { to: "v1.3.0" }, [
 			{
@@ -383,7 +375,7 @@ describe("a group the run reinstalled", () => {
 describe("a local entry's row", () => {
 	const LOCAL = { subject: "~/Code/skills/foo", meta: "local" };
 
-	it("says it refreshed, with its kind and the files it copied", () => {
+	it("says it refreshed, with its kind", () => {
 		expect(
 			localRow(LOCAL, {
 				outcome: {
@@ -395,12 +387,11 @@ describe("a local entry's row", () => {
 					absorbed: [],
 					assetCounts: { skills: 1 },
 				},
-				files: 2,
 			}),
 		).toEqual({
 			status: "done",
 			...LOCAL,
-			detail: { label: "refreshed", aside: "skill · 2 files" },
+			detail: { label: "refreshed", aside: "skill" },
 		});
 	});
 
@@ -461,17 +452,6 @@ describe("a group the run left alone", () => {
 			status: "unchanged",
 			...HEAD,
 			detail: "up to date",
-		});
-	});
-
-	it("names a key's entry beneath its row", () => {
-		expect(
-			leftAloneRow(HEAD, { status: "newer-tags" }, ["owner/repo/solo"]),
-		).toEqual({
-			status: "unchanged",
-			...HEAD,
-			detail: "newer tags available",
-			children: [{ name: "solo" }],
 		});
 	});
 
@@ -562,7 +542,7 @@ describe("newerTagsMessage", () => {
 });
 
 describe("pinnedTagsMessage", () => {
-	it("lists one key's newer tags newest first, and the re-add that pins the newest", () => {
+	it("words one key's pin as a group's, naming the newest tag, its sentence listing every newer tag newest first", () => {
 		expect(
 			pinnedTagsMessage(
 				"owner/repo",
@@ -572,8 +552,8 @@ describe("pinnedTagsMessage", () => {
 			),
 		).toEqual({
 			subject: "owner/repo",
-			detail: "Pinned to v1.0.0. Newer tags available: v1.2.0, v1.1.0.",
-			text: "Pinned to v1.0.0. Newer tags available: v1.2.0, v1.1.0.",
+			detail: "Pinned to v1.0.0, newer tags available (latest: v1.2.0).",
+			text: "Pinned to v1.0.0, newer tags available (latest: v1.2.0).",
 			remedy: {
 				lead: "To upgrade:",
 				steps: [{ command: "npx agntc add owner/repo@v1.2.0" }],

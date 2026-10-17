@@ -30,7 +30,7 @@ import {
 } from "../scope.js";
 import { formatRefLabel } from "../summary.js";
 import type { Noun, Row } from "../terminal/types.js";
-import { type Choice, interactiveUi, type Ui } from "../ui.js";
+import type { Choice, Ui } from "../ui.js";
 
 export interface RemoveOptions {
 	/** Remove without asking for confirmation. */
@@ -57,9 +57,9 @@ interface Target {
  * whatever is left of it stays tracked, and the command exits 1.
  */
 export async function runRemove(
-	key?: string,
-	options: RemoveOptions = {},
-	ui: Ui = interactiveUi(),
+	key: string | undefined,
+	options: RemoveOptions,
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.header();

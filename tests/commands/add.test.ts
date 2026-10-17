@@ -271,7 +271,7 @@ function screen(drew: Partial<Drawn>): Drawn {
 }
 
 const SOURCE: RowHead = { subject: "owner/repo", meta: "HEAD" };
-const CLONING: Progress = { text: "Cloning owner/repo…" };
+const CLONING: Progress = { text: "cloning owner/repo…" };
 
 function copying(head: RowHead = SOURCE): Progress {
 	return { ...head, text: "copying…" };

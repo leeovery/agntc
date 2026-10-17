@@ -7,9 +7,9 @@ import { renderHeader } from "../../src/terminal/header.js";
 import { type MessageKind, renderMessage } from "../../src/terminal/message.js";
 import { renderNext } from "../../src/terminal/next.js";
 import { renderConfirm } from "../../src/terminal/prompts/confirm.js";
+import { listHints } from "../../src/terminal/prompts/lines.js";
 import { scrollWindow } from "../../src/terminal/prompts/list-window.js";
 import {
-	MULTISELECT_HINTS,
 	PICK_ONE,
 	renderMultiselect,
 } from "../../src/terminal/prompts/multiselect.js";
@@ -17,7 +17,6 @@ import {
 	footerLine,
 	isChoice,
 	renderSelect,
-	SELECT_HINTS,
 } from "../../src/terminal/prompts/select.js";
 import {
 	bandPainter,
@@ -290,7 +289,9 @@ const footers: SelectFooter[] = [
 	{ keys: ["⏎ manage"] },
 ];
 const questions = ["", "What to install", PROSE, WORD, CJK];
-const keyHints = ["", SELECT_HINTS, MULTISELECT_HINTS, LONG];
+const SELECT_KEYS = listHints(["⏎ choose"]);
+const MULTISELECT_KEYS = listHints(["space pick", "a all", "⏎ done"]);
+const keyHints = ["", SELECT_KEYS, MULTISELECT_KEYS, LONG];
 
 /**
  * The prompts with the cursor on every option, in a scrolling window and in
@@ -308,7 +309,7 @@ function renderPrompts(
 		cursor: number,
 		size: number,
 		message = "Pick",
-		hints = SELECT_HINTS,
+		hints = SELECT_KEYS,
 	) =>
 		renderSelect(
 			{
@@ -349,7 +350,7 @@ function renderPrompts(
 		cursor: number,
 		size: number,
 		message = "Pick",
-		hints = MULTISELECT_HINTS,
+		hints = MULTISELECT_KEYS,
 	) =>
 		renderMultiselect(
 			{

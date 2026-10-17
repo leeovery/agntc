@@ -372,7 +372,11 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/laravel",
 				notes: [
-					"owner/repo/laravel is a single skill — reinstalled as a skill",
+					{
+						text: "owner/repo/laravel is a single skill — reinstalled as a skill",
+						plain:
+							"owner/repo/laravel is a single skill — reinstalled as a skill",
+					},
 				],
 				entry: { type: "skill", files: [".claude/skills/laravel/"] },
 			});
@@ -662,7 +666,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/go",
 				entry: { type: "skill", sourceSubpath: "lang/go" },
-				notes: ["owner/repo/go moved from skills/go to lang/go"],
+				notes: [
+					{
+						text: "owner/repo/go moved from skills/go to lang/go",
+						plain: "owner/repo/go moved from skills/go to lang/go",
+					},
+				],
 			});
 		});
 
@@ -1091,7 +1100,11 @@ describe("executeNukeAndReinstall", () => {
 						text: "",
 						plain: "owner/repo/laravel is now keyed owner/repo/plugins/laravel",
 					},
-					"owner/repo/plugins/laravel now includes api, installed on its own before",
+					{
+						text: "",
+						plain:
+							"owner/repo/plugins/laravel now includes api, installed on its own before",
+					},
 				],
 			});
 			if (result.status !== "success") return;
@@ -1423,7 +1436,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				absorbed: ["owner/repo/queues"],
 				notes: [
-					"owner/repo/laravel now includes queues, installed on its own before",
+					// The absorbed entry's own line tells it at a terminal.
+					{
+						text: "",
+						plain:
+							"owner/repo/laravel now includes queues, installed on its own before",
+					},
 				],
 			});
 		});

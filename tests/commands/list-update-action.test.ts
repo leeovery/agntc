@@ -190,7 +190,7 @@ describe("executeUpdateAction", () => {
 			subject: "owner/repo",
 			meta: "HEAD",
 			detail: { move: { from: "aaaaaaa", to: "bbbbbbb" } },
-			children: [{ name: "repo", detail: "skill · 1 file" }],
+			children: [{ name: "repo", detail: "skill" }],
 		});
 	});
 
@@ -547,7 +547,7 @@ describe("executeUpdateAction", () => {
 				sourceSubpath: "skills/repo",
 			});
 			expect(settled().children).toEqual([
-				{ name: "repo", detail: "skill · 1 file · now keyed owner/repo/repo" },
+				{ name: "repo", detail: "skill · now keyed owner/repo/repo" },
 			]);
 		});
 	});

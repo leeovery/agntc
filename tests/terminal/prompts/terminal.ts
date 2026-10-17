@@ -134,6 +134,13 @@ export class Terminal {
 		return lines;
 	}
 
+	/** The lines on the screen, its scrollback aside, the trailing empty ones left off. */
+	async screen(): Promise<string[]> {
+		const lines = await this.lines();
+		const { baseY } = this.term.buffer.active;
+		return lines.slice(baseY, baseY + this.rows);
+	}
+
 	/** The cursor's column and its row, counted from the top of the scrollback. */
 	async cursor(): Promise<[number, number]> {
 		await this.flushed();

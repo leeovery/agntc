@@ -13,27 +13,34 @@ export const NEXT_STEP: Readonly<Record<InitType, string>> = {
 
 /**
  * What `init` asks about: the folder it scaffolds, as what, and how many
- * files it will create, then those files as a tree.
+ * files it will create, then the scaffold's files as a tree, those `existing`
+ * already there, which it leaves as they are.
  */
 export function scaffoldRow(
 	subject: string,
 	type: InitType,
 	paths: readonly string[],
+	existing: readonly string[] = [],
 ): Row {
+	const creating = paths.length - existing.length;
 	return {
 		status: "subject",
 		subject,
-		detail: `${type} · will create ${pluralize(paths.length, "file")}`,
-		children: scaffoldTree(paths),
+		detail: `${type} · will create ${pluralize(creating, "file")}`,
+		children: scaffoldTree(paths, existing),
 	};
 }
 
 /**
  * `/`-joined paths as a tree: each folder once, before the first path in it,
  * named with a trailing `/`; what's in a folder a level under it. Each file
- * is a `file`, which a cut tree counts, its folders aside.
+ * is a `file`, which a cut tree counts, its folders aside; one `existing`
+ * says it's already there.
  */
-export function scaffoldTree(paths: readonly string[]): Child[] {
+export function scaffoldTree(
+	paths: readonly string[],
+	existing: readonly string[] = [],
+): Child[] {
 	const children: Child[] = [];
 	const shown = new Set<string>();
 	for (const path of paths) {
@@ -48,7 +55,14 @@ export function scaffoldTree(paths: readonly string[]): Child[] {
 			children.push(
 				folder
 					? { name: `${segment}/`, depth }
-					: { name: segment, depth, noun: "file" },
+					: {
+							name: segment,
+							depth,
+							noun: "file",
+							...(existing.includes(path)
+								? { detail: LOOKS.init.existing.label }
+								: {}),
+						},
 			);
 		});
 	}

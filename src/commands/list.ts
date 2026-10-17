@@ -23,7 +23,7 @@ import {
 } from "../manifest.js";
 import { homeShortened, projectScope, type Scope } from "../scope.js";
 import type { Row } from "../terminal/types.js";
-import { interactiveUi, type ListTally, type Ui } from "../ui.js";
+import type { ListTally, Ui } from "../ui.js";
 import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
 import { checkAllForUpdates } from "../update-check-all.js";
 import type { GroupMember } from "../update-groups.js";
@@ -34,7 +34,7 @@ import { executeUpdateAction } from "./list-update-action.js";
 
 /** The dashboard at a terminal; in machine mode, one document of every entry and its update status. */
 export async function runList(
-	ui: Ui = interactiveUi(),
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	if (ui.mode === "machine") {
@@ -60,7 +60,7 @@ interface ListSession extends UpdateRun {
  * closes.
  */
 export async function runListLoop(
-	ui: Ui = interactiveUi(),
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	ui.header();

@@ -636,13 +636,15 @@ describe("warn and note", () => {
 		]);
 	});
 
-	it("keep a string's lines as written, wrapping none, so a command in a sentence stays whole", () => {
+	it("lay out a string as a rich text is, wrapped from column 3", async () => {
 		const { term, ui } = run();
-		const long = `To install them as a pack: npx agntc add leeovery/agentic-skills/examples --pack, then restart`;
-		ui.warn(`examples has agents/\n  - agents/a.md\n${long}`);
-		expect(term.output.text).toBe(
-			` ! examples has agents/\n     - agents/a.md\n   ${long}\n`,
+		ui.note(
+			"leeovery/agentic-skills/laravel moved from skills/old/laravel to skills/new/laravel",
 		);
+		expect(await term.lines()).toEqual([
+			" · leeovery/agentic-skills/laravel moved from skills/old/laravel to",
+			"   skills/new/laravel",
+		]);
 	});
 
 	it("lay out a rich message: its cause, then its remedy's commands on lines of their own", async () => {
@@ -671,6 +673,23 @@ describe("fail", () => {
 		const { term, ui } = run({ env: COLOR });
 		failure(() => ui.fail("broken"));
 		expect(term.output.text).toBe(` \x1b[31m✗${FG} ${BOLD}broken${NORMAL}\n`);
+	});
+
+	it("wraps a string's first line bold and the rest, its cause, dim", () => {
+		const { term, ui } = run({ env: COLOR });
+		failure(() =>
+			ui.fail(
+				"Failed to read manifest: Unexpected token } in JSON at position 1204 of the manifest\nwhile reading /home/someone/project/.agntc/manifest.json",
+			),
+		);
+		expect(term.output.text).toBe(
+			[
+				` \x1b[31m✗${FG} ${BOLD}Failed to read manifest: Unexpected token } in JSON at position 1204 of the${NORMAL}`,
+				`   ${BOLD}manifest${NORMAL}`,
+				`   ${DIM}while reading /home/someone/project/.agntc/manifest.json${NORMAL}`,
+				"",
+			].join("\n"),
+		);
 	});
 
 	it("prints after the Next items queued so far, and empties the queue", async () => {

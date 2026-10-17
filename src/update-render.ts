@@ -1,7 +1,7 @@
 import { gitErrorCause } from "./errors.js";
 import type { Advice } from "./message.js";
 import { memberName, repoFromKey } from "./source-parser.js";
-import { formatPackCounts, pluralize, upgradeAdvice } from "./summary.js";
+import { formatPackCounts, upgradeAdvice } from "./summary.js";
 import { LOOKS, type Look } from "./terminal/tally.js";
 import type {
 	BlockSubject,
@@ -13,6 +13,8 @@ import type {
 } from "./terminal/types.js";
 import type { UpdateTally } from "./ui.js";
 import {
+	absorbedBy,
+	absorbedOutcome,
 	type EntryGroup,
 	isSuccessOutcome,
 	keyBefore,
@@ -124,8 +126,13 @@ export type GroupMove = { move: VersionMove } | { to: string };
 export interface MemberResult {
 	outcome: PluginOutcome;
 	move?: VersionMove;
-	/** How many files the reinstall copied, for a single key's row. */
-	files?: number;
+}
+
+/** The loose entries a pack's outcome took over, each a member its row names where it went. */
+export function absorbedMembers(pack: PluginOutcome): MemberResult[] {
+	return absorbedBy(pack).map((key) => ({
+		outcome: absorbedOutcome(key, pack),
+	}));
 }
 
 /**
@@ -174,32 +181,27 @@ function groupDetail(
 	return { label: landed ? `updated to ${move.to}` : ended };
 }
 
-function memberChild(
-	{ outcome, move, files }: MemberResult,
-	alike: boolean,
-): Child {
+function memberChild({ outcome, move }: MemberResult, alike: boolean): Child {
 	return {
 		name: memberName(keyBefore(outcome)),
 		...(alike ? {} : { status: outcomeStatus(outcome) }),
 		detail: isSuccessOutcome(outcome)
-			? reinstalledDetail(outcome, move, files)
+			? reinstalledDetail(outcome, move)
 			: outcomeDetail(outcome),
 	};
 }
 
 type Reinstalled = Extract<PluginOutcome, { status: "updated" | "refreshed" }>;
 
-/** Its own move when it has one, its kind and counts, the files copied, and the key it moved to. */
+/** Its own move when it has one, its kind and counts, and the key it moved to. */
 function reinstalledDetail(
 	outcome: Reinstalled,
 	move: VersionMove | undefined,
-	files: number | undefined,
 ): string {
 	const moved = outcome.previousKey !== undefined;
 	return [
 		move === undefined ? "" : moveWords(move),
 		kindAndCounts(outcome),
-		files === undefined ? "" : pluralize(files, "file"),
 		moved ? `now keyed ${outcome.key}` : "",
 	]
 		.filter((part) => part !== "")
@@ -222,15 +224,14 @@ function outcomeDetail(outcome: PluginOutcome): string {
 }
 
 /** A local entry: its own row, how it ended in its detail. */
-export function localRow(head: RowHead, member: MemberResult): Row {
-	const { outcome } = member;
+export function localRow(head: RowHead, { outcome }: MemberResult): Row {
 	return {
 		status: outcomeStatus(outcome),
 		...head,
 		detail: isSuccessOutcome(outcome)
 			? {
 					label: lookOf(outcome.status).label,
-					aside: reinstalledDetail(outcome, undefined, member.files),
+					aside: reinstalledDetail(outcome, undefined),
 				}
 			: withoutOwnPath(outcomeDetail(outcome), outcome.key),
 	};
@@ -277,22 +278,12 @@ export type LeftAlone =
 	| { status: "check-failed"; reason: string }
 	| { status: "constrained-no-match"; constraint: string };
 
-/**
- * A group or key the run left as it is, and why. A key's row names its entry
- * beneath it, `keys`; a group's names none, its label saying which it is.
- */
-export function leftAloneRow(
-	head: RowHead,
-	why: LeftAlone,
-	keys: readonly string[] = [],
-): Row {
+/** A group or key the run left as it is, and why, its members unnamed: its label says which it is. */
+export function leftAloneRow(head: RowHead, why: LeftAlone): Row {
 	return {
 		status: lookOf(why.status).status,
 		...head,
 		detail: leftAloneDetail(why),
-		...(keys.length > 0
-			? { children: keys.map((key) => ({ name: memberName(key) })) }
-			: {}),
 	};
 }
 
@@ -321,7 +312,7 @@ export function newerTagsMessage(
 	commands: string[],
 ): Advice {
 	const latest = `newer tags available (latest: ${newestTag}).`;
-	const detail = `Pinned to ${pinnedRef}, ${latest}`;
+	const detail = pinnedDetail(pinnedRef, newestTag);
 	const advice = upgradeAdvice(commands);
 	return {
 		subject: label,
@@ -333,8 +324,9 @@ export function newerTagsMessage(
 }
 
 /**
- * One pinned key with newer tags: the pin, every newer tag newest first, and
- * the re-add that pins it to the newest.
+ * One pinned key with newer tags: the pin and the newest tag, as a group's
+ * are worded, then the re-add that pins it to the newest. Machine mode lists
+ * every newer tag, newest first.
  */
 export function pinnedTagsMessage(
 	key: string,
@@ -344,7 +336,7 @@ export function pinnedTagsMessage(
 ): Advice {
 	const newestFirst = [...tags].reverse();
 	const pinned = `Pinned to ${pinnedRef}.`;
-	const detail = `${pinned} Newer tags available: ${newestFirst.join(", ")}.`;
+	const detail = pinnedDetail(pinnedRef, newestFirst[0] ?? "");
 	const advice = upgradeAdvice([command]);
 	return {
 		subject: key,
@@ -357,4 +349,9 @@ export function pinnedTagsMessage(
 			advice.plain,
 		].join("\n"),
 	};
+}
+
+/** What a pin with newer tags says at a terminal, a group's and a key's alike. */
+function pinnedDetail(pinnedRef: string, newestTag: string): string {
+	return `Pinned to ${pinnedRef}, newer tags available (latest: ${newestTag}).`;
 }

@@ -20,7 +20,7 @@ const RULE = ` ${"─".repeat(98)}`;
 const close = (tally: string) => ["", RULE, atRight(` ${tally}`, "2.4s")];
 const PICKER = atRight(
 	" ? Select what to remove",
-	"↑↓ move · space pick · a all · ⏎ done · esc cancel",
+	"↑↓ move   space pick   a all   ⏎ done   esc cancel",
 );
 
 let testDir: string;

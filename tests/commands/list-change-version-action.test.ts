@@ -358,7 +358,7 @@ describe("executeChangeVersionAction", () => {
 				subject: "owner/repo",
 				meta: "v2.0.0",
 				detail: { move: { from: "v1.0.0", to: "v2.0.0" } },
-				children: [{ name: "repo", detail: "skill · 1 file" }],
+				children: [{ name: "repo", detail: "skill" }],
 			});
 		});
 

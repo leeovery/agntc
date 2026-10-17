@@ -17,6 +17,7 @@ import { type Painter, type Style, statusTone } from "../style.js";
 import { cellLayout, cellsText, hasCells, type PlacedChoice } from "./cells.js";
 import {
 	headingLine,
+	KEY_GAP,
 	labelColumn,
 	linesAbove,
 	listHints,
@@ -66,10 +67,8 @@ export interface SelectView<T> extends ListWindow {
 }
 
 const CHOOSE = ["⏎ choose"];
-export const SELECT_HINTS = listHints(CHOOSE);
 /** How much further in than its heading a choice sits. */
 const UNDER_HEADING = 2;
-const KEY_GAP = "   ";
 const COUNT_SEPARATOR = " · ";
 
 /** Asks for one of the choices: its value, or null when cancelled. */
@@ -236,7 +235,8 @@ export function choiceText<T>(
 /**
  * `↑↓ move` and the footer's keys dim on the left, its counts on the right,
  * each in its status's colour. Below 60 columns the keys drop, as the key
- * hints do; where the two don't fit, the counts are cut first.
+ * hints do; where the two don't fit, the counts give way first, whole, from
+ * the right ({@link fittingCounts}).
  */
 export function footerLine(
 	footer: SelectFooter,
@@ -255,17 +255,34 @@ export function footerLine(
 		.filter(({ count }) => count > 0)
 		.map(({ count, label, status }) =>
 			statusTone(status, style)(`${count} ${label}`),
-		)
-		.join(style.dim(COUNT_SEPARATOR));
+		);
 	const room =
 		width - 1 - (keys === "" ? MARGIN.length : visibleWidth(keys) + 2);
-	const right = room < 2 ? "" : truncate(counts, room);
+	const right = room < 2 ? "" : fittingCounts(counts, room, style);
 	if (visibleWidth(right) === 0) {
 		return keys;
 	}
 	return keys === ""
 		? padStart(right, width - 1)
 		: (spread(keys, right, width) ?? keys);
+}
+
+/**
+ * As many of the counts as fit in `room` whole, from the left; where not even
+ * the first does, the first cut to the room.
+ */
+function fittingCounts(
+	counts: readonly string[],
+	room: number,
+	style: Style,
+): string {
+	for (let kept = counts.length; kept > 0; kept--) {
+		const joined = counts.slice(0, kept).join(style.dim(COUNT_SEPARATOR));
+		if (visibleWidth(joined) <= room) {
+			return joined;
+		}
+	}
+	return truncate(counts[0] ?? "", room);
 }
 
 export function isChoice<T>(option: SelectOption<T>): option is Choice<T> {

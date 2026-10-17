@@ -432,7 +432,7 @@ describe("integration: add and update", () => {
 					subject: "owner/repo",
 					meta: "HEAD",
 					detail: { move: { from: "aaaaaaa", to: "bbbbbbb" } },
-					children: [{ name: "b", detail: "skill · 1 file" }],
+					children: [{ name: "b", detail: "skill" }],
 				},
 			]);
 		});
@@ -903,7 +903,20 @@ describe("integration: add and update", () => {
 
 				await runUpdate(undefined, {}, ui);
 
-				expect(ui.said("fail")).toEqual([]);
+				expect(ui.rows()).toEqual([
+					{
+						status: "done",
+						subject: KEY,
+						meta: "HEAD",
+						detail: { move: { from: "aaaaaaa", to: "bbbbbbb" } },
+						children: [
+							{
+								name: "agentic-workflows",
+								detail: "pack · 2 skills, 2 folders, 1 agent",
+							},
+						],
+					},
+				]);
 				expect(await sharedText()).toBe("v1");
 				expect(await installedFiles()).toEqual(
 					[

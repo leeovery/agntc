@@ -137,7 +137,7 @@ describe("the terminal ui's prompts", () => {
 			ask: (block: Block, row: Row, prompt: never) =>
 				block.confirm(row, prompt),
 		},
-	])("ask a block's $kind under its row, laid out in the block's columns, its children cut whole to the room with the gap under it", async ({
+	])("ask a block's $kind under its row, laid out in the block's columns, its children cut whole to the room with the gap under it, its subject kept in the last line", async ({
 		prompt,
 		answer,
 		asked,
@@ -169,11 +169,13 @@ describe("the terminal ui's prompts", () => {
 		expect(above(5)).toEqual(["", head, "   ├─ a", "   └─ b", ""]);
 		expect(above(4)).toEqual(["", head, "   └─ … 2 more", ""]);
 		expect(above(3)).toEqual(["", head, ""]);
-		expect(above(2)).toEqual([""]);
+		// Short of room for both blank lines, the one under the row goes, then the one over it.
+		expect(above(2)).toEqual(["", head]);
+		expect(above(1)).toEqual([head]);
 		expect(term.output.text).toBe(" · before\n");
 	});
 
-	it("ask a block's question under several rows, fitted together to the room, the gap under them", async () => {
+	it("ask a block's question under several rows, fitted together to the room, the gap under them, the first named in the last line", async () => {
 		const { ui } = run();
 		vi.mocked(promptConfirm).mockResolvedValueOnce(true);
 		const rows: Row[] = [
@@ -201,7 +203,7 @@ describe("the terminal ui's prompts", () => {
 		expect(above(4)).toEqual([a, "   └─ … 2 more", " … 1 more entry", ""]);
 		expect(above(3)).toEqual([a, " … 1 more entry", ""]);
 		expect(above(2)).toEqual([a, ""]);
-		expect(above(1)).toEqual([]);
+		expect(above(1)).toEqual([a]);
 	});
 
 	it("ask a new block's question while another block's task spins: the spinner clears, what's said meanwhile waits for the answer, and the task spins on to settle", async () => {
