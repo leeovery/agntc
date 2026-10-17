@@ -612,6 +612,20 @@ describe("cancel", () => {
 			" ○ Cancelled",
 		]);
 	});
+
+	it("prints after the Next items queued so far, as a failure does, and empties the queue", async () => {
+		const { term, ui } = run();
+		ui.warn("laravel can't be updated");
+		ui.next(ABORT);
+		ui.cancel("Cancelled — nothing selected");
+		ui.end();
+		expect(await term.lines()).toEqual([
+			" ! laravel can't be updated",
+			...NEXT_LINES,
+			"",
+			" ○ Cancelled — nothing selected",
+		]);
+	});
 });
 
 describe("warn and note", () => {

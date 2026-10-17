@@ -52,6 +52,17 @@ describe("RunSignals", () => {
 		expect(order).toEqual(["interrupt 1,1,1,1", `exit ${code} 0,0,0,0`]);
 	});
 
+	it("stops watching and exits with the signal's code though the run throws handling it", () => {
+		const { host, handlers, signals } = watched();
+		handlers.interrupt.mockImplementation(() => {
+			throw new Error("EIO");
+		});
+		signals.watch();
+		expect(() => host.emit("SIGTERM")).toThrow("EIO");
+		expect(host.exit.mock.calls).toEqual([[143]]);
+		expect(listening(host)).toEqual([0, 0, 0, 0]);
+	});
+
 	it("hands a SIGTSTP to the run, and goes on watching", () => {
 		const { host, handlers, signals } = watched();
 		signals.watch();

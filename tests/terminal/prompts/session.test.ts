@@ -314,11 +314,18 @@ describe("ctrl-z", () => {
 	});
 
 	it("tells the run before a key read with its ctrl-z answers, and leaves no listener once answered", async () => {
+		// Core lets go of its readline as it closes, so it's kept as the run is told.
+		let readline: Engine["readline"];
+		terminal.owner.suspend.mockImplementation(() => {
+			told.push(engine?.asking);
+			readline = engine?.readline;
+		});
 		const asked = pick();
 		await terminal.press(`${SUSPEND}\r`);
 		expect((await asked).state).toBe("submit");
 		expect(told).toEqual([true]);
-		expect(engine?.readline?.listenerCount("SIGTSTP") ?? 0).toBe(0);
+		expect(readline?.listenerCount("SIGTSTP")).toBe(0);
+		expect(readline).toBeDefined();
 		expect(signalListeners()).toEqual(watching);
 	});
 
