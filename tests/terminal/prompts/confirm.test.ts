@@ -178,6 +178,27 @@ describe("promptConfirm", () => {
 		expect(await answer).toBe(false);
 	});
 
+	it("draws the lines it's given over its question, cut to leave room for it, and erases them with it", async () => {
+		const terminal = new Terminal(80, 4);
+		terminal.output.write("before\n");
+		const answer = promptConfirm(
+			{
+				message: "Proceed?",
+				above: [" ✓ owner/repo   HEAD", "   · a", "   · b", ""],
+			},
+			terminal.context(),
+		);
+		await terminal.press();
+		expect((await terminal.lines()).slice(1)).toEqual([
+			" ✓ owner/repo   HEAD",
+			"   … 3 more",
+			YES,
+		]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toBe(true);
+		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
 	it("closes once on y, with a single newline", async () => {
 		const terminal = new Terminal();
 		const answer = ask(terminal);

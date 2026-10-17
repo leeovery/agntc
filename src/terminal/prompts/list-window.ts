@@ -37,7 +37,7 @@ export interface ListFit extends ListWindow {
 export function fitList(frame: ListFrame, rows: number | undefined): ListFit {
 	const { lines, asked, footer = 0 } = frame;
 	const most = Math.max(1, Math.min(frame.maxItems ?? lines, lines));
-	const budget = (rows || DEFAULT_ROWS) - 1 - asked;
+	const budget = frameRoom(rows) - asked;
 	for (let kept = footer; kept >= 0; kept--) {
 		const room = budget - kept;
 		if (most >= lines && most <= room) {
@@ -55,6 +55,14 @@ export function fitList(frame: ListFrame, rows: number | undefined): ListFit {
 		}
 	}
 	return { size: 1, more: false, footer: 0 };
+}
+
+/**
+ * The lines a frame may take on a screen of `rows`: one short of it, as the
+ * prompt's closing newline scrolls a frame as tall as the screen.
+ */
+export function frameRoom(rows: number | undefined): number {
+	return (rows || DEFAULT_ROWS) - 1;
 }
 
 /** The first line the cursor can stop on, or -1 when every line is a heading. */

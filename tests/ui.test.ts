@@ -181,6 +181,16 @@ describe("MachineUi", () => {
 		],
 		["confirm", (ui: Ui) => ui.confirm({ message: "Pick one" })],
 		[
+			"block's select",
+			(ui: Ui) =>
+				ui
+					.block([{ subject: "owner/repo" }])
+					.select(
+						{ status: "done", subject: "owner/repo" },
+						{ message: "Pick one", options: OPTIONS },
+					),
+		],
+		[
 			"block's multiselect",
 			(ui: Ui) =>
 				ui
@@ -188,6 +198,16 @@ describe("MachineUi", () => {
 					.multiselect(
 						{ status: "done", subject: "owner/repo" },
 						{ message: "Pick one", options: OPTIONS },
+					),
+		],
+		[
+			"block's confirm",
+			(ui: Ui) =>
+				ui
+					.block([{ subject: "owner/repo" }])
+					.confirm(
+						{ status: "done", subject: "owner/repo" },
+						{ message: "Pick one" },
 					),
 		],
 	])("refuses a %s instead of waiting", async (_, ask) => {

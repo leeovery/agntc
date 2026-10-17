@@ -14,7 +14,12 @@ import {
 	itemPath,
 	pathLabel,
 } from "./install-item.js";
-import type { Advice, SubjectMessage } from "./message.js";
+import {
+	type Advice,
+	type RichMessage,
+	type SubjectMessage,
+	sentence,
+} from "./message.js";
 import { agntcCommand, type ScopeName } from "./scope.js";
 import { locateSource } from "./source-parser.js";
 import { formatPackCounts, joinWithAnd } from "./summary.js";
@@ -71,7 +76,8 @@ export interface MenuOption {
 export interface SkillNote extends SubjectMessage {
 	/** The skill's path in the source. */
 	path: string;
-	leftOut: boolean;
+	/** The installed pack holding the skill, by key, when it's left out for that. */
+	heldBy?: string;
 }
 
 /**
@@ -87,7 +93,7 @@ export type ChoiceOutcome =
  * A folder whose agents or hooks won't be installed: advice carrying the
  * `--pack` line that would install them, or a warning where there's none.
  */
-export type StrayNotice = string | Advice;
+export type StrayNotice = Advice | RichMessage;
 
 export interface Choice {
 	/** Told before anything else, a menu or a refusal included. */
@@ -250,14 +256,10 @@ function withoutPacked(
 		const pack =
 			item.kind === "skill" ? ctx.packed?.get(item.skill.path) : undefined;
 		if (item.kind === "skill" && pack !== undefined) {
-			notes.push(
-				skillNote(
-					item.skill,
-					`already installed as part of the pack ${pack}`,
-					true,
-					ctx,
-				),
-			);
+			notes.push({
+				...skillNote(item.skill, heldDetail(pack), ctx),
+				heldBy: pack,
+			});
 		} else {
 			kept.push(item);
 		}
@@ -265,11 +267,15 @@ function withoutPacked(
 	return { items: kept, notes };
 }
 
+/** Why a skill is left out: the installed pack `pack` holds it. */
+export function heldDetail(pack: string): string {
+	return `already installed as part of the pack ${pack}`;
+}
+
 /** `<name> is <detail>`, said of the skill its label names. */
 function skillNote(
 	skill: FoundSkill,
 	detail: string,
-	leftOut: boolean,
 	ctx: ChoiceContext,
 ): SkillNote {
 	const text = `${skill.name} is ${detail}`;
@@ -279,7 +285,6 @@ function skillNote(
 		text,
 		plain: text,
 		path: skill.path,
-		leftOut,
 	};
 }
 
@@ -348,7 +353,9 @@ function strayNotice(
 	const held = packs.filter((pack) => isWithin(pack.path, stray.path));
 	if (held.length > 0) {
 		const paths = held.map((pack) => pack.path).join(", ");
-		return `${label} ${left} — it contains packs (${paths}), so --pack can't bundle it`;
+		return sentence(
+			`${label} ${left} — it contains packs (${paths}), so --pack can't bundle it`,
+		);
 	}
 	const command = agntcCommand(ctx.scope, "add", [
 		locateSource(ctx.source, stray.path, ctx.version),
@@ -384,7 +391,7 @@ function takenSkillNotes(
 	const taken = `part of the pack ${pathLabel(pack.path, ctx.rootName)} — installed on its own`;
 	const leftOut = leftOutOf(pack, present);
 	const detail = leftOut === "" ? taken : `${taken}, without ${leftOut}`;
-	return [skillNote(skill, detail, false, ctx)];
+	return [skillNote(skill, detail, ctx)];
 }
 
 function leftOutOf(pack: FoundPack, present: Set<string>): string {

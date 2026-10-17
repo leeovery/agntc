@@ -1,4 +1,4 @@
-import type { MenuOption, SkillNote } from "./choose-items.js";
+import { heldDetail, type MenuOption, type SkillNote } from "./choose-items.js";
 import type { InstallItem } from "./install-item.js";
 import {
 	formatPackCounts,
@@ -48,35 +48,82 @@ export function holdings(items: readonly InstallItem[]): string {
 	return counts.length === 0 ? "no skills or packs" : counts.join(" · ");
 }
 
+/** What the source's row says after a menu: how many of the items it offered installed. */
+export function pickedDetail(
+	outcomes: readonly ItemOutcome[],
+	offered: number,
+): string {
+	const installed = outcomes.filter(
+		({ status }) => status === "installed",
+	).length;
+	return `${installed} of ${offered} installed`;
+}
+
 /**
- * What a block measures the source's row from: its head, and every name it
- * may hang beneath it. Where there's more than one, each is given a glyph's
- * room, as children that end differently carry one.
+ * What a block measures the source's row from: its head, the items it may
+ * hang beneath it, and every skill left out it may tell of, as asked and as
+ * told. A left-out skill carries its glyph, and so do items where there's
+ * more than one, as items that end differently do.
  */
 export function sourceSubject(
 	head: RowHead,
-	names: readonly string[],
+	items: readonly string[],
+	notes: readonly SkillNote[],
 ): BlockSubject {
-	const distinct = [...new Set(names)];
-	const status = distinct.length > 1 ? "done" : undefined;
+	const itemNames = [...new Set(items)];
+	const status: Status | undefined = itemNames.length > 1 ? "done" : undefined;
+	const noteNames = new Set([
+		...leftOut(notes).map(({ subject }) => subject),
+		...askedNotes(notes).map(({ name }) => name),
+	]);
 	return {
 		...head,
-		children: distinct.map((name) => ({ name, ...(status ? { status } : {}) })),
+		children: [
+			...itemNames.map((name) => ({ name, ...(status ? { status } : {}) })),
+			...[...noteNames].map((name) => ({ name, status: "note" as const })),
+		],
 	};
 }
 
-/** The source as its menu asks about it: what it holds, and the skills left off the menu, with why. */
+/**
+ * The source as its menu asks about it: what it holds, and the skills left
+ * off the menu, those one installed pack holds counted as one line, as the
+ * row shares the screen with the question.
+ */
 export function sourceRow(
 	head: RowHead,
 	held: string,
-	leftOut: readonly SkillNote[],
+	notes: readonly SkillNote[],
 ): Row {
 	return {
 		status: "done",
 		...head,
 		detail: held,
-		...withChildren(leftOut.map(noteChild)),
+		...withChildren(askedNotes(notes)),
 	};
+}
+
+/** The source as a run that installed nothing leaves it, with every skill the choice left out. */
+export function notedRow(
+	head: RowHead,
+	held: string,
+	notes: readonly SkillNote[],
+): Row {
+	return {
+		status: "unchanged",
+		...head,
+		detail: held,
+		...withChildren(leftOut(notes).map(noteChild)),
+	};
+}
+
+/**
+ * The skills the choice left out, as an installed pack holds them: what a row
+ * tells of its own. A skill taken from its pack is told under the item, once
+ * it installed.
+ */
+export function leftOut(notes: readonly SkillNote[]): SkillNote[] {
+	return notes.filter(({ heldBy }) => heldBy !== undefined);
 }
 
 /** `--list`: the source and everything it offers, each with its kind and counts or its description. */
@@ -100,33 +147,30 @@ export function listedRow(
 
 /**
  * What `add` did with the source: each item's outcome beneath it, a skill
- * taken from its pack with its note under its kind, then the skills left
- * out. Glyph by its worst outcome, or nothing to do when there's none.
- * Children that ended alike carry no glyph of their own.
+ * taken from its pack and installed with its note under its kind, then the
+ * skills left out. Glyph by its worst outcome, or nothing to do when there's
+ * none. Outcomes that ended alike carry no glyph of their own; a note always
+ * carries its own.
  */
 export function addedRow(
 	head: RowHead,
-	held: string,
+	detail: string,
 	outcomes: readonly ItemOutcome[],
 	notes: readonly SkillNote[],
 ): Row {
-	const told: { status: Status; child: Child }[] = [
-		...outcomes.map((outcome) => ({
-			status: outcomeStatus(outcome),
-			child: outcomeChild(outcome, notes),
-		})),
-		...notes
-			.filter(({ leftOut }) => leftOut)
-			.map((note) => ({ status: "note" as const, child: noteChild(note) })),
-	];
-	const alike = new Set(told.map(({ status }) => status)).size <= 1;
+	const statuses = outcomes.map(outcomeStatus);
+	const alike = new Set(statuses).size <= 1;
 	return {
-		status: worstOf(outcomes.map(outcomeStatus)),
+		status: worstOf(statuses),
 		...head,
-		detail: held,
-		...withChildren(
-			told.map(({ status, child }) => (alike ? child : { ...child, status })),
-		),
+		detail,
+		...withChildren([
+			...outcomes.map((outcome, index) => ({
+				...outcomeChild(outcome, notes),
+				...(alike ? {} : { status: statuses[index] }),
+			})),
+			...leftOut(notes).map(noteChild),
+		]),
 	};
 }
 
@@ -135,32 +179,52 @@ function withChildren(children: Child[]): Pick<Row, "children"> {
 }
 
 function noteChild({ subject, detail }: SkillNote): Child {
-	return { name: subject, detail };
+	return { name: subject, detail, status: "note" };
 }
 
-/** Its kind and counts, or why it didn't install, and the note a skill taken from its pack carries. */
+/**
+ * The skills left out as a question's row tells them: those one installed
+ * pack holds as one line counting them, a lone one by name.
+ */
+function askedNotes(notes: readonly SkillNote[]): Child[] {
+	const byPack = new Map<string, SkillNote[]>();
+	for (const note of leftOut(notes)) {
+		const pack = note.heldBy ?? "";
+		byPack.set(pack, [...(byPack.get(pack) ?? []), note]);
+	}
+	return [...byPack].map(([pack, packed]) =>
+		packed.length === 1 && packed[0] !== undefined
+			? noteChild(packed[0])
+			: {
+					name: pluralize(packed.length, "skill"),
+					detail: heldDetail(pack),
+					status: "note" as const,
+				},
+	);
+}
+
+/** Its kind and counts, or why it didn't install; an installed skill taken from its pack with that pack's note. */
 function outcomeChild(
 	outcome: ItemOutcome,
 	notes: readonly SkillNote[],
 ): Child {
+	if (outcome.status !== "installed") {
+		return {
+			name: outcome.label,
+			detail: outcome.message?.detail ?? outcome.reason,
+		};
+	}
 	const taken = notes.find(
-		({ leftOut, path }) => !leftOut && path === outcome.path,
+		(note) => note.heldBy === undefined && note.path === outcome.path,
 	);
+	const kind =
+		outcome.kind === "pack"
+			? `pack · ${formatPackCounts(outcome.assetCounts)}`
+			: "skill";
 	return {
 		name: outcome.label,
-		detail: [outcomeDetail(outcome), taken?.detail ?? ""]
-			.filter((line) => line !== "")
-			.join("\n"),
+		detail: taken === undefined ? kind : `${kind}\n${taken.detail}`,
 	};
-}
-
-function outcomeDetail(outcome: ItemOutcome): string {
-	if (outcome.status !== "installed") {
-		return outcome.message?.text ?? outcome.reason;
-	}
-	return outcome.kind === "pack"
-		? `pack · ${formatPackCounts(outcome.assetCounts)}`
-		: "skill";
 }
 
 export function outcomeStatus({ status }: ItemOutcome): Status {

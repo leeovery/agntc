@@ -510,6 +510,14 @@ describe("close", () => {
 		]);
 	});
 
+	it("gives Next alone, with no rule or tally, for no outcome with something queued", async () => {
+		const { term, ui } = run({ clock: () => 0 });
+		row(ui);
+		ui.next(ABORT);
+		ui.close({ command: "add", counts: {} });
+		expect(await term.lines()).toEqual([ROW, ...NEXT_LINES]);
+	});
+
 	it("opens with no second blank line under the header's", async () => {
 		const { term, ui } = run({ clock: () => 0 });
 		ui.header();

@@ -286,6 +286,33 @@ describe("promptMultiselect", () => {
 		expect(await terminal.lines()).toEqual(["before"]);
 	});
 
+	it("cuts the lines over its question to leave room for it, one option and the footer", async () => {
+		const terminal = new Terminal(80, 9);
+		terminal.output.write("before\n");
+		const answer = promptMultiselect(
+			{
+				message: "What to install",
+				options: OPTIONS,
+				above: [" ✓ owner/repo   HEAD", "   · a", "   · b", "   · c", ""],
+			},
+			terminal.context(),
+		);
+		await terminal.press(KEY.space);
+		expect((await terminal.lines()).slice(1)).toEqual([
+			" ✓ owner/repo   HEAD",
+			"   · a",
+			"   · b",
+			"   … 2 more",
+			` ? What to install${gap(11)}${HINTS}`,
+			" ▌ ● laravel         pack · 14 skills",
+			"",
+			`${gap(66)}1 of 5 picked`,
+		]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toEqual(["laravel"]);
+		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
 	it("picks and unpicks the cursor's option with space", async () => {
 		const terminal = new Terminal(80);
 		const answer = ask(terminal);

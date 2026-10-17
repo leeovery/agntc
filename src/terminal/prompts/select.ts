@@ -2,6 +2,7 @@ import type { Choice, SelectOption, SelectPrompt } from "../../ui.js";
 import { roomFrom, visibleWidth } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
+	aboveLines,
 	headingLine,
 	labelColumn,
 	listHints,
@@ -22,10 +23,19 @@ import {
 export interface SelectQuestion<T> extends SelectPrompt<T> {
 	/** The key hints on the question's line, in place of the usual ones. */
 	hints?: string;
+	/** Lines over the question, as the row it asks about, erased with it. */
+	above?: readonly string[];
+}
+
+/** What of a select's frame a screen shows: its window, and the lines over its question. */
+export interface SelectFit extends ListWindow {
+	above: readonly string[];
 }
 
 /** A select as it stands: the cursor's option, and the window of lines in view from `top`. */
 export interface SelectView<T> extends ListWindow {
+	/** Lines over the question; none unless given. */
+	above?: readonly string[];
 	message: string;
 	hints: string;
 	options: readonly SelectOption<T>[];
@@ -66,28 +76,33 @@ export async function promptSelect<T>(
 	return engine.answer;
 }
 
-/** The lines of options a select shows at once on a screen of `rows`, and whether its more lines show. */
+/**
+ * The lines of options a select shows at once on a screen of `rows`, whether
+ * its more lines show, and the lines over its question, as many as leave
+ * room for it and one option.
+ */
 export function selectWindow<T>(
 	question: SelectQuestion<T>,
 	rows: number | undefined,
 	width: number,
 	style: Style,
-): ListWindow {
+): SelectFit {
 	const asked = questionLines(
 		question.message,
 		question.hints ?? SELECT_HINTS,
 		width,
 		style,
-	);
+	).length;
+	const above = aboveLines(question.above ?? [], asked + 1, rows, width, style);
 	const { size, more } = fitList(
 		{
 			lines: question.options.length,
 			maxItems: question.maxItems,
-			asked: asked.length,
+			asked: above.length + asked,
 		},
 		rows,
 	);
-	return { size, more };
+	return { size, more, above };
 }
 
 export function renderSelect<T>(
@@ -107,6 +122,7 @@ export function renderSelect<T>(
 	);
 	const room = roomFrom(TEXT_AT, width);
 	return [
+		...(view.above ?? []),
 		...questionLines(view.message, view.hints, width, style),
 		...windowLines(
 			view.options,

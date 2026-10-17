@@ -130,6 +130,14 @@ export class TerminalUi implements Ui {
 				this.printSection([""]);
 			}
 		};
+		const askAbout = <A>(
+			row: Row,
+			prompt: (above: string[], context: PromptContext) => Promise<A>,
+		): Promise<A> => {
+			open();
+			const above = [...rowLines(row), ""];
+			return this.ask((context) => prompt(above, context));
+		};
 		return {
 			row: (row) => {
 				open();
@@ -145,15 +153,18 @@ export class TerminalUi implements Ui {
 					clear: () => spinning.clear(),
 				};
 			},
-			multiselect: (row, prompt) => {
-				open();
-				return this.ask((context) =>
-					promptMultiselect(
-						{ ...prompt, above: [...rowLines(row), ""] },
-						context,
-					),
-				);
-			},
+			select: (row, prompt) =>
+				askAbout(row, (above, context) =>
+					promptSelect({ ...prompt, above }, context),
+				),
+			multiselect: (row, prompt) =>
+				askAbout(row, (above, context) =>
+					promptMultiselect({ ...prompt, above }, context),
+				),
+			confirm: (row, prompt) =>
+				askAbout(row, (above, context) =>
+					promptConfirm({ ...prompt, above }, context),
+				),
 		};
 	}
 
@@ -162,7 +173,12 @@ export class TerminalUi implements Ui {
 	}
 
 	close(tally: Tally): void {
-		if (outcomeCount(tally) <= 1 && this.queued.length === 0) {
+		const outcomes = outcomeCount(tally);
+		if (outcomes <= 1 && this.queued.length === 0) {
+			return;
+		}
+		if (outcomes === 0) {
+			this.printSection(this.takeNext());
 			return;
 		}
 		this.printSection([

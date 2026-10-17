@@ -34,6 +34,7 @@ import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags, lsRemote } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import { sentence } from "../../src/message.js";
 import type { ParsedSource } from "../../src/source-parser.js";
 import type { Row } from "../../src/terminal/types.js";
 import { MachineUi } from "../../src/ui.js";
@@ -1083,7 +1084,11 @@ describe("integration: add and update", () => {
 				),
 			).toBe("v2");
 			expect(ui.note.mock.calls).toEqual([
-				["owner/repo/laravel now includes api, installed on its own before"],
+				[
+					sentence(
+						"owner/repo/laravel now includes api, installed on its own before",
+					),
+				],
 			]);
 			const [copying] = ui.blocks[1]!.tasks;
 			expect(ui.note).toHaveBeenCalledBefore(copying!.settle);
@@ -1127,7 +1132,7 @@ describe("integration: add and update", () => {
 					meta: "HEAD",
 					detail: "1 pack · 1 skill",
 					children: [
-						{ name: "skills/other", status: "done", detail: "skill" },
+						{ name: "skills/other", detail: "skill" },
 						{
 							name: "laravel/skills/api",
 							status: "note",

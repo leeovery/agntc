@@ -22,8 +22,13 @@ export interface TestTask extends BlockTask {
 }
 
 /** A generic prompt keeps its signature, which a `Mock` alone would erase. */
-type Prompt<F extends Ui["select"] | Ui["multiselect"] | Block["multiselect"]> =
-	F & Mock<F>;
+type Prompt<
+	F extends
+		| Ui["select"]
+		| Ui["multiselect"]
+		| Block["select"]
+		| Block["multiselect"],
+> = F & Mock<F>;
 
 /**
  * A block's own question is answered as the Ui's prompt of its kind is
@@ -32,7 +37,9 @@ type Prompt<F extends Ui["select"] | Ui["multiselect"] | Block["multiselect"]> =
 export interface TestBlock extends Block {
 	row: Mock<Block["row"]>;
 	task: Mock<(progress: Progress) => TestTask>;
+	select: Prompt<Block["select"]>;
 	multiselect: Prompt<Block["multiselect"]>;
+	confirm: Mock<Block["confirm"]>;
 	/** Every task `task()` started, in the order it started them. */
 	readonly tasks: TestTask[];
 }
@@ -154,9 +161,13 @@ function testBlock(ui: Ui): TestBlock {
 			tasks.push(task);
 			return task;
 		}),
+		select: vi.fn((_row, prompt) => ui.select(prompt)) as Prompt<
+			Block["select"]
+		>,
 		multiselect: vi.fn((_row, prompt) => ui.multiselect(prompt)) as Prompt<
 			Block["multiselect"]
 		>,
+		confirm: vi.fn((_row, prompt) => ui.confirm(prompt)),
 		tasks,
 	};
 }

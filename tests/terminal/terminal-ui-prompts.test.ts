@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	type Mock,
+	vi,
+} from "vitest";
 
 vi.mock("../../src/terminal/prompts/select.js", () => ({
 	promptSelect: vi.fn(),
@@ -14,6 +22,8 @@ import { promptConfirm } from "../../src/terminal/prompts/confirm.js";
 import { promptMultiselect } from "../../src/terminal/prompts/multiselect.js";
 import { promptSelect } from "../../src/terminal/prompts/select.js";
 import { TerminalUi } from "../../src/terminal/terminal-ui.js";
+import type { Row } from "../../src/terminal/types.js";
+import type { Block } from "../../src/ui.js";
 import { Terminal } from "./prompts/terminal.js";
 
 const HIDE = "\x1b[?25l";
@@ -88,26 +98,57 @@ describe("the terminal ui's prompts", () => {
 		).toEqual([100, 72]);
 	});
 
-	it("ask a block's question under its row, laid out in the block's columns and a blank line on", async () => {
+	it.each([
+		{
+			kind: "select",
+			prompt: {
+				message: "Pick one",
+				options: [{ value: "a", label: "alpha" }],
+			},
+			answer: "a",
+			asked: vi.mocked(promptSelect),
+			ask: (block: Block, row: Row, prompt: never) => block.select(row, prompt),
+		},
+		{
+			kind: "multiselect",
+			prompt: {
+				message: "Pick any",
+				options: [{ value: "a", label: "alpha" }],
+			},
+			answer: ["a"],
+			asked: vi.mocked(promptMultiselect),
+			ask: (block: Block, row: Row, prompt: never) =>
+				block.multiselect(row, prompt),
+		},
+		{
+			kind: "confirm",
+			prompt: { message: "Proceed?" },
+			answer: false,
+			asked: vi.mocked(promptConfirm),
+			ask: (block: Block, row: Row, prompt: never) =>
+				block.confirm(row, prompt),
+		},
+	])("ask a block's $kind under its row, laid out in the block's columns and a blank line on", async ({
+		prompt,
+		answer,
+		asked,
+		ask,
+	}) => {
 		const { term, ui } = run();
 		ui.note("before");
-		vi.mocked(promptMultiselect).mockResolvedValueOnce(["a"]);
+		(asked as Mock).mockResolvedValueOnce(answer);
 		const block = ui.block([
 			{ subject: "owner/repo", children: [{ name: "a-long-skill-name" }] },
 		]);
-		const prompt = {
-			message: "Pick any",
-			options: [{ value: "a", label: "alpha" }],
+		const row: Row = {
+			status: "done",
+			subject: "owner/repo",
+			detail: "2 skills",
 		};
 
-		expect(
-			await block.multiselect(
-				{ status: "done", subject: "owner/repo", detail: "2 skills" },
-				prompt,
-			),
-		).toEqual(["a"]);
+		expect(await ask(block, row, prompt as never)).toEqual(answer);
 
-		expect(promptMultiselect).toHaveBeenCalledWith(
+		expect(asked).toHaveBeenCalledWith(
 			{
 				...prompt,
 				above: [` ✓ owner/repo${" ".repeat(13)}2 skills`, ""],

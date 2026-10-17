@@ -59,3 +59,26 @@ export function isMachineOnly(message: Message): boolean {
 export function plainText(message: Message): string {
 	return typeof message === "string" ? message : message.plain;
 }
+
+/** Words machine mode prints that the terminal tells another way, so they draw nothing there. */
+export function machineOnly(plain: string): RichMessage {
+	return { text: "", plain };
+}
+
+/** A sentence the terminal wraps to its width, said alike in both modes. */
+export function sentence(text: string): RichMessage {
+	return { text, plain: text };
+}
+
+/**
+ * Why a run stopped, wrapped to the terminal: its first line, and what
+ * follows dim beneath it, as a cause. Machine mode keeps it whole.
+ */
+export function failure(message: string): RichMessage {
+	const [text = "", ...rest] = message.split("\n");
+	return {
+		text,
+		...(rest.length > 0 ? { cause: rest.join("\n") } : {}),
+		plain: message,
+	};
+}

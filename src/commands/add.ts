@@ -11,7 +11,10 @@ import {
 	addedRow,
 	addTally,
 	holdings,
+	leftOut,
 	listedRow,
+	notedRow,
+	pickedDetail,
 	sourceHead,
 	sourceRow,
 	sourceSubject,
@@ -75,9 +78,11 @@ import {
 	writeManifest,
 } from "../manifest.js";
 import {
+	failure,
+	machineOnly,
 	plainText,
-	type RichMessage,
 	type SubjectMessage,
+	sentence,
 } from "../message.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import {
@@ -96,8 +101,8 @@ import {
 } from "../source-parser.js";
 import type { ItemIdentity, ItemOutcome } from "../summary.js";
 import { adviceItem, remedyItem } from "../terminal/next.js";
-import type { RowHead } from "../terminal/types.js";
-import { type Block, interactiveUi, type Ui } from "../ui.js";
+import type { Row, RowHead } from "../terminal/types.js";
+import { type Block, type BlockTask, interactiveUi, type Ui } from "../ui.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
 export interface AddOptions extends SelectionFlags {
@@ -136,19 +141,21 @@ const COPYING = "copying…";
 
 /**
  * The source's row as the run draws it: the block it hangs in, measured from
- * every item it may hold, its head, and what the source holds.
+ * every item it may hold, its head, what the source holds, and what the
+ * choice said of its skills.
  */
 interface SourceView {
 	block: Block;
 	head: RowHead;
 	held: string;
+	notes: SkillNote[];
 }
 
-/** The items picked to install, keyed, with what the choice said of its skills. */
+/** The items picked to install, keyed, and how many the menu offered when there was one. */
 interface Picked {
 	items: KeyedItem[];
-	notes: SkillNote[];
 	view: SourceView;
+	offered?: number;
 }
 
 export async function resolveTagConstraint(
@@ -195,7 +202,7 @@ export async function runAdd(
 	ui.header();
 
 	if (options.plugin) {
-		ui.note("--plugin is now --pack");
+		ui.note(sentence("--plugin is now --pack"));
 	}
 	const selection = selectionFromFlags(options);
 	if (!selection.ok) {
@@ -358,11 +365,11 @@ async function listSource(
  */
 function tellStrays(notices: readonly StrayNotice[], ui: Ui): void {
 	for (const notice of notices) {
-		if (typeof notice === "string") {
-			ui.warn(notice);
-		} else {
-			ui.warn({ text: "", plain: notice.plain });
+		if ("subject" in notice) {
+			ui.warn(machineOnly(notice.plain));
 			ui.next(adviceItem(notice));
+		} else {
+			ui.warn(notice);
 		}
 	}
 }
@@ -388,13 +395,63 @@ async function pickItems(
 	);
 	tellStrays(choice.strayNotices, ui);
 
-	const view = sourceView(src, choice.outcome, offeredItems(discovery), ui);
-	const picked = await settle(choice.outcome, src, discovery, view, ui);
-	const keyed = await keyItems(picked, src.key, src.rootName, src.root);
-	if (!keyed.ok) {
-		return refuse(src, keyed.message, ui);
+	const { outcome } = choice;
+	const view = sourceView(src, outcome, offeredItems(discovery), ui);
+	const draw = drawIn(view.block);
+	const items = await whileNoted(view, draw, async () => {
+		const picked = await settle(outcome, src, discovery, view, ui);
+		const keyed = await keyItems(picked, src.key, src.rootName, src.root);
+		if (!keyed.ok) {
+			tellNotesOnStop(view, draw);
+			return refuse(src, keyed.message, ui);
+		}
+		return keyed.items;
+	});
+	return {
+		items,
+		view,
+		...(outcome.kind === "menu" ? { offered: outcome.options.length } : {}),
+	};
+}
+
+/** The source's row as a run that stops before installing leaves it, every skill left out told. */
+function unchangedRow({ head, held, notes }: SourceView): Row {
+	return notedRow(head, held, notes);
+}
+
+/**
+ * A run stopping before the source's own row draws it unchanged with the
+ * skills the choice left out, so the error under it doesn't take them with
+ * it. With none, the error tells it all.
+ */
+function tellNotesOnStop(view: SourceView, draw: (row: Row) => void): void {
+	if (leftOut(view.notes).length > 0) {
+		draw(unchangedRow(view));
 	}
-	return { items: keyed.items, notes: notesOf(choice.outcome), view };
+}
+
+/**
+ * Runs a step after the choice, telling its notes should it throw. A step
+ * that stopped the run (an `ExitSignal`) has told it already.
+ */
+async function whileNoted<T>(
+	view: SourceView,
+	draw: (row: Row) => void,
+	step: () => Promise<T>,
+): Promise<T> {
+	try {
+		return await step();
+	} catch (err) {
+		if (!(err instanceof ExitSignal)) {
+			tellNotesOnStop(view, draw);
+		}
+		throw err;
+	}
+}
+
+/** Draws a row straight into the block. */
+function drawIn(block: Block): (row: Row) => void {
+	return (row) => block.row(row);
 }
 
 /**
@@ -408,14 +465,15 @@ function sourceView(
 	ui: Ui,
 ): SourceView {
 	const head = headOf(src);
-	const names = [
-		...choiceItems(outcome).map((item) => itemLabel(item, src.rootName)),
-		...notesOf(outcome).map(({ subject }) => subject),
-	];
+	const notes = notesOf(outcome);
+	const names = choiceItems(outcome).map((item) =>
+		itemLabel(item, src.rootName),
+	);
 	return {
-		block: ui.block([sourceSubject(head, names)]),
+		block: ui.block([sourceSubject(head, names, notes)]),
 		head,
 		held: holdings(offered),
+		notes,
 	};
 }
 
@@ -438,7 +496,7 @@ function notesOf(outcome: ChoiceOutcome): SkillNote[] {
 /** Machine mode's notes; at a terminal, the source's row tells them. */
 function tellNotes(notes: readonly SkillNote[], ui: Ui): void {
 	for (const { plain } of notes) {
-		ui.note({ text: "", plain });
+		ui.note(machineOnly(plain));
 	}
 }
 
@@ -452,7 +510,7 @@ async function discoverSource(
 			...(src.startPath !== undefined ? { startPath: src.startPath } : {}),
 			forcePack: selection.kind === "pack",
 			rootName: src.rootName,
-			onWarn: (message) => ui.warn(message),
+			onWarn: (message) => ui.warn(sentence(message)),
 		});
 	} catch (err) {
 		if (err instanceof StartPathError) {
@@ -488,7 +546,7 @@ async function startPathMessage(
 
 /**
  * The items to install: the choice's, or the menu's pick under the source's
- * row, which stays drawn when nothing is picked.
+ * row, which stays drawn, unchanged, when nothing is picked.
  */
 async function settle(
 	outcome: ChoiceOutcome,
@@ -513,7 +571,7 @@ async function settle(
 			const asked = sourceRow(view.head, view.held, outcome.notes);
 			const picked = await promptForItems(outcome.options, asked, view.block);
 			if (picked.length === 0) {
-				view.block.row(asked);
+				view.block.row(unchangedRow(view));
 				ui.cancel("Cancelled — nothing selected");
 				throw new ExitSignal(0);
 			}
@@ -535,30 +593,66 @@ function refuse(
 }
 
 /**
- * Why the run stopped, wrapped to the terminal: its first line, and what
- * follows dim beneath it, as a cause. Machine mode keeps it whole.
+ * Installs each item as its own manifest entry, then draws the source's row.
+ * An item that fails or is stopped doesn't stop the others, and the command
+ * exits non-zero after the close if any did.
  */
-function failure(message: string): RichMessage {
-	const [text = "", ...rest] = message.split("\n");
+async function installItems(
+	picked: Picked,
+	src: FetchedSource,
+	installed: Manifest,
+	context: InstallContext,
+): Promise<void> {
+	const { items, view, offered } = picked;
+	const { ui } = context;
+	const row = sourceRowDrawer(view);
+	const outcomes = await whileNoted(view, row.draw, () =>
+		checkAndCopy(items, src, installed, context, row.copying),
+	);
+	row.draw(
+		addedRow(
+			view.head,
+			offered === undefined ? view.held : pickedDetail(outcomes, offered),
+			inItemOrder(outcomes, items),
+			view.notes,
+		),
+	);
+	queueRemedies(outcomes, ui);
+	ui.close({ command: "add", counts: addTally(outcomes) });
+	ui.report(addBody(sourceJson(src), outcomes));
+
+	if (outcomes.some(failsTheRun)) {
+		throw new ExitSignal(1);
+	}
+}
+
+/** The source's row, drawn once: settling the copying when it spins, else straight into its block. */
+function sourceRowDrawer(view: SourceView): {
+	copying: () => void;
+	draw: (row: Row) => void;
+} {
+	let task: BlockTask | undefined;
 	return {
-		text,
-		...(rest.length > 0 ? { cause: rest.join("\n") } : {}),
-		plain: message,
+		copying: () => {
+			task = view.block.task({ ...view.head, text: COPYING });
+		},
+		draw: (row) =>
+			task === undefined ? view.block.row(row) : task.settle(row),
 	};
 }
 
 /**
- * Installs each item as its own manifest entry. Every item is checked before
- * any install is touched; an item that fails or is stopped doesn't stop the
- * others, and the command exits non-zero after the close if any did. The
- * copying spins in the source's row, which it settles into.
+ * Every item is checked before any install is touched; then those clear to
+ * copy are copied, under progress in the source's row, and the manifest
+ * written. The outcomes, in the order they came.
  */
-async function installItems(
-	{ items, notes: choiceNotes, view }: Picked,
+async function checkAndCopy(
+	items: readonly KeyedItem[],
 	src: FetchedSource,
 	installed: Manifest,
 	{ policy, scope, ui }: InstallContext,
-): Promise<void> {
+	copying: () => void,
+): Promise<ItemOutcome[]> {
 	const installRoot = scope.root;
 	let manifest = installed;
 	const outcomes: ItemOutcome[] = [];
@@ -580,10 +674,9 @@ async function installItems(
 		}
 	}
 
-	const copying =
-		cleared.length > 0
-			? view.block.task({ ...view.head, text: COPYING })
-			: undefined;
+	if (cleared.length > 0) {
+		copying();
+	}
 	const notes: string[] = [];
 	for (const item of cleared) {
 		const installed = await installKeyedItem(item, src, manifest, installRoot);
@@ -592,28 +685,11 @@ async function installItems(
 		notes.push(...installed.notes);
 	}
 	for (const note of notes) {
-		ui.note(note);
+		ui.note(sentence(note));
 	}
 
 	await writeManifest(installRoot, manifest);
-	const row = addedRow(
-		view.head,
-		view.held,
-		inItemOrder(outcomes, items),
-		choiceNotes,
-	);
-	if (copying === undefined) {
-		view.block.row(row);
-	} else {
-		copying.settle(row);
-	}
-	queueRemedies(outcomes, ui);
-	ui.close({ command: "add", counts: addTally(outcomes) });
-	ui.report(addBody(sourceJson(src), outcomes));
-
-	if (outcomes.some(failsTheRun)) {
-		throw new ExitSignal(1);
-	}
+	return outcomes;
 }
 
 /** The outcomes in the order of the items they're about, as the menu listed them. */
@@ -770,16 +846,17 @@ function keyTaken(
 	}
 	const where = otherRepo ?? pathLabel(from, src.rootName);
 	const remove = agntcCommand(scope, "remove", [key]);
-	const detail = `is already installed from ${where}, as a ${type}`;
+	const detail = `already installed from ${where}, as a ${type}`;
+	const text = `${key} is ${detail}`;
 	return {
 		subject: key,
 		detail,
-		text: `${key} ${detail}`,
+		text,
 		remedy: {
 			lead: "To replace it:",
 			steps: [{ command: remove }, { words: "then add again" }],
 		},
-		plain: `${key} ${detail}; to replace it: ${remove}, then add again`,
+		plain: `${text}; to replace it: ${remove}, then add again`,
 	};
 }
 

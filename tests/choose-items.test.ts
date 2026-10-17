@@ -15,7 +15,7 @@ import type {
 	FoundSkill,
 	StrayAssets,
 } from "../src/discover.js";
-import { plainText } from "../src/message.js";
+import { plainText, sentence } from "../src/message.js";
 
 const ctx: ChoiceContext = {
 	source: "owner/repo",
@@ -303,8 +303,10 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.strayNotices.map(plainText)).toEqual([
-				"repo has agents/ that won't be installed — it contains packs (packs/p), so --pack can't bundle it",
+			expect(choice.strayNotices).toEqual([
+				sentence(
+					"repo has agents/ that won't be installed — it contains packs (packs/p), so --pack can't bundle it",
+				),
 			]);
 		});
 
@@ -503,10 +505,10 @@ describe("chooseItems", () => {
 							"part of the pack laravel — installed on its own, without models",
 						text: "api is part of the pack laravel — installed on its own, without models",
 						path: "laravel/skills/api",
-						leftOut: false,
 					},
 				],
 			});
+			expect(choice.outcome).not.toHaveProperty("notes.0.heldBy");
 		});
 
 		it("mentions only the pack's skills when it has no agents or hooks", () => {
@@ -807,7 +809,7 @@ describe("chooseItems", () => {
 						text: API_NOTE,
 						plain: API_NOTE,
 						path: "tools/api",
-						leftOut: true,
+						heldBy: "owner/repo/laravel",
 					},
 				],
 			});

@@ -189,20 +189,70 @@ describe("an add through the menu", () => {
 		expect(ended).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo           v0.2.5 ^0.2.5   2 packs · 2 skills",
+			" ✓ owner/repo           v0.2.5 ^0.2.5   2 of 4 installed",
 			"   ├─ laravel                           pack · 2 skills",
 			"   └─ git-hygiene                       skill",
 			...close("2 installed"),
 		]);
 	});
 
-	it("leaves the source's row when nothing is picked", async () => {
+	it("counts the skills an installed pack holds on one line while asking, naming each once it has installed", async () => {
+		await upstream({
+			"skills/api/SKILL.md": "",
+			"skills/db/SKILL.md": "",
+			"skills/ui/SKILL.md": "",
+			"skills/jobs/SKILL.md": "",
+			"skills/lint/SKILL.md": "",
+		});
+		const held = ["api", "db", "ui"].map((name) => `.claude/skills/${name}/`);
+		await write(projectDir, {
+			...Object.fromEntries(held.map((path) => [`${path}SKILL.md`, ""])),
+			".agntc/manifest.json": {
+				"owner/repo/p": {
+					ref: null,
+					commit: "old",
+					installedAt: "2026-01-01T00:00:00.000Z",
+					files: held,
+					type: "pack",
+					cloneUrl: "https://github.com/owner/repo.git",
+				},
+			},
+		});
+
+		const { asking, ended } = await session({
+			answer: [KEY.space, KEY.enter],
+		});
+
+		expect(asking).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo         HEAD   5 skills",
+			"   └─ · 3 skills             already installed as part of the pack owner/repo/p",
+			"",
+			QUESTION,
+			" ▌ ○ skills/jobs",
+			"   ○ skills/lint",
+			"",
+			atRight("", "0 of 2 picked"),
+		]);
+		expect(ended).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo         HEAD   1 of 2 installed",
+			"   ├─ skills/jobs            skill",
+			"   ├─ · skills/api           already installed as part of the pack owner/repo/p",
+			"   ├─ · skills/db            already installed as part of the pack owner/repo/p",
+			"   └─ · skills/ui            already installed as part of the pack owner/repo/p",
+		]);
+	});
+
+	it("leaves the source's row, unchanged, when nothing is picked", async () => {
 		await upstream(MENU_SOURCE);
 
 		expect(await drawn({ answer: [KEY.enter] })).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo           HEAD   2 packs · 2 skills",
+			" ○ owner/repo           HEAD   2 packs · 2 skills",
 			" ○ Cancelled — nothing selected",
 		]);
 	});
@@ -271,7 +321,7 @@ describe("an add with files in the way", () => {
 			"",
 			' File collision with "other/repo"',
 			"   - .claude/skills/a/",
-			" ✓ owner/repo   HEAD   2 skills",
+			" ✓ owner/repo   HEAD   1 of 2 installed",
 			"   └─ a                skill",
 		]);
 	});
@@ -309,6 +359,21 @@ describe("an add with a stray", () => {
 			"   tools — has agents/ that won't be installed. To install them as a pack:",
 			"     npx agntc add owner/repo/tools --pack",
 			...close("1 installed"),
+		]);
+	});
+
+	it("ends a --list on Next, with no rule or tally, as it installs nothing", async () => {
+		await upstream({ "tools/agents/a.md": "", "lint/SKILL.md": "" });
+
+		expect(await drawn({ options: { list: true } })).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo   HEAD   1 skill",
+			"   └─ lint",
+			"",
+			" Next",
+			"   tools — has agents/ that won't be installed. To install them as a pack:",
+			"     npx agntc add owner/repo/tools --pack",
 		]);
 	});
 });
@@ -384,7 +449,7 @@ describe("an add with an item that fails", () => {
 			HEADER,
 			"",
 			" ✗ owner/repo        HEAD   2 skills",
-			"   ├─ ✗ skills/foo          owner/repo/foo is already installed from foo, as a pack",
+			"   ├─ ✗ skills/foo          already installed from foo, as a pack",
 			"   └─ ✓ tools               skill",
 			"",
 			" Next",

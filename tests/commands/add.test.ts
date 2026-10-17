@@ -1,5 +1,6 @@
 import {
 	access,
+	chmod,
 	cp,
 	mkdir,
 	mkdtemp,
@@ -62,7 +63,12 @@ import { ExitSignal } from "../../src/exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { fetchDefaultBranch, fetchRemoteTags } from "../../src/git-utils.js";
 import type { EntryType, Manifest, ManifestEntry } from "../../src/manifest.js";
-import { type Message, plainText } from "../../src/message.js";
+import {
+	type Message,
+	machineOnly,
+	plainText,
+	sentence,
+} from "../../src/message.js";
 import {
 	nukeManifestFiles,
 	removePathsInTheWay,
@@ -266,6 +272,22 @@ function measured(head: RowHead, ...names: string[]): BlockSubject {
 	};
 }
 
+/** The same, with the skills left out the row may tell of, each given its glyph's room. */
+function measuredWith(
+	head: RowHead,
+	items: string[],
+	notes: string[],
+): BlockSubject {
+	const { children = [] } = measured(head, ...items);
+	return {
+		...head,
+		children: [
+			...children,
+			...notes.map((name) => ({ name, status: "note" as const })),
+		],
+	};
+}
+
 /** The source's row: what it holds, its children beneath it. */
 function sourceRow(
 	held: string,
@@ -307,11 +329,6 @@ function packLine(subject: string, dirs: string, command: string): NextItem {
 			steps: [{ command }],
 		},
 	};
-}
-
-/** A message machine mode prints that the terminal tells another way. */
-function machineOnly(plain: string): Message {
-	return { text: "", plain };
 }
 
 async function exitCode(run: Promise<void>): Promise<number | null> {
@@ -368,7 +385,7 @@ describe("add command", () => {
 					rows: [
 						sourceRow("1 pack", [{ name: "repo", detail: "pack · 2 skills" }]),
 					],
-					notes: ["--plugin is now --pack"],
+					notes: [sentence("--plugin is now --pack")],
 					tally: closed({ installed: 1 }),
 				}),
 			);
@@ -816,7 +833,7 @@ describe("add command", () => {
 					progress: [CLONING, copying()],
 					asked: [sourceRow("1 pack · 2 skills")],
 					rows: [
-						sourceRow("1 pack · 2 skills", [
+						sourceRow("2 of 3 installed", [
 							{ name: "p", detail: "pack · 1 skill" },
 							skill("z"),
 						]),
@@ -830,7 +847,7 @@ describe("add command", () => {
 			]);
 		});
 
-		it("ends cleanly on the source's row when the menu is dismissed (an empty pick)", async () => {
+		it("ends cleanly on the source's row, unchanged, when the menu is dismissed (an empty pick)", async () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 			ui.multiselect.mockResolvedValue([]);
 
@@ -842,7 +859,7 @@ describe("add command", () => {
 					subjects: [[], [measured(SOURCE, "a", "b")]],
 					progress: [CLONING],
 					asked: [sourceRow("2 skills")],
-					rows: [sourceRow("2 skills")],
+					rows: [sourceRow("2 skills", [], "unchanged")],
 					cancelled: ["Cancelled — nothing selected"],
 				}),
 			);
@@ -1148,8 +1165,6 @@ describe("add command", () => {
 			"foo/skills/bar/SKILL.md": "pack",
 			"tools/SKILL.md": "",
 		};
-		const HELD_BY_SKILL =
-			"owner/repo/foo is already installed from skills/foo, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again";
 		const HELD_BY_PACK =
 			"owner/repo/foo is already installed from foo, as a pack; to replace it: npx agntc remove owner/repo/foo, then add again";
 		const REPLACE_FOO: NextItem = {
@@ -1185,8 +1200,7 @@ describe("add command", () => {
 							[
 								{
 									name: "foo",
-									detail:
-										"owner/repo/foo is already installed from skills/foo, as a skill",
+									detail: "already installed from skills/foo, as a skill",
 								},
 							],
 							"failed",
@@ -1225,8 +1239,7 @@ describe("add command", () => {
 							[
 								{
 									name: "skills/foo",
-									detail:
-										"owner/repo/foo is already installed from foo, as a pack",
+									detail: "already installed from foo, as a pack",
 								},
 							],
 							"failed",
@@ -1342,7 +1355,7 @@ describe("add command", () => {
 							{
 								name: "skills/foo",
 								detail:
-									"owner/repo/foo is already installed from https://github.com/owner/repo.git, as a skill",
+									"already installed from https://github.com/owner/repo.git, as a skill",
 							},
 						],
 						"failed",
@@ -1408,8 +1421,7 @@ describe("add command", () => {
 						[
 							{
 								name: "skills/foo",
-								detail:
-									"owner/repo/foo is already installed from foo, as a pack",
+								detail: "already installed from foo, as a pack",
 							},
 						],
 						"failed",
@@ -1445,6 +1457,7 @@ describe("add command", () => {
 			"api is already installed as part of the pack owner/repo/p";
 		const PACKED_API = (name: string): Child => ({
 			name,
+			status: "note",
 			detail: "already installed as part of the pack owner/repo/p",
 		});
 
@@ -1503,7 +1516,7 @@ describe("add command", () => {
 			expect(code).toBeNull();
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[], [measured(SOURCE, "p/skills/api")]],
+					subjects: [[], [measuredWith(SOURCE, [], ["p/skills/api"])]],
 					progress: [CLONING],
 					rows: [
 						sourceRow("1 pack", [PACKED_API("p/skills/api")], "unchanged"),
@@ -1528,12 +1541,12 @@ describe("add command", () => {
 
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[], [measured(SOURCE, "tools", "p/skills/api")]],
+					subjects: [[], [measuredWith(SOURCE, ["tools"], ["p/skills/api"])]],
 					progress: [CLONING, copying()],
 					rows: [
 						sourceRow("1 pack · 1 skill", [
-							{ ...skill("tools"), status: "done" },
-							{ ...PACKED_API("p/skills/api"), status: "note" },
+							skill("tools"),
+							PACKED_API("p/skills/api"),
 						]),
 					],
 					notes: [machineOnly(API_NOTE)],
@@ -1566,14 +1579,20 @@ describe("add command", () => {
 				screen({
 					subjects: [
 						[],
-						[measured(SOURCE, "skills/jobs", "skills/lint", "skills/api")],
+						[
+							measuredWith(
+								SOURCE,
+								["skills/jobs", "skills/lint"],
+								["skills/api"],
+							),
+						],
 					],
 					progress: [CLONING, copying()],
 					asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
 					rows: [
-						sourceRow("3 skills", [
-							{ ...skill("skills/jobs"), status: "done" },
-							{ ...PACKED_API("skills/api"), status: "note" },
+						sourceRow("1 of 2 installed", [
+							skill("skills/jobs"),
+							PACKED_API("skills/api"),
 						]),
 					],
 					notes: [machineOnly(API_NOTE)],
@@ -1585,6 +1604,182 @@ describe("add command", () => {
 				"owner/repo/p",
 				"owner/repo/jobs",
 			]);
+		});
+
+		it("counts the skills the pack holds on one line while asking, naming each once the run has its row", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"skills/db/SKILL.md": "",
+				"skills/ui/SKILL.md": "",
+				"skills/jobs/SKILL.md": "",
+			});
+			const held = ["api", "db", "ui"].map((name) => `.claude/skills/${name}/`);
+			await write(
+				projectDir,
+				Object.fromEntries(held.map((path) => [`${path}SKILL.md`, ""])),
+			);
+			await seedManifest({ "owner/repo/p": installedEntry(held, "pack") });
+			ui.multiselect.mockResolvedValue([0]);
+
+			await runAdd("owner/repo", {}, ui);
+
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[],
+						[
+							measuredWith(
+								SOURCE,
+								["skills/jobs"],
+								["skills/api", "skills/db", "skills/ui", "3 skills"],
+							),
+						],
+					],
+					progress: [CLONING, copying()],
+					asked: [sourceRow("4 skills", [PACKED_API("3 skills")])],
+					rows: [
+						sourceRow("1 of 1 installed", [
+							skill("skills/jobs"),
+							PACKED_API("skills/api"),
+							PACKED_API("skills/db"),
+							PACKED_API("skills/ui"),
+						]),
+					],
+					notes: ["api", "db", "ui"].map((name) =>
+						machineOnly(
+							`${name} is already installed as part of the pack owner/repo/p`,
+						),
+					),
+					tally: closed({ installed: 1 }),
+				}),
+			);
+		});
+
+		it("keeps the skills it left out on the source's row, unchanged, when the menu is dismissed", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"skills/jobs/SKILL.md": "",
+				"skills/lint/SKILL.md": "",
+			});
+			await installPacked();
+			ui.multiselect.mockResolvedValue([]);
+
+			expect(await exitCode(runAdd("owner/repo", {}, ui))).toBe(0);
+
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[],
+						[
+							measuredWith(
+								SOURCE,
+								["skills/jobs", "skills/lint"],
+								["skills/api"],
+							),
+						],
+					],
+					progress: [CLONING],
+					asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
+					rows: [
+						sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
+					],
+					notes: [machineOnly(API_NOTE)],
+					cancelled: ["Cancelled — nothing selected"],
+				}),
+			);
+		});
+
+		it("draws the skills it left out before refusing what --all would install to one place", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"x/foo/SKILL.md": "",
+				"y/foo/SKILL.md": "",
+			});
+			await installPacked();
+
+			expect(await exitCode(runAdd("owner/repo", { all: true }, ui))).toBe(1);
+
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
+					{
+						subjects: [
+							[],
+							[measuredWith(SOURCE, ["x/foo", "y/foo"], ["skills/api"])],
+						],
+						rows: [
+							sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
+						],
+						notes: [machineOnly(API_NOTE)],
+					},
+				),
+			);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
+		});
+
+		it("draws the skills it left out before refusing a pick that would install to one place", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"x/foo/SKILL.md": "",
+				"y/foo/SKILL.md": "",
+			});
+			await installPacked();
+			ui.multiselect.mockResolvedValue([0, 1]);
+
+			expect(await exitCode(runAdd("owner/repo", {}, ui))).toBe(1);
+
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
+					{
+						subjects: [
+							[],
+							[measuredWith(SOURCE, ["x/foo", "y/foo"], ["skills/api"])],
+						],
+						asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
+						rows: [
+							sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
+						],
+						notes: [machineOnly(API_NOTE)],
+					},
+				),
+			);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
+		});
+
+		it("settles the copying into the skills it left out when the run then fails", async () => {
+			await upstream({ "skills/api/SKILL.md": "", "skills/jobs/SKILL.md": "" });
+			await installPacked();
+			const agntc = join(projectDir, ".agntc");
+			mockCopyItem.mockImplementationOnce(async (...args) => {
+				await chmod(agntc, 0o500);
+				return actualCopyItem.copyItem(...args);
+			});
+
+			try {
+				const code = await exitCode(
+					runAdd("owner/repo", { skill: ["api", "jobs"] }, ui),
+				);
+
+				expect(code).toBe(1);
+			} finally {
+				await chmod(agntc, 0o700);
+			}
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[],
+						[measuredWith(SOURCE, ["skills/jobs"], ["skills/api"])],
+					],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow("2 skills", [PACKED_API("skills/api")], "unchanged"),
+					],
+					notes: [machineOnly(API_NOTE)],
+					failed: [expect.stringContaining("EACCES")],
+				}),
+			);
+			expect(ui.blocks[1]!.tasks[0]!.settle).toHaveBeenCalledBefore(ui.fail);
 		});
 
 		it("--skill on a skill named like the installed pack's support folder isn't left out: the pack's folder is in its way", async () => {
@@ -1711,6 +1906,26 @@ describe("add command", () => {
 			await runAdd("owner/repo", {}, ui);
 
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+		});
+
+		it("lists the items in their own order, though one that fails its check is settled before one that installs", async () => {
+			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
+			await seedManifest({
+				"owner/repo/b": installedEntry([".claude/skills/x/"], "pack"),
+			});
+
+			expect(await exitCode(runAdd("owner/repo", { all: true }, ui))).toBe(1);
+
+			const [row] = ui.rows();
+			expect(row?.children?.map(({ name, status }) => [name, status])).toEqual([
+				["a", "done"],
+				["b", "failed"],
+			]);
+			const [body] = ui.report.mock.calls[0]! as [{ items: { key: string }[] }];
+			expect(body.items.map(({ key }) => key)).toEqual([
+				"owner/repo/b",
+				"owner/repo/a",
+			]);
 		});
 
 		it("skips an item whose collision isn't resolved and installs the rest", async () => {
@@ -2168,7 +2383,9 @@ describe("add command", () => {
 					progress: [CLONING],
 					rows: [listed],
 					warnings: [
-						"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
+						sentence(
+							"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
+						),
 					],
 					tally: closed({}),
 				}),

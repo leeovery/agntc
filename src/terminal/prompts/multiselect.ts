@@ -9,6 +9,7 @@ import {
 } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
+	aboveLines,
 	labelColumn,
 	listHints,
 	optionLine,
@@ -30,6 +31,11 @@ export interface MultiselectQuestion<T> extends MultiselectPrompt<T> {
 	hints?: string;
 	/** Lines over the question, as the row it asks about, erased with it. */
 	above?: readonly string[];
+}
+
+/** What of a multiselect's frame a screen shows: its window and footer, and the lines over its question. */
+export interface MultiselectFit extends ListFit {
+	above: readonly string[];
 }
 
 /** A multiselect as it stands: the cursor's option, the window in view from `top`, what's picked. */
@@ -75,7 +81,6 @@ export async function promptMultiselect<T>(
 			renderMultiselect(
 				{
 					...fit,
-					above: question.above,
 					message: question.message,
 					hints,
 					options: question.options,
@@ -92,27 +97,39 @@ export async function promptMultiselect<T>(
 	return engine.answer;
 }
 
-/** The lines of options a multiselect shows at once on a screen of `rows`, and what else of its frame shows. */
+/**
+ * The lines of options a multiselect shows at once on a screen of `rows`, and
+ * what else of its frame shows: the lines over its question as many as leave
+ * room for it, one option and its footer.
+ */
 export function multiselectFit<T>(
 	question: MultiselectQuestion<T>,
 	rows: number | undefined,
 	width: number,
 	style: Style,
-): ListFit {
+): MultiselectFit {
 	const asked = questionLines(
 		question.message,
 		question.hints ?? MULTISELECT_HINTS,
 		width,
 		style,
+	).length;
+	const above = aboveLines(
+		question.above ?? [],
+		asked + 1 + FOOTER_LINES,
+		rows,
+		width,
+		style,
 	);
-	return fitList(
+	const fit = fitList(
 		{
 			lines: question.options.length,
-			asked: (question.above?.length ?? 0) + asked.length,
+			asked: above.length + asked,
 			footer: FOOTER_LINES,
 		},
 		rows,
 	);
+	return { ...fit, above };
 }
 
 export function renderMultiselect<T>(

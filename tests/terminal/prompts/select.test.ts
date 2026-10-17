@@ -450,6 +450,30 @@ describe("promptSelect", () => {
 		expect(await answer).toBe("skill-10");
 	});
 
+	it("draws the lines it's given over its question, cut to leave room for it and one option, and erases them with it", async () => {
+		const terminal = new Terminal(80, 6);
+		terminal.output.write("before\n");
+		const answer = promptSelect(
+			{
+				message: "Pick",
+				options: TEN,
+				above: [" ✓ owner/repo   HEAD", "   · a", "   · b", "   · c", ""],
+			},
+			terminal.context(),
+		);
+		await terminal.press(KEY.down);
+		expect((await terminal.lines()).slice(1)).toEqual([
+			" ✓ owner/repo   HEAD",
+			"   · a",
+			"   … 3 more",
+			` ? Pick${gap(41)}${HINTS}`,
+			" ▌ skill-02",
+		]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toBe("skill-02");
+		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
 	it("takes its key hints from the question when it gives them", async () => {
 		const terminal = new Terminal(80);
 		const answer = promptSelect(

@@ -4,6 +4,8 @@ import {
 	addTally,
 	holdings,
 	listedRow,
+	notedRow,
+	pickedDetail,
 	sourceHead,
 	sourceRow,
 	sourceSubject,
@@ -36,9 +38,22 @@ function pack(label: string, assetCounts: object): ItemOutcome {
 	};
 }
 
-function note(path: string, detail: string, leftOut: boolean): SkillNote {
+/** A skill taken from its pack to install on its own. */
+function taken(path: string, detail: string): SkillNote {
 	const text = `${path} is ${detail}`;
-	return { subject: path, detail, text, plain: text, path, leftOut };
+	return { subject: path, detail, text, plain: text, path };
+}
+
+/** A skill left out, as the installed pack `pack` holds it. */
+function held(path: string, pack = "p"): SkillNote {
+	return {
+		...taken(path, `already installed as part of the pack ${pack}`),
+		heldBy: pack,
+	};
+}
+
+function failed(label: string, reason: string): ItemOutcome {
+	return { ...item(label), status: "failed", reason };
 }
 
 const skillItem = (path: string): InstallItem => ({
@@ -89,9 +104,20 @@ describe("holdings", () => {
 	});
 });
 
+describe("pickedDetail", () => {
+	it("counts what installed of what the menu offered", () => {
+		expect(
+			pickedDetail(
+				[installed("a"), failed("b", "disk full"), installed("c")],
+				5,
+			),
+		).toBe("2 of 5 installed");
+	});
+});
+
 describe("sourceSubject", () => {
-	it("gives each of several names a glyph's room, as children that end differently carry one", () => {
-		expect(sourceSubject(HEAD, ["a", "b", "a"])).toEqual({
+	it("gives each of several items a glyph's room, as items that end differently carry one", () => {
+		expect(sourceSubject(HEAD, ["a", "b", "a"], [])).toEqual({
 			...HEAD,
 			children: [
 				{ name: "a", status: "done" },
@@ -100,36 +126,101 @@ describe("sourceSubject", () => {
 		});
 	});
 
-	it("gives a lone name none, as one child never carries a glyph", () => {
-		expect(sourceSubject(HEAD, ["a", "a"])).toEqual({
+	it("gives a lone item none, as one item never carries a glyph", () => {
+		expect(sourceSubject(HEAD, ["a", "a"], [])).toEqual({
 			...HEAD,
 			children: [{ name: "a" }],
+		});
+	});
+
+	it("gives every note a glyph's room, and measures the line a question's row counts them on", () => {
+		expect(
+			sourceSubject(HEAD, ["a"], [held("tools/api"), held("tools/db")]),
+		).toEqual({
+			...HEAD,
+			children: [
+				{ name: "a" },
+				{ name: "tools/api", status: "note" },
+				{ name: "tools/db", status: "note" },
+				{ name: "2 skills", status: "note" },
+			],
 		});
 	});
 });
 
 describe("sourceRow", () => {
-	it("says what the source holds, with the skills left off the menu beneath it", () => {
-		expect(
-			sourceRow(HEAD, "2 skills", [
-				note("tools/api", "already installed as part of the pack p", true),
-			]),
-		).toEqual({
+	it("says what the source holds, with a skill left off the menu beneath it, by name", () => {
+		expect(sourceRow(HEAD, "2 skills", [held("tools/api")])).toEqual({
 			status: "done",
 			...HEAD,
 			detail: "2 skills",
 			children: [
 				{
 					name: "tools/api",
+					status: "note",
 					detail: "already installed as part of the pack p",
 				},
 			],
 		});
 	});
 
+	it("counts the skills one installed pack holds on one line, each pack its own", () => {
+		expect(
+			sourceRow(HEAD, "5 skills", [
+				held("tools/api", "p"),
+				held("tools/db", "p"),
+				held("tools/ui", "p"),
+				held("x/lint", "q"),
+			]).children,
+		).toEqual([
+			{
+				name: "3 skills",
+				status: "note",
+				detail: "already installed as part of the pack p",
+			},
+			{
+				name: "x/lint",
+				status: "note",
+				detail: "already installed as part of the pack q",
+			},
+		]);
+	});
+
 	it("has no children when none is left off", () => {
 		expect(sourceRow(HEAD, "2 skills", [])).toEqual({
 			status: "done",
+			...HEAD,
+			detail: "2 skills",
+		});
+	});
+});
+
+describe("notedRow", () => {
+	it("leaves the source unchanged, with every note in full", () => {
+		expect(
+			notedRow(HEAD, "3 skills", [held("tools/api"), held("tools/db")]),
+		).toEqual({
+			status: "unchanged",
+			...HEAD,
+			detail: "3 skills",
+			children: [
+				{
+					name: "tools/api",
+					status: "note",
+					detail: "already installed as part of the pack p",
+				},
+				{
+					name: "tools/db",
+					status: "note",
+					detail: "already installed as part of the pack p",
+				},
+			],
+		});
+	});
+
+	it("has no children when the choice said nothing", () => {
+		expect(notedRow(HEAD, "2 skills", [])).toEqual({
+			status: "unchanged",
 			...HEAD,
 			detail: "2 skills",
 		});
@@ -187,7 +278,7 @@ describe("addedRow", () => {
 			[
 				installed("a"),
 				{ ...item("b"), status: "skipped", reason: "conflict not resolved" },
-				{ ...item("c"), status: "failed", reason: "disk full" },
+				failed("c", "disk full"),
 			],
 			[],
 		);
@@ -211,7 +302,7 @@ describe("addedRow", () => {
 		).toBe("attention");
 	});
 
-	it("words a failure carrying a message by its text, its remedy apart", () => {
+	it("words a failure carrying a message by its detail, as the row names the item", () => {
 		const row = addedRow(
 			HEAD,
 			"1 skill",
@@ -222,7 +313,7 @@ describe("addedRow", () => {
 					reason: "owner/repo/a is held; to replace it: npx agntc remove …",
 					message: {
 						subject: "owner/repo/a",
-						detail: "is held",
+						detail: "held",
 						text: "owner/repo/a is held",
 						plain: "owner/repo/a is held; to replace it: npx agntc remove …",
 					},
@@ -231,9 +322,7 @@ describe("addedRow", () => {
 			[],
 		);
 
-		expect(row.children).toEqual([
-			{ name: "a", detail: "owner/repo/a is held" },
-		]);
+		expect(row.children).toEqual([{ name: "a", detail: "held" }]);
 	});
 
 	it("carries a skill's note from its pack under its kind", () => {
@@ -241,7 +330,7 @@ describe("addedRow", () => {
 			HEAD,
 			"1 pack",
 			[installed("p/skills/a")],
-			[note("p/skills/a", "part of the pack p — installed on its own", false)],
+			[taken("p/skills/a", "part of the pack p — installed on its own")],
 		);
 
 		expect(row.children).toEqual([
@@ -252,19 +341,35 @@ describe("addedRow", () => {
 		]);
 	});
 
-	it("hangs the skills left out after what installed, as notes", () => {
+	it("carries a taken skill's note only when it installed", () => {
+		const row = addedRow(
+			HEAD,
+			"1 pack",
+			[failed("p/skills/a", "disk full")],
+			[taken("p/skills/a", "part of the pack p — installed on its own")],
+		);
+
+		expect(row.children).toEqual([{ name: "p/skills/a", detail: "disk full" }]);
+	});
+
+	it("hangs the skills left out after what installed, each in full with its glyph, the outcomes alike with none", () => {
 		const row = addedRow(
 			HEAD,
 			"2 skills",
 			[installed("tools/lint")],
-			[note("tools/api", "already installed as part of the pack p", true)],
+			[held("tools/api"), held("tools/db")],
 		);
 
 		expect(row.status).toBe("done");
 		expect(row.children).toEqual([
-			{ name: "tools/lint", status: "done", detail: "skill" },
+			{ name: "tools/lint", detail: "skill" },
 			{
 				name: "tools/api",
+				status: "note",
+				detail: "already installed as part of the pack p",
+			},
+			{
+				name: "tools/db",
 				status: "note",
 				detail: "already installed as part of the pack p",
 			},
@@ -272,12 +377,7 @@ describe("addedRow", () => {
 	});
 
 	it("has nothing to do when everything was left out", () => {
-		const row = addedRow(
-			HEAD,
-			"1 skill",
-			[],
-			[note("tools/api", "already installed as part of the pack p", true)],
-		);
+		const row = addedRow(HEAD, "1 skill", [], [held("tools/api")]);
 
 		expect(row).toEqual({
 			status: "unchanged",
@@ -286,6 +386,7 @@ describe("addedRow", () => {
 			children: [
 				{
 					name: "tools/api",
+					status: "note",
 					detail: "already installed as part of the pack p",
 				},
 			],

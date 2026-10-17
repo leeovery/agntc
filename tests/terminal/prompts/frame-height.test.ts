@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+	confirmAbove,
+	renderConfirm,
+} from "../../../src/terminal/prompts/confirm.js";
 import { questionLines } from "../../../src/terminal/prompts/lines.js";
 import { scrollWindow } from "../../../src/terminal/prompts/list-window.js";
 import {
@@ -18,7 +22,8 @@ import type { Choice, SelectOption } from "../../../src/ui.js";
 // The erase rests on one rule: an open prompt's frame is never taller than
 // the screen less a line, as the prompt's closing newline would scroll a
 // taller frame's first line out of reach. It holds wherever the screen has
-// room for the question and one option.
+// room for the question and one option, however many lines a row over the
+// question would take.
 
 const style = createStyle(0);
 const ROWS = Array.from({ length: 38 }, (_, index) => index + 3);
@@ -30,6 +35,11 @@ const QUESTIONS = [
 	"x".repeat(150),
 ];
 const MAX_ITEMS = [undefined, 3, 15, 100];
+const ABOVES = [0, 3, 50];
+
+/** `count` lines of a row over the question. */
+const aboveOf = (count: number): string[] =>
+	Array.from({ length: count }, (_, index) => ` · line ${index}`);
 
 const choices = (count: number): Choice<number>[] =>
 	Array.from({ length: count }, (_, index) => ({
@@ -70,9 +80,12 @@ describe("an open prompt's frame", () => {
 			for (const rows of roomy(message, SELECT_HINTS, width)) {
 				for (const count of COUNTS) {
 					for (const headed of [false, true]) {
-						for (const maxItems of MAX_ITEMS) {
+						for (const [maxItems, lines] of MAX_ITEMS.flatMap((most) =>
+							ABOVES.map((above) => [most, above] as const),
+						)) {
 							const options = selectOptions(count, headed);
-							const question = { message, options, maxItems };
+							const above = aboveOf(lines);
+							const question = { message, options, maxItems, above };
 							const window = selectWindow(question, rows, width, style);
 							const headings = options.map((option) => !isChoice(option));
 							const stops = options.flatMap((option, index) =>
@@ -93,7 +106,7 @@ describe("an open prompt's frame", () => {
 								).length;
 								if (height > rows - 1) {
 									over.push(
-										`${rows} rows, ${count} options${headed ? " under headings" : ""}, max ${maxItems}: ${height} lines`,
+										`${rows} rows, ${count} options${headed ? " under headings" : ""}, max ${maxItems}, ${lines} above: ${height} lines`,
 									);
 								}
 							}
@@ -111,9 +124,17 @@ describe("an open prompt's frame", () => {
 		const over: string[] = [];
 		for (const message of QUESTIONS) {
 			for (const rows of roomy(message, MULTISELECT_HINTS, width)) {
-				for (const count of COUNTS) {
+				for (const [count, lines] of COUNTS.flatMap((count) =>
+					ABOVES.map((above) => [count, above] as const),
+				)) {
 					const options = choices(count);
-					const fit = multiselectFit({ message, options }, rows, width, style);
+					const above = aboveOf(lines);
+					const fit = multiselectFit(
+						{ message, options, above },
+						rows,
+						width,
+						style,
+					);
 					const headings = options.map(() => false);
 					for (const cursor of sampled(options.map((_, index) => index))) {
 						const height = renderMultiselect(
@@ -131,7 +152,37 @@ describe("an open prompt's frame", () => {
 							style,
 						).length;
 						if (height > rows - 1) {
-							over.push(`${rows} rows, ${count} options: ${height} lines`);
+							over.push(
+								`${rows} rows, ${count} options, ${lines} above: ${height} lines`,
+							);
+						}
+					}
+				}
+			}
+		}
+		expect(over).toEqual([]);
+	});
+
+	it.each(
+		WIDTHS,
+	)("is a line shorter than the screen, a confirm at %i columns", (width) => {
+		const over: string[] = [];
+		for (const message of QUESTIONS) {
+			const asked = (value: boolean) =>
+				renderConfirm({ message, hints: "", value }, width, style).length;
+			const least = Math.max(asked(true), asked(false));
+			for (const rows of ROWS.filter((rows) => least <= rows - 1)) {
+				for (const lines of ABOVES) {
+					const question = { message, above: aboveOf(lines) };
+					const above = confirmAbove(question, rows, width, style);
+					for (const value of [true, false]) {
+						const height = renderConfirm(
+							{ above, message, hints: "", value },
+							width,
+							style,
+						).length;
+						if (height > rows - 1) {
+							over.push(`${rows} rows, ${lines} above: ${height} lines`);
 						}
 					}
 				}

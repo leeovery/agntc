@@ -82,10 +82,13 @@ export interface Block {
 	/** A row that spins, saying what it's doing, until it settles or clears. */
 	task(progress: Progress): BlockTask;
 	/**
-	 * Asks about `row`, drawn over the question and erased with it, so what
-	 * follows reports the outcome in its place. Resolves empty when cancelled.
+	 * Each asks about `row`, drawn over the question and erased with it, so
+	 * what follows reports the outcome in its place, and resolves as the Ui's
+	 * prompt of its kind does when cancelled.
 	 */
+	select<T>(row: Row, prompt: SelectPrompt<T>): Promise<T | null>;
 	multiselect<T>(row: Row, prompt: MultiselectPrompt<T>): Promise<T[]>;
+	confirm(row: Row, prompt: ConfirmPrompt): Promise<boolean>;
 }
 
 /** A step running in a block. A warning or note raised meanwhile prints under the row it settles into. */
@@ -163,7 +166,8 @@ export interface Ui {
 	next(item: NextItem): void;
 	/**
 	 * Closes the run. More than one outcome, or anything queued, gives the
-	 * Next section, a rule and the tally; otherwise the run ends on its row.
+	 * Next section, a rule and the tally; with no outcome, Next alone, as
+	 * there's nothing to count; otherwise the run ends on its row.
 	 */
 	close(tally: Tally): void;
 	cancel(message: string): void;
@@ -256,7 +260,9 @@ export class MachineUi implements Ui {
 		return {
 			row: ignore,
 			task: () => ({ settle: ignore, clear: ignore }),
+			select: (_row, prompt) => this.select(prompt),
 			multiselect: (_row, prompt) => this.multiselect(prompt),
+			confirm: (_row, prompt) => this.confirm(prompt),
 		};
 	}
 

@@ -68,6 +68,26 @@ describe("testUi", () => {
 		expect(ui.rows()).toEqual([]);
 	});
 
+	it("answers a block's select and confirm as the ui's own are scripted", async () => {
+		const ui = testUi();
+		const block = ui.block([{ subject: "owner/repo" }]);
+		const row = { status: "done" as const, subject: "owner/repo" };
+		const select = {
+			message: "Pick one",
+			options: [{ value: "a", label: "a" }],
+		};
+		ui.select.mockResolvedValue("a");
+		ui.confirm.mockResolvedValue(true);
+
+		expect(await block.select(row, select)).toBe("a");
+		expect(await block.confirm(row, { message: "Sure?" })).toBe(true);
+		expect(block.select).toHaveBeenCalledWith(row, select);
+		expect(ui.select).toHaveBeenCalledWith(select);
+		expect(block.confirm).toHaveBeenCalledWith(row, { message: "Sure?" });
+		expect(ui.confirm).toHaveBeenCalledWith({ message: "Sure?" });
+		expect(ui.rows()).toEqual([]);
+	});
+
 	it("rejects a prompt no test scripted", async () => {
 		const ui = testUi();
 

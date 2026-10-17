@@ -2,7 +2,13 @@ import type { ConfirmPrompt } from "../../ui.js";
 import { indent, visibleWidth } from "../layout.js";
 import type { Style } from "../style.js";
 import { Engine } from "./engine.js";
-import { questionHead, questionLines, TEXT_AT, withHints } from "./lines.js";
+import {
+	aboveLines,
+	questionHead,
+	questionLines,
+	TEXT_AT,
+	withHints,
+} from "./lines.js";
 import {
 	noFrame,
 	type PromptContext,
@@ -13,9 +19,13 @@ import {
 export interface ConfirmQuestion extends ConfirmPrompt {
 	/** Key hints on the question's line; it has none unless given. */
 	hints?: string;
+	/** Lines over the question, as the row it asks about, erased with it. */
+	above?: readonly string[];
 }
 
 export interface ConfirmView {
+	/** Lines over the question; none unless given. */
+	above?: readonly string[];
 	message: string;
 	hints: string;
 	/** The button chosen: yes or no. */
@@ -29,29 +39,64 @@ export async function promptConfirm(
 	question: ConfirmQuestion,
 	context: PromptContext,
 ): Promise<boolean> {
+	const { width, style } = context;
+	const above = confirmAbove(question, context.output.rows, width, style);
 	const engine = await runPrompt(
 		context,
 		(streams) => new ConfirmEngine(question.initialValue ?? true, streams),
 		(engine) =>
 			renderConfirm(
 				{
+					above,
 					message: question.message,
 					hints: question.hints ?? "",
 					value: engine.chosen,
 				},
-				context.width,
-				context.style,
+				width,
+				style,
 			),
 	);
 	return engine.answer;
 }
 
-/** ` ? <question>   ` and the two buttons; the buttons on a line of their own when the question wraps. */
+/**
+ * The lines over a confirm's question on a screen of `rows`, as many as leave
+ * room for the question and its buttons, whichever is chosen.
+ */
+export function confirmAbove(
+	question: ConfirmQuestion,
+	rows: number | undefined,
+	width: number,
+	style: Style,
+): string[] {
+	const asked = (value: boolean) =>
+		askedLines(
+			{ message: question.message, hints: question.hints ?? "", value },
+			width,
+			style,
+		).length;
+	return aboveLines(
+		question.above ?? [],
+		Math.max(asked(true), asked(false)),
+		rows,
+		width,
+		style,
+	);
+}
+
+/**
+ * The lines over the question, then ` ? <question>   ` and the two buttons;
+ * the buttons on a line of their own when the question wraps.
+ */
 export function renderConfirm(
 	view: ConfirmView,
 	width: number,
 	style: Style,
 ): string[] {
+	return [...(view.above ?? []), ...askedLines(view, width, style)];
+}
+
+function askedLines(view: ConfirmView, width: number, style: Style): string[] {
 	const buttons = renderButtons(view.value, style);
 	const line = `${questionHead(view.message, style)}${indent(BUTTONS_GAP)}${buttons}`;
 	if (visibleWidth(line) <= width - 1) {
