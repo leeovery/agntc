@@ -306,7 +306,7 @@ describe("askAction", () => {
 		);
 	});
 
-	it("never asks through the old surface", async () => {
+	it("asks its question under the entry's row", async () => {
 		const ui = testUi();
 		ui.select.mockResolvedValue("back");
 
@@ -314,6 +314,5 @@ describe("askAction", () => {
 
 		expect(ui.select).toHaveBeenCalledOnce();
 		expect(ui.blocks[0]!.select).toHaveBeenCalledOnce();
-		expect(ui.log.info).not.toHaveBeenCalled();
 	});
 });

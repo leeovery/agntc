@@ -175,20 +175,4 @@ describe("executeRemoveAction", () => {
 			},
 		]);
 	});
-
-	it("never draws through the old surface", async () => {
-		const entry = makeEntry();
-		ui.confirm.mockResolvedValue(true);
-
-		await executeRemoveAction(
-			removing(entry),
-			{ "owner/repo": entry },
-			PROJECT,
-			ui,
-		);
-
-		for (const channel of Object.values(ui.log)) {
-			expect(channel).not.toHaveBeenCalled();
-		}
-	});
 });

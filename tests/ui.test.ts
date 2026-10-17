@@ -49,18 +49,7 @@ function present(ui: Ui): void {
 	block.task({ text: "checking…" }).clear();
 	ui.next({ subject: "laravel", remedy: RICH.remedy! });
 	ui.close({ command: "update", counts: { updated: 2 } });
-	ui.intro("intro");
-	ui.outro("outro");
 	ui.cancel("cancel");
-	ui.box("body", "title");
-	const spin = ui.spinner();
-	spin.start("start");
-	spin.stop("stop", 2);
-	ui.log.info("info");
-	ui.log.warn("warn");
-	ui.log.error("error");
-	ui.log.success("success");
-	ui.log.message("message");
 	ui.warn("a warning");
 	ui.note("a note");
 	ui.report({ items: [] });
@@ -166,7 +155,7 @@ describe("MachineUi", () => {
 	it("leaves flags off a failure no flag answers", async () => {
 		const ui = new MachineUi("init");
 
-		await exitCode(() => ui.fail("needs a terminal", { style: "error" }));
+		await exitCode(() => ui.fail("needs a terminal"));
 
 		expect(ui.document(1).error).toEqual({ message: "needs a terminal" });
 	});

@@ -110,7 +110,6 @@ import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const mocks = setupListActionMocks();
 const mockWriteManifest = mocks.writeManifest;
-const mockAddEntry = mocks.addEntry;
 const mockCloneSource = mocks.cloneSource;
 const mockCleanupTempDir = mocks.cleanupTempDir;
 const mockNukeManifestFiles = mocks.nukeManifestFiles;
@@ -844,18 +843,5 @@ describe("executeChangeVersionAction", () => {
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
-	});
-
-	it("never draws through the old surface", async () => {
-		picks("v1.1.0");
-		primeSuccessfulReinstall();
-
-		await change("owner/repo", makeEntry({ ref: "v1.0.0" }));
-
-		expect(ui.spinner).not.toHaveBeenCalled();
-		for (const channel of Object.values(ui.log)) {
-			expect(channel).not.toHaveBeenCalled();
-		}
-		expect(mockAddEntry).toHaveBeenCalled();
 	});
 });

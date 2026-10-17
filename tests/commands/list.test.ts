@@ -46,7 +46,7 @@ import { askAction } from "../../src/commands/list-detail.js";
 import { executeRemoveAction } from "../../src/commands/list-remove-action.js";
 import { executeUpdateAction } from "../../src/commands/list-update-action.js";
 import { readManifest, readManifestOrExit } from "../../src/manifest.js";
-import { globalScope, projectScope } from "../../src/scope.js";
+import { globalScope } from "../../src/scope.js";
 import { checkForUpdate } from "../../src/update-check.js";
 import { checkAllForUpdates } from "../../src/update-check-all.js";
 import { SSH_REFUSAL } from "../helpers/git-mocks.js";
@@ -91,13 +91,12 @@ beforeEach(() => {
 });
 
 describe("a list session", () => {
-	it("opens on the header, never the old intro", async () => {
+	it("opens on the header", async () => {
 		installed({});
 
 		await runListLoop(ui);
 
 		expect(ui.header).toHaveBeenCalledOnce();
-		expect(ui.intro).not.toHaveBeenCalled();
 	});
 
 	it("draws an empty manifest as one row, the add that starts things under Next, and asks nothing", async () => {
@@ -504,22 +503,6 @@ describe("a list session", () => {
 		expect(mockExecuteRemoveAction.mock.calls[0]![2]).toBe(scope);
 	});
 
-	it("never draws through the old surface", async () => {
-		installed(makeManifest(["owner/skill"]));
-		ui.select.mockResolvedValueOnce("owner/skill").mockResolvedValueOnce(null);
-		mockAskAction.mockResolvedValueOnce("back");
-
-		await runListLoop(ui, projectScope("/fake/project"));
-
-		expect(ui.spinner).not.toHaveBeenCalled();
-		expect(ui.intro).not.toHaveBeenCalled();
-		expect(ui.outro).not.toHaveBeenCalled();
-		expect(ui.box).not.toHaveBeenCalled();
-		for (const channel of Object.values(ui.log)) {
-			expect(channel).not.toHaveBeenCalled();
-		}
-	});
-
 	it("ends with ExitSignal when the manifest can't be read", async () => {
 		mockReadManifestOrExit.mockImplementation(async () => {
 			throw new ExitSignal(1);
@@ -650,7 +633,7 @@ describe("list without a terminal", () => {
 
 	it("prints an error document when the manifest can't be read", async () => {
 		mockReadManifestOrExit.mockImplementation(async (_, ui) =>
-			ui.fail("Failed to read manifest: bad json", { style: "error" }),
+			ui.fail("Failed to read manifest: bad json"),
 		);
 
 		const run = await runMachine(listCommand, []);

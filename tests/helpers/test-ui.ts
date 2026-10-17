@@ -2,19 +2,7 @@ import { type Mock, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { type Message, plainText } from "../../src/message.js";
 import type { BlockSubject, Progress, Row } from "../../src/terminal/types.js";
-import type {
-	Block,
-	BlockTask,
-	FailOptions,
-	Log,
-	Spinner,
-	Ui,
-} from "../../src/ui.js";
-
-export interface TestSpinner extends Spinner {
-	start: Mock<Spinner["start"]>;
-	stop: Mock<Spinner["stop"]>;
-}
+import type { Block, BlockTask, Ui } from "../../src/ui.js";
 
 export interface TestTask extends BlockTask {
 	settle: Mock<BlockTask["settle"]>;
@@ -44,14 +32,8 @@ export interface TestBlock extends Block {
 	readonly tasks: TestTask[];
 }
 
-/** A line of output as a terminal shows it, whichever `Ui` call drew it. */
-export type Channel =
-	| "info"
-	| "warn"
-	| "error"
-	| "cancel"
-	| "success"
-	| "message";
+/** The `Ui` call that drew a message. */
+export type Channel = "note" | "warn" | "fail";
 
 /**
  * An interactive `Ui` whose every member is a `vi.fn`. Prompts reject until a
@@ -71,21 +53,12 @@ export interface TestUi extends Ui {
 	confirm: Mock<Ui["confirm"]>;
 	report: Mock<Ui["report"]>;
 	fail: Mock<Ui["fail"]>;
-	readonly log: { [K in keyof Log]: Mock<Log[K]> };
-	intro: Mock<Ui["intro"]>;
-	outro: Mock<Ui["outro"]>;
-	spinner: Mock<() => TestSpinner>;
-	box: Mock<Ui["box"]>;
 	/** Every block `block()` opened, in the order it opened them. */
 	readonly blocks: TestBlock[];
 	/** Every row the blocks drew, a settled task's included, in the order they were drawn. */
 	rows(): Row[];
-	/** Every handle `spinner()` returned, in the order it returned them. */
-	readonly spinners: TestSpinner[];
-	/** The messages drawn on a channel, in call order across every call that draws there; a rich one as machine mode flattens it. */
+	/** The messages drawn on a channel, in call order; a rich one as machine mode flattens it. */
 	said(channel: Channel): string[];
-	/** The `invocationCallOrder` of each line `said(channel)` returns, in the same order. */
-	saidOrders(channel: Channel): number[];
 }
 
 function unscripted(name: string) {
@@ -94,50 +67,13 @@ function unscripted(name: string) {
 	});
 }
 
-type Line = [order: number, message: string];
-
-/** What a call that draws one message was given, and when. */
+/** What a call that draws one message was given. */
 interface Drawn {
-	mock: {
-		calls: readonly (readonly [Message, ...unknown[]])[];
-		invocationCallOrder: readonly number[];
-	};
+	mock: { calls: readonly (readonly [Message, ...unknown[]])[] };
 }
 
-function lines(fn: Drawn): Line[] {
-	return fn.mock.calls.map(([message], i) => [
-		fn.mock.invocationCallOrder[i]!,
-		plainText(message),
-	]);
-}
-
-function failLines(fn: TestUi["fail"], style: FailOptions["style"]): Line[] {
-	return fn.mock.calls.flatMap(([message, options], i): Line[] =>
-		(options?.style ?? "cancel") === style
-			? [[fn.mock.invocationCallOrder[i]!, plainText(message)]]
-			: [],
-	);
-}
-
-function channelLines(ui: TestUi, channel: Channel): Line[] {
-	return unsortedLines(ui, channel).sort(([a], [b]) => a - b);
-}
-
-function unsortedLines(ui: TestUi, channel: Channel): Line[] {
-	switch (channel) {
-		case "info":
-			return [...lines(ui.log.info), ...lines(ui.note)];
-		case "warn":
-			return [...lines(ui.log.warn), ...lines(ui.warn)];
-		case "error":
-			return [...lines(ui.log.error), ...failLines(ui.fail, "error")];
-		case "cancel":
-			return [...lines(ui.cancel), ...failLines(ui.fail, "cancel")];
-		case "success":
-			return lines(ui.log.success);
-		case "message":
-			return lines(ui.log.message);
-	}
+function said(fn: Drawn): string[] {
+	return fn.mock.calls.map(([message]) => plainText(message));
 }
 
 function drawnRows(blocks: readonly TestBlock[]): Row[] {
@@ -174,7 +110,6 @@ function testBlock(ui: Ui): TestBlock {
 
 export function testUi(): TestUi {
 	const blocks: TestBlock[] = [];
-	const spinners: TestSpinner[] = [];
 	const ui: TestUi = {
 		mode: "interactive",
 		header: vi.fn(),
@@ -195,26 +130,9 @@ export function testUi(): TestUi {
 		fail: vi.fn((): never => {
 			throw new ExitSignal(1);
 		}),
-		log: {
-			info: vi.fn(),
-			warn: vi.fn(),
-			error: vi.fn(),
-			success: vi.fn(),
-			message: vi.fn(),
-		},
-		intro: vi.fn(),
-		outro: vi.fn(),
-		spinner: vi.fn(() => {
-			const handle = { start: vi.fn(), stop: vi.fn() };
-			spinners.push(handle);
-			return handle;
-		}),
-		box: vi.fn(),
 		blocks,
 		rows: () => drawnRows(blocks),
-		spinners,
-		said: (channel) => channelLines(ui, channel).map(([, message]) => message),
-		saidOrders: (channel) => channelLines(ui, channel).map(([order]) => order),
+		said: (channel) => said(ui[channel]),
 	};
 	return ui;
 }

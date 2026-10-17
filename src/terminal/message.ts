@@ -40,12 +40,11 @@ export interface WrittenPaint {
 
 /**
  * ` ✓ text`, each of the text's lines as written, those after the first at
- * column 3; with no status, every line at the margin. Nothing is wrapped, so
- * a command written into a sentence stays whole for the terminal to wrap.
- * Blank lines at the end are left off.
+ * column 3. Nothing is wrapped, so a command written into a sentence stays
+ * whole for the terminal to wrap. Blank lines at the end are left off.
  */
 export function renderWritten(
-	status: Status | undefined,
+	status: Status,
 	text: string,
 	style: Style,
 	{
@@ -54,9 +53,8 @@ export function renderWritten(
 	}: WrittenPaint = {},
 ): string[] {
 	const [first = "", ...rest] = text.trimEnd().split("\n");
-	const opening =
-		status === undefined ? MARGIN : `${MARGIN}${statusGlyph(status, style)} `;
-	const after = status === undefined ? MARGIN : indent(LEAD_AT);
+	const opening = `${MARGIN}${statusGlyph(status, style)} `;
+	const after = indent(LEAD_AT);
 	const line = (lead: string, written: string, paint: Painter) =>
 		written === "" ? lead.trimEnd() : lead + paint(written);
 	return [

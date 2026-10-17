@@ -21,20 +21,6 @@ export type Mode = "interactive" | "machine";
 
 export type CommandName = "add" | "remove" | "update" | "list" | "init";
 
-export interface Spinner {
-	start(message?: string): void;
-	/** Leaves `message` as a row, a done one for code 0 and a failed one for any other; with none, leaves nothing. */
-	stop(message?: string, code?: number): void;
-}
-
-export interface Log {
-	info(message: string): void;
-	warn(message: string): void;
-	error(message: string): void;
-	success(message: string): void;
-	message(message: string): void;
-}
-
 export interface Choice<T> {
 	value: T;
 	label: string;
@@ -98,12 +84,6 @@ export interface ConfirmPrompt {
 export interface FailOptions {
 	/** The flags that would have answered the question that couldn't be asked. */
 	flags?: string[];
-	/**
-	 * The old look the failure asked for: a cancel line (the default) or an
-	 * error line. A terminal now draws every failure as an error, so this goes
-	 * with the old methods.
-	 */
-	style?: "cancel" | "error";
 }
 
 /** Rows streamed one at a time into columns fixed when the block opened. */
@@ -189,13 +169,16 @@ export type Tally =
  * Every user-facing word and question goes through here, so machine mode
  * never draws.
  *
- * - `warn` and `note` reach the reader in both modes: a row at a terminal,
- *   the document's `warnings` and `notes` in machine mode.
- * - `header`, `block`, `next`, `close` and `cancel` are what a person
- *   watches; machine mode drops them, and `report` carries the result instead.
- * - The prompts ask a person; in machine mode calling one fails the command.
- * - `log`, `intro`, `outro`, `spinner` and `box` are the old surface, drawn
- *   as plain rows until each command moves off them.
+ * - What a person watches, which machine mode drops: the `header`; a
+ *   `block` of rows, streamed by `row` and `task` and asked about by its
+ *   `select`, `confirm` and `multiselect`; the remedies `next` queues; the
+ *   `close`, given the tally; and `cancel`.
+ * - `warn`, `note` and `fail` take a `Message` and reach the reader in both
+ *   modes: drawn at a terminal, flattened into the document's `warnings`,
+ *   `notes` and `error` in machine mode.
+ * - `report` carries the result: machine mode's document body.
+ * - The top-level prompts, like a block's, ask a person; in machine mode
+ *   calling one fails the command.
  */
 export interface Ui {
 	readonly mode: Mode;
@@ -228,12 +211,6 @@ export interface Ui {
 	report(body: object): void;
 	/** Ends the command with exit code 1, after the Next items queued so far. */
 	fail(message: Message, options?: FailOptions): never;
-
-	readonly log: Log;
-	intro(title: string): void;
-	outro(message: string): void;
-	spinner(): Spinner;
-	box(message: string, title: string): void;
 }
 
 /** A fresh terminal Ui, with no header, for a command run without one. */
@@ -288,17 +265,9 @@ export type MachineDocument = {
 } & Record<string, unknown>;
 
 const ignore = (): void => {};
-const silentSpinner: Spinner = { start: ignore, stop: ignore };
 
 export class MachineUi implements Ui {
 	readonly mode = "machine";
-	readonly log: Log = {
-		info: ignore,
-		warn: ignore,
-		error: ignore,
-		success: ignore,
-		message: ignore,
-	};
 	private readonly warnings: string[] = [];
 	private readonly notes: string[] = [];
 	private body: object = {};
@@ -320,10 +289,7 @@ export class MachineUi implements Ui {
 	header = ignore;
 	next = ignore;
 	close = ignore;
-	intro = ignore;
-	outro = ignore;
 	cancel = ignore;
-	box = ignore;
 
 	/** Draws nothing; asking about a row fails as any prompt does. */
 	block(): Block {
@@ -334,10 +300,6 @@ export class MachineUi implements Ui {
 			multiselect: (_asked, prompt) => this.multiselect(prompt),
 			confirm: (_asked, prompt) => this.confirm(prompt),
 		};
-	}
-
-	spinner(): Spinner {
-		return silentSpinner;
 	}
 
 	async select<T>(prompt: SelectPrompt<T>): Promise<T | null> {

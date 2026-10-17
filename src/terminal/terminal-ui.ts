@@ -4,11 +4,8 @@ import type {
 	Asked,
 	Block,
 	ConfirmPrompt,
-	FailOptions,
-	Log,
 	MultiselectPrompt,
 	SelectPrompt,
-	Spinner,
 	Tally,
 	Ui,
 } from "../ui.js";
@@ -38,7 +35,7 @@ import type { PromptContext, PromptOutput } from "./prompts/session.js";
 import { createStyle, detectColorLevel, type Style } from "./style.js";
 import { outcomeCount, tallyItems } from "./tally.js";
 import { startTask, type Task } from "./task.js";
-import type { BlockSubject, Header, NextItem, Row, Status } from "./types.js";
+import type { BlockSubject, Header, NextItem, Row } from "./types.js";
 
 /** The stdout a terminal run draws on. */
 export interface TerminalOutput extends PromptOutput {
@@ -84,13 +81,6 @@ interface Spinning {
  */
 export class TerminalUi implements Ui {
 	readonly mode = "interactive";
-	readonly log: Log = {
-		info: (message) => this.print(this.written("note", message)),
-		warn: (message) => this.print(this.written("attention", message)),
-		error: (message) => this.print(this.written("failed", message)),
-		success: (message) => this.print(this.written("done", message)),
-		message: (message) => this.print(this.written(undefined, message)),
-	};
 	private readonly options: TerminalUiOptions;
 	private readonly output: TerminalOutput;
 	private readonly style: Style;
@@ -250,10 +240,10 @@ export class TerminalUi implements Ui {
 
 	/**
 	 * Whatever spins clears first, and what it held prints; then the Next
-	 * items queued so far, and the error under them, in either style, a blank
-	 * line over it so it doesn't read as part of what's above.
+	 * items queued so far, and the error under them, a blank line over it so
+	 * it doesn't read as part of what's above.
 	 */
-	fail(message: Message, _options?: FailOptions): never {
+	fail(message: Message): never {
 		this.stopSpinning();
 		this.printSection([
 			...this.takeNext(),
@@ -261,55 +251,6 @@ export class TerminalUi implements Ui {
 			...this.message("error", message),
 		]);
 		throw new ExitSignal(1);
-	}
-
-	/** The header stands for the title. */
-	intro(_title: string): void {
-		this.header();
-	}
-
-	outro(message: string): void {
-		this.printSection(["", ...this.written(undefined, message)]);
-	}
-
-	box(message: string, title: string): void {
-		this.print([
-			...renderWritten(undefined, title, this.style, {
-				first: this.style.bold,
-			}),
-			...this.written(undefined, message),
-		]);
-	}
-
-	/** Once stopped, a stop does nothing until it starts again; a start while it spins changes what it says. */
-	spinner(): Spinner {
-		let message = "";
-		let spinning: Spinning | undefined;
-		let stopped = false;
-		return {
-			start: (text = "") => {
-				message = text;
-				stopped = false;
-				spinning ??= this.spin((frame) =>
-					renderProgress({ text: message }, frame, this.width(), this.style),
-				);
-			},
-			stop: (text, code = 0) => {
-				if (stopped) {
-					return;
-				}
-				stopped = true;
-				const lines = text
-					? this.written(code === 0 ? "done" : "failed", text)
-					: [];
-				if (spinning === undefined) {
-					this.print(lines);
-				} else {
-					spinning.settle(lines);
-					spinning = undefined;
-				}
-			},
-		};
 	}
 
 	/**
@@ -351,10 +292,6 @@ export class TerminalUi implements Ui {
 				? { first: this.style.bold, rest: this.style.dim }
 				: undefined;
 		return renderWritten(KIND_STATUS[kind], message, this.style, paint);
-	}
-
-	private written(status: Status | undefined, text: string): string[] {
-		return renderWritten(status, text, this.style);
 	}
 
 	/** Where a printed line waits: for the prompt's answer, or for the spinning task to settle. */

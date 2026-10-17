@@ -85,11 +85,11 @@ describe("the header", () => {
 		expect(term.output.text).toBe(`${HEADER_LINE}\n\n`);
 	});
 
-	it("is drawn once, however often it or intro is called", () => {
+	it("is drawn once, however often it's called", () => {
 		const { term, ui } = run();
-		ui.intro("agntc update");
 		ui.header();
-		ui.intro("agntc update");
+		ui.header();
+		ui.header();
 		expect(term.output.text).toBe(`${HEADER_LINE}\n\n`);
 	});
 
@@ -97,7 +97,6 @@ describe("the header", () => {
 		const term = new Terminal();
 		const ui = new TerminalUi({ output: term.output, env: {} });
 		ui.header();
-		ui.intro("agntc add");
 		expect(term.output.text).toBe("");
 	});
 
@@ -144,7 +143,7 @@ describe("a block", () => {
 			status: "done",
 			subject: "owner/alpha",
 		});
-		ui.log.info("checked");
+		ui.note("checked");
 		ui.block([{ subject: "owner/beta" }]).row({
 			status: "done",
 			subject: "owner/beta",
@@ -239,20 +238,14 @@ describe("a task", () => {
 
 	it("pauses the task it starts under, which spins again once it ends", async () => {
 		const { term, ui } = run();
-		const outer = ui.block(SUBJECTS).task(PROGRESS);
-		const clone = ui.spinner();
-		clone.start("Cloning repository...");
-		expect(await term.lines()).toEqual([" ⠁ Cloning repository..."]);
-		clone.stop("Cloned successfully");
-		expect(await term.lines()).toEqual([
-			" ✓ Cloned successfully",
-			spinning("⠁"),
-		]);
+		const block = ui.block(SUBJECTS);
+		const outer = block.task(PROGRESS);
+		const clone = block.task({ text: "cloning…" });
+		expect(await term.lines()).toEqual([" ⠁ cloning…"]);
+		clone.clear();
+		expect(await term.lines()).toEqual([spinning("⠁")]);
 		outer.settle(SETTLED);
-		expect(await term.lines()).toEqual([
-			" ✓ Cloned successfully",
-			SETTLED_LINE,
-		]);
+		expect(await term.lines()).toEqual([SETTLED_LINE]);
 	});
 
 	it("pauses for a prompt, which draws alone, and spins again once it's answered", async () => {
@@ -566,11 +559,11 @@ describe("end", () => {
 
 	it("prints the Next items a run ended without closing on", async () => {
 		const { term, ui } = run();
-		ui.log.error("laravel can't be updated");
+		ui.warn("laravel can't be updated");
 		ui.next(ABORT);
 		ui.end();
 		expect(await term.lines()).toEqual([
-			" ✗ laravel can't be updated",
+			" ! laravel can't be updated",
 			...NEXT_LINES,
 		]);
 	});
@@ -578,7 +571,7 @@ describe("end", () => {
 	it("clears what spins, prints what it held, then the Next items", async () => {
 		const { term, ui } = run();
 		ui.next(ABORT);
-		ui.spinner().start("Cloning repository...");
+		ui.block([]).task({ text: "Cloning repository..." });
 		ui.note("held");
 		ui.end();
 		expect(await term.lines()).toEqual([" · held", ...NEXT_LINES]);
@@ -652,17 +645,6 @@ describe("fail", () => {
 		expect(await term.lines()).toEqual([" ✗ couldn't clone o/r"]);
 	});
 
-	it("prints a cancel-style failure as an error too", async () => {
-		const { term, ui } = run();
-		failure(() => ui.fail("--skill and --all can't be combined"));
-		failure(() => ui.fail("not installed", { style: "error" }));
-		expect(await term.lines()).toEqual([
-			" ✗ --skill and --all can't be combined",
-			"",
-			" ✗ not installed",
-		]);
-	});
-
 	it("puts the message in bold", () => {
 		const { term, ui } = run({ env: COLOR });
 		failure(() => ui.fail("broken"));
@@ -671,12 +653,12 @@ describe("fail", () => {
 
 	it("prints after the Next items queued so far, and empties the queue", async () => {
 		const { term, ui } = run();
-		ui.log.error("laravel can't be updated");
+		ui.warn("laravel can't be updated");
 		ui.next(ABORT);
 		failure(() => ui.fail("broken"));
 		ui.end();
 		expect(await term.lines()).toEqual([
-			" ✗ laravel can't be updated",
+			" ! laravel can't be updated",
 			...NEXT_LINES,
 			"",
 			" ✗ broken",
@@ -732,7 +714,7 @@ describe("fail", () => {
 
 	it("clears what spins first, and prints what it held", async () => {
 		const { term, ui } = run();
-		ui.spinner().start("Cloning repository...");
+		ui.block([]).task({ text: "Cloning repository..." });
 		ui.note("held");
 		failure(() => ui.fail("broken"));
 		expect(await term.lines()).toEqual([" · held", "", " ✗ broken"]);
@@ -740,155 +722,7 @@ describe("fail", () => {
 	});
 });
 
-describe("the old surface", () => {
-	it.each([
-		["info", " · a line"],
-		["warn", " ! a line"],
-		["error", " ✗ a line"],
-		["success", " ✓ a line"],
-		["message", " a line"],
-	] as const)("draws log.%s as a plain row", async (channel, line) => {
-		const { term, ui } = run();
-		ui.log[channel]("a line");
-		expect(await term.lines()).toEqual([line]);
-	});
-
-	it("keeps a log's lines and their indentation as written", async () => {
-		const { term, ui } = run();
-		ui.log.success("Installed alpha\nInstalled beta");
-		ui.log.info("Pinned to v1.0.0. Newer tags available:");
-		ui.log.message("  v1.2.0");
-		expect(await term.lines()).toEqual([
-			" ✓ Installed alpha",
-			"   Installed beta",
-			" · Pinned to v1.0.0. Newer tags available:",
-			"   v1.2.0",
-		]);
-	});
-
-	it("paints each log's glyph in its colour, the words as they are", () => {
-		const { term, ui } = run({ env: COLOR });
-		ui.log.info("i");
-		ui.log.warn("w");
-		ui.log.error("e");
-		ui.log.success("s");
-		expect(term.output.text).toBe(
-			[
-				` ${DIM}·${NORMAL} i`,
-				` \x1b[33m!${FG} w`,
-				` \x1b[31m✗${FG} e`,
-				` \x1b[32m✓${FG} s`,
-				"",
-			].join("\n"),
-		);
-	});
-
-	it("closes with outro's words under a blank line", async () => {
-		const { term, ui } = run();
-		ui.log.success("Installed alpha");
-		ui.outro("Everything is up to date.");
-		expect(await term.lines()).toEqual([
-			" ✓ Installed alpha",
-			"",
-			" Everything is up to date.",
-		]);
-	});
-
-	it("draws box as its title in bold with the message under it", () => {
-		const { term, ui } = run({ env: COLOR });
-		ui.box("  - .claude/skills/a/\n  - .claude/skills/b/", 'Files for "o/r"');
-		expect(term.output.text).toBe(
-			` ${BOLD}Files for "o/r"${NORMAL}\n   - .claude/skills/a/\n   - .claude/skills/b/\n`,
-		);
-	});
-
-	describe("spinner", () => {
-		beforeEach(() => {
-			vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-		});
-
-		afterEach(() => {
-			vi.useRealTimers();
-		});
-
-		it("spins its message dim, the frame in the accent", () => {
-			const { term, ui } = run({ env: COLOR });
-			ui.spinner().start("Cloning repository...");
-			expect(term.output.text).toBe(
-				`${HIDE}${CLEAR} ${ACCENT}⠁${FG} ${DIM}Cloning repository...${NORMAL}`,
-			);
-		});
-
-		it.each([
-			[0, " ✓ Cloned successfully"],
-			[2, " ✗ Cloned successfully"],
-		])("leaves its stop message as a row, at code %i", async (code, line) => {
-			const { term, ui } = run();
-			const spin = ui.spinner();
-			spin.start("Cloning repository...");
-			vi.advanceTimersByTime(160);
-			spin.stop("Cloned successfully", code);
-			expect(await term.lines()).toEqual([line]);
-			expect(term.output.text.endsWith(`\n${SHOW}`)).toBe(true);
-		});
-
-		it("clears and leaves nothing when stopped without a message", async () => {
-			const { term, ui } = run();
-			const spin = ui.spinner();
-			spin.start("Checking for updates...");
-			spin.stop();
-			expect(await term.lines()).toEqual([]);
-		});
-
-		it("leaves a row when stopped without being started", async () => {
-			const { term, ui } = run();
-			ui.spinner().stop("Update checks complete.");
-			expect(await term.lines()).toEqual([" ✓ Update checks complete."]);
-		});
-
-		it("leaves one row however often it's stopped, until it starts again", async () => {
-			const { term, ui } = run();
-			const spin = ui.spinner();
-			spin.start("Cloning repository...");
-			spin.stop("Cloned successfully");
-			spin.stop("Cloned successfully");
-			spin.start("Copying skill files...");
-			spin.stop("Copied successfully");
-			expect(await term.lines()).toEqual([
-				" ✓ Cloned successfully",
-				" ✓ Copied successfully",
-			]);
-		});
-
-		it("says what a second start says, spinning on the one line", async () => {
-			const { term, ui } = run();
-			const spin = ui.spinner();
-			spin.start("Cloning repository...");
-			spin.start("Fetching tags...");
-			vi.advanceTimersByTime(80);
-			expect(await term.lines()).toEqual([" ⠂ Fetching tags..."]);
-			spin.stop("Fetched tags");
-			ui.note("nothing spins now");
-			expect(await term.lines()).toEqual([
-				" ✓ Fetched tags",
-				" · nothing spins now",
-			]);
-		});
-	});
-});
-
 describe("blank lines", () => {
-	it("leave out outro's own under the header's", async () => {
-		const { term, ui } = run();
-		ui.header();
-		ui.outro("No skills or packs installed.");
-		expect(await term.lines()).toEqual([
-			HEADER_LINE,
-			"",
-			" No skills or packs installed.",
-		]);
-	});
-
 	it("never end a cancel or a written message", () => {
 		const { term, ui } = run();
 		ui.cancel("Clone failed: fatal: repository not found\n");

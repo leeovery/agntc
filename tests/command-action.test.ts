@@ -171,7 +171,7 @@ describe("commandAction", () => {
 			const io = fakeIo(true);
 
 			await act(async (ui) => {
-				ui.intro("agntc add");
+				ui.header();
 				ui.header();
 			}, io);
 
@@ -188,7 +188,7 @@ describe("commandAction", () => {
 				const io = fakeIo(true);
 
 				await act(async (ui) => {
-					ui.spinner().start("Cloning repository...");
+					ui.block([]).task({ text: "Cloning repository..." });
 					ui.note("held under the spinner");
 					await ending();
 				}, io);

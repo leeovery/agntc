@@ -505,7 +505,7 @@ describe("executeUpdateAction", () => {
 			await update(key, entry);
 
 			expect(written()[key]).toMatchObject({ sourceSubpath: "skills/go" });
-			expect(ui.said("info")).toEqual([
+			expect(ui.said("note")).toEqual([
 				"owner/repo/go moved from go to skills/go",
 			]);
 			expect(mockCopyBareSkill).toHaveBeenCalledWith(
@@ -535,7 +535,7 @@ describe("executeUpdateAction", () => {
 			});
 
 			expect(result).toEqual({ key: "owner/repo/repo", change: "updated" });
-			expect(ui.said("info")).toEqual([
+			expect(ui.said("note")).toEqual([
 				"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
 			]);
 			expect(mockWriteManifest).toHaveBeenCalledOnce();
@@ -782,19 +782,5 @@ describe("executeUpdateAction", () => {
 		expect(ui.warn).toHaveBeenCalledWith(
 			"couldn't record owner/repo: EROFS: read-only",
 		);
-	});
-
-	it("never draws through the old surface", async () => {
-		cloned();
-		mockCopyBareSkill.mockResolvedValue({
-			copiedFiles: [".claude/skills/my-skill/"],
-		});
-
-		await update("owner/repo", makeEntry());
-
-		expect(ui.spinner).not.toHaveBeenCalled();
-		for (const channel of Object.values(ui.log)) {
-			expect(channel).not.toHaveBeenCalled();
-		}
 	});
 });

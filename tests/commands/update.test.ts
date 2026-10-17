@@ -500,7 +500,6 @@ describe("update command", () => {
 			await runUpdate(undefined, {}, ui);
 
 			expect(ui.header).toHaveBeenCalledOnce();
-			expect(ui.intro).not.toHaveBeenCalled();
 		});
 
 		it("opens on the header (single-key mode)", async () => {
@@ -509,7 +508,6 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			expect(ui.header).toHaveBeenCalledOnce();
-			expect(ui.intro).not.toHaveBeenCalled();
 		});
 	});
 
@@ -1033,7 +1031,6 @@ describe("update command", () => {
 
 			// One progress line frames the group resolution and clears; the
 			// group's own task spins where its row settles. No clone spinner.
-			expect(ui.spinner).not.toHaveBeenCalled();
 			expect(progress()).toEqual([
 				{ text: "checking for updates…" },
 				{ subject: "owner/repo", meta: "HEAD", text: "updating to bbbbbbb…" },
@@ -1064,8 +1061,6 @@ describe("update command", () => {
 			});
 
 			await runUpdate("owner/repo", {}, ui);
-
-			expect(ui.spinner).not.toHaveBeenCalled();
 			expect(progress()).toEqual([
 				{ subject: "owner/repo", meta: "HEAD", text: "checking for updates…" },
 				{ subject: "owner/repo", meta: "HEAD", text: "updating to bbbbbbb…" },
@@ -2330,9 +2325,6 @@ describe("update command", () => {
 			expect((err as ExitSignal).code).toBe(1);
 			expect(ui.fail).toHaveBeenCalledExactlyOnceWith(
 				"owner/repo is not installed.",
-				{
-					style: "error",
-				},
 			);
 		});
 	});
@@ -2359,7 +2351,7 @@ describe("update command", () => {
 		it("single-key update of a v4-branch entry that is up-to-date exits 0", async () => {
 			// Cross-surface recovery: a branch ref that looks like a tag ("v4") now
 			// resolves to a real status. The single-key path must take the up-to-date
-			// branch (outro + exit 0), NOT the check-failed exit-1 branch it hit
+			// branch (its row + exit 0), NOT the check-failed exit-1 branch it hit
 			// before Task 1.2's classification fix.
 			mockReadManifestOrExit.mockResolvedValue({
 				"nuxt/ui": makeEntry({ ref: "v4", commit: INSTALLED_SHA }),
@@ -4592,7 +4584,7 @@ describe("update command", () => {
 			);
 		});
 
-		it("single-key exact-pin standalone outros npx agntc add owner/repo@<newest>", async () => {
+		it("single-key exact-pin standalone queues npx agntc add owner/repo@<newest>", async () => {
 			// Regression-lock (task 4-2): the single-key path for an exact-pin
 			// standalone stays key-scoped — it suggests the newest tag as
 			// `add owner/repo@v3.0` (update.ts:151, pre-existing), NEVER the bare
@@ -4619,7 +4611,7 @@ describe("update command", () => {
 			]);
 		});
 
-		it("single-key exact-pin collection member outros npx agntc add owner/repo/<member>@<newest>", async () => {
+		it("single-key exact-pin collection member queues npx agntc add owner/repo/<member>@<newest>", async () => {
 			// Regression-lock (task 4-2): a single-key COLLECTION MEMBER stays
 			// member-scoped — the command targets the one plugin
 			// (`add owner/repo/go@v3.0`), NOT the repo-level collapse
@@ -5042,9 +5034,6 @@ describe("update command", () => {
 			expect((err as ExitSignal).code).toBe(1);
 			expect(ui.fail).toHaveBeenCalledExactlyOnceWith(
 				"nonexistent/repo is not installed.",
-				{
-					style: "error",
-				},
 			);
 		});
 

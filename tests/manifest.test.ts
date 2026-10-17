@@ -1180,7 +1180,7 @@ describe("readManifestOrExit", () => {
 
 		await readManifestOrExit(testDir, ui).catch(() => {});
 
-		expect(ui.said("error")).toEqual([
+		expect(ui.said("fail")).toEqual([
 			expect.stringContaining("Failed to read manifest:"),
 		]);
 	});
@@ -1194,7 +1194,7 @@ describe("readManifestOrExit", () => {
 		try {
 			await readManifestOrExit(testDir, ui).catch(() => {});
 
-			expect(ui.said("error")).toEqual([
+			expect(ui.said("fail")).toEqual([
 				expect.stringMatching(/Failed to read manifest:.*permission/i),
 			]);
 		} finally {

@@ -187,8 +187,6 @@ export async function readManifestOrExit(
 	ui: Ui,
 ): Promise<Manifest> {
 	return readManifest(installRoot).catch((err: unknown) =>
-		ui.fail(`Failed to read manifest: ${errorMessage(err)}`, {
-			style: "error",
-		}),
+		ui.fail(`Failed to read manifest: ${errorMessage(err)}`),
 	);
 }

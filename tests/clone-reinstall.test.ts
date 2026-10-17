@@ -92,14 +92,11 @@ const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
 import { makeEntry } from "./helpers/factories.js";
-import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const REMOTE_SHA = "b".repeat(40);
-let ui: TestUi;
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	ui = testUi();
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockPathExists.mockResolvedValue(true);
@@ -245,7 +242,6 @@ describe("reinstallEntry", () => {
 				status: "success",
 				assetCounts: { skills: 1 },
 			});
-			expect(ui.spinner).not.toHaveBeenCalled();
 		});
 	});
 

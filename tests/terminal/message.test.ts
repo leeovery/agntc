@@ -216,13 +216,6 @@ describe("renderWritten", () => {
 		).toEqual([" ! first", "     - indented", "", `   ${long}`]);
 	});
 
-	it("puts every line at the margin without a status", () => {
-		expect(renderWritten(undefined, "Header\n  a file", plain)).toEqual([
-			" Header",
-			"   a file",
-		]);
-	});
-
 	it("paints the glyph in its colour, the first line and the rest as given", () => {
 		expect(
 			renderWritten("failed", "broken\nfatal: no", color, {
@@ -234,8 +227,11 @@ describe("renderWritten", () => {
 			"   \x1b[2mfatal: no\x1b[22m",
 		]);
 		expect(
-			renderWritten(undefined, "title\nsubtitle", color, { first: color.bold }),
-		).toEqual([" \x1b[1mtitle\x1b[22m", " \x1b[1msubtitle\x1b[22m"]);
+			renderWritten("done", "title\nsubtitle", color, { first: color.bold }),
+		).toEqual([
+			" \x1b[32m✓\x1b[39m \x1b[1mtitle\x1b[22m",
+			"   \x1b[1msubtitle\x1b[22m",
+		]);
 	});
 
 	it("leaves off the blank lines a text ends with", () => {

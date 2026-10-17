@@ -45,11 +45,13 @@ describe("testUi", () => {
 		const ui = testUi();
 
 		ui.warn(RICH);
-		ui.log.warn("a plain warning");
-		expect(() => ui.fail(RICH, { style: "error" })).toThrow(ExitSignal);
+		ui.warn("a plain warning");
+		ui.note("a note");
+		expect(() => ui.fail(RICH)).toThrow(ExitSignal);
 
 		expect(ui.said("warn")).toEqual([RICH.plain, "a plain warning"]);
-		expect(ui.said("error")).toEqual([RICH.plain]);
+		expect(ui.said("note")).toEqual(["a note"]);
+		expect(ui.said("fail")).toEqual([RICH.plain]);
 	});
 
 	it("answers a block's question as the ui's own of its kind is scripted, keeping the row it's asked under", async () => {

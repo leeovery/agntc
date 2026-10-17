@@ -172,23 +172,28 @@ Uses nuke-and-reinstall: deletes the install's files, re-clones at the resolved 
 - **Gone upstream.** A skill or declared pack that no longer exists upstream prompts `remove it?`. Yes deletes it; no keeps it at its last version and asks again next time. `-y` removes without asking. Without a terminal and without `-y`, it's kept and reported. Gone upstream is never an error.
 - **Packs absorb loose skills.** When a pack now holds a skill you installed on its own from the same repo, the pack takes it over and the loose entry goes.
 
-**Update-all is grouped and streamed.** Installs from the same repo at the same version intent are checked once and cloned once per group. A key naming several installs, such as `update owner/repo` over its loose skills, updates those installs the same way. Progress streams under a header per group, then a trailing summary:
+**Update-all is grouped and streamed.** Installs from the same repo at the same version intent are checked once and cloned once per group. A key naming several installs, such as `update owner/repo` over its loose skills, updates those installs the same way. Each group is a row that spins while it updates, then settles with its members beneath; Next lists what you can do about the run, and a tally closes it:
 
 ```
-◒ Checking for updates...
-◒ Updating leeovery/agentic-skills  v1.2.3 -> v1.3.0  (3 members)
-   ✓ go
-   ✓ python
-   ✓ laravel
-✓ leeovery/standalone-tool: Updated v1.4.0 -> v1.5.0
+ ✓ leeovery/agentic-skills      ^1.2.3   v1.2.3 → v1.3.0
+   ├─ go                                 skill
+   ├─ python                             skill
+   └─ laravel                            pack · 14 skills
+ ✓ leeovery/standalone-tool     ^1.4.0   v1.4.0 → v1.5.0
+   └─ standalone-tool                    skill
+ ○ leeovery/agentic-workflows   ^1.4.0   up to date
 
-leeovery/agentic-skills: 4 up to date
-Newer versions outside constraints:
-  leeovery/agentic-workflows  v1.4.0 -> v2.0.0 available. To upgrade: npx agntc add leeovery/agentic-workflows --pack
+ Next
+   leeovery/agentic-workflows — newer version outside the constraint: v1.4.0 → v2.0.0 available. To
+   upgrade:
+     npx agntc add leeovery/agentic-workflows --pack
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────
+ 4 updated  ·  1 up to date                                                                    2.4s
 ```
 
 - **Version moves render in tags** when both refs are semver tags and the ref moved; branch and HEAD-tracked updates show short commit hashes.
-- **The trailing summary collapses to one line per group** for up-to-date, newer-tags, check-failed and no-matching-version installs.
+- **A group left alone is one row**: up to date, newer tags, not checked, or no tags in range.
 - **Newer versions print the command to reach them.** A major bump (or a 0.x minor bump) outside your constraint prints a bare re-add, which re-establishes the caret at the new major; a tag-pinned install with newer tags prints a re-add at `@<newest>`. The command matches what you installed: its path, `--pack` for a pack, and several loose skills from one repo on one `--skill` line. These are informative and exit 0.
 - An aborted, blocked or failed install exits non-zero, and the rest still update.
 - A dead remote or a stuck constraint warns and exits 0 when updating all, and exits non-zero when updating by key, whether the key names one install or several.
@@ -201,7 +206,7 @@ Interactive dashboard with update status and inline actions.
 npx agntc@latest list
 ```
 
-Each install is listed with its key and version; the highlighted one shows its status: `✓ up to date`, `↑ update available`, `⚑ newer tags`, `● local`, `✗ check failed` or `✗ no matching version`.
+Installs are listed under their repo, each with its name, kind, version and status: `✓ up to date`, `↑ <version>` when an update is available, `! newer tags`, `◇ local`, `✗ check failed` or `✗ no matching version`.
 
 Select an install for a detail view with actions: Update, Remove, Change version, Back. The detail view shows the constraint and any version outside it. "Change version" lets you pick any tag and strips the constraint (pins to that tag).
 

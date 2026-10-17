@@ -530,7 +530,7 @@ describe("integration: add and update", () => {
 				type: "skill",
 				files: [".claude/skills/swift/"],
 			});
-			expect(ui.said("info")).toEqual([
+			expect(ui.said("note")).toEqual([
 				"avdlee/skills/swift is a single skill — reinstalled as a skill",
 			]);
 		});
@@ -903,7 +903,7 @@ describe("integration: add and update", () => {
 
 				await runUpdate(undefined, {}, ui);
 
-				expect(ui.said("error")).toEqual([]);
+				expect(ui.said("fail")).toEqual([]);
 				expect(await sharedText()).toBe("v1");
 				expect(await installedFiles()).toEqual(
 					[
@@ -1227,7 +1227,7 @@ describe("integration: add and update", () => {
 				expect(await savedManifest()).toEqual(before);
 				expect(await looseText()).toBe("loose");
 				expect(await installed(".claude/skills/shared/notes.md")).toBe(false);
-				expect(ui.said("info")).not.toContainEqual(
+				expect(ui.said("note")).not.toContainEqual(
 					expect.stringContaining("now includes shared"),
 				);
 			});
@@ -1253,7 +1253,7 @@ describe("integration: add and update", () => {
 					"owner/repo/laravel",
 				]);
 				expect(await looseText()).toBe("the pack's");
-				expect(ui.said("info")).toEqual([
+				expect(ui.said("note")).toEqual([
 					"owner/repo/laravel now includes shared, installed on its own before",
 				]);
 			});

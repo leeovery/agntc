@@ -340,7 +340,7 @@ describe("the terminal ui's prompts", () => {
 
 	it("open with nothing spinning, and the spinner back once answered", async () => {
 		const { term, ui } = run();
-		ui.spinner().start("Copying skill files...");
+		ui.block([]).task({ text: "Copying skill files..." });
 		ui.note("held while it spins");
 		let seen = "";
 		vi.mocked(promptConfirm).mockImplementationOnce(async () => {
@@ -358,15 +358,15 @@ describe("the terminal ui's prompts", () => {
 
 	it("leave nothing spinning when the prompt throws, and spin again", async () => {
 		const { term, ui } = run();
-		const spin = ui.spinner();
-		spin.start("Copying skill files...");
+		const block = ui.block([{ subject: "owner/repo" }]);
+		const task = block.task({ text: "Copying skill files..." });
 		vi.mocked(promptSelect).mockRejectedValueOnce(new Error("stdin closed"));
 
 		await expect(
 			ui.select({ message: "Pick", options: OPTIONS }),
 		).rejects.toThrow("stdin closed");
-		spin.stop("Copied successfully");
+		task.settle({ status: "done", subject: "owner/repo" });
 
-		expect(await term.lines()).toEqual([" ✓ Copied successfully"]);
+		expect(await term.lines()).toEqual([" ✓ owner/repo"]);
 	});
 });
