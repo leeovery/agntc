@@ -1,9 +1,11 @@
+import { mkdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
 	commit,
 	git,
 	inertCommits,
 	recordHead,
+	repoPath,
 	run,
 	script,
 	useScriptRepo,
@@ -61,6 +63,13 @@ describe("scripts/gated", () => {
 		["scripts/new"],
 		["biome.json"],
 		["src/README.md"],
+		["src/design/x.ts"],
+		["src/.claude/x.ts"],
+		["src/.workflows/x.ts"],
+		["tests/CLAUDE.md"],
+		["tsconfig.json"],
+		["tsconfig.test.json"],
+		["tsup.config.ts"],
 		["docs/guide.md"],
 	])("runs the gate when a commit since the recorded tree changes %s", (path) => {
 		recordHead();
@@ -69,7 +78,7 @@ describe("scripts/gated", () => {
 		const { status, output } = run("gated");
 
 		expect(status).toBe(0);
-		expect(output).toContain("(it changes code): running them");
+		expect(output).toContain("(it changes code): running the gates");
 		expect(output).toContain("stub gate ran");
 	});
 
@@ -83,7 +92,7 @@ describe("scripts/gated", () => {
 		const { status, output } = run("gated");
 
 		expect(status).toBe(0);
-		expect(output).toContain("(a merge): running them");
+		expect(output).toContain("(a merge): running the gates");
 		expect(output).toContain("stub gate ran");
 	});
 
@@ -93,7 +102,9 @@ describe("scripts/gated", () => {
 
 		const { output } = run("gated");
 
-		expect(output).toContain("(the first commit): running them");
+		expect(output).toContain(
+			"(the first commit, or a shallow clone's boundary): running the gates",
+		);
 		expect(output).toContain("stub gate ran");
 	});
 
@@ -120,14 +131,28 @@ describe("scripts/gated", () => {
 	it.each([
 		["a changed tracked file", () => write("src/cli.ts", "dirty")],
 		["an untracked file", () => write("src/new.ts", "new")],
-	])("runs the gate when the checkout has %s outside the inert paths", (_, dirty) => {
+		[
+			"a staged change, nothing unstaged",
+			() => {
+				write("src/cli.ts", "staged");
+				git("add", "src/cli.ts");
+			},
+		],
+		[
+			"a staged rename from code onto an inert path",
+			() => {
+				mkdirSync(repoPath("design"));
+				git("mv", "src/cli.ts", "design/cli.ts");
+			},
+		],
+	])("runs the gate when the checkout has %s", (_, dirty) => {
 		recordHead();
 		dirty();
 
 		const { output } = run("gated");
 
 		expect(output).toContain(
-			"the checkout has changes outside the inert paths: running them",
+			"the checkout has changes outside the inert paths: running the gates",
 		);
 		expect(output).toContain("stub gate ran");
 	});

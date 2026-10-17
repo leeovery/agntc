@@ -8,6 +8,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,8 +19,8 @@ const SCRIPTS = resolve(import.meta.dirname, "../../scripts");
 
 // npm as the gates call it: each call logged, and failing when NPM_FAIL
 // names it. ci installs, writing npm's record of the install, before it
-// would fail; test writes the file NPM_TOUCH names, as a checkout changing
-// under the gates.
+// would fail; test writes the file NPM_TOUCH names, or commits one when
+// NPM_COMMIT is set, as a checkout changing under the gates.
 const FAKE_NPM = `#!/usr/bin/env bash
 echo "$*" >>"$NPM_LOG"
 if [ "$1" = ci ]; then
@@ -30,8 +31,39 @@ fi
 if [ "$1" = test ] && [ -n "\${NPM_TOUCH:-}" ]; then
 	echo touched >"$NPM_TOUCH"
 fi
+if [ "$1" = test ] && [ -n "\${NPM_COMMIT:-}" ]; then
+	echo moved >src/moved.ts
+	git add src/moved.ts
+	git commit -qm moved
+fi
 [ "$*" != "\${NPM_FAIL:-}" ]
 `;
+
+// node and uname as the gate's stamp reads them, from FAKE_NODE_VERSION and
+// FAKE_UNAME; node runs anything else as the real one does.
+const FAKE_NODE = `#!/usr/bin/env bash
+if [ "$1" = --version ]; then
+	echo "\${FAKE_NODE_VERSION:-v24.0.0}"
+	exit 0
+fi
+exec "${process.execPath}" "$@"
+`;
+const FAKE_UNAME = `#!/usr/bin/env bash
+echo "\${FAKE_UNAME:-Darwin arm64}"
+`;
+
+// The import check, logged as the gates are.
+const STUB_DECLARED_IMPORTS = `import { appendFileSync } from "node:fs";
+appendFileSync(process.env.NPM_LOG, "declared-imports\\n");
+`;
+
+/** What scripts/gate runs after npm ci, in order, as the call log names it. */
+export const GATES = ["declared-imports", "run typecheck", "run build", "test"];
+
+function tool(name: string, content: string): void {
+	writeFileSync(join(bin, name), content);
+	chmodSync(join(bin, name), 0o755);
+}
 
 let root: string;
 let repo: string;
@@ -43,6 +75,30 @@ function enter(dir: string): void {
 	repo = join(root, "repo");
 	bin = join(root, "bin");
 	npmLog = join(root, "npm.log");
+}
+
+/** A script repo holding scripts/gate, its import check stubbed, committed. */
+export function useGateRepo(): void {
+	useScriptRepo(() => {
+		script("gate");
+		script("declared-imports.mjs", STUB_DECLARED_IMPORTS);
+		commit(
+			{
+				".gitignore": "node_modules/\ndist/\n",
+				"package.json": "{}",
+				"package-lock.json": "{}",
+				"src/cli.ts": "one",
+			},
+			"first",
+		);
+	});
+}
+
+/** Writes a file dated a minute ahead, so newer than anything the gate wrote. */
+export function writeLater(path: string): void {
+	write(path, "later");
+	const later = new Date(Date.now() + 60_000);
+	utimesSync(repoPath(path), later, later);
 }
 
 /**
@@ -58,8 +114,9 @@ export function useScriptRepo(setup: () => void): void {
 		enter(template);
 		mkdirSync(repo);
 		mkdirSync(bin);
-		writeFileSync(join(bin, "npm"), FAKE_NPM);
-		chmodSync(join(bin, "npm"), 0o755);
+		tool("npm", FAKE_NPM);
+		tool("node", FAKE_NODE);
+		tool("uname", FAKE_UNAME);
 		git("init", "-q", "-b", "main");
 		setup();
 	});
@@ -94,6 +151,11 @@ function env(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 		...kept,
 		GIT_CONFIG_GLOBAL: "/dev/null",
 		GIT_CONFIG_NOSYSTEM: "1",
+		// A commit otherwise starts maintenance in the background, which can
+		// still hold a lock file in .git as the next test copies the template.
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: "maintenance.auto",
+		GIT_CONFIG_VALUE_0: "false",
 		GIT_AUTHOR_NAME: "test",
 		GIT_AUTHOR_EMAIL: "test@example.com",
 		GIT_COMMITTER_NAME: "test",
@@ -190,12 +252,12 @@ export function recordHead(): void {
 	});
 }
 
-/** The npm calls made since the last `forgetNpmCalls`. */
-export function npmCalls(): string[] {
+/** The npm calls made since the last `forgetGateCalls`. */
+export function gateCalls(): string[] {
 	return lines(npmLog);
 }
 
-export function forgetNpmCalls(): void {
+export function forgetGateCalls(): void {
 	rmSync(npmLog, { force: true });
 }
 

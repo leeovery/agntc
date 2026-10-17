@@ -33,6 +33,9 @@ diff_exclude = [
 # pushed, so without this a broken build/test would leave an orphaned tag +
 # GitHub release. scripts/gated passes at once a commit whose tree
 # scripts/gate recorded as passing every gate, or one that changes only docs
-# and the like since such a tree; anything else runs every gate in full, on
-# node_modules as a clean install leaves them, as the CI job does.
+# and the like since such a tree; anything else runs every gate in full,
+# after an npm ci unless node_modules is still as the gate's own last npm ci
+# left it, and with a check that package.json declares every package src/ and
+# tests/ import. mint shows only the hook's exit, so run scripts/gated
+# directly to see why it failed.
 pre_tag = ['scripts/gated']

@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 #
-# Runs every gate, in the CI job's order, stopping at the first that fails:
-# npm run typecheck, npm run build and npm test, on node_modules as npm ci
-# installs them from package-lock.json. npm ci runs first unless
-# node_modules carries the stamp this script left after its own npm ci on
-# the same package.json, package-lock.json, node and platform, with npm's
-# record of node_modules (node_modules/.package-lock.json) unchanged since,
-# so any install npm has made there since forces a clean one again.
+# Runs every gate, stopping at the first that fails: scripts/declared-imports.mjs,
+# then npm run typecheck, npm run build and npm test in the CI job's order,
+# on node_modules as npm ci installs them from package-lock.json. npm ci
+# runs first unless node_modules carries the stamp this script left after
+# its own npm ci on the same package.json, package-lock.json, node and
+# platform, with npm's record of node_modules (node_modules/.package-lock.json)
+# unchanged since and nothing in node_modules newer than the stamp but the
+# caches vitest keeps there, so any install npm has made since, or any edit
+# by hand, forces a clean one again.
 # When every gate passes on a checkout that was clean as they began and
-# still is, nothing changed and nothing untracked but what git ignores, the
-# tree they passed on is recorded in the git common directory, at
-# agntc/gated, one hash a line, shared by every worktree. scripts/gated, the
-# release's gate, reads it to pass a tree already gated. A checkout with
-# changes runs the gates all the same, but records nothing: its tree isn't
-# the one they checked.
+# still is, the tree they passed on is recorded in the git common directory,
+# at agntc/gated, one hash a line, shared by every worktree. Clean means
+# git sees no change, submodules and every untracked file included, marks
+# no file to skip or assume unchanged, and ignores nothing in src/ or
+# tests/. scripts/gated, the release's gate, reads it to pass a tree
+# already gated. A checkout with changes runs the gates all the same, but
+# records nothing: its tree isn't the one they checked.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -22,10 +25,13 @@ cd "$repo"
 record=$(git rev-parse --path-format=absolute --git-common-dir)/agntc/gated
 stamp=node_modules/.agntc-gate
 
-# clean reports whether the checkout has no changes, untracked files
-# included, ignored ones not.
+# clean reports whether the checkout holds nothing a fresh clone of its
+# tree wouldn't: no change git sees, however it is configured, no file it
+# is told to pass over, and nothing ignored where the gates read.
 clean() {
-	[ -z "$(git status --porcelain)" ]
+	[ -z "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ] &&
+		[ -z "$(git ls-files -v | grep '^[a-zS] ')" ] &&
+		[ -z "$(git ls-files --others --ignored --exclude-standard -- src tests)" ]
 }
 
 # run runs a gate, and on its failure says so and exits with its status.
@@ -48,17 +54,26 @@ installed() {
 		uname -sm
 }
 
+# untouched reports whether nothing in node_modules is newer than the stamp,
+# vitest's caches aside, as the gates write those themselves.
+untouched() {
+	[ -z "$(find node_modules -mindepth 1 \
+		\( -path node_modules/.vite -o -path node_modules/.vite-temp \) -prune \
+		-o -newer "$stamp" -print)" ]
+}
+
 tree=$(git rev-parse 'HEAD^{tree}')
 began_clean=true
 clean || began_clean=false
 
-if [ -f "$stamp" ] && [ "$(installed)" = "$(<"$stamp")" ]; then
+if [ -f "$stamp" ] && [ "$(installed)" = "$(<"$stamp")" ] && untouched; then
 	echo "gate: node_modules is as npm ci installed it from package-lock.json"
 else
 	rm -f "$stamp"
 	run npm ci
 	installed >"$stamp"
 fi
+run node scripts/declared-imports.mjs
 run npm run typecheck
 run npm run build
 run npm test

@@ -8,10 +8,10 @@
 # tests/, tsup bundles what src/cli.ts imports, and vitest runs only
 # tests/). Anything else, package.json and the lockfile among them, is read
 # by a gate. The walk back, along first parents, stops at a commit that
-# changes anything else, at a merge, at the first commit, or after 50
-# commits, and then the gates run in full, through scripts/gate, as they do
-# when the checkout has changes of its own outside the inert paths,
-# untracked files included.
+# changes anything else, at a merge, at the first commit (or a shallow
+# clone's boundary), or after 50 commits, and then the gates run in full,
+# through scripts/gate, as they do when the checkout has changes of its own
+# outside the inert paths, staged or not, untracked files included.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
@@ -39,7 +39,7 @@ all_inert() {
 
 # full runs the gates in full, after saying why.
 full() {
-	echo "gated: $1: running them"
+	echo "gated: $1: running the gates"
 	exec "$repo/scripts/gate"
 }
 
@@ -93,7 +93,7 @@ while read -r commit tree parent others; do
 	fi
 	head=${head:-$commit}
 	if [ -z "$parent" ]; then
-		full "no record of the gates on $(short "$commit") (the first commit)"
+		full "no record of the gates on $(short "$commit") (the first commit, or a shallow clone's boundary)"
 	elif [ -n "$others" ]; then
 		full "no record of the gates on $(short "$commit") (a merge)"
 	elif [ "$commit" = "$code" ]; then
