@@ -229,6 +229,21 @@ describe("a SIGTSTP", () => {
 		expect(cursorShown(stops[0]?.text ?? "")).toBe(true);
 	});
 
+	it("after a prompt is answered leaves it gone, and the terminal cooked", async () => {
+		const { term, ui } = run();
+		ui.note("before");
+		const answer = ui.confirm({ message: "Remove it?" });
+		await term.press("y");
+		expect(await answer).toBe(true);
+		const written = term.output.text;
+
+		term.host.emit("SIGTSTP");
+
+		expect(term.host.kill).toHaveBeenCalledOnce();
+		expect(term.output.text).toBe(written);
+		expect(term.input.isRaw).toBe(false);
+	});
+
 	describe("at a prompt", () => {
 		/** The whole process group stopped with the frame erased, the cursor shown, cooked mode and SIGTSTP let go. */
 		async function expectStoppedForTheShell(stop: Moment | undefined) {
