@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 //
-// Fails on an import src/ or tests/ shouldn't make, or a link they hold to
-// somewhere they shouldn't reach.
+// Fails on an import src/ or tests/ shouldn't make, a committed link, or a
+// package.json field that maps a name onto a local path.
 //
 // A package must be one package.json declares where it's used: src/ may
 // import only `dependencies`, tests/ and the config files the gates load
@@ -21,32 +21,31 @@
 // src/; from tests/ and the config files, inside src/ or tests/. Anything
 // else at the root is inert to scripts/gated, which passes a commit
 // changing only such paths without running the gates. That covers every
-// relative or absolute import and `/// <reference path>`, and every file and
-// folder under src/ and tests/, whose real path, through any link, must
-// lie inside them as well. `#` specifiers resolve through package.json's
-// imports, which a gate reads, so they pass. A path held in any other
-// string, `vi.mock("…")`, `new URL("…", import.meta.url)` or
+// relative or absolute import and `/// <reference path>`. A path held in
+// any other string, `vi.mock("…")`, `new URL("…", import.meta.url)` or
 // `import.meta.glob("…")` among them, isn't read here; scripts/gated's rule
 // covers those, and review keeps it.
 //
+// Nor may a name lead into an inert path by another way, so the repo holds
+// none of the ways: no committed link outside the inert paths (git mode
+// 120000), wherever it points, and no package.json `imports` or
+// `workspaces`, or dependency installed from a local path (`file:`,
+// `link:`, `workspace:`, `portal:`, or a path itself). `#` specifiers then
+// resolve to nothing, so they pass the path rule.
+//
 // Every import counts, `import type`, `export … from`, `import("…")` and
 // `require("…")` among them, in every .js, .ts and .jsx/.tsx file,
-// .mjs/.cjs/.mts/.cts included, links followed.
+// .mjs/.cjs/.mts/.cts included.
 //
-// Takes the repo root to check, this script's own by default.
-import {
-	existsSync,
-	readdirSync,
-	readFileSync,
-	realpathSync,
-	statSync,
-} from "node:fs";
+// Takes the repo root to check, this script's own by default; reads which
+// files are links from git's index.
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { isBuiltin } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import ts from "typescript";
 
 const root = resolve(process.argv[2] ?? join(dirname(process.argv[1]), ".."));
-const realRoot = realpathSync(root);
 const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf-8"));
 const dependencies = Object.keys(manifest.dependencies ?? {});
 const devDependencies = Object.keys(manifest.devDependencies ?? {});
@@ -71,6 +70,27 @@ const RULES = [
 
 const CONFIGS = ["vitest.config.ts", "tsup.config.ts"];
 
+/** scripts/gated's inert paths: files at the root, and folders. */
+const INERT_FILES = ["README.md", "CLAUDE.md", "CHANGELOG.md", ".mint.toml"];
+const INERT_FOLDERS = [
+	"design",
+	"art",
+	"demo",
+	".workflows",
+	".claude",
+	".tick",
+	".agntc",
+];
+
+const DEPENDENCY_FIELDS = [
+	"dependencies",
+	"devDependencies",
+	"optionalDependencies",
+	"peerDependencies",
+];
+
+const LOCAL_SPEC = /^(file:|link:|workspace:|portal:|\.|\/|~)/;
+
 const SOURCE = /\.[cm]?[jt]sx?$/;
 
 /** Whether the path given is, or lies inside, one of the folders named. */
@@ -81,35 +101,63 @@ function inside(path, within, base) {
 	});
 }
 
-/**
- * Every source file under `dir`, through links to files and folders alike,
- * as tsc and vitest read them, each real folder entered once, so a link
- * back up the tree ends; and a fault for each entry whose real path lies
- * outside the folders the rules allow.
- */
-function walk(dir, rules, found, entered = new Set()) {
-	const real = realpathSync(dir);
-	if (entered.has(real)) {
-		return;
+function inert(path) {
+	return (
+		INERT_FILES.includes(path) ||
+		INERT_FOLDERS.some((folder) => path.startsWith(`${folder}/`))
+	);
+}
+
+/** Every source file under `dir`; a link is neither file nor folder here. */
+function sourcesIn(dir) {
+	if (!existsSync(dir)) {
+		return [];
 	}
-	entered.add(real);
-	for (const name of readdirSync(dir).sort()) {
-		const path = join(dir, name);
-		const stats = statSync(path, { throwIfNoEntry: false });
-		if (!stats) {
-			continue;
-		}
-		const target = realpathSync(path);
-		if (!inside(target, rules.within, realRoot)) {
-			found.faults.push(
-				`${relative(root, path)}: links to ${target}, which lies outside ${rules.withinNamed}`,
-			);
-		} else if (stats.isDirectory()) {
-			walk(path, rules, found, entered);
-		} else if (stats.isFile() && SOURCE.test(name)) {
-			found.files.push(path);
+	return readdirSync(dir, { withFileTypes: true })
+		.sort((a, b) => (a.name < b.name ? -1 : 1))
+		.flatMap((entry) => {
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) {
+				return sourcesIn(path);
+			}
+			return entry.isFile() && SOURCE.test(entry.name) ? [path] : [];
+		});
+}
+
+/** A fault for each committed link outside the inert paths. */
+function linkFaults() {
+	const index = execFileSync("git", ["-C", root, "ls-files", "-s", "-z"], {
+		encoding: "utf-8",
+	});
+	return index
+		.split("\0")
+		.filter((entry) => entry.startsWith("120000 "))
+		.map((entry) => entry.slice(entry.indexOf("\t") + 1))
+		.filter((path) => !inert(path))
+		.map(
+			(path) =>
+				`${path}: is a committed link, and a link lies only in scripts/gated's inert paths`,
+		);
+}
+
+/** A fault for each package.json field that maps a name onto a local path. */
+function manifestFaults() {
+	const faults = ["imports", "workspaces"]
+		.filter((field) => field in manifest)
+		.map(
+			(field) =>
+				`package.json: has ${field}, which could map a name onto an inert path`,
+		);
+	for (const field of DEPENDENCY_FIELDS) {
+		for (const [name, spec] of Object.entries(manifest[field] ?? {})) {
+			if (LOCAL_SPEC.test(spec)) {
+				faults.push(
+					`package.json: ${field} installs ${name} from ${spec}, a local path`,
+				);
+			}
 		}
 	}
+	return faults;
 }
 
 /** The package a bare specifier names; null for a relative, absolute or `#` one. */
@@ -169,11 +217,9 @@ function faultsOf(file, rules) {
 		.map((fault) => `${relative(root, file)}: ${fault}`);
 }
 
-const faults = [];
+const faults = [...linkFaults(), ...manifestFaults()];
 for (const rules of RULES) {
-	const found = { files: [], faults };
-	walk(join(root, rules.folder), rules, found);
-	for (const file of found.files) {
+	for (const file of sourcesIn(join(root, rules.folder))) {
 		faults.push(...faultsOf(file, rules));
 	}
 }

@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	commit,
@@ -6,12 +7,15 @@ import {
 	gateCalls,
 	git,
 	leftNothing,
+	npmEnv,
 	recorded,
 	repoPath,
 	run,
 	scratchPath,
+	script,
 	shadow,
 	useGateRepo,
+	write,
 } from "../helpers/script-repo.js";
 
 useGateRepo();
@@ -92,6 +96,90 @@ describe("scripts/gate's checkout", () => {
 		expect(output).toContain("isn't a checkout a gate made");
 		expect(existsSync(repoPath(".git"))).toBe(true);
 		expect(existsSync(scratchPath("tmp"))).toBe(true);
+	});
+
+	it.each([
+		"misnamed",
+		"agntc-gate.SEVEN77",
+	])("deletes nothing when handed a folder %s holding a checkout", async (name) => {
+		const folder = scratchPath("tmp", name);
+		mkdirSync(join(folder, "agntc"), { recursive: true });
+
+		const { status, output } = await run("gate", {
+			args: ["--in-checkout", repoPath(), git("rev-parse", "HEAD"), folder],
+		});
+
+		expect(status).toBe(1);
+		expect(output).toContain("isn't a checkout a gate made");
+		expect(existsSync(join(folder, "agntc"))).toBe(true);
+	});
+
+	it("leaves a hook's repo and index alone, its git environment exported from a linked worktree", async () => {
+		const victim = scratchPath("victim");
+		git("worktree", "add", "-q", "-b", "feat", victim);
+		writeFileSync(join(victim, "staged.txt"), "staged\n");
+		git("-C", victim, "add", "staged.txt");
+		const gitdir = git("-C", victim, "rev-parse", "--absolute-git-dir");
+
+		const { status } = await run("gate", {
+			from: victim,
+			extra: { GIT_DIR: gitdir, GIT_INDEX_FILE: `${gitdir}/index` },
+		});
+
+		expect(status).toBe(0);
+		expect(git("-C", victim, "diff", "--cached", "--name-only")).toBe(
+			"staged.txt",
+		);
+		expect(recorded()).toEqual([git("rev-parse", "HEAD^{tree}")]);
+	});
+
+	it("runs with a hook's git environment as the main worktree's hook has it, relative", async () => {
+		write("staged.txt", "staged\n");
+		git("add", "staged.txt");
+
+		const { status } = await run("gate", {
+			extra: { GIT_DIR: ".git", GIT_INDEX_FILE: ".git/index" },
+		});
+
+		expect(status).toBe(0);
+		expect(git("diff", "--cached", "--name-only")).toBe("staged.txt");
+		expect(recorded()).toEqual([git("rev-parse", "HEAD^{tree}")]);
+	});
+
+	it("is removed when HEAD's scripts/gate won't run", async () => {
+		commit({ "scripts/gate": "#!/nonexistent/bash\n" });
+		script("gate");
+
+		const { status, output } = await run("gate");
+
+		expect(status).toBe(1);
+		expect(output).toContain("gate: HEAD's scripts/gate won't run");
+		expect(leftNothing()).toBe(true);
+	});
+
+	it("runs with a TMPDIR relative to where it's called, handing the steps it whole", async () => {
+		const { status } = await run("gate", {
+			cwd: scratchPath(),
+			extra: { TMPDIR: "tmp" },
+		});
+
+		expect(status).toBe(0);
+		expect(npmEnv().get("TMPDIR")).toBe(scratchPath("tmp"));
+		expect(leftNothing()).toBe(true);
+	});
+
+	it("ends its look above a relative TMPDIR at its top", async () => {
+		const head = git("rev-parse", "HEAD");
+		const { scratch, checkout } = handmade(head);
+
+		const { status } = await run("gate", {
+			from: checkout,
+			cwd: scratchPath(),
+			args: ["--in-checkout", repoPath(), head, scratch],
+			extra: { TMPDIR: "tmp" },
+		});
+
+		expect(status).toBe(0);
 	});
 
 	it.each(

@@ -17,12 +17,16 @@
 # worktree under the primary checkout passes on the primary's packages; so
 # does a node whose major version isn't the one HEAD's .nvmrc names. The
 # steps see no npm config but HEAD's own, no NODE_PATH or NODE_OPTIONS, and no
-# node_modules/.bin on PATH. They keep TMPDIR.
+# node_modules/.bin on PATH. They keep TMPDIR, made absolute.
+# No git environment reaches it, as a hook exports (GIT_DIR, GIT_INDEX_FILE),
+# which would turn the checkout's git on the caller's repo and index.
 # When every step passes, the tree of the commit checked is recorded in the
 # git common directory, at agntc/gated, one hash a line, shared by every
 # worktree. scripts/gated, the release's gate, reads it to pass a tree
 # already gated.
 set -euo pipefail
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
 
 # ours reports whether the folder given is one a gate made, the only kind
 # it ever deletes.
@@ -86,10 +90,11 @@ forget_stale() {
 cleanup() {
 	cd /
 	git -C "$repo" worktree remove --force "$checkout" >/dev/null 2>&1 || true
+	# Before the folder goes, as a relative note resolves only through it.
+	forget "$checkout"
 	if ours "$scratch"; then
 		rm -rf "$scratch"
 	fi
-	forget "$checkout"
 }
 
 # stopped says the run was stopped and ends it with the signal's status.
@@ -109,6 +114,10 @@ if [ "${1:-}" != --in-checkout ]; then
 	common=$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)
 	commit=$(git -C "$repo" rev-parse HEAD)
 	tmp=${TMPDIR:-/tmp}
+	case $tmp in
+	/*) ;;
+	*) export TMPDIR=$PWD/$tmp tmp=$PWD/$tmp ;;
+	esac
 	made=$(mktemp -d "${tmp%/}/agntc-gate.XXXXXX") ||
 		refuse "no folder could be made in TMPDIR, $tmp"
 	scratch=$(cd "$made" && pwd -P)
@@ -124,8 +133,15 @@ if [ "${1:-}" != --in-checkout ]; then
 	git -C "$repo" worktree add --quiet --detach --no-checkout "$checkout" "$commit"
 	git -C "$checkout" -c core.sparseCheckout=false reset --quiet --hard "$commit"
 	[ -x "$checkout/scripts/gate" ] || refuse "HEAD has no scripts/gate to run"
-	trap - EXIT INT TERM
+	# An exec that fails goes on below: with errexit set bash 3.2 ends the
+	# script there, and it has dropped the traps by then, so cleanup is
+	# called here.
+	shopt -s execfail
+	set +e
 	exec "$checkout/scripts/gate" --in-checkout "$repo" "$commit" "$scratch"
+	trap - EXIT
+	cleanup
+	refuse "HEAD's scripts/gate won't run"
 fi
 
 repo=$2
@@ -157,7 +173,7 @@ run() {
 # above names the first node_modules in the folder given or one above it,
 # its real path and the path it was reached by both walked.
 above() {
-	local dir real
+	local dir real parent
 	real=$(cd "$1" 2>/dev/null && pwd -P) || real=
 	for dir in "$1" "$real"; do
 		[ -n "$dir" ] || continue
@@ -166,8 +182,10 @@ above() {
 				echo "$dir/node_modules"
 				return
 			fi
-			[ "$dir" != / ] || break
-			dir=$(dirname "$dir")
+			# Ends at / and at a relative path's . alike, each its own dirname.
+			parent=$(dirname "$dir")
+			[ "$parent" != "$dir" ] || break
+			dir=$parent
 		done
 	done
 }

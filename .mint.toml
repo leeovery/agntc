@@ -36,6 +36,8 @@ diff_exclude = [
 # and the like since such a tree; anything else runs scripts/gate, which
 # checks HEAD in a fresh checkout outside the repo, clean install included,
 # as the CI job does. It runs on this Mac, not on CI's Linux; CI re-runs
-# every gate on Linux, on the tag, before it publishes. mint shows only the
-# hook's exit, so run scripts/gated directly to see why it failed.
+# every gate on Linux, on the tag, before it publishes. As mint commits the
+# checkout after this hook, scripts/gated refuses a change outside the inert
+# paths in it, and checks again as it passes. mint shows only the hook's
+# exit, so run scripts/gated directly to see why it failed.
 pre_tag = ['scripts/gated']

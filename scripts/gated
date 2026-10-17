@@ -4,18 +4,22 @@
 # scripts/gate has recorded its tree as passing every gate, or the tree of a
 # commit before it from which only inert paths have changed: the README,
 # CLAUDE.md, CHANGELOG.md and .mint.toml at the root, and design/, art/,
-# demo/, .workflows/, .claude/, .tick/, .agntc/ and .github/, which no gate
-# reads (tsc reads src/ and tests/, tsup bundles what src/cli.ts imports, and
+# demo/, .workflows/, .claude/, .tick/ and .agntc/, which no gate reads
+# (tsc reads src/ and tests/, tsup bundles what src/cli.ts imports, and
 # vitest runs only tests/). That holds only while src/ and tests/ never read,
 # import or link to an inert path; scripts/declared-imports.mjs refuses an
-# import or a link from outside them, and a read is the reviewer's to catch.
-# Anything else, package.json and the lockfile among them, is read by a
-# gate. The walk back, along first parents, stops at a commit that changes
+# import from outside them, a committed link outside the inert paths and a
+# package.json mapping onto a local path, and a read is the reviewer's to
+# catch. Anything else is read by a gate: package.json and the lockfile
+# among them, and .github/, as CI runs publish.yml's steps on the tag before
+# it publishes. The walk back, along first parents, stops at a commit that changes
 # anything else, at a merge, at the first commit (or a shallow clone's
 # boundary), or after 50 commits, and then scripts/gate runs every gate on
 # HEAD, which passes only once its tree is recorded.
-# Once this passes, mint commits CHANGELOG.md and whatever else the checkout
-# then holds (`git add -A`), and tags that commit. So a checkout holding
+# Once this passes, mint makes two commits and tags the second: first
+# whatever the checkout then holds (`git add -A`), as `chore(release):
+# pre-tag artifacts for vX`; then, once it has written the notes and held
+# its review, `Release vX`, of CHANGELOG.md alone. So a checkout holding
 # anything outside the inert paths that HEAD doesn't, staged or not,
 # untracked files included, however git is told to see it (a file it's told
 # to assume unchanged or skip, a copy of scripts/gate or scripts/gated
@@ -23,6 +27,10 @@
 # and it passes only while HEAD is still the commit it judged. mint shows
 # only this script's exit, so run it directly to see why it failed.
 set -euo pipefail
+# A hook's git environment (GIT_DIR, GIT_INDEX_FILE) would turn the checks on
+# whichever repo and index it names.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
 
 repo=$(cd "$(dirname "$0")/.." && pwd -P)
 cd "$repo"
@@ -36,7 +44,7 @@ judged=$(git rev-parse "$judged_commit^{tree}")
 # path with unusual characters, which then matches none of these.
 inert() {
 	case $1 in
-	README.md | CLAUDE.md | CHANGELOG.md | .mint.toml | design/* | art/* | demo/* | .workflows/* | .claude/* | .tick/* | .agntc/* | .github/*) return 0 ;;
+	README.md | CLAUDE.md | CHANGELOG.md | .mint.toml | design/* | art/* | demo/* | .workflows/* | .claude/* | .tick/* | .agntc/*) return 0 ;;
 	esac
 	return 1
 }

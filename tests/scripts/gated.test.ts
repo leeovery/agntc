@@ -48,6 +48,24 @@ describe("scripts/gated", () => {
 		expect(output).not.toContain("stub gate ran");
 	});
 
+	it("judges its own repo, whichever a hook's exported git environment names", async () => {
+		recordHead();
+		const other = scratchPath("other");
+		git("init", "-q", other);
+		git("-C", other, "commit", "-q", "--allow-empty", "-m", "elsewhere");
+
+		const { status, output } = await run("gated", {
+			extra: {
+				GIT_DIR: `${other}/.git`,
+				GIT_INDEX_FILE: `${other}/.git/index`,
+			},
+		});
+
+		expect(status).toBe(0);
+		expect(output).toContain("gated: gates passed on tree");
+		expect(output).not.toContain("stub gate ran");
+	});
+
 	it("passes when only inert paths changed since a recorded tree", async () => {
 		recordHead();
 		commit({ "README.md": "two", "design/v2.md": "notes" });
@@ -61,7 +79,6 @@ describe("scripts/gated", () => {
 			".claude/settings.json": "{}",
 			".tick/tasks.jsonl": "{}",
 			".agntc/manifest.json": "{}",
-			".github/workflows/publish.yml": "on: push",
 		});
 
 		const { status, output } = await run("gated");
@@ -94,6 +111,7 @@ describe("scripts/gated", () => {
 		[".npmignore"],
 		["release"],
 		["LICENSE"],
+		[".github/workflows/publish.yml"],
 	])("runs the gate when a commit since the recorded tree changes %s", async (path) => {
 		recordHead();
 		commit({ [path]: "changed" });

@@ -4,7 +4,6 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
-	realpathSync,
 	rmSync,
 	symlinkSync,
 	writeFileSync,
@@ -36,18 +35,33 @@ function tree(files: Record<string, string>, manifest: object = PACKAGE) {
 	}
 }
 
+const GIT_ENV = {
+	...Object.fromEntries(
+		Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+	),
+	GIT_CONFIG_GLOBAL: "/dev/null",
+	GIT_CONFIG_NOSYSTEM: "1",
+};
+
 /**
- * Runs the check on the root given, or on the repo's own without one. Async,
- * as a synchronous child starves the worker vitest talks to.
+ * Runs the check on the root given, its files all in git's index, or on the
+ * repo's own without one. Async, as a synchronous child starves the worker
+ * vitest talks to.
  */
 async function check(
 	...args: string[]
 ): Promise<{ status: number | null; errors: string }> {
+	const run = promisify(execFile);
+	if (args[0] !== undefined) {
+		await run("git", ["-C", args[0], "init", "-q"], { env: GIT_ENV });
+		await run("git", ["-C", args[0], "add", "-A", "--force"], {
+			env: GIT_ENV,
+		});
+	}
 	try {
-		const { stderr } = await promisify(execFile)(process.execPath, [
-			SCRIPT,
-			...args,
-		]);
+		const { stderr } = await run(process.execPath, [SCRIPT, ...args], {
+			env: GIT_ENV,
+		});
 		return { status: 0, errors: stderr };
 	} catch (error) {
 		const failed = error as { code: number | null; stderr: string };
@@ -139,6 +153,11 @@ describe("scripts/declared-imports.mjs", () => {
 			"a folder sharing src/'s prefix",
 			"src/a.ts",
 			`import w from "../srcfoo/w.js";`,
+		],
+		[
+			"design/, from tests/",
+			"tests/helpers/a.ts",
+			`import { d } from "../../design/d.js";`,
 		],
 		[
 			"design/, by a reference path",
@@ -283,44 +302,77 @@ describe("scripts/declared-imports.mjs", () => {
 	});
 
 	it.each([
-		["file", "src/real/a.ts", "src/a.ts"],
-		["folder", "src/real", "src/linked"],
-		["folder in src/, from tests/", "src/real", "tests/linked"],
-	])("reads through a link to a %s", async (_, target, link) => {
-		tree({ "src/real/a.ts": `import x from "undeclared";` });
-		symlinkSync(join(root, target), join(root, link));
+		["dangling, into design/", "src/later.ts", "../design/later.ts"],
+		["deeper down, to a folder in src/", "src/a/b/l", "../../z"],
+		["a config file, into design/", "vitest.config.ts", "design/v.ts"],
+		["in tests/, to a file in tests/", "tests/b.ts", "a.ts"],
+		["elsewhere at the root", "scripts/x", "../src"],
+	])("refuses a committed link %s", async (_, link, target) => {
+		tree({ "src/z/f.ts": "", "tests/a.ts": "", "design/v.ts": "" });
+		mkdirSync(dirname(join(root, link)), { recursive: true });
+		symlinkSync(target, join(root, link));
 
-		const { errors } = await check(root);
+		expect(await check(root)).toEqual({
+			status: 1,
+			errors: `${link}: is a committed link, and a link lies only in scripts/gated's inert paths\n`,
+		});
+	});
 
-		expect(errors).toContain(`${link}`);
-		expect(errors).not.toContain("links to");
+	it("passes a committed link in each of scripts/gated's inert paths", async () => {
+		const gated = readFileSync(join(REPO, "scripts/gated"), "utf-8");
+		const inert = /^\t(README\.md \|.*)\) return 0 ;;$/m.exec(gated)![1]!;
+		const links = inert.split(" | ").map((path) => path.replace("*", "x"));
+		tree({});
+		for (const link of links) {
+			mkdirSync(dirname(join(root, link)), { recursive: true });
+			symlinkSync("/nowhere", join(root, link));
+		}
+
+		expect(links).toContain("design/x");
+		expect(await check(root)).toEqual(PASSED);
 	});
 
 	it.each([
-		["file in design/", "design/a.ts", "src/a.ts", "src/"],
-		["folder in design/", "design", "src/shared", "src/"],
-		["folder in tests/, from src/", "tests", "src/tests", "src/"],
-		[
-			"file at the root, from tests/",
-			"README.md",
-			"tests/README.md",
-			"src/ and tests/",
-		],
-	])("refuses a link to a %s", async (_, target, link, within) => {
-		tree({ "design/a.ts": "export const a = 1;\n", "README.md": "" });
-		symlinkSync(join(root, target), join(root, link));
+		["imports", { "#d/*": "./design/*" }],
+		["workspaces", ["design/pkg"]],
+	])("refuses package.json's %s", async (field, value) => {
+		tree({}, { ...PACKAGE, [field]: value });
 
-		const { status, errors } = await check(root);
-
-		expect(status).toBe(1);
-		expect(errors).toContain(
-			`${link}: links to ${realpathSync(join(root, target))}, which lies outside ${within}`,
-		);
+		expect(await check(root)).toEqual({
+			status: 1,
+			errors: `package.json: has ${field}, which could map a name onto an inert path\n`,
+		});
 	});
 
-	it("ends at a link back up the tree", async () => {
-		tree({ "src/a.ts": `import { Command } from "commander";` });
-		symlinkSync(join(root, "src"), join(root, "src/loop"));
+	it.each([
+		["dependencies", "file:design/pkg"],
+		["devDependencies", "link:../elsewhere"],
+		["optionalDependencies", "workspace:*"],
+		["peerDependencies", "portal:design/pkg"],
+		["dependencies", "./design/pkg"],
+		["dependencies", "../pkg"],
+		["dependencies", "/opt/pkg"],
+		["dependencies", "~/pkg"],
+	])("refuses %s installed from %s", async (field, spec) => {
+		tree({}, { ...PACKAGE, [field]: { local: spec } });
+
+		expect(await check(root)).toEqual({
+			status: 1,
+			errors: `package.json: ${field} installs local from ${spec}, a local path\n`,
+		});
+	});
+
+	it("passes dependencies from the registry, git and a tarball's URL", async () => {
+		tree(
+			{},
+			{
+				dependencies: {
+					commander: "^13",
+					forked: "github:owner/forked",
+					packed: "https://example.com/packed.tgz",
+				},
+			},
+		);
 
 		expect(await check(root)).toEqual(PASSED);
 	});

@@ -140,7 +140,13 @@ describe("scripts/gate's checkout", () => {
 		expect(worktrees()).toEqual([expect.any(String), running]);
 	});
 
-	it("is removed, and git's note of it, when the gate is stopped while adding it", async () => {
+	it.each([
+		["by absolute path", false],
+		["by relative path (worktree.useRelativePaths)", true],
+	])("is removed, and git's note of it %s, when the gate is stopped while adding it", async (_, relative) => {
+		if (relative) {
+			git("config", "worktree.useRelativePaths", "true");
+		}
 		const added = scratchPath("added");
 		// git as the gate calls it, leaving the add half done (the checkout
 		// without its .git) and waiting there to be stopped.
