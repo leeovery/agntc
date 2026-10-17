@@ -2,207 +2,97 @@
 
 ## Project Overview
 
-agntc is a CLI tool for installing Claude skills from git repos. Claude only: skills, agents and hooks install under `.claude/`, or `~/.claude/` with `-g`. The settled v2 design is `design/v2.md`.
+agntc is a CLI that installs Claude skills, agents and hooks from git repos and local folders, and records what it installed so it can update, list and remove it. Claude only: assets install under `.claude/` in the project, or `~/.claude/` with `-g`. The settled v2 design is `design/v2.md`; the code and its tests are the detail.
 
 ## Commands
 
-- `add <source>` — Install from git/local. Deep walk finds skills and declared packs; one thing installs directly, several give a menu. `--skill <names...>`, `--pack` (`--plugin` hidden alias), `--all`, `--list`, `--overwrite`, `--json`. Semver constraint auto-detection. `owner/repo/path` starts the walk at a folder.
-- `remove [key]` — Remove entries (exact key, or every key under a prefix). Interactive picker if no arg. `-y` skips the confirmation.
-- `update [key]` — Nuke-and-reinstall. Respects version constraints. Re-walks packs, follows moved skills, asks about entries gone upstream (`-y` removes). No arg = all, and a key naming several entries = those entries, both group-first (per-repo clone/probe dedup + streamed per-group progress); a key naming one entry takes the single-key path.
-- `list` — Dashboard with update status + inline actions (update, remove, change version). Machine mode prints every entry with its status.
-- `init [skill|pack]` — Scaffold a skill (`SKILL.md`) or a pack (`agntc.json` `{"type": "pack"}`, `skills/my-skill/SKILL.md`, `agents/my-agent.md`, `hooks/my-hook.sh`). `-y` skips the confirmation; without a terminal it needs the type and `-y`.
-- `-g`/`--global` on `add`, `remove`, `update`, `list` — install root `~/` (assets under `~/.claude/`), manifest `~/.agntc/manifest.json`. Every command stays within one scope.
+- `add <source>` — walk the source, install one thing directly or offer a menu of several. `--skill <names...>`, `--pack` (`--plugin` hidden alias), `--all`, `--list`, `--overwrite`.
+- `update [key]` — nuke-and-reinstall within each version constraint; `-y` removes what's gone upstream.
+- `list` — dashboard with update status and actions (update, change version, remove).
+- `remove [key]` — a key, or every key under a prefix; a picker without one; `-y` skips the confirmation.
+- `init [skill|pack]` — scaffold a skill or a pack; `-y` skips the confirmation.
+- `-g`/`--global` on `add`, `update`, `list`, `remove`: install root `~`, manifest `~/.agntc/manifest.json`. A command stays within one scope. `--json` on every command.
 
-## Source Code Structure
+## Code map
 
-```
-src/
-  cli.ts                    # Entry point, commander setup
-  commands/                 # add, remove, update, list (+ list-*-action, list-detail), init
-  init/                     # Skill and pack scaffolding, type select; init-render.ts: the row init asks under (the folder, the type, how many files it will create, the files as a tree, those already there marked so; nothing asked when every file is already there), a row per file created or already there, init's tally (a cut tree counts the files left out, its folders aside)
-  command-action.ts         # Commander action wrapper: resolves mode (resolveMode), runs with the matching Ui, writes the machine document, maps ExitSignal to exit code
-  ui.ts                     # Ui interface, the one surface every word and question goes through: header; block → row, task, and select/multiselect/confirm asked under its row or rows; next; close(tally); cancel; warn/note/fail(Message); report; the top-level prompts. Prompt shapes (choices with cells, dropped in `drop` order where the line is too narrow; a select's footer of key hints and counts; `escape` naming what esc does); the tallies; MachineUi (JSON document); a terminal run's TerminalUi is built in `command-action.ts` through `processIo.terminalUi`, with its header; stoppingUi (fail and cancel draw what the run owes first)
-  terminal/                 # The renderer TerminalUi draws through
-    terminal-ui.ts          # TerminalUi, the Ui at a terminal: one task spins at a time (a newer one pauses the one under it), what's said meanwhile prints under the row it settles into, a prompt draws alone; a block or question after other lines opens a blank line under them, a question carrying it in its frame and erasing it with itself; a cancel, as a failure, prints under the Next items queued so far; end() clears what spins and prints the Next items left; from begin() to end() it owns SIGINT, SIGTERM and SIGTSTP: a SIGINT or SIGTERM, spinning, asking or between, clears the line or erases the prompt, prints what was held and the Next items, then ` ○ Cancelled`, restores the terminal and exits 130 or 143, and once the run has said its last word (close, cancel, fail) only restores and exits; a SIGTSTP (or a prompt's ctrl-z) gives the terminal back, stops the process group and redraws on resume, with no prompt open only showing the cursor (the shell may already have printed its prompt)
-    block.ts                # blockLayout (columns fixed from every subject); renderRow (a row, its fields, its children as a tree); renderRowWithin/renderRowsWithin, a row or rows fitted to the room a question leaves (children cut whole, `… N more` counted by noun, a tree's folders aside and a folder whose contents are all cut left out with them; several rows as many as fit, then a `… N more <noun>` line at the rows' level, the first cut as a lone row is when none fits whole; a row whose own lines don't fit keeps its subject on one line, cut from the left, so a question always names what it asks about; every line within the width, so a frame takes the lines the fit counts); renderProgress, a task's spinning line
-    layout.ts               # layoutWidth (20 to 100, 80 when unknown), isNarrow; visibleWidth (escape codes aside, wide characters as two); pad, truncate/truncateStart, spread; wrap (a word too long for a line breaks after a `/` where one fits, starting on the line it would join when a part ending on `/` fits there, and no line opens on `/`), prose, wrapItems
-    header.ts               # renderHeader: ` ■ agntc <command>`, where it installs and the version dim on the right (where cut from the left down to 12 columns, then gone, the version left alone; both gone when narrow)
-    close.ts                # renderClose: a dim rule, the tally, the elapsed time on the right; renderCancel (` ○ Cancelled`, dim)
-    next.ts                 # The Next section: remedyItem/adviceItem turn a message into a NextItem, a local subject home-shortened as its row is (commands left whole); renderNext, each `<subject> — <lead>` with its steps
-    remedy.ts               # renderRemedy/renderSteps: the lead at column 3, each step at 5, a command a line of its own, never wrapped or cut
-    tally.ts                # LOOKS, each command's tally categories in order (words, glyph, colour), which rows read outcomes by; tallyItems, outcomeCount
-    task.ts                 # startTask: one spinning line, the cursor hidden, frames cut to the width; no signal handling of its own (the run's)
-    control.ts              # Cursor and erase sequences; RunSignals, a run's hold on its process (exit, SIGINT and SIGTERM ending 130 and 143, SIGTSTP), and stopGroup (kill(0, SIGTSTP), the stop npx's `sh -c` chain needs)
-    style.ts                # detectColorLevel (NO_COLOR, FORCE_COLOR, TERM/COLORTERM, a TTY); createStyle's painters; status glyphs and tones; the cursor row's band colour
-    message.ts              # renderMessage (` ! `/` · `/` ✗ ` and the text, its cause dim, its remedy); a string is laid out as a rich text is, wrapped from column 3
-    types.ts                # Status, Row (Detail, Field, Child), Rows, BlockSubject, Progress, TallyItem, NextItem, Header
-    prompts/                # The prompts, on @clack/core; the session draws every frame
-      engine.ts             # Engine: core's prompt, cancelled on ctrl-d or a closed readline, closable without an answer
-      list-engine.ts        # ListEngine: a cursor over a list that passes over headings and wraps round the ends, its window following it
-      session.ts            # runPrompt: stdin through the filter in raw mode, the background asked first, each frame redrawn in place and erased whole on the answer; held by the run (PromptOwner) while open, which erases, cooks and resumes it (OpenPrompt), and told of its ctrl-z
-      input-filter.ts       # InputFilter: takes every OSC sequence (a terminal's reply) out of stdin, a lone ESC timed as readline times it; delivers nothing until released
-      background.ts         # OSC 11: the terminal's background, asked once per process, at 256 colours or more; parseBackground
-      select.ts             # promptSelect: headings, cells or hints, a footer of keys and counts (whole counts kept from the left while they fit); selectWindow, renderSelect
-      multiselect.ts        # promptMultiselect: space picks, a all, `N of M picked`, `required` holding enter back
-      confirm.ts            # promptConfirm: Yes/No buttons (←/→, tab, y/n), the chosen one in the accent, bracketed without colour
-      cells.ts              # cellLayout/cellsText: a choice's cells in columns, asides then columns dropped by `drop` where too wide, a label kept at least 10 columns (`LABEL_FLOOR`) before the cells without `drop` go or are cut, then labels cut at their start
-      list-window.ts        # fitList, aboveRoom: how much of a list (its window, more lines, footer) and of the rows over its question a screen shows
-      lines.ts              # A prompt's lines: the question with dim key hints on the right (joined by three spaces, `KEY_GAP`), option lines (label, hint column, the cursor's band), headings, the window, the lines above
-  message.ts                # Message (string | RichMessage), SubjectMessage, Advice, Remedy; plainText, isMachineOnly; machineOnly, sentence and failure word a plain string for both modes
-  documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
-  scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
-  source-parser.ts          # Parse owner/repo[/path], HTTPS/SSH URLs[/path], local paths, tree URLs; key<->source-dir (repoFromKey, keySubpath, memberName, deriveCloneUrlFromKey, resolveGuardedSourceDir); addSourceFor/locateSource build the source a printed add command takes
-  discover.ts               # Deep walk: skills, declared packs (with their support folders), strays; skillFolders (a pack's skills, then its support folders); walkableFolders (the folders the walk enters); matchSkills for --skill; PackConflictError / StartPathError
-  frontmatter.ts            # SKILL.md frontmatter read (name, description); display + --skill matching only
-  config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`; declaresPack (`pack` or legacy `plugin`)
-  choose-items.ts           # Flags -> Selection; chooseItems decides install / menu / refuse; stray notices; --list lines
-  item-menu.ts              # The add multiselect, asked under the source's row
-  add-render.ts             # add's rows: the source (key, ref and constraint, what it holds) with its items beneath, as listed, asked about (skills one installed pack holds counted on one line), stopped (unchanged, or failed once the copy began, with the skills it left out), or installed (`N of M installed` after a menu), each with what was cleared out of its way (an entry removed, files replaced, named by folder or file name, a few then `and N more`); add's tally
-  install-item.ts           # InstallItem (skill | pack); keyItem, the one key rule add and update share; keyItems refuses an item's own target clashes, then target and key clashes between items
-  asset-targets.ts          # Claude asset routing (.claude/skills|agents|hooks), skillTarget; skillFolderName (the <name> of any path in .claude/skills/<name>/); hookEntryName (the top-level .claude/hooks/ entry a path is or lies in); isSafeSegment
-  copy-item.ts              # Copy dispatch: skill vs pack; copyUnits (the folders a copy plans, each with its filter); checkItemLinks, the symlink-escape pre-flight over those units
-  copy-bare-skill.ts        # Copy of one skill folder through planCopy/writeCopy (drops top-level agntc.json and .git, in any case, at any depth)
-  copy-pack.ts              # Copy a pack: skills and support folders flat, agents/*.md, hooks/*; rollback on failure
-  copy-rollback.ts          # Link-safe rollback of a partial copy
-  copy-safety.ts            # Path-traversal guard; inspectSourcePath (lstat each segment of a source path); lexical symlink-escape pre-flight for one copied folder (source-root boundary; plans that folder's copy, filter and source kind included, so it reads what the copy reads and no more); planCopy/writeCopy, a copy of a CopyUnit that never follows a link (a clone's link elsewhere in the source copies its target in place, one level)
-  compute-incoming-files.ts # Files an item would install; claims + target clashes
-  install-paths.ts          # lstat-only inspection of install paths; assertNoLinkInTheWay; contained-path checks; installPathMatcher (paths equal with or without a trailing slash); isInstalledSkill (an installed `.claude/skills/<name>/` is a support folder only when it is a real folder holding no SKILL.md that isn't a folder; a linked SKILL.md, a linked or gone folder, or a path it can't read counts as a skill, never followed, never thrown)
-  nuke-files.ts             # nukeManifestFiles: strict removal of recorded paths (recursion from the trailing slash); removePathsInTheWay: on-disk removal for approved replacements. Neither follows links; both refuse paths outside the root
-  clear-conflicts.ts        # Files in the way under a ConflictPolicy (overwrite | ask | stop); what it cleared (`Clearance`: an entry removed, files agntc didn't install replaced); a question answered no stops the item on what's still in its way
-  collision-check.ts        # Incoming files owned by other entries
-  collision-resolve.ts      # Asks under each colliding entry's row (a local one as `localHead` names it) whether to remove it, the question leaving the entry to the row; removes those approved
-  unmanaged-check.ts        # Incoming files agntc didn't install (links found by lstat)
-  unmanaged-resolve.ts      # Asks under the item's row (the head its caller gives) whether to replace files agntc didn't install, then to be sure
-  in-the-way-render.ts      # The rows files-in-the-way questions sit under: another entry (collisionRow) or an item with files agntc didn't install in its way (unmanagedRow), the files dim beneath, each a folder or a file
-  entry-head.ts             # How a row names an entry or item (EntryHead): localHead (a local one's folder, home-shortened, meta local), entryHead (that or the key)
-  absorb.ts                 # A pack taking over loose skills from its own source, through its skills only; skills already in an installed pack (installed there as skills)
-  entry-source.ts           # SourceId / isSameSource; sourceKeyOf (the source key add gives an entry's source); reAddCommand + groupReAddCommands (path, --pack, --skill line); restoreCommand (a remedy's re-add at the entry's version intent)
-  gone-upstream.ts          # settleGone: -y removes, terminal asks under the entry's gone-upstream row (its head from the caller, a local one's as it settles) (default no), machine keeps + reports; goneMessage; goneRow
-  clone-reinstall.ts        # reinstallEntry, one entry's clone and reinstall (`update <key>`, list's update and change version); cloneRepoOnce primitive + runPipeline for the grouped path; recordReinstall (an entry and its key move in one write); recordCopyFailure (the one place a copy failure drops the entry and what it took over); abort/blocked messages
-  nuke-reinstall-pipeline.ts# Derive-before-delete replay (pack re-walk, moved skill, gone) + nuke-and-reinstall
-  dropped-folders.ts        # droppedButInSource: recorded .claude/skills/<name>/ folders a reinstall won't write whose name is still in the item's source outside every folder it installs (a category of installed folders aside)
-  manifest.ts               # Read/write .agntc/manifest.json; legacy normalization on read
-  git-clone.ts              # Shallow clone through withGitRetry and isFinalGitError; each attempt clones into an emptied temp folder
-  git-utils.ts              # execGit (a timed-out command's message opens `git <cmd> timed out after Ns`); withGitRetry, the one retry (GIT_ATTEMPTS, delays) clones and remote reads share; isFinalGitError, what isn't retried (HTTPS credential failures and timeouts; an SSH "Permission denied" is retried); lsRemote, every remote read (tags, default branch, update-check probes), each attempt under its own timeout
-  update-check.ts           # Per-member categorization vs remote (categorizeMember, GroupTarget); constrained checks
-  update-check-all.ts       # Checks for every entry (list)
-  key-update.ts             # One entry's update under the row its caller opened (keyRowProgress, updateUnderRow: settle the row, then record), which `update <key>` and list's update and change version share; mayTakeOver/localSubject (a pack's same-source loose skills, measured with its row's subject, as all-mode's do too); updatePlan; a throw is the caller's to take (list settles it as failedKey)
-  update-outcomes.ts        # The per-unit boundaries every update path shares: reportOutcomes (notes, Next remedies) and persistUnitOutcomes (fold and write)
-  update-groups.ts          # All-mode group-first dedup: group by (cloneUrl, versionIntent), resolve/clone once per group, orchestrate reinstalls (packs first); PluginOutcome model
-  update-render.ts          # update's rows: groupLabel, groupSubject; reinstalledRow (a group or one key's entry, its members as children), localRow (a local entry, how it ended); both add the loose entries a pack among them took over as children (`withTakenOver`, which drops a member it holds so each shows once), worded by `takenOverDetail` (a local pack's `is now part of this pack`, as its row names it), ✗ and counted failed when the pack didn't land (`categoryOf`); leftAloneRow (up to date, newer tags, not checked, no tags in range; a key naming one entry names it beneath, a group's row names none), cloneFailedRow; outcomeStatus; updateTally; newerTagsMessage/pinnedTagsMessage (one wording: `Pinned to <ref>, newer tags available (latest: <tag>).`)
-  version-resolve.ts        # Semver tag resolution (resolveVersion, resolveLatestVersion, newestTag); tag-vs-hash rule (isVersionTag, formatVersionMove)
-  version.ts                # CLI version from package.json at runtime
-  list-render.ts            # list's rows: the dashboard's options (grouped by source, cells for kind, ref and status) and footer counts, the detail view's row and its fields (its status worded and toned as the dashboard's status cell), the empty manifest's row and Next item; what an action changed, counted into the tally
-  remove-render.ts          # The rows of a removal: the entry with its folders under each asset folder, then removed (with them) or failed; removalQuestion, the confirm worded by what the rows hold (`Remove it and its 11 folders?`, `Remove them and their 14 folders?`), which list's remove and gone upstream share
-  entry-assets.ts           # What an entry installs, counted and worded as add counts it (assetSummary, kindAndCounts)
-  summary.ts                # Counts and labels (pack counts, ref label); add's item outcomes; update summary; actionable out-of-constraint footer
-```
+- `src/cli.ts` — commander entry; `src/commands/` — one file per command (list's actions and detail view beside it); `src/init/` — scaffolding.
+- `src/command-action.ts` — resolves the mode, builds the matching `Ui`, writes the machine document, maps `ExitSignal` to the exit code.
+- `src/ui.ts` — the `Ui` interface, `MachineUi`, prompt shapes and tallies. `src/terminal/` — `TerminalUi` and its renderer (layout, rows, tasks, Next, close, signals, the prompts on `@clack/core`).
+- `src/*-render.ts` — the rows each command draws; `src/documents.ts` — each command's JSON body.
+- The rest of `src/` is the domain: discovery (`discover.ts`, `choose-items.ts`), keys and items (`install-item.ts`), copying and its safety (`copy-*.ts`, `install-paths.ts`, `nuke-files.ts`), conflicts (`clear-conflicts.ts`, `collision-*`, `unmanaged-*`), update (`clone-reinstall.ts`, `nuke-reinstall-pipeline.ts`, `update-groups.ts`, `update-check*.ts`, `version-resolve.ts`), the manifest (`manifest.ts`), git (`git-*.ts`).
+- `tests/` holds a test file per module; `tests/terminal/` the renderer's tests and the `*-golden` tests of whole runs.
 
-## Key Types
+## Concepts
 
-- `Mode`: `"interactive" | "machine"` — machine when `--json` or either of stdin/stdout isn't a TTY
-- `Ui`: The single output/prompt surface; `MachineUi` draws nothing, turns prompts into failures and collects `warnings`/`notes`, the failure and `report` into one `MachineDocument`
-- `Message` / `RichMessage`: what `warn`, `note` and `fail` take — a string, or text with an optional dim `cause` and a `Remedy` (a lead, then steps: a command, a choice of commands, or words) the terminal lays out, plus the `plain` sentence machine mode prints
-- `Row`: a line of a block — `status` (its glyph and colour), `subject`, dim `meta`, `detail` (text, a version move, or a label with a dim aside), `fields` (dim-labelled lines under it) and `children` (a tree: name, optional status and detail, depth)
-- `Block`: rows streamed into columns fixed when it opened (`row`; `task`, spinning until it `settle`s into a row or `clear`s), and `select`/`multiselect`/`confirm` asked under a `Row` or `Rows`, erased with the question
-- `Tally`: a run's outcomes by its command's categories (`{ command, counts }`), drawn by `close` under the Next section
-- `AgntcConfig`: Shape of `agntc.json` — `{ type? }`; `"pack"` (or legacy `"plugin"`) declares a pack
-- `Discovery`: `{ packs: FoundPack[], skills: FoundSkill[], strays: StrayAssets[] }` from `discover`
-- `FoundSkill` / `FoundPack`: name (folder basename), repo-relative path; skill carries frontmatter name/description, pack its skills, `supportFolders` and qualifying `assetDirs`
-- `SkillFolder`: `{ name, path }`, a folder installed whole as `.claude/skills/<name>/`; `FoundSkill` extends it, and a pack's support folders are plain ones
-- `Selection`: `auto | skills | pack | all`, from the add flags
-- `InstallItem`: `{ kind: "skill", skill } | { kind: "pack", pack }`; `KeyedItem` adds the manifest key and `sourceSubpath?`
-- `ConflictPolicy`: `overwrite | ask | stop` — `--overwrite`, else ask at a terminal, else stop the item
-- `ManifestEntry`: Per-entry tracking (ref, commit, installedAt, files, `type?: "skill" | "pack"`, cloneUrl, constraint?, `sourceSubpath?`, `localRoot?` — the folder a local entry was added from)
-- `SourceId`: `remote(cloneUrl) | local(root, exact)` — what "the same source" means for absorption and for `add`'s key check. Remote matches on the repo the clone URL names (`host/owner/repo`; protocol, login, port and `.git` aside, so HTTPS and SSH of one repo match); two recorded local roots match only when equal (a checkout nested in another is its own source); a legacy derived root matches when either holds the other
-- `UpdateCheckResult`: Union of update statuses including constrained variants
-- `EntryGroup`: All-mode update group — non-local entries sharing `(cloneUrl, versionIntent = constraint ?? ref)`, resolved and cloned once
-- `GroupTarget`: Per-group resolved target (`constrained | branch | head | tag | check-failed | constrained-no-match`) that each member categorizes against via `categorizeMember`
-- `PluginOutcome`: Per-entry update result (`updated | refreshed | up-to-date | newer-tags | check-failed | failed | copy-failed | aborted | blocked | constrained-no-match | gone-kept | gone-removed | absorbed`) driving the streamed lines, JSON items and `hasFailedOutcome` exit accounting
+- **Skill** — a folder with `SKILL.md`. Everything inside belongs to it. Installs to `.claude/skills/<folder>/`.
+- **Pack** — skills plus the pack's own top-level `agents/` (`.md` files) and `hooks/` (every entry), installed, updated and removed as one entry. Always **declared**, never inferred from shape: `{"type": "pack"}` in `agntc.json` (legacy `"plugin"` reads as pack), or `--pack` on the added path. `agntc.json` is optional and carries only `type`.
+- **Support folder** — a folder in a pack's own `skills/` that holds no skill. Installs whole as `.claude/skills/<name>/` and claims its target as a skill does, but is never a skill: no `--skill` match, no entry, no moved-skill candidate, never absorbed. A folder there that holds skills deeper down is a category, read the same way.
+- **Stray** — a non-pack folder with `agents/` or `hooks/`. Gets a notice with the `--pack` line; agents and hooks install only as part of a pack.
+- **Key** — a manifest entry's name. Root item → the source key (`owner/repo`, or the local root); loose skill → `<source>/<folder>` with `sourceSubpath` when the path differs; pack → `<source>/<path>`. `keyItem` is the one rule `add` and `update` share.
+- **Manifest entry** — `.agntc/manifest.json`, keyed by key: ref, commit (null for local), files (folders end in `/`), `type`, cloneUrl, `constraint?`, `sourceSubpath?`, `localRoot?`. `files` drives removal and reinstall.
+- **Same source** — decides absorption and `add`'s key check. A remote source matches on the repo its clone URL names (`host/owner/repo`), so HTTPS and SSH of one repo match; two recorded local roots match only when equal, so a checkout nested in another is its own source; a legacy derived root matches when either root holds the other.
+- **Scope** — project (cwd) or global (`~`).
 
-## Discovery and Packs
+## Rules that are easy to get wrong
 
-`agntc.json` is **optional**. A skill is a folder with `SKILL.md`; a pack is always **declared**, never inferred from shape.
+- **Identity is the folder basename**, everywhere. Frontmatter is display and `--skill` matching only.
+- **Packs don't nest.** An inner pack declaration is a plain folder.
+- **A pack is never inferred** from `agents/`/`hooks/` or any other shape.
+- **A link is never followed in the destination.** A link in the way is unlinked as a link; nothing is written or deleted through one, and recorded paths outside the install root are refused.
+- **Machine mode never prompts.** A question is a flag or a stop.
+- **A key naming several entries runs group-first**, like a bare `update`; only a key naming one entry takes the single-entry path.
+- **Nothing is removed before every check has passed** (derive-before-delete, below).
 
-- **Walk.** From the added path (repo root, `owner/repo/path`, tree URL path or local path): `SKILL.md` → skill, not entered; `{"type": "pack"}` → pack, recorded, not entered; anything else descended, max depth 5. Skips hidden dirs, `node_modules`, `dist`, `build`, `vendor`. Symlinked dirs are never entered. `SKILL.md` + pack declaration → skill, with a warning.
-- **Packs don't nest.** A pack holds every skill found inside it plus its own top-level `agents/` (`.md` files only), `hooks/` (every entry) and the support folders in its `skills/`. Inner pack declarations are plain folders.
-- **Support folders.** Everything in a pack's own top-level `skills/` installs; shape decides only how. A folder with `SKILL.md` is a skill; one a skill the walk found sits under is a category, its folders read the same way; any other is a support folder (`FoundPack.supportFolders`), installed whole as `.claude/skills/<name>/` through `skillUnit` (hidden content kept, `.git` and a top-level `agntc.json` dropped). A folder the 5-level walk reached no skill under is a support folder. Loose files, links, hidden folders and the walk's skipped names are left out. A support folder claims its target as a skill does, so every clash, collision, unmanaged and link-in-the-way check applies, and a pack holding only support folders isn't empty. They aren't skills: never `--skill` matches, moved-skill candidates or entries, and never a loose skill's stand-in. A support folder landing on a loose skill from the pack's own source is a collision with another entry's files, not an absorption, and an installed pack's support folder doesn't make `--skill` leave a skill of that name out (the install tells them apart: a skill's folder holds its `SKILL.md`, `isInstalledSkill`). A skill taken from a pack installs without them, and its note names them. Same rule for a `--pack` folder.
-- **Strays.** A non-pack folder with qualifying `agents/`/`hooks/` gets a notice with the `--pack` line that would install them. Agents and hooks install only as part of a pack.
-- **Declaring.** Author: `{"type": "pack"}` (legacy `"plugin"` reads as pack). User: `--pack` bundles the added path; refused on a single skill or a path containing packs.
-- **Choosing.** One offered item installs without a menu; several give a menu (packs by path, then loose skills by path; never splits a pack). `--skill` matches folder or frontmatter name anywhere, packs included; a skill taken from a pack installs loose with a note. Duplicate names are refused, listing paths. `--skill`/`--pack`/`--all` are mutually exclusive; `--list` combines only with `--pack`. Skills an installed pack from the same source holds are left out with a note.
-- **Keys.** Root item → source key; loose skill → `<source>/<folder name>` (+ `sourceSubpath` when the path differs); pack → `<source>/<path>` (`keyItem`). `keyItems` refuses an item whose own folders claim one install path (`<item> can't be installed as it stands: …`, no choice offered, as none mends it), then two items claiming one install path, then two sharing a key (both `… — choose one`).
-- **Identity = folder basename** throughout; frontmatter is display and `--skill` matching only.
-- **Copy-safety** (`copy-safety.ts`, `install-paths.ts`, `nuke-files.ts`): path-traversal + symlink-escape guards before any copy on `add` and `update`; never write or delete through a symlink in the destination (a link in the way is unlinked as a link); recorded paths outside the install root are refused. Shared `.claude/<asset>` roots are not checked.
-- **Links in a source.** A link at or above an item's path blocks it (`add` refuses the start path; `update` blocks before removing anything). A copy never follows a link; each is read from where it sits: out of the clone or local root → refused before anything is removed; to something inside the item the filters keep → a relative link; to something the filters drop, or below a folder they drop → left out; to the item itself or above it → an absolute link into a local source, left out of a clone (deleted once copied); elsewhere in the source → an absolute link into a local source, and in a clone a copy of what it leads to, one level: a file, or a folder whose own links are judged against it (inside it → relative, anything else left out, never copied in turn). A target in `.git` (any case), itself a link or below one, not named exactly as its folders list it (so a filesystem that ignores case can't reach `.git` or the item's own folders), missing or behind a folder that can't be listed, or neither file nor folder is left out; what's copied in is filtered as if it sat at the link's path, and the escape pre-flight reads it too (a local source's pre-flight doesn't, as its copy links instead). The pre-flight plans exactly the item's copy: each skill folder and hook folder with its filter, so a link in a folder the item doesn't install, one its filters drop, or one in `agents/` is never read. A refusal names the link where it sits below the source root. A link at the top of a pack's `hooks/` never installs. Sockets, FIFOs and devices are left out. A local source resolves to its real folder.
+## How it works
 
-## Asset Routing
+**Walk.** From the added path (repo root, `owner/repo/path`, tree URL path or local path): `SKILL.md` → skill, not entered; a pack declaration → pack, not entered; anything else descended, to depth 5. Hidden folders, `node_modules`, `dist`, `build`, `vendor` and linked folders are skipped. `SKILL.md` plus a pack declaration is a skill, with a warning.
 
-Claude only. Paths are relative to the install root (project dir, or `~` with `-g`).
+**Choosing.** One item installs without a menu; several give a menu (packs, then loose skills, by path; a pack is never split). `--skill` matches anywhere, packs included, and a skill taken from a pack installs loose, without its support folders, with a note. Duplicate names and two items claiming one install path are refused. `--skill`/`--pack`/`--all` are exclusive; `--list` combines only with `--pack`. Skills an installed pack from the same source already holds are left out.
 
-| Asset | Target |
-|-------|--------|
-| skills | `.claude/skills/<folder>/` (flat, pack skills and support folders included) |
-| agents | `.claude/agents/` (pack only, `.md` files) |
-| hooks | `.claude/hooks/` (pack only) |
+**Asset routing.** Skills and support folders → `.claude/skills/<folder>/` (flat); a pack's agents → `.claude/agents/`; its hooks → `.claude/hooks/`. Paths are relative to the install root.
 
-## Version Constraints
+**Copy safety.** Path-traversal and symlink-escape checks run before any copy, on `add` and `update`. A copy never follows a link: each link in a source is judged by where it points (inside the item, elsewhere in the source, outside it), and one leading out of the clone or local root refuses the item. `copy-safety.ts` holds the rules.
 
-- `owner/repo` (bare add) — auto-resolves latest semver tag, stores `^major.minor.patch` constraint (0.x caret locks the minor, intended)
-- `owner/repo@^1.0` — explicit constraint, resolves best match within range
-- `owner/repo@v2.0.0` — exact tag, no constraint stored
-- Constraints stored in `ManifestEntry.constraint`, used by `update` to stay within range
-- `list` detail view shows out-of-constraint versions when available
-- `list` detail counts what an entry installs as `add` counts and words it (a pack: `2 skills, 3 folders, 1 agent`), however many of its paths are recorded: each `.claude/skills/<name>/` once, each top-level `.claude/hooks/` entry once, each agent `.md` file. A pack's skills folder is a skill or a support folder by what the install holds (`isInstalledSkill`), as the manifest records both alike; a skill entry's is a skill, unprobed. Pack wording (skills always counted) only when the entry records something under `.claude/`; a legacy pack recording only `.agents/skills`/`.cursor/skills` paths shows `N other`
-- "Change version" action in `list` strips constraint (pin to exact tag)
+**Files in the way.** Files another entry owns, or that agntc didn't install, are cleared under a policy: `--overwrite` replaces, a terminal asks, machine mode stops that item and the rest install.
 
-## Update Strategy
+**Versions.** A bare `owner/repo` resolves the latest semver tag and records `^major.minor.patch` (0.x caret locks the minor, intended). `@^1.0`/`@~2.1` records the range; `@v2.0.0` pins a tag, no constraint; no tags → default branch HEAD. List's "change version" pins a tag and drops the constraint.
 
-Nuke-and-reinstall: delete manifest `files`, re-clone, re-copy. Constrained entries resolve best match within constraint range.
+**Update** is nuke-and-reinstall: delete the entry's `files`, re-clone, re-copy.
+- **Replays the recorded `type`.** A pack re-walks its path, so additions arrive and removals go; a pack path now a single skill reinstalls as a skill. A loose skill re-copies from its path; if it moved, a whole-source walk follows it when exactly one skill has its name, and aborts with each candidate's re-add when several do. Loose skills never pick up additions; that's what packs are for.
+- **Keyed as `add` keys it.** When the replayed item's key differs from the entry's, the entry moves to the new key in the same manifest write, with a note. A new key another entry holds aborts, unless that entry is a loose skill the pack takes over.
+- **Derive-before-delete.** Replay, key, files in the way, dropped folders and the escape scan all run before anything is removed. Any of them failing aborts that entry with the install intact and a `remove` + re-add remedy that keeps the entry's version intent.
+- **Nothing still upstream is dropped** (`dropped-folders.ts`). A recorded `.claude/skills/<name>/` the reinstall won't write, whose name is still a folder in the item's source outside everything it installs, aborts the entry. It asks the source, never the install rules, so a gap in those rules stops an update rather than deleting what they miss.
+- **Gone upstream** is never a failure: `-y` removes, a terminal asks (default no, asked again next run), machine mode keeps and reports.
+- **Absorption.** A pack's skills landing on loose entries from its own source take them over (entries dropped). Only its skills by name; a support folder landing on one is files in the way. Units holding a pack update before units without one.
+- **Grouping.** A bare `update`, or a key naming several entries, groups non-local entries by `(clone URL, constraint ?? ref)`: one probe, one clone and at most one source walk per group; each member categorizes against the group's target by its own commit. Local entries reinstall one by one. One entry failing doesn't stop the others; any abort or failure exits non-zero. A failed check or no tag in range only warns without a key, and fails with one.
+- **Legacy entries** (`type: "plugin"`, missing `type`, `.agents/skills`/`.cursor/skills` paths) are normalized on read and persisted on the next write.
 
-- **Replays the recorded `type`.** A pack re-walks its path (`forcePack`), so additions arrive and removals go, support folders included; a pack path that is now a single skill reinstalls as a skill (with a note). A re-walk finding two of its folders installing to one place aborts (`sourceClash`) with no remedy, as `add` would refuse the pack too: `<key> can't be updated: in its source, <a> and <b> would both install to <target>, so it can't be installed as it stands. The existing install is left as it is.` A loose skill re-copies from its path; if `SKILL.md` is gone there, a whole-source walk follows it when exactly one skill has its name (note + new `sourceSubpath`), aborts when several do, carrying them (`candidates`, in path order, each the item as the remedy re-adds it, under the entry's source key): `<key> can't be updated: its SKILL.md is gone from <old> and N skills are now named <name>: <a>, <b>. The existing install is unchanged. To follow one of them: <remove> then one of: <add a> or <add b>`. The add lines are alternatives, joined by ` or ` however many there are, so none reads as a shell sequence; each installs its skill at the version the entry tracks (`restoreCommand`; a version change's pins its tag; a local one names the skill's folder, as every local re-add does).
-- **Keyed as `add` keys it.** A replayed skill is named by its folder (`folderName`: the path's basename, or the source root's name at the root), never by its key, so a key that disagrees with the folder installs under the folder. The replayed item is keyed by `keyItem` under the entry's source key (`sourceKeyOf`: `owner/repo`, or the local root). When that isn't the entry's key — a pack path now a single skill, a root skill moved below the root, a skill moved to the root, a skill still keyed by a pack's path, a pack recorded by name with a path — the entry moves to that key with `add`'s `sourceSubpath`, the old key dropped in the same manifest write (`recordReinstall`, on every writer), and one note names both (`…, now keyed <new>`). A new key another entry holds aborts the entry before anything is removed (`takenKey`; remedy: `remove <new>` then `update <old>`), unless that entry is a loose skill the pack takes over: it is dropped and the pack recorded under its key in the same write (`recordReinstall` drops what it took over, then records it). The out-of-constraint footer prints its commands for entries as the run left them, leaving out any the run uninstalled (absorbed, removed as gone upstream, copy failed); a group with none left prints no line.
-- **Derive-before-delete.** Replay, folders it would drop that the source still has, the new key, files in the way (other entries' and unmanaged), and the symlink-escape scan all run before any file is removed. Irreconcilable change or files in the way → abort that entry, install intact, loud message with the `remove` + re-add (`--overwrite` when files are in the way) remedy. The `remove` names the entry as installed; once the replay has succeeded, the re-add installs the item as replayed (`replayed`): a remote item under its new key, a local one by its folder, which `add` keys as a source of its own (see Re-add commands). The re-add keeps the version the entry tracks (`restoreCommand`). An abort of a list version change redoes that change: the remedy says to change the version again (an update follows the entry's own constraint or pin, so it would never install the chosen tag), and its re-add pins that tag.
-- **Nothing still upstream is dropped** (`dropped-folders.ts`). A recorded `.claude/skills/<name>/` the reinstall won't write, whose name is still a folder in the replayed item's source outside everything the item installs, aborts the entry (`stillInSource`): `can't be updated: it would remove <names>, which are still in the source but would no longer be installed`, remedy `remove` + re-add to update it anyway. The walk reads the pack folder as deep as discovery does (`MAX_DEPTH` below the item's path) and never enters a folder the item installs (a pack's skill and support folders, a skill's own folder), as a namesake inside one still installs, nested in it; so a loose skill, or a pack re-typed as one, never trips it. Nor does it enter the pack's own top-level `agents/` or `hooks/`, which install by their own rules and never to `.claude/skills/`. Hidden folders, links and the walk's skipped names are left out. The recorded path must be the folder itself, `.claude/skills/<name>/` (`skillFolderName` in `asset-targets.ts`, the one parser of a skills path, which `list`'s detail view shares). It asks the source, never the install rules, so a gap in those rules stops the update rather than deleting what they miss. A namesake holding a folder the item installs is a v1 category folder whose skills v2 lifts out, so it goes. Recorded paths outside `.claude/skills/` (agents, hooks, legacy `.agents/skills`/`.cursor/skills`) and loose files in it are deliberate drops, never checked; a name gone from the source is a removal upstream. The source is walked only when something would be dropped.
-- **Gone upstream.** Nothing left for a skill (or a pack's path gone/empty) → `settleGone`: `-y` removes, a terminal asks (default no; kept entries are asked again next run), machine mode keeps and reports (`gone-kept`, flags `-y`). Never a failure.
-- **Absorption.** A pack's skills landing on loose skill entries from its own source take them over (files removed, entries dropped, `absorbed` outcome). Only its skills, by name: its support folder landing on one clashes, so the entry aborts as files in the way. Packs update before skills across the run: a unit (group or local entry) holding a pack runs before units without one, and packs go first within a group. The order ranks whole units, so a unit holding both a pack and loose skills can reinstall one of those skills before another unit's pack takes it over (two groups of one repo, each with a pack); the pack then takes over the reinstalled skill, which ends the same. Otherwise a loose skill a pack takes over is skipped.
-- **Re-add commands** (`entry-source.ts`) carry the recorded path and `--pack`; a group's loose skills share one `--skill` line. A local entry's re-add names its item's folder (`add <root>/<path>`), which installs that folder as a source of its own: key `<root>/<path>` and that `localRoot`, not the entry's key under the original root. It is printed only once the entry is gone (an abort's remedy removes it first, a copy failure already has), so it can't collide; the form stays because `--skill <name>` from the root refuses outright when another skill under the root shares the name. A remedy or recovery re-add keeps the entry's version intent (`restoreCommand`): the tag a version change picked, else its constraint, else its tag or branch; an entry on HEAD is added bare. The out-of-constraint footer (bare) and the newer-tags line (`@<newest>`) don't, as their job is to move past the constraint. The source is GitHub shorthand only for a GitHub HTTPS clone URL; other hosts and SSH print the clone URL.
-- **Legacy entries.** `type: "plugin"` reads as `pack`; missing `type` derives from recorded `files`; per-agent `agents` is dropped; files recorded under `.agents/skills`/`.cursor/skills` are deleted on update and reinstalled under `.claude/`. Persisted on next write.
-- **Per-entry granularity:** one entry aborting doesn't stop siblings. Command exits non-zero if any entry aborted/errored (partial success). With a key, a failed check or no matching tag also exits non-zero, however many entries the key names; without one they only warn. A key naming several entries doesn't stop at a failure.
+## Machine mode
 
-### All-mode group-first dedup (`update` with no key, or a key naming several entries → `runGroupedUpdates`)
+`--json`, or stdin or stdout not a TTY → `MachineUi`. Never draws, never waits.
+- One JSON document per command on stdout: `{ ok, command, scope?, error?, ...body, warnings, notes }`. `ok` is true exactly when the exit code is 0. Errors are documents too. `scope` appears on the commands that take `-g`.
+- A prompt reached in machine mode fails the command. Callers check `ui.mode` first and fail with `{ flags }` naming the answer: menu → `--skill`/`--pack`/`--all`; files in the way → `--overwrite` (that item stops, the rest install); `remove` → `-y` or `<key>`; `init` → the type and `-y`; gone upstream → kept and reported, exit 0.
+- `update` items report a moved entry's new `key` with its `previousKey`.
 
-All-mode is a group-first pipeline (`update-groups.ts`); a key naming several entries (a prefix such as `owner/repo`) runs the same pipeline over just those entries, threading and writing the whole manifest so entries outside it stay recorded, with group labels computed from the groups it holds. The three singleton entry points (`update <key>` naming one entry, list update, list change-version) stay on `reinstallEntry`, through `updateUnderRow` (`key-update.ts`).
+## Terminal UI
 
-- **Group → resolve/check once → categorize members → clone once → reinstall.** Non-local entries are grouped by `(deriveCloneUrlFromKey, versionIntent = constraint ?? ref)` — a constrained entry keys on its stable `constraint` and *excludes* the mutating `ref`, so a singly-updated member stays grouped with its behind siblings. One resolution probe, one `cloneRepoOnce` and at most one whole-source walk (`sourceWalk`, shared by members whose skill moved; a walk that fails isn't kept, so the next member walks again) per group; each member categorizes against the shared `GroupTarget` using its own installed commit, so genuine-state splits are preserved. Local entries (`commit === null`) are excluded from grouping — one reinstall each.
-- **Failure isolation.** Clone-fatal → N `failed` outcomes (no manifest mutation, non-zero exit, one `clone failed · <cause>` row, the members beneath); check/resolve-fatal → N `check-failed` (no clone, all-mode exit 0), one `not checked · <cause>` row (`leftAloneRow`; the cause `gitErrorCause`, the first line of git's error that names the failure, passing over `warning:`/`hint:`/`Cloning into` lines, without `fatal: `, as with a single key) while the JSON `reason` keeps git's whole error; per-member `copy-failed`/`aborted`/`blocked` stay isolated with remove-vs-intact semantics. Manifest persists per group; the per-member `sourceSubpath` containment guard runs per member via `resolveGuardedSourceDir`.
-- **Streamed rows** (`update-render.ts`): one `checking for updates…` task, then a row per group, its task spinning `updating to <ref>…` until it settles (`reinstalledRow`: the glyph of its worst member, the move, the members as children; a local entry's own row, `localRow`); every row a pack settles into, remote or local, holds the loose entries it took over as children, once each, a member up to date included, which is how a terminal hears of them (the JSON says it in the absorbed item's `message`); one taken over by a pack that then failed to install reads ✗ and counts as failed, its files gone (`landed` on the outcome, never in the JSON); a key's block measures the loose entries its pack may take over (`mayTakeOver`), so their lines keep its columns; a group left alone is one row, no children (`leftAloneRow`: up to date, newer tags, not checked, no tags in range). `update <key>` draws the same rows, its left-alone row naming its entry beneath (a key naming several follows all-mode); as a failed check or no tag in range fails a key's run, `leftAloneRowAmong` (`commands/update.ts`) draws its row ✗ where all-mode's is `!`. Remedies (aborts, newer tags, the out-of-constraint footer) queue under Next, then the tally. The *Group label* is bare `owner/repo`, `@intent`-disambiguated only when one repo yields multiple groups.
-- **Tag-vs-hash wording** (`formatVersionMove`, single-sourced in `version-resolve.ts`): tags only when both refs are genuine tags (`isVersionTag`) AND the ref moved; else short commit hashes. Same on the single-key and all-mode surfaces.
-- **Actionable gating footer:** names the post-bump current vs newest and the group's re-add commands without a version (bare add re-establishes caret); tag pins get the newer-tags line with `@<newest>`. Informative, exit 0.
+Every word and question goes through one `Ui` (`src/ui.ts`); commands never write to stdout themselves.
+- `TerminalUi` (`src/terminal/terminal-ui.ts`) draws a header, then blocks of rows (a status glyph, subject, meta, detail, children as a tree), tasks that spin until they settle into a row, questions asked under the row or rows they're about and erased with themselves, a Next section of remedies, and a closing tally. It owns SIGINT, SIGTERM and SIGTSTP for the run.
+- `MachineUi` draws nothing and collects warnings, notes, the failure and the `report` body into one document.
+- `warn`/`note`/`fail` take a `Message`: a string, or rich text with a dim cause, a remedy and the `plain` sentence machine mode prints.
+- Terminal output is pinned by the golden tests in `tests/terminal/`; a wording change updates them.
 
-## Machine Mode
+## Conventions
 
-`--json`, or stdin/stdout not a TTY → `MachineUi`. Never draws, never waits.
+- `CHANGELOG.md` belongs to mint: `mint release` writes each entry from the changes since the last tag. Never edit it, and never add an `[Unreleased]` section.
+- Non-null `!` assertions are repo idiom under `noUncheckedIndexedAccess`; don't rewrite them away.
+- Every printed `npx agntc …` line is built through `agntcCommand` (`scope.ts`), which adds `-g` and shell-quotes.
+- Biome formats and lints (tabs, double quotes).
 
-- **One JSON document per command** on stdout: `{ ok, command, scope?, error?, ...body, warnings, notes }`; `ok` is true exactly when the exit code is 0. Errors are documents too, exit 1. `scope` (`"project" | "global"`) appears on the four commands that take `-g`, not on `init`.
-- **A question is a flag or a stop.** A prompt reached in machine mode fails the command. Callers check `ui.mode` first and fail with `{ flags }` naming the answer: menu → `--skill`/`--pack`/`--all` (document still carries the listing); files in the way → that item stops with `flags: ["--overwrite"]`, the rest install, exit 1; `remove` confirmation → `-y`; `remove` without a key → `<key>`; gone upstream → kept, reported, exit 0; `init` → type + `-y`.
-- **`update` items name a moved key.** An entry the update moved to the key `add` gives it reports that key as `key` and the one it had as `previousKey`. An `absorbed` item is the entry as the run found it: its key and record then, no `previousKey`, its message naming the pack (by the key it left, when the pack moved onto the absorbed entry's key; the pack's own item carries `previousKey`).
-- **`remove` reports per key.** The document carries `removed` (entries with their files) and `failed` (entries with a `reason`). `remove` tries every key; a key whose files can't be removed stays recorded, so whatever is left stays tracked, and the command exits 1.
-- `warn`/`note` reach both modes, as the document's `warnings`/`notes` (a rich message flattened to its `plain`), and `fail` as its `error`; `header`/`block`/`next`/`close`/`cancel` are terminal-only; `report(body)` sets the document body.
-
-## Testing
+## Gates
 
 ```bash
 npm test
+npm run typecheck
+npm run build      # dist/cli.js
 ```
-
-## Build
-
-```bash
-npm run build
-```
-
-Output: `dist/cli.js`
-
-## Changelog
-
-`CHANGELOG.md` belongs to mint: `mint release` writes each version's entry from the changes since the last tag. Never edit it by hand, and never add an `[Unreleased]` section.
