@@ -1,14 +1,30 @@
 # .mint.toml — mint configuration. Only keys that DIFFER from mint's compiled
 # defaults are set here; everything else uses mint's built-in defaults.
 
-# Tooling/workflow artifacts (tracked but not shipped product source) — kept out
-# of the AI notes/commit diff so release notes describe the CLI, not workflow
-# specs, agent definitions, or task-tracking state.
+# Everything tracked that isn't the CLI a user installs, kept out of the AI
+# notes/commit diff so release notes describe the product: its source, its
+# package.json, its bundle config, the README and what ships. Tests are the bulk
+# of any change's diff, enough to crowd the behaviour out of the notes.
 diff_exclude = [
-    '.workflows/**',  # workflow specs/plans/knowledge (333 tracked files)
-    '.claude/**',     # Claude Code agents, skills, settings (397 tracked files)
-    '.agntc/**',      # agent tooling manifest
-    '.tick/**',       # task-tracking state
+    '.workflows/**',      # workflow specs/plans/knowledge
+    '.claude/**',         # Claude Code agents, skills, settings
+    '.agntc/**',          # agent tooling manifest
+    '.tick/**',           # task-tracking state
+    'CLAUDE.md',          # contributor rules for agents
+    'design/**',          # design docs
+    'demo/**',            # the README screenshots' recording setup
+    'art/**',             # the README screenshots
+    'tests/**',           # tests and their fixtures
+    'scripts/**',         # the release gate
+    'release',            # the mint wrapper
+    '.github/**',         # CI plumbing
+    'package-lock.json',  # lockfile noise; package.json carries the deps
+    'biome.json',         # lint and format config
+    'tsconfig.json',      # type-check config
+    'tsconfig.test.json',
+    'vitest.config.ts',
+    '.gitignore',
+    '.mint.toml',
 ]
 
 [release.hooks]
