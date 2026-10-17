@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-17
+
+✨ Added
+- A redesigned terminal UI across every command — each run opens with a header, shows results as rows with a tree of what was installed, and closes with a tally and a Next section of commands to run.
+- Spinners and questions sit under the row they are about, and the questions erase once answered.
+- `list` dashboard groups installs by repo, shows each one's kind, version, constraint and status, and counts what needs attention.
+- `list` detail view for an install shows its version, constraint, commit, install date, contents and status.
+- `init` shows the files it will create as a tree and marks any that already exist, and `add` explains what it cleared out of the way.
+- Terminal colour follows `NO_COLOR` and `FORCE_COLOR`, and the layout adapts to narrow terminals.
+- README rewritten with screenshots, an explanation of packs and a guide to scripting.
+
+🔧 Changed
+- `update` shows each repo's pack and skills as one row with its version move, and a failed update prints the exact `remove` and `add` commands that mend it under Next.
+- Newer versions outside a constraint, and newer tags for a pinned install, appear under Next with the command to reach them.
+- Questions about files in the way, gone-upstream installs and removals show the affected files under the row they concern.
+- Ctrl-C and Ctrl-Z now clear the screen cleanly and restore the terminal.
+- `list` actions (update, change version, remove) run under the same rows as the commands of the same names.
+
+🗑️ Removed
+- The `@clack/prompts` and `picocolors` dependencies, replaced by agntc's own renderer on `@clack/core`.
+
 ## [0.5.3] - 2026-10-15
 
 🐛 Fixed
