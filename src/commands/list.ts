@@ -6,7 +6,6 @@ import {
 	assetSummary,
 	countAssets,
 	type EntryAssets,
-	kindAndCounts,
 } from "../entry-assets.js";
 import { isUpdatable, type UpdateRun } from "../key-update.js";
 import {
@@ -202,12 +201,7 @@ async function act(
 	switch (action) {
 		case "remove":
 			return executeRemoveAction(
-				{
-					...member,
-					subject,
-					kind: kindAndCounts(member.entry, assetSummary(member.entry, assets)),
-					assets,
-				},
+				{ ...member, subject, assets },
 				manifest,
 				session.scope,
 				session.ui,

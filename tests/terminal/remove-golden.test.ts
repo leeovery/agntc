@@ -212,7 +212,7 @@ describe("a remove of one entry", () => {
 		]);
 	});
 
-	it("cuts the row to the room a short screen leaves, counting the folders left out", async () => {
+	it("cuts the row to the room a short screen leaves, counting the skills and support folders left out, each as what it is", async () => {
 		await installed();
 
 		const { asking } = await session({
@@ -225,7 +225,7 @@ describe("a remove of one entry", () => {
 			HEADER,
 			"",
 			" ● leeovery/agentic-skills/nuxt   pack · 9 skills, 2 folders",
-			"   … 11 more folders",
+			"   … 9 more skills, 2 more folders",
 			"",
 			" ? Remove it and its 9 skills and 2 folders?   [Yes]  No",
 		]);
@@ -299,23 +299,23 @@ describe("a remove of a prefix", () => {
 						: line,
 				),
 				" ● leeovery/agentic-skills/laravel   pack · 1 skill, 1 agent",
-				"   … 1 more folder, 1 more agent",
+				"   … 1 more skill, 1 more agent",
 			],
 		],
 		[
 			7,
 			[
 				" ● leeovery/agentic-skills/nuxt      pack · 9 skills, 2 folders",
-				"   … 11 more folders",
+				"   … 9 more skills, 2 more folders",
 				" ● leeovery/agentic-skills/laravel   pack · 1 skill, 1 agent",
-				"   … 1 more folder, 1 more agent",
+				"   … 1 more skill, 1 more agent",
 			],
 		],
 		[
 			6,
 			[
 				" ● leeovery/agentic-skills/nuxt      pack · 9 skills, 2 folders",
-				"   … 11 more folders",
+				"   … 9 more skills, 2 more folders",
 				" … 1 more entry",
 			],
 		],
@@ -398,7 +398,7 @@ describe("a remove at 40 columns", () => {
 		});
 	}
 
-	it("wraps a cut row's count of folders, agent and hook within the width, so the question erases it whole", async () => {
+	it("wraps a cut row's count of skills, agent and hook within the width, so the question erases it whole", async () => {
 		await nuxtWithAgentAndHook();
 
 		const { asking, ended } = await session({
@@ -413,7 +413,7 @@ describe("a remove at 40 columns", () => {
 			"",
 			" ● leeovery/agentic-skills/nuxt",
 			"   pack · 11 skills, 1 agent, 1 hook",
-			"   … 11 more folders, 1 more agent,",
+			"   … 11 more skills, 1 more agent,",
 			"   1 more hook",
 			"",
 			" ? Remove it and its 11 skills, 1 agent",
@@ -435,7 +435,7 @@ describe("a remove at 40 columns", () => {
 			[
 				" ● leeovery/agentic-skills/nuxt",
 				"   pack · 11 skills, 1 agent, 1 hook",
-				"   … 11 more folders, 1 more agent,",
+				"   … 11 more skills, 1 more agent,",
 				"   1 more hook",
 				" … 1 more entry",
 			],
@@ -444,7 +444,7 @@ describe("a remove at 40 columns", () => {
 			9,
 			[
 				" ● leeovery/agentic-skills/nuxt",
-				"   … 11 more folders, 1 more agent,",
+				"   … 11 more skills, 1 more agent,",
 				"   1 more hook",
 				" … 1 more entry",
 			],
@@ -485,10 +485,10 @@ describe("a remove at 40 columns", () => {
 				"   a-local-kit-with-a-long-enough-name/",
 				"   nuxt",
 				"   pack · 11 skills",
-				"   … 11 more folders",
+				"   … 11 more skills",
 			],
 		],
-		[7, [" ● …al-kit-with-a-long-enough-name/nuxt", "   … 11 more folders"]],
+		[7, [" ● …al-kit-with-a-long-enough-name/nuxt", "   … 11 more skills"]],
 	])("keeps naming a long local entry on a screen of %i rows, on one line once its head doesn't fit", async (rows, fitted) => {
 		const key = "/opt/code/a-local-kit-with-a-long-enough-name/nuxt";
 		await write({

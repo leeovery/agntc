@@ -12,6 +12,8 @@ import { formatAssetCounts, formatPackCounts } from "./summary.js";
 export interface EntryAssets {
 	counts: AssetCounts;
 	other: number;
+	/** The folders in `.claude/skills/` that are skills, by name; the rest are support folders. */
+	skills: readonly string[];
 }
 
 /**
@@ -35,10 +37,11 @@ export function assetSummary(
 		.join(", ");
 }
 
-/** An entry's kind, a pack's with what it installs: `pack · 2 skills, 1 folder`, as a row names one. */
-export function kindAndCounts(entry: ManifestEntry, assets: string): string {
+/** An entry's kind, a pack's with what it installs ({@link assetSummary}): `pack · 2 skills, 1 folder`, as a row names one. */
+export function entryKind(entry: ManifestEntry, assets: EntryAssets): string {
 	const kind = entry.type ?? "skill";
-	return kind === "pack" && assets !== "" ? `${kind} · ${assets}` : kind;
+	const summary = assetSummary(entry, assets);
+	return kind === "pack" && summary !== "" ? `${kind} · ${summary}` : kind;
 }
 
 /**
@@ -57,27 +60,28 @@ export async function countAssets(
 	const folders = distinct(files.map(skillFolderName));
 	const skills =
 		entry.type === "pack"
-			? await countInstalledSkills(folders, installRoot)
-			: folders.length;
+			? await installedSkills(folders, installRoot)
+			: folders;
 	return {
 		counts: {
-			skills,
-			folders: folders.length - skills,
+			skills: skills.length,
+			folders: folders.length - skills.length,
 			agents: files.filter(isAgentFile).length,
 			hooks: distinct(files.map(hookEntryName)).length,
 		},
 		other: files.filter((file) => identifyAssetType(file) === null).length,
+		skills,
 	};
 }
 
-async function countInstalledSkills(
+async function installedSkills(
 	folders: string[],
 	installRoot: string,
-): Promise<number> {
+): Promise<string[]> {
 	const isSkill = await Promise.all(
 		folders.map((name) => isInstalledSkill(installRoot, name)),
 	);
-	return isSkill.filter(Boolean).length;
+	return folders.filter((_, index) => isSkill[index]);
 }
 
 function distinct(names: (string | null)[]): string[] {

@@ -1,9 +1,13 @@
-import { assetSummary, countAssets, kindAndCounts } from "./entry-assets.js";
+import { countAssets, entryKind } from "./entry-assets.js";
 import type { EntryHead } from "./entry-head.js";
 import type { ManifestEntry } from "./manifest.js";
 import type { SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
-import { installedFolders, removalQuestion } from "./remove-render.js";
+import {
+	installedFolders,
+	type RemovedAssets,
+	removalQuestion,
+} from "./remove-render.js";
 import { agntcCommand, type Scope } from "./scope.js";
 import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
@@ -57,11 +61,10 @@ async function askToRemove(
 	scope: Scope,
 	ui: Ui,
 ): Promise<boolean> {
-	const assets = await countAssets(entry, scope.root);
-	const kind = kindAndCounts(entry, assetSummary(entry, assets));
-	const row = goneRow(head, kind, entry.files);
+	const removed = { entry, assets: await countAssets(entry, scope.root) };
+	const row = goneRow(head, entryKind(entry, removed.assets), removed);
 	return ui.block([row]).confirm(row, {
-		message: removalQuestion([{ entry, assets }]),
+		message: removalQuestion([removed]),
 		initialValue: false,
 	});
 }
@@ -97,12 +100,12 @@ export function goneMessage(
 export function goneRow(
 	head: EntryHead,
 	kind: string,
-	files: readonly string[],
+	removed: RemovedAssets,
 ): Row {
 	return {
 		status: "attention",
 		...head,
 		detail: { label: "gone upstream", aside: kind },
-		fields: installedFolders(files),
+		fields: installedFolders(removed),
 	};
 }

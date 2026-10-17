@@ -227,7 +227,7 @@ describe("a list session", () => {
 	});
 
 	describe("removing", () => {
-		it("hands the action the entry with its kind and counts, then goes back to the dashboard, counting the removal", async () => {
+		it("hands the action the entry with what it installs, then goes back to the dashboard, counting the removal", async () => {
 			const before = makeManifest(["owner/skill-a", "owner/skill-b"]);
 			const after = makeManifest(["owner/skill-b"]);
 			mockReadManifestOrExit
@@ -251,8 +251,11 @@ describe("a list session", () => {
 					key: "owner/skill-a",
 					entry: before["owner/skill-a"],
 					subject: "owner/skill-a",
-					kind: "skill",
-					assets: { counts: expect.objectContaining({ skills: 1 }), other: 0 },
+					assets: {
+						counts: expect.objectContaining({ skills: 1 }),
+						other: 0,
+						skills: ["my-skill"],
+					},
 				},
 				before,
 				expect.objectContaining({ root: "/fake/project" }),

@@ -7543,7 +7543,7 @@ describe("an entry gone upstream", () => {
 		status: "attention",
 		subject: GONE_KEY,
 		detail: { label: "gone upstream", aside: "skill" },
-		fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+		fields: [{ label: ".claude/skills/", value: ["go"], noun: ["skill"] }],
 	};
 	const QUESTION = {
 		message: "Remove it and its skill?",

@@ -24,7 +24,7 @@ import {
 	removedRow,
 	removeFailedRow,
 } from "../../src/remove-render.js";
-import { makeEntry } from "../helpers/factories.js";
+import { makeEntry, makeRemoved } from "../helpers/factories.js";
 import { runMachine } from "../helpers/machine.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
 
@@ -85,10 +85,14 @@ describe("remove command", () => {
 			]);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
 			expect(ui.rows()).toEqual([
-				removedRow("owner/repo", "skill", [
-					".claude/skills/my-skill/",
-					".claude/agents/executor.md",
-				]),
+				removedRow(
+					"owner/repo",
+					"skill",
+					makeRemoved([
+						".claude/skills/my-skill/",
+						".claude/agents/executor.md",
+					]),
+				),
 			]);
 			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 				command: "remove",
@@ -157,9 +161,9 @@ describe("remove command", () => {
 				legacyFiles,
 			);
 			const folders = [
-				{ label: ".claude/skills/", value: ["go"], noun: "folder" },
-				{ label: ".agents/skills/", value: ["go"], noun: "folder" },
-				{ label: ".cursor/skills/", value: ["go"], noun: "folder" },
+				{ label: ".claude/skills/", value: ["go"], noun: ["skill"] },
+				{ label: ".agents/skills/", value: ["go"], noun: ["skill"] },
+				{ label: ".cursor/skills/", value: ["go"], noun: ["skill"] },
 			];
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 				{ rows: [expect.objectContaining({ fields: folders })], noun: ENTRY },
@@ -235,11 +239,19 @@ describe("remove command", () => {
 			await runRemove("owner/repo", {}, ui);
 
 			const rows = [
-				removalRow("owner/repo/go", "skill", [".claude/skills/go/"]),
-				removalRow("owner/repo/python", "skill", [
-					".claude/skills/python/",
-					".claude/agents/python-agent.md",
-				]),
+				removalRow(
+					"owner/repo/go",
+					"skill",
+					makeRemoved([".claude/skills/go/"]),
+				),
+				removalRow(
+					"owner/repo/python",
+					"skill",
+					makeRemoved([
+						".claude/skills/python/",
+						".claude/agents/python-agent.md",
+					]),
+				),
 			];
 			expect(ui.block).toHaveBeenNthCalledWith(1, rows);
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
@@ -249,11 +261,19 @@ describe("remove command", () => {
 				},
 			);
 			expect(ui.rows()).toEqual([
-				removedRow("owner/repo/go", "skill", [".claude/skills/go/"]),
-				removedRow("owner/repo/python", "skill", [
-					".claude/skills/python/",
-					".claude/agents/python-agent.md",
-				]),
+				removedRow(
+					"owner/repo/go",
+					"skill",
+					makeRemoved([".claude/skills/go/"]),
+				),
+				removedRow(
+					"owner/repo/python",
+					"skill",
+					makeRemoved([
+						".claude/skills/python/",
+						".claude/agents/python-agent.md",
+					]),
+				),
 			]);
 			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 				command: "remove",
@@ -301,10 +321,11 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			const row = removalRow("owner/repo", "skill", [
-				".claude/skills/my-skill/",
-				".claude/agents/executor.md",
-			]);
+			const row = removalRow(
+				"owner/repo",
+				"skill",
+				makeRemoved([".claude/skills/my-skill/", ".claude/agents/executor.md"]),
+			);
 			expect(ui.block).toHaveBeenNthCalledWith(1, [row]);
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 				{ rows: [row], noun: ENTRY },
@@ -515,7 +536,7 @@ describe("remove command", () => {
 						{
 							label: ".claude/skills/",
 							value: ["planning", "review"],
-							noun: "folder",
+							noun: ["skill", "skill"],
 						},
 						{ label: ".claude/agents/", value: ["executor.md"], noun: "agent" },
 					],
@@ -725,7 +746,9 @@ describe("remove command", () => {
 				]);
 				expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 					{
-						rows: [removalRow(join("~", "src", "kit"), "pack", [])],
+						rows: [
+							removalRow(join("~", "src", "kit"), "pack", makeRemoved([])),
+						],
 						noun: ENTRY,
 					},
 					{ message: "Remove it?" },
@@ -949,11 +972,19 @@ describe("remove command", () => {
 				expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 					{
 						rows: [
-							removalRow("owner/repo", "skill", [".claude/skills/my-skill/"]),
-							removalRow("other/plugin", "skill", [
-								".claude/skills/other/",
-								".claude/agents/agent.md",
-							]),
+							removalRow(
+								"owner/repo",
+								"skill",
+								makeRemoved([".claude/skills/my-skill/"]),
+							),
+							removalRow(
+								"other/plugin",
+								"skill",
+								makeRemoved([
+									".claude/skills/other/",
+									".claude/agents/agent.md",
+								]),
+							),
 						],
 						noun: ENTRY,
 					},
@@ -995,7 +1026,7 @@ describe("remove command", () => {
 								{
 									label: ".claude/skills/",
 									value: ["planning", "review"],
-									noun: "folder",
+									noun: ["skill", "skill"],
 								},
 								{
 									label: ".claude/agents/",
@@ -1053,7 +1084,11 @@ describe("remove command", () => {
 				".claude/skills/go/",
 			]);
 			expect(ui.rows()).toEqual([
-				removedRow("owner/repo/go", "skill", [".claude/skills/go/"]),
+				removedRow(
+					"owner/repo/go",
+					"skill",
+					makeRemoved([".claude/skills/go/"]),
+				),
 			]);
 		});
 
@@ -1213,9 +1248,9 @@ describe("remove command", () => {
 				"other/repo": manifest["other/repo"],
 			});
 			expect(ui.rows()).toEqual([
-				removedRow("owner/repo/a", "skill", [".claude/skills/a/"]),
+				removedRow("owner/repo/a", "skill", makeRemoved([".claude/skills/a/"])),
 				removeFailedRow("owner/repo/b", "EACCES: permission denied"),
-				removedRow("owner/repo/c", "skill", [".claude/skills/c/"]),
+				removedRow("owner/repo/c", "skill", makeRemoved([".claude/skills/c/"])),
 			]);
 			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 				command: "remove",

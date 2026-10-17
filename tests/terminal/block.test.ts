@@ -917,6 +917,28 @@ describe("renderRowWithin", () => {
 		]);
 	});
 
+	it("counts a field's items each by its own noun, where it names one per item", () => {
+		const mixed: Row = {
+			status: "subject",
+			subject: "owner/repo",
+			fields: [
+				{ label: "version", value: "v1.0.0" },
+				{
+					label: ".claude/skills/",
+					value: ["a", "shared", "b", "c"],
+					noun: ["skill", "folder", "skill", "skill"],
+				},
+				{ label: ".claude/hooks/", value: ["lint.sh"], noun: "hook" },
+			],
+		};
+		expect(
+			renderRowWithin(mixed, 2, blockLayout([mixed], 60), 60, plain),
+		).toEqual([
+			" ● owner/repo",
+			"   … 3 more skills, 1 more folder, 1 more hook, 1 more",
+		]);
+	});
+
 	it("breaks a count too wide for its room between words, never inside one", () => {
 		const many: Row = {
 			status: "done",

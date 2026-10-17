@@ -338,8 +338,9 @@ function total(counts: readonly number[]): number {
 
 /**
  * What a cut row leaves out, in words: a field of items or a child with a
- * noun by it, as `33 more folders`, those sharing a noun together; any other
- * field, and each other child, as one more.
+ * noun by it, as `33 more folders`, a field's items each by its own noun
+ * where they differ, those sharing a noun together; any other field, and
+ * each other child, as one more.
  */
 function leftOut(fields: readonly Field[], children: readonly Child[]): string {
 	const items = new Map<string, number>();
@@ -352,7 +353,13 @@ function leftOut(fields: readonly Field[], children: readonly Child[]): string {
 		}
 	};
 	for (const { value, noun } of fields) {
-		add(typeof value === "string" ? undefined : noun, value.length);
+		if (typeof value === "string" || noun === undefined) {
+			add(undefined, 1);
+		} else {
+			value.forEach((_, index) => {
+				add(typeof noun === "string" ? noun : noun[index], 1);
+			});
+		}
 	}
 	for (const { noun } of children) {
 		add(noun, 1);
