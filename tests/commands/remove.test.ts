@@ -31,6 +31,7 @@ import { type TestUi, testUi } from "../helpers/test-ui.js";
 const mockReadManifestOrExit = vi.mocked(readManifestOrExit);
 const mockWriteManifest = vi.mocked(writeManifest);
 const mockNukeManifestFiles = vi.mocked(nukeManifestFiles);
+const ENTRY = { one: "entry", many: "entries" };
 let ui: TestUi;
 
 beforeEach(() => {
@@ -161,7 +162,7 @@ describe("remove command", () => {
 				{ label: ".cursor/skills/", value: ["go"], noun: "folder" },
 			];
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
-				[expect.objectContaining({ fields: folders })],
+				{ rows: [expect.objectContaining({ fields: folders })], noun: ENTRY },
 				{ message: "Remove it and its 3 folders?" },
 			);
 			expect(ui.rows()).toEqual([expect.objectContaining({ fields: folders })]);
@@ -241,9 +242,12 @@ describe("remove command", () => {
 				]),
 			];
 			expect(ui.block).toHaveBeenNthCalledWith(1, rows);
-			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(rows, {
-				message: "Remove them and their 2 folders and 1 agent?",
-			});
+			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+				{ rows: rows, noun: ENTRY },
+				{
+					message: "Remove them and their 2 folders and 1 agent?",
+				},
+			);
 			expect(ui.rows()).toEqual([
 				removedRow("owner/repo/go", "skill", [".claude/skills/go/"]),
 				removedRow("owner/repo/python", "skill", [
@@ -304,9 +308,12 @@ describe("remove command", () => {
 				".claude/agents/executor.md",
 			]);
 			expect(ui.block).toHaveBeenNthCalledWith(1, [row]);
-			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith([row], {
-				message: "Remove it and its 1 folder and 1 agent?",
-			});
+			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+				{ rows: [row], noun: ENTRY },
+				{
+					message: "Remove it and its 1 folder and 1 agent?",
+				},
+			);
 			expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
 		});
 
@@ -719,7 +726,10 @@ describe("remove command", () => {
 					},
 				]);
 				expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
-					[removalRow(join("~", "src", "kit"), "pack", [])],
+					{
+						rows: [removalRow(join("~", "src", "kit"), "pack", [])],
+						noun: ENTRY,
+					},
 					{ message: "Remove it?" },
 				);
 			});
@@ -939,13 +949,16 @@ describe("remove command", () => {
 				await runRemove(undefined, {}, ui);
 
 				expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
-					[
-						removalRow("owner/repo", "skill", [".claude/skills/my-skill/"]),
-						removalRow("other/plugin", "skill", [
-							".claude/skills/other/",
-							".claude/agents/agent.md",
-						]),
-					],
+					{
+						rows: [
+							removalRow("owner/repo", "skill", [".claude/skills/my-skill/"]),
+							removalRow("other/plugin", "skill", [
+								".claude/skills/other/",
+								".claude/agents/agent.md",
+							]),
+						],
+						noun: ENTRY,
+					},
 					{ message: "Remove them and their 2 folders and 1 agent?" },
 				);
 				expect(ui.close).toHaveBeenCalledExactlyOnceWith({
@@ -974,30 +987,33 @@ describe("remove command", () => {
 			await runRemove("owner/repo/kit", {}, ui);
 
 			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
-				[
-					{
-						status: "subject",
-						subject: "owner/repo/kit",
-						detail: "pack · 2 skills, 1 agent, 1 hook",
-						fields: [
-							{
-								label: ".claude/skills/",
-								value: ["planning", "review"],
-								noun: "folder",
-							},
-							{
-								label: ".claude/agents/",
-								value: ["executor.md"],
-								noun: "agent",
-							},
-							{
-								label: ".claude/hooks/",
-								value: ["pre-commit.sh"],
-								noun: "hook",
-							},
-						],
-					},
-				],
+				{
+					rows: [
+						{
+							status: "subject",
+							subject: "owner/repo/kit",
+							detail: "pack · 2 skills, 1 agent, 1 hook",
+							fields: [
+								{
+									label: ".claude/skills/",
+									value: ["planning", "review"],
+									noun: "folder",
+								},
+								{
+									label: ".claude/agents/",
+									value: ["executor.md"],
+									noun: "agent",
+								},
+								{
+									label: ".claude/hooks/",
+									value: ["pre-commit.sh"],
+									noun: "hook",
+								},
+							],
+						},
+					],
+					noun: ENTRY,
+				},
 				{ message: "Remove it and its 2 folders, 1 agent and 1 hook?" },
 			);
 		});

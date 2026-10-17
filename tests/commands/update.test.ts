@@ -7724,7 +7724,7 @@ describe("an entry gone upstream", () => {
 			expect(err).toBeUndefined();
 			expect(mockDiscover).toHaveBeenCalledWith(localKey, { rootName: "go" });
 			expect(ui.blocks.at(-1)!.confirm).toHaveBeenCalledExactlyOnceWith(
-				{ ...ASKED, subject: localKey },
+				{ ...ASKED, subject: localKey, meta: "local" },
 				QUESTION,
 			);
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [

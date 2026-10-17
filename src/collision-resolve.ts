@@ -2,6 +2,7 @@ import { errorMessage } from "./errors.js";
 import { collisionRow } from "./in-the-way-render.js";
 import { type Manifest, removeEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
+import { homeShortened } from "./scope.js";
 import type { Ui } from "./ui.js";
 
 export interface CollisionResolution {
@@ -10,30 +11,32 @@ export interface CollisionResolution {
 }
 
 /**
- * Asks, per colliding entry, under its row naming the files in the way,
- * whether to remove it and carry on or cancel the install. Stops at the
+ * Asks, per colliding entry, under its row naming it and the files in the
+ * way, whether to remove it and carry on or cancel the install. Stops at the
  * first cancel.
  *
  * @param collisions - Map of manifest key to overlapping file paths
  * @param manifest - Current manifest
  * @param installRoot - The folder `.claude` and `.agntc` sit in, for either scope
+ * @param home - The home folder a local entry's row shortens its key against
  */
 export async function resolveCollisions(
 	collisions: Map<string, string[]>,
 	manifest: Manifest,
 	installRoot: string,
 	ui: Ui,
+	home: string,
 ): Promise<CollisionResolution> {
 	let updatedManifest = manifest;
 
 	for (const [key, files] of collisions) {
-		const row = collisionRow(key, files);
+		const row = collisionRow(homeShortened(key, home), files);
 		const choice = await ui.block([row]).select(row, {
-			message: `How would you like to proceed with "${key}"?`,
+			message: "How would you like to proceed?",
 			options: [
 				{
 					value: "remove" as const,
-					label: `Remove ${key} and continue`,
+					label: "Remove it and continue",
 				},
 				{
 					value: "cancel" as const,

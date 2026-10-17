@@ -15,7 +15,7 @@ const mockNuke = vi.mocked(nukeManifestFiles);
 
 const KEY = "owner/repo/go";
 const PROJECT = projectScope("/project");
-const HOME = "/home/lee";
+const HEAD = { subject: KEY };
 const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
 
 /** A terminal that answers the one question it's asked. */
@@ -34,7 +34,7 @@ describe("settleGone", () => {
 	it("asks at a terminal under the entry's row, no by default, counting what it installed", async () => {
 		const ui = terminal(false);
 
-		await settleGone(KEY, entry, PROJECT, { yes: false, ui, home: HOME });
+		await settleGone(KEY, entry, PROJECT, { yes: false, ui, head: HEAD });
 
 		const row = {
 			status: "attention",
@@ -50,7 +50,7 @@ describe("settleGone", () => {
 		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
 	});
 
-	it("names a local entry's row by its folder, shortened against the home folder", async () => {
+	it("names the entry's row by the head its caller gives, a local one's meta with it", async () => {
 		const ui = terminal(false);
 		const local = makeEntry({
 			type: "pack",
@@ -59,15 +59,16 @@ describe("settleGone", () => {
 			files: [".claude/skills/a/", ".claude/agents/x.md"],
 		});
 
-		await settleGone(`${HOME}/src/kit`, local, PROJECT, {
+		await settleGone("/home/lee/src/kit", local, PROJECT, {
 			yes: false,
 			ui,
-			home: HOME,
+			head: { subject: "~/src/kit", meta: "local" },
 		});
 
 		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
 			expect.objectContaining({
 				subject: "~/src/kit",
+				meta: "local",
 				detail: { label: "gone upstream", aside: "pack · 1 skill, 1 agent" },
 			}),
 			{
@@ -81,7 +82,7 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(false),
-			home: HOME,
+			head: HEAD,
 		});
 
 		expect(settled).toEqual({
@@ -100,7 +101,7 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(true),
-			home: HOME,
+			head: HEAD,
 		});
 
 		expect(settled).toEqual({
@@ -123,12 +124,12 @@ describe("settleGone", () => {
 		const atTerminal = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
 			ui,
-			home: HOME,
+			head: HEAD,
 		});
 		const machine = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
 			ui: new MachineUi("update", "project"),
-			home: HOME,
+			head: HEAD,
 		});
 
 		expect(ui.confirm).not.toHaveBeenCalled();
@@ -141,7 +142,7 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: new MachineUi("update", "project"),
-			home: HOME,
+			head: HEAD,
 		});
 
 		expect(settled).toEqual({
@@ -159,7 +160,7 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, globalScope("/home/lee"), {
 			yes: false,
 			ui: new MachineUi("update", "global"),
-			home: HOME,
+			head: HEAD,
 		});
 
 		expect(settled.message.plain).toBe(
@@ -171,7 +172,7 @@ describe("settleGone", () => {
 		await settleGone(KEY, entry, globalScope("/home/lee"), {
 			yes: true,
 			ui: terminal(false),
-			home: HOME,
+			head: HEAD,
 		});
 
 		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/home/lee", [

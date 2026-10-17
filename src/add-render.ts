@@ -1,6 +1,7 @@
 import { heldDetail, type MenuOption, type SkillNote } from "./choose-items.js";
 import type { Clearance } from "./clear-conflicts.js";
 import type { InstallItem } from "./install-item.js";
+import { homeShortened } from "./scope.js";
 import {
 	formatPackCounts,
 	formatRefLabel,
@@ -155,13 +156,15 @@ export function listedRow(
  * taken from its pack and installed with its note under its kind, then the
  * skills left out. Glyph by its worst outcome, or nothing to do when there's
  * none. Outcomes that ended alike carry no glyph of their own; a note always
- * carries its own.
+ * carries its own. A local entry cleared out of an item's way is named as
+ * its row named it, shortened against `home`.
  */
 export function addedRow(
 	head: RowHead,
 	detail: string,
 	outcomes: readonly ItemOutcome[],
 	notes: readonly SkillNote[],
+	home: string,
 ): Row {
 	const statuses = outcomes.map(outcomeStatus);
 	const alike = new Set(statuses).size <= 1;
@@ -171,7 +174,7 @@ export function addedRow(
 		detail,
 		...withChildren([
 			...outcomes.map((outcome, index) => ({
-				...outcomeChild(outcome, notes),
+				...outcomeChild(outcome, notes, home),
 				...(alike ? {} : { status: statuses[index] }),
 			})),
 			...leftOut(notes).map(noteChild),
@@ -216,10 +219,11 @@ function askedNotes(notes: readonly SkillNote[]): Child[] {
 function outcomeChild(
 	outcome: ItemOutcome,
 	notes: readonly SkillNote[],
+	home: string,
 ): Child {
 	const lines = [
 		...outcomeLines(outcome, notes),
-		...(outcome.cleared ?? []).map(clearedWords),
+		...(outcome.cleared ?? []).map((each) => clearedWords(each, home)),
 	];
 	return { name: outcome.label, detail: lines.join("\n") };
 }
@@ -241,11 +245,15 @@ function outcomeLines(
 	return taken === undefined ? [kind] : [kind, taken.detail];
 }
 
-/** What went out of an item's way, and its files: another entry, removed, or files agntc didn't install, replaced. */
-export function clearedWords(clearance: Clearance): string {
+/**
+ * What went out of an item's way, and its files: another entry, removed,
+ * named as the question's row named it, or files agntc didn't install,
+ * replaced.
+ */
+export function clearedWords(clearance: Clearance, home: string): string {
 	const files = clearance.files.join(", ");
 	return clearance.kind === "entry"
-		? `removed ${clearance.key}, whose files were in the way: ${files}`
+		? `removed ${homeShortened(clearance.key, home)}, whose files were in the way: ${files}`
 		: `replaced files agntc didn't install: ${files}`;
 }
 

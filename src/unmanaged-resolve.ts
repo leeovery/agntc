@@ -1,4 +1,6 @@
 import { unmanagedRow } from "./in-the-way-render.js";
+import { homeShortened } from "./scope.js";
+import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
 
 export interface UnmanagedPluginConflicts {
@@ -12,21 +14,25 @@ export interface UnmanagedResolution {
 }
 
 /**
- * Asks, per entry, under its row naming the files, whether to overwrite its
- * unmanaged files (confirmed a second time) or cancel that entry's install.
+ * Asks, per entry, under its row naming it and the files, whether to
+ * overwrite its unmanaged files (confirmed a second time) or cancel that
+ * entry's install.
  *
  * @param conflicts - Per-entry conflict groups
+ * @param home - The home folder a local entry's row shortens its key against
  * @returns Approved files (OK to overwrite) and cancelled files (skip install)
  */
 export async function resolveUnmanagedConflicts(
 	conflicts: UnmanagedPluginConflicts[],
 	ui: Ui,
+	home: string,
 ): Promise<UnmanagedResolution> {
 	const approved: string[] = [];
 	const cancelled: string[] = [];
 
 	for (const { pluginKey, files } of conflicts) {
-		if (await approveOverwrite(pluginKey, files, ui)) {
+		const row = unmanagedRow(homeShortened(pluginKey, home), files);
+		if (await approveOverwrite(row, ui)) {
 			approved.push(...files);
 		} else {
 			cancelled.push(...files);
@@ -36,15 +42,10 @@ export async function resolveUnmanagedConflicts(
 	return { approved, cancelled };
 }
 
-async function approveOverwrite(
-	pluginKey: string,
-	files: string[],
-	ui: Ui,
-): Promise<boolean> {
-	const row = unmanagedRow(pluginKey, files);
+async function approveOverwrite(row: Row, ui: Ui): Promise<boolean> {
 	const block = ui.block([row]);
 	const choice = await block.select(row, {
-		message: `How would you like to proceed with "${pluginKey}"?`,
+		message: "How would you like to proceed?",
 		options: [
 			{
 				value: "overwrite" as const,

@@ -268,7 +268,13 @@ export async function runAdd(
 		const policy = conflictPolicy(options.overwrite === true, ui.mode);
 		await owingRow(row, ui, async (ui) => {
 			const picked = await pickItems(chosen, src, row, ui);
-			await installItems(picked, src, installed, { policy, scope, ui }, row);
+			await installItems(
+				picked,
+				src,
+				installed,
+				{ policy, scope, ui, home: homedir() },
+				row,
+			);
 		});
 	} catch (err) {
 		if (err instanceof ExitSignal) {
@@ -625,7 +631,7 @@ async function installItems(
 	context: InstallContext,
 	row: SourceRow,
 ): Promise<void> {
-	const { ui } = context;
+	const { ui, home } = context;
 	const outcomes = await checkAndCopy(items, src, installed, context, row);
 	row.draw(
 		addedRow(
@@ -633,6 +639,7 @@ async function installItems(
 			offered === undefined ? row.held : pickedDetail(outcomes, offered),
 			inItemOrder(outcomes, items),
 			row.notes,
+			home,
 		),
 	);
 	queueRemedies(outcomes, ui);
@@ -653,7 +660,7 @@ async function checkAndCopy(
 	items: readonly KeyedItem[],
 	src: FetchedSource,
 	installed: Manifest,
-	{ policy, scope, ui }: InstallContext,
+	{ policy, scope, ui, home }: InstallContext,
 	row: SourceRow,
 ): Promise<ItemOutcome[]> {
 	const installRoot = scope.root;
@@ -663,6 +670,7 @@ async function checkAndCopy(
 	const ctx = {
 		policy,
 		ui,
+		home,
 		source: sourceIdOfFetched(src),
 		scope: scope.name,
 	};
@@ -744,11 +752,14 @@ interface InstallContext {
 	policy: ConflictPolicy;
 	scope: Scope;
 	ui: Ui;
+	/** The home folder a row shortens a local key against. */
+	home: string;
 }
 
 interface CheckContext {
 	policy: ConflictPolicy;
 	ui: Ui;
+	home: string;
 	/** Where the items come from, for what a pack absorbs. */
 	source: SourceId;
 	scope: ScopeName;
@@ -782,7 +793,7 @@ async function checkItem(
 	src: FetchedSource,
 	manifest: Manifest,
 	installRoot: string,
-	{ policy, ui, source, scope }: CheckContext,
+	{ policy, ui, home, source, scope }: CheckContext,
 ): Promise<CheckedItem> {
 	const identity = identify(keyed, src.rootName);
 	const refusal =
@@ -817,6 +828,7 @@ async function checkItem(
 			manifest,
 			key: keyed.key,
 			projectDir: installRoot,
+			home,
 		},
 		policy,
 		ui,

@@ -16,6 +16,9 @@ import type { InstallItem } from "../src/install-item.js";
 import type { ItemIdentity, ItemOutcome } from "../src/summary.js";
 
 const HEAD = { subject: "owner/repo", meta: "v1.0.0 ^1.0.0" };
+const HOME = "/home/lee";
+/** Why an item stops when its question is answered no: whose files are in its way. */
+const DECLINED = "files in the way belong to other/repo: .claude/skills/b/";
 
 function item(label: string, kind: "skill" | "pack" = "skill"): ItemIdentity {
 	return { label, key: `owner/repo/${label}`, kind, path: label };
@@ -265,7 +268,7 @@ describe("listedRow", () => {
 describe("addedRow", () => {
 	it("hangs each item installed beneath the source, with its kind, none with a glyph", () => {
 		expect(
-			addedRow(HEAD, "2 skills", [installed("a"), installed("b")], []),
+			addedRow(HEAD, "2 skills", [installed("a"), installed("b")], [], HOME),
 		).toEqual({
 			status: "done",
 			...HEAD,
@@ -285,9 +288,9 @@ describe("addedRow", () => {
 			"pack · 23 skills, 3 folders, 1 agent",
 		],
 	])("counts a pack's assets, skills always first: %o", (counts, detail) => {
-		expect(addedRow(HEAD, "1 pack", [pack("p", counts)], []).children).toEqual([
-			{ name: "p", detail },
-		]);
+		expect(
+			addedRow(HEAD, "1 pack", [pack("p", counts)], [], HOME).children,
+		).toEqual([{ name: "p", detail }]);
 	});
 
 	it("marks each child by how it ended when they ended apart, the row by the worst", () => {
@@ -296,16 +299,17 @@ describe("addedRow", () => {
 			"3 skills",
 			[
 				installed("a"),
-				{ ...item("b"), status: "skipped", reason: "conflict not resolved" },
+				{ ...item("b"), status: "skipped", reason: DECLINED },
 				failed("c", "disk full"),
 			],
 			[],
+			HOME,
 		);
 
 		expect(row.status).toBe("failed");
 		expect(row.children).toEqual([
 			{ name: "a", status: "done", detail: "skill" },
-			{ name: "b", status: "attention", detail: "conflict not resolved" },
+			{ name: "b", status: "attention", detail: DECLINED },
 			{ name: "c", status: "failed", detail: "disk full" },
 		]);
 	});
@@ -332,6 +336,7 @@ describe("addedRow", () => {
 				},
 			],
 			[],
+			HOME,
 		);
 
 		expect(row.children).toEqual([
@@ -360,8 +365,9 @@ describe("addedRow", () => {
 			addedRow(
 				HEAD,
 				"1 skill",
-				[{ ...item("a"), status: "skipped", reason: "conflict not resolved" }],
+				[{ ...item("a"), status: "skipped", reason: DECLINED }],
 				[],
+				HOME,
 			).status,
 		).toBe("attention");
 	});
@@ -384,6 +390,7 @@ describe("addedRow", () => {
 				},
 			],
 			[],
+			HOME,
 		);
 
 		expect(row.children).toEqual([{ name: "a", detail: "held" }]);
@@ -395,6 +402,7 @@ describe("addedRow", () => {
 			"1 pack",
 			[installed("p/skills/a")],
 			[taken("p/skills/a", "part of the pack p — installed on its own")],
+			HOME,
 		);
 
 		expect(row.children).toEqual([
@@ -411,6 +419,7 @@ describe("addedRow", () => {
 			"1 pack",
 			[failed("p/skills/a", "disk full")],
 			[taken("p/skills/a", "part of the pack p — installed on its own")],
+			HOME,
 		);
 
 		expect(row.children).toEqual([{ name: "p/skills/a", detail: "disk full" }]);
@@ -422,6 +431,7 @@ describe("addedRow", () => {
 			"2 skills",
 			[installed("tools/lint")],
 			[held("tools/api"), held("tools/db")],
+			HOME,
 		);
 
 		expect(row.status).toBe("done");
@@ -441,7 +451,7 @@ describe("addedRow", () => {
 	});
 
 	it("has nothing to do when everything was left out", () => {
-		const row = addedRow(HEAD, "1 skill", [], [held("tools/api")]);
+		const row = addedRow(HEAD, "1 skill", [], [held("tools/api")], HOME);
 
 		expect(row).toEqual({
 			status: "unchanged",
@@ -461,19 +471,37 @@ describe("addedRow", () => {
 describe("clearedWords", () => {
 	it("names another entry removed, and its files that were in the way", () => {
 		expect(
-			clearedWords({
-				kind: "entry",
-				key: "other/repo",
-				files: [".claude/skills/a/", ".claude/agents/x.md"],
-			}),
+			clearedWords(
+				{
+					kind: "entry",
+					key: "other/repo",
+					files: [".claude/skills/a/", ".claude/agents/x.md"],
+				},
+				HOME,
+			),
 		).toBe(
 			"removed other/repo, whose files were in the way: .claude/skills/a/, .claude/agents/x.md",
 		);
 	});
 
+	it("names a local entry removed as its row named it, shortened against the home folder", () => {
+		expect(
+			clearedWords(
+				{
+					kind: "entry",
+					key: `${HOME}/src/kit/a`,
+					files: [".claude/skills/a/"],
+				},
+				HOME,
+			),
+		).toBe(
+			"removed ~/src/kit/a, whose files were in the way: .claude/skills/a/",
+		);
+	});
+
 	it("names files agntc didn't install, replaced", () => {
 		expect(
-			clearedWords({ kind: "unmanaged", files: [".claude/skills/a/"] }),
+			clearedWords({ kind: "unmanaged", files: [".claude/skills/a/"] }, HOME),
 		).toBe("replaced files agntc didn't install: .claude/skills/a/");
 	});
 });

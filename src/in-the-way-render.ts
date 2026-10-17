@@ -1,32 +1,33 @@
-import { homedir } from "node:os";
-import { homeShortened } from "./scope.js";
 import type { Row } from "./terminal/types.js";
 
 /**
  * Another entry whose files are in an install's way, as the question about
- * removing it asks: its key, then the files, dim.
+ * removing it asks: the entry, then the files, dim.
  */
-export function collisionRow(key: string, files: readonly string[]): Row {
-	return inTheWayRow(key, "its files are in the way", files);
+export function collisionRow(subject: string, files: readonly string[]): Row {
+	return inTheWayRow(subject, "its files are in the way", files);
 }
 
 /**
  * An item whose way files agntc didn't install stand in, as the question
- * about replacing them asks: its key, then the files, dim.
+ * about replacing them asks: the item, then the files, dim.
  */
-export function unmanagedRow(key: string, files: readonly string[]): Row {
-	return inTheWayRow(key, "files agntc didn't install are in its way", files);
+export function unmanagedRow(subject: string, files: readonly string[]): Row {
+	return inTheWayRow(
+		subject,
+		"files agntc didn't install are in its way",
+		files,
+	);
 }
 
-/** A local key shortened against the home folder, as every row names one. */
 function inTheWayRow(
-	key: string,
+	subject: string,
 	detail: string,
 	files: readonly string[],
 ): Row {
 	return {
 		status: "attention",
-		subject: homeShortened(key, homedir()),
+		subject,
 		detail,
 		children: files.map((name) => ({ name, dim: true })),
 	};

@@ -51,7 +51,13 @@ export async function runInit(
 	const scaffold = scaffolds[type];
 	const files = scaffold.files(targetDir);
 
-	await confirmScaffold(type, targetDir, files, options, ui);
+	await confirmScaffold(
+		type,
+		homeShortened(targetDir, homedir()),
+		files,
+		options,
+		ui,
+	);
 
 	const result = await writeScaffold(targetDir, files);
 	const rows = scaffoldedRows(
@@ -90,11 +96,12 @@ async function chooseType(ui: Ui): Promise<InitType> {
 
 /**
  * `-y` answers the question; without it, machine mode refuses before
- * anything is written, and a terminal asks under the row of the files.
+ * anything is written, and a terminal asks under the row of the files, the
+ * folder named as the row shows it.
  */
 async function confirmScaffold(
 	type: InitType,
-	targetDir: string,
+	folder: string,
 	files: ScaffoldFile[],
 	options: InitOptions,
 	ui: Ui,
@@ -109,7 +116,7 @@ async function confirmScaffold(
 		);
 	}
 	const row = scaffoldRow(
-		homeShortened(targetDir, homedir()),
+		folder,
 		type,
 		files.map(({ path }) => path),
 	);

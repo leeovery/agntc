@@ -3,15 +3,16 @@ import type { ManifestEntry } from "./manifest.js";
 import type { SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import { goneRow, removalQuestion } from "./remove-render.js";
-import { agntcCommand, homeShortened, type Scope } from "./scope.js";
+import { agntcCommand, type Scope } from "./scope.js";
+import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
 
 export interface GoneOptions {
 	/** `-y`: remove without asking. */
 	yes: boolean;
 	ui: Ui;
-	/** The home folder a local entry's row shortens its path against. */
-	home: string;
+	/** How the question's row names the entry: a local one as the row it settles into does. */
+	head: Pick<Row, "subject" | "meta">;
 }
 
 /** What became of an entry whose source no longer holds it. */
@@ -31,7 +32,7 @@ export async function settleGone(
 	key: string,
 	entry: ManifestEntry,
 	scope: Scope,
-	{ yes, ui, home }: GoneOptions,
+	{ yes, ui, head }: GoneOptions,
 ): Promise<GoneSettlement> {
 	if (!yes && ui.mode === "machine") {
 		const removal = agntcCommand(scope.name, "update", [key, "-y"]);
@@ -40,7 +41,7 @@ export async function settleGone(
 			flags: ["-y"],
 		};
 	}
-	const remove = yes || (await askToRemove(key, entry, scope, ui, home));
+	const remove = yes || (await askToRemove(head, entry, scope, ui));
 	if (!remove) {
 		return settled(key, "Kept", "it's gone upstream; update will ask again");
 	}
@@ -50,15 +51,13 @@ export async function settleGone(
 
 /** Asks under the entry's row, which names it, its kind and counts, and what it installed. */
 async function askToRemove(
-	key: string,
+	head: Pick<Row, "subject" | "meta">,
 	entry: ManifestEntry,
 	scope: Scope,
 	ui: Ui,
-	home: string,
 ): Promise<boolean> {
-	const subject = entry.commit === null ? homeShortened(key, home) : key;
 	const kind = kindAndCounts(entry, await assetSummary(entry, scope.root));
-	const row = goneRow(subject, kind, entry.files);
+	const row = goneRow(head, kind, entry.files);
 	return ui.block([row]).confirm(row, {
 		message: removalQuestion([entry.files]),
 		initialValue: false,

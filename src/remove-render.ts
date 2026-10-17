@@ -139,17 +139,18 @@ export function removeFailedRow(subject: string, reason: string): Row {
 }
 
 /**
- * An entry gone upstream, as `update` asks whether to remove it: its kind and
+ * An entry gone upstream, as `update` asks whether to remove it: its head, a
+ * local one's meta with it as the row it settles into has, its kind and
  * counts, then what it installed under each asset folder.
  */
 export function goneRow(
-	subject: string,
+	head: Pick<Row, "subject" | "meta">,
 	kind: string,
 	files: readonly string[],
 ): Row {
 	return {
 		status: "attention",
-		subject,
+		...head,
 		detail: { label: "gone upstream", aside: kind },
 		fields: installedFolders(files),
 	};

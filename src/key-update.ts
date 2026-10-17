@@ -307,7 +307,9 @@ export async function settleGoneOutcome(
 	{ scope, yes, ui, home }: UpdateRun,
 ): Promise<PluginOutcome> {
 	try {
-		const settled = await settleGone(key, entry, scope, { yes, ui, home });
+		const head =
+			entry.commit === null ? localHead(key, home) : { subject: key };
+		const settled = await settleGone(key, entry, scope, { yes, ui, head });
 		if (settled.removed) {
 			return { status: "gone-removed", key, ...told(settled.message) };
 		}

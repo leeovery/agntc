@@ -45,11 +45,11 @@ function created(path: string): Row {
 	return { status: "done", subject: path, detail: { label: "created" } };
 }
 
-function skipped(path: string): Row {
+function alreadyThere(path: string): Row {
 	return {
 		status: "unchanged",
 		subject: path,
-		detail: { label: "skipped", aside: "already exists" },
+		detail: { label: "already there" },
 	};
 }
 
@@ -93,7 +93,7 @@ describe("runInit at a terminal", () => {
 		});
 		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 			command: "init",
-			counts: { created: 1, skipped: 0 },
+			counts: { created: 1, existing: 0 },
 		});
 	});
 
@@ -111,7 +111,7 @@ describe("runInit at a terminal", () => {
 		]);
 		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 			command: "init",
-			counts: { created: 4, skipped: 0 },
+			counts: { created: 4, existing: 0 },
 		});
 	});
 
@@ -138,14 +138,14 @@ describe("runInit at a terminal", () => {
 			subject: dir,
 			detail: "pack · will create 4 files",
 			children: [
-				{ name: "agntc.json", depth: 0 },
+				{ name: "agntc.json", depth: 0, noun: "file" },
 				{ name: "skills/", depth: 0 },
 				{ name: "my-skill/", depth: 1 },
-				{ name: "SKILL.md", depth: 2 },
+				{ name: "SKILL.md", depth: 2, noun: "file" },
 				{ name: "agents/", depth: 0 },
-				{ name: "my-agent.md", depth: 1 },
+				{ name: "my-agent.md", depth: 1, noun: "file" },
 				{ name: "hooks/", depth: 0 },
-				{ name: "my-hook.sh", depth: 1 },
+				{ name: "my-hook.sh", depth: 1, noun: "file" },
 			],
 		};
 		expect(ui.block).toHaveBeenNthCalledWith(1, [row]);
@@ -188,11 +188,11 @@ describe("runInit at a terminal", () => {
 		await runInit("skill", { yes: true }, ui);
 
 		expect(await readFile(join(dir, "SKILL.md"), "utf-8")).toBe("# Mine\n");
-		expect(ui.rows()).toEqual([skipped("SKILL.md")]);
+		expect(ui.rows()).toEqual([alreadyThere("SKILL.md")]);
 		expect(told()).toEqual({ warnings: [], notes: [] });
 		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 			command: "init",
-			counts: { created: 0, skipped: 1 },
+			counts: { created: 0, existing: 1 },
 		});
 	});
 
@@ -205,13 +205,13 @@ describe("runInit at a terminal", () => {
 			'{"type": "pack"}',
 		);
 		expect(ui.rows()).toEqual([
-			skipped("agntc.json"),
+			alreadyThere("agntc.json"),
 			...PACK_FILES.slice(1).map(created),
 		]);
 		expect(ui.said("warn")).toEqual([]);
 		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
 			command: "init",
-			counts: { created: 3, skipped: 1 },
+			counts: { created: 3, existing: 1 },
 		});
 	});
 

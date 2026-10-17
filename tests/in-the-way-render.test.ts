@@ -1,5 +1,3 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { collisionRow, unmanagedRow } from "../src/in-the-way-render.js";
 
@@ -25,11 +23,5 @@ describe("unmanagedRow", () => {
 			detail: "files agntc didn't install are in its way",
 			children: DIM,
 		});
-	});
-
-	it("names a local item by its folder, shortened against the home folder", () => {
-		expect(unmanagedRow(join(homedir(), "src", "kit"), FILES).subject).toBe(
-			join("~", "src", "kit"),
-		);
 	});
 });

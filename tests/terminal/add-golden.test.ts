@@ -7,9 +7,14 @@ import {
 	rm,
 	writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("node:os", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:os")>();
+	return { ...actual, homedir: vi.fn(actual.homedir) };
+});
 
 vi.mock("../../src/git-clone.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/git-clone.js")>()),
@@ -76,6 +81,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	vi.mocked(homedir).mockReset();
 	await rm(testDir, { recursive: true, force: true });
 });
 
@@ -338,10 +344,10 @@ describe("an add with files in the way", () => {
 			"   └─ .claude/skills/a/",
 			"",
 			atRight(
-				' ? How would you like to proceed with "other/repo"?',
+				" ? How would you like to proceed?",
 				"↑↓ move · ⏎ choose · esc cancel",
 			),
-			" ▌ Remove other/repo and continue",
+			" ▌ Remove it and continue",
 			"   Cancel installation",
 		]);
 		expect(ended).toEqual([
@@ -374,7 +380,7 @@ describe("an add with files in the way", () => {
 		expect(asking).toEqual([
 			...asked,
 			atRight(
-				' ? How would you like to proceed with "owner/repo/a"?',
+				" ? How would you like to proceed?",
 				"↑↓ move · ⏎ choose · esc cancel",
 			),
 			" ▌ Overwrite all — replace these files",
@@ -390,6 +396,38 @@ describe("an add with files in the way", () => {
 			" ✓ owner/repo   HEAD   1 skill",
 			"   └─ a                skill",
 			"                       replaced files agntc didn't install: .claude/skills/a/",
+		]);
+	});
+
+	it("names a local entry in the way by its folder from home, on the question's row and once it's gone", async () => {
+		vi.mocked(homedir).mockReturnValue(testDir);
+		const kit = join(testDir, "src", "kit", "a");
+		await upstream({ "a/SKILL.md": "" });
+		await write(projectDir, {
+			".claude/skills/a/SKILL.md": "theirs",
+			".agntc/manifest.json": {
+				[kit]: {
+					ref: null,
+					commit: null,
+					installedAt: "2026-01-01T00:00:00.000Z",
+					files: [".claude/skills/a/"],
+					type: "skill",
+					cloneUrl: null,
+					localRoot: kit,
+				},
+			},
+		});
+
+		const { asking, ended } = await session({ answer: [KEY.enter] });
+
+		expect(asking.slice(2, 4)).toEqual([
+			" ! ~/src/kit/a            its files are in the way",
+			"   └─ .claude/skills/a/",
+		]);
+		expect(ended.slice(2)).toEqual([
+			" ✓ owner/repo   HEAD   1 skill",
+			"   └─ a                skill",
+			"                       removed ~/src/kit/a, whose files were in the way: .claude/skills/a/",
 		]);
 	});
 

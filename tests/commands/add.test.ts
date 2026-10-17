@@ -1218,6 +1218,7 @@ describe("add command", () => {
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo/p", files: [".claude/agents/x.md"] }],
 				interactive(),
+				homedir(),
 			);
 			expect(mockNuke).not.toHaveBeenCalled();
 			expect(
@@ -2206,6 +2207,7 @@ describe("add command", () => {
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo/a", files: [".claude/skills/a/"] }],
 				interactive(),
+				homedir(),
 			);
 			expect(
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
@@ -2595,6 +2597,7 @@ describe("add command", () => {
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo", files: TARGETS }],
 				interactive(),
+				homedir(),
 			);
 			await expectPackInstalled();
 			expect(ui.rows()[0]!.children).toEqual([

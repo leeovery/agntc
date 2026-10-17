@@ -8,6 +8,7 @@ import type {
 	NextItem,
 	Progress,
 	Row,
+	Rows,
 	Status,
 	TallyItem,
 } from "./terminal/types.js";
@@ -122,7 +123,7 @@ export interface Block {
 }
 
 /** What a block's question is about: a row, or several, fitted together to the room the question leaves. */
-export type Asked = Row | readonly Row[];
+export type Asked = Row | Rows;
 
 /** A step running in a block. A warning or note raised meanwhile prints under the row it settles into. */
 export interface BlockTask {
@@ -166,7 +167,7 @@ export interface RemoveTally {
 export interface InitTally {
 	created?: number;
 	/** There already, and left as it is. */
-	skipped?: number;
+	existing?: number;
 }
 
 /** What a list session changed. */

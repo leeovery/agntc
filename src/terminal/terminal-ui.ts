@@ -17,6 +17,7 @@ import {
 	renderProgress,
 	renderRow,
 	renderRowsWithin,
+	renderRowWithin,
 } from "./block.js";
 import { renderCancel, renderClose } from "./close.js";
 import type { ExitHost } from "./control.js";
@@ -143,18 +144,15 @@ export class TerminalUi implements Ui {
 				context: PromptContext,
 			) => Promise<A>,
 		): Promise<A> => {
-			const rows: readonly Row[] = "subject" in asked ? [asked] : asked;
+			const within = (room: number) =>
+				"subject" in asked
+					? renderRowWithin(asked, room, layout, width, this.style)
+					: renderRowsWithin(asked, room, layout, width, this.style);
 			// Until the block draws, the blank line it opens with is the
 			// question's, and goes with it: a block that only asks leaves nothing.
 			const above = (room: number) => {
 				const opening = opened ? [] : this.opening();
-				const lines = renderRowsWithin(
-					rows,
-					room - 1 - opening.length,
-					layout,
-					width,
-					this.style,
-				);
+				const lines = within(room - 1 - opening.length);
 				return lines.length === 0 ? opening : [...opening, ...lines, ""];
 			};
 			return this.ask((context) => prompt(above, context));

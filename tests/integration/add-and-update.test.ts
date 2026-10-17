@@ -1016,7 +1016,7 @@ describe("integration: add and update", () => {
 						children: [{ name: ".claude/skills/workflow-shared/", dim: true }],
 					}),
 					expect.objectContaining({
-						message: `How would you like to proceed with "${KEY}"?`,
+						message: "How would you like to proceed?",
 					}),
 				);
 				expect(await readMine()).toBe("mine");

@@ -55,6 +55,7 @@ const mockRemovePaths = vi.mocked(removePathsInTheWay);
 
 const INCOMING = [".claude/skills/a/"];
 
+const HOME = "/home/lee";
 let projectDir: string;
 let ui: TestUi;
 
@@ -90,7 +91,7 @@ function clear(
 	incomingFiles = INCOMING,
 ) {
 	return clearConflicts(
-		{ incomingFiles, manifest, key: "owner/repo/a", projectDir },
+		{ incomingFiles, manifest, key: "owner/repo/a", projectDir, home: HOME },
 		policy,
 		ui,
 	);
@@ -142,7 +143,13 @@ describe("clearConflicts", () => {
 				},
 				cleared: [],
 			});
-			expect(mockResolveCollisions).toHaveBeenCalledOnce();
+			expect(mockResolveCollisions).toHaveBeenCalledExactlyOnceWith(
+				expect.any(Map),
+				manifest,
+				projectDir,
+				ui,
+				HOME,
+			);
 		});
 
 		it("names on a no only the entries still in the way, and those removed before it as cleared", async () => {
@@ -215,6 +222,7 @@ describe("clearConflicts", () => {
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo/a", files: INCOMING }],
 				ui,
+				HOME,
 			);
 		});
 

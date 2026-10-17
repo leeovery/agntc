@@ -186,7 +186,10 @@ describe("the terminal ui's prompts", () => {
 		];
 		const block = ui.block(rows);
 
-		await block.confirm(rows, { message: "Remove them?" });
+		await block.confirm(
+			{ rows, noun: { one: "entry", many: "entries" } },
+			{ message: "Remove them?" },
+		);
 
 		const [[{ above }]] = vi.mocked(promptConfirm).mock.calls as unknown as [
 			[{ above: (room: number) => string[] }],
@@ -195,8 +198,10 @@ describe("the terminal ui's prompts", () => {
 		const b = " ● owner/repo/b";
 		expect(above(7)).toEqual([a, "   ├─ x", "   └─ y", b, "   └─ z", ""]);
 		expect(above(5)).toEqual([a, "   └─ … 2 more", b, "   └─ z", ""]);
-		expect(above(4)).toEqual([a, "   └─ … 2 more", "   … 1 more", ""]);
-		expect(above(3)).toEqual([]);
+		expect(above(4)).toEqual([a, "   └─ … 2 more", " … 1 more entry", ""]);
+		expect(above(3)).toEqual([a, " … 1 more entry", ""]);
+		expect(above(2)).toEqual([a, ""]);
+		expect(above(1)).toEqual([]);
 	});
 
 	it("ask a new block's question while another block's task spins: the spinner clears, what's said meanwhile waits for the answer, and the task spins on to settle", async () => {

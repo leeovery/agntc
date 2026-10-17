@@ -29,13 +29,16 @@ import {
 	type ScopeName,
 } from "../scope.js";
 import { formatRefLabel } from "../summary.js";
-import type { Row } from "../terminal/types.js";
+import type { Noun, Row } from "../terminal/types.js";
 import { type Choice, interactiveUi, type Ui } from "../ui.js";
 
 export interface RemoveOptions {
 	/** Remove without asking for confirmation. */
 	yes?: boolean;
 }
+
+/** What the question counts the entries its room leaves out as. */
+const ENTRY: Noun = { one: "entry", many: "entries" };
 
 /** An entry `remove` set out to remove, as its rows name it. */
 interface Target {
@@ -61,6 +64,7 @@ export async function runRemove(
 ): Promise<void> {
 	ui.header();
 
+	const home = homedir();
 	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
@@ -74,8 +78,8 @@ export async function runRemove(
 	const keys =
 		key !== undefined
 			? keysFor(key, manifest, options, ui)
-			: await pickKeys(manifest, scope.name, ui);
-	const targets = await describeTargets(keys, manifest, scope.root);
+			: await pickKeys(manifest, scope.name, ui, home);
+	const targets = await describeTargets(keys, manifest, scope.root, home);
 
 	if (!options.yes) {
 		await confirmRemoval(targets, ui);
@@ -138,6 +142,7 @@ async function pickKeys(
 	manifest: Manifest,
 	scope: ScopeName,
 	ui: Ui,
+	home: string,
 ): Promise<string[]> {
 	if (ui.mode === "machine") {
 		ui.fail(
@@ -148,7 +153,7 @@ async function pickKeys(
 	const keys = await ui.multiselect<string>({
 		message: "Select what to remove",
 		options: Object.entries(manifest).map(([key, entry]) =>
-			pickerChoice(key, entry),
+			pickerChoice(key, entry, home),
 		),
 		required: false,
 	});
@@ -159,10 +164,14 @@ async function pickKeys(
 }
 
 /** An entry by its key, a local one's shortened, then its kind and its ref, dim; a narrow line drops the kind, then the ref. */
-function pickerChoice(key: string, entry: ManifestEntry): Choice<string> {
+function pickerChoice(
+	key: string,
+	entry: ManifestEntry,
+	home: string,
+): Choice<string> {
 	return {
 		value: key,
-		label: subjectOf(key, entry),
+		label: subjectOf(key, entry, home),
 		cells: [
 			{ text: entry.type ?? "skill", dim: true, drop: 1 },
 			{ text: formatRefLabel(entry.ref, entry.commit), dim: true, drop: 2 },
@@ -170,8 +179,8 @@ function pickerChoice(key: string, entry: ManifestEntry): Choice<string> {
 	};
 }
 
-function subjectOf(key: string, entry: ManifestEntry): string {
-	return entry.commit === null ? homeShortened(key, homedir()) : key;
+function subjectOf(key: string, entry: ManifestEntry, home: string): string {
+	return entry.commit === null ? homeShortened(key, home) : key;
 }
 
 /** Each entry with what its rows say of it, read before its files go. */
@@ -179,13 +188,14 @@ function describeTargets(
 	keys: readonly string[],
 	manifest: Manifest,
 	installRoot: string,
+	home: string,
 ): Promise<Target[]> {
 	return Promise.all(
 		keys.flatMap((key) => {
 			const entry = manifest[key];
 			return entry === undefined
 				? []
-				: [describeTarget(key, entry, installRoot)];
+				: [describeTarget(key, entry, installRoot, home)];
 		}),
 	);
 }
@@ -194,12 +204,13 @@ async function describeTarget(
 	key: string,
 	entry: ManifestEntry,
 	installRoot: string,
+	home: string,
 ): Promise<Target> {
 	const assets = await assetSummary(entry, installRoot);
 	return {
 		key,
 		entry,
-		subject: subjectOf(key, entry),
+		subject: subjectOf(key, entry, home),
 		kind: kindAndCounts(entry, assets),
 	};
 }
@@ -212,9 +223,12 @@ async function confirmRemoval(
 	const rows = targets.map(({ subject, kind, entry }) =>
 		removalRow(subject, kind, entry.files),
 	);
-	const confirmed = await ui.block(rows).confirm(rows, {
-		message: removalQuestion(targets.map(({ entry }) => entry.files)),
-	});
+	const confirmed = await ui.block(rows).confirm(
+		{ rows, noun: ENTRY },
+		{
+			message: removalQuestion(targets.map(({ entry }) => entry.files)),
+		},
+	);
 	if (!confirmed) {
 		cancel(ui);
 	}

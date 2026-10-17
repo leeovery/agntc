@@ -783,9 +783,10 @@ describe("renderRowsWithin", () => {
 	const second = folders("three");
 	const third = folders("four");
 	const rows = [first, second, third];
+	const ENTRY = { one: "entry", many: "entries" };
 	const layout = blockLayout(rows, 80);
 	const within = (room: number, style = plain) =>
-		renderRowsWithin(rows, room, layout, 80, style);
+		renderRowsWithin({ rows, noun: ENTRY }, room, layout, 80, style);
 	const draw = (row: Row) => renderRow(row, layout, 80, plain);
 	const head = (row: Row) => draw(row)[0];
 	const whole = rows.flatMap(draw);
@@ -824,34 +825,74 @@ describe("renderRowsWithin", () => {
 		]);
 	});
 
-	it("counts the rows left out on a line of their own when not every row fits at its fewest", () => {
+	it("counts the rows left out by their noun, at the rows' own level, when not every row fits at its fewest", () => {
 		expect(within(5)).toEqual([
 			head(first),
 			"   … 2 more folders, 2 more",
 			head(second),
 			"   … 1 more folder, 2 more",
-			"   … 1 more",
+			" … 1 more entry",
 		]);
 		expect(within(3)).toEqual([
 			head(first),
 			"   … 2 more folders, 2 more",
-			"   … 2 more",
+			" … 2 more entries",
 		]);
 	});
 
-	it("draws nothing when not even the first row fits at its fewest beside that count", () => {
-		expect(within(2)).toEqual([]);
+	it("keeps the first row's head and the count of the rest when not even it fits at its fewest", () => {
+		expect(within(2)).toEqual([head(first), " … 2 more entries"]);
+	});
+
+	it("keeps the first row's head alone when the count doesn't fit beside it", () => {
+		expect(within(1)).toEqual([head(first)]);
+	});
+
+	it("counts every row alone when not even the first row's head fits", () => {
+		const long = {
+			...first,
+			subject: "owner/a-repository-name-long-enough-to-wrap-below",
+		};
+		const asked = { rows: [long, second, third], noun: ENTRY };
+		const narrow = blockLayout(asked.rows, 40);
+		expect(
+			renderRow({ ...long, fields: [], children: [] }, narrow, 40, plain),
+		).toHaveLength(2);
+		expect(renderRowsWithin(asked, 1, narrow, 40, plain)).toEqual([
+			" … 3 more entries",
+		]);
+		expect(renderRowsWithin(asked, 0, narrow, 40, plain)).toEqual([]);
+	});
+
+	it("wraps the count of rows left out in the room the width leaves", () => {
+		const asked = {
+			rows,
+			noun: { one: "entry", many: "entries asked about" },
+		};
+		const narrow = blockLayout(rows, 24);
+		expect(renderRowsWithin(asked, 3, narrow, 24, plain).slice(-2)).toEqual([
+			" … 2 more entries asked",
+			"   about",
+		]);
 	});
 
 	it("paints the count of rows left out dim", () => {
-		expect(within(3, color).at(-1)).toBe("   \x1b[2m… 2 more\x1b[22m");
+		expect(within(3, color).at(-1)).toBe(
+			" \x1b[2m…\x1b[22m \x1b[2m2 more entries\x1b[22m",
+		);
 	});
 
 	it("fits a lone row as renderRowWithin does", () => {
 		for (const room of [0, 1, 2, 3, 5]) {
-			expect(renderRowsWithin([first], room, layout, 80, plain)).toEqual(
-				renderRowWithin(first, room, layout, 80, plain),
-			);
+			expect(
+				renderRowsWithin(
+					{ rows: [first], noun: ENTRY },
+					room,
+					layout,
+					80,
+					plain,
+				),
+			).toEqual(renderRowWithin(first, room, layout, 80, plain));
 		}
 	});
 });
@@ -939,15 +980,31 @@ describe("a row's nested children", () => {
 		);
 	});
 
-	it("counts children left out as the row's own when cut inside the tree", () => {
+	it("counts what's left out of the tree as the row's own children, its folders aside", () => {
 		const layout = blockLayout([TREE], 80);
 		expect(renderRowWithin(TREE, 5, layout, 80, plain)).toEqual([
 			" ● ~/my-pack           pack",
 			"   ├─ agntc.json",
 			"   ├─ skills/",
 			"   │  └─ my-skill/",
-			"   └─ … 5 more",
+			"   └─ … 3 more",
 		]);
+	});
+
+	it("counts children left out by their noun", () => {
+		const files: Row = {
+			...TREE,
+			children: (TREE.children ?? []).map((child) =>
+				child.name.endsWith("/") ? child : { ...child, noun: "file" },
+			),
+		};
+		const layout = blockLayout([files], 80);
+		expect(renderRowWithin(files, 5, layout, 80, plain).at(-1)).toBe(
+			"   └─ … 3 more files",
+		);
+		expect(renderRowWithin(files, 8, layout, 80, plain).at(-1)).toBe(
+			"   └─ … 1 more file",
+		);
 	});
 });
 
@@ -1060,11 +1117,32 @@ describe("a row's fields", () => {
 			const lines = renderRowWithin(
 				removal,
 				3,
-				blockLayout([removal], 40),
-				40,
+				blockLayout([removal], 60),
+				60,
 				plain,
 			);
 			expect(lines.at(-1)).toBe("   … 34 more folders, 1 more agent, 2 more");
+		});
+
+		it("wraps the count in the room the width leaves, and fits the lines it takes", () => {
+			const removal: Row = {
+				status: "subject",
+				subject: "owner/repo",
+				fields: [
+					{ label: ".claude/skills/", value: ["a", "b"], noun: "folder" },
+					{ label: ".claude/agents/", value: ["one.md"], noun: "agent" },
+					{ label: ".claude/hooks/", value: ["lint.sh"], noun: "hook" },
+				],
+			};
+			const layout = blockLayout([removal], 30);
+			const within = (room: number) =>
+				renderRowWithin(removal, room, layout, 30, plain);
+			expect(within(3)).toEqual([
+				" ● owner/repo",
+				"   … 2 more folders, 1 more",
+				"   agent, 1 more hook",
+			]);
+			expect(within(2)).toEqual([" ● owner/repo"]);
 		});
 
 		it("counts it as a child once every field is kept", () => {

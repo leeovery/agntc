@@ -30,7 +30,8 @@ export function scaffoldRow(
 
 /**
  * `/`-joined paths as a tree: each folder once, before the first path in it,
- * named with a trailing `/`; what's in a folder a level under it.
+ * named with a trailing `/`; what's in a folder a level under it. Each file
+ * is a `file`, which a cut tree counts, its folders aside.
  */
 export function scaffoldTree(paths: readonly string[]): Child[] {
 	const children: Child[] = [];
@@ -44,15 +45,19 @@ export function scaffoldTree(paths: readonly string[]): Child[] {
 			}
 			shown.add(at);
 			const folder = depth < segments.length - 1;
-			children.push({ name: folder ? `${segment}/` : segment, depth });
+			children.push(
+				folder
+					? { name: `${segment}/`, depth }
+					: { name: segment, depth, noun: "file" },
+			);
 		});
 	}
 	return children;
 }
 
 /**
- * Each file in the order the scaffold lists it: created, or skipped as it
- * was there already, and left as it is.
+ * Each file in the order the scaffold lists it: created, or already there,
+ * and left as it is.
  */
 export function scaffoldedRows(
 	paths: readonly string[],
@@ -61,9 +66,9 @@ export function scaffoldedRows(
 	return paths.map((path) =>
 		skipped.includes(path)
 			? {
-					status: LOOKS.init.skipped.status,
+					status: LOOKS.init.existing.status,
 					subject: path,
-					detail: { label: LOOKS.init.skipped.label, aside: "already exists" },
+					detail: { label: LOOKS.init.existing.label },
 				}
 			: {
 					status: LOOKS.init.created.status,
@@ -75,5 +80,5 @@ export function scaffoldedRows(
 
 /** Each file the scaffold lists, counted by what became of it. */
 export function initTally({ created, skipped }: ScaffoldResult): InitTally {
-	return { created: created.length, skipped: skipped.length };
+	return { created: created.length, existing: skipped.length };
 }

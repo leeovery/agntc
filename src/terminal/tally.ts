@@ -42,7 +42,7 @@ export const LOOKS: {
 	},
 	init: {
 		created: { label: "created", status: "done" },
-		skipped: { label: "skipped", status: "unchanged" },
+		existing: { label: "already there", status: "unchanged" },
 	},
 };
 

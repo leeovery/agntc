@@ -58,6 +58,20 @@ export interface Child {
 	dim?: boolean;
 	/** How many levels it hangs below the row, under the child before it one level up: 0 unless given. */
 	depth?: number;
+	/** What it is, as `file`: a row cut short counts the children left out by it. */
+	noun?: string;
+}
+
+/** What one of something is, and several. */
+export interface Noun {
+	one: string;
+	many: string;
+}
+
+/** Rows fitted together, as a question asks about them, and what one is, for counting those a cut leaves out. */
+export interface Rows {
+	rows: readonly Row[];
+	noun: Noun;
 }
 
 /**

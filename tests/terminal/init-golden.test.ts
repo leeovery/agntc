@@ -47,15 +47,16 @@ interface Run {
 	answer?: string[];
 	/** Keys pressed once the run asks a second question, as its words show. */
 	later?: { asked: string; answer: string[] };
+	rows?: number;
 }
 
 /** The terminal while the run asks each question, and once it has ended. */
-async function session({ type, yes, answer, later }: Run): Promise<{
+async function session({ type, yes, answer, later, rows = 60 }: Run): Promise<{
 	asking: string[];
 	askingLater: string[];
 	ended: string[];
 }> {
-	const term = new Terminal(100, 60);
+	const term = new Terminal(100, rows);
 	let asking: string[] = [];
 	let askingLater: string[] = [];
 	let now = 0;
@@ -136,6 +137,44 @@ describe("an init of a pack", () => {
 		]);
 	});
 
+	it.each([
+		[
+			8,
+			[
+				" ● ~/my-pack           pack · will create 4 files",
+				"   ├─ agntc.json",
+				"   ├─ skills/",
+				"   │  └─ my-skill/",
+				"   └─ … 3 more files",
+			],
+		],
+		[
+			6,
+			[
+				" ● ~/my-pack           pack · will create 4 files",
+				"   ├─ agntc.json",
+				"   └─ … 3 more files",
+			],
+		],
+		[
+			5,
+			[
+				" ● ~/my-pack           pack · will create 4 files",
+				"   └─ … 4 more files",
+			],
+		],
+	])("cuts the tree to a screen of %i rows, counting the files left out, not the folders", async (rows, fitted) => {
+		const { asking } = await session({ type: "pack", answer: ["n"], rows });
+
+		expect(asking).toEqual([
+			HEADER,
+			"",
+			...fitted,
+			"",
+			" ? Proceed?   [Yes]  No",
+		]);
+	});
+
 	it("leaves the files there already as they are, dim, and warns of what keeps the folder from being a pack", async () => {
 		await writeFile(join(folder, "agntc.json"), "{}");
 		await writeFile(join(folder, "SKILL.md"), "mine");
@@ -143,14 +182,14 @@ describe("an init of a pack", () => {
 		expect((await session({ type: "pack", yes: true })).ended).toEqual([
 			HEADER,
 			"",
-			" ○ agntc.json                 skipped · already exists",
+			" ○ agntc.json                 already there",
 			" ✓ skills/my-skill/SKILL.md   created",
 			" ✓ agents/my-agent.md         created",
 			" ✓ hooks/my-hook.sh           created",
 			' ! agntc.json was already here and doesn\'t declare a pack — add "type": "pack" to it',
 			" ! SKILL.md here makes this folder a skill, not a pack — move it under skills/",
 			" · Done. Add skills under `skills/`, agents to `agents/` and hooks to `hooks/`.",
-			...close("3 created  ·  1 skipped"),
+			...close("3 created  ·  1 already there"),
 		]);
 	});
 
@@ -193,13 +232,13 @@ describe("an init of a skill", () => {
 		]);
 	});
 
-	it("ends on the skipped row, saying nothing more, when its SKILL.md is there already", async () => {
+	it("ends on the row saying its SKILL.md is already there, saying nothing more", async () => {
 		await writeFile(join(folder, "SKILL.md"), "mine");
 
 		expect((await session({ type: "skill", yes: true })).ended).toEqual([
 			HEADER,
 			"",
-			" ○ SKILL.md   skipped · already exists",
+			" ○ SKILL.md   already there",
 		]);
 	});
 

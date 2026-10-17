@@ -24,8 +24,10 @@ import type {
 	Detail,
 	Field,
 	Move,
+	Noun,
 	Progress,
 	Row,
+	Rows,
 	Status,
 } from "./types.js";
 
@@ -161,33 +163,46 @@ export function renderRowWithin(
 
 /**
  * The rows in at most `room` lines: as many as fit at their fewest
- * ({@link fewestLines}), then a dim `… N more` line counting any left out,
- * the room to spare going to the rows in turn, each fitted as
- * {@link renderRowWithin} fits one, so rows that all fit show whole. Nothing
- * when not even the first fits at its fewest.
+ * ({@link fewestLines}), then a dim `… N more` line at the rows' own level
+ * counting any left out by their noun, the room to spare going to the rows in
+ * turn, each fitted as {@link renderRowWithin} fits one, so rows that all fit
+ * show whole. When not even the first fits at its fewest, its head and the
+ * count; else its head alone; else the count alone; else nothing.
  */
 export function renderRowsWithin(
-	rows: readonly Row[],
+	{ rows, noun }: Rows,
 	room: number,
 	layout: BlockLayout,
 	width: number,
 	style: Style,
 ): string[] {
-	const [only] = rows;
-	if (rows.length === 1 && only !== undefined) {
-		return renderRowWithin(only, room, layout, width, style);
+	const [first] = rows;
+	if (first === undefined) {
+		return [];
+	}
+	if (rows.length === 1) {
+		return renderRowWithin(first, room, layout, width, style);
 	}
 	const fewest = rows.map((row) =>
 		fewestLines(rowParts(row, layout, width, style)),
 	);
+	const more = (shown: number) =>
+		shown < rows.length
+			? rowsLeftOut(rows.length - shown, noun, width, style)
+			: [];
 	const cost = (shown: number) =>
-		total(fewest.slice(0, shown)) + (shown < rows.length ? 1 : 0);
+		total(fewest.slice(0, shown)) + more(shown).length;
 	let shown = rows.length;
 	while (shown > 0 && cost(shown) > room) {
 		shown -= 1;
 	}
 	if (shown === 0) {
-		return [];
+		const head = headLines(first, layout, width, style);
+		return (
+			[[...head, ...more(1)], head, more(0)].find(
+				(lines) => lines.length <= room,
+			) ?? []
+		);
 	}
 	let spare = room - cost(shown);
 	const lines: string[] = [];
@@ -197,16 +212,26 @@ export function renderRowsWithin(
 		spare -= fitted.length - least;
 		lines.push(...fitted);
 	}
-	if (shown === rows.length) {
-		return lines;
-	}
-	return [
-		...lines,
-		indent(FIELD_AT) + style.dim(leftOut([], rows.length - shown)),
-	];
+	return [...lines, ...more(shown)];
 }
 
-/** A row as a room cuts it: its own lines, its body's units, and the line counting those left out from one on. */
+/** The rows a cut leaves out, counted at the rows' own level, `…` in their glyph's place. */
+function rowsLeftOut(
+	count: number,
+	{ one, many }: Noun,
+	width: number,
+	style: Style,
+): string[] {
+	return leadLines(
+		`${MARGIN}${style.dim("…")} `,
+		SUBJECT_AT,
+		`${count} more ${count === 1 ? one : many}`,
+		style.dim,
+		width,
+	);
+}
+
+/** A row as a room cuts it: its own lines, its body's units, and the lines counting those left out from one on. */
 interface RowParts {
 	head: string[];
 	units: string[][];
@@ -221,20 +246,41 @@ function rowParts(
 ): RowParts {
 	const units = bodyUnits(row, layout, width, style);
 	const fields = row.fields ?? [];
+	const children = row.children ?? [];
 	const child = childPen(row, layout, width, style);
 	const more = (from: number) => {
+		const firstChild = Math.max(from - fields.length, 0);
 		const text = leftOut(
 			fields.slice(from),
-			units.length - Math.max(from, fields.length),
+			children.filter(
+				(_, index) => index >= firstChild && isLeaf(children, index),
+			),
 		);
 		return from < fields.length
-			? [indent(FIELD_AT) + style.dim(text)]
+			? countLines(text, FIELD_AT, width, style)
 			: child({ name: text, dim: true }, CLOSING);
 	};
 	return { head: headLines(row, layout, width, style), units, more };
 }
 
-/** The fewest lines a row cut honestly takes: its own, and the line counting its body when it has one. */
+/** A dim count of what a cut leaves out, at `at`, wrapped in the room from there. */
+function countLines(
+	text: string,
+	at: number,
+	width: number,
+	style: Style,
+): string[] {
+	return wrap(text, Math.max(1, roomFrom(at, width))).map(
+		(line) => indent(at) + style.dim(line),
+	);
+}
+
+/** Whether nothing hangs below a child: a folder in a tree isn't counted, what's in it is. */
+function isLeaf(children: readonly Child[], index: number): boolean {
+	return depthOf(children[index + 1]) <= depthOf(children[index]);
+}
+
+/** The fewest lines a row cut honestly takes: its own, and the lines counting its body when it has one. */
 function fewestLines({ head, units, more }: RowParts): number {
 	return head.length + (units.length === 0 ? 0 : more(0).length);
 }
@@ -244,19 +290,25 @@ function total(counts: readonly number[]): number {
 }
 
 /**
- * What a cut row leaves out, in words: a field of items with a noun by its
- * items, as `33 more folders`, those sharing a noun together; any other
- * field, and each child, as one more.
+ * What a cut row leaves out, in words: a field of items or a child with a
+ * noun by it, as `33 more folders`, those sharing a noun together; any other
+ * field, and each other child, as one more.
  */
-function leftOut(fields: readonly Field[], children: number): string {
+function leftOut(fields: readonly Field[], children: readonly Child[]): string {
 	const items = new Map<string, number>();
-	let others = children;
-	for (const { value, noun } of fields) {
-		if (noun !== undefined && typeof value !== "string") {
-			items.set(noun, (items.get(noun) ?? 0) + value.length);
-		} else {
+	let others = 0;
+	const add = (noun: string | undefined, count: number) => {
+		if (noun === undefined) {
 			others += 1;
+		} else {
+			items.set(noun, (items.get(noun) ?? 0) + count);
 		}
+	};
+	for (const { value, noun } of fields) {
+		add(typeof value === "string" ? undefined : noun, value.length);
+	}
+	for (const { noun } of children) {
+		add(noun, 1);
 	}
 	const parts = [...items].map(
 		([noun, count]) => `${count} more ${count === 1 ? noun : `${noun}s`}`,

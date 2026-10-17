@@ -119,6 +119,7 @@ interface Run {
 	/** Keys pressed once the run asks a second question, as its words show. */
 	later?: { asked: string; answer: string[] };
 	rows?: number;
+	columns?: number;
 }
 
 /** The terminal while the run asks each question, and once it has ended. */
@@ -128,12 +129,13 @@ async function session({
 	answer,
 	later,
 	rows = 60,
+	columns = 100,
 }: Run = {}): Promise<{
 	asking: string[];
 	askingLater: string[];
 	ended: string[];
 }> {
-	const term = new Terminal(100, rows);
+	const term = new Terminal(columns, rows);
 	let asking: string[] = [];
 	let askingLater: string[] = [];
 	let now = 0;
@@ -314,9 +316,17 @@ describe("a remove of a prefix", () => {
 			[
 				" ● leeovery/agentic-skills/nuxt      pack · 9 skills, 2 folders",
 				"   … 11 more folders",
-				"   … 1 more",
+				" … 1 more entry",
 			],
 		],
+		[
+			5,
+			[
+				" ● leeovery/agentic-skills/nuxt      pack · 9 skills, 2 folders",
+				" … 1 more entry",
+			],
+		],
+		[4, [" ● leeovery/agentic-skills/nuxt      pack · 9 skills, 2 folders"]],
 	])("fits the rows together to a screen of %i rows, the first taking the room to spare, each cut honestly", async (rows, fitted) => {
 		await installed();
 
@@ -365,6 +375,52 @@ describe("a remove of a prefix", () => {
 			` ${projectDir}; it stays recorded`,
 		);
 		expect(ended.slice(-3)).toEqual(close("1 removed  ·  1 failed"));
+	});
+});
+
+describe("a remove at 40 columns", () => {
+	/** Too narrow for where and the version beside the command. */
+	const HEADER_40 = " ■ agntc remove";
+
+	/** A pack holding folders, an agent and a hook, whose cut row's count wraps at 40 columns. */
+	async function nuxtWithAgentAndHook(): Promise<void> {
+		await write({
+			".agntc/manifest.json": {
+				"leeovery/agentic-skills/nuxt": entry({
+					type: "pack",
+					files: [
+						...NUXT.map((name) => `.claude/skills/${name}/`),
+						".claude/agents/reviewer.md",
+						".claude/hooks/lint.sh",
+					],
+				}),
+			},
+		});
+	}
+
+	it("wraps a cut row's count of folders, agent and hook within the width, so the question erases it whole", async () => {
+		await nuxtWithAgentAndHook();
+
+		const { asking, ended } = await session({
+			key: "leeovery/agentic-skills/nuxt",
+			answer: ["n"],
+			columns: 40,
+			rows: 12,
+		});
+
+		expect(asking).toEqual([
+			HEADER_40,
+			"",
+			" ● leeovery/agentic-skills/nuxt",
+			"   pack · 11 skills, 1 agent, 1 hook",
+			"   … 11 more folders, 1 more agent, 1",
+			"   more hook",
+			"",
+			" ? Remove it and its 11 folders, 1",
+			"   agent and 1 hook?",
+			"   [Yes]  No",
+		]);
+		expect(ended).toEqual([HEADER_40, "", " ○ Cancelled"]);
 	});
 });
 

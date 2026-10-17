@@ -33,6 +33,8 @@ export interface ConflictCheck {
 	/** The item's own key: files recorded under it are its own, not in the way. */
 	key: string;
 	projectDir: string;
+	/** The home folder a question's row shortens a local key against. */
+	home: string;
 }
 
 /**
@@ -142,7 +144,7 @@ interface ClearedCollisions {
 /** A question answered no stops the item on the entries still in its way. */
 async function clearCollisions(
 	collisions: Map<string, string[]>,
-	{ manifest, projectDir }: ConflictCheck,
+	{ manifest, projectDir, home }: ConflictCheck,
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<ClearedCollisions> {
@@ -165,6 +167,7 @@ async function clearCollisions(
 				manifest,
 				projectDir,
 				ui,
+				home,
 			);
 			const left = [...collisions].filter(
 				([key]) => updatedManifest[key] !== undefined,
@@ -199,7 +202,7 @@ function collisionReason(collisions: Map<string, string[]>): string {
  */
 async function clearUnmanaged(
 	files: string[],
-	{ key, projectDir }: ConflictCheck,
+	{ key, projectDir, home }: ConflictCheck,
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<Stop | null> {
@@ -214,6 +217,7 @@ async function clearUnmanaged(
 		const { cancelled } = await resolveUnmanagedConflicts(
 			[{ pluginKey: key, files }],
 			ui,
+			home,
 		);
 		if (cancelled.length > 0) {
 			return { status: "skipped", reason };

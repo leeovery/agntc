@@ -156,7 +156,7 @@ describe("removedRow", () => {
 describe("goneRow", () => {
 	it("needs a look: the entry, gone upstream with its kind and counts, then what it installed", () => {
 		expect(
-			goneRow("owner/repo/go", "skill", [
+			goneRow({ subject: "owner/repo/go" }, "skill", [
 				".claude/skills/go/",
 				".claude/skills/go/SKILL.md",
 			]),
@@ -166,6 +166,12 @@ describe("goneRow", () => {
 			detail: { label: "gone upstream", aside: "skill" },
 			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
 		});
+	});
+
+	it("keeps the meta its head carries, as a local entry's", () => {
+		expect(
+			goneRow({ subject: "~/src/kit", meta: "local" }, "skill", []),
+		).toMatchObject({ subject: "~/src/kit", meta: "local" });
 	});
 });
 
