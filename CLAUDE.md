@@ -91,8 +91,4 @@ Every word and question goes through one `Ui` (`src/ui.ts`); commands never writ
 
 ## Gates
 
-```bash
-npm test
-npm run typecheck
-npm run build      # dist/cli.js
-```
+Run `scripts/gate` before reporting work done: it runs every gate (`npm ci` when `node_modules` isn't as it installs, then typecheck, build to `dist/cli.js`, and test) and records a clean tree that passes, so a release finds the record and doesn't run them again (`scripts/gated`, mint's `pre_tag`).

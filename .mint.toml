@@ -15,5 +15,8 @@ diff_exclude = [
 # Gate the release on a clean-install type-check + build + test BEFORE the tag
 # PONR. npm publish (.github/workflows/publish.yml) only runs AFTER the tag is
 # pushed, so without this a broken build/test would leave an orphaned tag +
-# GitHub release. Mirrors the CI job exactly (clean install included).
-pre_tag = ['npm ci', 'npm run typecheck', 'npm run build', 'npm test']
+# GitHub release. scripts/gated passes at once a commit whose tree
+# scripts/gate recorded as passing every gate, or one that changes only docs
+# and the like since such a tree; anything else runs every gate in full, on
+# node_modules as a clean install leaves them, as the CI job does.
+pre_tag = ['scripts/gated']

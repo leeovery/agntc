@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+#
+# The release's gate, mint's pre_tag: passes the commit at HEAD when
+# scripts/gate has recorded its tree as passing every gate, or the tree of a
+# commit before it from which only inert paths have changed: the README,
+# CLAUDE.md, CHANGELOG.md and .mint.toml at the root, and design/, art/,
+# demo/, .workflows/ and .claude/, which no gate reads (tsc reads src/ and
+# tests/, tsup bundles what src/cli.ts imports, and vitest runs only
+# tests/). Anything else, package.json and the lockfile among them, is read
+# by a gate. The walk back, along first parents, stops at a commit that
+# changes anything else, at a merge, at the first commit, or after 50
+# commits, and then the gates run in full, through scripts/gate, as they do
+# when the checkout has changes of its own outside the inert paths,
+# untracked files included.
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/.." && pwd -P)
+cd "$repo"
+
+record=$(git rev-parse --path-format=absolute --git-common-dir)/agntc/gated
+bound=50
+
+# inert reports whether the path given is one no gate reads. git quotes a
+# path with unusual characters, which then matches none of these.
+inert() {
+	case $1 in
+	README.md | CLAUDE.md | CHANGELOG.md | .mint.toml | design/* | art/* | demo/* | .workflows/* | .claude/*) return 0 ;;
+	esac
+	return 1
+}
+
+# all_inert reports whether every path listed, one a line, is inert.
+all_inert() {
+	local path
+	while IFS= read -r path; do
+		[ -z "$path" ] || inert "$path" || return 1
+	done <<<"$1"
+}
+
+# full runs the gates in full, after saying why.
+full() {
+	echo "gated: $1: running them"
+	exec "$repo/scripts/gate"
+}
+
+short() {
+	git rev-parse --short "$1"
+}
+
+changed=$(git diff --name-only --no-renames HEAD)
+untracked=$(git ls-files --others --exclude-standard)
+if ! all_inert "$changed" || ! all_inert "$untracked"; then
+	full "the checkout has changes outside the inert paths"
+fi
+
+known=
+if [ -f "$record" ]; then
+	known=$'\n'$(<"$record")$'\n'
+fi
+
+# The walk: from HEAD back along first parents, a commit a line, each with
+# its tree and parents. Then each commit's changed paths, under a tab and its
+# hash, read in one call for the whole walk, as a call a commit took two
+# seconds over 50.
+walk=$(git rev-list --first-parent --max-count=$((bound + 1)) --no-commit-header --format='%H %T %P' HEAD)
+diffs=$(cut -d ' ' -f 1 <<<"$walk" | git diff-tree --stdin -r --name-only --no-renames --format='%x09%H')
+
+# code is the first commit along the walk that changes a path not inert.
+code=
+commit=
+while IFS= read -r line; do
+	case $line in
+	$'\t'*) commit=${line#$'\t'} ;;
+	'') ;;
+	*)
+		if ! inert "$line"; then
+			code=$commit
+			break
+		fi
+		;;
+	esac
+done <<<"$diffs"
+
+head=
+while read -r commit tree parent others; do
+	if [[ $known == *$'\n'"$tree"$'\n'* ]]; then
+		if [ -z "$head" ]; then
+			echo "gated: gates passed on tree $(short "$tree") ✓"
+		else
+			echo "gated: gates passed on tree $(short "$tree"), at $(short "$commit"), and nothing since changes code ✓"
+		fi
+		exit 0
+	fi
+	head=${head:-$commit}
+	if [ -z "$parent" ]; then
+		full "no record of the gates on $(short "$commit") (the first commit)"
+	elif [ -n "$others" ]; then
+		full "no record of the gates on $(short "$commit") (a merge)"
+	elif [ "$commit" = "$code" ]; then
+		full "no record of the gates on $(short "$commit") (it changes code)"
+	fi
+done <<<"$walk"
+full "no record of the gates within $bound commits of $(short "$head")"
