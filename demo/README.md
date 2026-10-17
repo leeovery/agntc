@@ -43,7 +43,8 @@ the commit hashes a detail view shows are the same in every recording.
 The repos are reached through a `url.insteadOf` in the world's own gitconfig, which the tapes'
 shell names in `GIT_CONFIG_GLOBAL`, with `HOME` the world's home, so paths read `~/project`.
 `npx` there is a shim that runs a copy of `dist/` staged in `demo/out/agntc/`, whose `package.json`
-carries the latest release tag's version, so the header shows it as a published install would.
+carries the release the art shows (`stage` in `world.sh` names it), so the header shows it as a
+published install would; the repo's own `package.json` keeps its placeholder.
 `git` is a shim too, waiting 0.7 seconds before each clone and remote read, as the network would,
 so the spinners show.
 

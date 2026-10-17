@@ -16,8 +16,8 @@
 #                      `upstream` tags v1.1.0, a newer tag the pin shows.
 #
 # `npx` and `git` are shims on the world's PATH: npx runs the build staged in
-# demo/out/agntc/, its package.json carrying the latest release's version, as
-# a published install would; git waits a moment before a clone or a remote
+# demo/out/agntc/, its package.json carrying the release the art shows, as a
+# published install would; git waits a moment before a clone or a remote
 # read, as the network would, so the spinners show.
 #
 # Usage:  demo/world.sh build       the world at its start: repos at v1.0.0
@@ -73,14 +73,15 @@ repo() {
 	git remote add origin "$repos/$1.git"
 }
 
+# The repo's package.json carries a placeholder, as CI sets the version from
+# the release tag, so the staged copy names the release the art shows.
 stage() {
-	local version
-	version="$(git -C "$root" describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo v0.0.0)"
+	local version=0.6.0
 	rm -rf "$out/agntc"
 	mkdir -p "$out/agntc"
 	cp -R "$root/dist" "$out/agntc/dist"
 	ln -s "$root/node_modules" "$out/agntc/node_modules"
-	printf '{ "name": "agntc", "version": "%s", "type": "module" }\n' "${version#v}" >"$out/agntc/package.json"
+	printf '{ "name": "agntc", "version": "%s", "type": "module" }\n' "$version" >"$out/agntc/package.json"
 }
 
 shims() {
