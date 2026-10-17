@@ -1,4 +1,5 @@
 import type { EntryAssets } from "./entry-assets.js";
+import type { ManifestEntry } from "./manifest.js";
 import {
 	type AssetCount,
 	countedAssets,
@@ -20,6 +21,9 @@ const NOUNS: Readonly<Record<string, string>> = {
 
 /** What a question counts a recorded path under no asset type as. */
 const OTHER = "other item";
+
+/** The order a row words its counts in. */
+const NOUN_ORDER = ["skill", "folder", "agent", "hook", OTHER];
 
 interface AssetFolder {
 	label: string;
@@ -87,17 +91,18 @@ export function removalRow(
 }
 
 /**
- * The question asked under the rows of entries installing `assets`: whether
- * to remove them and what they install, counted and worded as their rows
- * word it and added up across them, those counting none left out. `Remove it
- * and its 2 skills, 1 folder and 1 agent?`, `Remove them and their 14
- * skills?`; a lone one by its noun alone, `Remove it and its skill?`;
- * nothing recorded, `Remove it?`. Files under no asset type, which a row
- * counts as `other`, are other items.
+ * The question asked under the rows of `entries`: whether to remove them and
+ * what they install, counted and worded as their rows word it and added up
+ * across them, those counting none left out. `Remove it and its 2 skills, 1
+ * folder and 1 agent?`, `Remove them and their 14 skills?`; a lone one by
+ * its noun alone, `Remove it and its skill?`; nothing recorded, `Remove
+ * it?`. A skill entry counts as the one skill its row names, whatever its
+ * paths; a pack's paths under no asset type, which its row counts as
+ * `other`, are other items.
  */
-export function removalQuestion(assets: readonly EntryAssets[]): string {
-	const [it, its] = assets.length === 1 ? ["it", "its"] : ["them", "their"];
-	const counts = totals(assets);
+export function removalQuestion(entries: readonly RemovedAssets[]): string {
+	const [it, its] = entries.length === 1 ? ["it", "its"] : ["them", "their"];
+	const counts = totals(entries);
 	const [lone] = counts;
 	if (lone === undefined) {
 		return `Remove ${it}?`;
@@ -109,18 +114,39 @@ export function removalQuestion(assets: readonly EntryAssets[]): string {
 	return `Remove ${it} and ${its} ${what}?`;
 }
 
-function totals(assets: readonly EntryAssets[]): AssetCount[] {
-	const sum = (count: (each: EntryAssets) => number | undefined) =>
-		assets.reduce((total, each) => total + (count(each) ?? 0), 0);
-	const other = sum((each) => each.other);
+/** An entry and what it installs, as its removal's question counts it. */
+export interface RemovedAssets {
+	entry: ManifestEntry;
+	assets: EntryAssets;
+}
+
+/** What each entry's row counts, added up by noun, in the order rows word them. */
+function totals(entries: readonly RemovedAssets[]): AssetCount[] {
+	const totals = new Map<string, number>();
+	for (const { count, noun } of entries.flatMap(rowCounts)) {
+		totals.set(noun, (totals.get(noun) ?? 0) + count);
+	}
+	return [...totals]
+		.map(([noun, count]) => ({ noun, count }))
+		.sort((a, b) => rank(a.noun) - rank(b.noun));
+}
+
+/** Where a noun comes in {@link NOUN_ORDER}; one it doesn't name, after them. */
+function rank(noun: string): number {
+	const at = NOUN_ORDER.indexOf(noun);
+	return at < 0 ? NOUN_ORDER.length : at;
+}
+
+function rowCounts({ entry, assets }: RemovedAssets): AssetCount[] {
+	if (entry.files.length === 0) {
+		return [];
+	}
+	if ((entry.type ?? "skill") === "skill") {
+		return [{ count: 1, noun: "skill" }];
+	}
 	return [
-		...countedAssets({
-			skills: sum((each) => each.counts.skills),
-			folders: sum((each) => each.counts.folders),
-			agents: sum((each) => each.counts.agents),
-			hooks: sum((each) => each.counts.hooks),
-		}),
-		...(other > 0 ? [{ count: other, noun: OTHER }] : []),
+		...countedAssets(assets.counts),
+		...(assets.other > 0 ? [{ count: assets.other, noun: OTHER }] : []),
 	];
 }
 

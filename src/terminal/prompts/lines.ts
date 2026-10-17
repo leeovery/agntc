@@ -1,5 +1,7 @@
 import type { Choice } from "../../ui.js";
 import {
+	ASIDE_JOIN,
+	fitAside,
 	indent,
 	isNarrow,
 	MARGIN,
@@ -91,7 +93,8 @@ export function labelColumn(
  * two short of it is cut at its start with `…`, as a key or a name is told
  * apart by its tail. A hint is cut with `…` to fit, and left out when nothing
  * of it would show, or when beside it the label would be cut below
- * {@link LABEL_FLOOR}; the label then takes the room.
+ * {@link LABEL_FLOOR}; the label then takes the room. An aside leads the
+ * hint ({@link hintText}).
  */
 export function optionText<T>(
 	choice: Choice<T>,
@@ -103,40 +106,33 @@ export function optionText<T>(
 ): string {
 	const floor = Math.min(inset + visibleWidth(choice.label), LABEL_FLOOR);
 	const hint =
-		column - MIN_LABEL_GAP < floor
-			? ""
-			: fitHint(choice.hint ?? "", room - column);
+		column - MIN_LABEL_GAP < floor ? "" : hintText(choice, room - column);
 	const labelRoom = (hint === "" ? room : column - MIN_LABEL_GAP) - inset;
-	const label = labelText(choice, labelRoom, style, current);
+	const label = truncateStart(choice.label, Math.max(0, labelRoom));
+	const lead =
+		indent(inset) +
+		(label === "" ? "" : (current ? style.bold : identity)(label));
 	if (hint === "") {
-		return label === "" ? "" : indent(inset) + label;
+		return label === "" ? "" : lead;
 	}
-	return `${pad(indent(inset) + label, column)}${style.dim(hint)}`;
-}
-
-/** How wide a choice's label reads, its aside with it. */
-export function labelWidth<T>({ label, aside }: Choice<T>): number {
-	return visibleWidth(label) + (aside ? 1 + visibleWidth(aside) : 0);
+	return `${pad(lead, column)}${style.dim(hint)}`;
 }
 
 /**
- * A choice's label inside `room`, bold on the cursor's row, then its aside
- * dim where both fit; else the label alone, cut at its start.
+ * What the hint column says of a choice inside `room`: its aside, then
+ * {@link ASIDE_JOIN} and its hint. The hint is cut first, then the aside
+ * ({@link fitAside}).
  */
-export function labelText<T>(
-	choice: Choice<T>,
+export function hintText<T>(
+	{ aside, hint = "" }: Choice<T>,
 	room: number,
-	style: Style,
-	current: boolean,
 ): string {
-	const label = truncateStart(choice.label, Math.max(0, room));
-	if (label === "") {
-		return "";
+	const lead = aside ? fitAside(aside, room) : "";
+	if (lead === "") {
+		return aside ? "" : fitHint(hint, room);
 	}
-	const lead = (current ? style.bold : identity)(label);
-	return choice.aside && labelWidth(choice) <= room
-		? `${lead} ${style.dim(choice.aside)}`
-		: lead;
+	const rest = fitHint(hint, room - visibleWidth(lead) - ASIDE_JOIN.length);
+	return rest === "" ? lead : `${lead}${ASIDE_JOIN}${rest}`;
 }
 
 function fitHint(hint: string, room: number): string {

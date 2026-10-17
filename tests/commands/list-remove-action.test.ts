@@ -46,6 +46,7 @@ function removing(
 describe("executeRemoveAction", () => {
 	it("asks under the entry's row, naming what it installed, in a block of its own, counting it as the row does", async () => {
 		const entry = makeEntry({
+			type: "pack",
 			files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 		});
 		ui.confirm.mockResolvedValue(false);

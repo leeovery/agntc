@@ -532,29 +532,81 @@ describe("renderRow", () => {
 			meta: "HEAD",
 			detail: "2 of 3 installed",
 			children: [
-				{ name: "laravel", detail: "pack · 2 skills" },
-				{ name: "laravel", aside: "skills/laravel", detail: "skill" },
+				{ name: "testing", aside: "skills/frontend", detail: "skill" },
+				{ name: "testing", aside: "skills/backend", detail: "skill" },
 			],
 		};
 
-		it("follows the name a space on, the detail column measured past it", () => {
-			expect(block([shared], 80)).toEqual([
-				" ✓ owner/repo                  HEAD   2 of 3 installed",
-				"   ├─ laravel                         pack · 2 skills",
-				"   └─ laravel skills/laravel          skill",
+		it.each([
+			80, 100,
+		])("leads the detail column, then ` · `, the columns sized from the names alone, at %i", (width) => {
+			expect(block([shared], width)).toEqual([
+				" ✓ owner/repo   HEAD   2 of 3 installed",
+				"   ├─ testing          skills/frontend · skill",
+				"   └─ testing          skills/backend · skill",
 			]);
 		});
 
-		it("is dim", () => {
-			expect(block([shared], 80, color).at(-1)).toBe(
-				`   \x1b[2m└─\x1b[22m laravel \x1b[2mskills/laravel\x1b[22m${gap(10)}\x1b[2mskill\x1b[22m`,
+		it("is dim, its join with it, the detail in its own tone", () => {
+			const failed: Row = {
+				...shared,
+				status: "failed",
+				children: [
+					{
+						name: "testing",
+						status: "failed",
+						aside: "skills",
+						detail: "disk full",
+					},
+				],
+			};
+			expect(block([failed], 80, color).at(-1)).toBe(
+				`   \x1b[2m└─\x1b[22m \x1b[31m✗\x1b[39m testing${gap(10)}\x1b[2mskills · \x1b[22mdisk full`,
 			);
 		});
 
-		it("goes under the name, at its column, where it won't fit beside it", () => {
-			expect(block([shared], 24).slice(-3)).toEqual([
-				"   └─ laravel",
-				"      skills/laravel",
+		it("stands alone where the child has no detail", () => {
+			expect(
+				block([{ ...shared, children: [{ name: "a", aside: "x/y" }] }], 80),
+			).toEqual([
+				" ✓ owner/repo   HEAD   2 of 3 installed",
+				"   └─ a                x/y",
+			]);
+		});
+
+		const narrow = (width: number) =>
+			block(
+				[
+					{
+						status: "done",
+						subject: "r",
+						children: [
+							{ name: "testing", aside: "skills/frontend", detail: "skill" },
+						],
+					},
+				],
+				width,
+			).slice(1);
+
+		it("keeps the detail beside it where its first word fits exactly", () => {
+			expect(narrow(30)).toEqual([
+				"   └─ testing",
+				"      skills/frontend · skill",
+			]);
+		});
+
+		it("gives way first: the detail starts below where not a word of it fits beside", () => {
+			expect(narrow(29)).toEqual([
+				"   └─ testing",
+				"      skills/frontend",
+				"      skill",
+			]);
+		});
+
+		it("is cut at its start, keeping the folder nearest the name, where it alone won't fit", () => {
+			expect(narrow(20)).toEqual([
+				"   └─ testing",
+				"      …lls/frontend",
 				"      skill",
 			]);
 		});
@@ -855,13 +907,13 @@ describe("renderRowWithin", () => {
 		expect(within(4)).toEqual([
 			" ● owner/repo",
 			"   version          v1.0.0",
-			"   … 11 more folders, 1 more agent, 1",
-			"   more hook",
+			"   … 11 more folders, 1 more agent,",
+			"   1 more hook",
 		]);
 		expect(within(3)).toEqual([
 			" ● owner/repo",
-			"   … 11 more folders, 1 more agent, 1",
-			"   more hook, 1 more",
+			"   … 11 more folders, 1 more agent,",
+			"   1 more hook, 1 more",
 		]);
 	});
 
@@ -1005,8 +1057,8 @@ describe("renderRowsWithin", () => {
 		const narrow = blockLayout(asked.rows, 40);
 		expect(renderRowsWithin(asked, 4, narrow, 40, plain)).toEqual([
 			" ● owner/nuxt",
-			"   … 11 more folders, 1 more agent, 1",
-			"   more hook",
+			"   … 11 more folders, 1 more agent,",
+			"   1 more hook",
 			" … 1 more entry",
 		]);
 	});
@@ -1286,8 +1338,8 @@ describe("a row's fields", () => {
 				renderRowWithin(removal, room, layout, 30, plain);
 			expect(within(3)).toEqual([
 				" ● owner/repo",
-				"   … 2 more folders, 1 more",
-				"   agent, 1 more hook",
+				"   … 2 more folders,",
+				"   1 more agent, 1 more hook",
 			]);
 			expect(within(2)).toEqual([" ● owner/repo"]);
 		});

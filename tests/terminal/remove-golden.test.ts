@@ -413,8 +413,8 @@ describe("a remove at 40 columns", () => {
 			"",
 			" ● leeovery/agentic-skills/nuxt",
 			"   pack · 11 skills, 1 agent, 1 hook",
-			"   … 11 more folders, 1 more agent, 1",
-			"   more hook",
+			"   … 11 more folders, 1 more agent,",
+			"   1 more hook",
 			"",
 			" ? Remove it and its 11 skills, 1 agent",
 			"   and 1 hook?",
@@ -424,8 +424,8 @@ describe("a remove at 40 columns", () => {
 	});
 
 	const QUESTION_40 = [
-		" ? Remove them and their 12 skills, 2",
-		"   agents and 1 hook?",
+		" ? Remove them and their 12 skills,",
+		"   2 agents and 1 hook?",
 		"   [Yes]  No",
 	];
 
@@ -435,8 +435,8 @@ describe("a remove at 40 columns", () => {
 			[
 				" ● leeovery/agentic-skills/nuxt",
 				"   pack · 11 skills, 1 agent, 1 hook",
-				"   … 11 more folders, 1 more agent, 1",
-				"   more hook",
+				"   … 11 more folders, 1 more agent,",
+				"   1 more hook",
 				" … 1 more entry",
 			],
 		],
@@ -444,8 +444,8 @@ describe("a remove at 40 columns", () => {
 			9,
 			[
 				" ● leeovery/agentic-skills/nuxt",
-				"   … 11 more folders, 1 more agent, 1",
-				"   more hook",
+				"   … 11 more folders, 1 more agent,",
+				"   1 more hook",
 				" … 1 more entry",
 			],
 		],

@@ -12,10 +12,9 @@ import {
 	addTally,
 	askedRow,
 	holdings,
-	type ItemNames,
-	itemChoice,
-	itemNames,
 	listedRow,
+	offerChoices,
+	packKind,
 	pickedDetail,
 	sourceHead,
 	sourceSubject,
@@ -32,6 +31,7 @@ import {
 	type SkillNote,
 	type StrayNotice,
 	selectionFromFlags,
+	skillHint,
 	strayNotices,
 	unansweredMenu,
 } from "../choose-items.js";
@@ -42,7 +42,8 @@ import {
 	conflictPolicy,
 } from "../clear-conflicts.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
-import { checkItemLinks, copyItem, countItem } from "../copy-item.js";
+import { checkItemLinks, copyItem } from "../copy-item.js";
+import { packCounts } from "../copy-pack.js";
 import { type CopySource, PathTraversalError } from "../copy-safety.js";
 import {
 	type Discovery,
@@ -163,7 +164,7 @@ class SourceRow {
 		readonly head: RowHead,
 		readonly held: string,
 		readonly notes: readonly SkillNote[],
-		readonly names: ItemNames,
+		readonly rootName: string,
 	) {}
 
 	copying(): void {
@@ -185,7 +186,9 @@ class SourceRow {
 	/** Unchanged before the copy begins; failed once it has, as files may be on disk. */
 	stop(): void {
 		const status = this.copy === undefined ? "unchanged" : "failed";
-		this.draw(stoppedRow(this.head, this.held, this.notes, this.names, status));
+		this.draw(
+			stoppedRow(this.head, this.held, this.notes, this.rootName, status),
+		);
 	}
 }
 
@@ -403,11 +406,10 @@ async function listSource(
 	if (ui.mode === "interactive") {
 		tellStrays(strayNotices(discovery, choiceContext(src, scope)), ui);
 	}
-	const names = itemNames(items.map(itemPath), src.rootName);
 	const row = listedRow(
 		headOf(src, items),
 		holdings(items),
-		await itemChoices(items, names, src.root),
+		await itemChoices(items, src),
 	);
 	ui.block([row]).row(row);
 	ui.close({ command: "add", counts: {} });
@@ -484,7 +486,7 @@ async function pickItems(
 	}
 	return {
 		items: keyed.items,
-		...(outcome.kind === "menu" ? { offered: outcome.options.length } : {}),
+		...(outcome.kind === "menu" ? { offered: outcome.items.length } : {}),
 	};
 }
 
@@ -501,27 +503,30 @@ function sourceRow(
 	const head = headOf(src, offered);
 	const notes = notesOf(outcome).map(shownHeld);
 	const items = choiceItems(outcome).map(itemPath);
-	const names = itemNames([...offered.map(itemPath), ...items], src.rootName);
 	return new SourceRow(
-		ui.block([sourceSubject(head, items, notes, names)]),
+		ui.block([sourceSubject(head, items, notes, src.rootName)]),
 		head,
 		holdings(offered),
 		notes,
-		names,
+		src.rootName,
 	);
 }
 
-/** The items as the menu and `--list` offer them, each counted as its copy would count it. */
-function itemChoices(
+/** The items as the menu and `--list` offer them, a pack counted as its copy will count it. */
+async function itemChoices(
 	items: readonly InstallItem[],
-	names: ItemNames,
-	root: string,
+	src: FetchedSource,
 ): Promise<Choice<InstallItem>[]> {
-	return Promise.all(
-		items.map(async (item) =>
-			itemChoice(item, names, await countItem(item, root)),
-		),
+	const offers = await Promise.all(
+		items.map(async (item) => ({
+			item,
+			hint:
+				item.kind === "pack"
+					? packKind(await packCounts(item.pack, src.root))
+					: skillHint(item.skill),
+		})),
 	);
+	return offerChoices(offers, src.rootName);
 }
 
 /** A held skill's note as the terminal tells it: a local pack's key shortened against the home folder. */
@@ -539,7 +544,7 @@ function choiceItems(outcome: ChoiceOutcome): InstallItem[] {
 		case "install":
 			return outcome.items;
 		case "menu":
-			return outcome.options.map(({ value }) => value);
+			return outcome.items;
 		case "refuse":
 			return [];
 	}
@@ -617,16 +622,18 @@ async function settle(
 		case "menu": {
 			tellNotes(outcome.notes, ui);
 			if (ui.mode === "machine") {
-				const offered = outcome.options.map(({ value }) => value);
-				ui.report(listingBody(sourceJson(src), offered, discovery.strays));
-				return refuse(src, unansweredMenu(outcome.options), ui, MENU_FLAGS);
+				ui.report(
+					listingBody(sourceJson(src), outcome.items, discovery.strays),
+				);
+				return refuse(
+					src,
+					unansweredMenu(outcome.items, src.rootName),
+					ui,
+					MENU_FLAGS,
+				);
 			}
-			const asked = askedRow(row.head, row.held, row.notes, row.names);
-			const choices = await itemChoices(
-				outcome.options.map(({ value }) => value),
-				row.names,
-				src.root,
-			);
+			const asked = askedRow(row.head, row.held, row.notes, row.rootName);
+			const choices = await itemChoices(outcome.items, src);
 			const picked = await promptForItems(choices, asked, row.block);
 			if (picked.length === 0) {
 				ui.cancel("Cancelled — nothing selected");
@@ -669,7 +676,7 @@ async function installItems(
 			offered === undefined ? row.held : pickedDetail(outcomes, offered),
 			inItemOrder(outcomes, items),
 			row.notes,
-			row.names,
+			row.rootName,
 			home,
 		),
 	);

@@ -84,6 +84,7 @@ function generator(seed: number) {
 			depth = Math.max(0, Math.min(4, depth + pick([-1, 0, 0, 1])));
 			return {
 				name: words(),
+				...(next() < 0.5 ? { aside: words() } : {}),
 				...(next() < 0.5 ? { detail: words() } : {}),
 				...(next() < 0.3 ? { status: pick(STATUSES) } : {}),
 				...(next() < 0.3 ? { noun: pick(["file", "skill"]) } : {}),
@@ -234,6 +235,38 @@ describe("a row cut to its room", () => {
 					);
 				}
 				allBefore ||= all;
+			}
+		}
+		expect(problems.slice(0, 10)).toEqual([]);
+	});
+});
+
+describe("a child's aside", () => {
+	const withoutAsides = (row: Row): Row => ({
+		...row,
+		...(row.children === undefined
+			? {}
+			: {
+					children: row.children.map(({ aside: _, ...child }) => child),
+				}),
+	});
+
+	it.each(
+		WIDTHS,
+	)("never widens a column at %i columns, nor moves a name", (width) => {
+		const problems: string[] = [];
+		for (const seed of SEEDS) {
+			const { row, count } = generator(seed);
+			const rows = Array.from({ length: 2 + count(3) }, row);
+			const bare = rows.map(withoutAsides);
+			const layout = blockLayout(rows, width);
+			if (JSON.stringify(layout) !== JSON.stringify(blockLayout(bare, width))) {
+				problems.push(`seed ${seed}: its layout moves`);
+			}
+			const [first, firstBare] = [rows[0], bare[0]] as [Row, Row];
+			const shown = renderRow(first, layout, width, createStyle(0));
+			if (shown[0] !== renderRow(firstBare, layout, width, createStyle(0))[0]) {
+				problems.push(`seed ${seed}: its head moves`);
 			}
 		}
 		expect(problems.slice(0, 10)).toEqual([]);

@@ -23,7 +23,7 @@ export type CommandName = "add" | "remove" | "update" | "list" | "init";
 export interface Choice<T> {
 	value: T;
 	label: string;
-	/** Dim after the label, a space on, as a path telling two choices of one name apart. */
+	/** Dim at the head of the hint column, before ` · ` and the hint, as a folder telling two choices of one name apart; never widens a column. */
 	aside?: string;
 	hint?: string;
 	/** Columns after the label, lined up across the choices, in place of a hint. */

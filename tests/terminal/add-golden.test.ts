@@ -220,43 +220,81 @@ describe("an add through the menu", () => {
 		]);
 	});
 
-	it("names each item by its folder, a pack counted in full as its installed row counts it, the path aside where two share a name, in the menu and in what installed", async () => {
-		await upstream({
-			"laravel/agntc.json": PACK,
-			"laravel/skills/eloquent/SKILL.md": "",
-			"laravel/skills/testing/SKILL.md": "",
-			"laravel/skills/shared/notes.md": "",
-			"laravel/agents/reviewer.md": "",
-			"laravel/hooks/pre-commit.sh": "",
-			"skills/go/SKILL.md":
-				"---\ndescription: Idiomatic Go: errors, interfaces and tests\n---\n",
-			"skills/laravel/SKILL.md": "---\ndescription: Laravel on its own\n---\n",
-		});
+	const TWINS = {
+		"laravel/agntc.json": PACK,
+		"laravel/skills/eloquent/SKILL.md": "",
+		"laravel/skills/shared/notes.md": "",
+		"laravel/agents/reviewer.md": "",
+		"laravel/hooks/pre-commit.sh": "",
+		"skills/frontend/testing/SKILL.md":
+			"---\ndescription: Testing for the frontend\n---\n",
+		"skills/backend/testing/SKILL.md":
+			"---\ndescription: Testing for the backend\n---\n",
+		"skills/go/SKILL.md":
+			"---\ndescription: Idiomatic Go: errors, interfaces and tests\n---\n",
+	};
+
+	it("names each item by its folder, a pack counted in full as its installed row counts it, twins told apart by their folders leading the hint", async () => {
+		await upstream(TWINS);
 
 		const { asking, ended } = await session({
-			answer: [KEY.down, KEY.space, KEY.down, KEY.space, KEY.enter],
+			answer: [KEY.space, KEY.down, KEY.down, KEY.space, KEY.enter],
 		});
 
 		expect(asking).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo                    HEAD   1 pack · 2 skills",
+			" ✓ owner/repo     HEAD   1 pack · 3 skills",
 			"",
 			QUESTION,
-			" ▌ ○ laravel                  pack · 2 skills, 1 folder, 1 agent, 1 hook",
-			"   ○ go                       Idiomatic Go: errors, interfaces and tests",
-			"   ○ laravel skills/laravel   Laravel on its own",
+			" ▌ ○ laravel   pack · 1 skill, 1 folder, 1 agent, 1 hook",
+			"   ○ testing   skills/backend · Testing for the backend",
+			"   ○ testing   skills/frontend · Testing for the frontend",
+			"   ○ go        Idiomatic Go: errors, interfaces and tests",
 			"",
-			atRight("", "0 of 3 picked"),
+			atRight("", "0 of 4 picked"),
 		]);
 		expect(ended).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo                    HEAD   2 of 3 installed",
-			"   ├─ go                                skill",
-			"   └─ laravel skills/laravel            skill",
+			" ✓ owner/repo     HEAD   2 of 4 installed",
+			"   ├─ laravel            pack · 1 skill, 1 folder, 1 agent, 1 hook",
+			"   └─ testing            skill",
 			...close("2 installed"),
 		]);
+	});
+
+	it.each([
+		100, 80,
+	])("lists the twins at %i columns with the detail column sized from the names alone", async (columns) => {
+		await upstream(TWINS);
+
+		const lines = await drawn({ options: { list: true }, columns });
+
+		expect(lines.slice(2)).toEqual([
+			" ✓ owner/repo   HEAD   1 pack · 3 skills",
+			"   ├─ laravel          pack · 1 skill, 1 folder, 1 agent, 1 hook",
+			"   ├─ testing          skills/backend · Testing for the backend",
+			"   ├─ testing          skills/frontend · Testing for the frontend",
+			"   └─ go               Idiomatic Go: errors, interfaces and tests",
+		]);
+	});
+
+	it.each([
+		80, 60, 40,
+	])("keeps the twins apart at %i columns, their hints giving way first", async (columns) => {
+		await upstream(TWINS);
+
+		const { asking } = await session({ answer: [KEY.escape], columns });
+
+		const twins = asking.filter((line) => line.includes("testing"));
+		expect(twins).toHaveLength(2);
+		expect(twins[0]).not.toBe(twins[1]);
+		expect(
+			twins.every(
+				(line) => line.includes("backend") || line.includes("frontend"),
+			),
+		).toBe(true);
 	});
 
 	it("counts the skills an installed pack holds on one line while asking, naming each once it has installed", async () => {
@@ -646,7 +684,7 @@ describe("an add refused", () => {
 		).toEqual([
 			HEADER,
 			"",
-			" ○ owner/repo       HEAD   2 skills",
+			" ○ owner/repo   HEAD   2 skills",
 			"",
 			" ✗ owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 		]);

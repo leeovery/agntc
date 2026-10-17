@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { EntryAssets } from "../src/entry-assets.js";
 import {
 	installedFolders,
+	type RemovedAssets,
 	removalQuestion,
 	removalRow,
 	removedRow,
 	removeFailedRow,
 } from "../src/remove-render.js";
+import { makeEntry } from "./helpers/factories.js";
 
 describe("installedFolders", () => {
 	it("names each installed folder once under its asset folder, in the order recorded", () => {
@@ -79,11 +81,17 @@ describe("removalRow", () => {
 });
 
 describe("removalQuestion", () => {
-	const PACK: EntryAssets = {
-		counts: { skills: 2, folders: 1, agents: 1, hooks: 1 },
-		other: 0,
-	};
-	const SKILL: EntryAssets = { counts: { skills: 1 }, other: 0 };
+	const removing = (
+		type: "skill" | "pack" | undefined,
+		counts: EntryAssets["counts"],
+		other = 0,
+		files = [".claude/skills/x/"],
+	): RemovedAssets => ({
+		entry: makeEntry({ files, ...(type === undefined ? {} : { type }) }),
+		assets: { counts, other },
+	});
+	const PACK = removing("pack", { skills: 2, folders: 1, agents: 1, hooks: 1 });
+	const SKILL = removing("skill", { skills: 1 });
 
 	it("asks about one entry as it, counting what it installs as its row words it", () => {
 		expect(removalQuestion([PACK])).toBe(
@@ -93,43 +101,52 @@ describe("removalQuestion", () => {
 
 	it("words a lone one by its noun alone", () => {
 		expect(removalQuestion([SKILL])).toBe("Remove it and its skill?");
-		expect(
-			removalQuestion([{ counts: { skills: 0, agents: 1 }, other: 0 }]),
-		).toBe("Remove it and its agent?");
+		expect(removalQuestion([removing("pack", { skills: 0, agents: 1 })])).toBe(
+			"Remove it and its agent?",
+		);
 	});
 
 	it("leaves out what it counts none of, a pack's skills included", () => {
-		expect(
-			removalQuestion([{ counts: { skills: 0, folders: 2 }, other: 0 }]),
-		).toBe("Remove it and its 2 folders?");
+		expect(removalQuestion([removing("pack", { skills: 0, folders: 2 })])).toBe(
+			"Remove it and its 2 folders?",
+		);
 	});
 
-	it("asks about several entries as them, adding up what they install", () => {
+	it("asks about several entries as them, adding up what they install in the order a row words it", () => {
 		expect(
-			removalQuestion([
-				PACK,
-				SKILL,
-				{ counts: { skills: 0, hooks: 1 }, other: 0 },
-			]),
+			removalQuestion([removing("pack", { skills: 0, hooks: 1 }), PACK, SKILL]),
 		).toBe("Remove them and their 3 skills, 1 folder, 1 agent and 2 hooks?");
 		expect(removalQuestion([SKILL, SKILL])).toBe(
 			"Remove them and their 2 skills?",
 		);
 	});
 
-	it("counts what a legacy entry records outside .claude/ as other items", () => {
-		expect(removalQuestion([{ counts: { skills: 0 }, other: 3 }])).toBe(
+	it("counts a skill entry as its one skill, whatever its paths, as its row names it", () => {
+		const legacy = removing(undefined, { skills: 0 }, 2, [
+			".agents/skills/go/",
+			".cursor/skills/go/",
+		]);
+		expect(removalQuestion([legacy])).toBe("Remove it and its skill?");
+		expect(
+			removalQuestion([removing("skill", { skills: 1, agents: 1 }, 1)]),
+		).toBe("Remove it and its skill?");
+	});
+
+	it("counts what a legacy pack records outside .claude/ as other items", () => {
+		expect(removalQuestion([removing("pack", { skills: 0 }, 3)])).toBe(
 			"Remove it and its 3 other items?",
 		);
-		expect(removalQuestion([{ counts: { skills: 1 }, other: 1 }])).toBe(
+		expect(removalQuestion([removing("pack", { skills: 1 }, 1)])).toBe(
 			"Remove it and its 1 skill and 1 other item?",
 		);
 	});
 
 	it("asks only about the entry when it records nothing", () => {
-		const none: EntryAssets = { counts: {}, other: 0 };
+		const none = removing("skill", {}, 0, []);
 		expect(removalQuestion([none])).toBe("Remove it?");
-		expect(removalQuestion([none, none])).toBe("Remove them?");
+		expect(removalQuestion([none, removing("pack", {}, 0, [])])).toBe(
+			"Remove them?",
+		);
 	});
 });
 

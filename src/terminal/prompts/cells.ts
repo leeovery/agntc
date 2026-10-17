@@ -1,8 +1,14 @@
 import type { Choice, ChoiceCell } from "../../ui.js";
-import { indent, pad, truncate, visibleWidth } from "../layout.js";
-import { createStyle, type Style, statusGlyph } from "../style.js";
+import {
+	indent,
+	pad,
+	truncate,
+	truncateStart,
+	visibleWidth,
+} from "../layout.js";
+import { createStyle, identity, type Style, statusGlyph } from "../style.js";
 import type { Status } from "../types.js";
-import { LABEL_FLOOR, labelText, labelWidth } from "./lines.js";
+import { LABEL_FLOOR } from "./lines.js";
 
 /** The columns between a label and its first cell, and between cells. */
 const CELL_GAP = 3;
@@ -28,8 +34,8 @@ export interface CellLayout {
 
 /**
  * The columns `choices` line up in, inside `room`: the widest label (with its
- * inset) and 3, then each cell as wide as the widest in its column and 3.
- * Where that's too wide, the asides go first, then the columns in the order
+ * inset) and 3, then each cell as wide as the widest in its column and 3; a
+ * column with nothing in it takes no room. Where that's too wide, the asides go first, then the columns in the order
  * their cells' `drop` gives; then the label column narrows, its labels cut
  * at their start, as a name is told apart by its tail, but never below
  * {@link LABEL_FLOOR}, so choices still read apart: past it the cells are
@@ -44,7 +50,7 @@ export function cellLayout<T>(
 		...choices.map(({ choice }) => cellsOf(choice).length),
 	);
 	const label = widest(
-		choices.map(({ choice, inset }) => inset + labelWidth(choice)),
+		choices.map(({ choice, inset }) => inset + visibleWidth(choice.label)),
 	);
 	const widths = (asides: boolean) =>
 		Array.from({ length: count }, (_, index) =>
@@ -57,7 +63,9 @@ export function cellLayout<T>(
 		);
 	let asides = true;
 	let columns = widths(asides);
-	let kept = Array.from({ length: count }, (_, index) => index);
+	let kept = Array.from({ length: count }, (_, index) => index).filter(
+		(index) => (columns[index] ?? 0) > 0,
+	);
 	const span = () =>
 		kept.reduce((total, index) => total + (columns[index] ?? 0), 0) +
 		CELL_GAP * Math.max(0, kept.length - 1);
@@ -104,8 +112,12 @@ export function cellsText<T>(
 ): string {
 	const labelEnd =
 		layout.cells.length === 0 ? room : layout.labelColumn - CELL_GAP;
-	const label = labelText(choice, labelEnd - inset, style, current);
-	let line = label === "" ? "" : indent(inset) + label;
+	const labelRoom = Math.max(0, labelEnd - inset);
+	const label = truncateStart(choice.label, labelRoom);
+	let line =
+		label === ""
+			? ""
+			: indent(inset) + (current ? style.bold : identity)(label);
 	const cells = cellsOf(choice);
 	for (const { index, at } of layout.cells) {
 		const cell = cells[index];

@@ -430,27 +430,55 @@ describe("a select's cells", () => {
 		expect(line).toBe(" ▌ …med-at-length");
 	});
 
-	it("lines the cells up past a label's aside, which it leaves out where the label's room won't hold both", () => {
-		const shared: SelectOption<string>[] = [
-			{ value: "a", label: "go", cells: [{ text: "skill", dim: true }] },
+	it("gives a column with nothing in it no room, not even its gap", () => {
+		const local: SelectOption<string>[] = [
 			{
-				value: "b",
-				label: "go",
-				aside: "skills/go",
-				cells: [{ text: "skill", dim: true }],
+				value: "review",
+				label: "review",
+				cells: [
+					{ text: "skill", dim: true, drop: 1 },
+					{ text: "", drop: 2 },
+					{ status: "local", text: "local", dim: true },
+				],
 			},
 		];
-		expect(renderSelect(view(shared, 0), 40, plain).slice(1)).toEqual([
-			" ▌ go             skill",
-			"   go skills/go   skill",
+		expect(renderSelect(view(local, 0), 80, plain).slice(1)).toEqual([
+			" ▌ review   skill   ◇ local",
 		]);
-		expect(renderSelect(view(shared, 0), 40, colour).at(-1)).toBe(
-			"   go \x1b[2mskills/go\x1b[22m   \x1b[2mskill\x1b[22m",
+	});
+
+	it("keeps twins apart by their asides at every width, the hint giving way first", () => {
+		const twins: SelectOption<string>[] = [
+			{
+				value: "a",
+				label: "testing",
+				aside: "skills/frontend",
+				hint: "testing skill does a thing",
+			},
+			{
+				value: "b",
+				label: "testing",
+				aside: "skills/backend",
+				hint: "testing skill does a thing",
+			},
+		];
+		const at = (width: number) =>
+			renderSelect(view(twins, 0), width, plain).slice(1);
+		expect(at(70)).toEqual([
+			" ▌ testing   skills/frontend · testing skill does a thing",
+			"   testing   skills/backend · testing skill does a thing",
+		]);
+		expect(at(40)).toEqual([
+			" ▌ testing   skills/frontend · testing…",
+			"   testing   skills/backend · testing …",
+		]);
+		expect(at(24)).toEqual([
+			" ▌ testing   …/frontend",
+			"   testing   …s/backend",
+		]);
+		expect(renderSelect(view(twins, 0), 70, colour).at(-1)).toBe(
+			"   testing   \x1b[2mskills/backend · testing skill does a thing\x1b[22m",
 		);
-		expect(renderSelect(view(shared, 0), 21, plain).slice(1)).toEqual([
-			" ▌ go           ski…",
-			"   go           ski…",
-		]);
 	});
 
 	it("cuts a line its last cell alone overflows at the margin", () => {

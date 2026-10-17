@@ -100,6 +100,14 @@ const children: Child[] = [
 	...SHORT_CHILDREN,
 	{ name: LONG, status: "failed", detail: PROSE },
 	{ name: CJK, status: "done", detail: CJK },
+	{ name: "zed", aside: LONG, detail: "skill" },
+	{ name: LONG, aside: WORD, status: "note", detail: PROSE },
+	{ name: "bar", aside: CJK, status: "unchanged" },
+	{
+		name: "x",
+		aside: "a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z",
+		detail: WORD,
+	},
 ];
 
 const fieldSets: Field[][] = [
@@ -240,11 +248,22 @@ function renderEverything(width: number, level: 0 | 3): string[] {
 	];
 }
 
+const ASIDES = [
+	undefined,
+	"skills/x",
+	LONG,
+	CJK,
+	WORD,
+	"a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z",
+];
 const hints = [undefined, "", "up to date", PROSE, WORD, CJK];
 /** Every pair of label and hint, as the options of each prompt. */
 const choices = pairs(subjects.length, hints.length).map(([label, hint]) => ({
 	value: label * hints.length + hint,
 	label: pick(subjects, label),
+	...(pick(ASIDES, label + hint) === undefined
+		? {}
+		: { aside: pick(ASIDES, label + hint) }),
 	...(pick(hints, hint) === undefined ? {} : { hint: pick(hints, hint) }),
 }));
 const headings = [...SHORT_SUBJECTS, LONG, CJK];

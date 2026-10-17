@@ -38,37 +38,56 @@ describe("optionText", () => {
 		);
 	});
 
-	it("puts a label's aside a space after it, dim, the label bold on the cursor's row", () => {
+	it("leads the hint with the aside and ` · `, all dim, the label bold on the cursor's row", () => {
 		const shared = {
 			value: "x",
-			label: "laravel",
-			aside: "skills/laravel",
-			hint: "skill",
+			label: "testing",
+			aside: "skills/frontend",
+			hint: "Generic advice",
 		};
-		expect(optionText(shared, 25, 40, plain, false)).toBe(
-			"laravel skills/laravel   skill",
+		expect(optionText(shared, 10, 60, plain, false)).toBe(
+			"testing   skills/frontend · Generic advice",
 		);
-		expect(optionText(shared, 25, 40, createStyle(3), true)).toBe(
-			"\x1b[1mlaravel\x1b[22m \x1b[2mskills/laravel\x1b[22m   \x1b[2mskill\x1b[22m",
+		expect(optionText(shared, 10, 60, createStyle(3), true)).toBe(
+			"\x1b[1mtesting\x1b[22m   \x1b[2mskills/frontend · Generic advice\x1b[22m",
 		);
 	});
 
-	it("leaves out an aside that won't fit beside its label, the label kept whole where it fits", () => {
+	it("cuts the hint first, then the aside at its start, keeping the folder nearest the name", () => {
 		const shared = {
 			value: "x",
-			label: "laravel",
-			aside: "skills/laravel",
-			hint: "skill",
+			label: "testing",
+			aside: "skills/frontend",
+			hint: "Generic advice",
 		};
-		expect(optionText(shared, 14, 30, plain, false)).toBe(
-			"laravel       skill",
+		expect(optionText(shared, 10, 32, plain, false)).toBe(
+			"testing   skills/frontend · Gen…",
 		);
-		expect(
-			optionText({ ...shared, hint: undefined }, 14, 21, plain, false),
-		).toBe("laravel");
-		expect(
-			optionText({ ...shared, hint: undefined }, 14, 22, plain, false),
-		).toBe("laravel skills/laravel");
+		expect(optionText(shared, 10, 30, plain, false)).toBe(
+			"testing   skills/frontend · G…",
+		);
+		expect(optionText(shared, 10, 29, plain, false)).toBe(
+			"testing   skills/frontend",
+		);
+		expect(optionText(shared, 10, 25, plain, false)).toBe(
+			"testing   skills/frontend",
+		);
+		expect(optionText(shared, 10, 24, plain, false)).toBe(
+			"testing   …ills/frontend",
+		);
+		expect(optionText(shared, 10, 13, plain, false)).toBe("testing   …nd");
+	});
+
+	it("leaves the aside out only when fewer than three columns are left for it", () => {
+		const shared = { value: "x", label: "testing", aside: "skills" };
+		expect(optionText(shared, 10, 12, plain, false)).toBe("testing");
+	});
+
+	it("never widens the label's column", () => {
+		const shared = { value: "x", label: "go", aside: "skills/a-long-path" };
+		expect(optionText(shared, 5, 40, plain, false)).toBe(
+			"go   skills/a-long-path",
+		);
 	});
 
 	it("leaves a label's inset out of its room", () => {

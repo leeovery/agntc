@@ -1,4 +1,6 @@
 import {
+	ASIDE_JOIN,
+	fitAside,
 	indent,
 	isNarrow,
 	MARGIN,
@@ -96,14 +98,9 @@ function subjectMeasures(row: BlockSubject): number[] {
 	return [
 		visibleWidth(row.subject),
 		...(row.children ?? []).map(
-			(child) => nameAt(child) - SUBJECT_AT + nameWidth(child),
+			(child) => nameAt(child) - SUBJECT_AT + visibleWidth(child.name),
 		),
 	];
-}
-
-/** How wide a child's name reads, its aside with it. */
-function nameWidth({ name, aside }: Pick<Child, "name" | "aside">): number {
-	return visibleWidth(name) + (aside ? 1 + visibleWidth(aside) : 0);
 }
 
 /** Where a child's name starts: past its branch, a level further in for each it hangs below, and past its glyph. */
@@ -772,23 +769,15 @@ function renderChild(
 	const rails = runs
 		.map((on) => (on ? paint.dim("│") : " ") + indent(LEVEL - 1))
 		.join("");
-	const lead = leadLines(
-		`${indent(BRANCH_AT)}${rails}${paint.dim(last ? "└─" : "├─")} ${glyph}`,
-		name,
-		child.name,
-		identity,
-		width,
-	);
 	const lines = flow(
-		child.aside ? withAside(lead, child.aside, name, width, paint) : lead,
-		[
-			{
-				at,
-				lines: child.detail
-					? paintLines(wrap(child.detail, roomFrom(at, width)), tone)
-					: [],
-			},
-		],
+		leadLines(
+			`${indent(BRANCH_AT)}${rails}${paint.dim(last ? "└─" : "├─")} ${glyph}`,
+			name,
+			child.name,
+			identity,
+			width,
+		),
+		[{ at, lines: childDetail(child, roomFrom(at, width), tone, paint) }],
 	);
 	// The branches running on past this child's lines, its own with a sibling
 	// below, overwrite spaces: those lines all open with spaces to its name.
@@ -799,22 +788,32 @@ function renderChild(
 		.map(dimWhole(quiet, style));
 }
 
-/** A child's name lines, its aside dim a space on from the last, or below it at the name's column where it doesn't fit. */
-function withAside(
-	lead: readonly string[],
-	aside: string,
-	at: number,
-	width: number,
+/**
+ * A child's detail inside `room`, led by its aside, dim, and
+ * {@link ASIDE_JOIN}. The detail gives way first, wrapping onto the lines
+ * below, starting below the aside when not one word of it fits beside it;
+ * then the aside is cut ({@link fitAside}).
+ */
+function childDetail(
+	{ aside = "", detail = "" }: Child,
+	room: number,
+	tone: Painter,
 	paint: Style,
 ): string[] {
-	const last = lead.at(-1) ?? "";
-	const room = roomFrom(at, width);
-	if (visibleWidth(last) + 1 + visibleWidth(aside) <= at + room) {
-		return [...lead.slice(0, -1), `${last} ${paint.dim(aside)}`];
+	const lead = fitAside(aside, room);
+	if (lead === "") {
+		return detail === "" ? [] : paintLines(wrap(detail, room), tone);
 	}
+	if (detail === "") {
+		return [paint.dim(lead)];
+	}
+	const beside = room - visibleWidth(lead) - ASIDE_JOIN.length;
+	const [first = "", ...rest] = wrap(detail, room, Math.max(0, beside));
 	return [
-		...lead,
-		...wrap(aside, room).map((line) => indent(at) + paint.dim(line)),
+		first === ""
+			? paint.dim(lead)
+			: `${paint.dim(`${lead}${ASIDE_JOIN}`)}${tone(first)}`,
+		...paintLines(rest, tone),
 	];
 }
 

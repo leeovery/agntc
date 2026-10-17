@@ -61,7 +61,7 @@ async function askToRemove(
 	const kind = kindAndCounts(entry, assetSummary(entry, assets));
 	const row = goneRow(head, kind, entry.files);
 	return ui.block([row]).confirm(row, {
-		message: removalQuestion([assets]),
+		message: removalQuestion([{ entry, assets }]),
 		initialValue: false,
 	});
 }

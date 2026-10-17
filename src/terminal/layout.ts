@@ -218,6 +218,21 @@ export function truncate(text: string, width: number): string {
 	return width < 1 ? kept : `${kept}…`;
 }
 
+/** Between an aside and the hint or detail it leads. */
+export const ASIDE_JOIN = " · ";
+/** The fewest columns an aside is shown in: its `…` and two of its own. */
+const MIN_ASIDE = 3;
+
+/**
+ * An aside inside `room`: whole where it fits, else cut at its start, so the
+ * folder nearest the name stays; empty only when fewer than three columns
+ * are left for it.
+ */
+export function fitAside(aside: string, room: number): string {
+	const fits = visibleWidth(aside) <= room;
+	return fits || room >= MIN_ASIDE ? truncateStart(aside, room) : "";
+}
+
 /** Plain text cut at the start to fit `width`, marked with `…`. */
 export function truncateStart(text: string, width: number): string {
 	if (visibleWidth(text) <= width) {
@@ -316,7 +331,7 @@ function wrapParagraph(
 		room = full;
 	};
 
-	for (const word of text.split(" ").filter((word) => word !== "")) {
+	for (const word of wordsOf(text)) {
 		const wordWidth = visibleWidth(word);
 		const used = line === "" ? 0 : visibleWidth(line) + 1;
 		if (used + wordWidth <= room) {
@@ -346,6 +361,29 @@ function wrapParagraph(
 	lines.push(line);
 	return lines;
 }
+
+/**
+ * The words a line breaks between: a count stays with the noun after it,
+ * through a `more` between them, so neither `1 hook` nor `3 more skills`
+ * splits across lines.
+ */
+function wordsOf(text: string): string[] {
+	const words: string[] = [];
+	let count: string | undefined;
+	for (const word of text.split(" ").filter((each) => each !== "")) {
+		if (count === undefined && COUNT.test(word)) {
+			count = word;
+		} else if (count !== undefined && word === "more") {
+			count = `${count} ${word}`;
+		} else {
+			words.push(count === undefined ? word : `${count} ${word}`);
+			count = undefined;
+		}
+	}
+	return count === undefined ? words : [...words, count];
+}
+
+const COUNT = /^\d+$/;
 
 /**
  * The longest start of `word` that ends on a `/` past its first character

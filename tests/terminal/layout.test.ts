@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	fitAside,
 	isNarrow,
 	layoutWidth,
 	pad,
@@ -130,7 +131,37 @@ describe("wrapItems", () => {
 	});
 });
 
+describe("fitAside", () => {
+	it("keeps an aside whole where it fits", () => {
+		expect(fitAside("skills/frontend", 15)).toBe("skills/frontend");
+		expect(fitAside("ab", 2)).toBe("ab");
+	});
+
+	it("cuts one too long at its start, keeping the folder nearest the name", () => {
+		expect(fitAside("skills/frontend", 14)).toBe("…ills/frontend");
+		expect(fitAside("skills/frontend", 3)).toBe("…nd");
+	});
+
+	it("leaves it out only when fewer than three columns are left", () => {
+		expect(fitAside("skills/frontend", 2)).toBe("");
+		expect(fitAside("skills/frontend", 0)).toBe("");
+	});
+});
+
 describe("wrap", () => {
+	it("keeps a count with the noun after it, through a `more`", () => {
+		expect(wrap("its 2 skills, 1 folder and 1 hook?", 16)).toEqual([
+			"its 2 skills,",
+			"1 folder and",
+			"1 hook?",
+		]);
+		expect(wrap("… 11 more folders, 1 more agent", 22)).toEqual([
+			"… 11 more folders,",
+			"1 more agent",
+		]);
+		expect(wrap("a list of 3", 9)).toEqual(["a list of", "3"]);
+	});
+
 	it("breaks at spaces inside the width", () => {
 		expect(wrap("the quick brown fox jumps", 10)).toEqual([
 			"the quick",

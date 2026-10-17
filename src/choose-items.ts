@@ -86,7 +86,7 @@ export interface SkillNote extends SubjectMessage {
  */
 export type ChoiceOutcome =
 	| { kind: "install"; items: InstallItem[]; notes: SkillNote[] }
-	| { kind: "menu"; options: MenuOption[]; notes: SkillNote[] }
+	| { kind: "menu"; items: InstallItem[]; notes: SkillNote[] }
 	| { kind: "refuse"; message: string };
 
 /**
@@ -240,7 +240,7 @@ function chooseAuto(discovery: Discovery, ctx: ChoiceContext): ChoiceOutcome {
 	}
 	return {
 		kind: "menu",
-		options: items.map((item) => menuOption(item, ctx.rootName)),
+		items,
 		notes,
 	};
 }
@@ -326,8 +326,13 @@ export function optionLine({ label, hint }: MenuOption): string {
 }
 
 /** Why a menu can't stand in for a person, listing what it would have offered. */
-export function unansweredMenu(options: MenuOption[]): string {
-	const found = options.map((option) => `  ${optionLine(option)}`);
+export function unansweredMenu(
+	items: readonly InstallItem[],
+	rootName: string,
+): string {
+	const found = items.map(
+		(item) => `  ${optionLine(menuOption(item, rootName))}`,
+	);
 	return [
 		"found more than one thing to install — name what to install with --skill, --pack or --all, or add the path to one skill or pack:",
 		...found,

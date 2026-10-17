@@ -5,9 +5,9 @@ import {
 	askedRow,
 	clearedWords,
 	holdings,
-	itemChoice,
 	itemNames,
 	listedRow,
+	offerChoices,
 	packKind,
 	pickedDetail,
 	sourceHead,
@@ -27,8 +27,8 @@ function item(path: string, kind: "skill" | "pack" = "skill"): ItemIdentity {
 	return { key: `owner/repo/${path}`, kind, path };
 }
 
-/** Names by folder, none sharing one. */
-const NAMES = itemNames([], "repo");
+/** The source's name, as a row names its root. */
+const ROOT = "repo";
 
 function installed(label: string): ItemOutcome {
 	return {
@@ -127,7 +127,7 @@ describe("pickedDetail", () => {
 
 describe("sourceSubject", () => {
 	it("gives each of several items a glyph's room, as items that end differently carry one", () => {
-		expect(sourceSubject(HEAD, ["a", "b", "a"], [], NAMES)).toEqual({
+		expect(sourceSubject(HEAD, ["a", "b", "a"], [], ROOT)).toEqual({
 			...HEAD,
 			children: [
 				{ name: "a", status: "done" },
@@ -136,19 +136,21 @@ describe("sourceSubject", () => {
 		});
 	});
 
-	it("measures each item and note by its name and its aside", () => {
-		const names = itemNames(["a", "x/a", "tools/a"], "repo");
-		expect(sourceSubject(HEAD, ["x/a"], [held("tools/a")], names)).toEqual({
+	it("measures each item and note by its name alone, as an aside never widens a column", () => {
+		expect(
+			sourceSubject(HEAD, ["x/a", "y/a"], [held("tools/a")], "repo"),
+		).toEqual({
 			...HEAD,
 			children: [
-				{ name: "a", aside: "x/a" },
-				{ name: "a", aside: "tools/a", status: "note" },
+				{ name: "a", status: "done" },
+				{ name: "a", status: "done" },
+				{ name: "a", status: "note" },
 			],
 		});
 	});
 
 	it("gives a lone item none, as one item never carries a glyph", () => {
-		expect(sourceSubject(HEAD, ["a", "a"], [], NAMES)).toEqual({
+		expect(sourceSubject(HEAD, ["a", "a"], [], ROOT)).toEqual({
 			...HEAD,
 			children: [{ name: "a" }],
 		});
@@ -156,7 +158,7 @@ describe("sourceSubject", () => {
 
 	it("gives every note a glyph's room, and measures the line a question's row counts them on", () => {
 		expect(
-			sourceSubject(HEAD, ["a"], [held("tools/api"), held("tools/db")], NAMES),
+			sourceSubject(HEAD, ["a"], [held("tools/api"), held("tools/db")], ROOT),
 		).toEqual({
 			...HEAD,
 			children: [
@@ -171,7 +173,7 @@ describe("sourceSubject", () => {
 
 describe("askedRow", () => {
 	it("says what the source holds, with a skill left off the menu beneath it, by name", () => {
-		expect(askedRow(HEAD, "2 skills", [held("tools/api")], NAMES)).toEqual({
+		expect(askedRow(HEAD, "2 skills", [held("tools/api")], ROOT)).toEqual({
 			status: "done",
 			...HEAD,
 			detail: "2 skills",
@@ -196,7 +198,7 @@ describe("askedRow", () => {
 					held("tools/ui", "p"),
 					held("x/lint", "q"),
 				],
-				NAMES,
+				ROOT,
 			).children,
 		).toEqual([
 			{
@@ -213,7 +215,7 @@ describe("askedRow", () => {
 	});
 
 	it("has no children when none is left off", () => {
-		expect(askedRow(HEAD, "2 skills", [], NAMES)).toEqual({
+		expect(askedRow(HEAD, "2 skills", [], ROOT)).toEqual({
 			status: "done",
 			...HEAD,
 			detail: "2 skills",
@@ -228,7 +230,7 @@ describe("stoppedRow", () => {
 				HEAD,
 				"3 skills",
 				[held("tools/api"), held("tools/db")],
-				NAMES,
+				ROOT,
 				"unchanged",
 			),
 		).toEqual({
@@ -256,7 +258,7 @@ describe("stoppedRow", () => {
 				HEAD,
 				"2 skills",
 				[taken("p/skills/a", "part of the pack p — installed on its own")],
-				NAMES,
+				ROOT,
 				"unchanged",
 			),
 		).toEqual({
@@ -268,7 +270,7 @@ describe("stoppedRow", () => {
 
 	it("fails the source once a stop may have left files on disk", () => {
 		expect(
-			stoppedRow(HEAD, "2 skills", [held("tools/api")], NAMES, "failed"),
+			stoppedRow(HEAD, "2 skills", [held("tools/api")], ROOT, "failed"),
 		).toMatchObject({ status: "failed", children: [{ name: "api" }] });
 	});
 });
@@ -279,7 +281,7 @@ describe("listedRow", () => {
 			listedRow(HEAD, "1 pack · 2 skills", [
 				{ value: packItem("p"), label: "p", hint: "pack · 1 skill" },
 				{ value: skillItem("a"), label: "a" },
-				{ value: skillItem("x/a"), label: "a", aside: "x/a" },
+				{ value: skillItem("x/a"), label: "a", aside: "x" },
 			]),
 		).toEqual({
 			status: "done",
@@ -288,7 +290,7 @@ describe("listedRow", () => {
 			children: [
 				{ name: "p", detail: "pack · 1 skill" },
 				{ name: "a" },
-				{ name: "a", aside: "x/a" },
+				{ name: "a", aside: "x" },
 			],
 		});
 	});
@@ -301,21 +303,28 @@ describe("itemNames", () => {
 		expect(names("")).toEqual({ name: "repo" });
 	});
 
-	it("tells items of one name apart by their paths, a pack's and a skill's alike", () => {
-		const names = itemNames(["laravel", "vendor/laravel", "skills/go"], "r");
-		expect(names("vendor/laravel")).toEqual({
-			name: "laravel",
-			aside: "vendor/laravel",
+	it("tells items of one name apart by the folder each sits in, a pack's and a skill's alike", () => {
+		const names = itemNames(
+			["skills/frontend/testing", "skills/backend/testing", "skills/go"],
+			"r",
+		);
+		expect(names("skills/frontend/testing")).toEqual({
+			name: "testing",
+			aside: "skills/frontend",
+		});
+		expect(names("skills/backend/testing")).toEqual({
+			name: "testing",
+			aside: "skills/backend",
 		});
 		expect(names("skills/go")).toEqual({ name: "go" });
 	});
 
-	it("gives no aside to a path that is the name itself", () => {
+	it("gives no aside to one at the top of the source, or the source itself", () => {
 		const names = itemNames(["go", "skills/go", "", "x/repo"], "repo");
 		expect(names("go")).toEqual({ name: "go" });
-		expect(names("skills/go")).toEqual({ name: "go", aside: "skills/go" });
+		expect(names("skills/go")).toEqual({ name: "go", aside: "skills" });
 		expect(names("")).toEqual({ name: "repo" });
-		expect(names("x/repo")).toEqual({ name: "repo", aside: "x/repo" });
+		expect(names("x/repo")).toEqual({ name: "repo", aside: "x" });
 	});
 });
 
@@ -328,41 +337,54 @@ describe("packKind", () => {
 	});
 });
 
-describe("itemChoice", () => {
-	it("offers a pack by name, with its kind and everything it installs", () => {
-		expect(
-			itemChoice(packItem("tools/p"), NAMES, {
-				skills: 2,
-				folders: 1,
-				agents: 1,
-				hooks: 1,
-			}),
-		).toEqual({
-			value: packItem("tools/p"),
-			label: "p",
-			hint: "pack · 2 skills, 1 folder, 1 agent, 1 hook",
-		});
-	});
-
-	it("offers a skill by name, with its description's first line", () => {
+describe("offerChoices", () => {
+	it("offers each item by name, then its hint", () => {
 		const skill: InstallItem = {
 			kind: "skill",
-			skill: { name: "go", path: "skills/go", description: "Go\nmore" },
+			skill: { name: "go", path: "skills/go" },
 		};
-		expect(itemChoice(skill, NAMES, { skills: 1 })).toEqual({
-			value: skill,
-			label: "go",
-			hint: "Go",
-		});
+		expect(
+			offerChoices(
+				[
+					{ item: packItem("tools/p"), hint: "pack · 2 skills, 1 hook" },
+					{ item: skill, hint: "Go" },
+					{ item: skillItem("lint") },
+				],
+				"repo",
+			),
+		).toEqual([
+			{
+				value: packItem("tools/p"),
+				label: "p",
+				hint: "pack · 2 skills, 1 hook",
+			},
+			{ value: skill, label: "go", hint: "Go" },
+			{ value: skillItem("lint"), label: "lint" },
+		]);
 	});
 
-	it("carries the path as an aside where another item shares the name", () => {
-		const names = itemNames(["go", "skills/go"], "repo");
-		expect(itemChoice(skillItem("skills/go"), names, { skills: 1 })).toEqual({
-			value: skillItem("skills/go"),
-			label: "go",
-			aside: "skills/go",
-		});
+	it("carries the folder an item sits in as its aside where another offered shares its name", () => {
+		expect(
+			offerChoices(
+				[
+					{ item: skillItem("skills/frontend/testing"), hint: "A" },
+					{ item: skillItem("skills/backend/testing") },
+				],
+				"repo",
+			),
+		).toEqual([
+			{
+				value: skillItem("skills/frontend/testing"),
+				label: "testing",
+				aside: "skills/frontend",
+				hint: "A",
+			},
+			{
+				value: skillItem("skills/backend/testing"),
+				label: "testing",
+				aside: "skills/backend",
+			},
+		]);
 	});
 });
 
@@ -374,7 +396,7 @@ describe("addedRow", () => {
 				"2 skills",
 				[installed("a"), installed("b")],
 				[],
-				NAMES,
+				ROOT,
 				HOME,
 			),
 		).toEqual({
@@ -397,29 +419,50 @@ describe("addedRow", () => {
 		],
 	])("counts a pack's assets, skills always first: %o", (counts, detail) => {
 		expect(
-			addedRow(HEAD, "1 pack", [pack("p", counts)], [], NAMES, HOME).children,
+			addedRow(HEAD, "1 pack", [pack("p", counts)], [], ROOT, HOME).children,
 		).toEqual([{ name: "p", detail }]);
 	});
 
-	it("names each item and note by its folder, its path aside where another shares the name", () => {
-		const names = itemNames(["laravel", "skills/laravel", "tools/go"], "r");
+	it("names each item and note by its folder, the folder it sits in aside where another the row shows shares the name", () => {
 		const row = addedRow(
 			HEAD,
 			"2 of 3 installed",
-			[pack("laravel", { skills: 1 }), installed("skills/laravel")],
+			[pack("x/laravel", { skills: 1 }), installed("skills/laravel")],
 			[held("tools/go")],
-			names,
+			"r",
 			HOME,
 		);
 
 		expect(row.children).toEqual([
-			{ name: "laravel", detail: "pack · 1 skill" },
-			{ name: "laravel", aside: "skills/laravel", detail: "skill" },
+			{ name: "laravel", aside: "x", detail: "pack · 1 skill" },
+			{ name: "laravel", aside: "skills", detail: "skill" },
 			{
 				name: "go",
 				status: "note",
 				detail: "already installed as part of the pack p",
 			},
+		]);
+	});
+
+	it("gives an item no aside when nothing else the row shows shares its name", () => {
+		expect(
+			addedRow(HEAD, "1 skill", [installed("skills/tools")], [], "r", HOME)
+				.children,
+		).toEqual([{ name: "tools", detail: "skill" }]);
+	});
+
+	it("tells notes of one name apart among themselves", () => {
+		expect(
+			stoppedRow(
+				HEAD,
+				"2 skills",
+				[held("x/api"), held("y/api")],
+				"r",
+				"unchanged",
+			).children,
+		).toMatchObject([
+			{ name: "api", aside: "x" },
+			{ name: "api", aside: "y" },
 		]);
 	});
 
@@ -433,7 +476,7 @@ describe("addedRow", () => {
 				failed("c", "disk full"),
 			],
 			[],
-			NAMES,
+			ROOT,
 			HOME,
 		);
 
@@ -467,7 +510,7 @@ describe("addedRow", () => {
 				},
 			],
 			[],
-			NAMES,
+			ROOT,
 			HOME,
 		);
 
@@ -499,7 +542,7 @@ describe("addedRow", () => {
 				"1 skill",
 				[{ ...item("a"), status: "skipped", reason: DECLINED }],
 				[],
-				NAMES,
+				ROOT,
 				HOME,
 			).status,
 		).toBe("attention");
@@ -523,7 +566,7 @@ describe("addedRow", () => {
 				},
 			],
 			[],
-			NAMES,
+			ROOT,
 			HOME,
 		);
 
@@ -536,7 +579,7 @@ describe("addedRow", () => {
 			"1 pack",
 			[installed("p/skills/a")],
 			[taken("p/skills/a", "part of the pack p — installed on its own")],
-			NAMES,
+			ROOT,
 			HOME,
 		);
 
@@ -554,7 +597,7 @@ describe("addedRow", () => {
 			"1 pack",
 			[failed("p/skills/a", "disk full")],
 			[taken("p/skills/a", "part of the pack p — installed on its own")],
-			NAMES,
+			ROOT,
 			HOME,
 		);
 
@@ -567,7 +610,7 @@ describe("addedRow", () => {
 			"2 skills",
 			[installed("tools/lint")],
 			[held("tools/api"), held("tools/db")],
-			NAMES,
+			ROOT,
 			HOME,
 		);
 
@@ -588,7 +631,7 @@ describe("addedRow", () => {
 	});
 
 	it("has nothing to do when everything was left out", () => {
-		const row = addedRow(HEAD, "1 skill", [], [held("tools/api")], NAMES, HOME);
+		const row = addedRow(HEAD, "1 skill", [], [held("tools/api")], ROOT, HOME);
 
 		expect(row).toEqual({
 			status: "unchanged",

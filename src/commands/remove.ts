@@ -234,7 +234,7 @@ async function confirmRemoval(
 	const confirmed = await ui.block(rows).confirm(
 		{ rows, noun: ENTRY },
 		{
-			message: removalQuestion(targets.map(({ assets }) => assets)),
+			message: removalQuestion(targets),
 		},
 	);
 	if (!confirmed) {

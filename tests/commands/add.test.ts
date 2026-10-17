@@ -966,7 +966,7 @@ describe("add command", () => {
 					hint: "pack · 2 skills, 1 folder, 1 agent, 1 hook",
 				},
 				{ value: 1, label: "go", hint: "Idiomatic Go" },
-				{ value: 2, label: "laravel", aside: "skills/laravel" },
+				{ value: 2, label: "laravel", aside: "skills" },
 			]);
 			expect(ui.rows()).toEqual([
 				sourceRow("2 of 3 installed", [
@@ -1107,10 +1107,7 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: foo and x/foo would share the key owner/repo/foo — choose one",
 					{
-						subjects: [
-							[],
-							[measured(SOURCE, "foo", { name: "foo", aside: "x/foo" })],
-						],
+						subjects: [[], [measured(SOURCE, "foo", "foo")]],
 						rows: [unchanged("1 pack · 1 skill")],
 					},
 				),
@@ -1128,16 +1125,7 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 					{
-						subjects: [
-							[],
-							[
-								measured(
-									SOURCE,
-									{ name: "foo", aside: "x/foo" },
-									{ name: "foo", aside: "y/foo" },
-								),
-							],
-						],
+						subjects: [[], [measured(SOURCE, "foo", "foo")]],
 						rows: [unchanged("2 skills")],
 					},
 				),
@@ -1155,16 +1143,7 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 					{
-						subjects: [
-							[],
-							[
-								measured(
-									SOURCE,
-									{ name: "foo", aside: "x/foo" },
-									{ name: "foo", aside: "y/foo" },
-								),
-							],
-						],
+						subjects: [[], [measured(SOURCE, "foo", "foo")]],
 						asked: [sourceRow("2 skills")],
 						rows: [unchanged("2 skills")],
 					},
@@ -1418,10 +1397,7 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [
-						[],
-						[measured(SOURCE, { name: "foo", aside: "skills/foo" })],
-					],
+					subjects: [[], [measured(SOURCE, "foo")]],
 					progress: [CLONING],
 					rows: [
 						sourceRow(
@@ -1429,7 +1405,6 @@ describe("add command", () => {
 							[
 								{
 									name: "foo",
-									aside: "skills/foo",
 									detail: "already installed from foo, as a pack",
 								},
 							],
@@ -1545,7 +1520,6 @@ describe("add command", () => {
 						[
 							{
 								name: "foo",
-								aside: "skills/foo",
 								detail:
 									"already installed from https://github.com/owner/repo.git, as a skill",
 							},
@@ -1613,7 +1587,6 @@ describe("add command", () => {
 						[
 							{
 								name: "foo",
-								aside: "skills/foo",
 								detail: "already installed from foo, as a pack",
 							},
 						],
@@ -1862,19 +1835,7 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 					{
-						subjects: [
-							[],
-							[
-								measuredWith(
-									SOURCE,
-									[
-										{ name: "foo", aside: "x/foo" },
-										{ name: "foo", aside: "y/foo" },
-									],
-									["api"],
-								),
-							],
-						],
+						subjects: [[], [measuredWith(SOURCE, ["foo", "foo"], ["api"])]],
 						rows: [sourceRow("3 skills", [PACKED_API("api")], "unchanged")],
 						notes: [machineOnly(API_NOTE)],
 					},
@@ -1898,19 +1859,7 @@ describe("add command", () => {
 				refusedAfterClone(
 					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
 					{
-						subjects: [
-							[],
-							[
-								measuredWith(
-									SOURCE,
-									[
-										{ name: "foo", aside: "x/foo" },
-										{ name: "foo", aside: "y/foo" },
-									],
-									["api"],
-								),
-							],
-						],
+						subjects: [[], [measuredWith(SOURCE, ["foo", "foo"], ["api"])]],
 						asked: [sourceRow("3 skills", [PACKED_API("api")])],
 						rows: [sourceRow("3 skills", [PACKED_API("api")], "unchanged")],
 						notes: [machineOnly(API_NOTE)],

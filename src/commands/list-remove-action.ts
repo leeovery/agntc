@@ -39,7 +39,7 @@ export async function executeRemoveAction(
 ): Promise<ListActionResult> {
 	const asked = removalRow(subject, kind, entry.files);
 	const confirmed = await ui.block([asked]).confirm(asked, {
-		message: removalQuestion([assets]),
+		message: removalQuestion([{ entry, assets }]),
 	});
 	if (!confirmed) {
 		return { key, change: null };
