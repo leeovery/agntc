@@ -51,7 +51,7 @@ function pack(label: string, assetCounts: object): ItemOutcome {
 /** A skill taken from its pack to install on its own. */
 function taken(path: string, detail: string): SkillNote {
 	const text = `${path} is ${detail}`;
-	return { subject: path, detail, text, plain: text, path };
+	return { detail, text, plain: text, path };
 }
 
 /** A skill left out, as the installed pack `pack` holds it. */
@@ -208,6 +208,28 @@ describe("askedRow", () => {
 			},
 			{
 				name: "lint",
+				status: "note",
+				detail: "already installed as part of the pack q",
+			},
+		]);
+	});
+
+	it("names a lone one among the lone ones alone, not among those a count stands for", () => {
+		expect(
+			askedRow(
+				HEAD,
+				"4 skills",
+				[held("y/testing", "p"), held("y/api", "p"), held("x/testing", "q")],
+				ROOT,
+			).children,
+		).toEqual([
+			{
+				name: "2 skills",
+				status: "note",
+				detail: "already installed as part of the pack p",
+			},
+			{
+				name: "testing",
 				status: "note",
 				detail: "already installed as part of the pack q",
 			},
@@ -627,6 +649,26 @@ describe("addedRow", () => {
 				status: "note",
 				detail: "already installed as part of the pack p",
 			},
+		]);
+	});
+
+	it("tells what installed apart from a skill left out of the same name, by their folders", () => {
+		const row = addedRow(
+			HEAD,
+			"3 skills",
+			[pack("tools/testing", { skills: 2 })],
+			[held("skills/testing")],
+			ROOT,
+			HOME,
+		);
+
+		expect(row.children).toEqual([
+			expect.objectContaining({ name: "testing", aside: "tools" }),
+			expect.objectContaining({
+				name: "testing",
+				aside: "skills",
+				status: "note",
+			}),
 		]);
 	});
 

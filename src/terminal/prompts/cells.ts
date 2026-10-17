@@ -35,9 +35,10 @@ export interface CellLayout {
 /**
  * The columns `choices` line up in, inside `room`: the widest label (with its
  * inset) and 3, then each cell as wide as the widest in its column and 3; a
- * column with nothing in it takes no room. Where that's too wide, the asides go first, then the columns in the order
- * their cells' `drop` gives; then the label column narrows, its labels cut
- * at their start, as a name is told apart by its tail, but never below
+ * column with nothing in it takes no room. Where that's too wide, the asides
+ * go first, then the columns in the order their cells' `drop` gives; then
+ * the label column narrows, its labels cut at their start, as a name is told
+ * apart by its tail, but never below
  * {@link LABEL_FLOOR}, so choices still read apart: past it the cells are
  * cut at the margin, and those left fewer than {@link MIN_CELL} columns go.
  */

@@ -14,12 +14,7 @@ import {
 	itemPath,
 	pathLabel,
 } from "./install-item.js";
-import {
-	type Advice,
-	type RichMessage,
-	type SubjectMessage,
-	sentence,
-} from "./message.js";
+import { type Advice, type RichMessage, sentence } from "./message.js";
 import { agntcCommand, type ScopeName } from "./scope.js";
 import { locateSource } from "./source-parser.js";
 import { formatPackCounts, joinWithAnd } from "./summary.js";
@@ -70,10 +65,12 @@ export interface MenuOption {
 }
 
 /**
- * What the choice says of one skill, named by its label: left out, as an
- * installed pack holds it, or taken out of its pack to install on its own.
+ * What the choice says of one skill: left out, as an installed pack holds
+ * it, or taken out of its pack to install on its own.
  */
-export interface SkillNote extends SubjectMessage {
+export interface SkillNote extends RichMessage {
+	/** What the note says of the skill, without naming it. */
+	detail: string;
 	/** The skill's path in the source. */
 	path: string;
 	/** The installed pack holding the skill, by key, when it's left out for that. */
@@ -257,7 +254,7 @@ function withoutPacked(
 			item.kind === "skill" ? ctx.packed?.get(item.skill.path) : undefined;
 		if (item.kind === "skill" && pack !== undefined) {
 			notes.push({
-				...skillNote(item.skill, heldDetail(pack), ctx),
+				...skillNote(item.skill, heldDetail(pack)),
 				heldBy: pack,
 			});
 		} else {
@@ -272,15 +269,10 @@ export function heldDetail(pack: string): string {
 	return `already installed as part of the pack ${pack}`;
 }
 
-/** `<name> is <detail>`, said of the skill its label names. */
-function skillNote(
-	skill: FoundSkill,
-	detail: string,
-	ctx: ChoiceContext,
-): SkillNote {
+/** `<name> is <detail>`, said of the skill. */
+function skillNote(skill: FoundSkill, detail: string): SkillNote {
 	const text = `${skill.name} is ${detail}`;
 	return {
-		subject: pathLabel(skill.path, ctx.rootName),
 		detail,
 		text,
 		plain: text,
@@ -401,7 +393,7 @@ function takenSkillNotes(
 	const taken = `part of the pack ${pathLabel(pack.path, ctx.rootName)} — installed on its own`;
 	const leftOut = leftOutOf(pack, present);
 	const detail = leftOut === "" ? taken : `${taken}, without ${leftOut}`;
-	return [skillNote(skill, detail, ctx)];
+	return [skillNote(skill, detail)];
 }
 
 function leftOutOf(pack: FoundPack, present: Set<string>): string {

@@ -8,7 +8,7 @@ import {
 } from "../../src/terminal/block.js";
 import { visibleWidth } from "../../src/terminal/layout.js";
 import { createStyle } from "../../src/terminal/style.js";
-import type { Progress, Row } from "../../src/terminal/types.js";
+import type { Child, Progress, Row } from "../../src/terminal/types.js";
 
 const plain = createStyle(0);
 const color = createStyle(3);
@@ -563,6 +563,46 @@ describe("renderRow", () => {
 			expect(block([failed], 80, color).at(-1)).toBe(
 				`   \x1b[2m└─\x1b[22m \x1b[31m✗\x1b[39m testing${gap(10)}\x1b[2mskills · \x1b[22mdisk full`,
 			);
+		});
+
+		it("is dim on a line of its own, whatever the child's tone, the detail below in that tone", () => {
+			const failedChild = (child: Partial<Child>): Row => ({
+				status: "failed",
+				subject: "r",
+				children: [{ name: "testing", status: "failed", ...child }],
+			});
+			expect(block([failedChild({ aside: "skills" })], 80, color)).toEqual([
+				" \x1b[31m✗\x1b[39m \x1b[1mr\x1b[22m",
+				"   \x1b[2m└─\x1b[22m \x1b[31m✗\x1b[39m testing   \x1b[2mskills\x1b[22m",
+			]);
+			expect(
+				block(
+					[failedChild({ aside: "skills/frontend", detail: "disk full" })],
+					29,
+					color,
+				).slice(2),
+			).toEqual([
+				"        \x1b[2mskills/frontend\x1b[22m",
+				"        disk full",
+			]);
+		});
+
+		it("paints every line of a detail running on behind it in the detail's tone", () => {
+			const long: Row = {
+				status: "done",
+				subject: "r",
+				children: [
+					{
+						name: "testing",
+						aside: "skills",
+						detail: "one two three four five six",
+					},
+				],
+			};
+			expect(block([long], 30, color).slice(2)).toEqual([
+				"      \x1b[2mskills · \x1b[22m\x1b[2mone two three\x1b[22m",
+				"      \x1b[2mfour five six\x1b[22m",
+			]);
 		});
 
 		it("stands alone where the child has no detail", () => {

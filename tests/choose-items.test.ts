@@ -512,7 +512,6 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toMatchObject({
 				notes: [
 					{
-						subject: "laravel/skills/api",
 						detail:
 							"part of the pack laravel — installed on its own, without models",
 						text: "api is part of the pack laravel — installed on its own, without models",
@@ -815,7 +814,6 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toMatchObject({
 				notes: [
 					{
-						subject: "tools/api",
 						detail: "already installed as part of the pack owner/repo/laravel",
 						text: API_NOTE,
 						plain: API_NOTE,
