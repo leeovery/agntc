@@ -703,4 +703,32 @@ describe("an add with an item that fails", () => {
 			...close("1 installed  ·  1 failed"),
 		]);
 	});
+
+	it("names a local key another entry holds under Next by its folder from home, its command whole", async () => {
+		vi.mocked(homedir).mockReturnValue(testDir);
+		const kit = join(testDir, "src", "kit");
+		await write(kit, { "SKILL.md": "" });
+		await write(projectDir, {
+			".claude/skills/other/SKILL.md": "",
+			".agntc/manifest.json": {
+				[kit]: {
+					ref: null,
+					commit: null,
+					installedAt: "2026-01-01T00:00:00.000Z",
+					files: [".claude/skills/other/"],
+					type: "pack",
+					cloneUrl: null,
+					localRoot: kit,
+				},
+			},
+		});
+
+		const ended = await drawn({ source: kit });
+		expect(ended.slice(ended.indexOf(" Next"), -3)).toEqual([
+			" Next",
+			"   ~/src/kit — to replace it:",
+			`     npx agntc remove ${kit}`,
+			"     then add again",
+		]);
+	});
 });

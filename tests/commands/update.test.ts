@@ -309,17 +309,26 @@ const NEW7 = "bbbbbbb";
 const HASHES = { from: OLD7, to: NEW7 };
 
 /**
- * Who ran the update: a key's check that failed or found no tag fails the
- * run, so its row is failed; all-mode's only needs a look.
+ * Who ran the update: all-mode; a key naming several entries; or a key
+ * naming one, `member` its entry's name. A key's check that failed or found
+ * no tag fails the run, so its row is failed where all-mode's only needs a
+ * look; a key naming one entry names it beneath its row, as a group's row
+ * names none.
  */
-type RunBy = "all" | "key";
+type RunBy = "all" | "prefix" | { member: string };
 
-function leftAloneStatus(by: RunBy): Row["status"] {
-	return by === "key" ? "failed" : "attention";
+function leftAlone(row: Row, by: RunBy, failsAKey = false): Row {
+	const status = failsAKey && by !== "all" ? "failed" : row.status;
+	return typeof by === "object"
+		? { ...row, status, children: [{ name: by.member }] }
+		: { ...row, status };
 }
 
-function upToDate(subject: string, meta: string): Row {
-	return { status: "unchanged", subject, meta, detail: "up to date" };
+function upToDate(subject: string, meta: string, by: RunBy = "all"): Row {
+	return leftAlone(
+		{ status: "unchanged", subject, meta, detail: "up to date" },
+		by,
+	);
 }
 
 function notChecked(
@@ -328,25 +337,36 @@ function notChecked(
 	cause: string,
 	by: RunBy = "all",
 ): Row {
-	return {
-		status: leftAloneStatus(by),
-		subject,
-		meta,
-		detail: { label: "not checked", aside: cause },
-	};
+	return leftAlone(
+		{
+			status: "attention",
+			subject,
+			meta,
+			detail: { label: "not checked", aside: cause },
+		},
+		by,
+		true,
+	);
 }
 
 function noMatch(subject: string, constraint: string, by: RunBy = "all"): Row {
-	return {
-		status: leftAloneStatus(by),
-		subject,
-		meta: constraint,
-		detail: { label: `no tags satisfy ${constraint}` },
-	};
+	return leftAlone(
+		{
+			status: "attention",
+			subject,
+			meta: constraint,
+			detail: { label: `no tags satisfy ${constraint}` },
+		},
+		by,
+		true,
+	);
 }
 
-function newerTags(subject: string, meta: string): Row {
-	return { status: "unchanged", subject, meta, detail: "newer tags available" };
+function newerTags(subject: string, meta: string, by: RunBy = "all"): Row {
+	return leftAlone(
+		{ status: "unchanged", subject, meta, detail: "newer tags available" },
+		by,
+	);
 }
 
 /** A group whose members all updated along `move`, each `[name, detail]`. */
@@ -2332,7 +2352,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [upToDate("owner/repo", "HEAD")],
+					rows: [upToDate("owner/repo", "HEAD", { member: "repo" })],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -2356,7 +2376,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("nuxt/ui", "v4", "ui")]],
-					rows: [upToDate("nuxt/ui", "v4")],
+					rows: [upToDate("nuxt/ui", "v4", { member: "ui" })],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -2381,7 +2401,11 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [notChecked("owner/repo", "HEAD", "network timeout", "key")],
+					rows: [
+						notChecked("owner/repo", "HEAD", "network timeout", {
+							member: "repo",
+						}),
+					],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -2403,7 +2427,7 @@ describe("update command", () => {
 					"owner/repo",
 					"HEAD",
 					"git@github.com: Permission denied (publickey).",
-					"key",
+					{ member: "repo" },
 				),
 			]);
 		});
@@ -3753,7 +3777,11 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "HEAD", "repo")]],
-					rows: [notChecked("owner/repo", "HEAD", "network timeout", "key")],
+					rows: [
+						notChecked("owner/repo", "HEAD", "network timeout", {
+							member: "repo",
+						}),
+					],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -3776,7 +3804,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^2.0", "repo")]],
-					rows: [noMatch("owner/repo", "^2.0", "key")],
+					rows: [noMatch("owner/repo", "^2.0", { member: "repo" })],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -4484,7 +4512,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v1.0", "repo")]],
-					rows: [newerTags("owner/repo", "v1.0")],
+					rows: [newerTags("owner/repo", "v1.0", { member: "repo" })],
 					next: [
 						pinnedKey(
 							"owner/repo",
@@ -4561,7 +4589,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v1.0", "go")]],
-					rows: [newerTags("owner/repo", "v1.0")],
+					rows: [newerTags("owner/repo", "v1.0", { member: "go" })],
 					next: [
 						pinnedKey(
 							"owner/repo/go",
@@ -4641,7 +4669,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "v3.0", "repo")]],
-					rows: [upToDate("owner/repo", "v3.0")],
+					rows: [upToDate("owner/repo", "v3.0", { member: "repo" })],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -5429,7 +5457,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0")],
+					rows: [upToDate("owner/repo", "^1.0", { member: "repo" })],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -5454,7 +5482,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0")],
+					rows: [upToDate("owner/repo", "^1.0", { member: "repo" })],
 					tally: closed({ upToDate: 1 }),
 				}),
 			);
@@ -5514,7 +5542,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^2.0", "repo")]],
-					rows: [noMatch("owner/repo", "^2.0", "key")],
+					rows: [noMatch("owner/repo", "^2.0", { member: "repo" })],
 					tally: closed({ notChecked: 1 }),
 				}),
 			);
@@ -6405,7 +6433,7 @@ describe("update command", () => {
 			expect(drawn()).toEqual(
 				screen({
 					subjects: [[group("owner/repo", "^1.0", "repo")]],
-					rows: [upToDate("owner/repo", "^1.0")],
+					rows: [upToDate("owner/repo", "^1.0", { member: "repo" })],
 					next: [
 						upgrade(
 							"owner/repo",
@@ -7369,7 +7397,7 @@ describe("a key naming several entries", () => {
 				],
 				rows: [
 					updated("owner/two", "HEAD", HASHES, ["b", "skill"]),
-					notChecked("owner/one", "HEAD", "network timeout", "key"),
+					notChecked("owner/one", "HEAD", "network timeout", "prefix"),
 				],
 				tally: closed({ updated: 1, notChecked: 1 }),
 			}),

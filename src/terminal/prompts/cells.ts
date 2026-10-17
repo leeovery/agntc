@@ -77,7 +77,7 @@ export function cellLayout<T>(
 		}
 		kept = kept.filter((index) => index !== dropped);
 	}
-	const floor = Math.min(label, LABEL_FLOOR) + CELL_GAP;
+	const floor = LABEL_FLOOR + CELL_GAP;
 	const labelColumn = Math.min(
 		label + CELL_GAP,
 		Math.max(floor, room - span()),

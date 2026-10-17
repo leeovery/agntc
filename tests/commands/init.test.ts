@@ -196,6 +196,19 @@ describe("runInit at a terminal", () => {
 		});
 	});
 
+	it("asks nothing when every file is already there, as it would write none", async () => {
+		await writeFile(join(dir, "SKILL.md"), "# Mine\n");
+
+		await runInit("skill", {}, ui);
+
+		expect(ui.blocks.map((block) => block.confirm.mock.calls)).toEqual([[]]);
+		expect(ui.rows()).toEqual([alreadyThere("SKILL.md")]);
+		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+			command: "init",
+			counts: { created: 0, existing: 1 },
+		});
+	});
+
 	it("writes the rest of a pack around files already there, listing those as existing", async () => {
 		await writeFile(join(dir, "agntc.json"), '{"type": "pack"}');
 
@@ -277,6 +290,19 @@ describe("init without a terminal", () => {
 		});
 		expect(await written()).toEqual([]);
 		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
+	});
+
+	it("refuses without -y even when every file is already there", async () => {
+		await writeFile(join(dir, "SKILL.md"), "# Mine\n");
+
+		const run = await runMachine(initCommand, ["skill"]);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document.error).toEqual({
+			message:
+				"scaffolding a skill asks before writing anything — confirm with -y",
+			flags: ["-y"],
+		});
 	});
 
 	it("scaffolds a skill with -y and reports the files created", async () => {

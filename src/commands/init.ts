@@ -92,7 +92,8 @@ async function chooseType(ui: Ui): Promise<InitType> {
 /**
  * `-y` answers the question; without it, machine mode refuses before
  * anything is written, and a terminal asks under the row of the files, the
- * folder named as the row shows it, those already there marked so.
+ * folder named as the row shows it, those already there marked so. With every
+ * file already there it has nothing to ask about, as nothing would be written.
  */
 async function confirmScaffold(
 	type: InitType,
@@ -110,11 +111,15 @@ async function confirmScaffold(
 			{ flags: ["-y"] },
 		);
 	}
+	const existing = await existingFiles(targetDir, files);
+	if (existing.length === files.length) {
+		return;
+	}
 	const row = scaffoldRow(
 		homeShortened(targetDir, homedir()),
 		type,
 		files.map(({ path }) => path),
-		await existingFiles(targetDir, files),
+		existing,
 	);
 	if (!(await ui.block([row]).confirm(row, { message: "Proceed?" }))) {
 		cancel(ui);

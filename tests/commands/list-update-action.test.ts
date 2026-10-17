@@ -582,6 +582,56 @@ describe("executeUpdateAction", () => {
 			expect(written()["owner/repo/packs/tools"]).toMatchObject({
 				type: "pack",
 			});
+			// The pack now holds the skill's key, yet the skill still shows
+			// under its row, where it went.
+			expect(settled().children).toEqual([
+				{
+					name: "tools",
+					detail: "pack · 2 skills · now keyed owner/repo/packs/tools",
+				},
+				{
+					name: "tools",
+					detail:
+						"is now part of the pack owner/repo/tools, which moved to its key",
+				},
+			]);
+		});
+	});
+
+	describe("a local pack taking over a loose skill from its folder", () => {
+		it("names the skill under the pack's own row, which names the pack", async () => {
+			const root = "/Users/lee/Code/L";
+			const key = `${root}/kit`;
+			const local = (type: "skill" | "pack", files: string[]) =>
+				makeEntry({
+					type,
+					commit: null,
+					ref: null,
+					cloneUrl: null,
+					localRoot: root,
+					files,
+				});
+			const entry = local("pack", [".claude/skills/k1/"]);
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockDiscover.mockResolvedValue(packAt("kit", "k1", "s1"));
+			mockCopyPack.mockResolvedValue({
+				copiedFiles: [".claude/skills/k1/", ".claude/skills/s1/"],
+				assetCounts: { skills: 2 },
+			});
+
+			await update(key, entry, {
+				[key]: entry,
+				[`${root}/s1`]: local("skill", [".claude/skills/s1/"]),
+			});
+
+			expect(Object.keys(written())).toEqual([key]);
+			expect(settled()).toEqual({
+				status: "done",
+				subject: key,
+				meta: "local",
+				detail: { label: "refreshed", aside: "pack · 2 skills" },
+				children: [{ name: "s1", detail: "is now part of this pack" }],
+			});
 		});
 	});
 

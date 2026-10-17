@@ -468,7 +468,7 @@ describe("an update of one key", () => {
 		]);
 	});
 
-	it("ends on its row when it's up to date", async () => {
+	it("ends on its row when it's up to date, naming the entry it checked", async () => {
 		await repo("owner/repo", { "SKILL.md": "new" }, constrained("v1.1.0"));
 		await installed({
 			"owner/repo": entry("owner/repo", {
@@ -482,6 +482,7 @@ describe("an update of one key", () => {
 			HEADER,
 			"",
 			" ○ owner/repo   ^1.1.0   up to date",
+			"   └─ repo",
 		]);
 	});
 
@@ -633,6 +634,60 @@ describe("an update of one key", () => {
 			HEADER,
 			"",
 			" ✗ owner/repo   ^1.0.0   not checked · unable to access: Could not resolve host: github.com",
+			"   └─ repo",
+		]);
+	});
+
+	it("names the one entry it checked under its repo's row, not the repo's others", async () => {
+		await repo(
+			"owner/tools",
+			{ ...SKILLS("kit", "fmt", "lint") },
+			constrained("v1.1.0"),
+		);
+		const current = (name: string) =>
+			entry("owner/tools", {
+				ref: "v1.1.0",
+				constraint: "^1.1.0",
+				commit: NEW,
+				files: [`.claude/skills/${name}/`],
+			});
+		await installed({
+			"owner/tools/kit": current("kit"),
+			"owner/tools/fmt": current("fmt"),
+			"owner/tools/lint": current("lint"),
+		});
+
+		expect(await drawn({ key: "owner/tools/fmt" })).toEqual([
+			HEADER,
+			"",
+			" ○ owner/tools   ^1.1.0   up to date",
+			"   └─ fmt",
+		]);
+	});
+
+	it("names no entry under a group's row when a key names several, as everything's run does", async () => {
+		await repo(
+			"owner/tools",
+			{ ...SKILLS("kit", "fmt") },
+			constrained("v1.1.0"),
+		);
+		const current = (name: string) =>
+			entry("owner/tools", {
+				ref: "v1.1.0",
+				constraint: "^1.1.0",
+				commit: NEW,
+				files: [`.claude/skills/${name}/`],
+			});
+		await installed({
+			"owner/tools/kit": current("kit"),
+			"owner/tools/fmt": current("fmt"),
+		});
+
+		expect(await drawn({ key: "owner/tools" })).toEqual([
+			HEADER,
+			"",
+			" ○ owner/tools   ^1.1.0   up to date",
+			...close("2 up to date"),
 		]);
 	});
 
@@ -655,6 +710,53 @@ describe("an update of one key", () => {
 			"",
 			" ✓ owner/repo   ^1.0.0   removed",
 			"   └─ gone               removed — it's gone upstream",
+		]);
+	});
+});
+
+describe("a local pack taking over a loose skill from its folder", () => {
+	/** `src/L` holds the pack kit, which now holds s1, installed on its own before. */
+	async function arrangeTakeover(): Promise<string> {
+		const root = join(testDir, "src/L");
+		await write(root, {
+			"kit/agntc.json": PACK,
+			"kit/skills/k1/SKILL.md": "new",
+			"kit/skills/s1/SKILL.md": "new",
+		});
+		const local = (type: "skill" | "pack", files: string[]) => ({
+			ref: null,
+			commit: null,
+			installedAt: "2026-10-01T00:00:00.000Z",
+			files,
+			type,
+			cloneUrl: null,
+			localRoot: root,
+		});
+		await write(projectDir, {
+			".claude/skills/k1/SKILL.md": "old",
+			".claude/skills/s1/SKILL.md": "old",
+			".agntc/manifest.json": {
+				[join(root, "kit")]: local("pack", [".claude/skills/k1/"]),
+				[join(root, "s1")]: local("skill", [".claude/skills/s1/"]),
+			},
+		});
+		vi.mocked(checkForUpdate).mockResolvedValue({ status: "local" });
+		return root;
+	}
+
+	it.each([
+		["everything", () => undefined],
+		["the pack's key", (root: string) => join(root, "kit")],
+		["a key naming both", (root: string) => root],
+	])("names the skill under the pack's row when it updates %s", async (_, keyOf) => {
+		const root = await arrangeTakeover();
+
+		expect(await drawn({ key: keyOf(root) })).toEqual([
+			HEADER,
+			"",
+			" ✓ ~/src/L/kit   local   refreshed · pack · 2 skills",
+			"   └─ s1                 is now part of this pack",
+			...close("1 updated  ·  1 refreshed"),
 		]);
 	});
 });

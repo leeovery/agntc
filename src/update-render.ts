@@ -128,31 +128,50 @@ export interface MemberResult {
 	move?: VersionMove;
 }
 
-/** The loose entries a pack's outcome took over, each a member its row names where it went. */
-export function absorbedMembers(pack: PluginOutcome): MemberResult[] {
-	return absorbedBy(pack).map((key) => ({
-		outcome: absorbedOutcome(key, pack),
-	}));
+/**
+ * The members, then the loose entries their packs took over that aren't
+ * among them already (up to date, in another group or a local entry of their
+ * own), so every row a pack settles into says where those went.
+ */
+function withTakenOver(members: readonly MemberResult[]): MemberResult[] {
+	const present = new Set(
+		members
+			.filter(({ outcome }) => outcome.status === "absorbed")
+			.map(({ outcome }) => outcome.key),
+	);
+	const taken = members.flatMap(({ outcome: pack }) =>
+		absorbedBy(pack)
+			.filter((key) => !present.has(key))
+			.map((key) => ({ outcome: absorbedOutcome(key, pack) })),
+	);
+	return [...members, ...taken];
+}
+
+/** Whether every one of the outcomes reads alike, so none needs a glyph of its own. */
+function endedAlike(outcomes: readonly PluginOutcome[]): boolean {
+	return new Set(outcomes.map(outcomeStatus)).size === 1;
 }
 
 /**
  * A group the run reinstalled, or one key's entry: glyph by its worst member,
  * its move, with how it ended when no member landed, and its members as
- * children. Members that ended alike carry no glyph of their own.
+ * children, the loose entries a pack among them took over included. Members
+ * that ended alike carry no glyph of their own.
  */
 export function reinstalledRow(
 	head: RowHead,
 	move: GroupMove,
 	members: readonly MemberResult[],
 ): Row {
-	const outcomes = members.map(({ outcome }) => outcome);
+	const all = withTakenOver(members);
+	const outcomes = all.map(({ outcome }) => outcome);
 	const worst = worstOf(outcomes);
-	const alike = new Set(outcomes.map(outcomeStatus)).size === 1;
+	const alike = endedAlike(outcomes);
 	return {
 		status: outcomeStatus(worst),
 		...head,
 		detail: groupDetail(move, outcomes, worst),
-		children: members.map((member) => memberChild(member, alike)),
+		children: all.map((member) => memberChild(member, alike)),
 	};
 }
 
@@ -223,8 +242,18 @@ function outcomeDetail(outcome: PluginOutcome): string {
 	return outcome.message?.detail ?? outcome.summary;
 }
 
-/** A local entry: its own row, how it ended in its detail. */
-export function localRow(head: RowHead, { outcome }: MemberResult): Row {
+/**
+ * A local entry: its own row, how it ended in its detail, and the loose
+ * entries it took over as a pack as its children, each told where it went
+ * as its row's pack: the row names the pack.
+ */
+export function localRow(head: RowHead, result: MemberResult): Row {
+	const { outcome } = result;
+	const [, ...taken] = withTakenOver([result]);
+	const alike = endedAlike([outcome, ...taken.map((each) => each.outcome)]);
+	const into = isSuccessOutcome(outcome)
+		? "is now part of this pack"
+		: "was removed — this pack took it over, then failed to install";
 	return {
 		status: outcomeStatus(outcome),
 		...head,
@@ -234,6 +263,14 @@ export function localRow(head: RowHead, { outcome }: MemberResult): Row {
 					aside: reinstalledDetail(outcome, undefined),
 				}
 			: withoutOwnPath(outcomeDetail(outcome), outcome.key),
+		...(taken.length > 0
+			? {
+					children: taken.map((member) => ({
+						...memberChild(member, alike),
+						detail: into,
+					})),
+				}
+			: {}),
 	};
 }
 
@@ -278,12 +315,23 @@ export type LeftAlone =
 	| { status: "check-failed"; reason: string }
 	| { status: "constrained-no-match"; constraint: string };
 
-/** A group or key the run left as it is, and why, its members unnamed: its label says which it is. */
-export function leftAloneRow(head: RowHead, why: LeftAlone): Row {
+/**
+ * A group or key the run left as it is, and why. A key's row names its entry
+ * beneath it, `keys`, as its reinstalled row does; a group's names none, its
+ * label saying which it is.
+ */
+export function leftAloneRow(
+	head: RowHead,
+	why: LeftAlone,
+	keys: readonly string[] = [],
+): Row {
 	return {
 		status: lookOf(why.status).status,
 		...head,
 		detail: leftAloneDetail(why),
+		...(keys.length > 0
+			? { children: keys.map((key) => ({ name: memberName(key) })) }
+			: {}),
 	};
 }
 

@@ -23,7 +23,6 @@ import {
 } from "./update-groups.js";
 import { persistUnitOutcomes, reportOutcomes } from "./update-outcomes.js";
 import {
-	absorbedMembers,
 	cloneFailedRow,
 	groupSubject,
 	localRow,
@@ -286,7 +285,7 @@ function keyRow(
 		oldCommit: entry.commit,
 		newCommit: landed?.commit ?? plan.target.newCommit,
 	});
-	return reinstalledRow(head, { move }, [result, ...absorbedMembers(outcome)]);
+	return reinstalledRow(head, { move }, [result]);
 }
 
 /** What a reinstall says while it runs: where it's going. */

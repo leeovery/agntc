@@ -264,6 +264,13 @@ describe("an init of a skill", () => {
 		]);
 	});
 
+	it("asks nothing when its SKILL.md is already there, ending on that row", async () => {
+		await writeFile(join(folder, "SKILL.md"), "mine");
+
+		const { ended } = await session({ type: "skill" });
+		expect(ended).toEqual([HEADER, "", " ○ SKILL.md   already there"]);
+	});
+
 	it("leaves nothing but the cancel when the type isn't chosen", async () => {
 		expect((await session({ answer: [KEY.escape] })).ended).toEqual([
 			HEADER,

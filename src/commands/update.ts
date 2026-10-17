@@ -55,7 +55,6 @@ import {
 } from "../update-groups.js";
 import { persistUnitOutcomes, reportOutcomes } from "../update-outcomes.js";
 import {
-	absorbedMembers,
 	cloneFailedRow,
 	type GroupMove,
 	groupLabel,
@@ -100,14 +99,15 @@ const KEY_FAILURES = new Set<PluginOutcome["status"]>([
 /**
  * A row left alone, why it was, failed where that ends the run non-zero, as
  * a check that failed does when a key names the entries: every run that
- * fails ends on a failed row.
+ * fails ends on a failed row. A key naming one entry names it, `keys`.
  */
 function leftAloneRowAmong(
 	head: RowHead,
 	why: LeftAlone,
 	failures: Set<PluginOutcome["status"]>,
+	keys: readonly string[] = [],
 ): Row {
-	const row = leftAloneRow(head, why);
+	const row = leftAloneRow(head, why, keys);
 	return failures.has(why.status) ? { ...row, status: "failed" } : row;
 }
 
@@ -270,7 +270,7 @@ async function settleKey(
 	const { key, entry } = member;
 	const leftAlone = (why: LeftAlone, outcome: PluginOutcome): SettledKey => ({
 		outcome,
-		row: leftAloneRowAmong(keyHead(member, run.home), why, KEY_FAILURES),
+		row: leftAloneRowAmong(keyHead(member, run.home), why, KEY_FAILURES, [key]),
 	});
 	switch (check.status) {
 		case "up-to-date":
@@ -800,27 +800,9 @@ async function streamGroupWork(
 		reinstalledRow(head, groupMove(item, facets), [
 			...memberResults(item, unit.outcomes, facets),
 			...upToDate.map((outcome) => ({ outcome })),
-			...takenFromOutside(unit.outcomes),
 		]),
 	);
 	return unit;
-}
-
-/**
- * The loose entries a group's packs took over that it didn't reinstall in
- * turn (up to date, or in another group), so each still shows where it went.
- */
-function takenFromOutside(outcomes: PluginOutcome[]): MemberResult[] {
-	const reinstalledInTurn = new Set(
-		outcomes
-			.filter(({ status }) => status === "absorbed")
-			.map(({ key }) => key),
-	);
-	return outcomes.flatMap((pack) =>
-		absorbedMembers(pack).filter(
-			({ outcome }) => !reinstalledInTurn.has(outcome.key),
-		),
-	);
 }
 
 interface Facets {

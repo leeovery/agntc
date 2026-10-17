@@ -249,6 +249,12 @@ describe("wrap", () => {
 		expect(wrap("ab/cdefg", 4, 7)).toEqual(["ab/cdef", "g"]);
 	});
 
+	it("lets a line open on a `/` rather than carry a wide character and the `/` past the width", () => {
+		// The first line is wider than the rest, so 日 and the `/` after it
+		// (3 columns) would overflow a line of 2.
+		expect(wrap("abcdefghij日/x", 2, 12)).toEqual(["abcdefghij日", "/x"]);
+	});
+
 	it("wraps the first line to its own width", () => {
 		expect(wrap("one two three four", 10, 4)).toEqual([
 			"one",
