@@ -68,14 +68,6 @@ describe("scripts/gate's steps", () => {
 		expect(npmConfigRead()).toBe("");
 		expect(given.get("PATH")).not.toContain("node_modules/.bin");
 	});
-
-	it("get a TMPDIR inside the checkout's folder, gone with it", async () => {
-		await run("gate");
-
-		const given = npmEnv().get("TMPDIR")!;
-		expect(given).toMatch(/\/agntc-gate\.\w+\/tmp$/);
-		expect(existsSync(given)).toBe(false);
-	});
 });
 
 describe("scripts/gate's checkout", () => {

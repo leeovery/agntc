@@ -14,8 +14,9 @@
 # find packages there that package-lock.json doesn't install, which is how a
 # worktree under the primary checkout passes on the primary's packages; so
 # does a node whose major version isn't the one HEAD's .nvmrc names. The
-# steps see no npm config but HEAD's own, no NODE_PATH or NODE_OPTIONS, no
-# node_modules/.bin on PATH, and a TMPDIR inside the checkout's folder.
+# steps see no npm config but HEAD's own, no NODE_PATH or NODE_OPTIONS, and no
+# node_modules/.bin on PATH. They keep TMPDIR, as golden tests lay out the
+# temp paths they show by its length.
 # When every step passes, the tree of the commit checked is recorded in the
 # git common directory, at agntc/gated, one hash a line, shared by every
 # worktree. scripts/gated, the release's gate, reads it to pass a tree
@@ -158,8 +159,6 @@ for entry in "${entries[@]}"; do
 	esac
 done
 export PATH=$kept
-mkdir "$scratch/tmp"
-export TMPDIR=$scratch/tmp
 
 [ -f .nvmrc ] || refuse "HEAD $short has no .nvmrc to name the node it runs on"
 wanted=$(tr -d '[:space:]v' <.nvmrc)
