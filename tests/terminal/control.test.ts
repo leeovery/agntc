@@ -1,47 +1,81 @@
-import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { type ExitHost, restoreOnExit } from "../../src/terminal/control.js";
+import { RunSignals } from "../../src/terminal/control.js";
+import { FakeHost } from "./prompts/terminal.js";
 
-const EVENTS = ["exit", "SIGINT", "SIGTERM"] as const;
+const EVENTS = ["exit", "SIGINT", "SIGTERM", "SIGTSTP"] as const;
 
-class FakeHost extends EventEmitter implements ExitHost {
-	exit = vi.fn();
-}
-
-const listening = (host: EventEmitter) =>
+const listening = (host: FakeHost) =>
 	EVENTS.map((event) => host.listenerCount(event));
 
-describe("restoreOnExit", () => {
-	it("restores when the process exits, leaving the exit to it", () => {
-		const host = new FakeHost();
-		const restore = vi.fn();
-		restoreOnExit(host, restore);
+function watched() {
+	const host = new FakeHost();
+	const order: string[] = [];
+	const handlers = {
+		exit: vi.fn(() => order.push("exit handled")),
+		interrupt: vi.fn(() => order.push(`interrupt ${listening(host)}`)),
+		suspend: vi.fn(() => order.push("suspend")),
+	};
+	host.exit.mockImplementation((code) =>
+		order.push(`exit ${code} ${listening(host)}`),
+	);
+	const signals = new RunSignals(host, handlers);
+	return { host, order, handlers, signals };
+}
+
+describe("RunSignals", () => {
+	it("listens for nothing until it watches, and for all four until it stops", () => {
+		const { host, signals } = watched();
+		expect(listening(host)).toEqual([0, 0, 0, 0]);
+		signals.watch();
+		signals.watch();
+		expect(listening(host)).toEqual([1, 1, 1, 1]);
+		signals.unwatch();
+		expect(listening(host)).toEqual([0, 0, 0, 0]);
+	});
+
+	it("puts the terminal back when the process exits, leaving the exit to it", () => {
+		const { host, handlers, signals } = watched();
+		signals.watch();
 		host.emit("exit");
-		expect(restore).toHaveBeenCalledExactlyOnceWith("exit");
+		expect(handlers.exit).toHaveBeenCalledOnce();
+		expect(handlers.interrupt).not.toHaveBeenCalled();
 		expect(host.exit).not.toHaveBeenCalled();
 	});
 
 	it.each([
 		["SIGINT", 130],
 		["SIGTERM", 143],
-	])("restores on %s, told it was that signal, then exits %i", (signal, code) => {
-		const host = new FakeHost();
-		const order: string[] = [];
-		host.exit.mockImplementation(() => order.push("exit"));
-		restoreOnExit(host, (event) => order.push(`restore ${event}`));
+	])("hands %s to the run, stops watching, then exits %i", (signal, code) => {
+		const { host, order, signals } = watched();
+		signals.watch();
 		host.emit(signal);
-		expect(order).toEqual([`restore ${signal}`, "exit"]);
-		expect(host.exit).toHaveBeenCalledWith(code);
+		expect(order).toEqual(["interrupt 1,1,1,1", `exit ${code} 0,0,0,0`]);
 	});
 
-	it("watches all three until stopped", () => {
-		const host = new FakeHost();
-		const restore = vi.fn();
-		const stop = restoreOnExit(host, restore);
-		expect(listening(host)).toEqual([1, 1, 1]);
-		stop();
-		expect(listening(host)).toEqual([0, 0, 0]);
-		host.emit("exit");
-		expect(restore).not.toHaveBeenCalled();
+	it("hands a SIGTSTP to the run, and goes on watching", () => {
+		const { host, handlers, signals } = watched();
+		signals.watch();
+		host.emit("SIGTSTP");
+		expect(handlers.suspend).toHaveBeenCalledOnce();
+		expect(host.exit).not.toHaveBeenCalled();
+		expect(listening(host)).toEqual([1, 1, 1, 1]);
+	});
+
+	it("stops the whole process group with SIGTSTP let go, so the signal stops it, and takes it back once continued", () => {
+		const { host, signals } = watched();
+		signals.watch();
+		const during: number[][] = [];
+		host.kill.mockImplementation(() => during.push(listening(host)));
+		signals.stopGroup();
+		expect(host.kill.mock.calls).toEqual([[0, "SIGTSTP"]]);
+		expect(during).toEqual([[1, 1, 1, 0]]);
+		expect(listening(host)).toEqual([1, 1, 1, 1]);
+	});
+
+	it("stops the group unwatched without starting to watch", () => {
+		const { host, signals } = watched();
+		signals.stopGroup();
+		expect(host.kill.mock.calls).toEqual([[0, "SIGTSTP"]]);
+		expect(listening(host)).toEqual([0, 0, 0, 0]);
 	});
 });

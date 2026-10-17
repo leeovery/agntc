@@ -17,7 +17,7 @@ import {
 	renderRowWithin,
 } from "./block.js";
 import { renderCancel, renderClose } from "./close.js";
-import type { ExitHost } from "./control.js";
+import { RunSignals, type SignalHost } from "./control.js";
 import { renderHeader } from "./header.js";
 import { layoutWidth } from "./layout.js";
 import { type MessageKind, renderMessage } from "./message.js";
@@ -26,7 +26,12 @@ import { promptConfirm } from "./prompts/confirm.js";
 import type { PromptInput } from "./prompts/input-filter.js";
 import { promptMultiselect } from "./prompts/multiselect.js";
 import { promptSelect } from "./prompts/select.js";
-import type { PromptContext, PromptOutput } from "./prompts/session.js";
+import type {
+	OpenPrompt,
+	PromptContext,
+	PromptOutput,
+	PromptOwner,
+} from "./prompts/session.js";
 import { createStyle, detectColorLevel, type Style } from "./style.js";
 import { outcomeCount, tallyItems } from "./tally.js";
 import { startTask, type Task } from "./task.js";
@@ -44,8 +49,8 @@ export interface TerminalUiOptions {
 	input?: PromptInput;
 	output?: TerminalOutput;
 	env?: Readonly<Record<string, string | undefined>>;
-	/** The process whose exit, a signal's included, shows the cursor again. */
-	host?: ExitHost;
+	/** The process whose SIGINT, SIGTERM and SIGTSTP the run owns from `begin` to `end`, and whose exit puts the terminal back. */
+	host?: SignalHost;
 	/** Milliseconds, read for the elapsed time the close shows. */
 	clock?: () => number;
 }
@@ -73,6 +78,8 @@ interface Spinning {
  *   under a newer one writes above its spinning line.
  * - A prompt draws alone: what spins pauses, what it held prints above the
  *   prompt, and what's printed while it asks waits for its answer.
+ * - From `begin` to `end` the run owns the process's SIGINT, SIGTERM and
+ *   SIGTSTP, wherever it is: spinning, asking or between.
  */
 export class TerminalUi implements Ui {
 	readonly mode = "interactive";
@@ -81,12 +88,15 @@ export class TerminalUi implements Ui {
 	private readonly style: Style;
 	private readonly clock: () => number;
 	private readonly started: number;
+	private readonly signals: RunSignals;
 	private readonly queued: NextItem[] = [];
 	/** The newest last, the one spinning. */
 	private readonly live: Live[] = [];
 	/** What's printed while a prompt asks. */
 	private readonly answered: string[] = [];
 	private asking = false;
+	/** The prompt on screen, for a signal to erase. */
+	private openPrompt?: OpenPrompt;
 	private headed = false;
 	/** Whether the last line written is blank; so it is before any is, and a first section opens without one. */
 	private atBlank = true;
@@ -99,6 +109,19 @@ export class TerminalUi implements Ui {
 		);
 		this.clock = options.clock ?? (() => performance.now());
 		this.started = this.clock();
+		this.signals = new RunSignals(options.host ?? process, {
+			exit: () => {
+				this.clearScreen();
+				this.restore();
+			},
+			interrupt: () => this.interrupt(),
+			suspend: () => this.suspend(),
+		});
+	}
+
+	/** Takes the process's signals for the run, until it ends. */
+	begin(): void {
+		this.signals.watch();
 	}
 
 	header(): void {
@@ -209,7 +232,8 @@ export class TerminalUi implements Ui {
 		]);
 	}
 
-	cancel(message: string): void {
+	/** ` ○ Cancelled`, or `message` in its place. */
+	cancel(message?: string): void {
 		this.printSection(["", ...renderCancel(this.width(), this.style, message)]);
 	}
 
@@ -264,12 +288,78 @@ export class TerminalUi implements Ui {
 	/**
 	 * Ends the run's drawing: whatever still spins clears, what it held
 	 * prints, and then the Next items still queued, so a remedy is never lost.
-	 * A task that finishes after this leaves no row.
+	 * A task that finishes after this leaves no row. The process's signals
+	 * are its own again.
 	 */
 	end(): void {
+		this.drain();
+		this.signals.unwatch();
+	}
+
+	private drain(): void {
 		this.stopSpinning();
 		this.printSection(this.takeNext());
 	}
+
+	/**
+	 * A SIGINT or SIGTERM ends the run where it stands, in one go: what spins
+	 * clears and an open prompt is erased; what was printed while it asked,
+	 * and what's held, print with the Next items, as `end` prints them; then
+	 * ` ○ Cancelled`, and the terminal goes back to the shell. No rule or
+	 * tally: a signal isn't a close.
+	 */
+	private interrupt(): void {
+		this.clearScreen();
+		this.asking = false;
+		this.write(this.answered.splice(0));
+		this.drain();
+		this.cancel();
+		this.restore();
+	}
+
+	/**
+	 * A SIGTSTP, or a prompt's ctrl-z: the terminal goes back to the shell and
+	 * the whole process group stops, as a terminal's ^Z stops it. Once it's
+	 * continued, what spun spins again, or the prompt is drawn again.
+	 */
+	private suspend(): void {
+		this.clearScreen();
+		this.restore();
+		this.signals.stopGroup();
+		this.openPrompt?.resume();
+		this.resumeTop();
+	}
+
+	/** The spinning line cleared, or the open prompt's frame erased. */
+	private clearScreen(): void {
+		const top = this.live.at(-1);
+		if (top !== undefined) {
+			this.pause(top);
+		}
+		this.openPrompt?.erase();
+	}
+
+	/**
+	 * The terminal as the shell wants it: raw mode off and the cursor shown.
+	 * Only a prompt holds raw mode, and a spinning line shows the cursor as
+	 * it clears, so this is the open prompt's to do.
+	 */
+	private restore(): void {
+		this.openPrompt?.cook();
+	}
+
+	/** The run's side of a prompt: what it holds while open, and its ctrl-z. */
+	private readonly owner: PromptOwner = {
+		hold: (prompt) => {
+			this.openPrompt = prompt;
+			return () => {
+				if (this.openPrompt === prompt) {
+					this.openPrompt = undefined;
+				}
+			};
+		},
+		suspend: () => this.suspend(),
+	};
 
 	private stopSpinning(): void {
 		const ended = this.live.splice(0);
@@ -403,10 +493,7 @@ export class TerminalUi implements Ui {
 		if (this.asking) {
 			return;
 		}
-		live.task ??= startTask(this.output, live.render, this.width(), {
-			host: this.options.host,
-			style: this.style,
-		});
+		live.task ??= startTask(this.output, live.render, this.width());
 	}
 
 	private async ask<T>(
@@ -433,7 +520,7 @@ export class TerminalUi implements Ui {
 			output: this.output,
 			width: this.width(),
 			style: this.style,
-			host: this.options.host ?? process,
+			owner: this.owner,
 		};
 	}
 }
