@@ -148,8 +148,8 @@ describe("renderNext", () => {
 		).toEqual([
 			"",
 			" Next",
-			"   laravel — its SKILL.md is gone and 2",
-			"   skills are now named laravel. To",
+			"   laravel — its SKILL.md is gone and",
+			"   2 skills are now named laravel. To",
 			"   follow one:",
 			"     npx agntc remove o/r/laravel",
 			"     then one of",

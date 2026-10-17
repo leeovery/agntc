@@ -430,6 +430,58 @@ describe("a select's cells", () => {
 		expect(line).toBe(" ▌ …med-at-length");
 	});
 
+	it("gives a column with nothing in it no room, not even its gap", () => {
+		const local: SelectOption<string>[] = [
+			{
+				value: "review",
+				label: "review",
+				cells: [
+					{ text: "skill", dim: true, drop: 1 },
+					{ text: "", drop: 2 },
+					{ status: "local", text: "local", dim: true },
+				],
+			},
+		];
+		expect(renderSelect(view(local, 0), 80, plain).slice(1)).toEqual([
+			" ▌ review   skill   ◇ local",
+		]);
+	});
+
+	it("keeps twins apart by their asides at every width, the hint giving way first", () => {
+		const twins: SelectOption<string>[] = [
+			{
+				value: "a",
+				label: "testing",
+				aside: "skills/frontend",
+				hint: "testing skill does a thing",
+			},
+			{
+				value: "b",
+				label: "testing",
+				aside: "skills/backend",
+				hint: "testing skill does a thing",
+			},
+		];
+		const at = (width: number) =>
+			renderSelect(view(twins, 0), width, plain).slice(1);
+		expect(at(70)).toEqual([
+			" ▌ testing   skills/frontend · testing skill does a thing",
+			"   testing   skills/backend · testing skill does a thing",
+		]);
+		expect(at(40)).toEqual([
+			" ▌ testing   skills/frontend · testing…",
+			"   testing   skills/backend · testing …",
+		]);
+		expect(at(24)).toEqual([
+			" ▌ testing   …/frontend",
+			"   testing   …s/backend",
+		]);
+		expect(at(20)).toEqual([" ▌ testing  …ontend", "   testing  …ackend"]);
+		expect(renderSelect(view(twins, 0), 70, colour).at(-1)).toBe(
+			"   testing   \x1b[2mskills/backend · testing skill does a thing\x1b[22m",
+		);
+	});
+
 	it("cuts a line its last cell alone overflows at the margin", () => {
 		const wide: SelectOption<string>[] = [
 			{
@@ -442,13 +494,13 @@ describe("a select's cells", () => {
 		expect(line).toBe(` ▌ a   ✗ ${"x".repeat(29)}…`);
 	});
 
-	it("paints the kind dim, the constraint dim, each glyph in its status's colour, and bolds the cursor's label", () => {
+	it("paints the kind dim, the constraint dim, each glyph in its status's colour but a dim cell's dim with it, and bolds the cursor's label", () => {
 		const [, cursorRow, other] = lines(100, 1, colour);
 		expect(cursorRow).toBe(
 			` ${BAR}   \x1b[1mlaravel\x1b[22m             \x1b[2mpack\x1b[22m    v0.2.4 \x1b[2m^0.2.4\x1b[22m     ${ACCENT}↑\x1b[39m v0.2.5`,
 		);
 		expect(other).toBe(
-			"     agentic-workflows   \x1b[2mskill\x1b[22m   v0.8.18 \x1b[2m^0.8.18\x1b[22m   \x1b[32m✓\x1b[39m \x1b[2mup to date\x1b[22m",
+			"     agentic-workflows   \x1b[2mskill\x1b[22m   v0.8.18 \x1b[2m^0.8.18\x1b[22m   \x1b[2m✓\x1b[22m \x1b[2mup to date\x1b[22m",
 		);
 	});
 });

@@ -8,7 +8,7 @@ import { goneRow, settleGone } from "../src/gone-upstream.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { globalScope, projectScope } from "../src/scope.js";
 import { MachineUi } from "../src/ui.js";
-import { makeEntry } from "./helpers/factories.js";
+import { makeEntry, makeRemoved } from "./helpers/factories.js";
 import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const mockNuke = vi.mocked(nukeManifestFiles);
@@ -40,11 +40,11 @@ describe("settleGone", () => {
 			status: "attention",
 			subject: KEY,
 			detail: { label: "gone upstream", aside: "skill" },
-			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+			fields: [{ label: ".claude/skills/", value: ["go"], noun: ["skill"] }],
 		};
 		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
 		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(row, {
-			message: "Remove it and its folder?",
+			message: "Remove it and its skill?",
 			initialValue: false,
 		});
 		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
@@ -72,7 +72,7 @@ describe("settleGone", () => {
 				detail: { label: "gone upstream", aside: "pack · 1 skill, 1 agent" },
 			}),
 			{
-				message: "Remove it and its 1 folder and 1 agent?",
+				message: "Remove it and its 1 skill and 1 agent?",
 				initialValue: false,
 			},
 		);
@@ -184,21 +184,26 @@ describe("settleGone", () => {
 describe("goneRow", () => {
 	it("needs a look: the entry, gone upstream with its kind and counts, then what it installed", () => {
 		expect(
-			goneRow({ subject: "owner/repo/go" }, "skill", [
-				".claude/skills/go/",
-				".claude/skills/go/SKILL.md",
-			]),
+			goneRow(
+				{ subject: "owner/repo/go" },
+				"skill",
+				makeRemoved([".claude/skills/go/", ".claude/skills/go/SKILL.md"]),
+			),
 		).toEqual({
 			status: "attention",
 			subject: "owner/repo/go",
 			detail: { label: "gone upstream", aside: "skill" },
-			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+			fields: [{ label: ".claude/skills/", value: ["go"], noun: ["skill"] }],
 		});
 	});
 
 	it("keeps the meta its head carries, as a local entry's", () => {
 		expect(
-			goneRow({ subject: "~/src/kit", meta: "local" }, "skill", []),
+			goneRow(
+				{ subject: "~/src/kit", meta: "local" },
+				"skill",
+				makeRemoved([]),
+			),
 		).toMatchObject({ subject: "~/src/kit", meta: "local" });
 	});
 });

@@ -220,6 +220,83 @@ describe("an add through the menu", () => {
 		]);
 	});
 
+	const TWINS = {
+		"laravel/agntc.json": PACK,
+		"laravel/skills/eloquent/SKILL.md": "",
+		"laravel/skills/shared/notes.md": "",
+		"laravel/agents/reviewer.md": "",
+		"laravel/hooks/pre-commit.sh": "",
+		"skills/frontend/testing/SKILL.md":
+			"---\ndescription: Testing for the frontend\n---\n",
+		"skills/backend/testing/SKILL.md":
+			"---\ndescription: Testing for the backend\n---\n",
+		"skills/go/SKILL.md":
+			"---\ndescription: Idiomatic Go: errors, interfaces and tests\n---\n",
+	};
+
+	it("names each item by its folder, a pack counted in full as its installed row counts it, twins told apart by their folders leading the hint", async () => {
+		await upstream(TWINS);
+
+		const { asking, ended } = await session({
+			answer: [KEY.space, KEY.down, KEY.down, KEY.space, KEY.enter],
+		});
+
+		expect(asking).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo     HEAD   1 pack · 3 skills",
+			"",
+			QUESTION,
+			" ▌ ○ laravel   pack · 1 skill, 1 folder, 1 agent, 1 hook",
+			"   ○ testing   skills/backend · Testing for the backend",
+			"   ○ testing   skills/frontend · Testing for the frontend",
+			"   ○ go        Idiomatic Go: errors, interfaces and tests",
+			"",
+			atRight("", "0 of 4 picked"),
+		]);
+		expect(ended).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo     HEAD   2 of 4 installed",
+			"   ├─ laravel            pack · 1 skill, 1 folder, 1 agent, 1 hook",
+			"   └─ testing            skill",
+			...close("2 installed"),
+		]);
+	});
+
+	it.each([
+		100, 80,
+	])("lists the twins at %i columns with the detail column sized from the names alone", async (columns) => {
+		await upstream(TWINS);
+
+		const lines = await drawn({ options: { list: true }, columns });
+
+		expect(lines.slice(2)).toEqual([
+			" ✓ owner/repo   HEAD   1 pack · 3 skills",
+			"   ├─ laravel          pack · 1 skill, 1 folder, 1 agent, 1 hook",
+			"   ├─ testing          skills/backend · Testing for the backend",
+			"   ├─ testing          skills/frontend · Testing for the frontend",
+			"   └─ go               Idiomatic Go: errors, interfaces and tests",
+		]);
+	});
+
+	it.each([
+		80, 60, 40,
+	])("keeps the twins apart at %i columns, their hints giving way first", async (columns) => {
+		await upstream(TWINS);
+
+		const { asking } = await session({ answer: [KEY.escape], columns });
+
+		const twins = asking.filter((line) => line.includes("testing"));
+		expect(twins).toHaveLength(2);
+		expect(twins[0]).not.toBe(twins[1]);
+		expect(
+			twins.every(
+				(line) => line.includes("backend") || line.includes("frontend"),
+			),
+		).toBe(true);
+	});
+
 	it("counts the skills an installed pack holds on one line while asking, naming each once it has installed", async () => {
 		await upstream({
 			"skills/api/SKILL.md": "",
@@ -250,23 +327,23 @@ describe("an add through the menu", () => {
 		expect(asking).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo         HEAD   5 skills",
-			"   └─ · 3 skills             already installed as part of the pack owner/repo/p",
+			" ✓ owner/repo      HEAD   5 skills",
+			"   └─ · 3 skills          already installed as part of the pack owner/repo/p",
 			"",
 			QUESTION,
-			" ▌ ○ skills/jobs",
-			"   ○ skills/lint",
+			" ▌ ○ jobs",
+			"   ○ lint",
 			"",
 			atRight("", "0 of 2 picked"),
 		]);
 		expect(ended).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo         HEAD   1 of 2 installed",
-			"   ├─ skills/jobs            skill",
-			"   ├─ · skills/api           already installed as part of the pack owner/repo/p",
-			"   ├─ · skills/db            already installed as part of the pack owner/repo/p",
-			"   └─ · skills/ui            already installed as part of the pack owner/repo/p",
+			" ✓ owner/repo      HEAD   1 of 2 installed",
+			"   ├─ jobs                skill",
+			"   ├─ · api               already installed as part of the pack owner/repo/p",
+			"   ├─ · db                already installed as part of the pack owner/repo/p",
+			"   └─ · ui                already installed as part of the pack owner/repo/p",
 		]);
 	});
 
@@ -312,9 +389,9 @@ describe("an add of one thing", () => {
 		expect(await drawn({ options: { skill: ["a"] } })).toEqual([
 			HEADER,
 			"",
-			" ✓ owner/repo      HEAD   1 pack",
-			"   └─ p/skills/a          skill",
-			"                          part of the pack p — installed on its own, without b and its hooks",
+			" ✓ owner/repo   HEAD   1 pack",
+			"   └─ a                skill",
+			"                       part of the pack p — installed on its own, without b and its hooks",
 		]);
 	});
 });
@@ -692,9 +769,9 @@ describe("an add with an item that fails", () => {
 		expect(await drawn({ options: { all: true } })).toEqual([
 			HEADER,
 			"",
-			" ✗ owner/repo        HEAD   2 skills",
-			"   ├─ ✗ skills/foo          already installed from foo, as a pack",
-			"   └─ ✓ tools               skill",
+			" ✗ owner/repo   HEAD   2 skills",
+			"   ├─ ✗ foo            already installed from foo, as a pack",
+			"   └─ ✓ tools          skill",
 			"",
 			" Next",
 			"   owner/repo/foo — to replace it:",

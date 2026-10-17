@@ -1,4 +1,6 @@
 import {
+	ASIDE_JOIN,
+	fitAside,
 	indent,
 	isNarrow,
 	MARGIN,
@@ -336,8 +338,9 @@ function total(counts: readonly number[]): number {
 
 /**
  * What a cut row leaves out, in words: a field of items or a child with a
- * noun by it, as `33 more folders`, those sharing a noun together; any other
- * field, and each other child, as one more.
+ * noun by it, as `33 more folders`, a field's items each by its own noun
+ * where they differ, those sharing a noun together; any other field, and
+ * each other child, as one more.
  */
 function leftOut(fields: readonly Field[], children: readonly Child[]): string {
 	const items = new Map<string, number>();
@@ -350,7 +353,13 @@ function leftOut(fields: readonly Field[], children: readonly Child[]): string {
 		}
 	};
 	for (const { value, noun } of fields) {
-		add(typeof value === "string" ? undefined : noun, value.length);
+		if (typeof value === "string" || noun === undefined) {
+			add(undefined, 1);
+		} else {
+			value.forEach((_, index) => {
+				add(typeof noun === "string" ? noun : noun[index], 1);
+			});
+		}
 	}
 	for (const { noun } of children) {
 		add(noun, 1);
@@ -775,14 +784,7 @@ function renderChild(
 			identity,
 			width,
 		),
-		[
-			{
-				at,
-				lines: child.detail
-					? paintLines(wrap(child.detail, roomFrom(at, width)), tone)
-					: [],
-			},
-		],
+		[{ at, lines: childDetail(child, roomFrom(at, width), tone, paint) }],
 	);
 	// The branches running on past this child's lines, its own with a sibling
 	// below, overwrite spaces: those lines all open with spaces to its name.
@@ -791,6 +793,35 @@ function renderChild(
 	return lines
 		.map((line, index) => (index === 0 ? line : trunk + line.slice(trunkWidth)))
 		.map(dimWhole(quiet, style));
+}
+
+/**
+ * A child's detail inside `room`, led by its aside, dim, and
+ * {@link ASIDE_JOIN}. The detail gives way first, wrapping onto the lines
+ * below, starting below the aside when not one word of it fits beside it;
+ * then the aside is cut ({@link fitAside}).
+ */
+function childDetail(
+	{ aside = "", detail = "" }: Child,
+	room: number,
+	tone: Painter,
+	paint: Style,
+): string[] {
+	const lead = fitAside(aside, room);
+	if (lead === "") {
+		return detail === "" ? [] : paintLines(wrap(detail, room), tone);
+	}
+	if (detail === "") {
+		return [paint.dim(lead)];
+	}
+	const beside = room - visibleWidth(lead) - ASIDE_JOIN.length;
+	const [first = "", ...rest] = wrap(detail, room, Math.max(0, beside));
+	return [
+		first === ""
+			? paint.dim(lead)
+			: `${paint.dim(`${lead}${ASIDE_JOIN}`)}${tone(first)}`,
+		...paintLines(rest, tone),
+	];
 }
 
 /** A failure's or a warning's reason is read, so it stays normal; the rest is quiet. */
