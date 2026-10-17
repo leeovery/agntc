@@ -145,7 +145,10 @@ for name in $(compgen -e); do
 	esac
 done
 shopt -u nocasematch
-export NPM_CONFIG_USERCONFIG=/dev/null NPM_CONFIG_GLOBALCONFIG=/dev/null
+# Two empty files, as npm refuses one file read as both.
+: >"$scratch/user.npmrc"
+: >"$scratch/global.npmrc"
+export NPM_CONFIG_USERCONFIG=$scratch/user.npmrc NPM_CONFIG_GLOBALCONFIG=$scratch/global.npmrc
 kept=
 IFS=: read -ra entries <<<"$PATH"
 for entry in "${entries[@]}"; do

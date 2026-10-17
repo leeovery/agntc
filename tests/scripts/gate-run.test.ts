@@ -5,6 +5,7 @@ import {
 	gateCalls,
 	git,
 	leftNothing,
+	npmConfigRead,
 	npmEnv,
 	recorded,
 	run,
@@ -60,8 +61,11 @@ describe("scripts/gate's steps", () => {
 		expect(given.has("NODE_OPTIONS")).toBe(false);
 		expect(given.has("npm_config_registry")).toBe(false);
 		expect(given.has("NPM_CONFIG_CACHE")).toBe(false);
-		expect(given.get("NPM_CONFIG_USERCONFIG")).toBe("/dev/null");
-		expect(given.get("NPM_CONFIG_GLOBALCONFIG")).toBe("/dev/null");
+		const user = given.get("NPM_CONFIG_USERCONFIG");
+		const global = given.get("NPM_CONFIG_GLOBALCONFIG");
+		expect(user).toMatch(/\/agntc-gate\.\w+\/user\.npmrc$/);
+		expect(global).toMatch(/\/agntc-gate\.\w+\/global\.npmrc$/);
+		expect(npmConfigRead()).toBe("");
 		expect(given.get("PATH")).not.toContain("node_modules/.bin");
 	});
 

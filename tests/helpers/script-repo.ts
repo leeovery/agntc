@@ -30,6 +30,7 @@ pwd -P >>"$NPM_LOG.where"
 if [ "$1" = ci ]; then
 	mkdir -p node_modules
 	env >"$NPM_LOG.env"
+	cat "$NPM_CONFIG_USERCONFIG" "$NPM_CONFIG_GLOBALCONFIG" >"$NPM_LOG.npmrc"
 fi
 if [ "$1" = test ]; then
 	if [ -n "\${NPM_MOVE:-}" ]; then
@@ -302,6 +303,11 @@ export function leftNothing(): boolean {
 	return (
 		readdirSync(scratchPath("tmp")).length === 0 && worktrees().length === 1
 	);
+}
+
+/** What npm ci found in the user and global config files it was given. */
+export function npmConfigRead(): string {
+	return readFileSync(`${npmLog}.npmrc`, "utf-8");
 }
 
 /** The environment npm ci was given, by name. */
