@@ -681,7 +681,9 @@ describe("an update of one key", () => {
 		await write(projectDir, { ".claude/skills/b/SKILL.md": "mine" });
 		vi.mocked(checkForUpdate).mockResolvedValueOnce({ status: "local" });
 
-		expect(await drawn({ key: folder })).toEqual([
+		// A screen wider than the 100 columns agntc lays out to, so the
+		// commands, as long as the temp folder makes them, are seen whole.
+		expect(await drawn({ key: folder, columns: 400 })).toEqual([
 			HEADER,
 			"",
 			" ✗ ~/src/mypack   local   can't be updated: files agntc didn't install are in the way:",
