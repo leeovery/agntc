@@ -70,7 +70,10 @@ describe("the terminal ui's prompts", () => {
 
 		const select = { message: "Pick one", options: OPTIONS, maxItems: 5 };
 		expect(await ui.select(select)).toBe("a");
-		expect(promptSelect).toHaveBeenCalledWith(select, context);
+		expect(promptSelect).toHaveBeenCalledWith(
+			{ ...select, above: expect.any(Function) },
+			context,
+		);
 
 		const multiselect = {
 			message: "Pick any",
@@ -78,11 +81,17 @@ describe("the terminal ui's prompts", () => {
 			required: false,
 		};
 		expect(await ui.multiselect(multiselect)).toEqual(["a"]);
-		expect(promptMultiselect).toHaveBeenCalledWith(multiselect, context);
+		expect(promptMultiselect).toHaveBeenCalledWith(
+			{ ...multiselect, above: expect.any(Function) },
+			context,
+		);
 
 		const confirm = { message: "Proceed?", initialValue: false };
 		expect(await ui.confirm(confirm)).toBe(true);
-		expect(promptConfirm).toHaveBeenCalledWith(confirm, context);
+		expect(promptConfirm).toHaveBeenCalledWith(
+			{ ...confirm, above: expect.any(Function) },
+			context,
+		);
 	});
 
 	it("give the prompt the terminal's width as it is when it opens, at most 100", async () => {
@@ -193,6 +202,60 @@ describe("the terminal ui's prompts", () => {
 			[{ above: (room: number) => string[] }],
 		];
 		expect(above(5)).toEqual([" ● owner/repo", ""]);
+	});
+
+	it.each([
+		[
+			"select",
+			(ui: TerminalUi) => ui.select({ message: "Pick", options: OPTIONS }),
+			promptSelect,
+		],
+		[
+			"multiselect",
+			(ui: TerminalUi) => ui.multiselect({ message: "Pick", options: [] }),
+			promptMultiselect,
+		],
+		[
+			"confirm",
+			(ui: TerminalUi) => ui.confirm({ message: "Proceed?" }),
+			promptConfirm,
+		],
+	] as const)("ask a %s after other lines a blank line under them, in its frame, so it goes with it", async (_name, ask, prompt) => {
+		const { term, ui } = run();
+		vi.mocked(prompt as Mock).mockResolvedValueOnce(true);
+		ui.note("before");
+
+		await ask(ui);
+
+		const [[{ above }]] = (prompt as Mock).mock.calls as [
+			[{ above: (room: number) => string[] }],
+		];
+		expect(above(5)).toEqual([""]);
+		expect(term.output.text).toBe(" · before\n");
+	});
+
+	it("ask a question with nothing above it, or under a blank line, with no blank line of its own", async () => {
+		const term = new Terminal(100, 30);
+		const ui = new TerminalUi({
+			header: { command: "list", where: "~/project", version: "1.2.3" },
+			input: term.input,
+			output: term.output,
+			env: {},
+			host: term.host,
+		});
+		const opened: string[][] = [];
+		vi.mocked(promptConfirm).mockImplementation(async (question) => {
+			opened.push([...(question.above?.(5) ?? [])]);
+			return true;
+		});
+
+		await ui.confirm({ message: "First?" });
+		ui.header();
+		await ui.confirm({ message: "Under the header?" });
+		ui.note("then a line");
+		await ui.confirm({ message: "Under a line?" });
+
+		expect(opened).toEqual([[], [], [""]]);
 	});
 
 	it("leave nothing of a block that only asked: its row is drawn a blank line under what's above", async () => {

@@ -60,7 +60,8 @@ export function checkingEntry(key: string, home: string): string {
  * The dashboard's options: each source a heading, a repo by `owner/repo` and
  * a local folder by its path shortened against the home folder, in the order
  * the manifest first names it; under it, its entries in manifest order, each
- * by its name, its kind, its ref with its constraint, and its status.
+ * by its path under the source ({@link pathUnder}), its kind, its ref with
+ * its constraint, and its status.
  */
 export function dashboardOptions(
 	manifest: Manifest,
@@ -69,29 +70,40 @@ export function dashboardOptions(
 ): SelectOption<string>[] {
 	const sources = new Map<string, [string, ManifestEntry][]>();
 	for (const [key, entry] of Object.entries(manifest)) {
-		const source = homeShortened(sourceKeyOf(key, entry), home);
+		const source = sourceKeyOf(key, entry);
 		sources.set(source, [...(sources.get(source) ?? []), [key, entry]]);
 	}
-	return [...sources].flatMap(([heading, entries]) => [
-		{ heading },
+	return [...sources].flatMap(([source, entries]) => [
+		{ heading: homeShortened(source, home) },
 		...entries.map(([key, entry]) => ({
 			value: key,
-			label: memberName(key),
+			label: pathUnder(key, source),
 			cells: entryCells(entry, checkResultFor(checks, key)),
 		})),
 	]);
 }
 
-/** An entry's kind dim, its ref with its constraint dim, then its status. */
+/**
+ * An entry by its key's path under its source, so two packs named alike in
+ * one repo read apart; one at the source's root by its name.
+ */
+function pathUnder(key: string, source: string): string {
+	return key.startsWith(`${source}/`)
+		? key.slice(source.length + 1)
+		: memberName(key);
+}
+
+/** An entry's kind dim, its ref with its constraint dim, then its status: a narrow line drops the kind, then the ref. */
 function entryCells(
 	entry: ManifestEntry,
 	check: UpdateCheckResult,
 ): ChoiceCell[] {
 	return [
-		{ text: entry.type ?? "skill", dim: true },
+		{ text: entry.type ?? "skill", dim: true, drop: 1 },
 		{
 			text: formatRefLabel(entry.ref, entry.commit),
 			...(entry.constraint === undefined ? {} : { aside: entry.constraint }),
+			drop: 2,
 		},
 		statusCell(entry, check),
 	];
@@ -225,12 +237,12 @@ function statusField(
 			return field("newer tags available");
 		case "check-failed":
 			return field(
-				`Couldn't check for updates (${gitErrorCause(check.reason)})`,
+				`couldn't check for updates (${gitErrorCause(check.reason)})`,
 				"attention",
 			);
 		case "constrained-no-match":
 			return field(
-				`No matching version found for constraint "${entry.constraint}"`,
+				`no matching version found for constraint "${entry.constraint}"`,
 				"failed",
 			);
 		case "local":

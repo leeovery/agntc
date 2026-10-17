@@ -56,7 +56,7 @@ export interface MultiselectView<T> extends ListFit {
 	warning: string;
 }
 
-export const MULTISELECT_HINTS = listHints("space pick", "a all", "⏎ done");
+export const MULTISELECT_HINTS = listHints(["space pick", "a all", "⏎ done"]);
 export const PICK_ONE = "pick at least one";
 /** A mark and its space before each label. */
 const LABEL_AT = TEXT_AT + 2;

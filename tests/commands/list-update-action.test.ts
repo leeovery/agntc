@@ -753,6 +753,23 @@ describe("executeUpdateAction", () => {
 
 	it("settles its row as failed, the manifest as it was, when a step throws", async () => {
 		cloned();
+		mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
+		ui.next.mockImplementation(() => {
+			throw new Error("the terminal went away");
+		});
+
+		const result = await update("owner/repo", makeEntry());
+
+		expect(result).toEqual({ key: "owner/repo", change: null });
+		expect(settled()).toMatchObject({
+			status: "failed",
+			children: [{ name: "repo", detail: "the terminal went away" }],
+		});
+		expect(mockWriteManifest).not.toHaveBeenCalled();
+	});
+
+	it("warns under the row it drew when the manifest can't be written, and carries on", async () => {
+		cloned();
 		mockCopyBareSkill.mockResolvedValue({
 			copiedFiles: [".claude/skills/my-skill/"],
 		});
@@ -761,10 +778,10 @@ describe("executeUpdateAction", () => {
 		const result = await update("owner/repo", makeEntry());
 
 		expect(result).toEqual({ key: "owner/repo", change: null });
-		expect(settled()).toMatchObject({
-			status: "failed",
-			children: [{ name: "repo", detail: "EROFS: read-only" }],
-		});
+		expect(settled()).toMatchObject({ status: "done" });
+		expect(ui.warn).toHaveBeenCalledWith(
+			"couldn't record owner/repo: EROFS: read-only",
+		);
 	});
 
 	it("never draws through the old surface", async () => {

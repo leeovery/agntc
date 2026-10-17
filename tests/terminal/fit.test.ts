@@ -260,12 +260,12 @@ const selectHeadings = selectOptions.map((option) => !isChoice(option));
 const noHeadings = choices.map(() => false);
 const cellSets: ChoiceCell[][] = [
 	[
-		{ text: "pack", dim: true },
-		{ text: "v0.2.4", aside: "^0.2.4" },
+		{ text: "pack", dim: true, drop: 1 },
+		{ text: "v0.2.4", aside: "^0.2.4", drop: 2 },
 		{ status: "newer", text: "v0.2.5" },
 	],
 	[
-		{ text: LONG, aside: WORD },
+		{ text: LONG, aside: WORD, drop: 1 },
 		{ status: "local", text: CJK, dim: true },
 	],
 	[],

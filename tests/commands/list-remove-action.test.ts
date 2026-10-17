@@ -60,8 +60,8 @@ describe("executeRemoveAction", () => {
 			subject: "owner/repo",
 			detail: "pack · 1 skill, 1 agent",
 			fields: [
-				{ label: ".claude/skills/", value: ["my-skill"] },
-				{ label: ".claude/agents/", value: ["executor.md"] },
+				{ label: ".claude/skills/", value: ["my-skill"], noun: "folder" },
+				{ label: ".claude/agents/", value: ["executor.md"], noun: "agent" },
 			],
 		};
 		expect(ui.block).toHaveBeenCalledWith([row]);

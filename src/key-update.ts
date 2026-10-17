@@ -7,15 +7,12 @@ import {
 import { errorMessage } from "./errors.js";
 import { settleGone } from "./gone-upstream.js";
 import type { Manifest, ManifestEntry } from "./manifest.js";
-import { writeManifest } from "./manifest.js";
 import { homeShortened, type Scope } from "./scope.js";
 import { repoFromKey } from "./source-parser.js";
-import { remedyItem } from "./terminal/next.js";
 import type { BlockSubject, Row, RowHead } from "./terminal/types.js";
 import type { Block, BlockTask, Ui } from "./ui.js";
 import type { UpdateCheckResult } from "./update-check.js";
 import {
-	applyOutcome,
 	failedOutcome,
 	type GroupMember,
 	isSuccessOutcome,
@@ -23,6 +20,7 @@ import {
 	type PluginOutcome,
 	told,
 } from "./update-groups.js";
+import { persistUnitOutcomes, reportOutcomes } from "./update-outcomes.js";
 import {
 	cloneFailedRow,
 	groupSubject,
@@ -67,7 +65,7 @@ export function keyHead(
 	};
 }
 
-export function keySubject(member: GroupMember, head: RowHead): BlockSubject {
+function keySubject(member: GroupMember, head: RowHead): BlockSubject {
 	return member.entry.commit === null ? head : groupSubject(head, [member.key]);
 }
 
@@ -80,7 +78,20 @@ export interface RowProgress {
 	settle(row: Row): void;
 }
 
-export function rowProgress(block: Block, head: RowHead): RowProgress {
+/**
+ * A key's row, in a block of its own: a remote entry under its repo, a local
+ * one under its folder, a version change naming the tag it pins.
+ */
+export function keyRowProgress(
+	member: GroupMember,
+	run: UpdateRun,
+	version?: string,
+): RowProgress {
+	const head = keyHead(member, run.home, version);
+	return rowProgress(run.ui.block([keySubject(member, head)]), head);
+}
+
+function rowProgress(block: Block, head: RowHead): RowProgress {
 	let task: BlockTask | undefined;
 	return {
 		say: (text) => {
@@ -158,31 +169,34 @@ export function updatePlan(
 }
 
 /**
- * One entry's update under its own row, as `update <key>` runs it once its
- * check found something to do, its outcome recorded. A step that throws
- * settles the row as failed and leaves the manifest as it was.
+ * One key's update under the row its caller opened, as `update <key>` and
+ * list's actions run it: `settle` decides what it comes to, the row settles
+ * into that, and then its outcome is recorded. A throw reaches the caller:
+ * `settle`'s with the row unsettled and the manifest as it was, which a
+ * caller carrying on after it settles as {@link failedKey}; the record's with
+ * the row saying what reached the disk.
  */
 export async function updateUnderRow(
-	member: GroupMember,
+	progress: RowProgress,
 	manifest: Manifest,
 	run: UpdateRun,
-	plan?: KeyPlan,
+	settle: () => Promise<SettledKey>,
 ): Promise<PluginOutcome> {
-	const head = keyHead(member, run.home, plan?.version);
-	const progress = rowProgress(run.ui.block([keySubject(member, head)]), head);
-	if (plan === undefined) {
-		progress.say(REFRESHING);
-	}
-	try {
-		const settled = await reinstallKey(member, manifest, progress, run, plan);
-		await persistUnitOutcomes(run.scope.root, manifest, [settled.outcome]);
-		progress.settle(settled.row);
-		return settled.outcome;
-	} catch (err) {
-		const outcome = failedOutcome(member.key, errorMessage(err));
-		progress.settle(keyRow(member, { outcome }, plan, run));
-		return outcome;
-	}
+	const settled = await settle();
+	progress.settle(settled.row);
+	await persistUnitOutcomes(run.scope.root, manifest, [settled.outcome]);
+	return settled.outcome;
+}
+
+/** A key whose step threw, as failed with what it threw, which records nothing. */
+export function failedKey(
+	member: GroupMember,
+	err: unknown,
+	run: UpdateRun,
+	plan?: KeyPlan,
+): SettledKey {
+	const outcome = failedOutcome(member.key, errorMessage(err));
+	return { outcome, row: keyRow(member, { outcome }, plan, run) };
 }
 
 /** A local key reinstalls with no plan: it refreshes from its folder. */
@@ -306,44 +320,4 @@ export async function settleGoneOutcome(
 	} catch (err) {
 		return failedOutcome(key, errorMessage(err));
 	}
-}
-
-/**
- * What a unit's outcomes leave the reader: a reinstall's notes, which print
- * under the row the unit settles into, and a failure's remedy, under Next.
- */
-export function reportOutcomes(outcomes: PluginOutcome[], ui: Ui): void {
-	for (const outcome of outcomes) {
-		if (isSuccessOutcome(outcome)) {
-			for (const note of outcome.notes) {
-				ui.note(note);
-			}
-		}
-		const item =
-			"message" in outcome && outcome.message !== undefined
-				? remedyItem(outcome.message)
-				: null;
-		if (item !== null) {
-			ui.next(item);
-		}
-	}
-}
-
-/**
- * Folds ONE unit's (group, local or single key) outcomes into the working
- * manifest via {@link applyOutcome} and writes it — the per-unit persistence
- * boundary. The write is SKIPPED for a no-op unit. Returns the
- * (possibly-updated) manifest so the caller threads it into the next unit,
- * keeping each write cumulative.
- */
-export async function persistUnitOutcomes(
-	root: string,
-	manifest: Manifest,
-	outcomes: PluginOutcome[],
-): Promise<Manifest> {
-	const updatedManifest = outcomes.reduce(applyOutcome, manifest);
-	if (updatedManifest !== manifest) {
-		await writeManifest(root, updatedManifest);
-	}
-	return updatedManifest;
 }

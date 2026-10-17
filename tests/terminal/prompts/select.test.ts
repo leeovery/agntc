@@ -3,6 +3,7 @@ import {
 	footerLine,
 	promptSelect,
 	renderSelect,
+	SELECT_HINTS,
 	type SelectView,
 	selectWindow,
 } from "../../../src/terminal/prompts/select.js";
@@ -308,8 +309,8 @@ describe("a select's cells", () => {
 			value: "laravel",
 			label: "laravel",
 			cells: [
-				{ text: "pack", dim: true },
-				{ text: "v0.2.4", aside: "^0.2.4" },
+				{ text: "pack", dim: true, drop: 1 },
+				{ text: "v0.2.4", aside: "^0.2.4", drop: 2 },
 				{ status: "newer", text: "v0.2.5" },
 			],
 		},
@@ -317,8 +318,8 @@ describe("a select's cells", () => {
 			value: "agentic-workflows",
 			label: "agentic-workflows",
 			cells: [
-				{ text: "skill", dim: true },
-				{ text: "v0.8.18", aside: "^0.8.18" },
+				{ text: "skill", dim: true, drop: 1 },
+				{ text: "v0.8.18", aside: "^0.8.18", drop: 2 },
 				{ status: "done", text: "up to date", dim: true },
 			],
 		},
@@ -327,8 +328,8 @@ describe("a select's cells", () => {
 			value: "drafting",
 			label: "drafting",
 			cells: [
-				{ text: "skill", dim: true },
-				{ text: "local" },
+				{ text: "skill", dim: true, drop: 1 },
+				{ text: "local", drop: 2 },
 				{ status: "local", text: "local", dim: true },
 			],
 		},
@@ -356,13 +357,13 @@ describe("a select's cells", () => {
 		]);
 	});
 
-	it("then the cells before the last, from the right, keeping the status", () => {
-		expect(lines(46)).toEqual([
+	it("then the columns in the order their cells drop, keeping one with no order", () => {
+		expect(lines(48)).toEqual([
 			"   leeovery/agentic-skills",
-			" ▌   laravel             pack    ↑ v0.2.5",
-			"     agentic-workflows   skill   ✓ up to date",
+			" ▌   laravel             v0.2.4    ↑ v0.2.5",
+			"     agentic-workflows   v0.8.18   ✓ up to date",
 			"   ~/Code/my-skills",
-			"     drafting            skill   ◇ local",
+			"     drafting            local     ◇ local",
 		]);
 		expect(lines(40)).toEqual([
 			"   leeovery/agentic-skills",
@@ -371,6 +372,21 @@ describe("a select's cells", () => {
 			"   ~/Code/my-skills",
 			"     drafting            ◇ local",
 		]);
+	});
+
+	it("drops the lowest order first, wherever its column sits", () => {
+		const reordered = DASHBOARD.map((option) =>
+			"cells" in option && option.cells !== undefined
+				? {
+						...option,
+						cells: option.cells.map((cell) =>
+							cell.drop === undefined ? cell : { ...cell, drop: 3 - cell.drop },
+						),
+					}
+				: option,
+		);
+		const [, , cursorRow] = renderSelect(view(reordered, 1), 46, plain);
+		expect(cursorRow).toBe(" ▌   laravel             pack    ↑ v0.2.5");
 	});
 
 	it("then cuts the labels at their start, as a name is told apart by its tail", () => {
@@ -453,6 +469,23 @@ describe("a select's footer", () => {
 		]);
 	});
 
+	it("takes no lines where it has nothing to say: below 60 columns, with nothing counted", () => {
+		const quiet: SelectFooter = {
+			keys: FOOTER.keys,
+			counts: [{ count: 0, label: "updates", status: "newer" }],
+		};
+		const question = { message: "Manage", options: GROUPED, footer: quiet };
+		expect(selectWindow(question, 24, 59, plain).footerLines).toBe(0);
+		expect(
+			renderSelect(
+				view(GROUPED, 1, { hints: "", footer: quiet }),
+				59,
+				plain,
+			).at(-1),
+		).toBe("     gh-stack   skill");
+		expect(selectWindow(question, 24, 60, plain).footerLines).toBe(2);
+	});
+
 	it("is the keys alone when nothing is counted", () => {
 		expect(footerLine({ keys: ["⏎ manage"], counts: [] }, 80, plain)).toBe(
 			" ↑↓ move   ⏎ manage",
@@ -505,6 +538,26 @@ describe("a select's footer", () => {
 			more: false,
 			footerLines: 1,
 		});
+	});
+});
+
+describe("a select's key hints", () => {
+	it("say what esc does where the question names it", async () => {
+		const terminal = new Terminal(80);
+		const answer = promptSelect(
+			{ message: "Action", options: OPTIONS, escape: "back" },
+			terminal.context(),
+		);
+		await terminal.press();
+		expect((await terminal.lines())[0]).toBe(
+			` ? Action${gap(41)}↑↓ move · ⏎ choose · esc back`,
+		);
+		await terminal.press(KEY.escape);
+		expect(await answer).toBeNull();
+	});
+
+	it("say esc cancels where it doesn't", () => {
+		expect(SELECT_HINTS).toBe("↑↓ move · ⏎ choose · esc cancel");
 	});
 });
 

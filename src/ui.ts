@@ -49,6 +49,11 @@ export interface ChoiceCell {
 	status?: Status;
 	/** The text dim, as a kind or a quiet status. */
 	dim?: boolean;
+	/**
+	 * Where its column comes in the order a line too wide drops them, the
+	 * lowest first; a column none of whose cells has one is kept.
+	 */
+	drop?: number;
 }
 
 /** A bold heading over the choices after it, which the cursor passes over. */
@@ -62,6 +67,8 @@ export interface SelectPrompt<T> {
 	message: string;
 	options: SelectOption<T>[];
 	maxItems?: number;
+	/** What esc does, as its key hint says: `back`, where it goes back; cancel unless given. */
+	escape?: string;
 	/** A line under the options, taking the key hints off the question's. */
 	footer?: SelectFooter;
 }

@@ -8,18 +8,16 @@ import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import {
 	keyHead,
-	keySubject,
+	keyRowProgress,
 	localHead,
-	persistUnitOutcomes,
 	REFRESHING,
 	type RowProgress,
 	reinstallKey,
-	reportOutcomes,
-	rowProgress,
 	type SettledKey,
 	settleGoneOutcome,
 	type UpdateRun,
 	updatePlan,
+	updateUnderRow,
 	updatingTo,
 } from "../key-update.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
@@ -56,6 +54,7 @@ import {
 	processGroupUpdate,
 	withAbsorptions,
 } from "../update-groups.js";
+import { persistUnitOutcomes, reportOutcomes } from "../update-outcomes.js";
 import {
 	cloneFailedRow,
 	type GroupMove,
@@ -78,13 +77,6 @@ import {
 	type VersionMove,
 	versionMove,
 } from "../version-resolve.js";
-
-/** One key's update in single-key mode: what became of it and what its check found. */
-interface KeyUpdate {
-	outcome: PluginOutcome;
-	check: UpdateCheckResult;
-	outOfConstraint: OutOfConstraintInfo | null;
-}
 
 /** The statuses that end an update of every entry non-zero. */
 const ALL_FAILURES = new Set<PluginOutcome["status"]>([
@@ -168,23 +160,25 @@ async function runKeyUpdate(
 	manifest: Manifest,
 	run: UpdateRun,
 ): Promise<void> {
-	const { scope, ui } = run;
-	const head = keyHead(member, run.home);
-	const block = ui.block([keySubject(member, head)]);
-	const update = await updateKey(
-		member,
-		manifest,
-		rowProgress(block, head),
-		run,
+	const { ui } = run;
+	const progress = keyRowProgress(member, run);
+	progress.say(member.entry.commit === null ? REFRESHING : CHECKING);
+	const check = await checkForUpdate(member.key, member.entry);
+	const outcome = await updateUnderRow(progress, manifest, run, () =>
+		settleKey(member, check, manifest, progress, run),
 	);
-	await persistUnitOutcomes(scope.root, manifest, [update.outcome]);
 
-	const failed = hasFailedOutcome([update.outcome], KEY_FAILURES);
-	if (!failed && update.outOfConstraint !== null) {
-		queueOutOfConstraint([update.outOfConstraint], ui);
+	const failed = hasFailedOutcome([outcome], KEY_FAILURES);
+	const outOfConstraint = extractOutOfConstraint(
+		memberAfter(member, [outcome]),
+		check,
+		run.scope.name,
+	);
+	if (!failed && outOfConstraint !== null) {
+		queueOutOfConstraint([outOfConstraint], ui);
 	}
-	const checks = new Map([[keyBefore(update.outcome), update.check]]);
-	const outcomes = withAbsorptions([update.outcome]);
+	const checks = new Map([[keyBefore(outcome), check]]);
+	const outcomes = withAbsorptions([outcome]);
 	ui.close({ command: "update", counts: updateTally(outcomes) });
 	ui.report(updateBody(manifest, outcomes, checks));
 	if (failed) {
@@ -222,28 +216,6 @@ function extractOutOfConstraint(
 		};
 	}
 	return null;
-}
-
-async function updateKey(
-	member: GroupMember,
-	installed: Manifest,
-	progress: RowProgress,
-	run: UpdateRun,
-): Promise<KeyUpdate> {
-	progress.say(member.entry.commit === null ? REFRESHING : CHECKING);
-	const check = await checkForUpdate(member.key, member.entry);
-	const settled = await settleKey(member, check, installed, progress, run);
-	progress.settle(settled.row);
-	const { outcome } = settled;
-	return {
-		outcome,
-		check,
-		outOfConstraint: extractOutOfConstraint(
-			memberAfter(member, [outcome]),
-			check,
-			run.scope.name,
-		),
-	};
 }
 
 /** What leaves an entry no longer installed once the run ends. */

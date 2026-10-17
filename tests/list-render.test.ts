@@ -93,17 +93,31 @@ describe("dashboardOptions", () => {
 		]);
 	});
 
-	it("names each entry as update names a member, by its key's last segment", () => {
-		const [, choice] = dashboardOptions(
-			{ "owner/repo/skills/deep": makeEntry() },
+	it("names each entry by its key's path under its source, so packs named alike read apart", () => {
+		const options = dashboardOptions(
+			{
+				"owner/repo/a/np": makeEntry(),
+				"owner/repo/b/np": makeEntry(),
+				"owner/repo/deep": makeEntry(),
+				[`${HOME}/skills/mine`]: local,
+			},
 			new Map(),
 			HOME,
 		);
 
-		expect(choice).toMatchObject({
-			value: "owner/repo/skills/deep",
-			label: "deep",
-		});
+		expect(
+			options.flatMap((option) => ("label" in option ? [option.label] : [])),
+		).toEqual(["a/np", "b/np", "deep", "mine"]);
+	});
+
+	it("names an entry at its source's root by its name", () => {
+		const [, choice] = dashboardOptions(
+			{ "owner/repo": makeEntry() },
+			new Map(),
+			HOME,
+		);
+
+		expect(choice).toMatchObject({ value: "owner/repo", label: "repo" });
 	});
 
 	it("lines up its kind dim, its ref with its constraint dim, and its status", () => {
@@ -133,8 +147,8 @@ describe("dashboardOptions", () => {
 			value: "owner/repo/laravel",
 			label: "laravel",
 			cells: [
-				{ text: "pack", dim: true },
-				{ text: "v0.2.4", aside: "^0.2.4" },
+				{ text: "pack", dim: true, drop: 1 },
+				{ text: "v0.2.4", aside: "^0.2.4", drop: 2 },
 				{ status: "newer", text: "v0.2.5" },
 			],
 		});
@@ -152,13 +166,13 @@ describe("dashboardOptions", () => {
 
 		expect(cells).toEqual([
 			[
-				{ text: "skill", dim: true },
-				{ text: "HEAD" },
+				{ text: "skill", dim: true, drop: 1 },
+				{ text: "HEAD", drop: 2 },
 				{ status: "failed", text: "check failed" },
 			],
 			[
-				{ text: "skill", dim: true },
-				{ text: "local" },
+				{ text: "skill", dim: true, drop: 1 },
+				{ text: "local", drop: 2 },
 				{ status: "failed", text: "check failed" },
 			],
 		]);
@@ -184,12 +198,12 @@ describe("statusCell", () => {
 			{ status: "newer", text: "bbbbbbb" },
 		],
 		[
-			"a newer tag in range",
+			"a newer tag in range, not the newest outside it",
 			{
 				status: "constrained-update-available",
 				tag: "v1.2.0",
 				commit: NEW,
-				latestOverall: null,
+				latestOverall: "v2.0.0",
 			},
 			{ status: "newer", text: "v1.2.0" },
 		],
@@ -355,7 +369,7 @@ describe("detailRow", () => {
 		).toEqual({
 			label: "status",
 			value:
-				"Couldn't check for updates (git@github.com: Permission denied (publickey).)",
+				"couldn't check for updates (git@github.com: Permission denied (publickey).)",
 			status: "attention",
 		});
 	});
@@ -367,7 +381,7 @@ describe("detailRow", () => {
 			).fields?.at(-1),
 		).toEqual({
 			label: "status",
-			value: 'No matching version found for constraint "^1.0.0"',
+			value: 'no matching version found for constraint "^1.0.0"',
 			status: "failed",
 		});
 	});

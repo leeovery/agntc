@@ -19,9 +19,17 @@ describe("installedFolders", () => {
 				".claude/hooks/pre-commit.sh",
 			]),
 		).toEqual([
-			{ label: ".claude/skills/", value: ["nuxt-pages", "shared"] },
-			{ label: ".claude/agents/", value: ["reviewer.md"] },
-			{ label: ".claude/hooks/", value: ["lint", "pre-commit.sh"] },
+			{
+				label: ".claude/skills/",
+				value: ["nuxt-pages", "shared"],
+				noun: "folder",
+			},
+			{ label: ".claude/agents/", value: ["reviewer.md"], noun: "agent" },
+			{
+				label: ".claude/hooks/",
+				value: ["lint", "pre-commit.sh"],
+				noun: "hook",
+			},
 		]);
 	});
 
@@ -32,8 +40,8 @@ describe("installedFolders", () => {
 				".cursor/skills/alpha/SKILL.md",
 			]),
 		).toEqual([
-			{ label: ".agents/skills/", value: ["alpha"] },
-			{ label: ".cursor/skills/", value: ["alpha"] },
+			{ label: ".agents/skills/", value: ["alpha"], noun: "folder" },
+			{ label: ".cursor/skills/", value: ["alpha"], noun: "folder" },
 		]);
 	});
 
@@ -61,8 +69,8 @@ describe("removalRow", () => {
 			subject: "owner/repo/nuxt",
 			detail: "pack · 1 skill, 1 agent",
 			fields: [
-				{ label: ".claude/skills/", value: ["nuxt-pages"] },
-				{ label: ".claude/agents/", value: ["reviewer.md"] },
+				{ label: ".claude/skills/", value: ["nuxt-pages"], noun: "folder" },
+				{ label: ".claude/agents/", value: ["reviewer.md"], noun: "agent" },
 			],
 		});
 	});

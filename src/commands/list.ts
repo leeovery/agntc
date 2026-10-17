@@ -23,7 +23,7 @@ import {
 } from "../manifest.js";
 import { homeShortened, projectScope, type Scope } from "../scope.js";
 import type { Row } from "../terminal/types.js";
-import { type Block, interactiveUi, type ListTally, type Ui } from "../ui.js";
+import { interactiveUi, type ListTally, type Ui } from "../ui.js";
 import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
 import { checkAllForUpdates } from "../update-check-all.js";
 import type { GroupMember } from "../update-groups.js";
@@ -47,11 +47,9 @@ export async function runList(
 
 /**
  * What a session shares: an update's run, as its actions reinstall as
- * `update` does, the progress its checks spin in, and what it has changed.
+ * `update` does, and what it has changed.
  */
 interface ListSession extends UpdateRun {
-	/** Opened once, so a check's line clears leaving nothing, a blank line included. */
-	progress: Block;
 	tally: ListTally;
 }
 
@@ -71,7 +69,6 @@ export async function runListLoop(
 		yes: false,
 		ui,
 		home: homedir(),
-		progress: ui.block([]),
 		tally: {},
 	};
 	await browse(session);
@@ -106,12 +103,13 @@ async function browse(session: ListSession): Promise<void> {
 	}
 }
 
+/** Each check spins in a block of its own, a blank line under what an action left. */
 async function checkAll(
 	manifest: Manifest,
-	{ progress }: ListSession,
+	{ ui }: ListSession,
 ): Promise<Map<string, UpdateCheckResult>> {
 	const count = Object.keys(manifest).length;
-	const checking = progress.task({ text: checkingEntries(count) });
+	const checking = ui.block([]).task({ text: checkingEntries(count) });
 	try {
 		return await checkAllForUpdates(manifest);
 	} finally {
@@ -204,21 +202,15 @@ async function act(
 				? executeUpdateAction(member, check, manifest, session)
 				: { key: member.key, change: null };
 		case "change-version":
-			return executeChangeVersionAction(
-				member,
-				row,
-				manifest,
-				session,
-				session.progress,
-			);
+			return executeChangeVersionAction(member, row, manifest, session);
 	}
 }
 
 async function checkOne(
 	{ key, entry }: GroupMember,
-	{ progress, home }: ListSession,
+	{ ui, home }: ListSession,
 ): Promise<UpdateCheckResult> {
-	const checking = progress.task({ text: checkingEntry(key, home) });
+	const checking = ui.block([]).task({ text: checkingEntry(key, home) });
 	try {
 		return await checkForUpdate(key, entry);
 	} finally {

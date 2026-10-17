@@ -65,11 +65,10 @@ export interface SelectView<T> extends ListWindow {
 	footerLines?: number;
 }
 
-export const SELECT_HINTS = listHints("⏎ choose");
+const CHOOSE = ["⏎ choose"];
+export const SELECT_HINTS = listHints(CHOOSE);
 /** How much further in than its heading a choice sits. */
 const UNDER_HEADING = 2;
-/** The blank line under the options, and the footer. */
-const FOOTER_LINES = 2;
 const KEY_GAP = "   ";
 const COUNT_SEPARATOR = " · ";
 
@@ -105,7 +104,13 @@ export async function promptSelect<T>(
 
 /** The question line's key hints: none when a footer carries them. */
 function hintsOf<T>(question: SelectQuestion<T>): string {
-	return question.hints ?? (question.footer === undefined ? SELECT_HINTS : "");
+	if (question.hints !== undefined) {
+		return question.hints;
+	}
+	if (question.footer !== undefined) {
+		return "";
+	}
+	return listHints(CHOOSE, question.escape);
 }
 
 /**
@@ -129,7 +134,7 @@ export function selectWindow<T>(
 		lines: question.options.length,
 		maxItems: question.maxItems,
 		asked,
-		footer: question.footer === undefined ? 0 : FOOTER_LINES,
+		footer: footerLines(question.footer, width, style).length,
 	};
 	const above = linesAbove(question.above, aboveRoom(frame, rows));
 	const { size, more, footer } = fitList(
@@ -147,7 +152,7 @@ export function renderSelect<T>(
 ): string[] {
 	const room = roomFrom(TEXT_AT, width);
 	const text = choiceText(view.options, width, style);
-	const { footer } = view;
+	const footer = footerLines(view.footer, width, style);
 	return [
 		...(view.above ?? []),
 		...questionLines(view.message, view.hints, width, style),
@@ -172,12 +177,18 @@ export function renderSelect<T>(
 			width,
 			style,
 		),
-		...(footer === undefined
-			? []
-			: ["", footerLine(footer, width, style)].slice(
-					FOOTER_LINES - (view.footerLines ?? FOOTER_LINES),
-				)),
+		...footer.slice(footer.length - (view.footerLines ?? footer.length)),
 	];
+}
+
+/** The blank line under the options and the footer's own; none when it has nothing to say at this width. */
+function footerLines(
+	footer: SelectFooter | undefined,
+	width: number,
+	style: Style,
+): string[] {
+	const line = footer === undefined ? "" : footerLine(footer, width, style);
+	return line === "" ? [] : ["", line];
 }
 
 type ChoiceText<T> = (

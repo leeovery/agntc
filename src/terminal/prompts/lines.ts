@@ -57,9 +57,9 @@ export function withHints(
 	return spread(line, style.dim(hints), width) ?? line;
 }
 
-/** A list's usual key hints: moving, its own keys, then cancelling. */
-export function listHints(...keys: string[]): string {
-	return ["↑↓ move", ...keys, "esc cancel"].join(" · ");
+/** A list's usual key hints: moving, its own keys, then what esc does, cancelling unless given. */
+export function listHints(keys: readonly string[], esc = "cancel"): string {
+	return ["↑↓ move", ...keys, `esc ${esc}`].join(" · ");
 }
 
 /**

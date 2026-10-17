@@ -309,7 +309,7 @@ describe("a list session", () => {
 			"   installs    2 skills",
 			"   status      v0.2.5 available",
 			"",
-			" ? Action                                                           ↑↓ move · ⏎ choose · esc cancel",
+			" ? Action                                                             ↑↓ move · ⏎ choose · esc back",
 			" ▌ Update",
 			"   Change version",
 			"   Remove",
@@ -327,6 +327,12 @@ describe("a list session", () => {
 		await session.answer(DASHBOARD, KEY.enter);
 		await session.answer("Action", KEY.enter);
 		await session.answer("Action", KEY.escape);
+		expect((await session.asking(DASHBOARD)).slice(2, 6)).toEqual([
+			" ✓ leeovery/agentic-skills   ^0.2.4   v0.2.4 → v0.2.5",
+			"   └─ laravel                         pack · 2 skills · 2 files",
+			"",
+			" ? Select a skill or pack to manage",
+		]);
 		await session.answer(DASHBOARD, KEY.down, KEY.down, KEY.enter);
 		await session.answer("Action", KEY.enter);
 		expect((await session.asking("Select a version")).slice(2)).toEqual([
@@ -340,7 +346,7 @@ describe("a list session", () => {
 			"   installs   1 skill",
 			"   status     newer tags available",
 			"",
-			" ? Select a version                                                 ↑↓ move · ⏎ choose · esc cancel",
+			" ? Select a version                                                   ↑↓ move · ⏎ choose · esc back",
 			" ▌ v2.0.0",
 			"   v1.0.3",
 			"   v1.0.2   current",

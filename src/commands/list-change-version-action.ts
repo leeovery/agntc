@@ -1,6 +1,6 @@
 import { errorMessage, gitErrorCause } from "../errors.js";
 import { fetchRemoteTagRefs, type TagRef } from "../git-utils.js";
-import { keyHead, type UpdateRun, updateUnderRow } from "../key-update.js";
+import { keyHead, type UpdateRun } from "../key-update.js";
 import {
 	type ListActionResult,
 	reinstallResult,
@@ -9,8 +9,9 @@ import {
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { deriveCloneUrlFromKey } from "../source-parser.js";
 import type { Detail, Row, Status } from "../terminal/types.js";
-import type { Block } from "../ui.js";
+import type { Ui } from "../ui.js";
 import type { GroupMember } from "../update-groups.js";
+import { reinstallInSession } from "./list-update-action.js";
 
 /**
  * Caps the version list's window, so a repo with hundreds of tags scrolls
@@ -34,7 +35,6 @@ export async function executeChangeVersionAction(
 	row: Row,
 	manifest: Manifest,
 	run: UpdateRun,
-	progress: Block,
 ): Promise<ListActionResult> {
 	const { key, entry } = member;
 	const unchanged = (status: Status, detail: Detail): ListActionResult => {
@@ -51,11 +51,11 @@ export async function executeChangeVersionAction(
 	const fetched = await fetchVersions(
 		key,
 		deriveCloneUrlFromKey(key, entry.cloneUrl),
-		progress,
+		run.ui,
 	);
 	if ("cause" in fetched) {
 		return unchanged("attention", {
-			label: "couldn't fetch its versions",
+			label: "couldn't fetch its versions — left untouched",
 			aside: fetched.cause,
 		});
 	}
@@ -73,6 +73,7 @@ export async function executeChangeVersionAction(
 			...(tag.tag === entry.ref ? { hint: "current" } : {}),
 		})),
 		maxItems: MAX_VISIBLE_VERSIONS,
+		escape: "back",
 	});
 	if (picked === null) {
 		return { key, change: null };
@@ -92,7 +93,7 @@ export async function executeChangeVersionAction(
 
 	// It reinstalls as the entry it becomes, pinned to the tag, so a recovery
 	// re-adds that tag.
-	const outcome = await updateUnderRow(
+	const outcome = await reinstallInSession(
 		{ key, entry: stripConstraint(entry) },
 		manifest,
 		run,
@@ -112,9 +113,11 @@ export async function executeChangeVersionAction(
 async function fetchVersions(
 	key: string,
 	url: string,
-	progress: Block,
+	ui: Ui,
 ): Promise<{ tags: TagRef[] } | { cause: string }> {
-	const fetching = progress.task({ text: `fetching the versions of ${key}…` });
+	const fetching = ui
+		.block([])
+		.task({ text: `fetching the versions of ${key}…` });
 	try {
 		return { tags: [...(await fetchRemoteTagRefs(url))].reverse() };
 	} catch (err: unknown) {

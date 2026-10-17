@@ -195,8 +195,8 @@ describe("an open prompt's frame", () => {
 							? {
 									...option,
 									cells: [
-										{ text: "pack", dim: true },
-										{ text: "v1.0.0", aside: "^1.0.0" },
+										{ text: "pack", dim: true, drop: 1 },
+										{ text: "v1.0.0", aside: "^1.0.0", drop: 2 },
 										{ status: "newer" as const, text: "v1.1.0" },
 									],
 								}

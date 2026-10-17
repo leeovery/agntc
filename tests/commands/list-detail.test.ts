@@ -279,7 +279,7 @@ describe("askAction", () => {
 		detail: "skill",
 	};
 
-	it("asks what to do under the entry's row, in a block measured from it", async () => {
+	it("asks what to do under the entry's row, in a block measured from it, esc going back", async () => {
 		const ui = testUi();
 		ui.select.mockResolvedValue("remove");
 
@@ -293,6 +293,7 @@ describe("askAction", () => {
 				{ value: "remove", label: "Remove" },
 				{ value: "back", label: "Back" },
 			],
+			escape: "back",
 		});
 	});
 

@@ -119,13 +119,14 @@ describe("a list session", () => {
 		expect(ui.close).toHaveBeenCalledWith({ command: "list", counts: {} });
 	});
 
-	it("checks every entry under progress that clears, then asks with the dashboard's options and footer", async () => {
+	it("checks every entry under progress of its own that clears, then asks with the dashboard's options and footer", async () => {
 		installed(makeManifest(["owner/repo/a", "owner/repo/b"]));
 		ui.select.mockResolvedValue(null);
 
 		await runListLoop(ui);
 
 		const [progress] = ui.blocks;
+		expect(ui.block).toHaveBeenCalledWith([]);
 		expect(progress!.task).toHaveBeenCalledWith({
 			text: "checking 2 entries for updates…",
 		});
@@ -342,15 +343,16 @@ describe("a list session", () => {
 			);
 			expect(mockAskAction).toHaveBeenCalledTimes(2);
 			expect(mockCheckForUpdate).toHaveBeenCalledOnce();
-			const progress = ui.blocks[0]!;
-			const texts = progress.task.mock.calls.map(([{ text }]) => text);
+			const checks = ui.blocks.filter((block) => block.tasks.length > 0);
+			const texts = checks.map((block) => block.task.mock.calls[0]![0].text);
 			expect(texts).toEqual([
 				"checking 1 entry for updates…",
 				"checking owner/skill for updates…",
 				"checking 1 entry for updates…",
 			]);
-			for (const task of progress.tasks) {
-				expect(task.clear).toHaveBeenCalledOnce();
+			for (const check of checks) {
+				expect(check.tasks).toHaveLength(1);
+				expect(check.tasks[0]!.clear).toHaveBeenCalledOnce();
 			}
 			expect(ui.close).toHaveBeenCalledWith({
 				command: "list",
@@ -415,7 +417,7 @@ describe("a list session", () => {
 	});
 
 	describe("changing version", () => {
-		it("hands the action the entry, the row it asks under, the manifest, the run and the progress, then shows the entry again", async () => {
+		it("hands the action the entry, the row it asks under, the manifest and the run, then shows the entry again", async () => {
 			const manifest = makeManifest({
 				"owner/skill": makeEntry({ ref: "v1.0.0" }),
 			});
@@ -439,7 +441,6 @@ describe("a list session", () => {
 				row,
 				manifest,
 				expect.objectContaining({ ui, yes: false }),
-				ui.blocks[0],
 			);
 			expect(mockAskAction).toHaveBeenCalledTimes(2);
 			expect(ui.close).toHaveBeenCalledWith({

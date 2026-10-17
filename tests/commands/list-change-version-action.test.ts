@@ -163,21 +163,10 @@ function change(
 	scope: Scope = PROJECT,
 ) {
 	const run: UpdateRun = { scope, yes: false, ui, home: "/home/me" };
-	return executeChangeVersionAction(
-		{ key, entry },
-		ROW,
-		manifest,
-		run,
-		progress(),
-	);
+	return executeChangeVersionAction({ key, entry }, ROW, manifest, run);
 }
 
-/** The session's progress block, opened on the Ui so its tasks are recorded. */
-function progress() {
-	return ui.block([]);
-}
-
-/** The rows drawn, the session's progress block aside. */
+/** The rows drawn. */
 function drawn(): Row[] {
 	return ui.rows();
 }
@@ -204,7 +193,7 @@ beforeEach(() => {
 
 describe("executeChangeVersionAction", () => {
 	describe("fetching the versions", () => {
-		it("fetches the remote's tags under progress that clears", async () => {
+		it("fetches the remote's tags under progress of its own that clears", async () => {
 			picks("v1.1.0");
 			primeSuccessfulReinstall();
 
@@ -232,7 +221,7 @@ describe("executeChangeVersionAction", () => {
 				subject: "owner/repo",
 				meta: "v1.0.0",
 				detail: {
-					label: "couldn't fetch its versions",
+					label: "couldn't fetch its versions — left untouched",
 					aside: "git@github.com: Permission denied (publickey).",
 				},
 				children: [{ name: "skill" }],
@@ -283,6 +272,7 @@ describe("executeChangeVersionAction", () => {
 					},
 				],
 				maxItems: 15,
+				escape: "back",
 			});
 		});
 

@@ -263,6 +263,7 @@ describe("a task", () => {
 		await term.press();
 		expect(await term.lines()).toEqual([
 			" ! files in the way",
+			"",
 			" ? Overwrite them?   [Yes]  No",
 		]);
 		await term.press("y");
@@ -308,6 +309,7 @@ describe("a task", () => {
 			expect(await term.lines()).toEqual([
 				" · said under alpha",
 				" · said under beta",
+				"",
 				" ? Go on?   [Yes]  No",
 			]);
 			await term.press("n");

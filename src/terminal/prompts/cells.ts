@@ -31,9 +31,9 @@ export interface CellLayout {
 /**
  * The columns `choices` line up in, inside `room`: the widest label (with its
  * inset) and 3, then each cell as wide as the widest in its column and 3.
- * Where that's too wide, the asides go first, then the cells before the last,
- * from the right, the last kept; then the label column narrows, its labels
- * cut at their start, as a name is told apart by its tail.
+ * Where that's too wide, the asides go first, then the columns in the order
+ * their cells' `drop` gives; then the label column narrows, its labels cut
+ * at their start, as a name is told apart by its tail.
  */
 export function cellLayout<T>(
 	choices: readonly PlacedChoice<T>[],
@@ -66,8 +66,11 @@ export function cellLayout<T>(
 		asides = false;
 		columns = widths(asides);
 	}
-	while (!fits() && kept.length > 1) {
-		kept = [...kept.slice(0, -2), ...kept.slice(-1)];
+	for (const dropped of dropOrder(choices, count)) {
+		if (fits()) {
+			break;
+		}
+		kept = kept.filter((index) => index !== dropped);
 	}
 	const labelColumn = Math.max(0, Math.min(label + CELL_GAP, room - span()));
 	let at = labelColumn;
@@ -105,6 +108,25 @@ export function cellsText<T>(
 		}
 	}
 	return truncate(line, room);
+}
+
+/** The columns that may drop, in the order they do: by the lowest `drop` their cells give. */
+function dropOrder<T>(
+	choices: readonly PlacedChoice<T>[],
+	count: number,
+): number[] {
+	const ranks = Array.from({ length: count }, (_, index) =>
+		Math.min(
+			...choices.map(
+				({ choice }) =>
+					cellsOf(choice)[index]?.drop ?? Number.POSITIVE_INFINITY,
+			),
+		),
+	);
+	return ranks
+		.flatMap((rank, index) => (Number.isFinite(rank) ? [{ rank, index }] : []))
+		.sort((a, b) => a.rank - b.rank)
+		.map(({ index }) => index);
 }
 
 function cellsOf<T>(choice: Choice<T>): readonly ChoiceCell[] {

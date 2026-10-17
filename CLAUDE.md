@@ -21,7 +21,7 @@ src/
   commands/                 # add, remove, update, list (+ list-*-action, list-detail), init
   init/                     # Skill and pack scaffolding, type select, preview/confirm
   command-action.ts         # Commander action wrapper: resolves mode (resolveMode), runs with the matching Ui, writes the machine document, maps ExitSignal to exit code
-  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row, fitted to the room the question and its options' share leave (children cut whole, `… N more`), erased with the question; a select's choices may carry cells, lined up in columns laid out from every choice, and a footer of key hints and counts; stoppingUi (fail and cancel draw what the run owes first)
+  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row, fitted to the room the question and its options' share leave (children cut whole, `… N more`), erased with the question, as is the blank line any question after other lines opens with; a select's choices may carry cells, lined up in columns laid out from every choice (dropped in their `drop` order where the line is too narrow), and a footer of key hints and counts; `escape` names what esc does; stoppingUi (fail and cancel draw what the run owes first)
   message.ts                # Message (string | RichMessage), SubjectMessage, Advice, Remedy; plainText, isMachineOnly; machineOnly, sentence and failure word a plain string for both modes
   documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
   scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
@@ -58,7 +58,8 @@ src/
   git-utils.ts              # execGit (a timed-out command's message opens `git <cmd> timed out after Ns`); withGitRetry, the one retry (GIT_ATTEMPTS, delays) clones and remote reads share; isFinalGitError, what isn't retried (HTTPS credential failures and timeouts; an SSH "Permission denied" is retried); lsRemote, every remote read (tags, default branch, update-check probes), each attempt under its own timeout
   update-check.ts           # Per-member categorization vs remote (categorizeMember, GroupTarget); constrained checks
   update-check-all.ts       # Checks for every entry (list)
-  key-update.ts             # One entry's update under its own row, as `update <key>` draws it (updateUnderRow, updatePlan); list's update and change version share it
+  key-update.ts             # One entry's update under the row its caller opened (keyRowProgress, updateUnderRow: settle the row, then record), which `update <key>` and list's update and change version share; updatePlan; a throw is the caller's to take (list settles it as failedKey)
+  update-outcomes.ts        # The per-unit boundaries every update path shares: reportOutcomes (notes, Next remedies) and persistUnitOutcomes (fold and write)
   update-groups.ts          # All-mode group-first dedup: group by (cloneUrl, versionIntent), resolve/clone once per group, orchestrate reinstalls (packs first); PluginOutcome model
   update-render.ts          # All-mode update output: group label, header, per-member/collapsed lines, tag-vs-hash move (re-exports formatVersionMove)
   version-resolve.ts        # Semver tag resolution (resolveVersion, resolveLatestVersion, newestTag); tag-vs-hash rule (isVersionTag, formatVersionMove)

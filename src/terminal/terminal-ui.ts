@@ -145,7 +145,7 @@ export class TerminalUi implements Ui {
 			// Until the block draws, the blank line it opens with is the
 			// question's, and goes with it: a block that only asks leaves nothing.
 			const above = (room: number) => {
-				const opening = opened || this.endsBlank() ? [] : [""];
+				const opening = opened ? [] : this.opening();
 				const lines = renderRowWithin(
 					row,
 					room - 1 - opening.length,
@@ -227,16 +227,23 @@ export class TerminalUi implements Ui {
 		}
 	}
 
+	/** A question after other lines carries the blank line below them in its frame, as a block's does. */
 	select<T>(prompt: SelectPrompt<T>): Promise<T | null> {
-		return this.ask((context) => promptSelect(prompt, context));
+		return this.ask((context) =>
+			promptSelect({ ...prompt, above: this.opening }, context),
+		);
 	}
 
 	multiselect<T>(prompt: MultiselectPrompt<T>): Promise<T[]> {
-		return this.ask((context) => promptMultiselect(prompt, context));
+		return this.ask((context) =>
+			promptMultiselect({ ...prompt, above: this.opening }, context),
+		);
 	}
 
 	confirm(prompt: ConfirmPrompt): Promise<boolean> {
-		return this.ask((context) => promptConfirm(prompt, context));
+		return this.ask((context) =>
+			promptConfirm({ ...prompt, above: this.opening }, context),
+		);
 	}
 
 	report(): void {}
@@ -363,6 +370,9 @@ export class TerminalUi implements Ui {
 			pending.push(...lines);
 		}
 	}
+
+	/** The blank line a section opens with, none where the line above is blank already. */
+	private readonly opening = (): string[] => (this.endsBlank() ? [] : [""]);
 
 	/** `lines`, the blank line they open with left off where the line above them is blank already. */
 	private printSection(lines: readonly string[]): void {

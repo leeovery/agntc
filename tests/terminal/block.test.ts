@@ -862,6 +862,31 @@ describe("a row's fields", () => {
 			expect(within(2)).toEqual([HEAD, "   … 5 more"]);
 		});
 
+		it("counts a field of items by its noun, those sharing one together, and any other field and child as one more", () => {
+			const folders = (count: number) =>
+				Array.from({ length: count }, (_, index) => `folder-${index}`);
+			const removal: Row = {
+				status: "subject",
+				subject: "owner/repo",
+				fields: [
+					{ label: ".claude/skills/", value: ["a"], noun: "folder" },
+					{ label: ".claude/skills/", value: folders(33), noun: "folder" },
+					{ label: ".agents/skills/", value: ["b"], noun: "folder" },
+					{ label: ".claude/agents/", value: ["one.md"], noun: "agent" },
+					{ label: "note", value: "plain" },
+				],
+				children: [{ name: "c" }],
+			};
+			const lines = renderRowWithin(
+				removal,
+				3,
+				blockLayout([removal], 40),
+				40,
+				plain,
+			);
+			expect(lines.at(-1)).toBe("   … 34 more folders, 1 more agent, 2 more");
+		});
+
 		it("counts it as a child once every field is kept", () => {
 			const twoChildren: Row = {
 				...DETAIL,

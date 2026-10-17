@@ -22,6 +22,7 @@ import type {
 	BlockSubject,
 	Child,
 	Detail,
+	Field,
 	Move,
 	Progress,
 	Row,
@@ -119,8 +120,9 @@ export function renderRow(
 /**
  * The row in at most `room` lines: its head, as many of its fields and then
  * its children as fit whole, then a dim `… N more` line counting those left
- * out, a child's when a child is the first of them. Its head alone when not
- * even that line fits beside it; nothing when the head doesn't fit.
+ * out ({@link leftOut}), a child's when a child is the first of them. Its
+ * head alone when not even that line fits beside it; nothing when the head
+ * doesn't fit.
  */
 export function renderRowWithin(
 	row: Row,
@@ -131,11 +133,14 @@ export function renderRowWithin(
 ): string[] {
 	const head = headLines(row, layout, width, style);
 	const units = bodyUnits(row, layout, width, style);
-	const fields = row.fields?.length ?? 0;
+	const fields = row.fields ?? [];
 	const child = childPen(row, layout, width, style);
 	const more = (from: number) => {
-		const text = `… ${units.length - from} more`;
-		return from < fields
+		const text = leftOut(
+			fields.slice(from),
+			units.length - Math.max(from, fields.length),
+		);
+		return from < fields.length
 			? [indent(FIELD_AT) + style.dim(text)]
 			: child({ name: text, dim: true }, true);
 	};
@@ -153,6 +158,27 @@ export function renderRowWithin(
 		kept.push(...lines);
 	}
 	return head.length + kept.length <= room ? [...head, ...kept] : [];
+}
+
+/**
+ * What a cut row leaves out, in words: a field of items with a noun by its
+ * items, as `33 more folders`, those sharing a noun together; any other
+ * field, and each child, as one more.
+ */
+function leftOut(fields: readonly Field[], children: number): string {
+	const items = new Map<string, number>();
+	let others = children;
+	for (const { value, noun } of fields) {
+		if (noun !== undefined && typeof value !== "string") {
+			items.set(noun, (items.get(noun) ?? 0) + value.length);
+		} else {
+			others += 1;
+		}
+	}
+	const parts = [...items].map(
+		([noun, count]) => `${count} more ${count === 1 ? noun : `${noun}s`}`,
+	);
+	return `… ${[...parts, ...(others > 0 ? [`${others} more`] : [])].join(", ")}`;
 }
 
 /** What hangs under a row's own lines, each whole: its fields' lines, then its children's. */

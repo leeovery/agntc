@@ -117,6 +117,14 @@ describe("wrapItems", () => {
 		]);
 	});
 
+	it("joins an item that fills the line exactly", () => {
+		expect(wrapItems(["abc", "de"], 7)).toEqual(["abc  de"]);
+	});
+
+	it("wraps a first item too long for a line, leaving no empty line before it", () => {
+		expect(wrapItems(["abcdefghij", "b"], 6)).toEqual(["abcdef", "ghij", "b"]);
+	});
+
 	it("gives no lines for no items", () => {
 		expect(wrapItems([], 10)).toEqual([]);
 	});

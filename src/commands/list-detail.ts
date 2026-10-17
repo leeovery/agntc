@@ -55,6 +55,7 @@ export async function askAction(
 	const selected = await ui.block([row]).select<DetailAction>(row, {
 		message: "Action",
 		options: detailActions(ref, check),
+		escape: "back",
 	});
 	return selected ?? "back";
 }
