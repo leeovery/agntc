@@ -8,7 +8,7 @@ import {
 } from "../../src/terminal/block.js";
 import { visibleWidth } from "../../src/terminal/layout.js";
 import { createStyle } from "../../src/terminal/style.js";
-import type { Progress, Row } from "../../src/terminal/types.js";
+import type { Child, Progress, Row } from "../../src/terminal/types.js";
 
 const plain = createStyle(0);
 const color = createStyle(3);
@@ -525,6 +525,133 @@ describe("renderRow", () => {
 		});
 	});
 
+	describe("a child's aside", () => {
+		const shared: Row = {
+			status: "done",
+			subject: "owner/repo",
+			meta: "HEAD",
+			detail: "2 of 3 installed",
+			children: [
+				{ name: "testing", aside: "skills/frontend", detail: "skill" },
+				{ name: "testing", aside: "skills/backend", detail: "skill" },
+			],
+		};
+
+		it.each([
+			80, 100,
+		])("leads the detail column, then ` · `, the columns sized from the names alone, at %i", (width) => {
+			expect(block([shared], width)).toEqual([
+				" ✓ owner/repo   HEAD   2 of 3 installed",
+				"   ├─ testing          skills/frontend · skill",
+				"   └─ testing          skills/backend · skill",
+			]);
+		});
+
+		it("is dim, its join with it, the detail in its own tone", () => {
+			const failed: Row = {
+				...shared,
+				status: "failed",
+				children: [
+					{
+						name: "testing",
+						status: "failed",
+						aside: "skills",
+						detail: "disk full",
+					},
+				],
+			};
+			expect(block([failed], 80, color).at(-1)).toBe(
+				`   \x1b[2m└─\x1b[22m \x1b[31m✗\x1b[39m testing${gap(10)}\x1b[2mskills · \x1b[22mdisk full`,
+			);
+		});
+
+		it("is dim on a line of its own, whatever the child's tone, the detail below in that tone", () => {
+			const failedChild = (child: Partial<Child>): Row => ({
+				status: "failed",
+				subject: "r",
+				children: [{ name: "testing", status: "failed", ...child }],
+			});
+			expect(block([failedChild({ aside: "skills" })], 80, color)).toEqual([
+				" \x1b[31m✗\x1b[39m \x1b[1mr\x1b[22m",
+				"   \x1b[2m└─\x1b[22m \x1b[31m✗\x1b[39m testing   \x1b[2mskills\x1b[22m",
+			]);
+			expect(
+				block(
+					[failedChild({ aside: "skills/frontend", detail: "disk full" })],
+					29,
+					color,
+				).slice(2),
+			).toEqual([
+				"        \x1b[2mskills/frontend\x1b[22m",
+				"        disk full",
+			]);
+		});
+
+		it("paints every line of a detail running on behind it in the detail's tone", () => {
+			const long: Row = {
+				status: "done",
+				subject: "r",
+				children: [
+					{
+						name: "testing",
+						aside: "skills",
+						detail: "one two three four five six",
+					},
+				],
+			};
+			expect(block([long], 30, color).slice(2)).toEqual([
+				"      \x1b[2mskills · \x1b[22m\x1b[2mone two three\x1b[22m",
+				"      \x1b[2mfour five six\x1b[22m",
+			]);
+		});
+
+		it("stands alone where the child has no detail", () => {
+			expect(
+				block([{ ...shared, children: [{ name: "a", aside: "x/y" }] }], 80),
+			).toEqual([
+				" ✓ owner/repo   HEAD   2 of 3 installed",
+				"   └─ a                x/y",
+			]);
+		});
+
+		const narrow = (width: number) =>
+			block(
+				[
+					{
+						status: "done",
+						subject: "r",
+						children: [
+							{ name: "testing", aside: "skills/frontend", detail: "skill" },
+						],
+					},
+				],
+				width,
+			).slice(1);
+
+		it("keeps the detail beside it where its first word fits exactly", () => {
+			expect(narrow(30)).toEqual([
+				"   └─ testing",
+				"      skills/frontend · skill",
+			]);
+		});
+
+		it("gives way first: the detail starts below where not a word of it fits beside", () => {
+			expect(narrow(29)).toEqual([
+				"   └─ testing",
+				"      skills/frontend",
+				"      skill",
+			]);
+		});
+
+		it("is cut at its start, keeping the folder nearest the name, where it alone won't fit", () => {
+			expect(narrow(20)).toEqual([
+				"   └─ testing",
+				"      …lls/frontend",
+				"      skill",
+			]);
+		});
+	});
+
 	describe("in colour", () => {
 		it("paints the glyph, a bold subject, dim meta and a dim-then-bold move", () => {
 			expect(
@@ -820,13 +947,60 @@ describe("renderRowWithin", () => {
 		expect(within(4)).toEqual([
 			" ● owner/repo",
 			"   version          v1.0.0",
-			"   … 11 more folders, 1 more agent, 1",
-			"   more hook",
+			"   … 11 more folders, 1 more agent,",
+			"   1 more hook",
 		]);
 		expect(within(3)).toEqual([
 			" ● owner/repo",
-			"   … 11 more folders, 1 more agent, 1",
-			"   more hook, 1 more",
+			"   … 11 more folders, 1 more agent,",
+			"   1 more hook, 1 more",
+		]);
+	});
+
+	it("counts a field's items each by its own noun, where it names one per item", () => {
+		const mixed: Row = {
+			status: "subject",
+			subject: "owner/repo",
+			fields: [
+				{ label: "version", value: "v1.0.0" },
+				{
+					label: ".claude/skills/",
+					value: ["a", "shared", "b", "c"],
+					noun: ["skill", "folder", "skill", "skill"],
+				},
+				{ label: ".claude/hooks/", value: ["lint.sh"], noun: "hook" },
+			],
+		};
+		expect(
+			renderRowWithin(mixed, 2, blockLayout([mixed], 60), 60, plain),
+		).toEqual([
+			" ● owner/repo",
+			"   … 3 more skills, 1 more folder, 1 more hook, 1 more",
+		]);
+	});
+
+	it("breaks a count too wide for its room between words, never inside one", () => {
+		const many: Row = {
+			status: "done",
+			subject: "owner/repo",
+			children: [
+				...Array.from({ length: 33 }, (_, index) => ({
+					name: `s${index}`,
+					noun: "skill",
+				})),
+				{ name: "x", detail: "a" },
+				{ name: "y", detail: "b" },
+			],
+		};
+		expect(
+			renderRowWithin(many, 6, blockLayout([many], 20), 20, plain),
+		).toEqual([
+			" ✓ owner/repo",
+			"   ├─ s0",
+			"   ├─ s1",
+			"   └─ … 31 more",
+			"      skills,",
+			"      2 more",
 		]);
 	});
 
@@ -970,8 +1144,8 @@ describe("renderRowsWithin", () => {
 		const narrow = blockLayout(asked.rows, 40);
 		expect(renderRowsWithin(asked, 4, narrow, 40, plain)).toEqual([
 			" ● owner/nuxt",
-			"   … 11 more folders, 1 more agent, 1",
-			"   more hook",
+			"   … 11 more folders, 1 more agent,",
+			"   1 more hook",
 			" … 1 more entry",
 		]);
 	});
@@ -1251,8 +1425,8 @@ describe("a row's fields", () => {
 				renderRowWithin(removal, room, layout, 30, plain);
 			expect(within(3)).toEqual([
 				" ● owner/repo",
-				"   … 2 more folders, 1 more",
-				"   agent, 1 more hook",
+				"   … 2 more folders,",
+				"   1 more agent, 1 more hook",
 			]);
 			expect(within(2)).toEqual([" ● owner/repo"]);
 		});

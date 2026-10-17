@@ -1,24 +1,22 @@
-import type { MenuOption } from "./choose-items.js";
 import type { InstallItem } from "./install-item.js";
 import type { Row } from "./terminal/types.js";
-import type { Block } from "./ui.js";
+import type { Block, Choice } from "./ui.js";
 
 /** Asks which items to install, under the source's row. A cancel picks nothing. */
 export async function promptForItems(
-	options: MenuOption[],
+	choices: readonly Choice<InstallItem>[],
 	source: Row,
 	block: Block,
 ): Promise<InstallItem[]> {
 	const picked = await block.multiselect<number>(source, {
 		message: "Select what to install",
-		options: options.map(({ label, hint }, index) => ({
+		options: choices.map(({ value: _, ...shown }, index) => ({
 			value: index,
-			label,
-			...(hint !== undefined ? { hint } : {}),
+			...shown,
 		})),
 		required: false,
 	});
-	return options
+	return choices
 		.filter((_, index) => picked.includes(index))
 		.map(({ value }) => value);
 }

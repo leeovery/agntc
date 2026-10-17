@@ -298,17 +298,13 @@ describe("integration: add and update", () => {
 			"skills/backend/laravel/SKILL.md": "",
 		};
 
-		it("offers each skill by path and installs what's picked", async () => {
+		it("offers each skill by name, in path order, and installs what's picked", async () => {
 			await repo("owner/categorised", CATEGORISED);
 			ui.multiselect.mockResolvedValue([1]);
 
 			await runAdd("owner/categorised", {}, ui);
 
-			expect(menuLabels()).toEqual([
-				"skills/backend/laravel",
-				"skills/frontend/react",
-				"skills/frontend/vue",
-			]);
+			expect(menuLabels()).toEqual(["laravel", "react", "vue"]);
 			expect(ui.multiselect.mock.calls[0]![0].options[1]).toMatchObject({
 				hint: "React patterns.",
 			});
@@ -575,7 +571,7 @@ describe("integration: add and update", () => {
 
 				expect(err).toBeUndefined();
 				expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-					message: "Remove it and its folder?",
+					message: "Remove it and its skill?",
 					initialValue: false,
 				});
 				expect(await installed(".claude/skills/gone/SKILL.md")).toBe(true);
@@ -1156,9 +1152,9 @@ describe("integration: add and update", () => {
 					meta: "HEAD",
 					detail: "1 pack · 1 skill",
 					children: [
-						{ name: "skills/other", detail: "skill" },
+						{ name: "other", detail: "skill" },
 						{
-							name: "laravel/skills/api",
+							name: "api",
 							status: "note",
 							detail:
 								"already installed as part of the pack owner/repo/laravel",

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+	type Choice,
 	type ChoiceContext,
 	chooseItems,
+	type MenuOption,
 	menuOption,
 	offeredItems,
 	optionLine,
 	type Selection,
+	type SkillNote,
 	selectionFromFlags,
 	unansweredMenu,
 } from "../src/choose-items.js";
@@ -15,6 +18,7 @@ import type {
 	FoundSkill,
 	StrayAssets,
 } from "../src/discover.js";
+import type { InstallItem } from "../src/install-item.js";
 import { plainText, sentence } from "../src/message.js";
 
 const ctx: ChoiceContext = {
@@ -180,17 +184,25 @@ describe("optionLine", () => {
 	});
 });
 
+/** What a menu choice offers, as the machine refusal lists it. */
+function offered(choice: Choice): MenuOption[] {
+	return choice.outcome.kind === "menu"
+		? choice.outcome.items.map((item) => menuOption(item, "repo"))
+		: [];
+}
+
+function notesOf(choice: Choice): SkillNote[] {
+	return choice.outcome.kind === "refuse" ? [] : choice.outcome.notes;
+}
+
 describe("unansweredMenu", () => {
 	it("names the flags and the path that answer it, then lists what it would have offered", () => {
-		const options = [
-			menuOption({ kind: "pack", pack: LARAVEL }, "repo"),
-			menuOption(
-				{ kind: "skill", skill: skill("a", { description: "Does A\nmore" }) },
-				"repo",
-			),
+		const items: InstallItem[] = [
+			{ kind: "pack", pack: LARAVEL },
+			{ kind: "skill", skill: skill("a", { description: "Does A\nmore" }) },
 		];
 
-		expect(unansweredMenu(options)).toBe(
+		expect(unansweredMenu(items, "repo")).toBe(
 			[
 				"found more than one thing to install — name what to install with --skill, --pack or --all, or add the path to one skill or pack:",
 				"  laravel (pack · 2 skills)",
@@ -500,7 +512,6 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toMatchObject({
 				notes: [
 					{
-						subject: "laravel/skills/api",
 						detail:
 							"part of the pack laravel — installed on its own, without models",
 						text: "api is part of the pack laravel — installed on its own, without models",
@@ -686,10 +697,12 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(
-				choice.outcome.kind === "menu" &&
-					choice.outcome.options.map((option) => option.label),
-			).toEqual(["laravel", "z-pack", "tools/a", "tools/b"]);
+			expect(offered(choice).map((option) => option.label)).toEqual([
+				"laravel",
+				"z-pack",
+				"tools/a",
+				"tools/b",
+			]);
 		});
 
 		it("labels a pack with its skill count and a skill with its description's first line", () => {
@@ -707,39 +720,37 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.outcome).toEqual({
-				kind: "menu",
-				options: [
-					{
-						value: { kind: "pack", pack: LARAVEL },
-						label: "laravel",
-						hint: "pack · 2 skills",
+			expect(choice.outcome.kind).toBe("menu");
+			expect(offered(choice)).toEqual([
+				{
+					value: { kind: "pack", pack: LARAVEL },
+					label: "laravel",
+					hint: "pack · 2 skills",
+				},
+				{
+					value: {
+						kind: "pack",
+						pack: pack("one", { skills: [skill("one/s")] }),
 					},
-					{
-						value: {
-							kind: "pack",
-							pack: pack("one", { skills: [skill("one/s")] }),
-						},
-						label: "one",
-						hint: "pack · 1 skill",
+					label: "one",
+					hint: "pack · 1 skill",
+				},
+				{
+					value: { kind: "skill", skill: skill("tools/bare") },
+					label: "tools/bare",
+				},
+				{
+					value: {
+						kind: "skill",
+						skill: skill("tools/lint", {
+							description: "Lints things.\nAnd more besides.",
+						}),
 					},
-					{
-						value: { kind: "skill", skill: skill("tools/bare") },
-						label: "tools/bare",
-					},
-					{
-						value: {
-							kind: "skill",
-							skill: skill("tools/lint", {
-								description: "Lints things.\nAnd more besides.",
-							}),
-						},
-						label: "tools/lint",
-						hint: "Lints things.",
-					},
-				],
-				notes: [],
-			});
+					label: "tools/lint",
+					hint: "Lints things.",
+				},
+			]);
+			expect(notesOf(choice)).toEqual([]);
 		});
 
 		it("labels a root pack with the repo name", () => {
@@ -752,9 +763,10 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.outcome).toMatchObject({
-				options: [{ label: "repo" }, { label: "other/x" }],
-			});
+			expect(offered(choice)).toMatchObject([
+				{ label: "repo" },
+				{ label: "other/x" },
+			]);
 		});
 
 		it("leaves empty packs off the menu", () => {
@@ -764,9 +776,7 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.outcome).toMatchObject({
-				options: [{ label: "a" }, { label: "b" }],
-			});
+			expect(offered(choice)).toMatchObject([{ label: "a" }, { label: "b" }]);
 		});
 
 		it("refuses when the only packs found are empty, naming them", () => {
@@ -804,7 +814,6 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toMatchObject({
 				notes: [
 					{
-						subject: "tools/api",
 						detail: "already installed as part of the pack owner/repo/laravel",
 						text: API_NOTE,
 						plain: API_NOTE,
@@ -899,16 +908,14 @@ describe("chooseItems", () => {
 				packed,
 			);
 
-			expect(choice.outcome).toEqual({
-				kind: "menu",
-				options: [
-					{
-						value: { kind: "skill", skill: skill("tools/lint") },
-						label: "tools/lint",
-					},
-				],
-				notes: [said(API_NOTE)],
-			});
+			expect(choice.outcome.kind).toBe("menu");
+			expect(offered(choice)).toEqual([
+				{
+					value: { kind: "skill", skill: skill("tools/lint") },
+					label: "tools/lint",
+				},
+			]);
+			expect(notesOf(choice)).toEqual([said(API_NOTE)]);
 		});
 
 		it("installs nothing when it is all a source offers", () => {
@@ -932,11 +939,10 @@ describe("chooseItems", () => {
 				packed,
 			);
 
-			expect(choice.outcome).toMatchObject({
-				kind: "menu",
-				options: [{ label: "laravel" }, { label: "tools/lint" }],
-				notes: [],
-			});
+			expect(offered(choice)).toMatchObject([
+				{ label: "laravel" },
+				{ label: "tools/lint" },
+			]);
 		});
 	});
 });

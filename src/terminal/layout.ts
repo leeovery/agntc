@@ -218,6 +218,20 @@ export function truncate(text: string, width: number): string {
 	return width < 1 ? kept : `${kept}…`;
 }
 
+/** Between an aside and the hint or detail it leads. */
+export const ASIDE_JOIN = " · ";
+/** The fewest columns an aside is shown in: its `…` and two of its own. */
+const MIN_ASIDE = 3;
+
+/**
+ * An aside inside `room`: whole where it fits, else cut at its start, so the
+ * folder nearest the name stays; empty when fewer than three columns are
+ * left, however short it is, so asides telling twins apart go together.
+ */
+export function fitAside(aside: string, room: number): string {
+	return room < MIN_ASIDE ? "" : truncateStart(aside, room);
+}
+
 /** Plain text cut at the start to fit `width`, marked with `…`. */
 export function truncateStart(text: string, width: number): string {
 	if (visibleWidth(text) <= width) {
@@ -316,7 +330,7 @@ function wrapParagraph(
 		room = full;
 	};
 
-	for (const word of text.split(" ").filter((word) => word !== "")) {
+	for (const word of unitsOf(text, full)) {
 		const wordWidth = visibleWidth(word);
 		const used = line === "" ? 0 : visibleWidth(line) + 1;
 		if (used + wordWidth <= room) {
@@ -346,6 +360,43 @@ function wrapParagraph(
 	lines.push(line);
 	return lines;
 }
+
+/**
+ * What a line breaks between: its words, but a count stays with the noun
+ * after it, through a `more` between them, and a `…` with what it leads, so
+ * neither `1 hook` nor `… 3 more skills` splits across lines. A unit wider
+ * than `full` breaks between its words instead, so no word in it is cut.
+ */
+function unitsOf(text: string, full: number): string[] {
+	const units: string[][] = [];
+	let unit: string[] = [];
+	for (const word of text.split(" ").filter((each) => each !== "")) {
+		unit.push(word);
+		if (!leads(word, unit)) {
+			units.push(unit);
+			unit = [];
+		}
+	}
+	if (unit.length > 0) {
+		units.push(unit);
+	}
+	return units.flatMap((words) => {
+		const joined = words.join(" ");
+		return visibleWidth(joined) <= full ? [joined] : words;
+	});
+}
+
+/** Whether `word`, last in `unit`, holds on to the word after it. */
+function leads(word: string, unit: readonly string[]): boolean {
+	const before = unit.at(-2);
+	return (
+		word === "…" ||
+		COUNT.test(word) ||
+		(word === "more" && before !== undefined && COUNT.test(before))
+	);
+}
+
+const COUNT = /^\d+$/;
 
 /**
  * The longest start of `word` that ends on a `/` past its first character
@@ -403,7 +454,7 @@ function breakWord(word: string, first: number, rest: number): string[] {
 /**
  * Where a line `next` overflows is cut: after its last `/` (at `slash`) when
  * what follows it and `next` fit `rest`; else before `next`, or a character
- * sooner when `next` is a `/`, so the line after doesn't open on it.
+ * sooner when `next` is a `/` or a `,`, so the line after doesn't open on it.
  */
 function cutAt(
 	line: readonly string[],
@@ -417,7 +468,9 @@ function cutAt(
 		return slash;
 	}
 	const sooner = line.length - 1;
-	return next === "/" && sooner > 0 && fits(sooner) ? sooner : line.length;
+	return (next === "/" || next === ",") && sooner > 0 && fits(sooner)
+		? sooner
+		: line.length;
 }
 
 function columnsOf(clusters: readonly string[]): number {

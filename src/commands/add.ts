@@ -13,6 +13,8 @@ import {
 	askedRow,
 	holdings,
 	listedRow,
+	offerChoices,
+	packKind,
 	pickedDetail,
 	sourceHead,
 	sourceSubject,
@@ -23,13 +25,13 @@ import {
 	type ChoiceOutcome,
 	chooseItems,
 	heldDetail,
-	menuOption,
 	offeredItems,
 	type Selection,
 	type SelectionFlags,
 	type SkillNote,
 	type StrayNotice,
 	selectionFromFlags,
+	skillHint,
 	strayNotices,
 	unansweredMenu,
 } from "../choose-items.js";
@@ -41,6 +43,7 @@ import {
 } from "../clear-conflicts.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { checkItemLinks, copyItem } from "../copy-item.js";
+import { packCounts } from "../copy-pack.js";
 import { type CopySource, PathTraversalError } from "../copy-safety.js";
 import {
 	type Discovery,
@@ -62,7 +65,6 @@ import { cleanupTempDir, cloneSource } from "../git-clone.js";
 import { fetchDefaultBranch, fetchRemoteTags } from "../git-utils.js";
 import {
 	type InstallItem,
-	itemLabel,
 	itemPath,
 	type KeyedItem,
 	keyItems,
@@ -104,7 +106,13 @@ import {
 import type { ItemIdentity, ItemOutcome } from "../summary.js";
 import { adviceItem, remedyItem } from "../terminal/next.js";
 import type { Row, RowHead } from "../terminal/types.js";
-import { type Block, type BlockTask, stoppingUi, type Ui } from "../ui.js";
+import {
+	type Block,
+	type BlockTask,
+	type Choice,
+	stoppingUi,
+	type Ui,
+} from "../ui.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
 export interface AddOptions extends SelectionFlags {
@@ -156,6 +164,7 @@ class SourceRow {
 		readonly head: RowHead,
 		readonly held: string,
 		readonly notes: readonly SkillNote[],
+		readonly rootName: string,
 	) {}
 
 	copying(): void {
@@ -177,7 +186,9 @@ class SourceRow {
 	/** Unchanged before the copy begins; failed once it has, as files may be on disk. */
 	stop(): void {
 		const status = this.copy === undefined ? "unchanged" : "failed";
-		this.draw(stoppedRow(this.head, this.held, this.notes, status));
+		this.draw(
+			stoppedRow(this.head, this.held, this.notes, this.rootName, status),
+		);
 	}
 }
 
@@ -398,7 +409,7 @@ async function listSource(
 	const row = listedRow(
 		headOf(src, items),
 		holdings(items),
-		items.map((item) => menuOption(item, src.rootName)),
+		await itemChoices(items, src),
 	);
 	ui.block([row]).row(row);
 	ui.close({ command: "add", counts: {} });
@@ -475,7 +486,7 @@ async function pickItems(
 	}
 	return {
 		items: keyed.items,
-		...(outcome.kind === "menu" ? { offered: outcome.options.length } : {}),
+		...(outcome.kind === "menu" ? { offered: outcome.items.length } : {}),
 	};
 }
 
@@ -491,15 +502,31 @@ function sourceRow(
 	const offered = offeredItems(discovery);
 	const head = headOf(src, offered);
 	const notes = notesOf(outcome).map(shownHeld);
-	const names = choiceItems(outcome).map((item) =>
-		itemLabel(item, src.rootName),
-	);
+	const items = choiceItems(outcome).map(itemPath);
 	return new SourceRow(
-		ui.block([sourceSubject(head, names, notes)]),
+		ui.block([sourceSubject(head, items, notes, src.rootName)]),
 		head,
 		holdings(offered),
 		notes,
+		src.rootName,
 	);
+}
+
+/** The items as the menu and `--list` offer them, a pack counted as its copy will count it. */
+async function itemChoices(
+	items: readonly InstallItem[],
+	src: FetchedSource,
+): Promise<Choice<InstallItem>[]> {
+	const offers = await Promise.all(
+		items.map(async (item) => ({
+			item,
+			hint:
+				item.kind === "pack"
+					? packKind(await packCounts(item.pack, src.root))
+					: skillHint(item.skill),
+		})),
+	);
+	return offerChoices(offers, src.rootName);
 }
 
 /** A held skill's note as the terminal tells it: a local pack's key shortened against the home folder. */
@@ -517,7 +544,7 @@ function choiceItems(outcome: ChoiceOutcome): InstallItem[] {
 		case "install":
 			return outcome.items;
 		case "menu":
-			return outcome.options.map(({ value }) => value);
+			return outcome.items;
 		case "refuse":
 			return [];
 	}
@@ -595,12 +622,19 @@ async function settle(
 		case "menu": {
 			tellNotes(outcome.notes, ui);
 			if (ui.mode === "machine") {
-				const offered = outcome.options.map(({ value }) => value);
-				ui.report(listingBody(sourceJson(src), offered, discovery.strays));
-				return refuse(src, unansweredMenu(outcome.options), ui, MENU_FLAGS);
+				ui.report(
+					listingBody(sourceJson(src), outcome.items, discovery.strays),
+				);
+				return refuse(
+					src,
+					unansweredMenu(outcome.items, src.rootName),
+					ui,
+					MENU_FLAGS,
+				);
 			}
-			const asked = askedRow(row.head, row.held, row.notes);
-			const picked = await promptForItems(outcome.options, asked, row.block);
+			const asked = askedRow(row.head, row.held, row.notes, row.rootName);
+			const choices = await itemChoices(outcome.items, src);
+			const picked = await promptForItems(choices, asked, row.block);
 			if (picked.length === 0) {
 				ui.cancel("Cancelled — nothing selected");
 				throw new ExitSignal(0);
@@ -642,6 +676,7 @@ async function installItems(
 			offered === undefined ? row.held : pickedDetail(outcomes, offered),
 			inItemOrder(outcomes, items),
 			row.notes,
+			row.rootName,
 			home,
 		),
 	);
@@ -746,9 +781,8 @@ function failsTheRun(outcome: ItemOutcome): boolean {
 	return outcome.status === "failed" || outcome.flags !== undefined;
 }
 
-function identify({ item, key }: KeyedItem, rootName: string): ItemIdentity {
+function identify({ item, key }: KeyedItem): ItemIdentity {
 	return {
-		label: itemLabel(item, rootName),
 		key,
 		kind: item.kind,
 		path: itemPath(item),
@@ -802,7 +836,7 @@ async function checkItem(
 	installRoot: string,
 	{ policy, ui, home, source, scope }: CheckContext,
 ): Promise<CheckedItem> {
-	const identity = identify(keyed, src.rootName);
+	const identity = identify(keyed);
 	const refusal =
 		keyTaken(keyed, src, manifest, scope) ??
 		(await escapingSymlink(keyed, src));
@@ -956,7 +990,7 @@ async function installKeyedItem(
 ): Promise<InstalledItem> {
 	const { item, key, sourceSubpath } = keyed;
 	const identity = {
-		...identify(keyed, src.rootName),
+		...identify(keyed),
 		...withCleared(cleared),
 	};
 	const failed = (reason: string): ItemOutcome => ({

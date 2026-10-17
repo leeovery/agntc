@@ -93,7 +93,11 @@ function pathUnder(key: string, source: string): string {
 		: memberName(key);
 }
 
-/** An entry's kind dim, its ref with its constraint dim, then its status: a narrow line drops the kind, then the ref. */
+/**
+ * An entry's kind dim, its ref with its constraint dim, then its status: a
+ * narrow line drops the kind, then the ref. A local entry has no ref, as its
+ * status says it's local.
+ */
 function entryCells(
 	entry: ManifestEntry,
 	check: UpdateCheckResult,
@@ -101,7 +105,8 @@ function entryCells(
 	return [
 		{ text: entry.type ?? "skill", dim: true, drop: 1 },
 		{
-			text: formatRefLabel(entry.ref, entry.commit),
+			text:
+				entry.commit === null ? "" : formatRefLabel(entry.ref, entry.commit),
 			...(entry.constraint === undefined ? {} : { aside: entry.constraint }),
 			drop: 2,
 		},

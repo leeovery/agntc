@@ -23,6 +23,8 @@ export type CommandName = "add" | "remove" | "update" | "list" | "init";
 export interface Choice<T> {
 	value: T;
 	label: string;
+	/** Dim at the head of the hint column, before ` · ` and the hint, as a folder telling two choices of one name apart; never widens a column. */
+	aside?: string;
 	hint?: string;
 	/** Columns after the label, lined up across the choices, in place of a hint. */
 	cells?: readonly ChoiceCell[];
@@ -33,7 +35,7 @@ export interface ChoiceCell {
 	text: string;
 	aside?: string;
 	status?: Status;
-	/** The text dim, as a kind or a quiet status. */
+	/** The cell dim, its glyph with it, as a kind or a quiet status. */
 	dim?: boolean;
 	/**
 	 * Where its column comes in the order a line too wide drops them, the
