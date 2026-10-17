@@ -9,7 +9,13 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { assetSummary, kindAndCounts } from "../src/entry-assets.js";
+import {
+	assetSummary,
+	countAssets,
+	type EntryAssets,
+	entryKind,
+} from "../src/entry-assets.js";
+import type { ManifestEntry } from "../src/manifest.js";
 import { makeEntry } from "./helpers/factories.js";
 
 let installRoot: string;
@@ -22,6 +28,11 @@ async function installedFiles(...paths: string[]): Promise<void> {
 		await mkdir(dirname(full), { recursive: true });
 		await writeFile(full, "");
 	}
+}
+
+/** What the entry installs, counted under `root` and worded. */
+async function summaryOf(entry: ManifestEntry, root: string): Promise<string> {
+	return assetSummary(entry, await countAssets(entry, root));
 }
 
 beforeEach(async () => {
@@ -39,7 +50,7 @@ describe("assetSummary", () => {
 			".claude/skills/b/SKILL.md",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({ files: [".claude/skills/a/", ".claude/skills/b/"] }),
 			installRoot,
 		);
@@ -50,7 +61,7 @@ describe("assetSummary", () => {
 	it("counts a skill folder once, however many of its paths are recorded", async () => {
 		await installedFiles(".claude/skills/a/SKILL.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				files: [
 					".claude/skills/a/",
@@ -70,7 +81,7 @@ describe("assetSummary", () => {
 			".claude/skills/b/SKILL.md",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				files: [
 					".claude/skills/a/",
@@ -93,7 +104,7 @@ describe("assetSummary", () => {
 			".claude/skills/rows/hooks/hooks.json",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [
@@ -111,10 +122,30 @@ describe("assetSummary", () => {
 		expect(assets).toBe("2 skills, 3 folders, 1 agent");
 	});
 
+	it("names a pack's folders that are skills, and every folder of a skill entry", async () => {
+		await installedFiles(
+			".claude/skills/a/SKILL.md",
+			".claude/skills/shared/x.md",
+		);
+		const files = [".claude/skills/a/", ".claude/skills/shared/"];
+
+		const pack = await countAssets(
+			makeEntry({ type: "pack", files }),
+			installRoot,
+		);
+		const skill = await countAssets(
+			makeEntry({ type: "skill", files }),
+			installRoot,
+		);
+
+		expect(pack.skills).toEqual(["a"]);
+		expect(skill.skills).toEqual(["a", "shared"]);
+	});
+
 	it("gives a pack's skill count even when it holds only support folders", async () => {
 		await installedFiles(".claude/skills/shared/references/x.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({ type: "pack", files: [".claude/skills/shared/"] }),
 			installRoot,
 		);
@@ -128,7 +159,7 @@ describe("assetSummary", () => {
 			".claude/skills/README.md",
 		);
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [".claude/skills/README.md", ".claude/skills/a/"],
@@ -140,7 +171,7 @@ describe("assetSummary", () => {
 	});
 
 	it("counts agent files", async () => {
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				files: [".claude/agents/agent-a.md"],
 			}),
@@ -153,7 +184,7 @@ describe("assetSummary", () => {
 	it("counts a skill entry's folder as a skill without looking at what the install holds", async () => {
 		await installedFiles(".claude/skills/a/notes.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({ type: "skill", files: [".claude/skills/a/"] }),
 			installRoot,
 		);
@@ -175,7 +206,7 @@ describe("assetSummary", () => {
 		await chmod(locked, 0o000);
 
 		try {
-			assets = await assetSummary(
+			assets = await summaryOf(
 				makeEntry({
 					type: "pack",
 					files: [".claude/skills/linked/", ".claude/skills/locked/"],
@@ -192,7 +223,7 @@ describe("assetSummary", () => {
 	it("counts each top-level hook entry once, however many of its paths are recorded", async () => {
 		await installedFiles(".claude/skills/a/SKILL.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [
@@ -212,7 +243,7 @@ describe("assetSummary", () => {
 	it("counts a v1 entry's agents and hooks as add does, leaving out the folders it recorded", async () => {
 		await installedFiles(".claude/skills/a/SKILL.md");
 
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [
@@ -232,7 +263,7 @@ describe("assetSummary", () => {
 	});
 
 	it("words a legacy pack recording nothing in .claude/ by what it has, with no skill count", async () => {
-		assets = await assetSummary(
+		assets = await summaryOf(
 			makeEntry({
 				type: "pack",
 				files: [".agents/skills/a/", ".agents/skills/b/", ".cursor/skills/a/"],
@@ -244,25 +275,31 @@ describe("assetSummary", () => {
 	});
 
 	it("is empty for an entry recording no files", async () => {
-		expect(await assetSummary(makeEntry({ files: [] }), installRoot)).toBe("");
+		expect(await summaryOf(makeEntry({ files: [] }), installRoot)).toBe("");
 	});
 });
 
-describe("kindAndCounts", () => {
+describe("entryKind", () => {
+	const ASSETS: EntryAssets = {
+		counts: { skills: 2, folders: 0, agents: 1, hooks: 0 },
+		other: 0,
+		skills: ["a", "b"],
+	};
+
 	it("gives a pack's counts after its kind", () => {
-		expect(
-			kindAndCounts(makeEntry({ type: "pack" }), "2 skills, 1 agent"),
-		).toBe("pack · 2 skills, 1 agent");
+		expect(entryKind(makeEntry({ type: "pack" }), ASSETS)).toBe(
+			"pack · 2 skills, 1 agent",
+		);
 	});
 
 	it("gives a skill, or an entry with no type, as its kind alone", () => {
-		expect(kindAndCounts(makeEntry({ type: "skill" }), "1 skill")).toBe(
-			"skill",
-		);
-		expect(kindAndCounts(makeEntry(), "1 skill")).toBe("skill");
+		expect(entryKind(makeEntry({ type: "skill" }), ASSETS)).toBe("skill");
+		expect(entryKind(makeEntry(), ASSETS)).toBe("skill");
 	});
 
 	it("gives a pack recording nothing as its kind alone", () => {
-		expect(kindAndCounts(makeEntry({ type: "pack" }), "")).toBe("pack");
+		expect(entryKind(makeEntry({ type: "pack", files: [] }), ASSETS)).toBe(
+			"pack",
+		);
 	});
 });

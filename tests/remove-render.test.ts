@@ -1,29 +1,37 @@
 import { describe, expect, it } from "vitest";
+import type { EntryAssets } from "../src/entry-assets.js";
 import {
 	installedFolders,
+	type RemovedAssets,
 	removalQuestion,
 	removalRow,
 	removedRow,
 	removeFailedRow,
 } from "../src/remove-render.js";
+import { makeEntry, makeRemoved } from "./helpers/factories.js";
 
 describe("installedFolders", () => {
-	it("names each installed folder once under its asset folder, in the order recorded", () => {
+	it("names each installed folder once under its asset folder, in the order recorded, a pack's skills apart from its support folders", () => {
 		expect(
-			installedFolders([
-				".claude/skills/nuxt-pages/",
-				".claude/skills/nuxt-pages/SKILL.md",
-				".claude/skills/nuxt-pages/refs/guide.md",
-				".claude/agents/reviewer.md",
-				".claude/skills/shared/",
-				".claude/hooks/lint/run.sh",
-				".claude/hooks/pre-commit.sh",
-			]),
+			installedFolders(
+				makeRemoved(
+					[
+						".claude/skills/nuxt-pages/",
+						".claude/skills/nuxt-pages/SKILL.md",
+						".claude/skills/nuxt-pages/refs/guide.md",
+						".claude/agents/reviewer.md",
+						".claude/skills/shared/",
+						".claude/hooks/lint/run.sh",
+						".claude/hooks/pre-commit.sh",
+					],
+					{ type: "pack", skills: ["nuxt-pages"] },
+				),
+			),
 		).toEqual([
 			{
 				label: ".claude/skills/",
 				value: ["nuxt-pages", "shared"],
-				noun: "folder",
+				noun: ["skill", "folder"],
 			},
 			{ label: ".claude/agents/", value: ["reviewer.md"], noun: "agent" },
 			{
@@ -34,43 +42,64 @@ describe("installedFolders", () => {
 		]);
 	});
 
-	it("names what a legacy entry recorded outside .claude/ under the folders it lies in", () => {
+	it("counts a skill entry's folders as its skill, whatever their paths", () => {
+		const legacy = [".agents/skills/alpha/", ".cursor/skills/alpha/SKILL.md"];
+		expect(installedFolders(makeRemoved(legacy))).toEqual([
+			{ label: ".agents/skills/", value: ["alpha"], noun: ["skill"] },
+			{ label: ".cursor/skills/", value: ["alpha"], noun: ["skill"] },
+		]);
+		expect(installedFolders(makeRemoved(legacy, { type: "skill" }))).toEqual(
+			installedFolders(makeRemoved(legacy)),
+		);
+	});
+
+	it("names what a legacy pack recorded outside .claude/ under the folders it lies in, as support folders", () => {
 		expect(
-			installedFolders([
-				".agents/skills/alpha/",
-				".cursor/skills/alpha/SKILL.md",
-			]),
+			installedFolders(
+				makeRemoved([".agents/skills/alpha/"], {
+					type: "pack",
+					skills: ["beta"],
+				}),
+			),
 		).toEqual([
-			{ label: ".agents/skills/", value: ["alpha"], noun: "folder" },
-			{ label: ".cursor/skills/", value: ["alpha"], noun: "folder" },
+			{ label: ".agents/skills/", value: ["alpha"], noun: ["folder"] },
 		]);
 	});
 
 	it("names a path shallower than an asset folder by its last segment, under the folder it's in", () => {
-		expect(installedFolders([".claude/agents/", "notes.md"])).toEqual([
+		expect(
+			installedFolders(makeRemoved([".claude/agents/", "notes.md"])),
+		).toEqual([
 			{ label: ".claude/", value: ["agents"] },
 			{ label: "", value: ["notes.md"] },
 		]);
 	});
 
 	it("gives nothing for an entry recording nothing", () => {
-		expect(installedFolders([])).toEqual([]);
+		expect(installedFolders(makeRemoved([]))).toEqual([]);
 	});
 });
 
 describe("removalRow", () => {
 	it("is the subject of the question: the entry, its kind and counts, then what it installed", () => {
 		expect(
-			removalRow("owner/repo/nuxt", "pack · 1 skill, 1 agent", [
-				".claude/skills/nuxt-pages/",
-				".claude/agents/reviewer.md",
-			]),
+			removalRow(
+				"owner/repo/nuxt",
+				"pack · 1 skill, 1 agent",
+				makeRemoved(
+					[".claude/skills/nuxt-pages/", ".claude/agents/reviewer.md"],
+					{
+						type: "pack",
+						skills: ["nuxt-pages"],
+					},
+				),
+			),
 		).toEqual({
 			status: "subject",
 			subject: "owner/repo/nuxt",
 			detail: "pack · 1 skill, 1 agent",
 			fields: [
-				{ label: ".claude/skills/", value: ["nuxt-pages"], noun: "folder" },
+				{ label: ".claude/skills/", value: ["nuxt-pages"], noun: ["skill"] },
 				{ label: ".claude/agents/", value: ["reviewer.md"], noun: "agent" },
 			],
 		});
@@ -78,50 +107,72 @@ describe("removalRow", () => {
 });
 
 describe("removalQuestion", () => {
-	const PACK = [
-		".claude/skills/nuxt-pages/",
-		".claude/skills/nuxt-pages/SKILL.md",
-		".claude/skills/nuxt-data/",
-		".claude/agents/reviewer.md",
-	];
+	const removing = (
+		type: "skill" | "pack" | undefined,
+		counts: EntryAssets["counts"],
+		other = 0,
+		files = [".claude/skills/x/"],
+	): RemovedAssets => ({
+		entry: makeEntry({ files, ...(type === undefined ? {} : { type }) }),
+		assets: { counts, other, skills: [] },
+	});
+	const PACK = removing("pack", { skills: 2, folders: 1, agents: 1, hooks: 1 });
+	const SKILL = removing("skill", { skills: 1 });
 
-	it("asks about one entry as it, counting its items by noun as its row names them", () => {
+	it("asks about one entry as it, counting what it installs as its row words it", () => {
 		expect(removalQuestion([PACK])).toBe(
-			"Remove it and its 2 folders and 1 agent?",
+			"Remove it and its 2 skills, 1 folder, 1 agent and 1 hook?",
 		);
 	});
 
-	it("words a lone item by its noun alone", () => {
-		expect(
-			removalQuestion([[".claude/skills/go/", ".claude/skills/go/x"]]),
-		).toBe("Remove it and its folder?");
-		expect(removalQuestion([[".claude/agents/reviewer.md"]])).toBe(
+	it("words a lone one by its noun alone", () => {
+		expect(removalQuestion([SKILL])).toBe("Remove it and its skill?");
+		expect(removalQuestion([removing("pack", { skills: 0, agents: 1 })])).toBe(
 			"Remove it and its agent?",
 		);
 	});
 
-	it("asks about several entries as them, adding up their items by noun", () => {
-		expect(
-			removalQuestion([
-				PACK,
-				[".claude/skills/go/"],
-				[".claude/hooks/lint.sh"],
-			]),
-		).toBe("Remove them and their 3 folders, 1 agent and 1 hook?");
-		expect(
-			removalQuestion([[".claude/skills/a/"], [".claude/skills/b/"]]),
-		).toBe("Remove them and their 2 folders?");
+	it("leaves out what it counts none of, a pack's skills included", () => {
+		expect(removalQuestion([removing("pack", { skills: 0, folders: 2 })])).toBe(
+			"Remove it and its 2 folders?",
+		);
 	});
 
-	it("counts an item in a folder with no noun of its own as an item", () => {
-		expect(removalQuestion([["notes.md", ".claude/skills/a/"]])).toBe(
-			"Remove it and its 1 item and 1 folder?",
+	it("asks about several entries as them, adding up what they install in the order a row words it", () => {
+		expect(
+			removalQuestion([removing("pack", { skills: 0, hooks: 1 }), PACK, SKILL]),
+		).toBe("Remove them and their 3 skills, 1 folder, 1 agent and 2 hooks?");
+		expect(removalQuestion([SKILL, SKILL])).toBe(
+			"Remove them and their 2 skills?",
+		);
+	});
+
+	it("counts a skill entry as its one skill, whatever its paths, as its row names it", () => {
+		const legacy = removing(undefined, { skills: 0 }, 2, [
+			".agents/skills/go/",
+			".cursor/skills/go/",
+		]);
+		expect(removalQuestion([legacy])).toBe("Remove it and its skill?");
+		expect(
+			removalQuestion([removing("skill", { skills: 1, agents: 1 }, 1)]),
+		).toBe("Remove it and its skill?");
+	});
+
+	it("counts what a legacy pack records outside .claude/ as other items", () => {
+		expect(removalQuestion([removing("pack", { skills: 0 }, 3)])).toBe(
+			"Remove it and its 3 other items?",
+		);
+		expect(removalQuestion([removing("pack", { skills: 1 }, 1)])).toBe(
+			"Remove it and its 1 skill and 1 other item?",
 		);
 	});
 
 	it("asks only about the entry when it records nothing", () => {
-		expect(removalQuestion([[]])).toBe("Remove it?");
-		expect(removalQuestion([[], []])).toBe("Remove them?");
+		const none = removing("skill", {}, 0, []);
+		expect(removalQuestion([none])).toBe("Remove it?");
+		expect(removalQuestion([none, removing("pack", {}, 0, [])])).toBe(
+			"Remove them?",
+		);
 	});
 });
 
@@ -136,16 +187,20 @@ describe("removedRow", () => {
 
 	it("names what the entry installed under each asset folder, given its files", () => {
 		expect(
-			removedRow("owner/repo/nuxt", "pack · 1 skill, 1 agent", [
-				".claude/skills/nuxt-pages/",
-				".claude/agents/reviewer.md",
-			]),
+			removedRow(
+				"owner/repo/nuxt",
+				"pack · 1 skill, 1 agent",
+				makeRemoved(
+					[".claude/skills/nuxt-pages/", ".claude/agents/reviewer.md"],
+					{ type: "pack", skills: ["nuxt-pages"] },
+				),
+			),
 		).toEqual({
 			status: "done",
 			subject: "owner/repo/nuxt",
 			detail: { label: "removed", aside: "pack · 1 skill, 1 agent" },
 			fields: [
-				{ label: ".claude/skills/", value: ["nuxt-pages"], noun: "folder" },
+				{ label: ".claude/skills/", value: ["nuxt-pages"], noun: ["skill"] },
 				{ label: ".claude/agents/", value: ["reviewer.md"], noun: "agent" },
 			],
 		});

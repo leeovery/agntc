@@ -1,31 +1,34 @@
-import { joinWithAnd, pluralize } from "./summary.js";
+import type { EntryAssets } from "./entry-assets.js";
+import type { ManifestEntry } from "./manifest.js";
+import {
+	type AssetCount,
+	countedAssets,
+	joinWithAnd,
+	pluralize,
+} from "./summary.js";
 import { LOOKS } from "./terminal/tally.js";
 import type { Field, Row } from "./terminal/types.js";
 
 /** How many segments name an asset folder, as `.claude/skills/` does. */
 const FOLDER_DEPTH = 2;
 
-/** What one of an asset folder's items is, by the folder's name. */
+/** What one of an asset folder's items is, by the folder's name; a skills folder's is a skill or a support folder, item by item. */
 const NOUNS: Readonly<Record<string, string>> = {
-	skills: "folder",
 	agents: "agent",
 	hooks: "hook",
 };
 
-/** What a question counts an item in a folder with no noun of its own as. */
-const ITEM = "item";
+/** What a question counts a recorded path under no asset type as. */
+const OTHER = "other item";
 
-interface AssetFolder {
-	label: string;
-	items: string[];
-	noun?: string;
-}
+/** The order a row words its counts in. */
+const NOUN_ORDER = ["skill", "folder", "agent", "hook", OTHER];
 
 /**
  * The asset folders an entry's recorded paths lie in, in the order recorded,
  * each with the folders and files in it they are or lie in, once each.
  */
-function assetFolders(files: readonly string[]): AssetFolder[] {
+function assetFolders(files: readonly string[]): Map<string, string[]> {
 	const folders = new Map<string, string[]>();
 	for (const file of files) {
 		const segments = file.split("/").filter((segment) => segment !== "");
@@ -43,24 +46,36 @@ function assetFolders(files: readonly string[]): AssetFolder[] {
 			folders.set(folder, [...items, item]);
 		}
 	}
-	return [...folders].map(([label, items]) => {
-		const noun = NOUNS[label.split("/").at(-2) ?? ""];
-		return { label, items, ...(noun === undefined ? {} : { noun }) };
-	});
+	return folders;
 }
 
 /**
  * What an entry's recorded paths install, a field per asset folder they lie
  * in (`.claude/skills/`, `.claude/agents/`, a legacy `.agents/skills/`), in
  * the order recorded, each naming once the folders and files in it they are
- * or lie in, by the noun its items are counted with when it's cut short.
+ * or lie in, by the noun its items are counted with when it's cut short: a
+ * skills folder's each a `skill` or a `folder`, as the entry's kind counts
+ * them.
  */
-export function installedFolders(files: readonly string[]): Field[] {
-	return assetFolders(files).map(({ label, items, noun }) => ({
-		label,
-		value: items,
-		...(noun === undefined ? {} : { noun }),
-	}));
+export function installedFolders(removed: RemovedAssets): Field[] {
+	return [...assetFolders(removed.entry.files)].map(([label, items]) => {
+		const type = label.split("/").at(-2) ?? "";
+		const noun =
+			type === "skills"
+				? items.map((item) => skillsItemNoun(removed, item))
+				: NOUNS[type];
+		return { label, value: items, ...(noun === undefined ? {} : { noun }) };
+	});
+}
+
+/** An item of a skills folder as its entry's kind counts it: a skill entry's its skill, whatever its path; a pack's a skill or a support folder. */
+function skillsItemNoun(
+	{ entry, assets }: RemovedAssets,
+	item: string,
+): string {
+	const isSkill =
+		(entry.type ?? "skill") === "skill" || assets.skills.includes(item);
+	return isSkill ? "skill" : "folder";
 }
 
 /**
@@ -70,59 +85,84 @@ export function installedFolders(files: readonly string[]): Field[] {
 export function removalRow(
 	subject: string,
 	kind: string,
-	files: readonly string[],
+	removed: RemovedAssets,
 ): Row {
 	return {
 		status: "subject",
 		subject,
 		detail: kind,
-		fields: installedFolders(files),
+		fields: installedFolders(removed),
 	};
 }
 
 /**
- * The question asked under the rows of entries recording `entries`' files:
- * whether to remove them and what their rows show, counted by noun across
- * them, in the order the nouns first come. `Remove it and its 9 folders and
- * 1 agent?`, `Remove them and their 14 folders?`; a lone item by its noun
- * alone, `Remove it and its folder?`; nothing recorded, `Remove it?`.
+ * The question asked under the rows of `entries`: whether to remove them and
+ * what they install, counted and worded as their rows word it and added up
+ * across them, those counting none left out. `Remove it and its 2 skills, 1
+ * folder and 1 agent?`, `Remove them and their 14 skills?`; a lone one by
+ * its noun alone, `Remove it and its skill?`; nothing recorded, `Remove
+ * it?`. A skill entry counts as the one skill its row names, whatever its
+ * paths; a pack's paths under no asset type, which its row counts as
+ * `other`, are other items.
  */
-export function removalQuestion(
-	entries: readonly (readonly string[])[],
-): string {
+export function removalQuestion(entries: readonly RemovedAssets[]): string {
 	const [it, its] = entries.length === 1 ? ["it", "its"] : ["them", "their"];
-	const counts = new Map<string, number>();
-	for (const files of entries) {
-		for (const { items, noun = ITEM } of assetFolders(files)) {
-			counts.set(noun, (counts.get(noun) ?? 0) + items.length);
-		}
-	}
-	const [lone] = [...counts];
+	const counts = totals(entries);
+	const [lone] = counts;
 	if (lone === undefined) {
 		return `Remove ${it}?`;
 	}
-	const [noun, count] = lone;
 	const what =
-		counts.size === 1 && count === 1
-			? noun
-			: joinWithAnd([...counts].map(([each, n]) => pluralize(n, each)));
+		counts.length === 1 && lone.count === 1
+			? lone.noun
+			: joinWithAnd(counts.map(({ count, noun }) => pluralize(count, noun)));
 	return `Remove ${it} and ${its} ${what}?`;
 }
 
+/** An entry and what it installs, as its removal's question counts it. */
+export interface RemovedAssets {
+	entry: ManifestEntry;
+	assets: EntryAssets;
+}
+
+/** What each entry's row counts, added up by noun, in the order rows word them. */
+function totals(entries: readonly RemovedAssets[]): AssetCount[] {
+	const totals = new Map<string, number>();
+	for (const { count, noun } of entries.flatMap(rowCounts)) {
+		totals.set(noun, (totals.get(noun) ?? 0) + count);
+	}
+	return [...totals]
+		.map(([noun, count]) => ({ noun, count }))
+		.sort((a, b) => NOUN_ORDER.indexOf(a.noun) - NOUN_ORDER.indexOf(b.noun));
+}
+
+function rowCounts({ entry, assets }: RemovedAssets): AssetCount[] {
+	if (entry.files.length === 0) {
+		return [];
+	}
+	if ((entry.type ?? "skill") === "skill") {
+		return [{ count: 1, noun: "skill" }];
+	}
+	return [
+		...countedAssets(assets.counts),
+		...(assets.other > 0 ? [{ count: assets.other, noun: OTHER }] : []),
+	];
+}
+
 /**
- * An entry removed, with its kind and counts, and, given its files, what it
- * installed under each asset folder, as its question's row named them.
+ * An entry removed, with its kind and counts, and, given what it installed,
+ * that under each asset folder, as its question's row named it.
  */
 export function removedRow(
 	subject: string,
 	kind: string,
-	files?: readonly string[],
+	removed?: RemovedAssets,
 ): Row {
 	return {
 		status: "done",
 		subject,
 		detail: { label: LOOKS.remove.removed.label, aside: kind },
-		...(files === undefined ? {} : { fields: installedFolders(files) }),
+		...(removed === undefined ? {} : { fields: installedFolders(removed) }),
 	};
 }
 

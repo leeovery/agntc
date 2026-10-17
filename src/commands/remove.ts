@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { Command } from "commander";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { type Removal, removeBody } from "../documents.js";
-import { assetSummary, kindAndCounts } from "../entry-assets.js";
+import { countAssets, type EntryAssets, entryKind } from "../entry-assets.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
 import { nothingInstalledRow } from "../list-render.js";
@@ -48,6 +48,8 @@ interface Target {
 	subject: string;
 	/** Its kind, a pack's with what it installs. */
 	kind: string;
+	/** What it installs, as its question counts it. */
+	assets: EntryAssets;
 }
 
 /**
@@ -206,12 +208,13 @@ async function describeTarget(
 	installRoot: string,
 	home: string,
 ): Promise<Target> {
-	const assets = await assetSummary(entry, installRoot);
+	const assets = await countAssets(entry, installRoot);
 	return {
 		key,
 		entry,
 		subject: subjectOf(key, entry, home),
-		kind: kindAndCounts(entry, assets),
+		kind: entryKind(entry, assets),
+		assets,
 	};
 }
 
@@ -220,13 +223,13 @@ async function confirmRemoval(
 	targets: readonly Target[],
 	ui: Ui,
 ): Promise<void> {
-	const rows = targets.map(({ subject, kind, entry }) =>
-		removalRow(subject, kind, entry.files),
+	const rows = targets.map((target) =>
+		removalRow(target.subject, target.kind, target),
 	);
 	const confirmed = await ui.block(rows).confirm(
 		{ rows, noun: ENTRY },
 		{
-			message: removalQuestion(targets.map(({ entry }) => entry.files)),
+			message: removalQuestion(targets),
 		},
 	);
 	if (!confirmed) {
@@ -240,13 +243,11 @@ function cancel(ui: Ui): never {
 }
 
 /** What became of the entry: removed, with what it installed, or failed, with why. */
-function resultRow(
-	{ key, entry, subject, kind }: Target,
-	{ failed }: Removal,
-): Row {
+function resultRow(target: Target, { failed }: Removal): Row {
+	const { key, subject, kind } = target;
 	const failure = failed.find((each) => each.key === key);
 	return failure === undefined
-		? removedRow(subject, kind, entry.files)
+		? removedRow(subject, kind, target)
 		: removeFailedRow(subject, failure.reason);
 }
 

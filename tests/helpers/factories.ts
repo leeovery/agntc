@@ -1,4 +1,5 @@
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import type { RemovedAssets } from "../../src/remove-render.js";
 
 export function makeEntry(
 	overrides: Partial<ManifestEntry> = {},
@@ -24,4 +25,18 @@ export function makeManifest(
 		return manifest;
 	}
 	return { ...keysOrEntries };
+}
+
+/** An entry recording `files`, as a removal's rows take it, `skills` naming a pack's folders that are skills. */
+export function makeRemoved(
+	files: string[],
+	{
+		skills = [],
+		...entry
+	}: Partial<ManifestEntry> & { skills?: string[] } = {},
+): RemovedAssets {
+	return {
+		entry: makeEntry({ ...entry, files }),
+		assets: { counts: {}, other: 0, skills },
+	};
 }

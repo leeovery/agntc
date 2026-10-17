@@ -285,7 +285,7 @@ describe("a list session", () => {
 			"   petekp/claude-skills",
 			"     swift               skill   HEAD              ✗ check failed",
 			"   ~/Code/my-skills",
-			"     drafting            skill   local             ◇ local",
+			"     drafting            skill                     ◇ local",
 			"",
 			" ↑↓ move   ⏎ manage   esc done                        1 update · 1 with newer tags · 1 check failed",
 		]);
@@ -430,7 +430,7 @@ describe("a list session", () => {
 			" ● leeovery/agentic-workflows   skill",
 			"   .claude/skills/  agentic-workflows",
 			"",
-			" ? Remove it and its folder?   [Yes]  No",
+			" ? Remove it and its skill?   [Yes]  No",
 		]);
 		await session.answer("Remove", "y");
 		await session.answer(DASHBOARD, KEY.escape);
@@ -468,7 +468,7 @@ describe("a list session", () => {
 			" ! owner/repo/gone   gone upstream · skill",
 			"   .claude/skills/  gone",
 			"",
-			" ? Remove it and its folder?    Yes  [No]",
+			" ? Remove it and its skill?    Yes  [No]",
 		]);
 		await session.answer("Remove", "n");
 		await session.answer("Action", KEY.escape);

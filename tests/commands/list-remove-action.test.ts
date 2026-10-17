@@ -16,6 +16,7 @@ import {
 	executeRemoveAction,
 	type RemovedEntry,
 } from "../../src/commands/list-remove-action.js";
+import type { EntryAssets } from "../../src/entry-assets.js";
 import { writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
 import { globalScope, projectScope } from "../../src/scope.js";
@@ -35,21 +36,29 @@ beforeEach(() => {
 
 function removing(
 	entry: ManifestEntry,
-	key = "owner/repo",
-	kind = "skill",
+	assets: EntryAssets = { counts: { skills: 1 }, other: 0, skills: ["a"] },
 ): RemovedEntry {
-	return { key, entry, subject: key, kind };
+	return { key: "owner/repo", entry, subject: "owner/repo", assets };
 }
 
 describe("executeRemoveAction", () => {
 	it("asks under the entry's row, naming what it installed, in a block of its own, counting it as the row does", async () => {
 		const entry = makeEntry({
-			files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
+			type: "pack",
+			files: [
+				".claude/skills/my-skill/",
+				".claude/skills/shared/",
+				".claude/agents/executor.md",
+			],
 		});
 		ui.confirm.mockResolvedValue(false);
 
 		await executeRemoveAction(
-			removing(entry, "owner/repo", "pack · 1 skill, 1 agent"),
+			removing(entry, {
+				counts: { skills: 1, folders: 1, agents: 1 },
+				other: 0,
+				skills: ["my-skill"],
+			}),
 			{ "owner/repo": entry },
 			PROJECT,
 			ui,
@@ -58,15 +67,19 @@ describe("executeRemoveAction", () => {
 		const row = {
 			status: "subject",
 			subject: "owner/repo",
-			detail: "pack · 1 skill, 1 agent",
+			detail: "pack · 1 skill, 1 folder, 1 agent",
 			fields: [
-				{ label: ".claude/skills/", value: ["my-skill"], noun: "folder" },
+				{
+					label: ".claude/skills/",
+					value: ["my-skill", "shared"],
+					noun: ["skill", "folder"],
+				},
 				{ label: ".claude/agents/", value: ["executor.md"], noun: "agent" },
 			],
 		};
 		expect(ui.block).toHaveBeenCalledWith([row]);
 		expect(ui.blocks[0]!.confirm).toHaveBeenCalledWith(row, {
-			message: "Remove it and its 1 folder and 1 agent?",
+			message: "Remove it and its 1 skill, 1 folder and 1 agent?",
 		});
 	});
 

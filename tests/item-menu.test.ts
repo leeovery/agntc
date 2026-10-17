@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { MenuOption } from "../src/choose-items.js";
+import type { InstallItem } from "../src/install-item.js";
 import { promptForItems } from "../src/item-menu.js";
 import type { Row } from "../src/terminal/types.js";
+import type { Choice } from "../src/ui.js";
 import { type TestBlock, type TestUi, testUi } from "./helpers/test-ui.js";
 
 let ui: TestUi;
@@ -14,7 +15,7 @@ const SOURCE: Row = {
 	detail: "1 pack · 1 skill",
 };
 
-const OPTIONS: MenuOption[] = [
+const OPTIONS: Choice<InstallItem>[] = [
 	{
 		value: {
 			kind: "pack",
@@ -30,6 +31,11 @@ const OPTIONS: MenuOption[] = [
 		hint: "pack · 0 skills",
 	},
 	{ value: { kind: "skill", skill: { name: "a", path: "a" } }, label: "a" },
+	{
+		value: { kind: "skill", skill: { name: "a", path: "x/a" } },
+		label: "a",
+		aside: "x/a",
+	},
 ];
 
 beforeEach(() => {
@@ -38,7 +44,7 @@ beforeEach(() => {
 });
 
 describe("promptForItems", () => {
-	it("asks under the source's row, offering every option with its label and hint, nothing preselected and none required", async () => {
+	it("asks under the source's row, offering every option with its label, aside and hint, nothing preselected and none required", async () => {
 		ui.multiselect.mockResolvedValue([]);
 
 		await promptForItems(OPTIONS, SOURCE, block);
@@ -48,6 +54,7 @@ describe("promptForItems", () => {
 			options: [
 				{ value: 0, label: "p", hint: "pack · 0 skills" },
 				{ value: 1, label: "a" },
+				{ value: 2, label: "a", aside: "x/a" },
 			],
 			required: false,
 		});

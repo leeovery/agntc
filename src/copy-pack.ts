@@ -32,11 +32,7 @@ export async function copyPack(
 ): Promise<CopyResult> {
 	const packDir = join(source.root, pack.path);
 	const copiedFiles: string[] = [];
-	const folders = pack.supportFolders.length;
-	const assetCounts: AssetCounts = {
-		skills: pack.skills.length,
-		...(folders > 0 ? { folders } : {}),
-	};
+	const assetCounts = folderCounts(pack);
 
 	try {
 		for (const folder of skillFolders(pack)) {
@@ -69,6 +65,34 @@ export async function copyPack(
 	}
 
 	return { copiedFiles, assetCounts };
+}
+
+/**
+ * What copying a pack would install, counted as its copy counts it: its
+ * skills and support folders, the `.md` files of its `agents/` and the
+ * entries of its `hooks/` that install.
+ */
+export async function packCounts(
+	pack: FoundPack,
+	root: string,
+): Promise<AssetCounts> {
+	const packDir = join(root, pack.path);
+	const counts = folderCounts(pack);
+	if (pack.assetDirs.includes("agents")) {
+		counts.agents = (await listAgentFiles(join(packDir, "agents"))).length;
+	}
+	if (pack.assetDirs.includes("hooks")) {
+		counts.hooks = (await listHookEntries(join(packDir, "hooks"))).length;
+	}
+	return counts;
+}
+
+function folderCounts(pack: FoundPack): AssetCounts {
+	const folders = pack.supportFolders.length;
+	return {
+		skills: pack.skills.length,
+		...(folders > 0 ? { folders } : {}),
+	};
 }
 
 /**

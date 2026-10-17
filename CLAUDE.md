@@ -47,7 +47,7 @@ agntc is a CLI that installs Claude skills, agents and hooks from git repos and 
 
 **Walk.** From the added path (repo root, `owner/repo/path`, tree URL path or local path): `SKILL.md` → skill, not entered; a pack declaration → pack, not entered; anything else descended, to depth 5. Hidden folders, `node_modules`, `dist`, `build`, `vendor` and linked folders are skipped. `SKILL.md` plus a pack declaration is a skill, with a warning.
 
-**Choosing.** One item installs without a menu; several give a menu (packs, then loose skills, by path; a pack is never split). `--skill` matches anywhere, packs included, and a skill taken from a pack installs loose, without its support folders, with a note. Duplicate names and two items claiming one install path are refused. `--skill`/`--pack`/`--all` are exclusive; `--list` combines only with `--pack`. Skills an installed pack from the same source already holds are left out.
+**Choosing.** One item installs without a menu; several give a menu (packs, then loose skills, each in path order and named by its folder, the folder it sits in leading the hint where two items share a name; a pack is never split). `--skill` matches anywhere, packs included, and a skill taken from a pack installs loose, without its support folders, with a note. Duplicate names and two items claiming one install path are refused. `--skill`/`--pack`/`--all` are exclusive; `--list` combines only with `--pack`. Skills an installed pack from the same source already holds are left out.
 
 **Asset routing.** Skills and support folders → `.claude/skills/<folder>/` (flat); a pack's agents → `.claude/agents/`; its hooks → `.claude/hooks/`. Paths are relative to the install root.
 

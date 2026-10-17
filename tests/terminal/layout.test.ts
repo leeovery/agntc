@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	fitAside,
 	isNarrow,
 	layoutWidth,
 	pad,
@@ -130,7 +131,114 @@ describe("wrapItems", () => {
 	});
 });
 
+describe("fitAside", () => {
+	it("keeps an aside whole where it fits", () => {
+		expect(fitAside("skills/frontend", 15)).toBe("skills/frontend");
+		expect(fitAside("abc", 3)).toBe("abc");
+	});
+
+	it("cuts one too long at its start, keeping the folder nearest the name", () => {
+		expect(fitAside("skills/frontend", 14)).toBe("…ills/frontend");
+		expect(fitAside("skills/frontend", 3)).toBe("…nd");
+	});
+
+	it("leaves it out only when fewer than three columns are left, however short it is", () => {
+		expect(fitAside("skills/frontend", 2)).toBe("");
+		expect(fitAside("skills/frontend", 0)).toBe("");
+		expect(fitAside("ab", 2)).toBe("");
+		expect(fitAside("a", 2)).toBe("");
+	});
+});
+
 describe("wrap", () => {
+	it("keeps a count with the noun after it, through a `more`", () => {
+		expect(wrap("its 2 skills, 1 folder and 1 hook?", 16)).toEqual([
+			"its 2 skills,",
+			"1 folder and",
+			"1 hook?",
+		]);
+		expect(wrap("… 11 more folders, 1 more agent", 22)).toEqual([
+			"… 11 more folders,",
+			"1 more agent",
+		]);
+		expect(wrap("a list of 3", 9)).toEqual(["a list of", "3"]);
+	});
+
+	it("keeps a `…` with the count it leads, never alone on its line", () => {
+		expect(wrap("… 33 more folders, 2 more", 20)).toEqual([
+			"… 33 more folders,",
+			"2 more",
+		]);
+		expect(wrap("… 33 more folders, 2 more", 16)).toEqual([
+			"… 33 more",
+			"folders, 2 more",
+		]);
+	});
+
+	it("keeps a count with its noun when together they fill a line exactly", () => {
+		expect(wrap("x 3 more skills", 13)).toEqual(["x", "3 more skills"]);
+	});
+
+	it("holds a `more` to the next word only after a count", () => {
+		expect(wrap("one more thing here", 10)).toEqual(["one more", "thing here"]);
+	});
+
+	it("breaks a count and its noun apart, between their words, when together they're wider than a line", () => {
+		expect(wrap("… 33 more folders, 2 more", 15)).toEqual([
+			"… 33 more",
+			"folders, 2 more",
+		]);
+		expect(wrap("… 33 more folders, 2 more", 9)).toEqual([
+			"… 33 more",
+			"folders,",
+			"2 more",
+		]);
+		expect(wrap("3 more skills already held by ex/kit", 6)).toEqual([
+			"3 more",
+			"skills",
+			"alread",
+			"y held",
+			"by",
+			"ex/kit",
+		]);
+	});
+
+	it("keeps only a number as a count, never a word with a digit in it", () => {
+		expect(wrap("go v2 now", 6)).toEqual(["go v2", "now"]);
+		expect(wrap("go x1 now", 6)).toEqual(["go x1", "now"]);
+		expect(wrap("tag 1.2.0 is out", 9)).toEqual(["tag 1.2.0", "is out"]);
+	});
+
+	it("cuts a word a character short rather than open the next line on a `,`", () => {
+		expect(wrap("folders, 2 more", 7)).toEqual(["folder", "s,", "2 more"]);
+	});
+
+	it("never cuts a word that fits a line, nor leaves a line opening or ending on a space or opening on a `,`", () => {
+		const texts = [
+			"… 33 more folders, 2 more",
+			"… 11 more folders, 1 more agent",
+			"3 more skills already held by ex/kit",
+			"pack · 12 skills, 3 folders, 1 agent and 1 hook",
+			"Remove them and their 12 skills, 3 folders, 1 agent and 1 hook?",
+			"14 skills already held by leeovery/agentic-skills/kit",
+		];
+		for (const text of texts) {
+			const words = new Set(text.split(" "));
+			const longest = Math.max(...[...words].map((word) => word.length));
+			for (let width = 4; width <= 40; width++) {
+				const lines = wrap(text, width);
+				for (const line of lines) {
+					expect(line).not.toMatch(/^ | $|^,/);
+					if (width >= longest) {
+						for (const word of line.split(" ")) {
+							expect(words).toContain(word);
+						}
+					}
+				}
+			}
+		}
+	});
+
 	it("breaks at spaces inside the width", () => {
 		expect(wrap("the quick brown fox jumps", 10)).toEqual([
 			"the quick",

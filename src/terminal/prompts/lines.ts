@@ -1,5 +1,7 @@
 import type { Choice } from "../../ui.js";
 import {
+	ASIDE_JOIN,
+	fitAside,
 	indent,
 	isNarrow,
 	MARGIN,
@@ -91,7 +93,10 @@ export function labelColumn(
  * two short of it is cut at its start with `…`, as a key or a name is told
  * apart by its tail. A hint is cut with `…` to fit, and left out when nothing
  * of it would show, or when beside it the label would be cut below
- * {@link LABEL_FLOOR}; the label then takes the room.
+ * {@link LABEL_FLOOR}; the label then takes the room. An aside leads the
+ * hint ({@link hintText}); where the label's floor leaves the column no room,
+ * the aside alone still shows, two past the label cut to its floor, so twins
+ * stay told apart.
  */
 export function optionText<T>(
 	choice: Choice<T>,
@@ -102,11 +107,10 @@ export function optionText<T>(
 	inset = 0,
 ): string {
 	const floor = Math.min(inset + visibleWidth(choice.label), LABEL_FLOOR);
-	const hint =
-		column - MIN_LABEL_GAP < floor
-			? ""
-			: fitHint(choice.hint ?? "", room - column);
-	const labelRoom = (hint === "" ? room : column - MIN_LABEL_GAP) - inset;
+	const short = column - MIN_LABEL_GAP < floor;
+	const at = short ? floor + MIN_LABEL_GAP : column;
+	const hint = hintText(short ? { aside: choice.aside } : choice, room - at);
+	const labelRoom = (hint === "" ? room : at - MIN_LABEL_GAP) - inset;
 	const label = truncateStart(choice.label, Math.max(0, labelRoom));
 	const lead =
 		indent(inset) +
@@ -114,7 +118,24 @@ export function optionText<T>(
 	if (hint === "") {
 		return label === "" ? "" : lead;
 	}
-	return `${pad(lead, column)}${style.dim(hint)}`;
+	return `${pad(lead, at)}${style.dim(hint)}`;
+}
+
+/**
+ * What the hint column says of a choice inside `room`: its aside, then
+ * {@link ASIDE_JOIN} and its hint. The hint is cut first, then the aside
+ * ({@link fitAside}).
+ */
+export function hintText(
+	{ aside, hint = "" }: Pick<Choice<unknown>, "aside" | "hint">,
+	room: number,
+): string {
+	const lead = aside ? fitAside(aside, room) : "";
+	if (lead === "") {
+		return aside ? "" : fitHint(hint, room);
+	}
+	const rest = fitHint(hint, room - visibleWidth(lead) - ASIDE_JOIN.length);
+	return rest === "" ? lead : `${lead}${ASIDE_JOIN}${rest}`;
 }
 
 function fitHint(hint: string, room: number): string {

@@ -155,7 +155,7 @@ describe("dashboardOptions", () => {
 		});
 	});
 
-	it("reads an untyped entry as a skill, HEAD and local refs as such, and a missing check as failed", () => {
+	it("reads an untyped entry as a skill, a HEAD ref as such, a local entry with no ref as its status says it, and a missing check as failed", () => {
 		const options = dashboardOptions(
 			{ "owner/head": makeEntry(), [`${HOME}/skills/mine`]: local },
 			new Map(),
@@ -173,7 +173,7 @@ describe("dashboardOptions", () => {
 			],
 			[
 				{ text: "skill", dim: true, drop: 1 },
-				{ text: "local", drop: 2 },
+				{ text: "", drop: 2 },
 				{ status: "failed", text: "check failed" },
 			],
 		]);

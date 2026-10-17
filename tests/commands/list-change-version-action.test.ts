@@ -766,7 +766,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(ui.confirm).toHaveBeenCalledTimes(2);
 			expect(ui.confirm).toHaveBeenLastCalledWith({
-				message: "Remove it and its folder?",
+				message: "Remove it and its skill?",
 				initialValue: false,
 			});
 		});

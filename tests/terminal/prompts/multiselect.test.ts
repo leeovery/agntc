@@ -66,6 +66,38 @@ describe("renderMultiselect", () => {
 		]);
 	});
 
+	it("keeps twins apart below the label's floor, their labels cut to it, their asides two past and dropped together", () => {
+		const twins: Choice<string>[] = [
+			{
+				value: "a",
+				label: "eloquent-models",
+				aside: "laravel",
+				hint: "Models",
+			},
+			{ value: "b", label: "eloquent-models", aside: "symfony" },
+		];
+		const at = (width: number) =>
+			renderMultiselect(
+				view({ options: twins, cursor: -1, picked: [], footer: 0 }),
+				width,
+				plain,
+			).filter((line) => line.includes("models"));
+		expect(at(28)).toEqual([
+			"   ○ …nt-models  laravel",
+			"   ○ …nt-models  symfony",
+		]);
+		expect(at(26)).toEqual([
+			"   ○ …nt-models  laravel",
+			"   ○ …nt-models  symfony",
+		]);
+		expect(at(24)).toEqual([
+			"   ○ …nt-models  …ravel",
+			"   ○ …nt-models  …mfony",
+		]);
+		expect(at(22)).toEqual(["   ○ …nt-models  …vel", "   ○ …nt-models  …ony"]);
+		expect(at(20)).toEqual(["   ○ …oquent-models", "   ○ …oquent-models"]);
+	});
+
 	it("cuts a label too wide for its column at its start, its hint kept in the column", () => {
 		const root = "/Volumes/Scratch/tmp/claude-501/a-long-session-folder/3a";
 		const keys: Choice<string>[] = [

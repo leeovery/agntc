@@ -7,6 +7,7 @@ import {
 	visibleWidth,
 } from "../layout.js";
 import { createStyle, identity, type Style, statusGlyph } from "../style.js";
+import type { Status } from "../types.js";
 import { LABEL_FLOOR } from "./lines.js";
 
 /** The columns between a label and its first cell, and between cells. */
@@ -33,10 +34,11 @@ export interface CellLayout {
 
 /**
  * The columns `choices` line up in, inside `room`: the widest label (with its
- * inset) and 3, then each cell as wide as the widest in its column and 3.
- * Where that's too wide, the asides go first, then the columns in the order
- * their cells' `drop` gives; then the label column narrows, its labels cut
- * at their start, as a name is told apart by its tail, but never below
+ * inset) and 3, then each cell as wide as the widest in its column and 3; a
+ * column with nothing in it takes no room. Where that's too wide, the asides
+ * go first, then the columns in the order their cells' `drop` gives; then
+ * the label column narrows, its labels cut at their start, as a name is told
+ * apart by its tail, but never below
  * {@link LABEL_FLOOR}, so choices still read apart: past it the cells are
  * cut at the margin, and those left fewer than {@link MIN_CELL} columns go.
  */
@@ -62,7 +64,9 @@ export function cellLayout<T>(
 		);
 	let asides = true;
 	let columns = widths(asides);
-	let kept = Array.from({ length: count }, (_, index) => index);
+	let kept = Array.from({ length: count }, (_, index) => index).filter(
+		(index) => (columns[index] ?? 0) > 0,
+	);
 	const span = () =>
 		kept.reduce((total, index) => total + (columns[index] ?? 0), 0) +
 		CELL_GAP * Math.max(0, kept.length - 1);
@@ -152,15 +156,25 @@ function cellWidth(cell: ChoiceCell, asides: boolean): number {
 	return visibleWidth(cellText(cell, asides, PLAIN));
 }
 
-/** Its glyph, its text and its aside, a space apart, leaving out what it hasn't. */
+/** Its glyph, its text and its aside, a space apart, leaving out what it hasn't; a dim cell dim whole. */
 function cellText(cell: ChoiceCell, asides: boolean, style: Style): string {
 	return [
-		cell.status === undefined ? "" : statusGlyph(cell.status, style),
+		cell.status === undefined ? "" : glyphOf(cell.status, cell.dim, style),
 		cell.dim ? style.dim(cell.text) : cell.text,
 		asides && cell.aside ? style.dim(cell.aside) : "",
 	]
 		.filter((part) => visibleWidth(part) > 0)
 		.join(" ");
+}
+
+function glyphOf(
+	status: Status,
+	dim: boolean | undefined,
+	style: Style,
+): string {
+	return dim
+		? style.dim(statusGlyph(status, PLAIN))
+		: statusGlyph(status, style);
 }
 
 function widest(widths: readonly number[]): number {

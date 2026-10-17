@@ -42,8 +42,8 @@ export interface Field {
 	value: string | readonly string[];
 	/** Paints the value in the status's colour, as a failed check's reason does; plain without. */
 	status?: Status;
-	/** What one of its items is, as `folder`: a row cut short counts them by it. */
-	noun?: string;
+	/** What one of its items is, as `folder`, or what each is, item by item: a row cut short counts them by it. */
+	noun?: string | readonly string[];
 }
 
 /** A row's subject and its dim meta: a repo and the intent it tracks, or a local entry's folder. */
@@ -51,6 +51,8 @@ export type RowHead = Required<Pick<Row, "subject" | "meta">>;
 
 export interface Child {
 	name: string;
+	/** Dim at the head of the detail column, before ` · ` and the detail, as a folder telling two children of one name apart; never widens a column. */
+	aside?: string;
 	/** Set by the caller when the child's own outcome is worth a glyph. */
 	status?: Status;
 	detail?: string;
