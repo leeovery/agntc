@@ -126,9 +126,7 @@ function roomy(message: string, hints: string, width: number): number[] {
 	return ROWS.filter((rows) => asked + 1 <= rows - 1);
 }
 
-// Each sweep renders every question at every height and count: seconds of
-// work that a loaded machine stretches past vitest's 5s default.
-describe("an open prompt's frame", { timeout: 30_000 }, () => {
+describe("an open prompt's frame", () => {
 	it.each(
 		WIDTHS,
 	)("is a line shorter than the screen, a select at %i columns", (width) => {
