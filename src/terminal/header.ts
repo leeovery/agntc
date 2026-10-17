@@ -31,15 +31,15 @@ export function renderHeader(
 
 /**
  * Where it installs and the version, as much as fits: both whole, else where
- * cut from the left (down to {@link MIN_WHERE}), else the version alone.
+ * cut from the left (down to {@link MIN_WHERE}), else the version alone,
+ * which {@link spread} leaves out when even that doesn't fit.
  */
 function rightSide(header: Header, room: number): string | undefined {
 	const version =
 		header.version === undefined ? undefined : `v${header.version}`;
 	const suffix = version === undefined ? "" : ` · ${version}`;
 	const where = whereWithin(header.where, room - visibleWidth(suffix));
-	const shown = where === undefined ? version : where + suffix;
-	return shown !== undefined && visibleWidth(shown) <= room ? shown : undefined;
+	return where === undefined ? version : where + suffix;
 }
 
 function whereWithin(
