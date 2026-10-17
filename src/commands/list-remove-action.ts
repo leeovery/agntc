@@ -3,7 +3,12 @@ import type { ListActionResult } from "../list-render.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { removeEntry, writeManifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
-import { removalRow, removedRow, removeFailedRow } from "../remove-render.js";
+import {
+	removalQuestion,
+	removalRow,
+	removedRow,
+	removeFailedRow,
+} from "../remove-render.js";
 import type { Scope } from "../scope.js";
 import type { Row } from "../terminal/types.js";
 import type { Ui } from "../ui.js";
@@ -31,7 +36,7 @@ export async function executeRemoveAction(
 ): Promise<ListActionResult> {
 	const asked = removalRow(subject, kind, entry.files);
 	const confirmed = await ui.block([asked]).confirm(asked, {
-		message: `Remove ${key}? ${entry.files.length} file(s) will be deleted.`,
+		message: removalQuestion([entry.files]),
 	});
 	if (!confirmed) {
 		return { key, change: null };

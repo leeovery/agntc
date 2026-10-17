@@ -575,7 +575,7 @@ describe("integration: add and update", () => {
 
 				expect(err).toBeUndefined();
 				expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-					message: "owner/repo/gone is gone upstream — remove it?",
+					message: "Remove it and its folder?",
 					initialValue: false,
 				});
 				expect(await installed(".claude/skills/gone/SKILL.md")).toBe(true);
@@ -1010,9 +1010,14 @@ describe("integration: add and update", () => {
 
 				await runAdd(KEY, {}, ui);
 
-				expect(ui.box).toHaveBeenCalledWith(
-					expect.stringContaining(".claude/skills/workflow-shared/"),
-					`Unmanaged files for "${KEY}"`,
+				expect(ui.blocks[2]!.select).toHaveBeenCalledWith(
+					expect.objectContaining({
+						subject: KEY,
+						children: [{ name: ".claude/skills/workflow-shared/", dim: true }],
+					}),
+					expect.objectContaining({
+						message: `How would you like to proceed with "${KEY}"?`,
+					}),
 				);
 				expect(await readMine()).toBe("mine");
 				expect(await installed(".claude/skills/workflow-start")).toBe(false);

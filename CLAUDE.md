@@ -19,9 +19,9 @@ agntc is a CLI tool for installing Claude skills from git repos. Claude only: sk
 src/
   cli.ts                    # Entry point, commander setup
   commands/                 # add, remove, update, list (+ list-*-action, list-detail), init
-  init/                     # Skill and pack scaffolding, type select, preview/confirm
+  init/                     # Skill and pack scaffolding, type select; init-render.ts: the row init asks under (the folder, the type, the files as a tree), a row per file created or skipped, init's tally
   command-action.ts         # Commander action wrapper: resolves mode (resolveMode), runs with the matching Ui, writes the machine document, maps ExitSignal to exit code
-  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row, fitted to the room the question and its options' share leave (children cut whole, `… N more`), erased with the question, as is the blank line any question after other lines opens with; a select's choices may carry cells, lined up in columns laid out from every choice (dropped in their `drop` order where the line is too narrow), and a footer of key hints and counts; `escape` names what esc does; stoppingUi (fail and cancel draw what the run owes first)
+  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row or rows, fitted to the room the question and its options' share leave (children cut whole, `… N more`; of several rows, as many as fit, then `… N more` counting those left out), erased with the question, as is the blank line any question after other lines opens with; a select's or multiselect's choices may carry cells, lined up in columns laid out from every choice (dropped in their `drop` order where the line is too narrow), and a footer of key hints and counts; `escape` names what esc does; stoppingUi (fail and cancel draw what the run owes first)
   message.ts                # Message (string | RichMessage), SubjectMessage, Advice, Remedy; plainText, isMachineOnly; machineOnly, sentence and failure word a plain string for both modes
   documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
   scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
@@ -31,7 +31,7 @@ src/
   config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`; declaresPack (`pack` or legacy `plugin`)
   choose-items.ts           # Flags -> Selection; chooseItems decides install / menu / refuse; stray notices; --list lines
   item-menu.ts              # The add multiselect, asked under the source's row
-  add-render.ts             # add's rows: the source (key, ref and constraint, what it holds) with its items beneath, as listed, asked about (skills one installed pack holds counted on one line), stopped (unchanged, or failed once the copy began, with the skills it left out), or installed (`N of M installed` after a menu); add's tally
+  add-render.ts             # add's rows: the source (key, ref and constraint, what it holds) with its items beneath, as listed, asked about (skills one installed pack holds counted on one line), stopped (unchanged, or failed once the copy began, with the skills it left out), or installed (`N of M installed` after a menu), each with what was cleared out of its way (an entry removed, files replaced); add's tally
   install-item.ts           # InstallItem (skill | pack); keyItem, the one key rule add and update share; keyItems refuses an item's own target clashes, then target and key clashes between items
   asset-targets.ts          # Claude asset routing (.claude/skills|agents|hooks), skillTarget; skillFolderName (the <name> of any path in .claude/skills/<name>/); hookEntryName (the top-level .claude/hooks/ entry a path is or lies in); isSafeSegment
   copy-item.ts              # Copy dispatch: skill vs pack; copyUnits (the folders a copy plans, each with its filter); checkItemLinks, the symlink-escape pre-flight over those units
@@ -42,14 +42,15 @@ src/
   compute-incoming-files.ts # Files an item would install; claims + target clashes
   install-paths.ts          # lstat-only inspection of install paths; assertNoLinkInTheWay; contained-path checks; installPathMatcher (paths equal with or without a trailing slash); isInstalledSkill (an installed `.claude/skills/<name>/` is a support folder only when it is a real folder holding no SKILL.md that isn't a folder; a linked SKILL.md, a linked or gone folder, or a path it can't read counts as a skill, never followed, never thrown)
   nuke-files.ts             # nukeManifestFiles: strict removal of recorded paths (recursion from the trailing slash); removePathsInTheWay: on-disk removal for approved replacements. Neither follows links; both refuse paths outside the root
-  clear-conflicts.ts        # Files in the way under a ConflictPolicy (overwrite | ask | stop)
+  clear-conflicts.ts        # Files in the way under a ConflictPolicy (overwrite | ask | stop); what it cleared (`Clearance`: an entry removed, files agntc didn't install replaced); a question answered no stops the item on what's still in its way
   collision-check.ts        # Incoming files owned by other entries
-  collision-resolve.ts      # Prompt/remove for colliding entries
+  collision-resolve.ts      # Asks under each colliding entry's row whether to remove it; removes those approved
   unmanaged-check.ts        # Incoming files agntc didn't install (links found by lstat)
-  unmanaged-resolve.ts      # Prompt for unmanaged files
+  unmanaged-resolve.ts      # Asks under the item's row whether to replace files agntc didn't install, then to be sure
+  in-the-way-render.ts      # The rows files-in-the-way questions sit under: another entry (collisionRow) or an item with files agntc didn't install in its way (unmanagedRow), the files dim beneath
   absorb.ts                 # A pack taking over loose skills from its own source, through its skills only; skills already in an installed pack (installed there as skills)
   entry-source.ts           # SourceId / isSameSource; sourceKeyOf (the source key add gives an entry's source); reAddCommand + groupReAddCommands (path, --pack, --skill line); restoreCommand (a remedy's re-add at the entry's version intent)
-  gone-upstream.ts          # settleGone: -y removes, terminal asks (default no), machine keeps + reports
+  gone-upstream.ts          # settleGone: -y removes, terminal asks under the entry's gone-upstream row (default no), machine keeps + reports
   clone-reinstall.ts        # reinstallEntry, one entry's clone and reinstall (`update <key>`, list's update and change version); cloneRepoOnce primitive + runPipeline for the grouped path; recordReinstall (an entry and its key move in one write); recordCopyFailure (the one place a copy failure drops the entry and what it took over); abort/blocked messages
   nuke-reinstall-pipeline.ts# Derive-before-delete replay (pack re-walk, moved skill, gone) + nuke-and-reinstall
   dropped-folders.ts        # droppedButInSource: recorded .claude/skills/<name>/ folders a reinstall won't write whose name is still in the item's source outside every folder it installs (a category of installed folders aside)
@@ -65,9 +66,9 @@ src/
   version-resolve.ts        # Semver tag resolution (resolveVersion, resolveLatestVersion, newestTag); tag-vs-hash rule (isVersionTag, formatVersionMove)
   version.ts                # CLI version from package.json at runtime
   list-render.ts            # list's rows: the dashboard's options (grouped by source, cells for kind, ref and status) and footer counts, the detail view's row and its fields, the empty manifest's row and Next item; what an action changed, counted into the tally
-  remove-render.ts          # The rows of a removal: the entry with its folders under each asset folder, then removed or failed
+  remove-render.ts          # The rows of a removal: the entry with its folders under each asset folder, then removed (with them) or failed; removalQuestion, the confirm worded by what the rows hold (`Remove it and its 11 folders?`, `Remove them and their 14 folders?`), which list's remove and gone upstream share; goneRow
   entry-assets.ts           # What an entry installs, counted and worded as add counts it (assetSummary, kindAndCounts)
-  summary.ts                # Counts and labels (pack counts, ref label); add's item outcomes; remove/update summaries; actionable out-of-constraint footer
+  summary.ts                # Counts and labels (pack counts, ref label); add's item outcomes; update summary; actionable out-of-constraint footer
 ```
 
 ## Key Types

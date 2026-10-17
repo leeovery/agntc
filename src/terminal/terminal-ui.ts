@@ -1,6 +1,7 @@
 import { ExitSignal } from "../exit-signal.js";
 import { isMachineOnly, type Message } from "../message.js";
 import type {
+	Asked,
 	Block,
 	ConfirmPrompt,
 	FailOptions,
@@ -15,7 +16,7 @@ import {
 	blockLayout,
 	renderProgress,
 	renderRow,
-	renderRowWithin,
+	renderRowsWithin,
 } from "./block.js";
 import { renderCancel, renderClose } from "./close.js";
 import type { ExitHost } from "./control.js";
@@ -136,18 +137,19 @@ export class TerminalUi implements Ui {
 			}
 		};
 		const askAbout = <A>(
-			row: Row,
+			asked: Asked,
 			prompt: (
 				above: (room: number) => string[],
 				context: PromptContext,
 			) => Promise<A>,
 		): Promise<A> => {
+			const rows: readonly Row[] = "subject" in asked ? [asked] : asked;
 			// Until the block draws, the blank line it opens with is the
 			// question's, and goes with it: a block that only asks leaves nothing.
 			const above = (room: number) => {
 				const opening = opened ? [] : this.opening();
-				const lines = renderRowWithin(
-					row,
+				const lines = renderRowsWithin(
+					rows,
 					room - 1 - opening.length,
 					layout,
 					width,
@@ -172,16 +174,16 @@ export class TerminalUi implements Ui {
 					clear: () => spinning.clear(),
 				};
 			},
-			select: (row, prompt) =>
-				askAbout(row, (above, context) =>
+			select: (asked, prompt) =>
+				askAbout(asked, (above, context) =>
 					promptSelect({ ...prompt, above }, context),
 				),
-			multiselect: (row, prompt) =>
-				askAbout(row, (above, context) =>
+			multiselect: (asked, prompt) =>
+				askAbout(asked, (above, context) =>
 					promptMultiselect({ ...prompt, above }, context),
 				),
-			confirm: (row, prompt) =>
-				askAbout(row, (above, context) =>
+			confirm: (asked, prompt) =>
+				askAbout(asked, (above, context) =>
 					promptConfirm({ ...prompt, above }, context),
 				),
 		};

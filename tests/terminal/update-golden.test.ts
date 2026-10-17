@@ -39,8 +39,13 @@ const PACK = { type: "pack" };
 const atRight = (left: string, right: string) =>
 	`${left}${" ".repeat(99 - left.length - right.length)}${right}`;
 const HEADER = atRight(" ■ agntc update", "~/project · v1.2.3");
-const QUESTION =
-	" ? owner/repo/gone is gone upstream — remove it?    Yes  [No]";
+/** gone's question, under the row naming it and what it installed. */
+const ASKED_GONE = [
+	" ! owner/repo/gone   gone upstream · skill",
+	"   .claude/skills/  gone",
+	"",
+	" ? Remove it and its folder?    Yes  [No]",
+];
 const RULE = ` ${"─".repeat(98)}`;
 const close = (tally: string) => ["", RULE, atRight(` ${tally}`, "2.4s")];
 
@@ -403,7 +408,7 @@ describe("an update of everything", () => {
 
 		const { asking, ended } = await session({ answer: ["n"] });
 
-		expect(asking).toEqual([HEADER, "", QUESTION]);
+		expect(asking).toEqual([HEADER, "", ...ASKED_GONE]);
 		expect(ended).toEqual([
 			HEADER,
 			"",
@@ -462,6 +467,65 @@ describe("an update of one key", () => {
 			"",
 			" ○ owner/repo   ^1.1.0   up to date",
 			"   └─ repo",
+		]);
+	});
+
+	it("asks about an entry gone upstream under its row, and keeps it on no", async () => {
+		await repo(
+			"owner/repo",
+			{ "other/SKILL.md": "new" },
+			constrained("v1.1.0"),
+		);
+		await installed({
+			"owner/repo/gone": entry("owner/repo", {
+				ref: "v1.0.0",
+				constraint: "^1.0.0",
+				files: [".claude/skills/gone/", ".claude/skills/gone/SKILL.md"],
+			}),
+		});
+
+		const { asking, ended } = await session({
+			key: "owner/repo/gone",
+			answer: ["n"],
+		});
+
+		expect(asking).toEqual([HEADER, "", ...ASKED_GONE]);
+		expect(ended).toEqual([
+			HEADER,
+			"",
+			" ! owner/repo   ^1.0.0   kept",
+			"   └─ gone               kept — it's gone upstream; update will ask again",
+		]);
+	});
+
+	it("aborts on files agntc didn't install in the way, naming them, with the --overwrite re-add under Next", async () => {
+		await repo(
+			"owner/repo",
+			{ "tools/agntc.json": PACK, ...prefixed("tools/", SKILLS("a", "b")) },
+			constrained("v1.1.0"),
+		);
+		await installed({
+			"owner/repo/tools": entry("owner/repo", {
+				ref: "v1.0.0",
+				constraint: "^1.0.0",
+				type: "pack",
+				files: [".claude/skills/a/", ".claude/skills/a/SKILL.md"],
+			}),
+		});
+		await write(projectDir, { ".claude/skills/b/SKILL.md": "mine" });
+
+		expect(await drawn({ key: "owner/repo/tools" })).toEqual([
+			HEADER,
+			"",
+			" ✗ owner/repo   ^1.0.0   v1.0.0 → v1.1.0  not updated",
+			"   └─ tools              can't be updated: files agntc didn't install are in the way:",
+			"                         .claude/skills/b/. The existing install is unchanged.",
+			"",
+			" Next",
+			"   owner/repo/tools — clear them and update again, or replace them:",
+			"     npx agntc remove owner/repo/tools",
+			"     npx agntc add 'owner/repo/tools@^1.0.0' --pack --overwrite",
+			...close("1 not updated"),
 		]);
 	});
 

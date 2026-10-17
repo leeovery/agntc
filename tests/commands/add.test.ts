@@ -87,7 +87,7 @@ import type {
 	RowHead,
 	Status,
 } from "../../src/terminal/types.js";
-import type { AddTally, Tally } from "../../src/ui.js";
+import type { AddTally, Asked, Tally } from "../../src/ui.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
 import { runMachine } from "../helpers/machine.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
@@ -213,8 +213,8 @@ interface Drawn {
 	subjects: BlockSubject[][];
 	/** What each task said it was doing, in the order they started. */
 	progress: Progress[];
-	/** The row each question was asked under. */
-	asked: Row[];
+	/** What each question was asked under. */
+	asked: Asked[];
 	rows: Row[];
 	warnings: Message[];
 	notes: Message[];
@@ -1186,7 +1186,13 @@ describe("add command", () => {
 					rows: [
 						sourceRow(
 							"1 pack",
-							[{ name: "p", detail: "conflict not resolved" }],
+							[
+								{
+									name: "p",
+									detail:
+										"files in the way belong to other/repo: .claude/skills/t/",
+								},
+							],
 							"attention",
 						),
 					],
@@ -2006,7 +2012,7 @@ describe("add command", () => {
 			]);
 		});
 
-		it("asks about a collision with another entry and installs once it's resolved", async () => {
+		it("asks about a collision with another entry and installs once it's resolved, its row saying whose files went", async () => {
 			await upstream({ "a/SKILL.md": "" });
 			await seedManifest({
 				"other/repo": installedEntry([".claude/skills/a/"]),
@@ -2020,6 +2026,50 @@ describe("add command", () => {
 			await runAdd("owner/repo", {}, ui);
 
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+			expect(ui.rows()).toEqual([
+				sourceRow("1 skill", [
+					{
+						name: "a",
+						detail:
+							"skill\nremoved other/repo, whose files were in the way: .claude/skills/a/",
+					},
+				]),
+			]);
+		});
+
+		it("says on the item skipped at a no which entries a yes before it removed", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/s/SKILL.md": "",
+				"p/skills/t/SKILL.md": "",
+			});
+			await seedManifest({
+				"other/one": installedEntry([".claude/skills/s/"]),
+				"other/two": installedEntry([".claude/skills/t/"]),
+			});
+			mockResolveCollisions.mockImplementation(async (_, current) => {
+				const { "other/one": _one, ...rest } = current;
+				return { resolved: false, updatedManifest: rest };
+			});
+
+			await runAdd("owner/repo/p", {}, ui);
+
+			expect(Object.keys(await manifest())).toEqual(["other/two"]);
+			expect(ui.rows()).toEqual([
+				sourceRow(
+					"1 pack",
+					[
+						{
+							name: "p",
+							detail: [
+								"files in the way belong to other/two: .claude/skills/t/",
+								"removed other/one, whose files were in the way: .claude/skills/s/",
+							].join("\n"),
+						},
+					],
+					"attention",
+				),
+			]);
 		});
 
 		it("lists the items in their own order, though one that fails its check is settled before one that installs", async () => {
@@ -2130,7 +2180,8 @@ describe("add command", () => {
 								{
 									name: "a",
 									status: "attention",
-									detail: "conflict not resolved",
+									detail:
+										"files in the way belong to other/repo: .claude/skills/a/",
 								},
 								{ ...skill("b"), status: "done" },
 							],
@@ -2162,7 +2213,13 @@ describe("add command", () => {
 			expect(ui.rows()).toEqual([
 				sourceRow(
 					"1 skill",
-					[{ name: "a", detail: "conflict not resolved" }],
+					[
+						{
+							name: "a",
+							detail:
+								"files in the way weren't installed by agntc: .claude/skills/a/",
+						},
+					],
 					"attention",
 				),
 			]);
@@ -2290,6 +2347,15 @@ describe("add command", () => {
 			expect(
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
 			).toBe("new");
+			expect(ui.rows()).toEqual([
+				sourceRow("1 skill", [
+					{
+						name: "a",
+						detail:
+							"skill\nremoved other/repo, whose files were in the way: .claude/skills/a/",
+					},
+				]),
+			]);
 		});
 
 		it("replaces files agntc didn't install without asking", async () => {
@@ -2302,6 +2368,15 @@ describe("add command", () => {
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
 			).toBe("new");
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+			expect(ui.rows()).toEqual([
+				sourceRow("1 skill", [
+					{
+						name: "a",
+						detail:
+							"skill\nreplaced files agntc didn't install: .claude/skills/a/",
+					},
+				]),
+			]);
 		});
 
 		it("replaces another entry's files without a terminal", async () => {
@@ -2522,6 +2597,12 @@ describe("add command", () => {
 				interactive(),
 			);
 			await expectPackInstalled();
+			expect(ui.rows()[0]!.children).toEqual([
+				{
+					name: "repo",
+					detail: `pack · 1 skill, 1 agent, 1 hook\nreplaced files agntc didn't install: ${TARGETS.join(", ")}`,
+				},
+			]);
 		});
 	});
 

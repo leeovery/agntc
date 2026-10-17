@@ -244,7 +244,7 @@ describe("resolveCollisions", () => {
 		expect(mockedNuke).not.toHaveBeenCalled();
 	});
 
-	it("calls box with file list and collision title before select", async () => {
+	it("asks under the entry's row, naming the files of its in the way, dim", async () => {
 		const manifest: Manifest = {
 			"owner/repo-a": makeEntry({
 				ref: "main",
@@ -264,14 +264,23 @@ describe("resolveCollisions", () => {
 
 		await resolveCollisions(collisions, manifest, "/project", ui);
 
-		expect(ui.box).toHaveBeenCalledWith(
-			"  - .claude/skills/skill-a/\n  - .claude/agents/executor.md",
-			'File collision with "owner/repo-a"',
+		const row = {
+			status: "attention",
+			subject: "owner/repo-a",
+			detail: "its files are in the way",
+			children: [
+				{ name: ".claude/skills/skill-a/", dim: true },
+				{ name: ".claude/agents/executor.md", dim: true },
+			],
+		};
+		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
+		expect(ui.blocks[0]!.select).toHaveBeenCalledExactlyOnceWith(
+			row,
+			expect.objectContaining({
+				message: 'How would you like to proceed with "owner/repo-a"?',
+			}),
 		);
-		// box() must be called before select()
-		const boxOrder = ui.box.mock.invocationCallOrder[0];
-		const selectOrder = ui.select.mock.invocationCallOrder[0];
-		expect(boxOrder).toBeLessThan(selectOrder!);
+		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
 	});
 
 	it("select message is single-line with plugin key (collision)", async () => {
@@ -297,7 +306,7 @@ describe("resolveCollisions", () => {
 		expect(message).not.toContain("\n");
 	});
 
-	it("calls box for each collision in sequential resolution", async () => {
+	it("asks about each collision under a row of its own", async () => {
 		const manifest: Manifest = {
 			"owner/repo-a": makeEntry({
 				ref: "main",
@@ -322,17 +331,16 @@ describe("resolveCollisions", () => {
 
 		await resolveCollisions(collisions, manifest, "/project", ui);
 
-		expect(ui.box).toHaveBeenCalledTimes(2);
-		expect(ui.box).toHaveBeenNthCalledWith(
-			1,
-			"  - .claude/skills/skill-a/",
-			'File collision with "owner/repo-a"',
-		);
-		expect(ui.box).toHaveBeenNthCalledWith(
-			2,
-			"  - .claude/agents/my-agent.md",
-			'File collision with "owner/repo-b"',
-		);
+		expect(ui.blocks.map((block) => block.select.mock.calls[0]![0])).toEqual([
+			expect.objectContaining({
+				subject: "owner/repo-a",
+				children: [{ name: ".claude/skills/skill-a/", dim: true }],
+			}),
+			expect.objectContaining({
+				subject: "owner/repo-b",
+				children: [{ name: ".claude/agents/my-agent.md", dim: true }],
+			}),
+		]);
 	});
 
 	it("does not offer install-anyway option", async () => {

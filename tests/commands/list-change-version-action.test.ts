@@ -767,7 +767,7 @@ describe("executeChangeVersionAction", () => {
 
 			expect(ui.confirm).toHaveBeenCalledTimes(2);
 			expect(ui.confirm).toHaveBeenLastCalledWith({
-				message: "owner/repo/go is gone upstream — remove it?",
+				message: "Remove it and its folder?",
 				initialValue: false,
 			});
 		});

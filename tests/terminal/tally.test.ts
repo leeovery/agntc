@@ -47,6 +47,13 @@ describe("tallyItems", () => {
 			{ count: 0, label: "removed", status: "done" },
 		]);
 	});
+
+	it("lists init's, a file left as it was counted as skipped, dim as nothing to do", () => {
+		expect(tallyItems({ command: "init", counts: { skipped: 1 } })).toEqual([
+			{ count: 0, label: "created", status: "done" },
+			{ count: 1, label: "skipped", status: "unchanged" },
+		]);
+	});
 });
 
 describe("outcomeCount", () => {

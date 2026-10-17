@@ -1,4 +1,5 @@
 import { heldDetail, type MenuOption, type SkillNote } from "./choose-items.js";
+import type { Clearance } from "./clear-conflicts.js";
 import type { InstallItem } from "./install-item.js";
 import {
 	formatPackCounts,
@@ -207,16 +208,28 @@ function askedNotes(notes: readonly SkillNote[]): Child[] {
 	);
 }
 
-/** Its kind and counts, or why it didn't install; an installed skill taken from its pack with that pack's note. */
+/**
+ * Its kind and counts, or why it didn't install, then what was cleared out
+ * of its way, a line each; an installed skill taken from its pack with that
+ * pack's note under its kind.
+ */
 function outcomeChild(
 	outcome: ItemOutcome,
 	notes: readonly SkillNote[],
 ): Child {
+	const lines = [
+		...outcomeLines(outcome, notes),
+		...(outcome.cleared ?? []).map(clearedWords),
+	];
+	return { name: outcome.label, detail: lines.join("\n") };
+}
+
+function outcomeLines(
+	outcome: ItemOutcome,
+	notes: readonly SkillNote[],
+): string[] {
 	if (outcome.status !== "installed") {
-		return {
-			name: outcome.label,
-			detail: outcome.message?.detail ?? outcome.reason,
-		};
+		return [outcome.message?.detail ?? outcome.reason];
 	}
 	const taken = notes.find(
 		(note) => note.heldBy === undefined && note.path === outcome.path,
@@ -225,10 +238,15 @@ function outcomeChild(
 		outcome.kind === "pack"
 			? `pack · ${formatPackCounts(outcome.assetCounts)}`
 			: "skill";
-	return {
-		name: outcome.label,
-		detail: taken === undefined ? kind : `${kind}\n${taken.detail}`,
-	};
+	return taken === undefined ? [kind] : [kind, taken.detail];
+}
+
+/** What went out of an item's way, and its files: another entry, removed, or files agntc didn't install, replaced. */
+export function clearedWords(clearance: Clearance): string {
+	const files = clearance.files.join(", ");
+	return clearance.kind === "entry"
+		? `removed ${clearance.key}, whose files were in the way: ${files}`
+		: `replaced files agntc didn't install: ${files}`;
 }
 
 export function outcomeStatus({ status }: ItemOutcome): Status {

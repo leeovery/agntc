@@ -382,7 +382,7 @@ describe("a list session", () => {
 			" ● leeovery/agentic-workflows   skill",
 			"   .claude/skills/  agentic-workflows",
 			"",
-			" ? Remove leeovery/agentic-workflows? 2 file(s) will be deleted.   [Yes]  No",
+			" ? Remove it and its folder?   [Yes]  No",
 		]);
 		await session.answer("Remove", "y");
 		await session.answer(DASHBOARD, KEY.escape);
@@ -398,6 +398,39 @@ describe("a list session", () => {
 			"",
 			" ✓ leeovery/agentic-workflows   removed · skill",
 			...close("1 updated  ·  1 version changed  ·  1 removed"),
+		]);
+	});
+
+	it("asks about an entry its update finds gone upstream under the entry's row, and keeps it on no", async () => {
+		const dir = join(testDir, "upstream", "owner/repo");
+		await write(dir, { "other/SKILL.md": "new" });
+		upstream.set("owner/repo", dir);
+		targets.set("owner/repo", { kind: "head", resolvedSha: NEW });
+		await write(projectDir, {
+			".claude/skills/gone/SKILL.md": "old",
+			".agntc/manifest.json": {
+				"owner/repo/gone": entry("owner/repo", { files: skillFiles("gone") }),
+			},
+		});
+		const session = new Session();
+		await session.answer(DASHBOARD, KEY.enter);
+		await session.answer("Action", KEY.enter);
+
+		expect((await session.asking("Remove")).slice(2)).toEqual([
+			" ! owner/repo/gone   gone upstream · skill",
+			"   .claude/skills/  gone",
+			"",
+			" ? Remove it and its folder?    Yes  [No]",
+		]);
+		await session.answer("Remove", "n");
+		await session.answer("Action", KEY.escape);
+		await session.answer(DASHBOARD, KEY.escape);
+
+		expect(await session.drawn()).toEqual([
+			HEADER,
+			"",
+			" ! owner/repo   HEAD   kept",
+			"   └─ gone             kept — it's gone upstream; update will ask again",
 		]);
 	});
 

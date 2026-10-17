@@ -3,7 +3,6 @@ import {
 	formatAssetCounts,
 	formatRefLabel,
 	joinWithAnd,
-	renderRemoveSummary,
 	renderUpdateOutcomeSummary,
 } from "../src/summary.js";
 
@@ -109,32 +108,6 @@ describe("renderUpdateOutcomeSummary", () => {
 			key: "/path/to/plugin",
 		});
 		expect(plain).toBe("/path/to/plugin: Refreshed from local path");
-	});
-});
-
-describe("renderRemoveSummary", () => {
-	it("shows key and file count", () => {
-		const result = renderRemoveSummary({
-			summaryLabel: "owner/repo",
-			fileCount: 5,
-		});
-		expect(result).toBe("Removed owner/repo — 5 file(s)");
-	});
-
-	it("shows count label for multiple plugins", () => {
-		const result = renderRemoveSummary({
-			summaryLabel: "3 install(s)",
-			fileCount: 12,
-		});
-		expect(result).toBe("Removed 3 install(s) — 12 file(s)");
-	});
-
-	it("handles zero files", () => {
-		const result = renderRemoveSummary({
-			summaryLabel: "owner/repo",
-			fileCount: 0,
-		});
-		expect(result).toBe("Removed owner/repo — 0 file(s)");
 	});
 });
 

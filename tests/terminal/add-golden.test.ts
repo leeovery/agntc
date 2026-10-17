@@ -106,15 +106,20 @@ interface Run {
 	later?: { asked: string; answer: string[] };
 }
 
-/** The terminal while the run asks its first question, and once it has ended. */
+/** The terminal while the run asks its first question and its second, and once it has ended. */
 async function session({
 	source = "owner/repo",
 	options = {},
 	answer,
 	later,
-}: Run = {}): Promise<{ asking: string[]; ended: string[] }> {
+}: Run = {}): Promise<{
+	asking: string[];
+	askingLater: string[];
+	ended: string[];
+}> {
 	const term = new Terminal(100, 60);
 	let asking: string[] = [];
+	let askingLater: string[] = [];
 	let now = 0;
 	const ui = new TerminalUi({
 		header: { command: "add", where: "~/project", version: "1.2.3" },
@@ -141,6 +146,7 @@ async function session({
 		await vi.waitFor(() => {
 			expect(term.output.text).toContain(later.asked);
 		});
+		askingLater = await term.lines();
 		await term.press(...later.answer);
 	}
 	try {
@@ -152,7 +158,7 @@ async function session({
 	} finally {
 		ui.end();
 	}
-	return { asking, ended: await term.lines() };
+	return { asking, askingLater, ended: await term.lines() };
 }
 
 async function drawn(run: Run = {}): Promise<string[]> {
@@ -304,7 +310,7 @@ describe("an add of one thing", () => {
 });
 
 describe("an add with files in the way", () => {
-	it("asks about them where the menu was, then draws the source's row under them, a blank line apart", async () => {
+	it("asks about another entry's under its row where the menu was, then says on the source's row whose went", async () => {
 		await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 		await write(projectDir, {
 			".claude/skills/a/SKILL.md": "theirs",
@@ -320,19 +326,94 @@ describe("an add with files in the way", () => {
 			},
 		});
 
-		const { ended } = await session({
+		const { askingLater, ended } = await session({
 			answer: [KEY.space, KEY.enter],
 			later: { asked: "How would you like to proceed", answer: [KEY.enter] },
 		});
 
+		expect(askingLater).toEqual([
+			HEADER,
+			"",
+			" ! other/repo             its files are in the way",
+			"   └─ .claude/skills/a/",
+			"",
+			atRight(
+				' ? How would you like to proceed with "other/repo"?',
+				"↑↓ move · ⏎ choose · esc cancel",
+			),
+			" ▌ Remove other/repo and continue",
+			"   Cancel installation",
+		]);
 		expect(ended).toEqual([
 			HEADER,
 			"",
-			' File collision with "other/repo"',
-			"   - .claude/skills/a/",
-			"",
 			" ✓ owner/repo   HEAD   1 of 2 installed",
 			"   └─ a                skill",
+			"                       removed other/repo, whose files were in the way: .claude/skills/a/",
+		]);
+	});
+
+	it("asks about files agntc didn't install under the item's row, twice, then says on the source's row which it replaced", async () => {
+		await upstream({ "a/SKILL.md": "" });
+		await write(projectDir, {
+			".claude/skills/a/SKILL.md": "mine",
+		});
+
+		const { asking, askingLater, ended } = await session({
+			answer: [KEY.enter],
+			later: { asked: "Are you sure", answer: ["y"] },
+		});
+
+		const asked = [
+			HEADER,
+			"",
+			" ! owner/repo/a           files agntc didn't install are in its way",
+			"   └─ .claude/skills/a/",
+			"",
+		];
+		expect(asking).toEqual([
+			...asked,
+			atRight(
+				' ? How would you like to proceed with "owner/repo/a"?',
+				"↑↓ move · ⏎ choose · esc cancel",
+			),
+			" ▌ Overwrite all — replace these files",
+			"   Cancel this install",
+		]);
+		expect(askingLater).toEqual([
+			...asked,
+			" ? Are you sure? These files will be permanently replaced.   [Yes]  No",
+		]);
+		expect(ended).toEqual([
+			HEADER,
+			"",
+			" ✓ owner/repo   HEAD   1 skill",
+			"   └─ a                skill",
+			"                       replaced files agntc didn't install: .claude/skills/a/",
+		]);
+	});
+
+	it("skips the item on a no, its row saying whose files are in the way, and which", async () => {
+		await upstream({ "a/SKILL.md": "" });
+		await write(projectDir, {
+			".claude/skills/a/SKILL.md": "theirs",
+			".agntc/manifest.json": {
+				"other/repo": {
+					ref: null,
+					commit: "old",
+					installedAt: "2026-01-01T00:00:00.000Z",
+					files: [".claude/skills/a/"],
+					type: "skill",
+					cloneUrl: "https://github.com/other/repo.git",
+				},
+			},
+		});
+
+		expect(await drawn({ answer: [KEY.down, KEY.enter] })).toEqual([
+			HEADER,
+			"",
+			" ! owner/repo   HEAD   1 skill",
+			"   └─ a                files in the way belong to other/repo: .claude/skills/a/",
 		]);
 	});
 });

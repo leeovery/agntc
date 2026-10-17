@@ -7,21 +7,22 @@ vi.mock("../src/nuke-files.js", () => ({
 import { settleGone } from "../src/gone-upstream.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { globalScope, projectScope } from "../src/scope.js";
-import { MachineUi, type Ui } from "../src/ui.js";
+import { MachineUi } from "../src/ui.js";
 import { makeEntry } from "./helpers/factories.js";
+import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const mockNuke = vi.mocked(nukeManifestFiles);
 
 const KEY = "owner/repo/go";
 const PROJECT = projectScope("/project");
+const HOME = "/home/lee";
 const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
 
 /** A terminal that answers the one question it's asked. */
-function terminal(answer: boolean): Ui & { confirm: ReturnType<typeof vi.fn> } {
-	return {
-		mode: "interactive",
-		confirm: vi.fn(async () => answer),
-	} as unknown as Ui & { confirm: ReturnType<typeof vi.fn> };
+function terminal(answer: boolean): TestUi {
+	const ui = testUi();
+	ui.confirm.mockResolvedValue(answer);
+	return ui;
 }
 
 beforeEach(() => {
@@ -30,21 +31,57 @@ beforeEach(() => {
 });
 
 describe("settleGone", () => {
-	it("asks at a terminal, no by default", async () => {
+	it("asks at a terminal under the entry's row, no by default, counting what it installed", async () => {
 		const ui = terminal(false);
 
-		await settleGone(KEY, entry, PROJECT, { yes: false, ui });
+		await settleGone(KEY, entry, PROJECT, { yes: false, ui, home: HOME });
 
-		expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-			message: "owner/repo/go is gone upstream — remove it?",
+		const row = {
+			status: "attention",
+			subject: KEY,
+			detail: { label: "gone upstream", aside: "skill" },
+			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+		};
+		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
+		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(row, {
+			message: "Remove it and its folder?",
 			initialValue: false,
 		});
+		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
+	});
+
+	it("names a local entry's row by its folder, shortened against the home folder", async () => {
+		const ui = terminal(false);
+		const local = makeEntry({
+			type: "pack",
+			commit: null,
+			cloneUrl: null,
+			files: [".claude/skills/a/", ".claude/agents/x.md"],
+		});
+
+		await settleGone(`${HOME}/src/kit`, local, PROJECT, {
+			yes: false,
+			ui,
+			home: HOME,
+		});
+
+		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				subject: "~/src/kit",
+				detail: { label: "gone upstream", aside: "pack · 1 skill, 1 agent" },
+			}),
+			{
+				message: "Remove it and its 1 folder and 1 agent?",
+				initialValue: false,
+			},
+		);
 	});
 
 	it("keeps it on no, removing nothing, and says update will ask again", async () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(false),
+			home: HOME,
 		});
 
 		expect(settled).toEqual({
@@ -63,6 +100,7 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(true),
+			home: HOME,
 		});
 
 		expect(settled).toEqual({
@@ -85,10 +123,12 @@ describe("settleGone", () => {
 		const atTerminal = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
 			ui,
+			home: HOME,
 		});
 		const machine = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
 			ui: new MachineUi("update", "project"),
+			home: HOME,
 		});
 
 		expect(ui.confirm).not.toHaveBeenCalled();
@@ -101,6 +141,7 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: new MachineUi("update", "project"),
+			home: HOME,
 		});
 
 		expect(settled).toEqual({
@@ -118,6 +159,7 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, globalScope("/home/lee"), {
 			yes: false,
 			ui: new MachineUi("update", "global"),
+			home: HOME,
 		});
 
 		expect(settled.message.plain).toBe(
@@ -129,6 +171,7 @@ describe("settleGone", () => {
 		await settleGone(KEY, entry, globalScope("/home/lee"), {
 			yes: true,
 			ui: terminal(false),
+			home: HOME,
 		});
 
 		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/home/lee", [

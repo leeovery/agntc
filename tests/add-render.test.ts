@@ -3,6 +3,7 @@ import {
 	addedRow,
 	addTally,
 	askedRow,
+	clearedWords,
 	holdings,
 	listedRow,
 	pickedDetail,
@@ -309,6 +310,51 @@ describe("addedRow", () => {
 		]);
 	});
 
+	it("says under each item's kind or reason what was cleared out of its way, a line each", () => {
+		const row = addedRow(
+			HEAD,
+			"2 skills",
+			[
+				{
+					...installed("a"),
+					cleared: [
+						{ kind: "entry", key: "other/repo", files: [".claude/skills/a/"] },
+						{ kind: "unmanaged", files: [".claude/agents/x.md"] },
+					],
+				},
+				{
+					...item("b"),
+					status: "skipped",
+					reason: "files in the way belong to other/two: .claude/skills/b/",
+					cleared: [
+						{ kind: "entry", key: "other/one", files: [".claude/skills/c/"] },
+					],
+				},
+			],
+			[],
+		);
+
+		expect(row.children).toEqual([
+			{
+				name: "a",
+				status: "done",
+				detail: [
+					"skill",
+					"removed other/repo, whose files were in the way: .claude/skills/a/",
+					"replaced files agntc didn't install: .claude/agents/x.md",
+				].join("\n"),
+			},
+			{
+				name: "b",
+				status: "attention",
+				detail: [
+					"files in the way belong to other/two: .claude/skills/b/",
+					"removed other/one, whose files were in the way: .claude/skills/c/",
+				].join("\n"),
+			},
+		]);
+	});
+
 	it("reads a skipped item as needing a look", () => {
 		expect(
 			addedRow(
@@ -409,6 +455,26 @@ describe("addedRow", () => {
 				},
 			],
 		});
+	});
+});
+
+describe("clearedWords", () => {
+	it("names another entry removed, and its files that were in the way", () => {
+		expect(
+			clearedWords({
+				kind: "entry",
+				key: "other/repo",
+				files: [".claude/skills/a/", ".claude/agents/x.md"],
+			}),
+		).toBe(
+			"removed other/repo, whose files were in the way: .claude/skills/a/, .claude/agents/x.md",
+		);
+	});
+
+	it("names files agntc didn't install, replaced", () => {
+		expect(
+			clearedWords({ kind: "unmanaged", files: [".claude/skills/a/"] }),
+		).toBe("replaced files agntc didn't install: .claude/skills/a/");
 	});
 });
 

@@ -7530,6 +7530,17 @@ describe("a key naming several entries", () => {
 
 describe("an entry gone upstream", () => {
 	const GONE_KEY = "owner/repo/go";
+	/** The row go's question is asked under. */
+	const ASKED: Row = {
+		status: "attention",
+		subject: GONE_KEY,
+		detail: { label: "gone upstream", aside: "skill" },
+		fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+	};
+	const QUESTION = {
+		message: "Remove it and its folder?",
+		initialValue: false,
+	};
 
 	function goneEntry(): ManifestEntry {
 		return makeEntry({
@@ -7624,10 +7635,12 @@ describe("an entry gone upstream", () => {
 
 			await runUpdate(GONE_KEY, {}, ui);
 
-			expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-				message: "owner/repo/go is gone upstream — remove it?",
-				initialValue: false,
-			});
+			expect(ui.block).toHaveBeenLastCalledWith([ASKED]);
+			expect(ui.blocks.at(-1)!.confirm).toHaveBeenCalledExactlyOnceWith(
+				ASKED,
+				QUESTION,
+			);
+			expect(ui.blocks.at(-1)!.row).not.toHaveBeenCalled();
 		});
 
 		it("keeps its files and entry on no, says update will ask again, and exits 0", async () => {
@@ -7642,7 +7655,7 @@ describe("an entry gone upstream", () => {
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[group("owner/repo", "HEAD", "go")]],
+					subjects: [[group("owner/repo", "HEAD", "go")], [ASKED]],
 					rows: [goneRow("kept")],
 					tally: closed({ kept: 1 }),
 				}),
@@ -7670,7 +7683,7 @@ describe("an entry gone upstream", () => {
 			expect(order).toEqual(["nuke", "write"]);
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[group("owner/repo", "HEAD", "go")]],
+					subjects: [[group("owner/repo", "HEAD", "go")], [ASKED]],
 					rows: [goneRow("removed")],
 					tally: closed({ removed: 1 }),
 				}),
@@ -7710,10 +7723,10 @@ describe("an entry gone upstream", () => {
 
 			expect(err).toBeUndefined();
 			expect(mockDiscover).toHaveBeenCalledWith(localKey, { rootName: "go" });
-			expect(ui.confirm).toHaveBeenCalledWith({
-				message: "/Users/lee/Code/go is gone upstream — remove it?",
-				initialValue: false,
-			});
+			expect(ui.blocks.at(-1)!.confirm).toHaveBeenCalledExactlyOnceWith(
+				{ ...ASKED, subject: localKey },
+				QUESTION,
+			);
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
 			]);
@@ -7734,7 +7747,7 @@ describe("an entry gone upstream", () => {
 			askedWhileSpinning();
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[group("owner/repo", "HEAD", "a", "go")]],
+					subjects: [[group("owner/repo", "HEAD", "a", "go")], [ASKED]],
 					rows: [KEPT_BESIDE_A],
 					tally: closed({ updated: 1, kept: 1 }),
 				}),
@@ -7789,7 +7802,7 @@ describe("an entry gone upstream", () => {
 			expect(Object.keys(written)).toEqual(["owner/repo/a"]);
 			expect(drawn()).toEqual(
 				screen({
-					subjects: [[group("owner/repo", "HEAD", "a", "go")]],
+					subjects: [[group("owner/repo", "HEAD", "a", "go")], [ASKED]],
 					rows: [
 						updated(
 							"owner/repo",

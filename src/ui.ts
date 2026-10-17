@@ -112,14 +112,17 @@ export interface Block {
 	/** A row that spins, saying what it's doing, until it settles or clears. */
 	task(progress: Progress): BlockTask;
 	/**
-	 * Each asks about `row`, drawn over the question and erased with it, so
-	 * what follows reports the outcome in its place, and resolves as the Ui's
-	 * prompt of its kind does when cancelled.
+	 * Each asks about what `asked` names, drawn over the question and erased
+	 * with it, so what follows reports the outcome in its place, and resolves
+	 * as the Ui's prompt of its kind does when cancelled.
 	 */
-	select<T>(row: Row, prompt: SelectPrompt<T>): Promise<T | null>;
-	multiselect<T>(row: Row, prompt: MultiselectPrompt<T>): Promise<T[]>;
-	confirm(row: Row, prompt: ConfirmPrompt): Promise<boolean>;
+	select<T>(asked: Asked, prompt: SelectPrompt<T>): Promise<T | null>;
+	multiselect<T>(asked: Asked, prompt: MultiselectPrompt<T>): Promise<T[]>;
+	confirm(asked: Asked, prompt: ConfirmPrompt): Promise<boolean>;
 }
+
+/** What a block's question is about: a row, or several, fitted together to the room the question leaves. */
+export type Asked = Row | readonly Row[];
 
 /** A step running in a block. A warning or note raised meanwhile prints under the row it settles into. */
 export interface BlockTask {
@@ -159,6 +162,13 @@ export interface RemoveTally {
 	failed?: number;
 }
 
+/** What `init` did with each file it scaffolds. */
+export interface InitTally {
+	created?: number;
+	/** There already, and left as it is. */
+	skipped?: number;
+}
+
 /** What a list session changed. */
 export interface ListTally {
 	updated?: number;
@@ -171,7 +181,8 @@ export type Tally =
 	| { command: "update"; counts: UpdateTally }
 	| { command: "add"; counts: AddTally }
 	| { command: "remove"; counts: RemoveTally }
-	| { command: "list"; counts: ListTally };
+	| { command: "list"; counts: ListTally }
+	| { command: "init"; counts: InitTally };
 
 /**
  * Every user-facing word and question goes through here, so machine mode
@@ -318,9 +329,9 @@ export class MachineUi implements Ui {
 		return {
 			row: ignore,
 			task: () => ({ settle: ignore, clear: ignore }),
-			select: (_row, prompt) => this.select(prompt),
-			multiselect: (_row, prompt) => this.multiselect(prompt),
-			confirm: (_row, prompt) => this.confirm(prompt),
+			select: (_asked, prompt) => this.select(prompt),
+			multiselect: (_asked, prompt) => this.multiselect(prompt),
+			confirm: (_asked, prompt) => this.confirm(prompt),
 		};
 	}
 

@@ -1,4 +1,5 @@
 import type { AssetCounts } from "./asset-targets.js";
+import type { Clearance } from "./clear-conflicts.js";
 import type { Advice, SubjectMessage, WordedRemedy } from "./message.js";
 import { formatVersionMove } from "./version-resolve.js";
 
@@ -50,12 +51,14 @@ export interface ItemIdentity {
 }
 
 /**
- * What became of one item `add` set out to install. A skipped item carrying
- * `flags` was stopped for want of them, with no terminal to ask. One carrying
- * a `message` says its `reason` with a remedy apart, the reason its `plain`.
+ * What became of one item `add` set out to install, and what was cleared out
+ * of its way, when anything was. A skipped item carrying `flags` was stopped
+ * for want of them, with no terminal to ask. One carrying a `message` says
+ * its `reason` with a remedy apart, the reason its `plain`.
  */
-export type ItemOutcome = ItemIdentity &
-	(
+export type ItemOutcome = ItemIdentity & {
+	cleared?: Clearance[];
+} & (
 		| { status: "installed"; assetCounts: AssetCounts; files: string[] }
 		| {
 				status: "skipped" | "failed";
@@ -91,15 +94,6 @@ export function renderUpdateOutcomeSummary(input: UpdateOutcomeInput): string {
 	}
 
 	return `${input.key}: Refreshed from local path`;
-}
-
-interface RemoveSummaryInput {
-	summaryLabel: string;
-	fileCount: number;
-}
-
-export function renderRemoveSummary(input: RemoveSummaryInput): string {
-	return `Removed ${input.summaryLabel} — ${input.fileCount} file(s)`;
 }
 
 export interface OutOfConstraintInfo {

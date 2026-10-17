@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
 	agntcCommand,
-	commandTitle,
 	globalScope,
 	homeShortened,
 	projectScope,
@@ -96,12 +95,5 @@ describe("homeShortened", () => {
 		expect(homeShortened("/home/lee", "/home/lee")).toBe("~");
 		expect(homeShortened("/home/lee/a/b", "/home/lee")).toBe("~/a/b");
 		expect(homeShortened("/home/leeds/a", "/home/lee")).toBe("/home/leeds/a");
-	});
-});
-
-describe("commandTitle", () => {
-	it("says global only for the global scope", () => {
-		expect(commandTitle("list", "project")).toBe("agntc list");
-		expect(commandTitle("list", "global")).toBe("agntc list · global");
 	});
 });

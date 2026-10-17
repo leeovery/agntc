@@ -1,5 +1,5 @@
 import { errorMessage } from "./errors.js";
-import { formatFileList } from "./format-file-list.js";
+import { collisionRow } from "./in-the-way-render.js";
 import { type Manifest, removeEntry } from "./manifest.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import type { Ui } from "./ui.js";
@@ -10,8 +10,9 @@ export interface CollisionResolution {
 }
 
 /**
- * Asks, per colliding entry, whether to remove it and carry on or cancel the
- * install. Stops at the first cancel.
+ * Asks, per colliding entry, under its row naming the files in the way,
+ * whether to remove it and carry on or cancel the install. Stops at the
+ * first cancel.
  *
  * @param collisions - Map of manifest key to overlapping file paths
  * @param manifest - Current manifest
@@ -26,9 +27,8 @@ export async function resolveCollisions(
 	let updatedManifest = manifest;
 
 	for (const [key, files] of collisions) {
-		ui.box(formatFileList(files), `File collision with "${key}"`);
-
-		const choice = await ui.select({
+		const row = collisionRow(key, files);
+		const choice = await ui.block([row]).select(row, {
 			message: `How would you like to proceed with "${key}"?`,
 			options: [
 				{

@@ -40,6 +40,10 @@ export const LOOKS: {
 		versionChanged: { label: "version changed", status: "done" },
 		removed: { label: "removed", status: "done" },
 	},
+	init: {
+		created: { label: "created", status: "done" },
+		skipped: { label: "skipped", status: "unchanged" },
+	},
 };
 
 /** Every category of the tally's command in its order, one it leaves out counted 0. */

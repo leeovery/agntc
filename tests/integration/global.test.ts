@@ -272,15 +272,13 @@ describe("remove -g", () => {
 describe("at a terminal", () => {
 	const scope = () => globalScope(home);
 
-	it("titles each command as global", async () => {
+	it("opens each command on the header, whose scope the command's action names", async () => {
 		await runAdd(globalSource, {}, ui, scope());
 		await runUpdate(FOO(), {}, ui, scope());
 		await runRemove(FOO(), { yes: true }, ui, scope());
 		await runListLoop(ui, scope());
 
-		// add, update and list open on the header, whose scope the command's action names.
-		expect(ui.intro.mock.calls).toEqual([["agntc remove · global"]]);
-		expect(ui.header).toHaveBeenCalledTimes(3);
+		expect(ui.header).toHaveBeenCalledTimes(4);
 	});
 
 	it("points an empty global list at add -g", async () => {

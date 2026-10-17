@@ -61,8 +61,3 @@ export function homeShortened(path: string, home: string): string {
 		? `~${path.slice(home.length)}`
 		: path;
 }
-
-/** What a command's title says at a terminal. */
-export function commandTitle(command: ScopedCommand, scope: ScopeName): string {
-	return scope === "global" ? `agntc ${command} · global` : `agntc ${command}`;
-}

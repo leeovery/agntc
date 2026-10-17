@@ -173,6 +173,65 @@ describe("the terminal ui's prompts", () => {
 		expect(term.output.text).toBe(" · before\n");
 	});
 
+	it("ask a block's question under several rows, fitted together to the room, the gap under them", async () => {
+		const { ui } = run();
+		vi.mocked(promptConfirm).mockResolvedValueOnce(true);
+		const rows: Row[] = [
+			{
+				status: "subject",
+				subject: "owner/repo/a",
+				children: [{ name: "x" }, { name: "y" }],
+			},
+			{ status: "subject", subject: "owner/repo/b", children: [{ name: "z" }] },
+		];
+		const block = ui.block(rows);
+
+		await block.confirm(rows, { message: "Remove them?" });
+
+		const [[{ above }]] = vi.mocked(promptConfirm).mock.calls as unknown as [
+			[{ above: (room: number) => string[] }],
+		];
+		const a = ` ● owner/repo/a${" ".repeat(3)}`.trimEnd();
+		const b = " ● owner/repo/b";
+		expect(above(7)).toEqual([a, "   ├─ x", "   └─ y", b, "   └─ z", ""]);
+		expect(above(5)).toEqual([a, "   └─ … 2 more", b, "   └─ z", ""]);
+		expect(above(4)).toEqual([a, "   └─ … 2 more", "   … 1 more", ""]);
+		expect(above(3)).toEqual([]);
+	});
+
+	it("ask a new block's question while another block's task spins: the spinner clears, what's said meanwhile waits for the answer, and the task spins on to settle", async () => {
+		const { term, ui } = run();
+		const group = ui.block([{ subject: "owner/repo" }]);
+		const task = group.task({ subject: "owner/repo", text: "updating…" });
+		ui.note("held while it spins");
+		let seen = "";
+		let whileAsking = "";
+		vi.mocked(promptConfirm).mockImplementationOnce(async () => {
+			seen = term.output.text;
+			ui.note("said while it asks");
+			whileAsking = term.output.text;
+			return false;
+		});
+		const asked: Row = { status: "attention", subject: "owner/repo/gone" };
+
+		expect(
+			await ui.block([asked]).confirm(asked, { message: "Remove it?" }),
+		).toBe(false);
+
+		expect(seen.endsWith(`${CLEAR}${SHOW} · held while it spins\n`)).toBe(true);
+		expect(whileAsking).toBe(seen);
+		const after = term.output.text.slice(seen.length);
+		expect(after.startsWith(" · said while it asks\n")).toBe(true);
+		expect(after).toContain(`${HIDE}${CLEAR}`);
+		expect(after).toContain("updating…");
+		task.settle({ status: "attention", subject: "owner/repo", detail: "kept" });
+		expect(await term.lines()).toEqual([
+			" · held while it spins",
+			" · said while it asks",
+			" ! owner/repo   kept",
+		]);
+	});
+
 	it.each([
 		{
 			why: "nothing is above it yet",

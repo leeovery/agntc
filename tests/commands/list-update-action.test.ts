@@ -604,7 +604,7 @@ describe("executeUpdateAction", () => {
 			await update(key, entry, manifest);
 
 			expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-				message: "owner/repo/go is gone upstream — remove it?",
+				message: "Remove it and its folder?",
 				initialValue: false,
 			});
 		});

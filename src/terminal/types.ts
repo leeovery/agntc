@@ -56,6 +56,8 @@ export interface Child {
 	detail?: string;
 	/** Drawn dim whole, as a line standing in for children left out. */
 	dim?: boolean;
+	/** How many levels it hangs below the row, under the child before it one level up: 0 unless given. */
+	depth?: number;
 }
 
 /**
@@ -63,7 +65,7 @@ export interface Child {
  * its children's names, a child with a status given a glyph's room.
  */
 export type BlockSubject = Pick<Row, "subject" | "meta"> & {
-	children?: readonly Pick<Child, "name" | "status">[];
+	children?: readonly Pick<Child, "name" | "status" | "depth">[];
 };
 
 /** A step still running: the row it will settle into, when it has one, and what it's doing. */

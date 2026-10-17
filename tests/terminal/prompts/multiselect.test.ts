@@ -84,6 +84,53 @@ describe("renderMultiselect", () => {
 		]);
 	});
 
+	describe("with cells", () => {
+		const ENTRIES: Choice<string>[] = [
+			{
+				value: "nuxt",
+				label: "leeovery/agentic-skills/nuxt",
+				cells: [
+					{ text: "pack", dim: true, drop: 1 },
+					{ text: "v0.5.3", dim: true, drop: 2 },
+				],
+			},
+			{
+				value: "git",
+				label: "leeovery/git-hygiene",
+				cells: [
+					{ text: "skill", dim: true, drop: 1 },
+					{ text: "HEAD", dim: true, drop: 2 },
+				],
+			},
+		];
+		const lines = (width: number, style = plain) =>
+			renderMultiselect(
+				view({ options: ENTRIES, cursor: 0, picked: [1] }),
+				width,
+				style,
+			).slice(1, 3);
+
+		it("lines the cells up in columns past the mark, as a select's are", () => {
+			expect(lines(80)).toEqual([
+				" ▌ ○ leeovery/agentic-skills/nuxt   pack    v0.5.3",
+				"   ● leeovery/git-hygiene           skill   HEAD",
+			]);
+		});
+
+		it("drops the columns in their order where the line is too narrow", () => {
+			expect(lines(50)).toEqual([
+				" ▌ ○ leeovery/agentic-skills/nuxt   v0.5.3",
+				"   ● leeovery/git-hygiene           HEAD",
+			]);
+		});
+
+		it("paints a dim cell dim", () => {
+			expect(lines(80, colour)[1]).toBe(
+				`   ${PICKED} leeovery/git-hygiene           \x1b[2mskill\x1b[22m   \x1b[2mHEAD\x1b[22m`,
+			);
+		});
+	});
+
 	it("cuts the hints to fit at 40, without the key hints", () => {
 		expect(renderMultiselect(view({ cursor: 0 }), 40, plain)).toEqual([
 			" ? What to install",

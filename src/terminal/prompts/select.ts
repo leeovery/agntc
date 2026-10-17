@@ -151,7 +151,7 @@ export function renderSelect<T>(
 	band?: Painter,
 ): string[] {
 	const room = roomFrom(TEXT_AT, width);
-	const text = choiceText(view.options, width, style);
+	const text = choiceText(view.options, room, width, style);
 	const footer = footerLines(view.footer, width, style);
 	return [
 		...(view.above ?? []),
@@ -191,7 +191,7 @@ function footerLines(
 	return line === "" ? [] : ["", line];
 }
 
-type ChoiceText<T> = (
+export type ChoiceText<T> = (
 	choice: Choice<T>,
 	index: number,
 	room: number,
@@ -199,12 +199,13 @@ type ChoiceText<T> = (
 ) => string;
 
 /**
- * How each choice's line reads: its cells lined up in columns laid out once
- * from every choice when they carry cells, else its label and its hint in the
- * hint column.
+ * How each choice's line reads, in the `room` the options' text has: its
+ * cells lined up in columns laid out once from every choice when they carry
+ * cells, else its label and its hint in the hint column.
  */
-function choiceText<T>(
+export function choiceText<T>(
 	options: readonly SelectOption<T>[],
+	room: number,
 	width: number,
 	style: Style,
 ): ChoiceText<T> {
@@ -214,7 +215,7 @@ function choiceText<T>(
 	);
 	const choices = placed.map(({ choice }) => choice);
 	if (hasCells(choices)) {
-		const layout = cellLayout(placed, roomFrom(TEXT_AT, width));
+		const layout = cellLayout(placed, room);
 		return (choice, index, room, current) =>
 			cellsText(
 				{ choice, inset: insets[index] ?? 0 },

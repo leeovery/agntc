@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import type { Manifest } from "../../src/manifest.js";
@@ -17,6 +19,11 @@ vi.mock("../../src/nuke-files.js", () => ({
 import { removeCommand, runRemove } from "../../src/commands/remove.js";
 import { readManifestOrExit, writeManifest } from "../../src/manifest.js";
 import { nukeManifestFiles } from "../../src/nuke-files.js";
+import {
+	removalRow,
+	removedRow,
+	removeFailedRow,
+} from "../../src/remove-render.js";
 import { makeEntry } from "../helpers/factories.js";
 import { runMachine } from "../helpers/machine.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
@@ -41,7 +48,14 @@ describe("remove command", () => {
 
 			await expect(runRemove("owner/repo", {}, ui)).resolves.toBeUndefined();
 
-			expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
+			expect(ui.rows()).toEqual([
+				{ status: "unchanged", subject: "No skills or packs installed." },
+			]);
+			expect(ui.next).not.toHaveBeenCalled();
+			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+				command: "remove",
+				counts: {},
+			});
 		});
 	});
 
@@ -69,12 +83,16 @@ describe("remove command", () => {
 				".claude/agents/executor.md",
 			]);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("Removed owner/repo"),
-			);
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("2 file(s)"),
-			);
+			expect(ui.rows()).toEqual([
+				removedRow("owner/repo", "skill", [
+					".claude/skills/my-skill/",
+					".claude/agents/executor.md",
+				]),
+			]);
+			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+				command: "remove",
+				counts: { removed: 1, failed: 0 },
+			});
 		});
 	});
 
@@ -137,12 +155,16 @@ describe("remove command", () => {
 				"/fake/project",
 				legacyFiles,
 			);
-			for (const file of legacyFiles) {
-				expect(ui.log.message).toHaveBeenCalledWith(`  ${file}`);
-			}
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("3 file(s)"),
+			const folders = [
+				{ label: ".claude/skills/", value: ["go"], noun: "folder" },
+				{ label: ".agents/skills/", value: ["go"], noun: "folder" },
+				{ label: ".cursor/skills/", value: ["go"], noun: "folder" },
+			];
+			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+				[expect.objectContaining({ fields: folders })],
+				{ message: "Remove it and its 3 folders?" },
 			);
+			expect(ui.rows()).toEqual([expect.objectContaining({ fields: folders })]);
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", {});
 		});
 	});
@@ -211,12 +233,28 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("Removed owner/repo"),
-			);
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("3 file(s)"),
-			);
+			const rows = [
+				removalRow("owner/repo/go", "skill", [".claude/skills/go/"]),
+				removalRow("owner/repo/python", "skill", [
+					".claude/skills/python/",
+					".claude/agents/python-agent.md",
+				]),
+			];
+			expect(ui.block).toHaveBeenNthCalledWith(1, rows);
+			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(rows, {
+				message: "Remove them and their 2 folders and 1 agent?",
+			});
+			expect(ui.rows()).toEqual([
+				removedRow("owner/repo/go", "skill", [".claude/skills/go/"]),
+				removedRow("owner/repo/python", "skill", [
+					".claude/skills/python/",
+					".claude/agents/python-agent.md",
+				]),
+			]);
+			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+				command: "remove",
+				counts: { removed: 2, failed: 0 },
+			});
 		});
 	});
 
@@ -261,13 +299,15 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			expect(ui.log.message).toHaveBeenCalledWith(
-				expect.stringContaining(".claude/skills/my-skill/"),
-			);
-			expect(ui.log.message).toHaveBeenCalledWith(
-				expect.stringContaining(".claude/agents/executor.md"),
-			);
-			expect(ui.confirm).toHaveBeenCalled();
+			const row = removalRow("owner/repo", "skill", [
+				".claude/skills/my-skill/",
+				".claude/agents/executor.md",
+			]);
+			expect(ui.block).toHaveBeenNthCalledWith(1, [row]);
+			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith([row], {
+				message: "Remove it and its 1 folder and 1 agent?",
+			});
+			expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
 		});
 
 		it("cancels and exits 0 when user declines", async () => {
@@ -286,6 +326,8 @@ describe("remove command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(0);
+			expect(ui.cancel).toHaveBeenCalledExactlyOnceWith("Cancelled");
+			expect(ui.rows()).toEqual([]);
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
@@ -459,7 +501,21 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith("Removed owner/repo — 3 file(s)");
+			expect(ui.rows()).toEqual([
+				{
+					status: "done",
+					subject: "owner/repo",
+					detail: { label: "removed", aside: "skill" },
+					fields: [
+						{
+							label: ".claude/skills/",
+							value: ["planning", "review"],
+							noun: "folder",
+						},
+						{ label: ".claude/agents/", value: ["executor.md"], noun: "agent" },
+					],
+				},
+			]);
 		});
 
 		it("shows correct file count for single file plugin", async () => {
@@ -480,7 +536,10 @@ describe("remove command", () => {
 
 			await runRemove("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith("Removed owner/repo — 1 file(s)");
+			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+				expect.anything(),
+				{ message: "Remove it and its folder?" },
+			);
 		});
 	});
 
@@ -540,7 +599,9 @@ describe("remove command", () => {
 
 				await expect(runRemove(undefined, {}, ui)).resolves.toBeUndefined();
 
-				expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
+				expect(ui.rows()).toEqual([
+					{ status: "unchanged", subject: "No skills or packs installed." },
+				]);
 				expect(ui.multiselect).not.toHaveBeenCalled();
 			});
 		});
@@ -574,7 +635,7 @@ describe("remove command", () => {
 				expect(call.message).toBe("Select what to remove");
 			});
 
-			it("shows the 'agntc remove' intro before the multiselect", async () => {
+			it("opens with the header before the multiselect", async () => {
 				const manifest: Manifest = {
 					"owner/repo": makeEntry({
 						ref: "v1.0",
@@ -589,13 +650,13 @@ describe("remove command", () => {
 
 				await runRemove(undefined, {}, ui);
 
-				expect(ui.intro).toHaveBeenCalledWith("agntc remove");
-				expect(ui.intro.mock.invocationCallOrder[0]!).toBeLessThan(
+				expect(ui.header).toHaveBeenCalledOnce();
+				expect(ui.header.mock.invocationCallOrder[0]!).toBeLessThan(
 					ui.multiselect.mock.invocationCallOrder[0]!,
 				);
 			});
 
-			it("shows ref hints on multiselect options", async () => {
+			it("lines up each entry's kind and ref, dim, beside its key", async () => {
 				const manifest: Manifest = {
 					"owner/repo": makeEntry({
 						ref: "v1.0",
@@ -617,13 +678,50 @@ describe("remove command", () => {
 				await runRemove(undefined, {}, ui);
 
 				const call = ui.multiselect.mock.calls[0]![0];
-				const ownerOption = call.options.find((o) => o.value === "owner/repo");
-				expect(ownerOption?.hint).toBe("v1.0");
+				expect(call.options).toEqual([
+					{
+						value: "owner/repo",
+						label: "owner/repo",
+						cells: [
+							{ text: "skill", dim: true, drop: 1 },
+							{ text: "v1.0", dim: true, drop: 2 },
+						],
+					},
+					{
+						value: "other/plugin",
+						label: "other/plugin",
+						cells: [
+							{ text: "skill", dim: true, drop: 1 },
+							{ text: "HEAD", dim: true, drop: 2 },
+						],
+					},
+				]);
+			});
 
-				const otherOption = call.options.find(
-					(o) => o.value === "other/plugin",
+			it("names a local entry by its folder, shortened against the home folder, and its ref as local", async () => {
+				const local = join(homedir(), "src", "kit");
+				mockReadManifestOrExit.mockResolvedValue({
+					[local]: makeEntry({ type: "pack", commit: null, files: [] }),
+				});
+				ui.multiselect.mockResolvedValue([local]);
+				ui.confirm.mockResolvedValue(false);
+
+				await runRemove(undefined, {}, ui).catch(() => {});
+
+				expect(ui.multiselect.mock.calls[0]![0].options).toEqual([
+					{
+						value: local,
+						label: join("~", "src", "kit"),
+						cells: [
+							{ text: "pack", dim: true, drop: 1 },
+							{ text: "local", dim: true, drop: 2 },
+						],
+					},
+				]);
+				expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+					[removalRow(join("~", "src", "kit"), "pack", [])],
+					{ message: "Remove it?" },
 				);
-				expect(otherOption?.hint).toBe("HEAD");
 			});
 
 			it("shows single plugin in multiselect", async () => {
@@ -664,6 +762,8 @@ describe("remove command", () => {
 
 				expect(err).toBeInstanceOf(ExitSignal);
 				expect((err as ExitSignal).code).toBe(0);
+				expect(ui.cancel).toHaveBeenCalledExactlyOnceWith("Cancelled");
+				expect(ui.rows()).toEqual([]);
 				expect(ui.confirm).not.toHaveBeenCalled();
 				expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			});
@@ -838,20 +938,29 @@ describe("remove command", () => {
 
 				await runRemove(undefined, {}, ui);
 
-				expect(ui.outro).toHaveBeenCalledWith(
-					"Removed 2 install(s) — 3 file(s)",
+				expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+					[
+						removalRow("owner/repo", "skill", [".claude/skills/my-skill/"]),
+						removalRow("other/plugin", "skill", [
+							".claude/skills/other/",
+							".claude/agents/agent.md",
+						]),
+					],
+					{ message: "Remove them and their 2 folders and 1 agent?" },
 				);
+				expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+					command: "remove",
+					counts: { removed: 2, failed: 0 },
+				});
 			});
 		});
 	});
 
-	describe("file grouping by type in confirmation display", () => {
-		it("groups files by type with headers", async () => {
-			const manifest: Manifest = {
-				"owner/repo": makeEntry({
-					ref: "v1.0",
-					commit: "abc123",
-					installedAt: "2026-01-15T10:00:00.000Z",
+	describe("what the question's rows name", () => {
+		it("names each asset folder's items under it, a pack's kind with its counts", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/kit": makeEntry({
+					type: "pack",
 					files: [
 						".claude/skills/planning/",
 						".claude/skills/review/",
@@ -859,104 +968,41 @@ describe("remove command", () => {
 						".claude/hooks/pre-commit.sh",
 					],
 				}),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
+			});
 			ui.confirm.mockResolvedValue(true);
-			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 
-			await runRemove("owner/repo", {}, ui);
+			await runRemove("owner/repo/kit", {}, ui);
 
-			const messageCalls = ui.said("message");
-			const skillsHeaderIdx = messageCalls.findIndex((m) =>
-				m.includes("Skills"),
+			expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+				[
+					{
+						status: "subject",
+						subject: "owner/repo/kit",
+						detail: "pack · 2 skills, 1 agent, 1 hook",
+						fields: [
+							{
+								label: ".claude/skills/",
+								value: ["planning", "review"],
+								noun: "folder",
+							},
+							{
+								label: ".claude/agents/",
+								value: ["executor.md"],
+								noun: "agent",
+							},
+							{
+								label: ".claude/hooks/",
+								value: ["pre-commit.sh"],
+								noun: "hook",
+							},
+						],
+					},
+				],
+				{ message: "Remove it and its 2 folders, 1 agent and 1 hook?" },
 			);
-			const agentsHeaderIdx = messageCalls.findIndex((m) =>
-				m.includes("Agents"),
-			);
-			const hooksHeaderIdx = messageCalls.findIndex((m) => m.includes("Hooks"));
-
-			expect(skillsHeaderIdx).toBeGreaterThanOrEqual(0);
-			expect(agentsHeaderIdx).toBeGreaterThanOrEqual(0);
-			expect(hooksHeaderIdx).toBeGreaterThanOrEqual(0);
-			expect(skillsHeaderIdx).toBeLessThan(agentsHeaderIdx);
-			expect(agentsHeaderIdx).toBeLessThan(hooksHeaderIdx);
-		});
-
-		it("only shows headers for types that have files", async () => {
-			const manifest: Manifest = {
-				"owner/repo": makeEntry({
-					ref: "v1.0",
-					commit: "abc123",
-					installedAt: "2026-01-15T10:00:00.000Z",
-					files: [".claude/skills/my-skill/"],
-				}),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			ui.confirm.mockResolvedValue(true);
-			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-
-			await runRemove("owner/repo", {}, ui);
-
-			const messageCalls = ui.said("message");
-			const hasSkillsHeader = messageCalls.some((m) => m.includes("Skills"));
-			const hasAgentsHeader = messageCalls.some((m) => m.includes("Agents"));
-			const hasHooksHeader = messageCalls.some((m) => m.includes("Hooks"));
-
-			expect(hasSkillsHeader).toBe(true);
-			expect(hasAgentsHeader).toBe(false);
-			expect(hasHooksHeader).toBe(false);
 		});
 	});
 
-	describe("collection remove lists affected plugins", () => {
-		it("lists affected plugin names before file list for collection prefix match", async () => {
-			const manifest: Manifest = {
-				"owner/repo/go": makeEntry({
-					ref: null,
-					commit: "def456",
-					installedAt: "2026-01-15T10:00:00.000Z",
-					files: [".claude/skills/go/"],
-				}),
-				"owner/repo/python": makeEntry({
-					ref: null,
-					commit: "def456",
-					installedAt: "2026-01-15T10:00:00.000Z",
-					files: [".claude/skills/python/"],
-				}),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			ui.confirm.mockResolvedValue(true);
-			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-
-			await runRemove("owner/repo", {}, ui);
-
-			const infoCalls = ui.said("info");
-			const hasGoPlugin = infoCalls.some((m) => m.includes("owner/repo/go"));
-			const hasPythonPlugin = infoCalls.some((m) =>
-				m.includes("owner/repo/python"),
-			);
-			expect(hasGoPlugin).toBe(true);
-			expect(hasPythonPlugin).toBe(true);
-		});
-
-		it("does not list affected plugins for single exact key match", async () => {
-			const manifest: Manifest = {
-				"owner/repo": makeEntry({
-					ref: "v1.0",
-					commit: "abc123",
-					installedAt: "2026-01-15T10:00:00.000Z",
-					files: [".claude/skills/my-skill/"],
-				}),
-			};
-			mockReadManifestOrExit.mockResolvedValue(manifest);
-			ui.confirm.mockResolvedValue(true);
-			mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
-
-			await runRemove("owner/repo", {}, ui);
-
-			expect(ui.said("info")).toEqual([]);
-		});
-	});
 	describe("-y", () => {
 		const manifest: Manifest = {
 			"owner/repo/go": {
@@ -992,9 +1038,9 @@ describe("remove command", () => {
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
 			]);
-			expect(ui.outro).toHaveBeenCalledWith(
-				"Removed owner/repo/go — 1 file(s)",
-			);
+			expect(ui.rows()).toEqual([
+				removedRow("owner/repo/go", "skill", [".claude/skills/go/"]),
+			]);
 		});
 
 		it("removes without a terminal, printing one document of what went", async () => {
@@ -1152,10 +1198,15 @@ describe("remove command", () => {
 				"owner/repo/b": manifest["owner/repo/b"],
 				"other/repo": manifest["other/repo"],
 			});
-			expect(ui.log.error).toHaveBeenCalledWith(
-				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
-			);
-			expect(ui.outro).toHaveBeenCalledWith("Removed 2 install(s) — 2 file(s)");
+			expect(ui.rows()).toEqual([
+				removedRow("owner/repo/a", "skill", [".claude/skills/a/"]),
+				removeFailedRow("owner/repo/b", "EACCES: permission denied"),
+				removedRow("owner/repo/c", "skill", [".claude/skills/c/"]),
+			]);
+			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+				command: "remove",
+				counts: { removed: 2, failed: 1 },
+			});
 		});
 
 		it("without a terminal, reports only the keys removed and the failure, with ok false", async () => {
@@ -1195,10 +1246,13 @@ describe("remove command", () => {
 			).rejects.toMatchObject({ code: 1 });
 
 			expect(mockWriteManifest).toHaveBeenCalledWith("/fake/project", manifest);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				"owner/repo/b: failed — EACCES: permission denied; it stays recorded",
-			);
-			expect(ui.outro).toHaveBeenCalledWith("Nothing removed");
+			expect(ui.rows()).toEqual([
+				removeFailedRow("owner/repo/b", "EACCES: permission denied"),
+			]);
+			expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+				command: "remove",
+				counts: { removed: 0, failed: 1 },
+			});
 		});
 	});
 });

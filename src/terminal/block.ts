@@ -44,6 +44,8 @@ const BRANCH_AT = 3;
 const CHILD_AT = 6;
 /** A child's status glyph and its space, after the branch. */
 const CHILD_GLYPH = 2;
+/** How much further in a child one level deeper hangs: `│  ` before its branch. */
+const LEVEL = 3;
 const COLUMN_GAP = 3;
 const MIN_GAP = 2;
 const SUBJECT_SHARE = 0.45;
@@ -91,13 +93,22 @@ function subjectMeasures(row: BlockSubject): number[] {
 	return [
 		visibleWidth(row.subject),
 		...(row.children ?? []).map(
-			(child) =>
-				CHILD_AT -
-				SUBJECT_AT +
-				(child.status === undefined ? 0 : CHILD_GLYPH) +
-				visibleWidth(child.name),
+			(child) => nameAt(child) - SUBJECT_AT + visibleWidth(child.name),
 		),
 	];
+}
+
+/** Where a child's name starts: past its branch, a level further in for each it hangs below, and past its glyph. */
+function nameAt(child: Pick<Child, "status" | "depth">): number {
+	return (
+		CHILD_AT +
+		LEVEL * depthOf(child) +
+		(child.status === undefined ? 0 : CHILD_GLYPH)
+	);
+}
+
+function depthOf(child: Pick<Child, "depth"> | undefined): number {
+	return child?.depth ?? 0;
 }
 
 function widest(widths: readonly number[]): number {
@@ -131,19 +142,7 @@ export function renderRowWithin(
 	width: number,
 	style: Style,
 ): string[] {
-	const head = headLines(row, layout, width, style);
-	const units = bodyUnits(row, layout, width, style);
-	const fields = row.fields ?? [];
-	const child = childPen(row, layout, width, style);
-	const more = (from: number) => {
-		const text = leftOut(
-			fields.slice(from),
-			units.length - Math.max(from, fields.length),
-		);
-		return from < fields.length
-			? [indent(FIELD_AT) + style.dim(text)]
-			: child({ name: text, dim: true }, true);
-	};
+	const { head, units, more } = rowParts(row, layout, width, style);
 	const kept: string[] = [];
 	for (const [index, lines] of units.entries()) {
 		const last = index === units.length - 1;
@@ -158,6 +157,90 @@ export function renderRowWithin(
 		kept.push(...lines);
 	}
 	return head.length + kept.length <= room ? [...head, ...kept] : [];
+}
+
+/**
+ * The rows in at most `room` lines: as many as fit at their fewest
+ * ({@link fewestLines}), then a dim `… N more` line counting any left out,
+ * the room to spare going to the rows in turn, each fitted as
+ * {@link renderRowWithin} fits one, so rows that all fit show whole. Nothing
+ * when not even the first fits at its fewest.
+ */
+export function renderRowsWithin(
+	rows: readonly Row[],
+	room: number,
+	layout: BlockLayout,
+	width: number,
+	style: Style,
+): string[] {
+	const [only] = rows;
+	if (rows.length === 1 && only !== undefined) {
+		return renderRowWithin(only, room, layout, width, style);
+	}
+	const fewest = rows.map((row) =>
+		fewestLines(rowParts(row, layout, width, style)),
+	);
+	const cost = (shown: number) =>
+		total(fewest.slice(0, shown)) + (shown < rows.length ? 1 : 0);
+	let shown = rows.length;
+	while (shown > 0 && cost(shown) > room) {
+		shown -= 1;
+	}
+	if (shown === 0) {
+		return [];
+	}
+	let spare = room - cost(shown);
+	const lines: string[] = [];
+	for (const [index, row] of rows.slice(0, shown).entries()) {
+		const least = fewest[index] ?? 0;
+		const fitted = renderRowWithin(row, least + spare, layout, width, style);
+		spare -= fitted.length - least;
+		lines.push(...fitted);
+	}
+	if (shown === rows.length) {
+		return lines;
+	}
+	return [
+		...lines,
+		indent(FIELD_AT) + style.dim(leftOut([], rows.length - shown)),
+	];
+}
+
+/** A row as a room cuts it: its own lines, its body's units, and the line counting those left out from one on. */
+interface RowParts {
+	head: string[];
+	units: string[][];
+	more: (from: number) => string[];
+}
+
+function rowParts(
+	row: Row,
+	layout: BlockLayout,
+	width: number,
+	style: Style,
+): RowParts {
+	const units = bodyUnits(row, layout, width, style);
+	const fields = row.fields ?? [];
+	const child = childPen(row, layout, width, style);
+	const more = (from: number) => {
+		const text = leftOut(
+			fields.slice(from),
+			units.length - Math.max(from, fields.length),
+		);
+		return from < fields.length
+			? [indent(FIELD_AT) + style.dim(text)]
+			: child({ name: text, dim: true }, CLOSING);
+	};
+	return { head: headLines(row, layout, width, style), units, more };
+}
+
+/** The fewest lines a row cut honestly takes: its own, and the line counting its body when it has one. */
+function fewestLines({ head, units, more }: RowParts): number {
+	return head.length + (units.length === 0 ? 0 : more(0).length);
+}
+
+function total(counts: readonly number[]): number {
+	return counts.reduce((sum, count) => sum + count, 0);
 }
 
 /**
@@ -192,10 +275,51 @@ function bodyUnits(
 	const child = childPen(row, layout, width, style);
 	return [
 		...fieldUnits(row, width, style),
-		...children.map((each, index) =>
-			child(each, index === children.length - 1),
-		),
+		...children.map((each, index) => child(each, branchOf(children, index))),
 	];
+}
+
+/**
+ * Where a child hangs: whether the branch of each level above it runs on
+ * past it, and whether it's the last of its siblings, closing its own.
+ */
+interface Branch {
+	runs: readonly boolean[];
+	last: boolean;
+}
+
+/** The last child at the row's own level, as a line counting those left out is. */
+const CLOSING: Branch = { runs: [], last: true };
+
+function branchOf(children: readonly Child[], index: number): Branch {
+	const runs = Array.from({ length: depthOf(children[index]) }, (_, level) => {
+		const parent = nearestAbove(children, index, level);
+		return parent !== -1 && hasNextSibling(children, parent);
+	});
+	return { runs, last: !hasNextSibling(children, index) };
+}
+
+/** The nearest child before `index` hanging at `level`, or -1. */
+function nearestAbove(
+	children: readonly Child[],
+	index: number,
+	level: number,
+): number {
+	for (let at = index - 1; at >= 0; at--) {
+		if (depthOf(children[at]) === level) {
+			return at;
+		}
+	}
+	return -1;
+}
+
+/** Whether a child further down hangs at the same level, before any hangs above it. */
+function hasNextSibling(children: readonly Child[], index: number): boolean {
+	const depth = depthOf(children[index]);
+	const next = children
+		.slice(index + 1)
+		.find((child) => depthOf(child) <= depth);
+	return next !== undefined && depthOf(next) === depth;
 }
 
 /** ` ✓ ` before a field's label, as before a row's subject. */
@@ -244,19 +368,19 @@ function headLines(
 	}).map(dimWhole(quiet, style));
 }
 
-/** Draws one of the row's children, the last one closing its branch. */
+/** Draws one of the row's children on its branch. */
 function childPen(
 	row: Row,
 	layout: BlockLayout,
 	width: number,
 	style: Style,
-): (child: Child, last: boolean) => string[] {
+): (child: Child, branch: Branch) => string[] {
 	const place = {
 		detailAt: isNarrow(width) ? undefined : layout.detailAt,
 		width,
 		style,
 	};
-	return (child, last) => renderChild(child, last, row.status, place);
+	return (child, branch) => renderChild(child, branch, row.status, place);
 }
 
 /**
@@ -486,7 +610,7 @@ interface ChildPlace {
 
 function renderChild(
 	child: Child,
-	last: boolean,
+	{ runs, last }: Branch,
 	rowStatus: Status,
 	{ detailAt, width, style }: ChildPlace,
 ): string[] {
@@ -498,12 +622,15 @@ function renderChild(
 	const glyph =
 		child.status === undefined ? "" : `${statusGlyph(child.status, paint)} `;
 	const tone = isRead(child.status ?? rowStatus) ? identity : paint.dim;
-	const nameAt = CHILD_AT + (child.status === undefined ? 0 : CHILD_GLYPH);
-	const at = detailAt ?? nameAt;
+	const name = nameAt(child);
+	const at = detailAt ?? name;
+	const rails = runs
+		.map((on) => (on ? paint.dim("│") : " ") + indent(LEVEL - 1))
+		.join("");
 	const lines = flow(
 		leadLines(
-			`${indent(BRANCH_AT)}${paint.dim(last ? "└─" : "├─")} ${glyph}`,
-			nameAt,
+			`${indent(BRANCH_AT)}${rails}${paint.dim(last ? "└─" : "├─")} ${glyph}`,
+			name,
 			child.name,
 			identity,
 			width,
@@ -517,13 +644,12 @@ function renderChild(
 			},
 		],
 	);
-	// With a sibling below, the branch runs on past this child's lines, which
-	// all open with spaces to at least column 6.
-	const trunk = `${indent(BRANCH_AT)}${paint.dim("│")}`;
+	// The branches running on past this child's lines, its own with a sibling
+	// below, overwrite spaces: those lines all open with spaces to its name.
+	const trunk = `${indent(BRANCH_AT)}${rails}${last ? " " : paint.dim("│")}`;
+	const trunkWidth = BRANCH_AT + LEVEL * runs.length + 1;
 	return lines
-		.map((line, index) =>
-			last || index === 0 ? line : trunk + line.slice(BRANCH_AT + 1),
-		)
+		.map((line, index) => (index === 0 ? line : trunk + line.slice(trunkWidth)))
 		.map(dimWhole(quiet, style));
 }
 

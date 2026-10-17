@@ -3,6 +3,7 @@ import {
 	blockLayout,
 	renderProgress,
 	renderRow,
+	renderRowsWithin,
 	renderRowWithin,
 } from "../../src/terminal/block.js";
 import { createStyle } from "../../src/terminal/style.js";
@@ -768,6 +769,185 @@ describe("renderRowWithin", () => {
 
 	it("paints the count dim", () => {
 		expect(within(2, color)[1]).toBe(" \x1b[2m  └─ … 3 more\x1b[22m");
+	});
+});
+
+describe("renderRowsWithin", () => {
+	const folders = (...names: string[]): Row => ({
+		status: "subject",
+		subject: `owner/${names[0]}`,
+		fields: [{ label: ".claude/skills/", value: names, noun: "folder" }],
+		children: [{ name: "a" }, { name: "b" }],
+	});
+	const first = folders("one", "two");
+	const second = folders("three");
+	const third = folders("four");
+	const rows = [first, second, third];
+	const layout = blockLayout(rows, 80);
+	const within = (room: number, style = plain) =>
+		renderRowsWithin(rows, room, layout, 80, style);
+	const draw = (row: Row) => renderRow(row, layout, 80, plain);
+	const head = (row: Row) => draw(row)[0];
+	const whole = rows.flatMap(draw);
+
+	it("draws every row whole, in one block's columns, when they all fit", () => {
+		expect(within(whole.length)).toEqual(whole);
+	});
+
+	it("cuts each row to its head and a count of the rest when only that fits for every row", () => {
+		expect(within(6)).toEqual([
+			head(first),
+			"   … 2 more folders, 2 more",
+			head(second),
+			"   … 1 more folder, 2 more",
+			head(third),
+			"   … 1 more folder, 2 more",
+		]);
+	});
+
+	it("gives the room to spare to the rows in turn, each still cut honestly", () => {
+		expect(within(8)).toEqual([
+			...draw(first),
+			head(second),
+			"   … 1 more folder, 2 more",
+			head(third),
+			"   … 1 more folder, 2 more",
+		]);
+		expect(within(7)).toEqual([
+			head(first),
+			"   .claude/skills/  one  two",
+			"   └─ … 2 more",
+			head(second),
+			"   … 1 more folder, 2 more",
+			head(third),
+			"   … 1 more folder, 2 more",
+		]);
+	});
+
+	it("counts the rows left out on a line of their own when not every row fits at its fewest", () => {
+		expect(within(5)).toEqual([
+			head(first),
+			"   … 2 more folders, 2 more",
+			head(second),
+			"   … 1 more folder, 2 more",
+			"   … 1 more",
+		]);
+		expect(within(3)).toEqual([
+			head(first),
+			"   … 2 more folders, 2 more",
+			"   … 2 more",
+		]);
+	});
+
+	it("draws nothing when not even the first row fits at its fewest beside that count", () => {
+		expect(within(2)).toEqual([]);
+	});
+
+	it("paints the count of rows left out dim", () => {
+		expect(within(3, color).at(-1)).toBe("   \x1b[2m… 2 more\x1b[22m");
+	});
+
+	it("fits a lone row as renderRowWithin does", () => {
+		for (const room of [0, 1, 2, 3, 5]) {
+			expect(renderRowsWithin([first], room, layout, 80, plain)).toEqual(
+				renderRowWithin(first, room, layout, 80, plain),
+			);
+		}
+	});
+});
+
+describe("a row's nested children", () => {
+	const TREE: Row = {
+		status: "subject",
+		subject: "~/my-pack",
+		detail: "pack",
+		children: [
+			{ name: "agntc.json" },
+			{ name: "skills/" },
+			{ name: "my-skill/", depth: 1 },
+			{ name: "SKILL.md", depth: 2 },
+			{ name: "agents/" },
+			{ name: "my-agent.md", depth: 1 },
+			{ name: "hooks/" },
+			{ name: "my-hook.sh", depth: 1 },
+		],
+	};
+
+	it("hangs each under the child a level up, the branches of levels with a sibling below running on past it", () => {
+		expect(block([TREE], 80)).toEqual([
+			" ● ~/my-pack           pack",
+			"   ├─ agntc.json",
+			"   ├─ skills/",
+			"   │  └─ my-skill/",
+			"   │     └─ SKILL.md",
+			"   ├─ agents/",
+			"   │  └─ my-agent.md",
+			"   └─ hooks/",
+			"      └─ my-hook.sh",
+		]);
+	});
+
+	it("measures a nested child's name from where its level puts it", () => {
+		expect(blockLayout([TREE], 80).subjectWidth).toBe(
+			"│     └─ SKILL.md".length + 3,
+		);
+	});
+
+	it("runs the branches on past a nested child's wrapped lines, under its own when a sibling follows", () => {
+		const row: Row = {
+			status: "subject",
+			subject: "x",
+			children: [
+				{ name: "a/" },
+				{ name: "first", depth: 1, detail: "one two three four five six" },
+				{ name: "second", depth: 1 },
+				{ name: "b/" },
+			],
+		};
+		expect(renderRow(row, blockLayout([row], 30), 30, plain)).toEqual([
+			" ● x",
+			"   ├─ a/",
+			"   │  ├─ first",
+			"   │  │  one two three four",
+			"   │  │  five six",
+			"   │  └─ second",
+			"   └─ b/",
+		]);
+	});
+
+	it("leaves the branch of a level with no sibling below off a nested child's wrapped lines", () => {
+		const row: Row = {
+			status: "subject",
+			subject: "x",
+			children: [
+				{ name: "a/" },
+				{ name: "only", depth: 1, detail: "one two three four five six" },
+			],
+		};
+		expect(renderRow(row, blockLayout([row], 30), 30, plain)).toEqual([
+			" ● x",
+			"   └─ a/",
+			"      └─ only",
+			"         one two three four",
+			"         five six",
+		]);
+	});
+
+	it("paints the branches dim", () => {
+		expect(block([TREE], 80, color)[3]).toBe(
+			"   \x1b[2m│\x1b[22m  \x1b[2m└─\x1b[22m my-skill/",
+		);
+	});
+
+	it("counts children left out as the row's own when cut inside the tree", () => {
+		const layout = blockLayout([TREE], 80);
+		expect(renderRowWithin(TREE, 5, layout, 80, plain)).toEqual([
+			" ● ~/my-pack           pack",
+			"   ├─ agntc.json",
+			"   ├─ skills/",
+			"   │  └─ my-skill/",
+			"   └─ … 5 more",
+		]);
 	});
 });
 

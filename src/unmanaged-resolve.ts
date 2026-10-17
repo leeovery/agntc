@@ -1,4 +1,4 @@
-import { formatFileList } from "./format-file-list.js";
+import { unmanagedRow } from "./in-the-way-render.js";
 import type { Ui } from "./ui.js";
 
 export interface UnmanagedPluginConflicts {
@@ -12,8 +12,8 @@ export interface UnmanagedResolution {
 }
 
 /**
- * Asks, per entry, whether to overwrite its unmanaged files (confirmed a
- * second time) or cancel that entry's install.
+ * Asks, per entry, under its row naming the files, whether to overwrite its
+ * unmanaged files (confirmed a second time) or cancel that entry's install.
  *
  * @param conflicts - Per-entry conflict groups
  * @returns Approved files (OK to overwrite) and cancelled files (skip install)
@@ -41,9 +41,9 @@ async function approveOverwrite(
 	files: string[],
 	ui: Ui,
 ): Promise<boolean> {
-	ui.box(formatFileList(files), `Unmanaged files for "${pluginKey}"`);
-
-	const choice = await ui.select({
+	const row = unmanagedRow(pluginKey, files);
+	const block = ui.block([row]);
+	const choice = await block.select(row, {
 		message: `How would you like to proceed with "${pluginKey}"?`,
 		options: [
 			{
@@ -60,7 +60,7 @@ async function approveOverwrite(
 		return false;
 	}
 
-	return ui.confirm({
+	return block.confirm(row, {
 		message: "Are you sure? These files will be permanently replaced.",
 	});
 }

@@ -115,14 +115,18 @@ describe("clearConflicts", () => {
 			await onDisk(".claude/skills/a/");
 		});
 
-		it("removes that entry and its files when overwriting", async () => {
+		it("removes that entry and its files when overwriting, saying whose files it cleared", async () => {
 			const cleared = await clear(manifest, "overwrite");
 
-			expect(cleared).toEqual({ manifest: {}, stop: null });
+			expect(cleared).toEqual({
+				manifest: {},
+				stop: null,
+				cleared: [{ kind: "entry", key: "other/repo", files: INCOMING }],
+			});
 			expect(mockResolveCollisions).not.toHaveBeenCalled();
 		});
 
-		it("asks when it may", async () => {
+		it("asks when it may, a no stopping the item on whose files are in the way, and which", async () => {
 			mockResolveCollisions.mockResolvedValue({
 				resolved: false,
 				updatedManifest: manifest,
@@ -130,11 +134,42 @@ describe("clearConflicts", () => {
 
 			const cleared = await clear(manifest, "ask");
 
-			expect(cleared.stop).toEqual({
-				status: "skipped",
-				reason: "conflict not resolved",
+			expect(cleared).toEqual({
+				manifest,
+				stop: {
+					status: "skipped",
+					reason: "files in the way belong to other/repo: .claude/skills/a/",
+				},
+				cleared: [],
 			});
 			expect(mockResolveCollisions).toHaveBeenCalledOnce();
+		});
+
+		it("names on a no only the entries still in the way, and those removed before it as cleared", async () => {
+			const both: Manifest = {
+				"other/one": entry([".claude/skills/a/"]),
+				"other/two": entry([".claude/skills/b/"]),
+			};
+			mockResolveCollisions.mockResolvedValue({
+				resolved: false,
+				updatedManifest: { "other/two": both["other/two"]! },
+			});
+
+			const cleared = await clear(both, "ask", [
+				".claude/skills/a/",
+				".claude/skills/b/",
+			]);
+
+			expect(cleared).toEqual({
+				manifest: { "other/two": both["other/two"] },
+				stop: {
+					status: "skipped",
+					reason: "files in the way belong to other/two: .claude/skills/b/",
+				},
+				cleared: [
+					{ kind: "entry", key: "other/one", files: [".claude/skills/a/"] },
+				],
+			});
 		});
 
 		it("stops the item, naming the owner, the files and --overwrite", async () => {
@@ -147,6 +182,7 @@ describe("clearConflicts", () => {
 					reason: "files in the way belong to other/repo: .claude/skills/a/",
 					flags: ["--overwrite"],
 				},
+				cleared: [],
 			});
 		});
 	});
@@ -156,10 +192,11 @@ describe("clearConflicts", () => {
 			await onDisk(".claude/skills/a/");
 		});
 
-		it("lets them be replaced when overwriting", async () => {
+		it("lets them be replaced when overwriting, saying which it replaced", async () => {
 			expect(await clear({}, "overwrite")).toEqual({
 				manifest: {},
 				stop: null,
+				cleared: [{ kind: "unmanaged", files: INCOMING }],
 			});
 			expect(mockResolveUnmanaged).not.toHaveBeenCalled();
 		});
@@ -170,11 +207,32 @@ describe("clearConflicts", () => {
 				cancelled: [],
 			});
 
-			expect((await clear({}, "ask")).stop).toBeNull();
+			expect(await clear({}, "ask")).toEqual({
+				manifest: {},
+				stop: null,
+				cleared: [{ kind: "unmanaged", files: INCOMING }],
+			});
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
 				[{ pluginKey: "owner/repo/a", files: INCOMING }],
 				ui,
 			);
+		});
+
+		it("stops the item on a no, naming the files, replacing nothing", async () => {
+			mockResolveUnmanaged.mockResolvedValue({
+				approved: [],
+				cancelled: INCOMING,
+			});
+
+			expect(await clear({}, "ask")).toEqual({
+				manifest: {},
+				stop: {
+					status: "skipped",
+					reason:
+						"files in the way weren't installed by agntc: .claude/skills/a/",
+				},
+				cleared: [],
+			});
 		});
 
 		it("stops the item, naming the files and --overwrite", async () => {
@@ -268,6 +326,7 @@ describe("clearConflicts", () => {
 				expect(await clear({}, "overwrite", FILE_TARGETS)).toEqual({
 					manifest: {},
 					stop: null,
+					cleared: [{ kind: "unmanaged", files: FILE_TARGETS }],
 				});
 
 				expect(await targetsGone()).toEqual([true, true]);
@@ -302,6 +361,7 @@ describe("clearConflicts", () => {
 			expect(await clear({}, "overwrite")).toEqual({
 				manifest: {},
 				stop: null,
+				cleared: [{ kind: "unmanaged", files: INCOMING }],
 			});
 
 			expect(await gone()).toBe(true);
@@ -313,7 +373,11 @@ describe("clearConflicts", () => {
 
 			expect(
 				await clear({ "other/repo": entry(INCOMING) }, "overwrite"),
-			).toEqual({ manifest: {}, stop: null });
+			).toEqual({
+				manifest: {},
+				stop: null,
+				cleared: [{ kind: "entry", key: "other/repo", files: INCOMING }],
+			});
 
 			expect(await gone()).toBe(true);
 			expect(await readFile(join(mine, "SKILL.md"), "utf-8")).toBe("mine");
@@ -347,7 +411,13 @@ describe("clearConflicts", () => {
 				".claude/agents/x.md",
 			]);
 
-			expect(cleared).toEqual({ manifest: {}, stop: FAILED });
+			expect(cleared).toEqual({
+				manifest: {},
+				stop: FAILED,
+				cleared: [
+					{ kind: "entry", key: "other/one", files: [".claude/skills/a/"] },
+				],
+			});
 			expect(await present(".claude/skills/a")).toBe(false);
 			expect(await present(".claude/agents/x.md")).toBe(true);
 		});
@@ -368,6 +438,9 @@ describe("clearConflicts", () => {
 			expect(cleared).toEqual({
 				manifest: { "other/two": two },
 				stop: FAILED,
+				cleared: [
+					{ kind: "entry", key: "other/one", files: [".claude/skills/a/"] },
+				],
 			});
 			expect(await present(".claude/skills/a")).toBe(false);
 			expect(await present(".claude/skills/b")).toBe(true);
@@ -388,6 +461,9 @@ describe("clearConflicts", () => {
 			expect(cleared).toEqual({
 				manifest: { "other/two": two },
 				stop: FAILED,
+				cleared: [
+					{ kind: "entry", key: "other/one", files: [".claude/skills/a/"] },
+				],
 			});
 		});
 
@@ -402,7 +478,11 @@ describe("clearConflicts", () => {
 
 	it("lets an item through with nothing in its way, whatever the policy", async () => {
 		for (const policy of ["overwrite", "ask", "stop"] as const) {
-			expect(await clear({}, policy)).toEqual({ manifest: {}, stop: null });
+			expect(await clear({}, policy)).toEqual({
+				manifest: {},
+				stop: null,
+				cleared: [],
+			});
 		}
 		expect(mockResolveCollisions).not.toHaveBeenCalled();
 		expect(mockResolveUnmanaged).not.toHaveBeenCalled();

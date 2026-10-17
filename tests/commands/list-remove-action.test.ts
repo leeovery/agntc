@@ -42,7 +42,7 @@ function removing(
 }
 
 describe("executeRemoveAction", () => {
-	it("asks under the entry's row, naming what it installed, in a block of its own", async () => {
+	it("asks under the entry's row, naming what it installed, in a block of its own, counting it as the row does", async () => {
 		const entry = makeEntry({
 			files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 		});
@@ -66,7 +66,7 @@ describe("executeRemoveAction", () => {
 		};
 		expect(ui.block).toHaveBeenCalledWith([row]);
 		expect(ui.blocks[0]!.confirm).toHaveBeenCalledWith(row, {
-			message: "Remove owner/repo? 2 file(s) will be deleted.",
+			message: "Remove it and its 1 folder and 1 agent?",
 		});
 	});
 

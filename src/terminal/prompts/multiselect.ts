@@ -1,25 +1,17 @@
 import type { Choice, MultiselectPrompt } from "../../ui.js";
-import {
-	indent,
-	padStart,
-	roomFrom,
-	spread,
-	truncate,
-	visibleWidth,
-} from "../layout.js";
+import { indent, padStart, roomFrom, spread, truncate } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
-	labelColumn,
 	linesAbove,
 	listHints,
 	optionLine,
-	optionText,
 	questionLines,
 	TEXT_AT,
 	windowLines,
 } from "./lines.js";
 import { ListEngine } from "./list-engine.js";
 import { aboveRoom, fitList, type ListFit } from "./list-window.js";
+import { choiceText } from "./select.js";
 import {
 	type PromptContext,
 	type PromptStreams,
@@ -133,11 +125,8 @@ export function renderMultiselect<T>(
 	style: Style,
 	band?: Painter,
 ): string[] {
-	const column = labelColumn(
-		view.options.map((option) => visibleWidth(option.label)),
-		width,
-	);
 	const room = roomFrom(LABEL_AT, width);
+	const text = choiceText(view.options, room, width, style);
 	return [
 		...(view.above ?? []),
 		...questionLines(view.message, view.hints, width, style),
@@ -151,9 +140,9 @@ export function renderMultiselect<T>(
 				const mark = view.picked.includes(index)
 					? style.accent("●")
 					: style.dim("○");
-				const text = optionText(option, column, room, style, current);
+				const label = text(option, index, room, current);
 				return optionLine(
-					text === "" ? mark : `${mark} ${text}`,
+					label === "" ? mark : `${mark} ${label}`,
 					current,
 					width,
 					style,

@@ -34,6 +34,7 @@ import {
 	unansweredMenu,
 } from "../choose-items.js";
 import {
+	type Clearance,
 	type ConflictPolicy,
 	clearConflicts,
 	conflictPolicy,
@@ -670,7 +671,11 @@ async function checkAndCopy(
 		const checked = await checkItem(keyed, src, manifest, installRoot, ctx);
 		manifest = checked.manifest;
 		if (checked.outcome === null) {
-			cleared.push({ keyed, absorbs: checked.absorbs });
+			cleared.push({
+				keyed,
+				absorbs: checked.absorbs,
+				cleared: checked.cleared,
+			});
 		} else {
 			outcomes.push(checked.outcome);
 		}
@@ -749,10 +754,11 @@ interface CheckContext {
 	scope: ScopeName;
 }
 
-/** An item clear to copy, with the loose skills it takes over. */
+/** An item clear to copy, with the loose skills it takes over and what was cleared out of its way. */
 interface ClearedItem {
 	keyed: KeyedItem;
 	absorbs: string[];
+	cleared: Clearance[];
 }
 
 interface CheckedItem {
@@ -761,6 +767,8 @@ interface CheckedItem {
 	outcome: ItemOutcome | null;
 	/** The loose skills from its own source a pack takes over. */
 	absorbs: string[];
+	/** What was cleared out of its way. */
+	cleared: Clearance[];
 }
 
 /**
@@ -790,6 +798,7 @@ async function checkItem(
 				...(typeof refusal === "string" ? {} : { message: refusal }),
 			},
 			absorbs: [],
+			cleared: [],
 		};
 	}
 
@@ -815,9 +824,21 @@ async function checkItem(
 	return {
 		manifest: conflicts.manifest,
 		outcome:
-			conflicts.stop === null ? null : { ...identity, ...conflicts.stop },
+			conflicts.stop === null
+				? null
+				: {
+						...identity,
+						...withCleared(conflicts.cleared),
+						...conflicts.stop,
+					},
 		absorbs,
+		cleared: conflicts.cleared,
 	};
+}
+
+/** What was cleared out of an item's way, for its outcome, when anything was. */
+function withCleared(cleared: Clearance[]): Pick<ItemOutcome, "cleared"> {
+	return cleared.length === 0 ? {} : { cleared };
 }
 
 /**
@@ -908,13 +929,16 @@ interface InstalledItem {
  * tracked.
  */
 async function installKeyedItem(
-	{ keyed, absorbs }: ClearedItem,
+	{ keyed, absorbs, cleared }: ClearedItem,
 	src: FetchedSource,
 	manifest: Manifest,
 	installRoot: string,
 ): Promise<InstalledItem> {
 	const { item, key, sourceSubpath } = keyed;
-	const identity = identify(keyed, src.rootName);
+	const identity = {
+		...identify(keyed, src.rootName),
+		...withCleared(cleared),
+	};
 	const failed = (reason: string): ItemOutcome => ({
 		...identity,
 		status: "failed",

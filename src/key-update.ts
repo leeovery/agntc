@@ -304,10 +304,10 @@ export function updatingTo(newRef: string | null, newCommit: string): string {
  */
 export async function settleGoneOutcome(
 	{ key, entry }: GroupMember,
-	{ scope, yes, ui }: UpdateRun,
+	{ scope, yes, ui, home }: UpdateRun,
 ): Promise<PluginOutcome> {
 	try {
-		const settled = await settleGone(key, entry, scope, { yes, ui });
+		const settled = await settleGone(key, entry, scope, { yes, ui, home });
 		if (settled.removed) {
 			return { status: "gone-removed", key, ...told(settled.message) };
 		}
