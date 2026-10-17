@@ -41,7 +41,7 @@ A version move reads `v0.2.4 →` dim, then `v0.2.5` bold. It's tags when both r
 
 **Progress.** A running step spins in its row's glyph slot: braille ⠁⠂⠄⡀⢀⠠⠐⠈ in the accent, 80 ms a frame, with a dim `updating to v0.2.5…`. Its text is lowercase: `checking for updates…`, `checking N entries for updates…`, `checking <key> for updates…`, `cloning <key>…`, `copying…`, `refreshing…`, `fetching the versions of <key>…`, `updating to <ref>…`. A progress line is always one line: too long for it, its subject is cut from the left and its meta dropped first, its text keeping at least half the room. When the step finishes, the line becomes the finished row and its children. Progress that ends without a row of its own (`checking for updates…`, `cloning leeovery/agentic-skills…`) clears, so no "Update checks complete." lines are left behind. A note or warning raised while a step runs prints under the row the step settles into. The cursor is hidden while a step spins and is restored on any exit, a signal included.
 
-**Signals.** A terminal run owns SIGINT, SIGTERM and SIGTSTP. An interrupt anywhere, spinning, asking or between steps, prints what was held and the Next items, then ` ○ Cancelled`, restores the terminal and exits 130 or 143. It prints no rule and no tally: a signal isn't a close. Ctrl-Z stops the whole process group (npx's `sh -c` chain included), shows the cursor, and redraws on `fg`.
+**Signals.** A terminal run owns SIGINT, SIGTERM and SIGTSTP. An interrupt anywhere, spinning, asking or between steps, prints what was held and the Next items, then ` ○ Cancelled`, restores the terminal and exits 130 or 143. It prints no rule and no tally: a signal isn't a close. A signal that arrives after the run has printed its ending (close, cancel or failure) only restores the terminal and exits. A cancel prints the Next items first, then its `○ Cancelled` line, as a failure does. Ctrl-Z stops the whole process group (npx's `sh -c` chain included), shows the cursor, and redraws on `fg`. At a spinner with no prompt open it writes only the show-cursor sequence, so a shell that has already printed its prompt keeps it.
 
 **Prompts.** They're drawn by agntc and run on @clack/core's prompt engine (raw mode, keys, cancel), not on @clack/prompts:
 
@@ -60,16 +60,17 @@ A version move reads `v0.2.4 →` dim, then `v0.2.5` bold. It's tags when both r
 **Per command:**
 - **update:**
   - Each group is a row: repo, intent dim, then the move or `up to date`.
-  - Members hang under a group that did something, with their kind and counts. Members a pack absorbed show as its children, once.
+  - Members hang under a group that did something, with their kind and counts. Members a pack absorbed show as its children, once, under a local pack's row too.
   - A group whose members ended differently shows each member's own glyph on its branch, and the group's glyph is the worst of them.
   - Members that moved key say `now keyed <new>` dim.
+  - A skill a pack took over, when the pack's copy fails after it removed that skill, reads `✗` on its branch and counts as failed.
   - A local entry is its own row, under its home-shortened path.
-  - A singleton update (one key, list's update, list's change version) is the same row as all-mode.
+  - A singleton update (one key, list's update, list's change version) is the same row as all-mode, except that a key's left-alone row keeps its member child, as its reinstalled row does. All-mode's and a prefix key's left-alone group rows have no children.
   - Rows word what was a sentence: `no tags satisfy ^9.0.0`, `not checked · <cause>`, `kept — it's gone upstream; …`. The "Everything is up to date." line is gone, as the rows say it.
   - Gone upstream is asked under a `!` row naming the entry, its kind and counts and its folders: `Remove it and its 11 folders?`.
 - **add:**
   - The source is a row: key, ref and constraint dim, and in the detail column what it holds.
-  - The menu sits under it, the row `✓` while the menu is up. On submit the menu clears, the row reads `N of M installed`, and what installed hangs under it with kind and counts. A cancelled menu redraws the row as `○`, then prints ` ○ Cancelled — nothing selected`.
+  - The menu sits under it, the row `✓` while the menu is up. On submit the menu clears, the row reads `N of M installed`, and what installed hangs under it with kind and counts. A cancelled menu redraws the row as `○`, then prints ` ○ Cancelled — nothing selected`; when a stray left a line under Next, Next prints first.
   - Every stop after the source is read draws the row once: `○` before the copy, `✗` after it.
   - A skill taken from a pack carries its note as a second detail line, shown only once it has installed.
   - What was cleared out of an item's way shows under it: `removed <entry>, whose files were in the way: …`, or `replaced files agntc didn't install: …`. Names are compact, with `and N more` after the first three. The "Installed X@v" line is gone, as the row says it.
@@ -82,7 +83,7 @@ A version move reads `v0.2.4 →` dim, then `v0.2.5` bold. It's tags when both r
   - Moving between the dashboard and the detail view leaves nothing behind.
   - A manifest that can't be written after a list update is a `✓` row with the warning under it.
 - **remove:** the entry is an `●` row with its kind and counts, then its installed folders under a dim `.claude/skills/` (and agents and hooks under theirs), then the confirm. The confirm counts what its rows show: `Remove it and its 11 folders?`, `them and their` for several entries, `its folder` for one. The removed row keeps update's row grammar, `✓ <key>   removed · <kind and counts>`, with its folder fields.
-- **init:** the type select; then an `●` row naming the folder, `<type> · will create N files` (N counts only the files that aren't there yet), with the files as a tree, those already there marked; the confirm; then a `✓ created` or `○ already there` row per file, and a `· Done …` note.
+- **init:** the type select; then an `●` row naming the folder, `<type> · will create N files` (N counts only the files that aren't there yet), with the files as a tree, those already there marked; the confirm; then a `✓ created` or `○ already there` row per file, and a `· Done …` note. With nothing to create there's no confirm: it goes straight to the `○ already there` rows and the tally.
 - **Files in the way** (collision and unmanaged): a `!` row naming the entry, the files as dim children, then the select `How would you like to proceed?`, with `Remove it and continue`. Declining stops the item with the stop policy's own reason.
 - **Errors:** `ui.fail` prints ` ✗ <message>` with the message bold and its cause dim on the next line, after any Next items queued so far.
 
@@ -108,6 +109,11 @@ A version move reads `v0.2.4 →` dim, then `v0.2.5` bold. It's tags when both r
 - **Machine mode.** The document tests stay as they are and must pass unchanged.
 
 **Out of scope:** an ASCII fallback for terminals without Unicode, colour settings, a `--no-color` flag (`NO_COLOR` covers it), and rewording messages beyond moving commands onto their own lines and the rewording above.
+
+## Known limits
+
+- **Ctrl-Z under `npm exec -c`.** It stops `sh` and node together. A spinner frame that fires after bash has printed its prompt, but before node's handler runs, draws over that prompt. In testing this happened about 1 time in 9. A direct run has no such race.
+- **Two groups of one repo, each holding a pack.** A loose skill that the first group reinstalls and the second group's pack then takes over shows under both rows. It is still counted once.
 
 ## Build
 
