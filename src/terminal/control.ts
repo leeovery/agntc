@@ -45,9 +45,12 @@ export class RunSignals {
 		handlers: SignalHandlers,
 	) {
 		const interrupted = (code: number) => () => {
-			handlers.interrupt();
-			this.unwatch();
-			host.exit(code);
+			try {
+				handlers.interrupt();
+			} finally {
+				this.unwatch();
+				host.exit(code);
+			}
 		};
 		this.suspend = () => handlers.suspend();
 		this.listeners = [

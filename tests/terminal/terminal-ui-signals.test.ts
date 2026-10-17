@@ -196,28 +196,57 @@ describe.each([
 		term.host.emit(signal);
 		expect(exits).toEqual([]);
 	});
+
+	// As add's cleanup is awaited between its last word and the run's end.
+	it.each<[string, (ui: TerminalUi) => void]>([
+		[
+			"its close",
+			(ui) => ui.close({ command: "add", counts: { installed: 2 } }),
+		],
+		["its one-row close", (ui) => ui.close({ command: "add", counts: {} })],
+		["a cancel", (ui) => ui.cancel("Cancelled — nothing selected")],
+		[
+			"a failure",
+			(ui) => {
+				expect(() => ui.fail("can't reach github.com")).toThrow();
+			},
+		],
+	])("after %s gives the terminal back, saying nothing more, and exits", async (_after, lastWord) => {
+		const { term, ui, exits } = run();
+		ui.block(SUBJECTS).row(ALPHA);
+		lastWord(ui);
+		const said = term.output.text;
+
+		term.host.emit(signal);
+
+		expect(term.output.text).toBe(said);
+		expectExited(exits, said);
+	});
 });
 
 describe("a SIGTSTP", () => {
-	it("under a spinner clears its line and shows the cursor, stops the process group, then spins again", async () => {
+	// A terminal's ^Z stops npx's `sh -c` at once, so the shell's prompt may
+	// already be on the line: only the cursor is shown, and nothing cleared.
+	it("under a spinner shows the cursor alone, stops the process group, then hides it and spins on", async () => {
 		const { term, ui, stops } = run();
 		ui.block(SUBJECTS).task(PROGRESS);
 		vi.advanceTimersByTime(80);
+		const spun = term.output.text;
 
 		term.host.emit("SIGTSTP");
 
 		expect(term.host.kill.mock.calls).toEqual([[0, "SIGTSTP"]]);
 		const [stop] = stops;
-		expect(stop?.text.endsWith(`${CLEAR}${SHOW}`)).toBe(true);
-		expect(await screenOf(stop?.text ?? "")).toEqual([]);
+		expect(stop?.text).toBe(`${spun}${SHOW}`);
 		expect(stop?.listening).toEqual([1, 1, 1, 0]);
-		const after = term.output.text.slice(stop?.text.length);
-		expect(after.startsWith(`${HIDE}${CLEAR}`)).toBe(true);
-		expect(await term.lines()).toEqual([" ⠁ owner/beta    updating…"]);
+		expect(term.output.text).toBe(`${spun}${SHOW}${HIDE}`);
 		vi.advanceTimersByTime(80);
-		expect(await term.lines()).toEqual([" ⠂ owner/beta    updating…"]);
+		expect(
+			term.output.text.endsWith(`${CLEAR} ⠄ owner/beta    updating…`),
+		).toBe(true);
 		expect(term.host.listenerCount("SIGTSTP")).toBe(1);
 		ui.end();
+		expect(cursorShown(term.output.text)).toBe(true);
 	});
 
 	it("between steps stops the process group, the cursor shown", () => {
@@ -240,7 +269,7 @@ describe("a SIGTSTP", () => {
 		term.host.emit("SIGTSTP");
 
 		expect(term.host.kill).toHaveBeenCalledOnce();
-		expect(term.output.text).toBe(written);
+		expect(term.output.text).toBe(`${written}${SHOW}`);
 		expect(term.input.isRaw).toBe(false);
 	});
 

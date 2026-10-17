@@ -17,7 +17,12 @@ import {
 	renderRowWithin,
 } from "./block.js";
 import { renderCancel, renderClose } from "./close.js";
-import { RunSignals, type SignalHost } from "./control.js";
+import {
+	HIDE_CURSOR,
+	RunSignals,
+	SHOW_CURSOR,
+	type SignalHost,
+} from "./control.js";
 import { renderHeader } from "./header.js";
 import { layoutWidth } from "./layout.js";
 import { type MessageKind, renderMessage } from "./message.js";
@@ -95,6 +100,8 @@ export class TerminalUi implements Ui {
 	/** What's printed while a prompt asks. */
 	private readonly answered: string[] = [];
 	private asking = false;
+	/** Whether the run has printed its last word: its close, a cancel or a failure. */
+	private finished = false;
 	/** The prompt on screen, for a signal to erase. */
 	private openPrompt?: OpenPrompt;
 	private headed = false;
@@ -213,6 +220,7 @@ export class TerminalUi implements Ui {
 	}
 
 	close(tally: Tally): void {
+		this.finished = true;
 		const outcomes = outcomeCount(tally);
 		if (outcomes <= 1 && this.queued.length === 0) {
 			return;
@@ -232,9 +240,14 @@ export class TerminalUi implements Ui {
 		]);
 	}
 
-	/** ` ○ Cancelled`, or `message` in its place. */
+	/** The Next items queued so far, then ` ○ Cancelled`, or `message` in its place, as `fail` puts its error under them. */
 	cancel(message?: string): void {
-		this.printSection(["", ...renderCancel(this.width(), this.style, message)]);
+		this.finished = true;
+		this.printSection([
+			...this.takeNext(),
+			"",
+			...renderCancel(this.width(), this.style, message),
+		]);
 	}
 
 	warn(message: Message): void {
@@ -276,6 +289,7 @@ export class TerminalUi implements Ui {
 	 * it doesn't read as part of what's above.
 	 */
 	fail(message: Message): never {
+		this.finished = true;
 		this.stopSpinning();
 		this.printSection([
 			...this.takeNext(),
@@ -304,30 +318,52 @@ export class TerminalUi implements Ui {
 	/**
 	 * A SIGINT or SIGTERM ends the run where it stands, in one go: what spins
 	 * clears and an open prompt is erased; what was printed while it asked,
-	 * and what's held, print with the Next items, as `end` prints them; then
-	 * ` ○ Cancelled`, and the terminal goes back to the shell. No rule or
-	 * tally: a signal isn't a close.
+	 * and what's held, print, then the Next items and ` ○ Cancelled`, as a
+	 * cancel prints them; and the terminal goes back to the shell. No rule or
+	 * tally: a signal isn't a close. Once the run has had its last word, the
+	 * terminal only goes back, as nothing is left to say.
 	 */
 	private interrupt(): void {
 		this.clearScreen();
-		this.asking = false;
-		this.write(this.answered.splice(0));
-		this.drain();
-		this.cancel();
+		if (!this.finished) {
+			this.asking = false;
+			this.write(this.answered.splice(0));
+			this.stopSpinning();
+			this.cancel();
+		}
 		this.restore();
 	}
 
 	/**
 	 * A SIGTSTP, or a prompt's ctrl-z: the terminal goes back to the shell and
 	 * the whole process group stops, as a terminal's ^Z stops it. Once it's
-	 * continued, what spun spins again, or the prompt is drawn again.
+	 * continued, the prompt is drawn again, or what spun spins on.
 	 */
 	private suspend(): void {
-		this.clearScreen();
-		this.restore();
+		const prompt = this.openPrompt;
+		if (prompt === undefined) {
+			this.suspendOutsidePrompt();
+			return;
+		}
+		prompt.erase();
+		prompt.cook();
 		this.signals.stopGroup();
-		this.openPrompt?.resume();
-		this.resumeTop();
+		prompt.resume();
+	}
+
+	/**
+	 * With no prompt open, only the cursor is shown. A terminal's ^Z stops a
+	 * parent such as npx's `sh -c` at once, so the shell may print its prompt
+	 * before this runs; a line cleared now would erase that prompt. A spinning
+	 * line clears itself on its next frame.
+	 */
+	private suspendOutsidePrompt(): void {
+		const spinning = this.live.at(-1)?.task !== undefined;
+		this.output.write(SHOW_CURSOR);
+		this.signals.stopGroup();
+		if (spinning) {
+			this.output.write(HIDE_CURSOR);
+		}
 	}
 
 	/** The spinning line cleared, or the open prompt's frame erased. */
