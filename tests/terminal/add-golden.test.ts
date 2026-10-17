@@ -1,4 +1,12 @@
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	cp,
+	mkdir,
+	mkdtemp,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -253,6 +261,7 @@ describe("an add through the menu", () => {
 			HEADER,
 			"",
 			" ○ owner/repo           HEAD   2 packs · 2 skills",
+			"",
 			" ○ Cancelled — nothing selected",
 		]);
 	});
@@ -379,11 +388,13 @@ describe("an add with a stray", () => {
 });
 
 describe("an add refused", () => {
-	it("prints what was queued, then the refusal", async () => {
+	it("draws the source's row, then what was queued, then the refusal", async () => {
 		await upstream({ "agents/a.md": "" });
 
 		expect(await drawn({ source: "owner/repo@v1.0.0" })).toEqual([
 			HEADER,
+			"",
+			" ○ owner/repo   v1.0.0   no skills or packs",
 			"",
 			" Next",
 			"   repo — has agents/ that won't be installed. To install them as a pack:",
@@ -391,6 +402,44 @@ describe("an add refused", () => {
 			"",
 			" ✗ owner/repo: no skills or packs were found",
 		]);
+	});
+
+	it("keeps the source's row, unchanged, over a pick it refuses", async () => {
+		await upstream({ "x/foo/SKILL.md": "", "y/foo/SKILL.md": "" });
+
+		expect(
+			await drawn({ answer: [KEY.space, KEY.down, KEY.space, KEY.enter] }),
+		).toEqual([
+			HEADER,
+			"",
+			" ○ owner/repo   HEAD   2 skills",
+			"",
+			" ✗ owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
+		]);
+	});
+
+	it("fails the source's row once the copy has begun, as files may be on disk", async () => {
+		await upstream({ "a/SKILL.md": "" });
+		const agntc = join(projectDir, ".agntc");
+		await mkdir(agntc, { recursive: true });
+		vi.mocked(copyItem).mockImplementationOnce(async (...args) => {
+			await chmod(agntc, 0o500);
+			return actualCopyItem.copyItem(...args);
+		});
+
+		try {
+			const ended = await drawn();
+
+			expect(ended.slice(0, 4)).toEqual([
+				HEADER,
+				"",
+				" ✗ owner/repo   HEAD   1 skill",
+				"",
+			]);
+			expect(ended[4]).toMatch(/^ ✗ EACCES/);
+		} finally {
+			await chmod(agntc, 0o700);
+		}
 	});
 
 	it("fails on a clone that fails, leaving nothing of its progress", async () => {

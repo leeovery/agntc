@@ -259,58 +259,67 @@ describe("promptMultiselect", () => {
 		expect(await terminal.lines()).toEqual(["before"]);
 	});
 
-	it("draws the lines it's given over its question, counts them in its fit, and erases them with it", async () => {
-		const terminal = new Terminal(80, 9);
+	it("asks its above for the room the question, its options and its footer leave, and erases what it gives with it", async () => {
+		const terminal = new Terminal(80, 14);
 		terminal.output.write("before\n");
+		const rooms: number[] = [];
 		const answer = promptMultiselect(
 			{
 				message: "What to install",
 				options: OPTIONS,
-				above: [" ✓ owner/repo   HEAD", ""],
-			},
-			terminal.context(),
-		);
-		await terminal.press(KEY.down, KEY.down, KEY.space);
-		expect((await terminal.lines()).slice(1)).toEqual([
-			" ✓ owner/repo   HEAD",
-			"",
-			` ? What to install${gap(11)}${HINTS}`,
-			"   ↑ 2 more",
-			" ▌ ● python          pack · 11 skills",
-			"   ↓ 2 more",
-			"",
-			`${gap(66)}1 of 5 picked`,
-		]);
-		await terminal.press(KEY.enter);
-		expect(await answer).toEqual(["python"]);
-		expect(await terminal.lines()).toEqual(["before"]);
-	});
-
-	it("cuts the lines over its question to leave room for it, one option and the footer", async () => {
-		const terminal = new Terminal(80, 9);
-		terminal.output.write("before\n");
-		const answer = promptMultiselect(
-			{
-				message: "What to install",
-				options: OPTIONS,
-				above: [" ✓ owner/repo   HEAD", "   · a", "   · b", "   · c", ""],
+				above: (room) => {
+					rooms.push(room);
+					return [" ✓ owner/repo   HEAD", ""];
+				},
 			},
 			terminal.context(),
 		);
 		await terminal.press(KEY.space);
+		expect(rooms).toEqual([5]);
 		expect((await terminal.lines()).slice(1)).toEqual([
 			" ✓ owner/repo   HEAD",
-			"   · a",
-			"   · b",
-			"   … 2 more",
+			"",
 			` ? What to install${gap(11)}${HINTS}`,
 			" ▌ ● laravel         pack · 14 skills",
+			"   ○ nuxt            pack · 9 skills, 2 folders",
+			"   ○ python          pack · 11 skills",
+			"   ○ git-hygiene     Keep commits small and messages honest",
+			"   ○ release-notes   Draft release notes from the changes since the last tag",
 			"",
 			`${gap(66)}1 of 5 picked`,
 		]);
 		await terminal.press(KEY.enter);
 		expect(await answer).toEqual(["laravel"]);
 		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
+	it("keeps its options' share of the screen under a row that would take all of it", async () => {
+		const terminal = new Terminal(80, 12);
+		const answer = promptMultiselect(
+			{
+				message: "What to install",
+				options: OPTIONS,
+				above: (room) =>
+					Array.from({ length: room }, (_, index) => `   · child ${index}`),
+			},
+			terminal.context(),
+		);
+		await terminal.press(KEY.space);
+		expect(await terminal.lines()).toEqual([
+			"   · child 0",
+			"   · child 1",
+			"   · child 2",
+			` ? What to install${gap(11)}${HINTS}`,
+			" ▌ ● laravel         pack · 14 skills",
+			"   ○ nuxt            pack · 9 skills, 2 folders",
+			"   ○ python          pack · 11 skills",
+			"   ○ git-hygiene     Keep commits small and messages honest",
+			"   ○ release-notes   Draft release notes from the changes since the last tag",
+			"",
+			`${gap(66)}1 of 5 picked`,
+		]);
+		await terminal.press(KEY.enter);
+		await answer;
 	});
 
 	it("picks and unpicks the cursor's option with space", async () => {

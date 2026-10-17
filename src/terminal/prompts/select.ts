@@ -2,9 +2,9 @@ import type { Choice, SelectOption, SelectPrompt } from "../../ui.js";
 import { roomFrom, visibleWidth } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
-	aboveLines,
 	headingLine,
 	labelColumn,
+	linesAbove,
 	listHints,
 	optionLine,
 	optionText,
@@ -13,7 +13,7 @@ import {
 	windowLines,
 } from "./lines.js";
 import { ListEngine } from "./list-engine.js";
-import { fitList, type ListWindow } from "./list-window.js";
+import { aboveRoom, fitList, type ListWindow } from "./list-window.js";
 import {
 	type PromptContext,
 	type PromptStreams,
@@ -23,8 +23,11 @@ import {
 export interface SelectQuestion<T> extends SelectPrompt<T> {
 	/** The key hints on the question's line, in place of the usual ones. */
 	hints?: string;
-	/** Lines over the question, as the row it asks about, erased with it. */
-	above?: readonly string[];
+	/**
+	 * Lines over the question, as the row it asks about, erased with it: at
+	 * most `room` of them, the room the frame leaves once it has its own.
+	 */
+	above?: (room: number) => readonly string[];
 }
 
 /** What of a select's frame a screen shows: its window, and the lines over its question. */
@@ -78,8 +81,8 @@ export async function promptSelect<T>(
 
 /**
  * The lines of options a select shows at once on a screen of `rows`, whether
- * its more lines show, and the lines over its question, as many as leave
- * room for it and one option.
+ * its more lines show, and the lines over its question in the room its
+ * question and its options' share leave.
  */
 export function selectWindow<T>(
 	question: SelectQuestion<T>,
@@ -93,13 +96,14 @@ export function selectWindow<T>(
 		width,
 		style,
 	).length;
-	const above = aboveLines(question.above ?? [], asked + 1, rows, width, style);
+	const frame = {
+		lines: question.options.length,
+		maxItems: question.maxItems,
+		asked,
+	};
+	const above = linesAbove(question.above, aboveRoom(frame, rows));
 	const { size, more } = fitList(
-		{
-			lines: question.options.length,
-			maxItems: question.maxItems,
-			asked: above.length + asked,
-		},
+		{ ...frame, asked: above.length + asked },
 		rows,
 	);
 	return { size, more, above };

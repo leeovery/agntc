@@ -450,28 +450,60 @@ describe("promptSelect", () => {
 		expect(await answer).toBe("skill-10");
 	});
 
-	it("draws the lines it's given over its question, cut to leave room for it and one option, and erases them with it", async () => {
-		const terminal = new Terminal(80, 6);
+	it("gives the options the room its above leaves unused, and erases what it gives with it", async () => {
+		const terminal = new Terminal(80, 14);
 		terminal.output.write("before\n");
+		const rooms: number[] = [];
 		const answer = promptSelect(
 			{
 				message: "Pick",
 				options: TEN,
-				above: [" ✓ owner/repo   HEAD", "   · a", "   · b", "   · c", ""],
+				above: (room) => {
+					rooms.push(room);
+					return [" ✓ owner/repo   HEAD", ""];
+				},
 			},
 			terminal.context(),
 		);
 		await terminal.press(KEY.down);
+		expect(rooms).toEqual([4]);
 		expect((await terminal.lines()).slice(1)).toEqual([
 			" ✓ owner/repo   HEAD",
-			"   · a",
-			"   … 3 more",
+			"",
 			` ? Pick${gap(41)}${HINTS}`,
+			"   skill-01",
 			" ▌ skill-02",
+			...["03", "04", "05", "06", "07", "08", "09", "10"].map(
+				(n) => `   skill-${n}`,
+			),
 		]);
 		await terminal.press(KEY.enter);
 		expect(await answer).toBe("skill-02");
 		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
+	it("keeps half the frame for its options under a row that would take all of it", async () => {
+		const terminal = new Terminal(80, 8);
+		const answer = promptSelect(
+			{
+				message: "Pick",
+				options: TEN,
+				above: (room) =>
+					Array.from({ length: room }, (_, index) => `   · child ${index}`),
+			},
+			terminal.context(),
+		);
+		await terminal.press();
+		expect(await terminal.lines()).toEqual([
+			"   · child 0",
+			` ? Pick${gap(41)}${HINTS}`,
+			" ▌ skill-01",
+			"   skill-02",
+			"   skill-03",
+			"   ↓ 7 more",
+		]);
+		await terminal.press(KEY.enter);
+		await answer;
 	});
 
 	it("takes its key hints from the question when it gives them", async () => {

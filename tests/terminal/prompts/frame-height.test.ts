@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { blockLayout, renderRowWithin } from "../../../src/terminal/block.js";
 import {
 	confirmAbove,
 	renderConfirm,
@@ -17,13 +18,15 @@ import {
 	selectWindow,
 } from "../../../src/terminal/prompts/select.js";
 import { createStyle } from "../../../src/terminal/style.js";
+import type { Row } from "../../../src/terminal/types.js";
 import type { Choice, SelectOption } from "../../../src/ui.js";
 
 // The erase rests on one rule: an open prompt's frame is never taller than
 // the screen less a line, as the prompt's closing newline would scroll a
 // taller frame's first line out of reach. It holds wherever the screen has
 // room for the question and one option, however many lines a row over the
-// question would take.
+// question would take, and that row never takes the options' share: as many
+// as half the frame's room, or all of them when they take less.
 
 const style = createStyle(0);
 const ROWS = Array.from({ length: 38 }, (_, index) => index + 3);
@@ -35,11 +38,59 @@ const QUESTIONS = [
 	"x".repeat(150),
 ];
 const MAX_ITEMS = [undefined, 3, 15, 100];
-const ABOVES = [0, 3, 50];
+/** How many children the row over the question has; -1 for an above that ignores its room. */
+const ABOVES = [0, 3, 50, -1];
 
-/** `count` lines of a row over the question. */
-const aboveOf = (count: number): string[] =>
-	Array.from({ length: count }, (_, index) => ` · line ${index}`);
+/**
+ * A row over the question, fitted to its room as a block fits it, its
+ * children's details wrapping every other one; or, at -1, lines that ignore
+ * the room, which the prompt still holds to it.
+ */
+function aboveOf(children: number, width: number): (room: number) => string[] {
+	if (children < 0) {
+		return (room) => Array.from({ length: room + 5 }, () => " · greedy");
+	}
+	const row: Row = {
+		status: "done",
+		subject: "owner/repo",
+		meta: "HEAD",
+		detail: "2 skills",
+		children: Array.from({ length: children }, (_, index) => ({
+			name: `child-${index}`,
+			status: "note",
+			detail:
+				index % 2 === 0
+					? "short"
+					: "already installed as part of the pack /Users/someone/code/skills/a-long-pack",
+		})),
+	};
+	const layout = blockLayout([row], width);
+	const fitted = new Map<number, string[]>();
+	return (room) => {
+		if (!fitted.has(room)) {
+			const lines = renderRowWithin(row, room - 1, layout, width, style);
+			fitted.set(room, lines.length === 0 ? [] : [...lines, ""]);
+		}
+		return fitted.get(room) ?? [];
+	};
+}
+
+const ABOVE_BY_WIDTH = new Map(
+	WIDTHS.map((width) => [
+		width,
+		new Map(ABOVES.map((children) => [children, aboveOf(children, width)])),
+	]),
+);
+
+/** The row over the question with `children`, at `width`, fitted once per room. */
+function aboveFor(children: number, width: number): (room: number) => string[] {
+	return ABOVE_BY_WIDTH.get(width)?.get(children) ?? (() => []);
+}
+
+/** The options a frame keeps under a row over its question. */
+function share(lines: number, rows: number, maxItems?: number): number {
+	return Math.min(maxItems ?? lines, lines, Math.floor((rows - 1) / 2));
+}
 
 const choices = (count: number): Choice<number>[] =>
 	Array.from({ length: count }, (_, index) => ({
@@ -84,9 +135,17 @@ describe("an open prompt's frame", () => {
 							ABOVES.map((above) => [most, above] as const),
 						)) {
 							const options = selectOptions(count, headed);
-							const above = aboveOf(lines);
+							const above = aboveFor(lines, width);
 							const question = { message, options, maxItems, above };
 							const window = selectWindow(question, rows, width, style);
+							if (
+								window.above.length > 0 &&
+								window.size < share(options.length, rows, maxItems)
+							) {
+								over.push(
+									`${rows} rows, ${count} options, max ${maxItems}, ${lines} above: ${window.size} options shown`,
+								);
+							}
 							const headings = options.map((option) => !isChoice(option));
 							const stops = options.flatMap((option, index) =>
 								isChoice(option) ? [index] : [],
@@ -128,13 +187,18 @@ describe("an open prompt's frame", () => {
 					ABOVES.map((above) => [count, above] as const),
 				)) {
 					const options = choices(count);
-					const above = aboveOf(lines);
+					const above = aboveFor(lines, width);
 					const fit = multiselectFit(
 						{ message, options, above },
 						rows,
 						width,
 						style,
 					);
+					if (fit.above.length > 0 && fit.size < share(count, rows)) {
+						over.push(
+							`${rows} rows, ${count} options, ${lines} above: ${fit.size} options shown`,
+						);
+					}
 					const headings = options.map(() => false);
 					for (const cursor of sampled(options.map((_, index) => index))) {
 						const height = renderMultiselect(
@@ -173,7 +237,7 @@ describe("an open prompt's frame", () => {
 			const least = Math.max(asked(true), asked(false));
 			for (const rows of ROWS.filter((rows) => least <= rows - 1)) {
 				for (const lines of ABOVES) {
-					const question = { message, above: aboveOf(lines) };
+					const question = { message, above: aboveFor(lines, width) };
 					const above = confirmAbove(question, rows, width, style);
 					for (const value of [true, false]) {
 						const height = renderConfirm(
@@ -189,5 +253,24 @@ describe("an open prompt's frame", () => {
 			}
 		}
 		expect(over).toEqual([]);
+	});
+
+	it("leaves a confirm's above no more than both its buttons' widths allow", () => {
+		// "[Yes]  No" is a column narrower than " Yes  [No]": at 24 columns Yes
+		// chosen keeps the buttons beside the question, and No chosen wraps them.
+		const message = "Proceed?";
+		const widths = [true, false].map(
+			(value) => renderConfirm({ message, hints: "", value }, 24, style).length,
+		);
+		expect(widths).toEqual([1, 2]);
+		const above = confirmAbove(
+			{ message, above: (room) => Array.from({ length: room }, () => " · x") },
+			4,
+			24,
+			style,
+		);
+		expect(
+			renderConfirm({ above, message, hints: "", value: false }, 24, style),
+		).toHaveLength(3);
 	});
 });

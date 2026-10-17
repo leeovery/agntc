@@ -11,7 +11,12 @@ import type {
 	Tally,
 	Ui,
 } from "../ui.js";
-import { blockLayout, renderProgress, renderRow } from "./block.js";
+import {
+	blockLayout,
+	renderProgress,
+	renderRow,
+	renderRowWithin,
+} from "./block.js";
 import { renderCancel, renderClose } from "./close.js";
 import type { ExitHost } from "./control.js";
 import { renderHeader } from "./header.js";
@@ -132,10 +137,16 @@ export class TerminalUi implements Ui {
 		};
 		const askAbout = <A>(
 			row: Row,
-			prompt: (above: string[], context: PromptContext) => Promise<A>,
+			prompt: (
+				above: (room: number) => string[],
+				context: PromptContext,
+			) => Promise<A>,
 		): Promise<A> => {
 			open();
-			const above = [...rowLines(row), ""];
+			const above = (room: number) => {
+				const lines = renderRowWithin(row, room - 1, layout, width, this.style);
+				return lines.length === 0 ? [] : [...lines, ""];
+			};
 			return this.ask((context) => prompt(above, context));
 		};
 		return {
@@ -193,7 +204,7 @@ export class TerminalUi implements Ui {
 	}
 
 	cancel(message: string): void {
-		this.print(renderCancel(this.width(), this.style, message));
+		this.printSection(["", ...renderCancel(this.width(), this.style, message)]);
 	}
 
 	warn(message: Message): void {
@@ -224,14 +235,14 @@ export class TerminalUi implements Ui {
 
 	/**
 	 * Whatever spins clears first, and what it held prints; then the Next
-	 * items queued so far, and the error under them, in either style.
+	 * items queued so far, and the error under them, in either style, a blank
+	 * line over it so it doesn't read as part of what's above.
 	 */
 	fail(message: Message, _options?: FailOptions): never {
 		this.stopSpinning();
-		const next = this.takeNext();
 		this.printSection([
-			...next,
-			...(next.length > 0 ? [""] : []),
+			...this.takeNext(),
+			"",
 			...this.message("error", message),
 		]);
 		throw new ExitSignal(1);

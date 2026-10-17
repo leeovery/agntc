@@ -10,19 +10,19 @@ import {
 import {
 	addedRow,
 	addTally,
+	askedRow,
 	holdings,
-	leftOut,
 	listedRow,
-	notedRow,
 	pickedDetail,
 	sourceHead,
-	sourceRow,
 	sourceSubject,
+	stoppedRow,
 } from "../add-render.js";
 import {
 	type ChoiceContext,
 	type ChoiceOutcome,
 	chooseItems,
+	heldDetail,
 	menuOption,
 	offeredItems,
 	type Selection,
@@ -102,7 +102,13 @@ import {
 import type { ItemIdentity, ItemOutcome } from "../summary.js";
 import { adviceItem, remedyItem } from "../terminal/next.js";
 import type { Row, RowHead } from "../terminal/types.js";
-import { type Block, type BlockTask, interactiveUi, type Ui } from "../ui.js";
+import {
+	type Block,
+	type BlockTask,
+	interactiveUi,
+	stoppingUi,
+	type Ui,
+} from "../ui.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
 export interface AddOptions extends SelectionFlags {
@@ -140,21 +146,54 @@ const MENU_FLAGS = ["--skill", "--pack", "--all"];
 const COPYING = "copying…";
 
 /**
- * The source's row as the run draws it: the block it hangs in, measured from
- * every item it may hold, its head, what the source holds, and what the
- * choice said of its skills.
+ * The source's row, drawn once: in the block it hangs in, measured from every
+ * item it may hold, its head, what the source holds and what the choice said
+ * of its skills. Its outcome settles the copying when that spins; a run that
+ * stops first draws the source as the stop leaves it.
  */
-interface SourceView {
-	block: Block;
-	head: RowHead;
-	held: string;
-	notes: SkillNote[];
+class SourceRow {
+	private drawn = false;
+	private copy: BlockTask | undefined;
+
+	constructor(
+		readonly block: Block,
+		readonly head: RowHead,
+		readonly held: string,
+		readonly notes: readonly SkillNote[],
+	) {}
+
+	copying(): void {
+		this.copy = this.block.task({ ...this.head, text: COPYING });
+	}
+
+	draw(row: Row): void {
+		if (this.drawn) {
+			return;
+		}
+		this.drawn = true;
+		if (this.copy === undefined) {
+			this.block.row(row);
+		} else {
+			this.copy.settle(row);
+		}
+	}
+
+	/** Unchanged before the copy begins; failed once it has, as files may be on disk. */
+	stop(): void {
+		const status = this.copy === undefined ? "unchanged" : "failed";
+		this.draw(stoppedRow(this.head, this.held, this.notes, status));
+	}
+}
+
+/** What the choice offers, as read from the source. */
+interface Chosen {
+	outcome: ChoiceOutcome;
+	discovery: Discovery;
 }
 
 /** The items picked to install, keyed, and how many the menu offered when there was one. */
 interface Picked {
 	items: KeyedItem[];
-	view: SourceView;
 	offered?: number;
 }
 
@@ -223,15 +262,13 @@ export async function runAdd(
 			return;
 		}
 		const installed = await readManifest(scope.root);
-		const picked = await pickItems(
-			src,
-			selection.selection,
-			installed,
-			scope,
-			ui,
-		);
+		const chosen = await choose(src, selection.selection, installed, scope, ui);
+		const row = sourceRow(src, chosen, ui);
 		const policy = conflictPolicy(options.overwrite === true, ui.mode);
-		await installItems(picked, src, installed, { policy, scope, ui });
+		await owingRow(row, ui, async (ui) => {
+			const picked = await pickItems(chosen, src, row, ui);
+			await installItems(picked, src, installed, { policy, scope, ui }, row);
+		});
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			throw err;
@@ -374,13 +411,14 @@ function tellStrays(notices: readonly StrayNotice[], ui: Ui): void {
 	}
 }
 
-async function pickItems(
+/** Reads the source and decides what it offers, telling its strays. */
+async function choose(
 	src: FetchedSource,
 	selection: Selection,
 	manifest: Manifest,
 	scope: Scope,
 	ui: Ui,
-): Promise<Picked> {
+): Promise<Chosen> {
 	const discovery = await discoverSource(src, selection, ui);
 	const packed = await skillsInInstalledPacks(
 		discovery,
@@ -394,87 +432,73 @@ async function pickItems(
 		choiceContext(src, scope.name, packed),
 	);
 	tellStrays(choice.strayNotices, ui);
-
-	const { outcome } = choice;
-	const view = sourceView(src, outcome, offeredItems(discovery), ui);
-	const draw = drawIn(view.block);
-	const items = await whileNoted(view, draw, async () => {
-		const picked = await settle(outcome, src, discovery, view, ui);
-		const keyed = await keyItems(picked, src.key, src.rootName, src.root);
-		if (!keyed.ok) {
-			tellNotesOnStop(view, draw);
-			return refuse(src, keyed.message, ui);
-		}
-		return keyed.items;
-	});
-	return {
-		items,
-		view,
-		...(outcome.kind === "menu" ? { offered: outcome.options.length } : {}),
-	};
-}
-
-/** The source's row as a run that stops before installing leaves it, every skill left out told. */
-function unchangedRow({ head, held, notes }: SourceView): Row {
-	return notedRow(head, held, notes);
+	return { outcome: choice.outcome, discovery };
 }
 
 /**
- * A run stopping before the source's own row draws it unchanged with the
- * skills the choice left out, so the error under it doesn't take them with
- * it. With none, the error tells it all.
+ * Runs what follows reading the source with its row owed: a stop of any
+ * kind, a refusal or cancel through the Ui, an exit or a crash, draws the row
+ * first unless it's drawn.
  */
-function tellNotesOnStop(view: SourceView, draw: (row: Row) => void): void {
-	if (leftOut(view.notes).length > 0) {
-		draw(unchangedRow(view));
-	}
-}
-
-/**
- * Runs a step after the choice, telling its notes should it throw. A step
- * that stopped the run (an `ExitSignal`) has told it already.
- */
-async function whileNoted<T>(
-	view: SourceView,
-	draw: (row: Row) => void,
-	step: () => Promise<T>,
-): Promise<T> {
+async function owingRow(
+	row: SourceRow,
+	ui: Ui,
+	run: (ui: Ui) => Promise<void>,
+): Promise<void> {
 	try {
-		return await step();
+		await run(stoppingUi(ui, () => row.stop()));
 	} catch (err) {
-		if (!(err instanceof ExitSignal)) {
-			tellNotesOnStop(view, draw);
-		}
+		row.stop();
 		throw err;
 	}
 }
 
-/** Draws a row straight into the block. */
-function drawIn(block: Block): (row: Row) => void {
-	return (row) => block.row(row);
+async function pickItems(
+	{ outcome, discovery }: Chosen,
+	src: FetchedSource,
+	row: SourceRow,
+	ui: Ui,
+): Promise<Picked> {
+	const picked = await settle(outcome, src, discovery, row, ui);
+	const keyed = await keyItems(picked, src.key, src.rootName, src.root);
+	if (!keyed.ok) {
+		return refuse(src, keyed.message, ui);
+	}
+	return {
+		items: keyed.items,
+		...(outcome.kind === "menu" ? { offered: outcome.options.length } : {}),
+	};
 }
 
 /**
- * The block the source's row hangs in, measured from every item the choice
- * may install and every skill it says something of.
+ * The source's row, its block measured from every item the choice may
+ * install and every skill it says something of.
  */
-function sourceView(
+function sourceRow(
 	src: FetchedSource,
-	outcome: ChoiceOutcome,
-	offered: readonly InstallItem[],
+	{ outcome, discovery }: Chosen,
 	ui: Ui,
-): SourceView {
+): SourceRow {
 	const head = headOf(src);
-	const notes = notesOf(outcome);
+	const notes = notesOf(outcome).map(shownHeld);
 	const names = choiceItems(outcome).map((item) =>
 		itemLabel(item, src.rootName),
 	);
-	return {
-		block: ui.block([sourceSubject(head, names, notes)]),
+	return new SourceRow(
+		ui.block([sourceSubject(head, names, notes)]),
 		head,
-		held: holdings(offered),
+		holdings(offeredItems(discovery)),
 		notes,
-	};
+	);
+}
+
+/** A held skill's note as the terminal tells it: a local pack's key shortened against the home folder. */
+function shownHeld(note: SkillNote): SkillNote {
+	if (note.heldBy === undefined) {
+		return note;
+	}
+	const pack = homeShortened(note.heldBy, homedir());
+	return { ...note, heldBy: pack, detail: heldDetail(pack) };
 }
 
 /** What a choice may install: its items, or everything its menu offers. */
@@ -544,15 +568,12 @@ async function startPathMessage(
 	return `${err.message} at ${src.latestRelease}, the latest release — to add it from the default branch, use ${fromBranch}, or name a version`;
 }
 
-/**
- * The items to install: the choice's, or the menu's pick under the source's
- * row, which stays drawn, unchanged, when nothing is picked.
- */
+/** The items to install: the choice's, or the menu's pick under the source's row. */
 async function settle(
 	outcome: ChoiceOutcome,
 	src: FetchedSource,
 	discovery: Discovery,
-	view: SourceView,
+	row: SourceRow,
 	ui: Ui,
 ): Promise<InstallItem[]> {
 	switch (outcome.kind) {
@@ -568,10 +589,9 @@ async function settle(
 				ui.report(listingBody(sourceJson(src), offered, discovery.strays));
 				return refuse(src, unansweredMenu(outcome.options), ui, MENU_FLAGS);
 			}
-			const asked = sourceRow(view.head, view.held, outcome.notes);
-			const picked = await promptForItems(outcome.options, asked, view.block);
+			const asked = askedRow(row.head, row.held, row.notes);
+			const picked = await promptForItems(outcome.options, asked, row.block);
 			if (picked.length === 0) {
-				view.block.row(unchangedRow(view));
 				ui.cancel("Cancelled — nothing selected");
 				throw new ExitSignal(0);
 			}
@@ -598,23 +618,20 @@ function refuse(
  * exits non-zero after the close if any did.
  */
 async function installItems(
-	picked: Picked,
+	{ items, offered }: Picked,
 	src: FetchedSource,
 	installed: Manifest,
 	context: InstallContext,
+	row: SourceRow,
 ): Promise<void> {
-	const { items, view, offered } = picked;
 	const { ui } = context;
-	const row = sourceRowDrawer(view);
-	const outcomes = await whileNoted(view, row.draw, () =>
-		checkAndCopy(items, src, installed, context, row.copying),
-	);
+	const outcomes = await checkAndCopy(items, src, installed, context, row);
 	row.draw(
 		addedRow(
-			view.head,
-			offered === undefined ? view.held : pickedDetail(outcomes, offered),
+			row.head,
+			offered === undefined ? row.held : pickedDetail(outcomes, offered),
 			inItemOrder(outcomes, items),
-			view.notes,
+			row.notes,
 		),
 	);
 	queueRemedies(outcomes, ui);
@@ -624,21 +641,6 @@ async function installItems(
 	if (outcomes.some(failsTheRun)) {
 		throw new ExitSignal(1);
 	}
-}
-
-/** The source's row, drawn once: settling the copying when it spins, else straight into its block. */
-function sourceRowDrawer(view: SourceView): {
-	copying: () => void;
-	draw: (row: Row) => void;
-} {
-	let task: BlockTask | undefined;
-	return {
-		copying: () => {
-			task = view.block.task({ ...view.head, text: COPYING });
-		},
-		draw: (row) =>
-			task === undefined ? view.block.row(row) : task.settle(row),
-	};
 }
 
 /**
@@ -651,7 +653,7 @@ async function checkAndCopy(
 	src: FetchedSource,
 	installed: Manifest,
 	{ policy, scope, ui }: InstallContext,
-	copying: () => void,
+	row: SourceRow,
 ): Promise<ItemOutcome[]> {
 	const installRoot = scope.root;
 	let manifest = installed;
@@ -675,7 +677,7 @@ async function checkAndCopy(
 	}
 
 	if (cleared.length > 0) {
-		copying();
+		row.copying();
 	}
 	const notes: string[] = [];
 	for (const item of cleared) {

@@ -109,23 +109,78 @@ export function renderRow(
 	width: number,
 	style: Style,
 ): string[] {
-	const quiet = row.status === "unchanged";
-	const paint = quiet ? PLAIN : style;
-	const lines = rowLines(row, statusGlyph(row.status, paint), layout, {
-		width,
-		paint,
-	});
 	const children = row.children ?? [];
+	const child = childPen(row, layout, width, style);
 	return [
-		...lines.map(dimWhole(quiet, style)),
-		...children.flatMap((child, index) =>
-			renderChild(child, index === children.length - 1, row.status, {
-				detailAt: isNarrow(width) ? undefined : layout.detailAt,
-				width,
-				style,
-			}),
+		...headLines(row, layout, width, style),
+		...children.flatMap((each, index) =>
+			child(each, index === children.length - 1),
 		),
 	];
+}
+
+/**
+ * The row in at most `room` lines: its head, as many of its children as fit
+ * whole, then a dim `… N more` child counting those left out. Its head alone
+ * when not even that line fits beside it; nothing when the head doesn't fit.
+ */
+export function renderRowWithin(
+	row: Row,
+	room: number,
+	layout: BlockLayout,
+	width: number,
+	style: Style,
+): string[] {
+	const head = headLines(row, layout, width, style);
+	const children = row.children ?? [];
+	const child = childPen(row, layout, width, style);
+	const more = (left: number) =>
+		child({ name: `… ${left} more`, dim: true }, true);
+	const kept: string[] = [];
+	for (const [index, each] of children.entries()) {
+		const last = index === children.length - 1;
+		const lines = child(each, last);
+		const after = last ? [] : more(children.length - index - 1);
+		if (head.length + kept.length + lines.length + after.length > room) {
+			const cut = [...head, ...kept, ...more(children.length - index)];
+			if (cut.length <= room) {
+				return cut;
+			}
+			return head.length <= room ? head : [];
+		}
+		kept.push(...lines);
+	}
+	return head.length + kept.length <= room ? [...head, ...kept] : [];
+}
+
+/** A row's own lines, dim whole when it's unchanged. */
+function headLines(
+	row: Row,
+	layout: BlockLayout,
+	width: number,
+	style: Style,
+): string[] {
+	const quiet = row.status === "unchanged";
+	const paint = quiet ? PLAIN : style;
+	return rowLines(row, statusGlyph(row.status, paint), layout, {
+		width,
+		paint,
+	}).map(dimWhole(quiet, style));
+}
+
+/** Draws one of the row's children, the last one closing its branch. */
+function childPen(
+	row: Row,
+	layout: BlockLayout,
+	width: number,
+	style: Style,
+): (child: Child, last: boolean) => string[] {
+	const place = {
+		detailAt: isNarrow(width) ? undefined : layout.detailAt,
+		width,
+		style,
+	};
+	return (child, last) => renderChild(child, last, row.status, place);
 }
 
 /**
@@ -359,7 +414,10 @@ function renderChild(
 	rowStatus: Status,
 	{ detailAt, width, style }: ChildPlace,
 ): string[] {
-	const quiet = rowStatus === "unchanged" || child.status === "unchanged";
+	const quiet =
+		rowStatus === "unchanged" ||
+		child.status === "unchanged" ||
+		child.dim === true;
 	const paint = quiet ? PLAIN : style;
 	const glyph =
 		child.status === undefined ? "" : `${statusGlyph(child.status, paint)} `;

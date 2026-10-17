@@ -128,7 +128,7 @@ describe("the terminal ui's prompts", () => {
 			ask: (block: Block, row: Row, prompt: never) =>
 				block.confirm(row, prompt),
 		},
-	])("ask a block's $kind under its row, laid out in the block's columns and a blank line on", async ({
+	])("ask a block's $kind under its row, laid out in the block's columns, its children cut whole to the room with the gap under it", async ({
 		prompt,
 		answer,
 		asked,
@@ -144,17 +144,23 @@ describe("the terminal ui's prompts", () => {
 			status: "done",
 			subject: "owner/repo",
 			detail: "2 skills",
+			children: [{ name: "a" }, { name: "b" }],
 		};
 
 		expect(await ask(block, row, prompt as never)).toEqual(answer);
 
 		expect(asked).toHaveBeenCalledWith(
-			{
-				...prompt,
-				above: [` ✓ owner/repo${" ".repeat(13)}2 skills`, ""],
-			},
+			{ ...prompt, above: expect.any(Function) },
 			expect.objectContaining({ width: 100 }),
 		);
+		const [[{ above }]] = (asked as Mock).mock.calls as [
+			[{ above: (room: number) => string[] }],
+		];
+		const head = ` ✓ owner/repo${" ".repeat(13)}2 skills`;
+		expect(above(4)).toEqual([head, "   ├─ a", "   └─ b", ""]);
+		expect(above(3)).toEqual([head, "   └─ … 2 more", ""]);
+		expect(above(2)).toEqual([head, ""]);
+		expect(above(1)).toEqual([]);
 		expect(term.output.text).toBe(" · before\n\n");
 	});
 

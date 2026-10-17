@@ -90,7 +90,7 @@ export function sourceSubject(
  * off the menu, those one installed pack holds counted as one line, as the
  * row shares the screen with the question.
  */
-export function sourceRow(
+export function askedRow(
 	head: RowHead,
 	held: string,
 	notes: readonly SkillNote[],
@@ -103,14 +103,18 @@ export function sourceRow(
 	};
 }
 
-/** The source as a run that installed nothing leaves it, with every skill the choice left out. */
-export function notedRow(
+/**
+ * The source as a run that stopped leaves it, with every skill the choice
+ * left out: unchanged, or failed when the stop came once files may be on disk.
+ */
+export function stoppedRow(
 	head: RowHead,
 	held: string,
 	notes: readonly SkillNote[],
+	status: "unchanged" | "failed",
 ): Row {
 	return {
-		status: "unchanged",
+		status,
 		...head,
 		detail: held,
 		...withChildren(leftOut(notes).map(noteChild)),
@@ -122,7 +126,7 @@ export function notedRow(
  * tells of its own. A skill taken from its pack is told under the item, once
  * it installed.
  */
-export function leftOut(notes: readonly SkillNote[]): SkillNote[] {
+function leftOut(notes: readonly SkillNote[]): SkillNote[] {
 	return notes.filter(({ heldBy }) => heldBy !== undefined);
 }
 

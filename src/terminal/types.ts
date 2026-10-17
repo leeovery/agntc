@@ -40,6 +40,8 @@ export interface Child {
 	/** Set by the caller when the child's own outcome is worth a glyph. */
 	status?: Status;
 	detail?: string;
+	/** Drawn dim whole, as a line standing in for children left out. */
+	dim?: boolean;
 }
 
 /**

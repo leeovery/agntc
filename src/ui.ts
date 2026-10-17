@@ -199,6 +199,34 @@ export function interactiveUi(): Ui {
 	return new TerminalUi();
 }
 
+/**
+ * `ui`, its `fail` and `cancel` first calling `stop`: whatever ends the run
+ * through it, however deep in a step, draws what the run owes the reader
+ * above the line that ends it.
+ */
+export function stoppingUi(ui: Ui, stop: () => void): Ui {
+	const fail: Ui["fail"] = (message, options) => {
+		stop();
+		return ui.fail(message, options);
+	};
+	const cancel: Ui["cancel"] = (message) => {
+		stop();
+		ui.cancel(message);
+	};
+	return new Proxy(ui, {
+		get(target, key) {
+			if (key === "fail") {
+				return fail;
+			}
+			if (key === "cancel") {
+				return cancel;
+			}
+			const value: unknown = Reflect.get(target, key, target);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
+}
+
 export interface CommandError {
 	message: string;
 	flags?: string[];

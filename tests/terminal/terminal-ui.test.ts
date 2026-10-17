@@ -590,6 +590,22 @@ describe("cancel", () => {
 		ui.cancel("Cancelled");
 		expect(term.output.text).toBe(` ${DIM}○ Cancelled${NORMAL}\n`);
 	});
+
+	it("opens with a blank line under a row, so it doesn't read as one of its children", async () => {
+		const { term, ui } = run();
+		ui.block([{ subject: "owner/repo" }]).row({
+			status: "unchanged",
+			subject: "owner/repo",
+			children: [{ name: "a" }],
+		});
+		ui.cancel("Cancelled");
+		expect(await term.lines()).toEqual([
+			" ○ owner/repo",
+			"   └─ a",
+			"",
+			" ○ Cancelled",
+		]);
+	});
 });
 
 describe("warn and note", () => {
@@ -640,6 +656,7 @@ describe("fail", () => {
 		failure(() => ui.fail("not installed", { style: "error" }));
 		expect(await term.lines()).toEqual([
 			" ✗ --skill and --all can't be combined",
+			"",
 			" ✗ not installed",
 		]);
 	});
@@ -694,12 +711,29 @@ describe("fail", () => {
 		]);
 	});
 
+	it("opens with a blank line under a row, so it doesn't read as one of its children", async () => {
+		const { term, ui } = run();
+		const block = ui.block([{ subject: "owner/repo" }]);
+		block.row({
+			status: "failed",
+			subject: "owner/repo",
+			children: [{ name: "a" }],
+		});
+		failure(() => ui.fail("broken"));
+		expect(await term.lines()).toEqual([
+			" ✗ owner/repo",
+			"   └─ a",
+			"",
+			" ✗ broken",
+		]);
+	});
+
 	it("clears what spins first, and prints what it held", async () => {
 		const { term, ui } = run();
 		ui.spinner().start("Cloning repository...");
 		ui.note("held");
 		failure(() => ui.fail("broken"));
-		expect(await term.lines()).toEqual([" · held", " ✗ broken"]);
+		expect(await term.lines()).toEqual([" · held", "", " ✗ broken"]);
 		expect(term.output.text).toContain(`${CLEAR}${SHOW}`);
 	});
 });

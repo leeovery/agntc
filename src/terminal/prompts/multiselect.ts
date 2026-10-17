@@ -9,8 +9,8 @@ import {
 } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
-	aboveLines,
 	labelColumn,
+	linesAbove,
 	listHints,
 	optionLine,
 	optionText,
@@ -19,7 +19,7 @@ import {
 	windowLines,
 } from "./lines.js";
 import { ListEngine } from "./list-engine.js";
-import { fitList, type ListFit } from "./list-window.js";
+import { aboveRoom, fitList, type ListFit } from "./list-window.js";
 import {
 	type PromptContext,
 	type PromptStreams,
@@ -29,8 +29,11 @@ import {
 export interface MultiselectQuestion<T> extends MultiselectPrompt<T> {
 	/** The key hints on the question's line, in place of the usual ones. */
 	hints?: string;
-	/** Lines over the question, as the row it asks about, erased with it. */
-	above?: readonly string[];
+	/**
+	 * Lines over the question, as the row it asks about, erased with it: at
+	 * most `room` of them, the room the frame leaves once it has its own.
+	 */
+	above?: (room: number) => readonly string[];
 }
 
 /** What of a multiselect's frame a screen shows: its window and footer, and the lines over its question. */
@@ -99,8 +102,8 @@ export async function promptMultiselect<T>(
 
 /**
  * The lines of options a multiselect shows at once on a screen of `rows`, and
- * what else of its frame shows: the lines over its question as many as leave
- * room for it, one option and its footer.
+ * what else of its frame shows: the lines over its question in the room its
+ * question, its options' share and its footer leave.
  */
 export function multiselectFit<T>(
 	question: MultiselectQuestion<T>,
@@ -114,21 +117,13 @@ export function multiselectFit<T>(
 		width,
 		style,
 	).length;
-	const above = aboveLines(
-		question.above ?? [],
-		asked + 1 + FOOTER_LINES,
-		rows,
-		width,
-		style,
-	);
-	const fit = fitList(
-		{
-			lines: question.options.length,
-			asked: above.length + asked,
-			footer: FOOTER_LINES,
-		},
-		rows,
-	);
+	const frame = {
+		lines: question.options.length,
+		asked,
+		footer: FOOTER_LINES,
+	};
+	const above = linesAbove(question.above, aboveRoom(frame, rows));
+	const fit = fitList({ ...frame, asked: above.length + asked }, rows);
 	return { ...fit, above };
 }
 

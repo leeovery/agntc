@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	aboveRoom,
 	firstStop,
 	fitList,
 	scrollWindow,
@@ -64,6 +65,26 @@ describe("fitList", () => {
 		expect(fitList({ lines: 10, maxItems: 0, asked: 1 }, 30)).toEqual(
 			scrolled(1),
 		);
+	});
+});
+
+describe("aboveRoom", () => {
+	it("leaves the row what the question, the footer and every option don't take, when they fit in half", () => {
+		expect(aboveRoom({ lines: 5, asked: 1, footer: 2 }, 24)).toBe(15);
+	});
+
+	it("keeps half the frame for the options when they don't all fit, with their more lines", () => {
+		// 23 lines of frame: 11 options and their two more lines, the question, the footer.
+		expect(aboveRoom({ lines: 30, asked: 1, footer: 2 }, 24)).toBe(7);
+	});
+
+	it("keeps no more than the list's own most", () => {
+		expect(aboveRoom({ lines: 30, maxItems: 3, asked: 1 }, 24)).toBe(17);
+	});
+
+	it("leaves nothing on a screen too small for the question and the options' share", () => {
+		expect(aboveRoom({ lines: 5, asked: 1, footer: 2 }, 6)).toBe(0);
+		expect(aboveRoom({ lines: 1, asked: 1 }, 2)).toBe(0);
 	});
 });
 

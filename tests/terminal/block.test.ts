@@ -3,6 +3,7 @@ import {
 	blockLayout,
 	renderProgress,
 	renderRow,
+	renderRowWithin,
 } from "../../src/terminal/block.js";
 import { createStyle } from "../../src/terminal/style.js";
 import type { Row } from "../../src/terminal/types.js";
@@ -720,6 +721,53 @@ describe("renderRow", () => {
 				)[1],
 			).toBe(` \x1b[2m  └─ ○ b${gap(8)}up to date\x1b[22m`);
 		});
+	});
+});
+
+describe("renderRowWithin", () => {
+	const WRAPS =
+		"already installed as part of the pack /Users/someone/code/skills/some-long-pack-name";
+	const row: Row = {
+		status: "done",
+		subject: "owner/repo",
+		meta: "HEAD",
+		detail: "5 skills",
+		children: [
+			{ name: "a", status: "note", detail: "short" },
+			{ name: "b", status: "note", detail: WRAPS },
+			{ name: "c", status: "note", detail: "short" },
+		],
+	};
+	const layout = blockLayout([row], 60);
+	const within = (room: number, style = plain) =>
+		renderRowWithin(row, room, layout, 60, style);
+	const whole = renderRow(row, layout, 60, plain);
+	const HEAD = ` ✓ owner/repo   HEAD   5 skills`;
+	const A = `   ├─ · a${gap(14)}short`;
+
+	it("draws the whole row when it fits", () => {
+		expect(whole.length).toBeGreaterThan(4);
+		expect(within(whole.length)).toEqual(whole);
+	});
+
+	it("keeps the children that fit whole, then counts the rest as children, not lines", () => {
+		expect(within(whole.length - 1)).toEqual([HEAD, A, "   └─ … 2 more"]);
+	});
+
+	it("keeps the head and the count when no child fits beside them", () => {
+		expect(within(2)).toEqual([HEAD, "   └─ … 3 more"]);
+	});
+
+	it("keeps the head alone when not even the count fits", () => {
+		expect(within(1)).toEqual([HEAD]);
+	});
+
+	it("draws nothing when the head doesn't fit", () => {
+		expect(within(0)).toEqual([]);
+	});
+
+	it("paints the count dim", () => {
+		expect(within(2, color)[1]).toBe(" \x1b[2m  └─ … 3 more\x1b[22m");
 	});
 });
 

@@ -21,7 +21,7 @@ src/
   commands/                 # add, remove, update, list (+ list-*-action, list-detail), init
   init/                     # Skill and pack scaffolding, type select, preview/confirm
   command-action.ts         # Commander action wrapper: resolves mode (resolveMode), runs with the matching Ui, writes the machine document, maps ExitSignal to exit code
-  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row, erased with the question
+  ui.ts                     # Ui interface: interactiveUi (the terminal Ui) and MachineUi (JSON document); every word and prompt goes through it; a Block asks select, multiselect or confirm under its row, fitted to the room the question and its options' share leave (children cut whole, `… N more`), erased with the question; stoppingUi (fail and cancel draw what the run owes first)
   message.ts                # Message (string | RichMessage), SubjectMessage, Advice, Remedy; plainText, isMachineOnly; machineOnly, sentence and failure word a plain string for both modes
   documents.ts              # JSON document bodies per command (addBody, listingBody, removeBody, listBody, updateBody)
   scope.ts                  # -g: project vs global install root; agntcCommand builds (and shell-quotes) every printed npx agntc line
@@ -31,7 +31,7 @@ src/
   config.ts                 # Lenient agntc.json read (never throws on bad JSON); only `type`; declaresPack (`pack` or legacy `plugin`)
   choose-items.ts           # Flags -> Selection; chooseItems decides install / menu / refuse; stray notices; --list lines
   item-menu.ts              # The add multiselect, asked under the source's row
-  add-render.ts             # add's rows: the source (key, ref and constraint, what it holds) with its items beneath, as listed, asked about (skills one installed pack holds counted on one line), left unchanged with the skills it left out, or installed (`N of M installed` after a menu); add's tally
+  add-render.ts             # add's rows: the source (key, ref and constraint, what it holds) with its items beneath, as listed, asked about (skills one installed pack holds counted on one line), stopped (unchanged, or failed once the copy began, with the skills it left out), or installed (`N of M installed` after a menu); add's tally
   install-item.ts           # InstallItem (skill | pack); keyItem, the one key rule add and update share; keyItems refuses an item's own target clashes, then target and key clashes between items
   asset-targets.ts          # Claude asset routing (.claude/skills|agents|hooks), skillTarget; skillFolderName (the <name> of any path in .claude/skills/<name>/); hookEntryName (the top-level .claude/hooks/ entry a path is or lies in); isSafeSegment
   copy-item.ts              # Copy dispatch: skill vs pack; copyUnits (the folders a copy plans, each with its filter); checkItemLinks, the symlink-escape pre-flight over those units

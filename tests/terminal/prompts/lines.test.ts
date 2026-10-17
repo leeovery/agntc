@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aboveLines, optionText } from "../../../src/terminal/prompts/lines.js";
+import { linesAbove, optionText } from "../../../src/terminal/prompts/lines.js";
 import { createStyle } from "../../../src/terminal/style.js";
 
 const plain = createStyle(0);
@@ -41,32 +41,22 @@ describe("optionText", () => {
 	});
 });
 
-describe("aboveLines", () => {
-	const ROW = [" ✓ owner/repo", "   · a", "   · b", "   · c", ""];
+describe("linesAbove", () => {
+	const ROW = [" ✓ owner/repo", "   └─ a", ""];
 
-	it("keeps every line while the screen has room for them and the rest of the frame", () => {
-		expect(aboveLines(ROW, 3, 9, 80, plain)).toEqual(ROW);
+	it("gives the room to the question's above, and takes what it gives", () => {
+		const above = (room: number) => ROW.slice(0, room);
+
+		expect(linesAbove(above, 3)).toEqual(ROW);
+		expect(linesAbove(above, 2)).toEqual(ROW.slice(0, 2));
 	});
 
-	it("cuts them from their end, the last line kept counting those that went", () => {
-		expect(aboveLines(ROW, 3, 7, 80, plain)).toEqual([
-			" ✓ owner/repo",
-			"   · a",
-			"   … 3 more",
-		]);
+	it("never takes more lines than the room, so the frame can't overflow", () => {
+		expect(linesAbove(() => ROW, 2)).toEqual(ROW.slice(0, 2));
 	});
 
-	it("keeps only the count when one line is all the room there is", () => {
-		expect(aboveLines(ROW, 3, 5, 80, plain)).toEqual(["   … 5 more"]);
-	});
-
-	it("leaves them all out when the rest of the frame takes the screen", () => {
-		expect(aboveLines(ROW, 3, 4, 80, plain)).toEqual([]);
-	});
-
-	it("paints the count dim", () => {
-		expect(aboveLines(ROW, 3, 5, 80, createStyle(3))).toEqual([
-			"   \x1b[2m… 5 more\x1b[22m",
-		]);
+	it("asks for nothing without room, or without an above", () => {
+		expect(linesAbove(() => ROW, 0)).toEqual([]);
+		expect(linesAbove(undefined, 5)).toEqual([]);
 	});
 });

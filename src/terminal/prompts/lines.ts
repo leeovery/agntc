@@ -11,7 +11,7 @@ import {
 	wrap,
 } from "../layout.js";
 import { identity, type Painter, type Style } from "../style.js";
-import { frameRoom, type ListWindow } from "./list-window.js";
+import type { ListWindow } from "./list-window.js";
 
 /** ` ? ` before a question; ` ▌ ` or three spaces before an option, a heading or a more line. */
 export const TEXT_AT = 3;
@@ -172,30 +172,14 @@ export function windowLines<O>(
 }
 
 /**
- * The lines over a question, as many as leave room on a screen of `rows` for
- * the `below` lines the rest of its frame needs at the least. Cut from their
- * end, the last line kept becomes a dim `… N more` counting those that went.
+ * What a question's `above` gives in `room` lines: nothing without room, and
+ * never more than the room, so the frame stays a line short of the screen.
  */
-export function aboveLines(
-	above: readonly string[],
-	below: number,
-	rows: number | undefined,
-	width: number,
-	style: Style,
+export function linesAbove(
+	above: ((room: number) => readonly string[]) | undefined,
+	room: number,
 ): string[] {
-	const room = frameRoom(rows) - below;
-	if (above.length <= room) {
-		return [...above];
-	}
-	if (room < 1) {
-		return [];
-	}
-	const kept = above.slice(0, room - 1);
-	const text = truncate(
-		`… ${above.length - kept.length} more`,
-		Math.max(0, roomFrom(TEXT_AT, width)),
-	);
-	return [...kept, at(TEXT_AT, text === "" ? "" : style.dim(text))];
+	return above === undefined || room < 1 ? [] : above(room).slice(0, room);
 }
 
 function moreLine(

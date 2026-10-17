@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
 	addedRow,
 	addTally,
+	askedRow,
 	holdings,
 	listedRow,
-	notedRow,
 	pickedDetail,
 	sourceHead,
-	sourceRow,
 	sourceSubject,
+	stoppedRow,
 } from "../src/add-render.js";
 import type { SkillNote } from "../src/choose-items.js";
 import type { InstallItem } from "../src/install-item.js";
@@ -148,9 +148,9 @@ describe("sourceSubject", () => {
 	});
 });
 
-describe("sourceRow", () => {
+describe("askedRow", () => {
 	it("says what the source holds, with a skill left off the menu beneath it, by name", () => {
-		expect(sourceRow(HEAD, "2 skills", [held("tools/api")])).toEqual({
+		expect(askedRow(HEAD, "2 skills", [held("tools/api")])).toEqual({
 			status: "done",
 			...HEAD,
 			detail: "2 skills",
@@ -166,7 +166,7 @@ describe("sourceRow", () => {
 
 	it("counts the skills one installed pack holds on one line, each pack its own", () => {
 		expect(
-			sourceRow(HEAD, "5 skills", [
+			askedRow(HEAD, "5 skills", [
 				held("tools/api", "p"),
 				held("tools/db", "p"),
 				held("tools/ui", "p"),
@@ -187,7 +187,7 @@ describe("sourceRow", () => {
 	});
 
 	it("has no children when none is left off", () => {
-		expect(sourceRow(HEAD, "2 skills", [])).toEqual({
+		expect(askedRow(HEAD, "2 skills", [])).toEqual({
 			status: "done",
 			...HEAD,
 			detail: "2 skills",
@@ -195,10 +195,15 @@ describe("sourceRow", () => {
 	});
 });
 
-describe("notedRow", () => {
-	it("leaves the source unchanged, with every note in full", () => {
+describe("stoppedRow", () => {
+	it("leaves the source unchanged, with every skill left out in full", () => {
 		expect(
-			notedRow(HEAD, "3 skills", [held("tools/api"), held("tools/db")]),
+			stoppedRow(
+				HEAD,
+				"3 skills",
+				[held("tools/api"), held("tools/db")],
+				"unchanged",
+			),
 		).toEqual({
 			status: "unchanged",
 			...HEAD,
@@ -218,12 +223,25 @@ describe("notedRow", () => {
 		});
 	});
 
-	it("has no children when the choice said nothing", () => {
-		expect(notedRow(HEAD, "2 skills", [])).toEqual({
+	it("has no children when the choice left nothing out, a taken skill's note told only under it once installed", () => {
+		expect(
+			stoppedRow(
+				HEAD,
+				"2 skills",
+				[taken("p/skills/a", "part of the pack p — installed on its own")],
+				"unchanged",
+			),
+		).toEqual({
 			status: "unchanged",
 			...HEAD,
 			detail: "2 skills",
 		});
+	});
+
+	it("fails the source once a stop may have left files on disk", () => {
+		expect(
+			stoppedRow(HEAD, "2 skills", [held("tools/api")], "failed"),
+		).toMatchObject({ status: "failed", children: [{ name: "tools/api" }] });
 	});
 });
 

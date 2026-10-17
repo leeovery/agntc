@@ -3,12 +3,13 @@ import { indent, visibleWidth } from "../layout.js";
 import type { Style } from "../style.js";
 import { Engine } from "./engine.js";
 import {
-	aboveLines,
+	linesAbove,
 	questionHead,
 	questionLines,
 	TEXT_AT,
 	withHints,
 } from "./lines.js";
+import { frameRoom } from "./list-window.js";
 import {
 	noFrame,
 	type PromptContext,
@@ -19,8 +20,11 @@ import {
 export interface ConfirmQuestion extends ConfirmPrompt {
 	/** Key hints on the question's line; it has none unless given. */
 	hints?: string;
-	/** Lines over the question, as the row it asks about, erased with it. */
-	above?: readonly string[];
+	/**
+	 * Lines over the question, as the row it asks about, erased with it: at
+	 * most `room` of them, the room the frame leaves once it has its own.
+	 */
+	above?: (room: number) => readonly string[];
 }
 
 export interface ConfirmView {
@@ -60,8 +64,9 @@ export async function promptConfirm(
 }
 
 /**
- * The lines over a confirm's question on a screen of `rows`, as many as leave
- * room for the question and its buttons, whichever is chosen.
+ * The lines over a confirm's question on a screen of `rows`, in the room the
+ * question and its buttons leave, whichever is chosen: No chosen is a
+ * column wider than Yes chosen, so it can take a line more.
  */
 export function confirmAbove(
 	question: ConfirmQuestion,
@@ -75,12 +80,9 @@ export function confirmAbove(
 			width,
 			style,
 		).length;
-	return aboveLines(
-		question.above ?? [],
-		Math.max(asked(true), asked(false)),
-		rows,
-		width,
-		style,
+	return linesAbove(
+		question.above,
+		frameRoom(rows) - Math.max(asked(true), asked(false)),
 	);
 }
 

@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../src/exit-signal.js";
 import type { RichMessage } from "../src/message.js";
 import { TerminalUi } from "../src/terminal/terminal-ui.js";
-import { interactiveUi, MachineUi, type Ui } from "../src/ui.js";
+import { interactiveUi, MachineUi, stoppingUi, type Ui } from "../src/ui.js";
+import { testUi } from "./helpers/test-ui.js";
 
 const OPTIONS = [
 	{ value: "a", label: "A" },
@@ -269,6 +270,39 @@ function namesModule(text: string, module: string): boolean {
 	const specifier = module.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 	return new RegExp(`${quote}${specifier}(/[^"'\`]*)?${quote}`).test(text);
 }
+
+describe("stoppingUi", () => {
+	it("stops before a failure or a cancel ends the run through it", async () => {
+		const ui = testUi();
+		const stop = vi.fn();
+		const stopping = stoppingUi(ui, stop);
+
+		stopping.cancel("Cancelled");
+		await exitCode(() => stopping.fail("broken", { flags: ["-y"] }));
+
+		expect(stop).toHaveBeenCalledTimes(2);
+		expect(stop).toHaveBeenCalledBefore(ui.cancel);
+		expect(ui.cancel).toHaveBeenCalledWith("Cancelled");
+		expect(ui.fail).toHaveBeenCalledWith("broken", { flags: ["-y"] });
+	});
+
+	it("is the ui it wraps for everything else", () => {
+		const ui = testUi();
+		const stop = vi.fn();
+		const stopping = stoppingUi(ui, stop);
+
+		stopping.note("a note");
+		stopping.block([{ subject: "owner/repo" }]).row({
+			status: "done",
+			subject: "owner/repo",
+		});
+
+		expect(stopping.mode).toBe("interactive");
+		expect(ui.note).toHaveBeenCalledWith("a note");
+		expect(ui.rows()).toEqual([{ status: "done", subject: "owner/repo" }]);
+		expect(stop).not.toHaveBeenCalled();
+	});
+});
 
 describe("namesModule", () => {
 	it.each([
