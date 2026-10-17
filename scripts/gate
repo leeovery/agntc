@@ -22,7 +22,8 @@ commit=$(git -C "$repo" rev-parse HEAD)
 tree=$(git -C "$repo" rev-parse 'HEAD^{tree}')
 short=$(git -C "$repo" rev-parse --short HEAD)
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/agntc-gate.XXXXXX")
+tmp=${TMPDIR:-/tmp}
+scratch=$(mktemp -d "${tmp%/}/agntc-gate.XXXXXX")
 checkout=$scratch/agntc
 
 # cleanup removes the checkout and its folder, and git's note of it.
