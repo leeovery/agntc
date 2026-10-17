@@ -134,7 +134,7 @@ describe("wrapItems", () => {
 describe("fitAside", () => {
 	it("keeps an aside whole where it fits", () => {
 		expect(fitAside("skills/frontend", 15)).toBe("skills/frontend");
-		expect(fitAside("ab", 2)).toBe("ab");
+		expect(fitAside("abc", 3)).toBe("abc");
 	});
 
 	it("cuts one too long at its start, keeping the folder nearest the name", () => {
@@ -142,9 +142,11 @@ describe("fitAside", () => {
 		expect(fitAside("skills/frontend", 3)).toBe("…nd");
 	});
 
-	it("leaves it out only when fewer than three columns are left", () => {
+	it("leaves it out only when fewer than three columns are left, however short it is", () => {
 		expect(fitAside("skills/frontend", 2)).toBe("");
 		expect(fitAside("skills/frontend", 0)).toBe("");
+		expect(fitAside("ab", 2)).toBe("");
+		expect(fitAside("a", 2)).toBe("");
 	});
 });
 

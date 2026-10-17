@@ -476,6 +476,7 @@ describe("a select's cells", () => {
 			" ▌ testing   …/frontend",
 			"   testing   …s/backend",
 		]);
+		expect(at(20)).toEqual([" ▌ testing  …ontend", "   testing  …ackend"]);
 		expect(renderSelect(view(twins, 0), 70, colour).at(-1)).toBe(
 			"   testing   \x1b[2mskills/backend · testing skill does a thing\x1b[22m",
 		);

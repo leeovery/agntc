@@ -78,9 +78,34 @@ describe("optionText", () => {
 		expect(optionText(shared, 10, 13, plain, false)).toBe("testing   …nd");
 	});
 
-	it("leaves the aside out only when fewer than three columns are left for it", () => {
+	it("leaves the aside out only when fewer than three columns are left for it, its hint with it", () => {
 		const shared = { value: "x", label: "testing", aside: "skills" };
 		expect(optionText(shared, 10, 12, plain, false)).toBe("testing");
+		expect(optionText({ ...shared, aside: "a" }, 10, 12, plain, false)).toBe(
+			"testing",
+		);
+		expect(
+			optionText({ ...shared, hint: "Generic" }, 10, 12, plain, false),
+		).toBe("testing");
+		expect(optionText({ ...shared, aside: "a" }, 10, 13, plain, false)).toBe(
+			"testing   a",
+		);
+	});
+
+	it("keeps the aside where the label's floor leaves the column no room, two past the label cut to its floor, the hint left out", () => {
+		const twin = {
+			value: "x",
+			label: "eloquent-models",
+			aside: "laravel",
+			hint: "Models",
+		};
+		expect(optionText(twin, 9, 20, plain, false)).toBe("…nt-models  laravel");
+		expect(optionText(twin, 9, 16, plain, false)).toBe("…nt-models  …vel");
+		expect(optionText(twin, 9, 15, plain, false)).toBe("…nt-models  …el");
+		expect(optionText(twin, 9, 14, plain, false)).toBe("…oquent-models");
+		expect(optionText({ ...twin, aside: undefined }, 9, 20, plain, false)).toBe(
+			"eloquent-models",
+		);
 	});
 
 	it("never widens the label's column", () => {

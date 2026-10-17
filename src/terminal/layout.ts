@@ -225,12 +225,11 @@ const MIN_ASIDE = 3;
 
 /**
  * An aside inside `room`: whole where it fits, else cut at its start, so the
- * folder nearest the name stays; empty only when fewer than three columns
- * are left for it.
+ * folder nearest the name stays; empty when fewer than three columns are
+ * left, however short it is, so asides telling twins apart go together.
  */
 export function fitAside(aside: string, room: number): string {
-	const fits = visibleWidth(aside) <= room;
-	return fits || room >= MIN_ASIDE ? truncateStart(aside, room) : "";
+	return room < MIN_ASIDE ? "" : truncateStart(aside, room);
 }
 
 /** Plain text cut at the start to fit `width`, marked with `…`. */
