@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { Command, Option } from "commander";
 import {
@@ -7,19 +8,33 @@ import {
 	takenOverRemoved,
 } from "../absorb.js";
 import {
+	addedRow,
+	addTally,
+	askedRow,
+	holdings,
+	listedRow,
+	pickedDetail,
+	sourceHead,
+	sourceSubject,
+	stoppedRow,
+} from "../add-render.js";
+import {
 	type ChoiceContext,
 	type ChoiceOutcome,
 	chooseItems,
+	heldDetail,
 	menuOption,
 	offeredItems,
-	optionLine,
 	type Selection,
 	type SelectionFlags,
+	type SkillNote,
+	type StrayNotice,
 	selectionFromFlags,
 	strayNotices,
 	unansweredMenu,
 } from "../choose-items.js";
 import {
+	type Clearance,
 	type ConflictPolicy,
 	clearConflicts,
 	conflictPolicy,
@@ -34,6 +49,7 @@ import {
 	StartPathError,
 } from "../discover.js";
 import { addBody, listingBody, type SourceJson } from "../documents.js";
+import { entryHead } from "../entry-head.js";
 import {
 	installedFrom,
 	isSameSource,
@@ -63,10 +79,17 @@ import {
 	removeEntry,
 	writeManifest,
 } from "../manifest.js";
+import {
+	failure,
+	machineOnly,
+	plainText,
+	type SubjectMessage,
+	sentence,
+} from "../message.js";
 import { nukeManifestFiles } from "../nuke-files.js";
 import {
 	agntcCommand,
-	commandTitle,
+	homeShortened,
 	projectScope,
 	type Scope,
 	type ScopeName,
@@ -78,14 +101,10 @@ import {
 	parseSource,
 	resolveCloneUrl,
 } from "../source-parser.js";
-import {
-	formatRefLabel,
-	type ItemIdentity,
-	type ItemOutcome,
-	pluralize,
-	renderAddSummary,
-} from "../summary.js";
-import { interactiveUi, type Ui } from "../ui.js";
+import type { ItemIdentity, ItemOutcome } from "../summary.js";
+import { adviceItem, remedyItem } from "../terminal/next.js";
+import type { Row, RowHead } from "../terminal/types.js";
+import { type Block, type BlockTask, stoppingUi, type Ui } from "../ui.js";
 import { resolveLatestVersion, resolveVersion } from "../version-resolve.js";
 
 export interface AddOptions extends SelectionFlags {
@@ -119,6 +138,60 @@ const ENGINE_ERRORS = [StartPathError, PathTraversalError, PackConflictError];
 
 /** The flags that answer the menu when there's no terminal to show it on. */
 const MENU_FLAGS = ["--skill", "--pack", "--all"];
+
+const COPYING = "copying…";
+
+/**
+ * The source's row, drawn once: in the block it hangs in, measured from every
+ * item it may hold, its head, what the source holds and what the choice said
+ * of its skills. Its outcome settles the copying when that spins; a run that
+ * stops first draws the source as the stop leaves it.
+ */
+class SourceRow {
+	private drawn = false;
+	private copy: BlockTask | undefined;
+
+	constructor(
+		readonly block: Block,
+		readonly head: RowHead,
+		readonly held: string,
+		readonly notes: readonly SkillNote[],
+	) {}
+
+	copying(): void {
+		this.copy = this.block.task({ ...this.head, text: COPYING });
+	}
+
+	draw(row: Row): void {
+		if (this.drawn) {
+			return;
+		}
+		this.drawn = true;
+		if (this.copy === undefined) {
+			this.block.row(row);
+		} else {
+			this.copy.settle(row);
+		}
+	}
+
+	/** Unchanged before the copy begins; failed once it has, as files may be on disk. */
+	stop(): void {
+		const status = this.copy === undefined ? "unchanged" : "failed";
+		this.draw(stoppedRow(this.head, this.held, this.notes, status));
+	}
+}
+
+/** What the choice offers, as read from the source. */
+interface Chosen {
+	outcome: ChoiceOutcome;
+	discovery: Discovery;
+}
+
+/** The items picked to install, keyed, and how many the menu offered when there was one. */
+interface Picked {
+	items: KeyedItem[];
+	offered?: number;
+}
 
 export async function resolveTagConstraint(
 	parsed: ParsedSource,
@@ -157,18 +230,18 @@ export async function resolveTagConstraint(
 
 export async function runAdd(
 	source: string,
-	options: AddOptions = {},
-	ui: Ui = interactiveUi,
+	options: AddOptions,
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
-	ui.intro(commandTitle("add", scope.name));
+	ui.header();
 
 	if (options.plugin) {
-		ui.note("--plugin is now --pack");
+		ui.note(sentence("--plugin is now --pack"));
 	}
 	const selection = selectionFromFlags(options);
 	if (!selection.ok) {
-		return ui.fail(selection.message);
+		return ui.fail(failure(selection.message));
 	}
 
 	let tempDir: string | undefined;
@@ -185,20 +258,24 @@ export async function runAdd(
 			return;
 		}
 		const installed = await readManifest(scope.root);
-		const items = await pickItems(
-			src,
-			selection.selection,
-			installed,
-			scope,
-			ui,
-		);
+		const chosen = await choose(src, selection.selection, installed, scope, ui);
+		const row = sourceRow(src, chosen, ui);
 		const policy = conflictPolicy(options.overwrite === true, ui.mode);
-		await installItems(items, src, installed, { policy, scope, ui });
+		await owingRow(row, ui, async (ui) => {
+			const picked = await pickItems(chosen, src, row, ui);
+			await installItems(
+				picked,
+				src,
+				installed,
+				{ policy, scope, ui, home: homedir() },
+				row,
+			);
+		});
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			throw err;
 		}
-		ui.fail(errorMessage(err));
+		ui.fail(failure(errorMessage(err)));
 	} finally {
 		if (tempDir) {
 			await cleanupTempDir(tempDir).catch(() => {});
@@ -206,6 +283,7 @@ export async function runAdd(
 	}
 }
 
+/** A remote source clones under progress of its own, which clears however the clone ends. */
 async function fetchSource(
 	parsed: ParsedSource,
 	ui: Ui,
@@ -214,15 +292,12 @@ async function fetchSource(
 		return { root: parsed.resolvedPath, commit: null };
 	}
 
-	const spin = ui.spinner();
-	spin.start("Cloning repository...");
+	const cloning = ui.block([]).task({ text: `cloning ${parsed.manifestKey}…` });
 	try {
 		const { tempDir, commit } = await cloneSource(parsed);
-		spin.stop("Cloned successfully");
 		return { root: tempDir, commit, tempDir };
-	} catch (err) {
-		spin.stop("Clone failed");
-		throw err;
+	} finally {
+		cloning.clear();
 	}
 }
 
@@ -293,6 +368,20 @@ function sourceJson(src: FetchedSource): SourceJson {
 	};
 }
 
+/**
+ * The source's row head: its key, a local one's folder shortened against the
+ * home folder. A walk from a start path that offers nothing names the path,
+ * as the rest of the source may hold plenty.
+ */
+function headOf(src: FetchedSource, items: readonly InstallItem[]): RowHead {
+	const key =
+		items.length === 0 && src.startPath !== undefined
+			? `${src.key}/${src.startPath}`
+			: src.key;
+	const subject = src.cloneUrl === null ? homeShortened(key, homedir()) : key;
+	return sourceHead(subject, src);
+}
+
 /** Shows what the source holds, as the menu would offer it, and installs nothing. */
 async function listSource(
 	src: FetchedSource,
@@ -302,28 +391,43 @@ async function listSource(
 ): Promise<void> {
 	const discovery = await discoverSource(src, selection, ui);
 	const items = offeredItems(discovery);
-	const lines = items.map((item) => optionLine(menuOption(item, src.rootName)));
-
-	if (lines.length > 0) {
-		ui.log.message(lines.join("\n"));
+	// The listing's own strays tell machine mode of them, never its warnings.
+	if (ui.mode === "interactive") {
+		tellStrays(strayNotices(discovery, choiceContext(src, scope)), ui);
 	}
-	for (const notice of strayNotices(discovery, choiceContext(src, scope))) {
-		ui.log.warn(notice);
-	}
-	const packs = items.filter((item) => item.kind === "pack").length;
-	ui.outro(
-		`${src.key}@${formatRefLabel(src.ref, src.commit)} holds ${pluralize(packs, "pack")} and ${pluralize(items.length - packs, "skill")}`,
+	const row = listedRow(
+		headOf(src, items),
+		holdings(items),
+		items.map((item) => menuOption(item, src.rootName)),
 	);
+	ui.block([row]).row(row);
+	ui.close({ command: "add", counts: {} });
 	ui.report(listingBody(sourceJson(src), items, discovery.strays));
 }
 
-async function pickItems(
+/**
+ * A stray's `--pack` line goes to Next, its words to machine mode alone; a
+ * stray with none is a warning.
+ */
+function tellStrays(notices: readonly StrayNotice[], ui: Ui): void {
+	for (const notice of notices) {
+		if ("subject" in notice) {
+			ui.warn(machineOnly(notice.plain));
+			ui.next(adviceItem(notice, homedir()));
+		} else {
+			ui.warn(notice);
+		}
+	}
+}
+
+/** Reads the source and decides what it offers, telling its strays. */
+async function choose(
 	src: FetchedSource,
 	selection: Selection,
 	manifest: Manifest,
 	scope: Scope,
 	ui: Ui,
-): Promise<KeyedItem[]> {
+): Promise<Chosen> {
 	const discovery = await discoverSource(src, selection, ui);
 	const packed = await skillsInInstalledPacks(
 		discovery,
@@ -336,16 +440,98 @@ async function pickItems(
 		selection,
 		choiceContext(src, scope.name, packed),
 	);
-	for (const notice of choice.strayNotices) {
-		ui.warn(notice);
-	}
+	tellStrays(choice.strayNotices, ui);
+	return { outcome: choice.outcome, discovery };
+}
 
-	const picked = await settle(choice.outcome, src, discovery, ui);
+/**
+ * Runs what follows reading the source with its row owed: a stop of any
+ * kind, a refusal or cancel through the Ui, an exit or a crash, draws the row
+ * first unless it's drawn.
+ */
+async function owingRow(
+	row: SourceRow,
+	ui: Ui,
+	run: (ui: Ui) => Promise<void>,
+): Promise<void> {
+	try {
+		await run(stoppingUi(ui, () => row.stop()));
+	} catch (err) {
+		row.stop();
+		throw err;
+	}
+}
+
+async function pickItems(
+	{ outcome, discovery }: Chosen,
+	src: FetchedSource,
+	row: SourceRow,
+	ui: Ui,
+): Promise<Picked> {
+	const picked = await settle(outcome, src, discovery, row, ui);
 	const keyed = await keyItems(picked, src.key, src.rootName, src.root);
 	if (!keyed.ok) {
 		return refuse(src, keyed.message, ui);
 	}
-	return keyed.items;
+	return {
+		items: keyed.items,
+		...(outcome.kind === "menu" ? { offered: outcome.options.length } : {}),
+	};
+}
+
+/**
+ * The source's row, its block measured from every item the choice may
+ * install and every skill it says something of.
+ */
+function sourceRow(
+	src: FetchedSource,
+	{ outcome, discovery }: Chosen,
+	ui: Ui,
+): SourceRow {
+	const offered = offeredItems(discovery);
+	const head = headOf(src, offered);
+	const notes = notesOf(outcome).map(shownHeld);
+	const names = choiceItems(outcome).map((item) =>
+		itemLabel(item, src.rootName),
+	);
+	return new SourceRow(
+		ui.block([sourceSubject(head, names, notes)]),
+		head,
+		holdings(offered),
+		notes,
+	);
+}
+
+/** A held skill's note as the terminal tells it: a local pack's key shortened against the home folder. */
+function shownHeld(note: SkillNote): SkillNote {
+	if (note.heldBy === undefined) {
+		return note;
+	}
+	const pack = homeShortened(note.heldBy, homedir());
+	return { ...note, heldBy: pack, detail: heldDetail(pack) };
+}
+
+/** What a choice may install: its items, or everything its menu offers. */
+function choiceItems(outcome: ChoiceOutcome): InstallItem[] {
+	switch (outcome.kind) {
+		case "install":
+			return outcome.items;
+		case "menu":
+			return outcome.options.map(({ value }) => value);
+		case "refuse":
+			return [];
+	}
+}
+
+function notesOf(outcome: ChoiceOutcome): SkillNote[] {
+	return outcome.kind === "refuse" ? [] : outcome.notes;
+}
+
+/** Machine mode's notes; at a terminal, the source's row tells them. */
+function tellNotes(notes: readonly SkillNote[], ui: Ui): void {
+	for (const { plain } of notes) {
+		ui.note(machineOnly(plain));
+	}
 }
 
 async function discoverSource(
@@ -358,7 +544,7 @@ async function discoverSource(
 			...(src.startPath !== undefined ? { startPath: src.startPath } : {}),
 			forcePack: selection.kind === "pack",
 			rootName: src.rootName,
-			onWarn: (message) => ui.warn(message),
+			onWarn: (message) => ui.warn(sentence(message)),
 		});
 	} catch (err) {
 		if (err instanceof StartPathError) {
@@ -392,30 +578,29 @@ async function startPathMessage(
 	return `${err.message} at ${src.latestRelease}, the latest release — to add it from the default branch, use ${fromBranch}, or name a version`;
 }
 
+/** The items to install: the choice's, or the menu's pick under the source's row. */
 async function settle(
 	outcome: ChoiceOutcome,
 	src: FetchedSource,
 	discovery: Discovery,
+	row: SourceRow,
 	ui: Ui,
 ): Promise<InstallItem[]> {
 	switch (outcome.kind) {
 		case "refuse":
 			return refuse(src, outcome.message, ui);
 		case "install":
-			for (const note of outcome.notes) {
-				ui.note(note);
-			}
+			tellNotes(outcome.notes, ui);
 			return outcome.items;
 		case "menu": {
-			for (const note of outcome.notes) {
-				ui.note(note);
-			}
+			tellNotes(outcome.notes, ui);
 			if (ui.mode === "machine") {
 				const offered = outcome.options.map(({ value }) => value);
 				ui.report(listingBody(sourceJson(src), offered, discovery.strays));
 				return refuse(src, unansweredMenu(outcome.options), ui, MENU_FLAGS);
 			}
-			const picked = await promptForItems(outcome.options, ui);
+			const asked = askedRow(row.head, row.held, row.notes);
+			const picked = await promptForItems(outcome.options, asked, row.block);
 			if (picked.length === 0) {
 				ui.cancel("Cancelled — nothing selected");
 				throw new ExitSignal(0);
@@ -432,22 +617,55 @@ function refuse(
 	flags?: string[],
 ): never {
 	return ui.fail(
-		`${src.key}: ${message}`,
+		failure(`${src.key}: ${message}`),
 		flags !== undefined ? { flags } : {},
 	);
 }
 
 /**
- * Installs each item as its own manifest entry. Every item is checked before
- * any install is touched; an item that fails or is stopped doesn't stop the
- * others, and the command exits non-zero after the summary if any did.
+ * Installs each item as its own manifest entry, then draws the source's row.
+ * An item that fails or is stopped doesn't stop the others, and the command
+ * exits non-zero after the close if any did.
  */
 async function installItems(
-	items: KeyedItem[],
+	{ items, offered }: Picked,
 	src: FetchedSource,
 	installed: Manifest,
-	{ policy, scope, ui }: InstallContext,
+	context: InstallContext,
+	row: SourceRow,
 ): Promise<void> {
+	const { ui, home } = context;
+	const outcomes = await checkAndCopy(items, src, installed, context, row);
+	row.draw(
+		addedRow(
+			row.head,
+			offered === undefined ? row.held : pickedDetail(outcomes, offered),
+			inItemOrder(outcomes, items),
+			row.notes,
+			home,
+		),
+	);
+	queueRemedies(outcomes, ui, home);
+	ui.close({ command: "add", counts: addTally(outcomes) });
+	ui.report(addBody(sourceJson(src), outcomes));
+
+	if (outcomes.some(failsTheRun)) {
+		throw new ExitSignal(1);
+	}
+}
+
+/**
+ * Every item is checked before any install is touched; then those clear to
+ * copy are copied, under progress in the source's row, and the manifest
+ * written. The outcomes, in the order they came.
+ */
+async function checkAndCopy(
+	items: readonly KeyedItem[],
+	src: FetchedSource,
+	installed: Manifest,
+	{ policy, scope, ui, home }: InstallContext,
+	row: SourceRow,
+): Promise<ItemOutcome[]> {
 	const installRoot = scope.root;
 	let manifest = installed;
 	const outcomes: ItemOutcome[] = [];
@@ -455,6 +673,7 @@ async function installItems(
 	const ctx = {
 		policy,
 		ui,
+		home,
 		source: sourceIdOfFetched(src),
 		scope: scope.name,
 	};
@@ -463,39 +682,59 @@ async function installItems(
 		const checked = await checkItem(keyed, src, manifest, installRoot, ctx);
 		manifest = checked.manifest;
 		if (checked.outcome === null) {
-			cleared.push({ keyed, absorbs: checked.absorbs });
+			cleared.push({
+				keyed,
+				absorbs: checked.absorbs,
+				cleared: checked.cleared,
+			});
 		} else {
 			outcomes.push(checked.outcome);
 		}
 	}
 
-	const notes: string[] = [];
 	if (cleared.length > 0) {
-		const spin = ui.spinner();
-		spin.start("Copying skill files...");
-		for (const item of cleared) {
-			const installed = await installKeyedItem(
-				item,
-				src,
-				manifest,
-				installRoot,
-			);
-			manifest = installed.manifest;
-			outcomes.push(installed.outcome);
-			notes.push(...installed.notes);
-		}
-		spin.stop("Copied successfully");
+		row.copying();
+	}
+	const notes: string[] = [];
+	for (const item of cleared) {
+		const installed = await installKeyedItem(item, src, manifest, installRoot);
+		manifest = installed.manifest;
+		outcomes.push(installed.outcome);
+		notes.push(...installed.notes);
 	}
 	for (const note of notes) {
-		ui.note(note);
+		ui.note(sentence(note));
 	}
 
 	await writeManifest(installRoot, manifest);
-	reportSummary(src, outcomes, ui);
-	ui.report(addBody(sourceJson(src), outcomes));
+	return outcomes;
+}
 
-	if (outcomes.some(failsTheRun)) {
-		throw new ExitSignal(1);
+/** The outcomes in the order of the items they're about, as the menu listed them. */
+function inItemOrder(
+	outcomes: readonly ItemOutcome[],
+	items: readonly KeyedItem[],
+): ItemOutcome[] {
+	const order = new Map(items.map(({ key }, index) => [key, index]));
+	return [...outcomes].sort(
+		(a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0),
+	);
+}
+
+/** What the reader can do about an item that didn't install, under Next. */
+function queueRemedies(
+	outcomes: readonly ItemOutcome[],
+	ui: Ui,
+	home: string,
+): void {
+	for (const outcome of outcomes) {
+		const item =
+			outcome.status !== "installed" && outcome.message !== undefined
+				? remedyItem(outcome.message, home)
+				: null;
+		if (item !== null) {
+			ui.next(item);
+		}
 	}
 }
 
@@ -520,20 +759,24 @@ interface InstallContext {
 	policy: ConflictPolicy;
 	scope: Scope;
 	ui: Ui;
+	/** The home folder a row shortens a local key against. */
+	home: string;
 }
 
 interface CheckContext {
 	policy: ConflictPolicy;
 	ui: Ui;
+	home: string;
 	/** Where the items come from, for what a pack absorbs. */
 	source: SourceId;
 	scope: ScopeName;
 }
 
-/** An item clear to copy, with the loose skills it takes over. */
+/** An item clear to copy, with the loose skills it takes over and what was cleared out of its way. */
 interface ClearedItem {
 	keyed: KeyedItem;
 	absorbs: string[];
+	cleared: Clearance[];
 }
 
 interface CheckedItem {
@@ -542,6 +785,8 @@ interface CheckedItem {
 	outcome: ItemOutcome | null;
 	/** The loose skills from its own source a pack takes over. */
 	absorbs: string[];
+	/** What was cleared out of its way. */
+	cleared: Clearance[];
 }
 
 /**
@@ -555,7 +800,7 @@ async function checkItem(
 	src: FetchedSource,
 	manifest: Manifest,
 	installRoot: string,
-	{ policy, ui, source, scope }: CheckContext,
+	{ policy, ui, home, source, scope }: CheckContext,
 ): Promise<CheckedItem> {
 	const identity = identify(keyed, src.rootName);
 	const refusal =
@@ -564,8 +809,14 @@ async function checkItem(
 	if (refusal !== null) {
 		return {
 			manifest,
-			outcome: { ...identity, status: "failed", reason: refusal },
+			outcome: {
+				...identity,
+				status: "failed",
+				reason: plainText(refusal),
+				...(typeof refusal === "string" ? {} : { message: refusal }),
+			},
 			absorbs: [],
+			cleared: [],
 		};
 	}
 
@@ -584,6 +835,8 @@ async function checkItem(
 			manifest,
 			key: keyed.key,
 			projectDir: installRoot,
+			head: entryHead(keyed.key, src.cloneUrl === null, home),
+			home,
 		},
 		policy,
 		ui,
@@ -591,23 +844,35 @@ async function checkItem(
 	return {
 		manifest: conflicts.manifest,
 		outcome:
-			conflicts.stop === null ? null : { ...identity, ...conflicts.stop },
+			conflicts.stop === null
+				? null
+				: {
+						...identity,
+						...withCleared(conflicts.cleared),
+						...conflicts.stop,
+					},
 		absorbs,
+		cleared: conflicts.cleared,
 	};
+}
+
+/** What was cleared out of an item's way, for its outcome, when anything was. */
+function withCleared(cleared: Clearance[]): Pick<ItemOutcome, "cleared"> {
+	return cleared.length === 0 ? {} : { cleared };
 }
 
 /**
  * Why the item can't install under its key: the entry already there isn't an
  * earlier install of it, being from another repo (keys don't name the host),
  * another type or another path. Replacing that entry is the user's call:
- * remove it, then add.
+ * remove it, then add, as its remedy says.
  */
 function keyTaken(
 	{ key, item }: KeyedItem,
 	src: FetchedSource,
 	manifest: Manifest,
 	scope: ScopeName,
-): string | null {
+): SubjectMessage | null {
 	const holder = manifest[key];
 	if (holder === undefined) {
 		return null;
@@ -624,7 +889,18 @@ function keyTaken(
 	}
 	const where = otherRepo ?? pathLabel(from, src.rootName);
 	const remove = agntcCommand(scope, "remove", [key]);
-	return `${key} is already installed from ${where}, as a ${type}; to replace it: ${remove}, then add again`;
+	const detail = `already installed from ${where}, as a ${type}`;
+	const text = `${key} is ${detail}`;
+	return {
+		subject: key,
+		detail,
+		text,
+		remedy: {
+			lead: "To replace it:",
+			steps: [{ command: remove }, { words: "then add again" }],
+		},
+		plain: `${text}; to replace it: ${remove}, then add again`,
+	};
 }
 
 /** The clone URL a remote entry was installed from, when it isn't `src`'s repo. */
@@ -673,13 +949,16 @@ interface InstalledItem {
  * tracked.
  */
 async function installKeyedItem(
-	{ keyed, absorbs }: ClearedItem,
+	{ keyed, absorbs, cleared }: ClearedItem,
 	src: FetchedSource,
 	manifest: Manifest,
 	installRoot: string,
 ): Promise<InstalledItem> {
 	const { item, key, sourceSubpath } = keyed;
-	const identity = identify(keyed, src.rootName);
+	const identity = {
+		...identify(keyed, src.rootName),
+		...withCleared(cleared),
+	};
 	const failed = (reason: string): ItemOutcome => ({
 		...identity,
 		status: "failed",
@@ -740,29 +1019,6 @@ async function installKeyedItem(
 			notes: [],
 		};
 	}
-}
-
-function reportSummary(
-	src: FetchedSource,
-	outcomes: ItemOutcome[],
-	ui: Ui,
-): void {
-	const summary = renderAddSummary({
-		sourceKey: src.key,
-		ref: src.ref,
-		commit: src.commit,
-		outcomes,
-	});
-	if (summary.installed.length > 0) {
-		ui.log.success(summary.installed.join("\n"));
-	}
-	if (summary.skipped.length > 0) {
-		ui.log.warn(summary.skipped.join("\n"));
-	}
-	if (summary.failed.length > 0) {
-		ui.log.error(summary.failed.join("\n"));
-	}
-	ui.outro(summary.headline);
 }
 
 export const addCommand = new Command("add")

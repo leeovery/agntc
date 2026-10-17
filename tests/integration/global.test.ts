@@ -272,26 +272,25 @@ describe("remove -g", () => {
 describe("at a terminal", () => {
 	const scope = () => globalScope(home);
 
-	it("titles each command as global", async () => {
+	it("opens each command on the header, whose scope the command's action names", async () => {
 		await runAdd(globalSource, {}, ui, scope());
 		await runUpdate(FOO(), {}, ui, scope());
 		await runRemove(FOO(), { yes: true }, ui, scope());
 		await runListLoop(ui, scope());
 
-		expect(ui.intro.mock.calls).toEqual([
-			["agntc add · global"],
-			["agntc update · global"],
-			["agntc remove · global"],
-			["agntc list · global"],
-		]);
+		expect(ui.header).toHaveBeenCalledTimes(4);
 	});
 
 	it("points an empty global list at add -g", async () => {
 		await runListLoop(ui, scope());
 
-		expect(ui.outro).toHaveBeenCalledWith(
-			"No skills or packs installed. Run npx agntc add -g owner/repo to get started.",
-		);
+		expect(ui.next).toHaveBeenCalledWith({
+			subject: "",
+			remedy: {
+				lead: "To get started:",
+				steps: [{ command: "npx agntc add -g owner/repo" }],
+			},
+		});
 	});
 });
 

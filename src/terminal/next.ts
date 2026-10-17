@@ -1,7 +1,37 @@
+import type { Advice, SubjectMessage } from "../message.js";
+import { homeShortened } from "../scope.js";
 import { indent, MARGIN, roomFrom, visibleWidth, wrap } from "./layout.js";
 import { LEAD_AT, renderSteps } from "./remedy.js";
 import type { Style } from "./style.js";
 import type { NextItem } from "./types.js";
+
+/**
+ * The remedy a message carries, under its subject: the row already says what
+ * happened. The subject reads as the row names it, a local entry's folder
+ * shortened against `home`; its commands keep the folder whole.
+ */
+export function remedyItem(
+	message: SubjectMessage,
+	home: string,
+): NextItem | null {
+	return message.remedy === undefined
+		? null
+		: { subject: subjectOf(message, home), remedy: message.remedy };
+}
+
+/** A message whose row says less than it does: what it says leads its remedy, under its subject as {@link remedyItem} names it. */
+export function adviceItem(message: Advice, home: string): NextItem {
+	const { lead, steps } = message.remedy;
+	return {
+		subject: subjectOf(message, home),
+		remedy: { lead: `${message.detail} ${lead}`, steps },
+	};
+}
+
+/** A remote subject never opens on the home folder, so only a local one is shortened. */
+function subjectOf(message: SubjectMessage, home: string): string {
+	return homeShortened(message.subject, home);
+}
 
 /** What the reader can do about the run, gathered for its close. */
 export function renderNext(

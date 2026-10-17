@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+	formatVersionMove,
+	intentMeta,
 	isVersionTag,
+	moveTarget,
 	newestTag,
 	normalizeTags,
 	resolveLatestVersion,
 	resolveVersion,
+	versionMove,
 } from "../src/version-resolve.js";
 
 describe("normalizeTags", () => {
@@ -196,5 +200,81 @@ describe("newestTag", () => {
 	it("matches the reverse-first-element idiom it replaces", () => {
 		const tags = ["1.0.0", "1.2.0", "1.2.3", "1.3.0"];
 		expect(newestTag(tags)).toBe([...tags].reverse()[0]);
+	});
+});
+
+const OLD_A = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b";
+const NEW = "9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e";
+
+describe("versionMove", () => {
+	it("moves between the tags when both refs are semver tags and the ref moved", () => {
+		expect(
+			versionMove({
+				oldRef: "v1.2.3",
+				newRef: "v1.3.0",
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toEqual({ from: "v1.2.3", to: "v1.3.0" });
+	});
+
+	it.each([
+		["a v4 branch (clean() null)", "v4", "v4"],
+		["a v4.0.0 branch whose commit alone moved", "v4.0.0", "v4.0.0"],
+		["a branch", "main", "main"],
+		["HEAD", null, null],
+		["a tag moving to a branch", "v1.0.0", "main"],
+	])("moves between short hashes for %s", (_, oldRef, newRef) => {
+		expect(
+			versionMove({ oldRef, newRef, oldCommit: OLD_A, newCommit: NEW }),
+		).toEqual({ from: "1a2b3c4", to: "9f8e7d6" });
+	});
+
+	it("starts from unknown for a null old commit on the hash path", () => {
+		expect(
+			versionMove({
+				oldRef: null,
+				newRef: null,
+				oldCommit: null,
+				newCommit: NEW,
+			}),
+		).toEqual({ from: "unknown", to: "9f8e7d6" });
+	});
+});
+
+describe("formatVersionMove", () => {
+	it("words the move with the ASCII arrow, tags or hashes as versionMove decides", () => {
+		expect(
+			formatVersionMove({
+				oldRef: "v1.2.3",
+				newRef: "v1.3.0",
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toBe("v1.2.3 -> v1.3.0");
+		expect(
+			formatVersionMove({
+				oldRef: "main",
+				newRef: "main",
+				oldCommit: OLD_A,
+				newCommit: NEW,
+			}),
+		).toBe("1a2b3c4 -> 9f8e7d6");
+	});
+});
+
+describe("moveTarget", () => {
+	it("is the new ref when it's a tag, else the short new commit", () => {
+		expect(moveTarget("v1.3.0", NEW)).toBe("v1.3.0");
+		expect(moveTarget("main", NEW)).toBe("9f8e7d6");
+		expect(moveTarget(null, NEW)).toBe("9f8e7d6");
+	});
+});
+
+describe("intentMeta", () => {
+	it("is the constraint or ref a group tracks, HEAD when it tracks none", () => {
+		expect(intentMeta("^1.2.3")).toBe("^1.2.3");
+		expect(intentMeta("main")).toBe("main");
+		expect(intentMeta(null)).toBe("HEAD");
 	});
 });

@@ -1,127 +1,111 @@
 import { describe, expect, it } from "vitest";
 import {
 	type OutOfConstraintInfo,
-	renderOutOfConstraintSection,
+	outOfConstraintMessage,
+	upgradeAdvice,
 } from "../src/summary.js";
 
-describe("renderOutOfConstraintSection", () => {
-	it("returns empty array when no out-of-constraint info exists", () => {
-		const result = renderOutOfConstraintSection([]);
-		expect(result).toEqual([]);
+describe("outOfConstraintMessage", () => {
+	it("words the actionable <current> → <latestOverall> move at a terminal, -> in its machine sentence, and the bare re-add that makes it", () => {
+		const info: OutOfConstraintInfo = {
+			subject: "owner/plugin-a",
+			current: "v1.3.0",
+			latestOverall: "v2.0.0",
+			commands: ["npx agntc add owner/plugin-a"],
+		};
+
+		expect(outOfConstraintMessage(info)).toEqual({
+			subject: "owner/plugin-a",
+			detail:
+				"Newer version outside the constraint: v1.3.0 → v2.0.0 available.",
+			text: "owner/plugin-a  v1.3.0 → v2.0.0 available.",
+			remedy: {
+				lead: "To upgrade:",
+				steps: [{ command: "npx agntc add owner/plugin-a" }],
+			},
+			plain:
+				"owner/plugin-a  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/plugin-a",
+		});
 	});
 
-	it("renders the actionable <current> -> <latestOverall> available line with the bare re-add command", () => {
-		const infos: OutOfConstraintInfo[] = [
-			{
-				key: "owner/plugin-a",
-				current: "v1.3.0",
-				latestOverall: "v2.0.0",
-				commands: ["npx agntc add owner/plugin-a"],
-			},
-		];
-		const result = renderOutOfConstraintSection(infos);
-		expect(result).toEqual([
-			"Newer versions outside constraints:",
-			"  owner/plugin-a  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/plugin-a",
+	it("is about the group label it's given, the command as given", () => {
+		const message = outOfConstraintMessage({
+			subject: "owner/repo@^1.2.3",
+			current: "v1.2.3",
+			latestOverall: "v3.0.0",
+			commands: ["npx agntc add owner/repo/skills/a"],
+		});
+
+		expect(message.subject).toBe("owner/repo@^1.2.3");
+		expect(message.remedy.steps).toEqual([
+			{ command: "npx agntc add owner/repo/skills/a" },
 		]);
 	});
 
-	it("uses the Group label as the prefix and the entry-built command as given", () => {
-		const infos: OutOfConstraintInfo[] = [
-			{
-				label: "owner/repo@^1.2.3",
-				current: "v1.2.3",
-				latestOverall: "v3.0.0",
-				commands: ["npx agntc add owner/repo/skills/a"],
-			},
-		];
-		const result = renderOutOfConstraintSection(infos);
-		expect(result).toEqual([
-			"Newer versions outside constraints:",
-			"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/skills/a",
-		]);
-	});
+	it("lists a group's several re-add commands once each, a line each in its sentence", () => {
+		const message = outOfConstraintMessage({
+			subject: "owner/repo",
+			current: "v1.2.3",
+			latestOverall: "v3.0.0",
+			commands: [
+				"npx agntc add owner/repo/a",
+				"npx agntc add owner/repo/tools --pack",
+				"npx agntc add owner/repo/a",
+			],
+		});
 
-	it("lists a group's several re-add commands one per line, once each", () => {
-		const infos: OutOfConstraintInfo[] = [
-			{
-				label: "owner/repo",
-				current: "v1.2.3",
-				latestOverall: "v3.0.0",
-				commands: [
-					"npx agntc add owner/repo/a",
-					"npx agntc add owner/repo/tools --pack",
-					"npx agntc add owner/repo/a",
-				],
-			},
-		];
-		const result = renderOutOfConstraintSection(infos);
-		expect(result).toEqual([
-			"Newer versions outside constraints:",
+		expect(message.remedy.steps).toEqual([
+			{ command: "npx agntc add owner/repo/a" },
+			{ command: "npx agntc add owner/repo/tools --pack" },
+		]);
+		expect(message.plain).toBe(
 			[
-				"  owner/repo  v1.2.3 -> v3.0.0 available. To upgrade:",
+				"owner/repo  v1.2.3 -> v3.0.0 available. To upgrade:",
 				"    npx agntc add owner/repo/a",
 				"    npx agntc add owner/repo/tools --pack",
 			].join("\n"),
-		]);
+		);
 	});
 
-	// The single-key path (runSingleUpdate) populates `key` only (no label), so the
-	// `label ?? key` fallback renders the key as the prefix.
-	it("falls back to key as the prefix when no label is set (single-key path)", () => {
-		const infos: OutOfConstraintInfo[] = [
-			{
-				key: "owner/plugin-a",
-				current: "v1.3.0",
-				latestOverall: "v2.0.0",
-				commands: ["npx agntc add owner/plugin-a"],
+	it("keeps the informative tone — no ! or warning language", () => {
+		const message = outOfConstraintMessage({
+			subject: "owner/plugin",
+			current: "v1.3.0",
+			latestOverall: "v2.0.0",
+			commands: ["npx agntc add owner/plugin"],
+		});
+
+		for (const words of [message.detail, message.plain]) {
+			expect(words).not.toContain("!");
+			expect(words.toLowerCase()).not.toContain("warning");
+		}
+	});
+});
+
+describe("upgradeAdvice", () => {
+	it("runs one command on after its lead", () => {
+		expect(upgradeAdvice(["npx agntc add owner/repo"])).toEqual({
+			remedy: {
+				lead: "To upgrade:",
+				steps: [{ command: "npx agntc add owner/repo" }],
 			},
-		];
-		const result = renderOutOfConstraintSection(infos);
-		expect(result).toEqual([
-			"Newer versions outside constraints:",
-			"  owner/plugin-a  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/plugin-a",
-		]);
+			plain: "To upgrade: npx agntc add owner/repo",
+		});
 	});
 
-	it("keeps the informative tone — no ! or warning language and preserves the header", () => {
-		const infos: OutOfConstraintInfo[] = [
-			{
-				key: "owner/plugin",
-				current: "v1.3.0",
-				latestOverall: "v2.0.0",
-				commands: ["npx agntc add owner/plugin"],
-			},
-		];
-		const result = renderOutOfConstraintSection(infos);
-		expect(result[0]).toBe("Newer versions outside constraints:");
-		const allText = result.join(" ");
-		expect(allText).not.toContain("!");
-		expect(allText).not.toContain("warning");
-		expect(allText).not.toContain("Warning");
-		expect(allText).not.toContain("WARNING");
-	});
-
-	it("still emits one line per info (collection collapse preserved)", () => {
-		const infos: OutOfConstraintInfo[] = [
-			{
-				label: "owner/repo-a",
-				current: "v1.3.0",
-				latestOverall: "v2.0.0",
-				commands: ["npx agntc add owner/repo-a"],
-			},
-			{
-				label: "owner/repo-b",
-				current: "v2.1.0",
-				latestOverall: "v3.1.0",
-				commands: ["npx agntc add owner/repo-b"],
-			},
-		];
-		const result = renderOutOfConstraintSection(infos);
-		expect(result).toEqual([
-			"Newer versions outside constraints:",
-			"  owner/repo-a  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo-a",
-			"  owner/repo-b  v2.1.0 -> v3.1.0 available. To upgrade: npx agntc add owner/repo-b",
+	it("sets several commands a line each, and names each once", () => {
+		const advice = upgradeAdvice([
+			"npx agntc add a",
+			"npx agntc add b",
+			"npx agntc add a",
 		]);
+
+		expect(advice.remedy.steps).toEqual([
+			{ command: "npx agntc add a" },
+			{ command: "npx agntc add b" },
+		]);
+		expect(advice.plain).toBe(
+			"To upgrade:\n    npx agntc add a\n    npx agntc add b",
+		);
 	});
 });

@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { selectInitType } from "../../src/init/type-select.js";
+import type { Choice } from "../../src/ui.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 let ui: TestUi;
 
+/** The type select has no headings, so its options are all choices. */
 function firstSelectCall() {
 	const call = ui.select.mock.calls[0]?.[0];
 	if (!call) throw new Error("select was not called");
-	return call;
+	return { ...call, options: call.options as Choice<unknown>[] };
 }
 
 beforeEach(() => {

@@ -186,31 +186,25 @@ describe("the background", () => {
 			expect(terminal.input.isRaw).toBe(false);
 		});
 
-		it("takes out the reply before a ctrl-z typed while it's asked suspends", async () => {
-			let banded: boolean | undefined;
-			const kill = vi.spyOn(process, "kill").mockImplementation(() => {
-				banded = terminal.output.text.includes(BAND);
-				return true;
-			});
+		it("takes out the reply before a ctrl-z typed while it's asked tells the run to suspend", async () => {
 			const terminal = terminalAnswering();
-			try {
-				const { promptSelect } = await freshPrompts();
-				const answer = promptSelect(
-					{ message: "Pick", options: CHOICES },
-					terminal.context(truecolor),
-				);
-				await elapse(5);
-				await terminal.press("\x1a");
-				await elapse(25);
-				expect(kill).not.toHaveBeenCalled();
-				await terminal.press(DARK_REPLY);
-				expect(kill.mock.calls).toEqual([[0, "SIGTSTP"]]);
-				expect(banded).toBe(true);
-				await terminal.press(KEY.enter);
-				expect(await answer).toBe("laravel");
-			} finally {
-				kill.mockRestore();
-			}
+			const banded: boolean[] = [];
+			terminal.owner.suspend.mockImplementation(() => {
+				banded.push(terminal.output.text.includes(BAND));
+			});
+			const { promptSelect } = await freshPrompts();
+			const answer = promptSelect(
+				{ message: "Pick", options: CHOICES },
+				terminal.context(truecolor),
+			);
+			await elapse(5);
+			await terminal.press("\x1a");
+			await elapse(25);
+			expect(banded).toEqual([]);
+			await terminal.press(DARK_REPLY);
+			expect(banded).toEqual([true]);
+			await terminal.press(KEY.enter);
+			expect(await answer).toBe("laravel");
 		});
 
 		it("cancels on a ctrl-d typed while it's asked, once the reply is in", async () => {

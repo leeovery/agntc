@@ -2,10 +2,14 @@ import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import xterm from "@xterm/headless";
 import { vi } from "vitest";
+import type { SignalHost } from "../../../src/terminal/control.js";
 import { BACKGROUND_QUERY } from "../../../src/terminal/prompts/background.js";
-import type { PromptContext } from "../../../src/terminal/prompts/session.js";
+import type {
+	OpenPrompt,
+	PromptContext,
+	PromptOwner,
+} from "../../../src/terminal/prompts/session.js";
 import { createStyle, type Style } from "../../../src/terminal/style.js";
-import type { TaskHost } from "../../../src/terminal/task.js";
 
 export const KEY = {
 	up: "\x1b[A",
@@ -38,6 +42,7 @@ export class CaptureStdout extends Writable {
 	text = "";
 	isTTY?: boolean;
 	rows?: number;
+	columns?: number;
 
 	constructor(private readonly onWrite: (text: string) => void = () => {}) {
 		super({ decodeStrings: false });
@@ -55,8 +60,23 @@ export class CaptureStdout extends Writable {
 	}
 }
 
-export class FakeHost extends EventEmitter implements TaskHost {
+/** A process whose exit and kill are recorded, never done. */
+export class FakeHost extends EventEmitter implements SignalHost {
 	exit = vi.fn();
+	kill = vi.fn();
+}
+
+/** The run a prompt is asked in: it keeps the prompt it holds, and records each ctrl-z. */
+export class FakeOwner implements PromptOwner {
+	prompt: OpenPrompt | undefined;
+	suspend = vi.fn();
+
+	hold(prompt: OpenPrompt): () => void {
+		this.prompt = prompt;
+		return () => {
+			this.prompt = undefined;
+		};
+	}
 }
 
 /** Lets piped keys reach the prompt and its frame reach the output. */
@@ -73,6 +93,7 @@ export class Terminal {
 	readonly input = new FakeStdin();
 	readonly output: CaptureStdout;
 	readonly host = new FakeHost();
+	readonly owner = new FakeOwner();
 	backgroundReply: string | readonly string[] | undefined;
 	private readonly term: xterm.Terminal;
 
@@ -95,6 +116,7 @@ export class Terminal {
 			}
 		});
 		this.output.rows = rows;
+		this.output.columns = columns;
 	}
 
 	context(style: Style = createStyle(0), width = this.columns): PromptContext {
@@ -103,7 +125,7 @@ export class Terminal {
 			output: this.output,
 			width,
 			style,
-			host: this.host,
+			owner: this.owner,
 		};
 	}
 
@@ -130,6 +152,13 @@ export class Terminal {
 			lines.pop();
 		}
 		return lines;
+	}
+
+	/** The lines on the screen, its scrollback aside, the trailing empty ones left off. */
+	async screen(): Promise<string[]> {
+		const lines = await this.lines();
+		const { baseY } = this.term.buffer.active;
+		return lines.slice(baseY, baseY + this.rows);
 	}
 
 	/** The cursor's column and its row, counted from the top of the scrollback. */

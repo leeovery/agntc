@@ -1,24 +1,17 @@
 import type { Choice, MultiselectPrompt } from "../../ui.js";
-import {
-	indent,
-	padStart,
-	roomFrom,
-	spread,
-	truncate,
-	visibleWidth,
-} from "../layout.js";
+import { indent, padStart, roomFrom, spread, truncate } from "../layout.js";
 import type { Painter, Style } from "../style.js";
 import {
-	labelColumn,
+	linesAbove,
 	listHints,
 	optionLine,
-	optionText,
 	questionLines,
 	TEXT_AT,
 	windowLines,
 } from "./lines.js";
 import { ListEngine } from "./list-engine.js";
-import { fitList, type ListFit } from "./list-window.js";
+import { aboveRoom, fitList, type ListFit } from "./list-window.js";
+import { choiceText } from "./select.js";
 import {
 	type PromptContext,
 	type PromptStreams,
@@ -28,10 +21,22 @@ import {
 export interface MultiselectQuestion<T> extends MultiselectPrompt<T> {
 	/** The key hints on the question's line, in place of the usual ones. */
 	hints?: string;
+	/**
+	 * Lines over the question, as the row it asks about, erased with it: at
+	 * most `room` of them, the room the frame leaves once it has its own.
+	 */
+	above?: (room: number) => readonly string[];
+}
+
+/** What of a multiselect's frame a screen shows: its window and footer, and the lines over its question. */
+export interface MultiselectFit extends ListFit {
+	above: readonly string[];
 }
 
 /** A multiselect as it stands: the cursor's option, the window in view from `top`, what's picked. */
 export interface MultiselectView<T> extends ListFit {
+	/** Lines over the question; none unless given. */
+	above?: readonly string[];
 	message: string;
 	hints: string;
 	options: readonly Choice<T>[];
@@ -43,7 +48,7 @@ export interface MultiselectView<T> extends ListFit {
 	warning: string;
 }
 
-export const MULTISELECT_HINTS = listHints("space pick", "a all", "⏎ done");
+const MULTISELECT_HINTS = listHints(["space pick", "a all", "⏎ done"]);
 export const PICK_ONE = "pick at least one";
 /** A mark and its space before each label. */
 const LABEL_AT = TEXT_AT + 2;
@@ -87,27 +92,31 @@ export async function promptMultiselect<T>(
 	return engine.answer;
 }
 
-/** The lines of options a multiselect shows at once on a screen of `rows`, and what else of its frame shows. */
+/**
+ * The lines of options a multiselect shows at once on a screen of `rows`, and
+ * what else of its frame shows: the lines over its question in the room its
+ * question, its options' share and its footer leave.
+ */
 export function multiselectFit<T>(
 	question: MultiselectQuestion<T>,
 	rows: number | undefined,
 	width: number,
 	style: Style,
-): ListFit {
+): MultiselectFit {
 	const asked = questionLines(
 		question.message,
 		question.hints ?? MULTISELECT_HINTS,
 		width,
 		style,
-	);
-	return fitList(
-		{
-			lines: question.options.length,
-			asked: asked.length,
-			footer: FOOTER_LINES,
-		},
-		rows,
-	);
+	).length;
+	const frame = {
+		lines: question.options.length,
+		asked,
+		footer: FOOTER_LINES,
+	};
+	const above = linesAbove(question.above, aboveRoom(frame, rows));
+	const fit = fitList({ ...frame, asked: above.length + asked }, rows);
+	return { ...fit, above };
 }
 
 export function renderMultiselect<T>(
@@ -116,12 +125,10 @@ export function renderMultiselect<T>(
 	style: Style,
 	band?: Painter,
 ): string[] {
-	const column = labelColumn(
-		view.options.map((option) => visibleWidth(option.label)),
-		width,
-	);
 	const room = roomFrom(LABEL_AT, width);
+	const text = choiceText(view.options, room, width, style);
 	return [
+		...(view.above ?? []),
 		...questionLines(view.message, view.hints, width, style),
 		...windowLines(
 			view.options,
@@ -133,9 +140,9 @@ export function renderMultiselect<T>(
 				const mark = view.picked.includes(index)
 					? style.accent("●")
 					: style.dim("○");
-				const text = optionText(option, column, room, style, current);
+				const label = text(option, index, room, current);
 				return optionLine(
-					text === "" ? mark : `${mark} ${text}`,
+					label === "" ? mark : `${mark} ${label}`,
 					current,
 					width,
 					style,

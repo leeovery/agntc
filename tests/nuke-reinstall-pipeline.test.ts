@@ -372,7 +372,11 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/laravel",
 				notes: [
-					"owner/repo/laravel is a single skill — reinstalled as a skill",
+					{
+						text: "owner/repo/laravel is a single skill — reinstalled as a skill",
+						plain:
+							"owner/repo/laravel is a single skill — reinstalled as a skill",
+					},
 				],
 				entry: { type: "skill", files: [".claude/skills/laravel/"] },
 			});
@@ -662,7 +666,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/go",
 				entry: { type: "skill", sourceSubpath: "lang/go" },
-				notes: ["owner/repo/go moved from skills/go to lang/go"],
+				notes: [
+					{
+						text: "owner/repo/go moved from skills/go to lang/go",
+						plain: "owner/repo/go moved from skills/go to lang/go",
+					},
+				],
 			});
 		});
 
@@ -729,7 +738,11 @@ describe("executeNukeAndReinstall", () => {
 				key: "owner/repo/repo",
 				entry: { sourceSubpath: "skills/repo" },
 				notes: [
-					"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+					{
+						text: "owner/repo moved from repo to skills/repo",
+						plain:
+							"owner/repo moved from repo to skills/repo, now keyed owner/repo/repo",
+					},
 				],
 			});
 		});
@@ -1003,7 +1016,11 @@ describe("executeNukeAndReinstall", () => {
 				key: "owner/repo/foo",
 				entry: { type: "skill", sourceSubpath: "packs/foo" },
 				notes: [
-					"owner/repo/packs/foo is a single skill — reinstalled as a skill, now keyed owner/repo/foo",
+					{
+						text: "owner/repo/packs/foo is a single skill — reinstalled as a skill",
+						plain:
+							"owner/repo/packs/foo is a single skill — reinstalled as a skill, now keyed owner/repo/foo",
+					},
 				],
 			});
 		});
@@ -1042,7 +1059,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/foo",
 				entry: { type: "skill", sourceSubpath: "packs/foo" },
-				notes: ["owner/repo/packs/foo is now keyed owner/repo/foo"],
+				notes: [
+					{
+						text: "",
+						plain: "owner/repo/packs/foo is now keyed owner/repo/foo",
+					},
+				],
 			});
 		});
 
@@ -1074,8 +1096,15 @@ describe("executeNukeAndReinstall", () => {
 				key: "owner/repo/plugins/laravel",
 				absorbed: ["owner/repo/api"],
 				notes: [
-					"owner/repo/laravel is now keyed owner/repo/plugins/laravel",
-					"owner/repo/plugins/laravel now includes api, installed on its own before",
+					{
+						text: "",
+						plain: "owner/repo/laravel is now keyed owner/repo/plugins/laravel",
+					},
+					{
+						text: "",
+						plain:
+							"owner/repo/plugins/laravel now includes api, installed on its own before",
+					},
 				],
 			});
 			if (result.status !== "success") return;
@@ -1164,7 +1193,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				key: "owner/repo/foo",
 				entry: { sourceSubpath: "plugins/foo", files: [".claude/skills/foo/"] },
-				notes: ["owner/repo/my-plugin is now keyed owner/repo/foo"],
+				notes: [
+					{
+						text: "",
+						plain: "owner/repo/my-plugin is now keyed owner/repo/foo",
+					},
+				],
 			});
 		});
 
@@ -1293,8 +1327,10 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint:
-					"Update failed for owner/repo/packs/foo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo/packs/foo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/packs/foo` to install it again.",
+				}),
 			});
 		});
 	});
@@ -1400,7 +1436,12 @@ describe("executeNukeAndReinstall", () => {
 				status: "success",
 				absorbed: ["owner/repo/queues"],
 				notes: [
-					"owner/repo/laravel now includes queues, installed on its own before",
+					// The absorbed entry's own line tells it at a terminal.
+					{
+						text: "",
+						plain:
+							"owner/repo/laravel now includes queues, installed on its own before",
+					},
 				],
 			});
 		});
@@ -1447,8 +1488,10 @@ describe("executeNukeAndReinstall", () => {
 				status: "copy-failed",
 				errorMessage: "disk full",
 				absorbed: ["owner/repo/queues"],
-				recoveryHint:
-					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				}),
 			});
 		});
 
@@ -1980,9 +2023,18 @@ describe("executeNukeAndReinstall", () => {
 			if (result.status !== "copy-failed") return;
 
 			expect(result.errorMessage).toBe("ENOSPC: no space left on device");
-			expect(result.recoveryHint).toBe(
-				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
-			);
+			expect(result.recovery).toEqual({
+				subject: "owner/repo",
+				detail:
+					"update failed after removing old files (ENOSPC: no space left on device). It is currently uninstalled.",
+				text: "Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled.",
+				remedy: {
+					lead: "To install it again:",
+					steps: [{ command: "npx agntc add owner/repo" }],
+				},
+				plain:
+					"Update failed for owner/repo after removing old files (ENOSPC: no space left on device). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			});
 		});
 
 		it("names a many-line error by its first line in the hint, keeping the whole of it beside", async () => {
@@ -1996,8 +2048,10 @@ describe("executeNukeAndReinstall", () => {
 			expect(result).toMatchObject({
 				status: "copy-failed",
 				errorMessage: error,
-				recoveryHint:
-					"Update failed for owner/repo after removing old files (EACCES: permission denied, mkdir). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo after removing old files (EACCES: permission denied, mkdir). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				}),
 			});
 		});
 
@@ -2009,8 +2063,10 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint:
-					"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo after removing old files. It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+				}),
 			});
 		});
 
@@ -2044,7 +2100,9 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint: expect.stringContaining(`Run \`${reAdd}\``),
+				recovery: expect.objectContaining({
+					plain: expect.stringContaining(`Run \`${reAdd}\``),
+				}),
 			});
 		});
 
@@ -2087,9 +2145,15 @@ describe("executeNukeAndReinstall", () => {
 
 			expect(result).toMatchObject({
 				status: "copy-failed",
-				recoveryHint: expect.stringContaining(
-					"Run `npx agntc add -g owner/repo` to install it again.",
-				),
+				recovery: expect.objectContaining({
+					remedy: {
+						lead: "To install it again:",
+						steps: [{ command: "npx agntc add -g owner/repo" }],
+					},
+					plain: expect.stringContaining(
+						"Run `npx agntc add -g owner/repo` to install it again.",
+					),
+				}),
 			});
 		});
 	});

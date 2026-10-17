@@ -1,3 +1,5 @@
+import { sep } from "node:path";
+
 /**
  * Project installs live under the working directory; global ones under the
  * home directory. Either way the layout below the root is the same:
@@ -45,7 +47,17 @@ function shellWord(word: string): string {
 	return PLAIN_WORD.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
 }
 
-/** What a command's title says at a terminal. */
-export function commandTitle(command: ScopedCommand, scope: ScopeName): string {
-	return scope === "global" ? `agntc ${command} · global` : `agntc ${command}`;
+/** Where a scope installs, as a terminal's header says it: `global`, or the project root. */
+export function scopeWhere(scope: Scope, home: string): string {
+	return scope.name === "global" ? "global" : homeShortened(scope.root, home);
+}
+
+/** `path` with the home folder it starts with written as `~`. */
+export function homeShortened(path: string, home: string): string {
+	if (path === home) {
+		return "~";
+	}
+	return path.startsWith(`${home}${sep}`)
+		? `~${path.slice(home.length)}`
+		: path;
 }

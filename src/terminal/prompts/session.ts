@@ -2,9 +2,7 @@ import type { Writable } from "node:stream";
 import {
 	ERASE_DOWN,
 	ERASE_LINE,
-	type ExitHost,
 	HIDE_CURSOR,
-	restoreOnExit,
 	SHOW_CURSOR,
 } from "../control.js";
 import { bandPainter, type Painter, type Rgb, type Style } from "../style.js";
@@ -25,8 +23,25 @@ export interface PromptContext {
 	style: Style;
 	/** The terminal's background when it's known; otherwise asked once per process. */
 	background?: Rgb;
-	/** The process the terminal is restored on the exit of; tests pass their own. */
-	host?: ExitHost;
+	owner: PromptOwner;
+}
+
+/** The run a prompt is asked in, which owns the process's signals. */
+export interface PromptOwner {
+	/** Takes the prompt while it's open, for a signal to put the terminal back for the shell; the return gives it up. */
+	hold(prompt: OpenPrompt): () => void;
+	/** Ctrl-z read as a key: the run suspends as on a SIGTSTP. */
+	suspend(): void;
+}
+
+/** An open prompt, as the run holding it sees it. */
+export interface OpenPrompt {
+	/** Erases the frame, leaving the cursor where its first line began. */
+	erase(): void;
+	/** Ends raw mode and shows the cursor. */
+	cook(): void;
+	/** After a suspend: raw mode again, and the frame, once drawn, back with the cursor hidden. */
+	resume(): void;
 }
 
 /** What a prompt engine reads and writes: stdin through the filter. */
@@ -50,7 +65,7 @@ export const noFrame = (): undefined => undefined;
  * lets through the keys typed in the meantime, and each key redraws the frame
  * in place. The answer erases it whole, leaving the cursor where its first
  * line began. Resolves with the engine once it's submitted or cancelled; a
- * throw on the way closes the engine and restores the terminal as an exit does.
+ * throw on the way closes the engine and restores the terminal.
  */
 export async function runPrompt<E extends Engine>(
 	context: PromptContext,
@@ -85,31 +100,32 @@ export async function runPrompt<E extends Engine>(
 
 /**
  * A prompt's hold on the terminal: stdin piped through the filter in raw
- * mode, the frame on screen, and the process watched for its exit and, once
- * the engine runs, for a suspend. Each listener it adds goes when it ends.
+ * mode and the frame on screen, the run that owns the signals holding it
+ * meanwhile. Each listener it adds goes when it ends.
  */
-class Session {
+class Session implements OpenPrompt {
 	readonly filter: InputFilter;
 	private readonly screen: Screen;
 	private readonly stops: (() => void)[] = [];
+	/** Draws the frame, once there is one. */
+	private paint?: () => void;
 
 	constructor(private readonly context: PromptContext) {
 		this.filter = new InputFilter(context.input);
 		this.screen = new Screen(context.output);
 		this.filter.setRawMode(true);
 		context.input.pipe(this.filter);
-		this.stops.push(
-			restoreOnExit(context.host ?? process, () => this.restore()),
-		);
+		this.stops.push(context.owner.hold(this));
 	}
 
 	get streams(): PromptStreams {
 		return { input: this.filter, output: this.context.output };
 	}
 
-	/** Draws the first frame, then again after each key while `engine` is open, and follows it through a suspend. */
+	/** Draws the first frame, then again after each key while `engine` is open, and tells the run of its ctrl-z. */
 	show(engine: Engine, frame: () => string[]): void {
 		const paint = () => this.screen.draw(frame());
+		this.paint = paint;
 		this.context.output.write(HIDE_CURSOR);
 		paint();
 		const redraw = () => {
@@ -120,7 +136,24 @@ class Session {
 		// After the engine's own listener, so each frame shows the key's effect.
 		this.filter.on("keypress", redraw);
 		this.stops.push(() => this.filter.off("keypress", redraw));
-		this.followSuspend(engine, paint);
+		this.followSuspend(engine);
+	}
+
+	erase(): void {
+		this.screen.erase();
+	}
+
+	cook(): void {
+		this.context.output.write(SHOW_CURSOR);
+		this.filter.setRawMode(false);
+	}
+
+	resume(): void {
+		this.filter.setRawMode(true);
+		if (this.paint !== undefined) {
+			this.context.output.write(HIDE_CURSOR);
+			this.paint();
+		}
 	}
 
 	/** The engine closes with a newline, shows the cursor and ends raw mode: the frame goes, and the newline with it. */
@@ -131,8 +164,7 @@ class Session {
 	/** Erases the frame, and `below` lines written under it, shows the cursor and ends raw mode. */
 	restore(below = 0): void {
 		this.screen.erase(below);
-		this.context.output.write(SHOW_CURSOR);
-		this.filter.setRawMode(false);
+		this.cook();
 	}
 
 	end(): void {
@@ -148,33 +180,13 @@ class Session {
 	 * Readline on its own suspends on ctrl-z by stopping node alone, so a
 	 * parent such as npx runs on and the shell sees nothing stop. With a
 	 * listener for its SIGTSTP it only tells, in its handling of the key, ahead
-	 * of every key after it; a SIGTSTP sent from outside is taken the same way.
-	 * The frame is erased and the terminal left cooked for the shell, then the
-	 * whole process group stops, as a terminal's ^Z stops it. The kill returns
-	 * once the job is continued, or at once where the stop is ignored (an
-	 * orphaned group), and the prompt comes back as it was.
+	 * of every key after it, and the run suspends as it does on a SIGTSTP.
 	 */
-	private followSuspend(engine: Engine, paint: () => void): void {
-		const output = this.context.output;
-		const suspend = () => {
-			this.screen.erase();
-			output.write(SHOW_CURSOR);
-			this.filter.setRawMode(false);
-			// With no listener, SIGTSTP stops the process as it does by default.
-			process.off("SIGTSTP", suspend);
-			process.kill(0, "SIGTSTP");
-			process.on("SIGTSTP", suspend);
-			this.filter.setRawMode(true);
-			output.write(HIDE_CURSOR);
-			paint();
-		};
+	private followSuspend(engine: Engine): void {
 		const readline = engine.readline;
+		const suspend = () => this.context.owner.suspend();
 		readline?.on("SIGTSTP", suspend);
-		process.on("SIGTSTP", suspend);
-		this.stops.push(() => {
-			readline?.off("SIGTSTP", suspend);
-			process.off("SIGTSTP", suspend);
-		});
+		this.stops.push(() => readline?.off("SIGTSTP", suspend));
 	}
 }
 

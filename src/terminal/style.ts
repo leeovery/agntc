@@ -133,6 +133,7 @@ const LOOKS: Record<Status, { glyph: string; tone: Tone }> = {
 	subject: { glyph: "●", tone: "accent" },
 	newer: { glyph: "↑", tone: "accent" },
 	note: { glyph: "·", tone: "dim" },
+	local: { glyph: "◇", tone: "dim" },
 };
 
 export function statusTone(status: Status, style: Style): Painter {

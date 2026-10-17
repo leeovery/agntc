@@ -207,3 +207,54 @@ describe("renderMessage", () => {
 		});
 	});
 });
+
+describe("a string", () => {
+	it("wraps as a rich text does, from column 3", () => {
+		expect(
+			renderMessage(
+				"note",
+				"owner/repo/kit moved from skills/old/kit to skills/new/kit, now keyed owner/repo/kit",
+				40,
+				plain,
+			),
+		).toEqual([
+			" · owner/repo/kit moved from",
+			"   skills/old/kit to skills/new/kit,",
+			"   now keyed owner/repo/kit",
+		]);
+	});
+
+	it("as an error, bolds its first line and dims the rest, its cause, both wrapped", () => {
+		expect(
+			renderMessage(
+				"error",
+				"Failed to read manifest: Unexpected token } in JSON\nat position 12 of .agntc/manifest.json, the project's",
+				40,
+				color,
+			),
+		).toEqual([
+			" \x1b[31m✗\x1b[39m \x1b[1mFailed to read manifest: Unexpected\x1b[22m",
+			"   \x1b[1mtoken } in JSON\x1b[22m",
+			"   \x1b[2mat position 12 of\x1b[22m",
+			"   \x1b[2m.agntc/manifest.json, the project's\x1b[22m",
+		]);
+	});
+
+	it("leaves a warning's later lines its own, not a cause", () => {
+		expect(renderMessage("warn", "first\nsecond", 80, color)).toEqual([
+			" \x1b[33m!\x1b[39m first",
+			"   second",
+		]);
+	});
+
+	it("leaves off the blank lines it ends with", () => {
+		expect(
+			renderMessage(
+				"error",
+				"Could not clone\nfatal: not found\n\n",
+				80,
+				plain,
+			),
+		).toEqual([" ✗ Could not clone", "   fatal: not found"]);
+	});
+});

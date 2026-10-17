@@ -37,7 +37,7 @@ export interface ListFit extends ListWindow {
 export function fitList(frame: ListFrame, rows: number | undefined): ListFit {
 	const { lines, asked, footer = 0 } = frame;
 	const most = Math.max(1, Math.min(frame.maxItems ?? lines, lines));
-	const budget = (rows || DEFAULT_ROWS) - 1 - asked;
+	const budget = frameRoom(rows) - asked;
 	for (let kept = footer; kept >= 0; kept--) {
 		const room = budget - kept;
 		if (most >= lines && most <= room) {
@@ -55,6 +55,30 @@ export function fitList(frame: ListFrame, rows: number | undefined): ListFit {
 		}
 	}
 	return { size: 1, more: false, footer: 0 };
+}
+
+/**
+ * The lines a list's frame leaves for a row over its question on a screen of
+ * `rows`. The question, the footer and the list's share come first: its
+ * options, as many as half the frame's room at the least, with the more
+ * lines they then need, or the lines it takes whole when that's fewer. What
+ * the row doesn't take goes back to the list.
+ */
+export function aboveRoom(frame: ListFrame, rows: number | undefined): number {
+	const { lines, asked, footer = 0 } = frame;
+	const most = Math.max(1, Math.min(frame.maxItems ?? lines, lines));
+	const share = Math.max(1, Math.min(most, Math.floor(frameRoom(rows) / 2)));
+	const whole = most < lines ? most + MORE_LINES : most;
+	const list = Math.min(whole, share < lines ? share + MORE_LINES : share);
+	return Math.max(0, frameRoom(rows) - asked - footer - list);
+}
+
+/**
+ * The lines a frame may take on a screen of `rows`: one short of it, as the
+ * prompt's closing newline scrolls a frame as tall as the screen.
+ */
+export function frameRoom(rows: number | undefined): number {
+	return (rows || DEFAULT_ROWS) - 1;
 }
 
 /** The first line the cursor can stop on, or -1 when every line is a heading. */

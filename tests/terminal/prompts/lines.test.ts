@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { optionText } from "../../../src/terminal/prompts/lines.js";
+import { linesAbove, optionText } from "../../../src/terminal/prompts/lines.js";
 import { createStyle } from "../../../src/terminal/style.js";
 
 const plain = createStyle(0);
@@ -27,6 +27,17 @@ describe("optionText", () => {
 		).toBe("…ong-skill  skill");
 	});
 
+	it("leaves out a hint that would cut the label below ten columns, its inset with them, the label taking the room", () => {
+		const named = { value: "x", label: "a-skill-02", hint: "Menu of things" };
+		expect(optionText(named, 9, 14, plain, false)).toBe("a-skill-02");
+		expect(optionText(named, 12, 20, plain, false)).toBe(
+			"a-skill-02  Menu of…",
+		);
+		expect(optionText({ ...named, label: "ab" }, 9, 14, plain, false)).toBe(
+			"ab       Menu…",
+		);
+	});
+
 	it("leaves a label's inset out of its room", () => {
 		expect(
 			optionText(
@@ -38,5 +49,25 @@ describe("optionText", () => {
 				2,
 			),
 		).toBe("  …g-skill  skill");
+	});
+});
+
+describe("linesAbove", () => {
+	const ROW = [" ✓ owner/repo", "   └─ a", ""];
+
+	it("gives the room to the question's above, and takes what it gives", () => {
+		const above = (room: number) => ROW.slice(0, room);
+
+		expect(linesAbove(above, 3)).toEqual(ROW);
+		expect(linesAbove(above, 2)).toEqual(ROW.slice(0, 2));
+	});
+
+	it("never takes more lines than the room, so the frame can't overflow", () => {
+		expect(linesAbove(() => ROW, 2)).toEqual(ROW.slice(0, 2));
+	});
+
+	it("asks for nothing without room, or without an above", () => {
+		expect(linesAbove(() => ROW, 0)).toEqual([]);
+		expect(linesAbove(undefined, 5)).toEqual([]);
 	});
 });

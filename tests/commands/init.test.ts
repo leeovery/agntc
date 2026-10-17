@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initCommand, runInit } from "../../src/commands/init.js";
 import { ExitSignal } from "../../src/exit-signal.js";
+import { plainText } from "../../src/message.js";
+import type { Row } from "../../src/terminal/types.js";
 import { runMachine } from "../helpers/machine.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
 
@@ -39,6 +41,26 @@ async function written(): Promise<string[]> {
 		.sort();
 }
 
+function created(path: string): Row {
+	return { status: "done", subject: path, detail: { label: "created" } };
+}
+
+function alreadyThere(path: string): Row {
+	return {
+		status: "unchanged",
+		subject: path,
+		detail: { label: "already there" },
+	};
+}
+
+/** What the terminal is told beside the rows, as machine mode would word it. */
+function told(): { warnings: string[]; notes: string[] } {
+	return {
+		warnings: ui.warn.mock.calls.map(([message]) => plainText(message)),
+		notes: ui.note.mock.calls.map(([message]) => plainText(message)),
+	};
+}
+
 async function expectCleanCancel(run: Promise<void>): Promise<void> {
 	const error = await run.catch((e: unknown) => e);
 
@@ -49,12 +71,12 @@ async function expectCleanCancel(run: Promise<void>): Promise<void> {
 }
 
 describe("runInit at a terminal", () => {
-	it("opens with 'agntc init'", async () => {
+	it("opens with its header", async () => {
 		ui.confirm.mockResolvedValue(true);
 
 		await runInit("skill", {}, ui);
 
-		expect(ui.intro).toHaveBeenCalledWith("agntc init");
+		expect(ui.header).toHaveBeenCalledOnce();
 	});
 
 	it("scaffolds a skill named by the type argument without showing the menu", async () => {
@@ -64,9 +86,15 @@ describe("runInit at a terminal", () => {
 
 		expect(ui.select).not.toHaveBeenCalled();
 		expect(await written()).toEqual(["SKILL.md"]);
-		expect(ui.outro).toHaveBeenCalledWith(
-			"SKILL.md\nDone. Edit `SKILL.md` to define your skill.",
-		);
+		expect(ui.rows()).toEqual([created("SKILL.md")]);
+		expect(told()).toEqual({
+			warnings: [],
+			notes: ["Done. Edit `SKILL.md` to define your skill."],
+		});
+		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+			command: "init",
+			counts: { created: 1, existing: 0 },
+		});
 	});
 
 	it("scaffolds a pack named by the type argument without showing the menu", async () => {
@@ -76,9 +104,15 @@ describe("runInit at a terminal", () => {
 
 		expect(ui.select).not.toHaveBeenCalled();
 		expect(await written()).toEqual([...PACK_FILES].sort());
-		expect(ui.outro).toHaveBeenCalledWith(
-			`${PACK_FILES.join(", ")}\nDone. Add skills under \`skills/\`, agents to \`agents/\` and hooks to \`hooks/\`.`,
-		);
+		expect(ui.block).toHaveBeenLastCalledWith(PACK_FILES.map(created));
+		expect(ui.rows()).toEqual(PACK_FILES.map(created));
+		expect(told().notes).toEqual([
+			"Done. Add skills under `skills/`, agents to `agents/` and hooks to `hooks/`.",
+		]);
+		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+			command: "init",
+			counts: { created: 4, existing: 0 },
+		});
 	});
 
 	it.each([
@@ -94,13 +128,31 @@ describe("runInit at a terminal", () => {
 		expect(await written()).toEqual(files);
 	});
 
-	it("previews the files, then asks to proceed", async () => {
+	it("asks to proceed under the row of what it will create", async () => {
 		ui.confirm.mockResolvedValue(true);
 
-		await runInit("skill", {}, ui);
+		await runInit("pack", {}, ui);
 
-		expect(ui.box).toHaveBeenCalledWith("  SKILL.md", "This will create:");
-		expect(ui.confirm).toHaveBeenCalledWith({ message: "Proceed?" });
+		const row = {
+			status: "subject",
+			subject: dir,
+			detail: "pack · will create 4 files",
+			children: [
+				{ name: "agntc.json", depth: 0, noun: "file" },
+				{ name: "skills/", depth: 0 },
+				{ name: "my-skill/", depth: 1 },
+				{ name: "SKILL.md", depth: 2, noun: "file" },
+				{ name: "agents/", depth: 0 },
+				{ name: "my-agent.md", depth: 1, noun: "file" },
+				{ name: "hooks/", depth: 0 },
+				{ name: "my-hook.sh", depth: 1, noun: "file" },
+			],
+		};
+		expect(ui.block).toHaveBeenNthCalledWith(1, [row]);
+		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(row, {
+			message: "Proceed?",
+		});
+		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
 	});
 
 	it("exits cleanly, writing nothing, when the menu is cancelled", async () => {
@@ -125,8 +177,8 @@ describe("runInit at a terminal", () => {
 	] as const)("skips the preview and its confirmation for a %s with -y", async (type) => {
 		await runInit(type, { yes: true }, ui);
 
-		expect(ui.box).not.toHaveBeenCalled();
 		expect(ui.confirm).not.toHaveBeenCalled();
+		expect(ui.blocks.map((block) => block.confirm.mock.calls)).toEqual([[]]);
 		expect((await written()).length).toBeGreaterThan(0);
 	});
 
@@ -136,7 +188,25 @@ describe("runInit at a terminal", () => {
 		await runInit("skill", { yes: true }, ui);
 
 		expect(await readFile(join(dir, "SKILL.md"), "utf-8")).toBe("# Mine\n");
-		expect(ui.outro).toHaveBeenCalledWith("SKILL.md (already exists)");
+		expect(ui.rows()).toEqual([alreadyThere("SKILL.md")]);
+		expect(told()).toEqual({ warnings: [], notes: [] });
+		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+			command: "init",
+			counts: { created: 0, existing: 1 },
+		});
+	});
+
+	it("asks nothing when every file is already there, as it would write none", async () => {
+		await writeFile(join(dir, "SKILL.md"), "# Mine\n");
+
+		await runInit("skill", {}, ui);
+
+		expect(ui.blocks.map((block) => block.confirm.mock.calls)).toEqual([[]]);
+		expect(ui.rows()).toEqual([alreadyThere("SKILL.md")]);
+		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+			command: "init",
+			counts: { created: 0, existing: 1 },
+		});
 	});
 
 	it("writes the rest of a pack around files already there, listing those as existing", async () => {
@@ -147,10 +217,15 @@ describe("runInit at a terminal", () => {
 		expect(await readFile(join(dir, "agntc.json"), "utf-8")).toBe(
 			'{"type": "pack"}',
 		);
-		expect(ui.outro).toHaveBeenCalledWith(
-			expect.stringContaining("hooks/my-hook.sh, agntc.json (already exists)"),
-		);
+		expect(ui.rows()).toEqual([
+			alreadyThere("agntc.json"),
+			...PACK_FILES.slice(1).map(created),
+		]);
 		expect(ui.said("warn")).toEqual([]);
+		expect(ui.close).toHaveBeenCalledExactlyOnceWith({
+			command: "init",
+			counts: { created: 3, existing: 1 },
+		});
 	});
 
 	it("warns when an agntc.json already there keeps the folder from being a pack", async () => {
@@ -159,7 +234,13 @@ describe("runInit at a terminal", () => {
 		await runInit("pack", { yes: true }, ui);
 
 		expect(await readFile(join(dir, "agntc.json"), "utf-8")).toBe("{}");
-		expect(ui.warn).toHaveBeenCalledWith(NOT_A_PACK);
+		expect(ui.warn).toHaveBeenCalledWith({
+			text: NOT_A_PACK,
+			plain: NOT_A_PACK,
+		});
+		expect(ui.warn.mock.invocationCallOrder[0]!).toBeGreaterThan(
+			ui.blocks[0]!.row.mock.invocationCallOrder.at(-1)!,
+		);
 	});
 });
 
@@ -209,6 +290,19 @@ describe("init without a terminal", () => {
 		});
 		expect(await written()).toEqual([]);
 		expect(run.stdout).toBe(`${JSON.stringify(run.document, null, 2)}\n`);
+	});
+
+	it("refuses without -y even when every file is already there", async () => {
+		await writeFile(join(dir, "SKILL.md"), "# Mine\n");
+
+		const run = await runMachine(initCommand, ["skill"]);
+
+		expect(run.exitCode).toBe(1);
+		expect(run.document.error).toEqual({
+			message:
+				"scaffolding a skill asks before writing anything — confirm with -y",
+			flags: ["-y"],
+		});
 	});
 
 	it("scaffolds a skill with -y and reports the files created", async () => {

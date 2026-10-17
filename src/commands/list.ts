@@ -1,74 +1,40 @@
+import { homedir } from "node:os";
 import { Command } from "commander";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { listBody } from "../documents.js";
+import { assetSummary, kindAndCounts } from "../entry-assets.js";
+import { isUpdatable, type UpdateRun } from "../key-update.js";
+import {
+	checkingEntries,
+	checkingEntry,
+	counted,
+	DASHBOARD_QUESTION,
+	dashboardFooter,
+	dashboardOptions,
+	detailRow,
+	getStartedItem,
+	type ListActionResult,
+	nothingInstalledRow,
+} from "../list-render.js";
 import {
 	type Manifest,
-	type ManifestEntry,
 	readManifest,
 	readManifestOrExit,
 } from "../manifest.js";
-import {
-	agntcCommand,
-	commandTitle,
-	projectScope,
-	type Scope,
-} from "../scope.js";
-import { interactiveUi, type Ui } from "../ui.js";
+import { homeShortened, projectScope, type Scope } from "../scope.js";
+import type { Row } from "../terminal/types.js";
+import type { ListTally, Ui } from "../ui.js";
 import { checkForUpdate, type UpdateCheckResult } from "../update-check.js";
-import { checkAllForUpdates, checkResultFor } from "../update-check-all.js";
+import { checkAllForUpdates } from "../update-check-all.js";
+import type { GroupMember } from "../update-groups.js";
 import { executeChangeVersionAction } from "./list-change-version-action.js";
-import { renderDetailView } from "./list-detail.js";
+import { askAction, type DetailAction } from "./list-detail.js";
 import { executeRemoveAction } from "./list-remove-action.js";
 import { executeUpdateAction } from "./list-update-action.js";
 
-// The label shows just the unit + its installed version; the constraint and any
-// out-of-constraint version live in the detail view, so the list stays scannable.
-function formatLabel(key: string, entry: ManifestEntry): string {
-	const ref = entry.ref ?? (entry.commit !== null ? "HEAD" : "local");
-	return `${key}  ${ref}`;
-}
-
-// Terse, single-clause status for the select hint (clack wraps it in parens).
-// Rich version detail (which tag, out-of-constraint) is shown in the detail view.
-function formatStatusHint(result: UpdateCheckResult): string {
-	switch (result.status) {
-		case "up-to-date":
-		case "constrained-up-to-date":
-			return "\u2713 up to date";
-		case "update-available":
-		case "constrained-update-available":
-			return "\u2191 update available";
-		case "newer-tags":
-			return "\u2691 newer tags";
-		case "check-failed":
-			return "\u2717 check failed";
-		case "local":
-			return "\u25CF local";
-		case "constrained-no-match":
-			return "\u2717 no matching version";
-	}
-}
-
-async function showListView(
-	manifest: Manifest,
-	checkResults: Map<string, UpdateCheckResult>,
-	ui: Ui,
-): Promise<string | null> {
-	const options = Object.entries(manifest).map(([key, entry]) => ({
-		value: key,
-		label: formatLabel(key, entry),
-		hint: formatStatusHint(checkResultFor(checkResults, key)),
-	}));
-
-	return ui.select<string>({
-		message: "Select a skill or pack to manage  (Esc when done)",
-		options,
-	});
-}
-
 /** The dashboard at a terminal; in machine mode, one document of every entry and its update status. */
 export async function runList(
-	ui: Ui = interactiveUi,
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
 	if (ui.mode === "machine") {
@@ -79,135 +45,176 @@ export async function runList(
 	await runListLoop(ui, scope);
 }
 
+/**
+ * What a session shares: an update's run, as its actions reinstall as
+ * `update` does, and what it has changed.
+ */
+interface ListSession extends UpdateRun {
+	tally: ListTally;
+}
+
+/**
+ * The dashboard and the detail view in turn, until the dashboard is left.
+ * Their questions erase as they're answered, so what stays is what the
+ * session did: each action's row, then its remedies and its tally as it
+ * closes.
+ */
 export async function runListLoop(
-	ui: Ui = interactiveUi,
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
-	ui.intro(commandTitle("list", scope.name));
+	ui.header();
+	const session: ListSession = {
+		scope,
+		yes: false,
+		ui,
+		home: homedir(),
+		tally: {},
+	};
+	await browse(session);
+	ui.close({ command: "list", counts: session.tally });
+}
 
+/** The dashboard, checked afresh each time it shows, and each entry chosen from it. */
+async function browse(session: ListSession): Promise<void> {
+	const { scope, ui } = session;
 	while (true) {
 		const manifest = await readManifestOrExit(scope.root, ui);
-
-		const entries = Object.entries(manifest);
-
-		if (entries.length === 0) {
-			ui.outro(
-				`No skills or packs installed. Run ${agntcCommand(scope.name, "add", ["owner/repo"])} to get started.`,
-			);
+		if (Object.keys(manifest).length === 0) {
+			const row = nothingInstalledRow();
+			ui.block([row]).row(row);
+			ui.next(getStartedItem(scope.name));
 			return;
 		}
 
-		const spin = ui.spinner();
-		spin.start("Checking for updates...");
-		const checkResults = await checkAllForUpdates(manifest);
-		spin.stop("Update checks complete.");
-
-		const selectedKey = await showListView(manifest, checkResults, ui);
-
-		if (selectedKey === null) {
+		const checks = await checkAll(manifest, session);
+		const key = await ui.select<string>({
+			message: DASHBOARD_QUESTION,
+			options: dashboardOptions(manifest, checks, session.home),
+			footer: dashboardFooter(checks),
+		});
+		if (key === null) {
 			return;
 		}
-
-		const entry = manifest[selectedKey];
-		if (!entry) {
-			continue;
-		}
-
-		// Reuse the status from the list-wide check for the first detail render — no
-		// redundant network round-trip (and no silent pause) on entry. Only re-check
-		// (with a spinner) on later renders, after an action may have changed it.
-		let firstRender = true;
-		// An update can move the entry to the key `add` gives it; the view follows.
-		let key = selectedKey;
-
-		while (true) {
-			const freshManifest = await readManifest(scope.root);
-			const freshEntry = freshManifest[key];
-			if (!freshEntry) break;
-
-			let freshStatus = firstRender ? checkResults.get(key) : undefined;
-			if (!freshStatus) {
-				const checkSpin = ui.spinner();
-				checkSpin.start("Checking for updates...");
-				freshStatus = await checkForUpdate(key, freshEntry);
-				checkSpin.stop("Update check complete.");
-			}
-			firstRender = false;
-
-			const action = await renderDetailView(
-				{
-					key,
-					entry: freshEntry,
-					updateStatus: freshStatus,
-					installRoot: scope.root,
-				},
-				ui,
-			);
-
-			if (action === "back") break;
-
-			if (action === "remove") {
-				const result = await executeRemoveAction(
-					key,
-					freshEntry,
-					freshManifest,
-					scope,
-					ui,
-				);
-				if (result.removed) {
-					ui.log.success(result.message);
-				} else if (result.message !== "Cancelled") {
-					ui.log.error(result.message);
-				}
-				break;
-			}
-
-			if (action === "update") {
-				const overrides =
-					freshStatus.status === "constrained-update-available"
-						? { newRef: freshStatus.tag, newCommit: freshStatus.commit }
-						: undefined;
-				const result = await executeUpdateAction(
-					key,
-					freshEntry,
-					freshManifest,
-					scope,
-					ui,
-					overrides,
-				);
-				key = result.key;
-				if (result.success) {
-					reportNotes(result.notes, ui);
-					ui.log.success(result.message);
-				} else {
-					ui.log.error(result.message);
-				}
-				continue;
-			}
-
-			if (action === "change-version") {
-				const result = await executeChangeVersionAction(
-					key,
-					freshEntry,
-					freshManifest,
-					scope,
-					ui,
-				);
-				key = result.key;
-				if (result.changed) {
-					reportNotes(result.notes, ui);
-					ui.log.success(result.message);
-				} else if (result.message !== "Cancelled") {
-					ui.log.error(result.message);
-				}
-			}
+		const entry = manifest[key];
+		if (entry !== undefined) {
+			await manage({ key, entry }, checks.get(key), session);
 		}
 	}
 }
 
-function reportNotes(notes: string[], ui: Ui): void {
-	for (const note of notes) {
-		ui.note(note);
+/** Each check spins in a block of its own, a blank line under what an action left. */
+async function checkAll(
+	manifest: Manifest,
+	{ ui }: ListSession,
+): Promise<Map<string, UpdateCheckResult>> {
+	const count = Object.keys(manifest).length;
+	const checking = ui.block([]).task({ text: checkingEntries(count) });
+	try {
+		return await checkAllForUpdates(manifest);
+	} finally {
+		checking.clear();
+	}
+}
+
+/**
+ * The detail view of one entry, again after each update or version change,
+ * following it to a key it moved to; back to the dashboard once it's gone or
+ * removed, or when asked. The first view takes the dashboard's check; a later
+ * one checks again, as an action may have changed it.
+ */
+async function manage(
+	chosen: GroupMember,
+	dashboardCheck: UpdateCheckResult | undefined,
+	session: ListSession,
+): Promise<void> {
+	let key = chosen.key;
+	let known = dashboardCheck;
+	while (true) {
+		const view = await viewEntry(key, known, session);
+		known = undefined;
+		if (view === null) {
+			return;
+		}
+		const { member, check, row } = view;
+		const action = await askAction(row, member.entry.ref, check, session.ui);
+		if (action === "back") {
+			return;
+		}
+		const result = await act(action, view, session);
+		if (result.change !== null) {
+			session.tally = counted(session.tally, result.change);
+		}
+		if (action === "remove") {
+			return;
+		}
+		key = result.key;
+	}
+}
+
+/** An entry as the detail view shows it, with what its actions need. */
+interface EntryView {
+	member: GroupMember;
+	manifest: Manifest;
+	check: UpdateCheckResult;
+	/** What it installs, counted as `add` counts it. */
+	assets: string;
+	/** Its key as its rows name it: a local one shortened against the home folder. */
+	subject: string;
+	row: Row;
+}
+
+/** The entry recorded under `key` now, checked unless `known`; null once it's gone. */
+async function viewEntry(
+	key: string,
+	known: UpdateCheckResult | undefined,
+	session: ListSession,
+): Promise<EntryView | null> {
+	const { scope, home } = session;
+	const manifest = await readManifest(scope.root);
+	const entry = manifest[key];
+	if (entry === undefined) {
+		return null;
+	}
+	const member = { key, entry };
+	const check = known ?? (await checkOne(member, session));
+	const assets = await assetSummary(entry, scope.root);
+	const subject = entry.commit === null ? homeShortened(key, home) : key;
+	const row = detailRow({ subject, entry, check, assets });
+	return { member, manifest, check, assets, subject, row };
+}
+
+async function act(
+	action: Exclude<DetailAction, "back">,
+	{ member, manifest, check, assets, subject, row }: EntryView,
+	session: ListSession,
+): Promise<ListActionResult> {
+	switch (action) {
+		case "remove":
+			return executeRemoveAction(
+				{ ...member, subject, kind: kindAndCounts(member.entry, assets) },
+				manifest,
+				session.scope,
+				session.ui,
+			);
+		case "update":
+			return isUpdatable(check)
+				? executeUpdateAction(member, check, manifest, session)
+				: { key: member.key, change: null };
+		case "change-version":
+			return executeChangeVersionAction(member, row, manifest, session);
+	}
+}
+
+async function checkOne(
+	{ key, entry }: GroupMember,
+	{ ui, home }: ListSession,
+): Promise<UpdateCheckResult> {
+	const checking = ui.block([]).task({ text: checkingEntry(key, home) });
+	try {
+		return await checkForUpdate(key, entry);
+	} finally {
+		checking.clear();
 	}
 }
 

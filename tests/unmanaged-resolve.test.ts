@@ -22,7 +22,7 @@ describe("resolveUnmanagedConflicts", () => {
 	it("overwrite with double confirm approves files", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo-a",
+				head: { subject: "owner/repo-a" },
 				files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 			},
 		];
@@ -44,7 +44,7 @@ describe("resolveUnmanagedConflicts", () => {
 	it("overwrite with declined second confirm cancels plugin", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo-a",
+				head: { subject: "owner/repo-a" },
 				files: [".claude/skills/my-skill/"],
 			},
 		];
@@ -61,7 +61,7 @@ describe("resolveUnmanagedConflicts", () => {
 	it("cancel places files in cancelled list", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo-a",
+				head: { subject: "owner/repo-a" },
 				files: [".claude/skills/my-skill/", ".claude/hooks/pre-commit.sh"],
 			},
 		];
@@ -81,11 +81,11 @@ describe("resolveUnmanagedConflicts", () => {
 	it("collections: each plugin checked independently", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo/plugin-a",
+				head: { subject: "owner/repo/plugin-a" },
 				files: [".claude/skills/skill-a/"],
 			},
 			{
-				pluginKey: "owner/repo/plugin-b",
+				head: { subject: "owner/repo/plugin-b" },
 				files: [".claude/skills/skill-b/"],
 			},
 		];
@@ -107,11 +107,11 @@ describe("resolveUnmanagedConflicts", () => {
 	it("all cancelled returns empty approved", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo/plugin-a",
+				head: { subject: "owner/repo/plugin-a" },
 				files: [".claude/skills/skill-a/"],
 			},
 			{
-				pluginKey: "owner/repo/plugin-b",
+				head: { subject: "owner/repo/plugin-b" },
 				files: [".claude/skills/skill-b/"],
 			},
 		];
@@ -131,7 +131,7 @@ describe("resolveUnmanagedConflicts", () => {
 	it("treats a dismissed select (null) as cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo-a",
+				head: { subject: "owner/repo-a" },
 				files: [".claude/skills/my-skill/"],
 			},
 		];
@@ -147,7 +147,7 @@ describe("resolveUnmanagedConflicts", () => {
 	it("treats a dismissed confirm (a no) as cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo-a",
+				head: { subject: "owner/repo-a" },
 				files: [".claude/skills/my-skill/"],
 			},
 		];
@@ -164,15 +164,15 @@ describe("resolveUnmanagedConflicts", () => {
 	it("mixed collection: some overwrite, some decline confirm, some cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo/plugin-a",
+				head: { subject: "owner/repo/plugin-a" },
 				files: [".claude/skills/skill-a/"],
 			},
 			{
-				pluginKey: "owner/repo/plugin-b",
+				head: { subject: "owner/repo/plugin-b" },
 				files: [".claude/skills/skill-b/", ".claude/agents/agent-b.md"],
 			},
 			{
-				pluginKey: "owner/repo/plugin-c",
+				head: { subject: "owner/repo/plugin-c" },
 				files: [".claude/hooks/hook-c.sh"],
 			},
 		];
@@ -196,54 +196,66 @@ describe("resolveUnmanagedConflicts", () => {
 		]);
 	});
 
-	it("calls box with file list and unmanaged title before select", async () => {
+	it("asks both questions under the item's row, naming the files in its way, dim", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo-a",
+				head: { subject: "owner/repo-a" },
 				files: [".claude/skills/my-skill/", ".claude/agents/executor.md"],
 			},
 		];
 
-		ui.select.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(true);
 
 		await resolveUnmanagedConflicts(conflicts, ui);
 
-		expect(ui.box).toHaveBeenCalledWith(
-			"  - .claude/skills/my-skill/\n  - .claude/agents/executor.md",
-			'Unmanaged files for "owner/repo-a"',
+		const row = {
+			status: "attention",
+			subject: "owner/repo-a",
+			detail: "files agntc didn't install are in its way",
+			children: [
+				{ name: ".claude/skills/my-skill/", dim: true, noun: "folder" },
+				{ name: ".claude/agents/executor.md", dim: true, noun: "file" },
+			],
+		};
+		const [block] = ui.blocks;
+		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
+		expect(block!.select).toHaveBeenCalledExactlyOnceWith(
+			row,
+			expect.objectContaining({ message: "How would you like to proceed?" }),
 		);
-		// box() must be called before select()
-		const boxOrder = ui.box.mock.invocationCallOrder[0];
-		const selectOrder = ui.select.mock.invocationCallOrder[0];
-		expect(boxOrder).toBeLessThan(selectOrder!);
+		expect(block!.confirm).toHaveBeenCalledExactlyOnceWith(row, {
+			message: "Are you sure? These files will be permanently replaced.",
+		});
+		expect(block!.row).not.toHaveBeenCalled();
 	});
 
-	it("select message is single-line with plugin key (unmanaged)", async () => {
+	it("names the item on its row as its head names it, a local one's meta with it, and nowhere in the questions", async () => {
+		const head = { subject: "~/src/kit/a", meta: "local" };
 		const conflicts: UnmanagedPluginConflicts[] = [
-			{
-				pluginKey: "owner/repo-a",
-				files: [".claude/skills/my-skill/"],
-			},
+			{ head, files: [".claude/skills/a/"] },
 		];
 
-		ui.select.mockResolvedValueOnce("cancel");
+		ui.select.mockResolvedValueOnce("overwrite");
+		ui.confirm.mockResolvedValueOnce(true);
 
 		await resolveUnmanagedConflicts(conflicts, ui);
 
-		const call = ui.select.mock.calls[0]!;
-		const { message } = call[0] as { message: string };
-		expect(message).toBe('How would you like to proceed with "owner/repo-a"?');
-		expect(message).not.toContain("\n");
+		const [block] = ui.blocks;
+		const [row, select] = block!.select.mock.calls[0]!;
+		const [, confirm] = block!.confirm.mock.calls[0]!;
+		expect(row).toMatchObject(head);
+		expect(JSON.stringify([select, confirm])).not.toContain("kit");
 	});
 
-	it("calls box for each conflict in collection resolution", async () => {
+	it("asks about each item under a row of its own", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo/plugin-a",
+				head: { subject: "owner/repo/plugin-a" },
 				files: [".claude/skills/skill-a/"],
 			},
 			{
-				pluginKey: "owner/repo/plugin-b",
+				head: { subject: "owner/repo/plugin-b" },
 				files: [".claude/skills/skill-b/"],
 			},
 		];
@@ -254,23 +266,26 @@ describe("resolveUnmanagedConflicts", () => {
 
 		await resolveUnmanagedConflicts(conflicts, ui);
 
-		expect(ui.box).toHaveBeenCalledTimes(2);
-		expect(ui.box).toHaveBeenNthCalledWith(
-			1,
-			"  - .claude/skills/skill-a/",
-			'Unmanaged files for "owner/repo/plugin-a"',
-		);
-		expect(ui.box).toHaveBeenNthCalledWith(
-			2,
-			"  - .claude/skills/skill-b/",
-			'Unmanaged files for "owner/repo/plugin-b"',
-		);
+		expect(ui.blocks.map((block) => block.select.mock.calls[0]![0])).toEqual([
+			expect.objectContaining({
+				subject: "owner/repo/plugin-a",
+				children: [
+					{ name: ".claude/skills/skill-a/", dim: true, noun: "folder" },
+				],
+			}),
+			expect.objectContaining({
+				subject: "owner/repo/plugin-b",
+				children: [
+					{ name: ".claude/skills/skill-b/", dim: true, noun: "folder" },
+				],
+			}),
+		]);
 	});
 
 	it("select options offer only overwrite and cancel", async () => {
 		const conflicts: UnmanagedPluginConflicts[] = [
 			{
-				pluginKey: "owner/repo-a",
+				head: { subject: "owner/repo-a" },
 				files: [".claude/skills/my-skill/"],
 			},
 		];
@@ -291,7 +306,12 @@ describe("resolveUnmanagedConflicts", () => {
 		ui.select.mockResolvedValueOnce("cancel");
 
 		await resolveUnmanagedConflicts(
-			[{ pluginKey: "owner/repo-a", files: [".claude/skills/my-skill/"] }],
+			[
+				{
+					head: { subject: "owner/repo-a" },
+					files: [".claude/skills/my-skill/"],
+				},
+			],
 			ui,
 		);
 

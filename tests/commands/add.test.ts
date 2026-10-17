@@ -1,5 +1,6 @@
 import {
 	access,
+	chmod,
 	cp,
 	mkdir,
 	mkdtemp,
@@ -9,9 +10,22 @@ import {
 	symlink,
 	writeFile,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
+
+vi.mock("node:os", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:os")>();
+	return { ...actual, homedir: vi.fn(actual.homedir) };
+});
 
 vi.mock("../../src/git-clone.js", () => ({
 	cloneSource: vi.fn(),
@@ -38,10 +52,15 @@ vi.mock("../../src/nuke-files.js", async (importOriginal) => ({
 	removePathsInTheWay: vi.fn(),
 }));
 
-vi.mock("../../src/copy-item.js", async (importOriginal) => ({
-	...(await importOriginal<typeof import("../../src/copy-item.js")>()),
-	copyItem: vi.fn(),
-}));
+vi.mock("../../src/copy-item.js", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/copy-item.js")>();
+	return {
+		...actual,
+		copyItem: vi.fn(),
+		checkItemLinks: vi.fn(actual.checkItemLinks),
+	};
+});
 
 vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 	const actual =
@@ -51,16 +70,32 @@ vi.mock("../../src/copy-pack.js", async (importOriginal) => {
 
 import { resolveCollisions } from "../../src/collision-resolve.js";
 import { addCommand, runAdd } from "../../src/commands/add.js";
-import { copyItem } from "../../src/copy-item.js";
+import { checkItemLinks, copyItem } from "../../src/copy-item.js";
 import { listAgentFiles } from "../../src/copy-pack.js";
 import { ExitSignal } from "../../src/exit-signal.js";
 import { cleanupTempDir, cloneSource } from "../../src/git-clone.js";
 import { fetchDefaultBranch, fetchRemoteTags } from "../../src/git-utils.js";
 import type { EntryType, Manifest, ManifestEntry } from "../../src/manifest.js";
 import {
+	type Message,
+	machineOnly,
+	plainText,
+	sentence,
+} from "../../src/message.js";
+import {
 	nukeManifestFiles,
 	removePathsInTheWay,
 } from "../../src/nuke-files.js";
+import type {
+	BlockSubject,
+	Child,
+	NextItem,
+	Progress,
+	Row,
+	RowHead,
+	Status,
+} from "../../src/terminal/types.js";
+import type { AddTally, Asked, Tally } from "../../src/ui.js";
 import { resolveUnmanagedConflicts } from "../../src/unmanaged-resolve.js";
 import { runMachine } from "../helpers/machine.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
@@ -81,6 +116,7 @@ const mockResolveUnmanaged = vi.mocked(resolveUnmanagedConflicts);
 const mockNuke = vi.mocked(nukeManifestFiles);
 const mockRemovePaths = vi.mocked(removePathsInTheWay);
 const mockCopyItem = vi.mocked(copyItem);
+const mockCheckItemLinks = vi.mocked(checkItemLinks);
 const mockListAgentFiles = vi.mocked(listAgentFiles);
 
 const SHA = "c".repeat(40);
@@ -113,6 +149,7 @@ beforeEach(async () => {
 	mockNuke.mockImplementation(actualNuke.nukeManifestFiles);
 	mockRemovePaths.mockImplementation(actualNuke.removePathsInTheWay);
 	mockCopyItem.mockImplementation(actualCopyItem.copyItem);
+	mockCheckItemLinks.mockImplementation(actualCopyItem.checkItemLinks);
 	mockResolveCollisions.mockImplementation(async (_, manifest) => ({
 		resolved: true,
 		updatedManifest: manifest,
@@ -178,6 +215,151 @@ async function seedManifest(entries: Manifest): Promise<void> {
 	await write(projectDir, { ".agntc/manifest.json": entries });
 }
 
+/** Everything add showed at the terminal, as the double took it. */
+interface Drawn {
+	/** Each block's subjects, as it opened with them. */
+	subjects: BlockSubject[][];
+	/** What each task said it was doing, in the order they started. */
+	progress: Progress[];
+	/** What each question was asked under. */
+	asked: Asked[];
+	rows: Row[];
+	warnings: Message[];
+	notes: Message[];
+	next: NextItem[];
+	/** What each close was given to count. */
+	tally: Tally[];
+	cancelled: string[];
+	/** What each failure said, as machine mode words it. */
+	failed: string[];
+}
+
+function drawn(): Drawn {
+	return {
+		subjects: ui.block.mock.calls.map(([subjects]) => [...subjects]),
+		progress: ui.blocks.flatMap((block) =>
+			block.task.mock.calls.map(([step]) => step),
+		),
+		asked: ui.blocks.flatMap((block) =>
+			block.multiselect.mock.calls.map(([row]) => row),
+		),
+		rows: ui.rows(),
+		warnings: ui.warn.mock.calls.map(([message]) => message),
+		notes: ui.note.mock.calls.map(([message]) => message),
+		next: ui.next.mock.calls.map(([item]) => item),
+		tally: ui.close.mock.calls.map(([tally]) => tally),
+		cancelled: ui.cancel.mock.calls.map(([message]) => message),
+		failed: ui.fail.mock.calls.map(([message]) => plainText(message)),
+	};
+}
+
+/** What a run drew: nothing, but for what's given. */
+function screen(drew: Partial<Drawn>): Drawn {
+	return {
+		subjects: [],
+		progress: [],
+		asked: [],
+		rows: [],
+		warnings: [],
+		notes: [],
+		next: [],
+		tally: [],
+		cancelled: [],
+		failed: [],
+		...drew,
+	};
+}
+
+const SOURCE: RowHead = { subject: "owner/repo", meta: "HEAD" };
+const CLONING: Progress = { text: "cloning owner/repo…" };
+
+function copying(head: RowHead = SOURCE): Progress {
+	return { ...head, text: "copying…" };
+}
+
+/** The source's block subject: its head, and every name it measures, several each given a glyph's room. */
+function measured(head: RowHead, ...names: string[]): BlockSubject {
+	return {
+		...head,
+		children: names.map((name) =>
+			names.length > 1 ? { name, status: "done" as const } : { name },
+		),
+	};
+}
+
+/** The same, with the skills left out the row may tell of, each given its glyph's room. */
+function measuredWith(
+	head: RowHead,
+	items: string[],
+	notes: string[],
+): BlockSubject {
+	const { children = [] } = measured(head, ...items);
+	return {
+		...head,
+		children: [
+			...children,
+			...notes.map((name) => ({ name, status: "note" as const })),
+		],
+	};
+}
+
+/** The source's row: what it holds, its children beneath it. */
+function sourceRow(
+	held: string,
+	children: Child[] = [],
+	status: Status = "done",
+	head: RowHead = SOURCE,
+): Row {
+	return {
+		status,
+		...head,
+		detail: held,
+		...(children.length > 0 ? { children } : {}),
+	};
+}
+
+const skill = (name: string): Child => ({ name, detail: "skill" });
+
+/** The source's row as a stop before the copy leaves it: unchanged, holding `held`. */
+function unchanged(
+	held: string,
+	children: Child[] = [],
+	head: RowHead = SOURCE,
+): Row {
+	return sourceRow(held, children, "unchanged", head);
+}
+
+/** A remote run refused once it had cloned, the refusal all it said. */
+function refusedAfterClone(failed: string, drew: Partial<Drawn> = {}): Drawn {
+	return screen({
+		subjects: [[]],
+		progress: [CLONING],
+		failed: [failed],
+		...drew,
+	});
+}
+
+/** The one close of a run, counting `counts`. */
+function closed(counts: AddTally): Tally[] {
+	return [{ command: "add", counts }];
+}
+
+/** A stray's Next item: what it has that won't install, and the `--pack` line that would. */
+function packLine(subject: string, dirs: string, command: string): NextItem {
+	return {
+		subject,
+		remedy: {
+			lead: `has ${dirs} that won't be installed. To install them as a pack:`,
+			steps: [{ command }],
+		},
+	};
+}
+
+/** The Ui add hands its steps: the test's, its stops drawing the source's row first. */
+function interactive(): unknown {
+	return expect.objectContaining({ mode: "interactive" });
+}
+
 async function exitCode(run: Promise<void>): Promise<number | null> {
 	const err = await run.then(
 		() => null,
@@ -213,9 +395,10 @@ describe("add command", () => {
 			);
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				"--skill and --pack can't be combined",
-			]);
+			expect(drawn()).toEqual(
+				screen({ failed: ["--skill and --pack can't be combined"] }),
+			);
+			expect(ui.header).toHaveBeenCalledBefore(ui.fail);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -224,7 +407,17 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { plugin: true }, ui);
 
-			expect(ui.said("info")).toEqual(["--plugin is now --pack"]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "repo")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow("1 pack", [{ name: "repo", detail: "pack · 2 skills" }]),
+					],
+					notes: [sentence("--plugin is now --pack")],
+					tally: closed({ installed: 1 }),
+				}),
+			);
 			expect(await manifest()).toEqual({
 				"owner/repo": expect.objectContaining({
 					type: "pack",
@@ -261,8 +454,27 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual(["git clone failed"]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[]],
+					progress: [CLONING],
+					failed: ["git clone failed"],
+				}),
+			);
+			const [cloning] = ui.blocks[0]!.tasks;
+			expect(cloning!.clear).toHaveBeenCalledBefore(ui.fail);
+			expect(cloning!.settle).not.toHaveBeenCalled();
 			expect(await manifest()).toEqual({});
+		});
+
+		it("clears the clone's progress once it's cloned", async () => {
+			await upstream({ "SKILL.md": "" });
+
+			await runAdd("owner/repo", {}, ui);
+
+			const [cloning] = ui.blocks[0]!.tasks;
+			expect(cloning!.clear).toHaveBeenCalledOnce();
+			expect(cloning!.settle).not.toHaveBeenCalled();
 		});
 
 		it("refuses a malformed source without cloning", async () => {
@@ -301,7 +513,82 @@ describe("add command", () => {
 					localRoot: local,
 				}),
 			});
-			expect(ui.outro).toHaveBeenCalledWith(`Installed ${local}@local`);
+			const head = { subject: local, meta: "local" };
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[measured(head, "b", "skills/a")]],
+					progress: [copying(head)],
+					rows: [
+						sourceRow(
+							"2 skills",
+							[skill("b"), skill("skills/a")],
+							"done",
+							head,
+						),
+					],
+					tally: closed({ installed: 2 }),
+				}),
+			);
+		});
+
+		it("names a local source under the home folder from it", async () => {
+			const home = join(testDir, "home");
+			vi.mocked(homedir).mockReturnValueOnce(home);
+			const local = join(home, "my-skills");
+			await write(local, { "SKILL.md": "" });
+
+			await runAdd(local, {}, ui);
+
+			expect(ui.rows()).toEqual([
+				sourceRow("1 skill", [skill("my-skills")], "done", {
+					subject: "~/my-skills",
+					meta: "local",
+				}),
+			]);
+		});
+
+		it("names a local pack holding a skill from the home folder, keeping its whole key for machine mode", async () => {
+			const home = join(testDir, "home");
+			const real = vi.mocked(homedir).getMockImplementation();
+			vi.mocked(homedir).mockReturnValue(home);
+			const local = join(home, "my-skills");
+			await write(local, {
+				"skills/api/SKILL.md": "",
+				"skills/jobs/SKILL.md": "",
+			});
+			await write(projectDir, { ".claude/skills/api/SKILL.md": "" });
+			await seedManifest({
+				[`${local}/p`]: {
+					...installedEntry([".claude/skills/api/"], "pack"),
+					commit: null,
+					localRoot: local,
+				},
+			});
+
+			try {
+				await runAdd(local, { skill: ["api", "jobs"] }, ui);
+			} finally {
+				vi.mocked(homedir).mockImplementation(real ?? (() => ""));
+			}
+
+			expect(ui.rows()).toEqual([
+				sourceRow(
+					"2 skills",
+					[
+						skill("skills/jobs"),
+						{
+							name: "skills/api",
+							status: "note",
+							detail: "already installed as part of the pack ~/my-skills/p",
+						},
+					],
+					"done",
+					{ subject: "~/my-skills", meta: "local" },
+				),
+			]);
+			expect(drawn().notes).toEqual([
+				machineOnly(`api is already installed as part of the pack ${local}/p`),
+			]);
 		});
 
 		it("names a local root skill after the folder", async () => {
@@ -394,9 +681,9 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo@^2.0", {}, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				"No tags satisfy constraint ^2.0 for owner/repo",
-			]);
+			expect(drawn()).toEqual(
+				screen({ failed: ["No tags satisfy constraint ^2.0 for owner/repo"] }),
+			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -417,9 +704,9 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo/nope", {}, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				'owner/repo: path "nope" not found in source',
-			]);
+			expect(drawn()).toEqual(
+				refusedAfterClone('owner/repo: path "nope" not found in source'),
+			);
 			expect(await installed(".agntc")).toBe(false);
 		});
 
@@ -438,9 +725,11 @@ describe("add command", () => {
 					"https://github.com/owner/repo.git",
 				);
 				expect(mockCloneSource).toHaveBeenCalledTimes(1);
-				expect(ui.said("cancel")).toEqual([
-					'owner/repo: path "skills/new" not found in source at v1.2.0, the latest release — to add it from the default branch, use owner/repo/skills/new@trunk, or name a version',
-				]);
+				expect(drawn()).toEqual(
+					refusedAfterClone(
+						'owner/repo: path "skills/new" not found in source at v1.2.0, the latest release — to add it from the default branch, use owner/repo/skills/new@trunk, or name a version',
+					),
+				);
 			});
 
 			it("reaches a repo off GitHub by its URL", async () => {
@@ -448,7 +737,7 @@ describe("add command", () => {
 					runAdd("https://gitlab.com/owner/repo/skills/new", {}, ui),
 				);
 
-				expect(ui.said("cancel")[0]).toContain(
+				expect(drawn().failed[0]).toContain(
 					"use https://gitlab.com/owner/repo/skills/new@main,",
 				);
 			});
@@ -458,7 +747,7 @@ describe("add command", () => {
 
 				await exitCode(runAdd("owner/repo/skills/new", {}, ui));
 
-				expect(ui.said("cancel")[0]).toContain(
+				expect(drawn().failed[0]).toContain(
 					"use owner/repo/skills/new@<branch>, or name a version",
 				);
 			});
@@ -471,9 +760,11 @@ describe("add command", () => {
 				const code = await exitCode(runAdd(source, {}, ui));
 
 				expect(code).toBe(1);
-				expect(ui.said("cancel")).toEqual([
-					'owner/repo: path "skills/new" not found in source',
-				]);
+				expect(drawn()).toEqual(
+					refusedAfterClone(
+						'owner/repo: path "skills/new" not found in source',
+					),
+				);
 				expect(mockFetchDefaultBranch).not.toHaveBeenCalled();
 			});
 		});
@@ -482,8 +773,10 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo/../outside", {}, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")[0]).toMatch(
-				/^owner\/repo: subpath "..\/outside"/,
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					expect.stringMatching(/^owner\/repo: subpath "..\/outside"/),
+				),
 			);
 		});
 
@@ -493,9 +786,11 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				`owner/repo: "repo" is a single skill — --pack can't bundle it`,
-			]);
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					`owner/repo: "repo" is a single skill — --pack can't bundle it`,
+				),
+			);
 		});
 
 		it("refuses --pack on a folder holding packs", async () => {
@@ -504,7 +799,7 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")[0]).toContain("contains packs (a)");
+			expect(drawn().failed[0]).toContain("contains packs (a)");
 		});
 	});
 
@@ -527,26 +822,53 @@ describe("add command", () => {
 
 			await exitCode(runAdd(source, {}, ui));
 
-			expect(ui.said("warn")).toEqual([
-				`tools has agents/ that won't be installed — to install them as a pack: ${command}`,
-			]);
+			expect(drawn()).toMatchObject({
+				warnings: [
+					machineOnly(
+						`tools has agents/ that won't be installed — to install them as a pack: ${command}`,
+					),
+				],
+				next: [packLine("tools", "agents/", command)],
+			});
 		});
 
-		it("prints stray notices first, then refuses when nothing is found", async () => {
+		it("warns of what the walk passed over as a sentence the terminal wraps", async () => {
+			await upstream({ "a/SKILL.md": "", "x/agntc.json": "{not json" });
+
+			await runAdd("owner/repo", {}, ui);
+
+			const [warning] = drawn().warnings;
+			expect(warning).toEqual(
+				sentence(expect.stringMatching(/^Ignoring malformed agntc\.json/)),
+			);
+			expect(plainText(warning!)).toMatch(/^Ignoring malformed agntc\.json/);
+		});
+
+		it("queues stray notices first, then refuses when nothing is found", async () => {
 			await upstream({ "agents/a.md": "" });
 
 			const code = await exitCode(runAdd("owner/repo@v1.0.0", {}, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("warn")).toEqual([
-				"repo has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo@v1.0.0 --pack",
-			]);
-			expect(ui.said("cancel")).toEqual([
-				"owner/repo: no skills or packs were found",
-			]);
-			expect(ui.saidOrders("warn")[0]).toBeLessThan(
-				ui.saidOrders("cancel")[0]!,
+			const command = "npx agntc add owner/repo@v1.0.0 --pack";
+			expect(drawn()).toEqual(
+				refusedAfterClone("owner/repo: no skills or packs were found", {
+					subjects: [[], [measured({ subject: "owner/repo", meta: "v1.0.0" })]],
+					rows: [
+						unchanged("no skills or packs", [], {
+							subject: "owner/repo",
+							meta: "v1.0.0",
+						}),
+					],
+					warnings: [
+						machineOnly(
+							`repo has agents/ that won't be installed — to install them as a pack: ${command}`,
+						),
+					],
+					next: [packLine("repo", "agents/", command)],
+				}),
 			);
+			expect(ui.next).toHaveBeenCalledBefore(ui.fail);
 		});
 
 		it("refuses --pack on an empty folder as nothing to install", async () => {
@@ -555,21 +877,37 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { pack: true }, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				"owner/repo: nothing to install — repo has no skills, agents or hooks",
-			]);
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: nothing to install — repo has no skills, agents or hooks",
+					{
+						subjects: [[], [measured(SOURCE)]],
+						rows: [unchanged("no skills or packs")],
+					},
+				),
+			);
 		});
 
-		it("installs the one thing found without a menu", async () => {
+		it("installs the one thing found without a menu, under the source's row", async () => {
 			await upstream({ "p/agntc.json": PACK, "p/s/SKILL.md": "" });
 
 			await runAdd("owner/repo", {}, ui);
 
 			expect(ui.multiselect).not.toHaveBeenCalled();
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "p")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow("1 pack", [{ name: "p", detail: "pack · 1 skill" }]),
+					],
+					tally: closed({ installed: 1 }),
+				}),
+			);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/p"]);
 		});
 
-		it("shows a menu of packs then skills and installs what's picked", async () => {
+		it("asks under the source's row, packs then skills, and hangs what's picked beneath it", async () => {
 			await upstream({
 				"z/SKILL.md": "",
 				"p/agntc.json": PACK,
@@ -583,20 +921,43 @@ describe("add command", () => {
 			expect(
 				ui.multiselect.mock.calls[0]![0].options.map((o) => o.label),
 			).toEqual(["p", "a", "z"]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "p", "a", "z")]],
+					progress: [CLONING, copying()],
+					asked: [sourceRow("1 pack · 2 skills")],
+					rows: [
+						sourceRow("2 of 3 installed", [
+							{ name: "p", detail: "pack · 1 skill" },
+							skill("z"),
+						]),
+					],
+					tally: closed({ installed: 2 }),
+				}),
+			);
 			expect(Object.keys(await manifest())).toEqual([
 				"owner/repo/p",
 				"owner/repo/z",
 			]);
 		});
 
-		it("ends cleanly when the menu is dismissed (an empty pick)", async () => {
+		it("ends cleanly on the source's row, unchanged, when the menu is dismissed (an empty pick)", async () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 			ui.multiselect.mockResolvedValue([]);
 
 			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(0);
-			expect(ui.said("cancel")).toEqual(["Cancelled — nothing selected"]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "a", "b")]],
+					progress: [CLONING],
+					asked: [sourceRow("2 skills")],
+					rows: [sourceRow("2 skills", [], "unchanged")],
+					cancelled: ["Cancelled — nothing selected"],
+				}),
+			);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.cancel);
 			expect(await installed(".agntc")).toBe(false);
 		});
 
@@ -616,13 +977,37 @@ describe("add command", () => {
 			);
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				'owner/repo: no skill named "missing"',
-			]);
+			expect(drawn()).toEqual(
+				refusedAfterClone('owner/repo: no skill named "missing"', {
+					subjects: [[], [measured(SOURCE)]],
+					rows: [unchanged("2 skills")],
+				}),
+			);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
 			expect(await installed(".claude")).toBe(false);
 		});
 
-		it("notes what a skill taken from a pack leaves behind", async () => {
+		it("says a refusal's first line, the rest of it dim beneath", async () => {
+			await upstream({
+				"a/SKILL.md": "",
+				"x/foo/SKILL.md": "",
+				"y/foo/SKILL.md": "",
+			});
+
+			await exitCode(runAdd("owner/repo", { skill: ["foo", "missing"] }, ui));
+
+			expect(ui.fail).toHaveBeenCalledExactlyOnceWith(
+				{
+					text: 'owner/repo: no skill named "missing"',
+					cause: '"foo" matches more than one skill: x/foo, y/foo',
+					plain:
+						'owner/repo: no skill named "missing"\n"foo" matches more than one skill: x/foo, y/foo',
+				},
+				{},
+			);
+		});
+
+		it("carries what a skill taken from a pack leaves behind under it", async () => {
 			await upstream({
 				"p/agntc.json": PACK,
 				"p/skills/a/SKILL.md": "",
@@ -632,9 +1017,21 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { skill: ["a"] }, ui);
 
-			expect(ui.said("info")).toEqual([
-				"a is part of the pack p — installed on its own, without b and its hooks",
-			]);
+			const note =
+				"part of the pack p — installed on its own, without b and its hooks";
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "p/skills/a")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow("1 pack", [
+							{ name: "p/skills/a", detail: `skill\n${note}` },
+						]),
+					],
+					notes: [machineOnly(`a is ${note}`)],
+					tally: closed({ installed: 1 }),
+				}),
+			);
 			expect(await manifest()).toEqual({
 				"owner/repo/a": expect.objectContaining({
 					type: "skill",
@@ -670,9 +1067,15 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				"owner/repo: foo and x/foo would share the key owner/repo/foo — choose one",
-			]);
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: foo and x/foo would share the key owner/repo/foo — choose one",
+					{
+						subjects: [[], [measured(SOURCE, "foo", "x/foo")]],
+						rows: [unchanged("1 pack · 1 skill")],
+					},
+				),
+			);
 			expect(await installed(".claude")).toBe(false);
 		});
 
@@ -682,10 +1085,35 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { all: true }, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
-			]);
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
+					{
+						subjects: [[], [measured(SOURCE, "x/foo", "y/foo")]],
+						rows: [unchanged("2 skills")],
+					},
+				),
+			);
 			expect(await installed(".claude")).toBe(false);
+		});
+
+		it("keeps the source's row, unchanged, when a pick is refused", async () => {
+			await upstream({ "x/foo/SKILL.md": "", "y/foo/SKILL.md": "" });
+			ui.multiselect.mockResolvedValue([0, 1]);
+
+			expect(await exitCode(runAdd("owner/repo", {}, ui))).toBe(1);
+
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
+					{
+						subjects: [[], [measured(SOURCE, "x/foo", "y/foo")]],
+						asked: [sourceRow("2 skills")],
+						rows: [unchanged("2 skills")],
+					},
+				),
+			);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
 		});
 
 		it("refuses a pack whose own support folders would install to one place, offering no choice", async () => {
@@ -700,9 +1128,16 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([
-				"owner/repo: p can't be installed as it stands: p/skills/back/refs and p/skills/front/refs would both install to .claude/skills/refs",
-			]);
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: p can't be installed as it stands: p/skills/back/refs and p/skills/front/refs would both install to .claude/skills/refs",
+					{
+						subjects: [[], [measured(SOURCE, "p")]],
+						rows: [unchanged("1 pack")],
+					},
+				),
+			);
+			expect(ui.multiselect).not.toHaveBeenCalled();
 			expect(await installed(".claude")).toBe(false);
 		});
 	});
@@ -752,7 +1187,26 @@ describe("add command", () => {
 				await readFile(join(projectDir, ".claude/skills/s/SKILL.md"), "utf-8"),
 			).toBe("old");
 			expect((await manifest())["owner/repo/p"]).toEqual(OLD_PACK);
-			expect(ui.said("warn")).toEqual(["p: skipped — conflict not resolved"]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "p")]],
+					progress: [CLONING],
+					rows: [
+						sourceRow(
+							"1 pack",
+							[
+								{
+									name: "p",
+									detail:
+										"files in the way belong to other/repo: .claude/skills/t/",
+								},
+							],
+							"attention",
+						),
+					],
+					tally: closed({ skipped: 1 }),
+				}),
+			);
 		});
 
 		it("leaves the earlier install and its entry alone when unmanaged files aren't overwritten", async () => {
@@ -770,8 +1224,8 @@ describe("add command", () => {
 			await runAdd("owner/repo/p", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
-				[{ pluginKey: "owner/repo/p", files: [".claude/agents/x.md"] }],
-				ui,
+				[{ head: { subject: "owner/repo/p" }, files: [".claude/agents/x.md"] }],
+				interactive(),
 			);
 			expect(mockNuke).not.toHaveBeenCalled();
 			expect(
@@ -789,9 +1243,25 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(await installed(".claude/skills/s")).toBe(false);
 			expect(await manifest()).toEqual({});
-			expect(ui.said("error")).toEqual([
-				"p: failed — disk full; its earlier install was removed",
-			]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "p")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow(
+							"1 pack",
+							[
+								{
+									name: "p",
+									detail: "disk full; its earlier install was removed",
+								},
+							],
+							"failed",
+						),
+					],
+					tally: closed({ failed: 1 }),
+				}),
+			);
 		});
 
 		it("keeps the entry, and copies nothing, when the earlier install can't be removed", async () => {
@@ -803,8 +1273,17 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(mockCopyItem).not.toHaveBeenCalled();
 			expect((await manifest())["owner/repo/p"]).toEqual(OLD_PACK);
-			expect(ui.said("error")).toEqual([
-				"p: failed — couldn't remove its earlier install: EACCES",
+			expect(ui.rows()).toEqual([
+				sourceRow(
+					"1 pack",
+					[
+						{
+							name: "p",
+							detail: "couldn't remove its earlier install: EACCES",
+						},
+					],
+					"failed",
+				),
 			]);
 		});
 	});
@@ -816,10 +1295,18 @@ describe("add command", () => {
 			"foo/skills/bar/SKILL.md": "pack",
 			"tools/SKILL.md": "",
 		};
-		const HELD_BY_SKILL =
-			"owner/repo/foo is already installed from skills/foo, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again";
 		const HELD_BY_PACK =
 			"owner/repo/foo is already installed from foo, as a pack; to replace it: npx agntc remove owner/repo/foo, then add again";
+		const REPLACE_FOO: NextItem = {
+			subject: "owner/repo/foo",
+			remedy: {
+				lead: "To replace it:",
+				steps: [
+					{ command: "npx agntc remove owner/repo/foo" },
+					{ words: "then add again" },
+				],
+			},
+		};
 
 		beforeEach(async () => {
 			await upstream(SKILL_FOO);
@@ -828,11 +1315,31 @@ describe("add command", () => {
 		it("refuses a pack whose key a loose skill from another path holds, removing nothing", async () => {
 			await runAdd("owner/repo", { skill: ["foo"] }, ui);
 			const before = await manifest();
+			ui = testUi();
 
 			const code = await exitCode(runAdd("owner/repo/foo", {}, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("error")).toEqual([`foo: failed — ${HELD_BY_SKILL}`]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "foo")]],
+					progress: [CLONING],
+					rows: [
+						sourceRow(
+							"1 pack",
+							[
+								{
+									name: "foo",
+									detail: "already installed from skills/foo, as a skill",
+								},
+							],
+							"failed",
+						),
+					],
+					next: [REPLACE_FOO],
+					tally: closed({ failed: 1 }),
+				}),
+			);
 			expect(
 				await readFile(
 					join(projectDir, ".claude/skills/foo/SKILL.md"),
@@ -847,13 +1354,32 @@ describe("add command", () => {
 		it("refuses a loose skill whose key a pack holds, removing nothing", async () => {
 			await runAdd("owner/repo/foo", {}, ui);
 			const before = await manifest();
+			ui = testUi();
 
 			const code = await exitCode(runAdd("owner/repo", { skill: ["foo"] }, ui));
 
 			expect(code).toBe(1);
-			expect(ui.said("error")).toEqual([
-				`skills/foo: failed — ${HELD_BY_PACK}`,
-			]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "skills/foo")]],
+					progress: [CLONING],
+					rows: [
+						sourceRow(
+							"1 pack · 2 skills",
+							[
+								{
+									name: "skills/foo",
+									detail: "already installed from foo, as a pack",
+								},
+							],
+							"failed",
+						),
+					],
+					next: [REPLACE_FOO],
+					tally: closed({ failed: 1 }),
+				}),
+			);
+			expect(ui.next).toHaveBeenCalledBefore(ui.close);
 			expect(
 				await readFile(
 					join(projectDir, ".claude/skills/bar/SKILL.md"),
@@ -941,6 +1467,7 @@ describe("add command", () => {
 				await runAdd("owner/repo", { skill: ["foo"] }, ui);
 				await upstream({ "skills/foo/SKILL.md": "elsewhere" });
 				vi.clearAllMocks();
+				ui = testUi();
 			});
 
 			it("refuses a repo of that name on another host, removing nothing", async () => {
@@ -951,9 +1478,20 @@ describe("add command", () => {
 				);
 
 				expect(code).toBe(1);
-				expect(ui.said("error")).toEqual([
-					"skills/foo: failed — owner/repo/foo is already installed from https://github.com/owner/repo.git, as a skill; to replace it: npx agntc remove owner/repo/foo, then add again",
+				expect(ui.rows()).toEqual([
+					sourceRow(
+						"1 pack · 2 skills",
+						[
+							{
+								name: "skills/foo",
+								detail:
+									"already installed from https://github.com/owner/repo.git, as a skill",
+							},
+						],
+						"failed",
+					),
 				]);
+				expect(drawn().next).toEqual([REPLACE_FOO]);
 				expect(mockNuke).not.toHaveBeenCalled();
 				expect(await skillContent()).toBe("skill");
 				expect(await manifest()).toEqual(before);
@@ -1007,9 +1545,19 @@ describe("add command", () => {
 				);
 
 				expect(code).toBe(1);
-				expect(ui.said("error")).toEqual([
-					`skills/foo: failed — ${HELD_BY_PACK}`,
+				expect(ui.rows()).toEqual([
+					sourceRow(
+						"1 pack · 2 skills",
+						[
+							{
+								name: "skills/foo",
+								detail: "already installed from foo, as a pack",
+							},
+						],
+						"failed",
+					),
 				]);
+				expect(drawn().next).toEqual([REPLACE_FOO]);
 			});
 
 			it("reinstalls an untyped entry over one skill folder as that skill", async () => {
@@ -1037,6 +1585,11 @@ describe("add command", () => {
 		const PACKED = installedEntry([".claude/skills/api/"], "pack");
 		const API_NOTE =
 			"api is already installed as part of the pack owner/repo/p";
+		const PACKED_API = (name: string): Child => ({
+			name,
+			status: "note",
+			detail: "already installed as part of the pack owner/repo/p",
+		});
 
 		/** The pack `owner/repo/p`, installed with its skill api. */
 		async function installPacked(): Promise<void> {
@@ -1058,10 +1611,26 @@ describe("add command", () => {
 			expect(mockResolveCollisions).not.toHaveBeenCalled();
 			expect(await installed(".claude/skills/api")).toBe(false);
 			expect(await manifest()).toEqual({});
-			expect(ui.said("error")).toEqual([
-				"p: failed — disk full; the skill it took over was removed: owner/repo/api",
-			]);
-			expect(ui.said("info")).toEqual([]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "p")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow(
+							"1 pack",
+							[
+								{
+									name: "p",
+									detail:
+										"disk full; the skill it took over was removed: owner/repo/api",
+								},
+							],
+							"failed",
+						),
+					],
+					tally: closed({ failed: 1 }),
+				}),
+			);
 		});
 
 		it("--skill on a skill the installed pack holds says so once and installs nothing, exiting 0", async () => {
@@ -1075,12 +1644,19 @@ describe("add command", () => {
 			const code = await exitCode(runAdd("owner/repo", { skill: ["api"] }, ui));
 
 			expect(code).toBeNull();
-			expect(ui.said("info")).toEqual([API_NOTE]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measuredWith(SOURCE, [], ["p/skills/api"])]],
+					progress: [CLONING],
+					rows: [
+						sourceRow("1 pack", [PACKED_API("p/skills/api")], "unchanged"),
+					],
+					notes: [machineOnly(API_NOTE)],
+					tally: closed({}),
+				}),
+			);
 			expect(mockCopyItem).not.toHaveBeenCalled();
 			expect(await manifest()).toEqual({ "owner/repo/p": PACKED });
-			expect(ui.outro).toHaveBeenCalledWith(
-				"Nothing installed from owner/repo",
-			);
 		});
 
 		it("--skill on such a skill and another installs the other, with only the one note for the first", async () => {
@@ -1093,7 +1669,20 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { skill: ["api", "tools"] }, ui);
 
-			expect(ui.said("info")).toEqual([API_NOTE]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measuredWith(SOURCE, ["tools"], ["p/skills/api"])]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow("1 pack · 1 skill", [
+							skill("tools"),
+							PACKED_API("p/skills/api"),
+						]),
+					],
+					notes: [machineOnly(API_NOTE)],
+					tally: closed({ installed: 1 }),
+				}),
+			);
 			expect(Object.keys(await manifest())).toEqual([
 				"owner/repo/p",
 				"owner/repo/tools",
@@ -1116,14 +1705,209 @@ describe("add command", () => {
 				"skills/jobs",
 				"skills/lint",
 			]);
-			expect(ui.said("info")).toEqual([API_NOTE]);
-			expect(ui.saidOrders("info")[0]).toBeLessThan(
-				ui.multiselect.mock.invocationCallOrder[0]!,
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[],
+						[
+							measuredWith(
+								SOURCE,
+								["skills/jobs", "skills/lint"],
+								["skills/api"],
+							),
+						],
+					],
+					progress: [CLONING, copying()],
+					asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
+					rows: [
+						sourceRow("1 of 2 installed", [
+							skill("skills/jobs"),
+							PACKED_API("skills/api"),
+						]),
+					],
+					notes: [machineOnly(API_NOTE)],
+					tally: closed({ installed: 1 }),
+				}),
 			);
+			expect(ui.note).toHaveBeenCalledBefore(ui.multiselect);
 			expect(Object.keys(await manifest())).toEqual([
 				"owner/repo/p",
 				"owner/repo/jobs",
 			]);
+		});
+
+		it("counts the skills the pack holds on one line while asking, naming each once the run has its row", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"skills/db/SKILL.md": "",
+				"skills/ui/SKILL.md": "",
+				"skills/jobs/SKILL.md": "",
+			});
+			const held = ["api", "db", "ui"].map((name) => `.claude/skills/${name}/`);
+			await write(
+				projectDir,
+				Object.fromEntries(held.map((path) => [`${path}SKILL.md`, ""])),
+			);
+			await seedManifest({ "owner/repo/p": installedEntry(held, "pack") });
+			ui.multiselect.mockResolvedValue([0]);
+
+			await runAdd("owner/repo", {}, ui);
+
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[],
+						[
+							measuredWith(
+								SOURCE,
+								["skills/jobs"],
+								["skills/api", "skills/db", "skills/ui", "3 skills"],
+							),
+						],
+					],
+					progress: [CLONING, copying()],
+					asked: [sourceRow("4 skills", [PACKED_API("3 skills")])],
+					rows: [
+						sourceRow("1 of 1 installed", [
+							skill("skills/jobs"),
+							PACKED_API("skills/api"),
+							PACKED_API("skills/db"),
+							PACKED_API("skills/ui"),
+						]),
+					],
+					notes: ["api", "db", "ui"].map((name) =>
+						machineOnly(
+							`${name} is already installed as part of the pack owner/repo/p`,
+						),
+					),
+					tally: closed({ installed: 1 }),
+				}),
+			);
+		});
+
+		it("keeps the skills it left out on the source's row, unchanged, when the menu is dismissed", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"skills/jobs/SKILL.md": "",
+				"skills/lint/SKILL.md": "",
+			});
+			await installPacked();
+			ui.multiselect.mockResolvedValue([]);
+
+			expect(await exitCode(runAdd("owner/repo", {}, ui))).toBe(0);
+
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[],
+						[
+							measuredWith(
+								SOURCE,
+								["skills/jobs", "skills/lint"],
+								["skills/api"],
+							),
+						],
+					],
+					progress: [CLONING],
+					asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
+					rows: [
+						sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
+					],
+					notes: [machineOnly(API_NOTE)],
+					cancelled: ["Cancelled — nothing selected"],
+				}),
+			);
+		});
+
+		it("draws the skills it left out before refusing what --all would install to one place", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"x/foo/SKILL.md": "",
+				"y/foo/SKILL.md": "",
+			});
+			await installPacked();
+
+			expect(await exitCode(runAdd("owner/repo", { all: true }, ui))).toBe(1);
+
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
+					{
+						subjects: [
+							[],
+							[measuredWith(SOURCE, ["x/foo", "y/foo"], ["skills/api"])],
+						],
+						rows: [
+							sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
+						],
+						notes: [machineOnly(API_NOTE)],
+					},
+				),
+			);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
+		});
+
+		it("draws the skills it left out before refusing a pick that would install to one place", async () => {
+			await upstream({
+				"skills/api/SKILL.md": "",
+				"x/foo/SKILL.md": "",
+				"y/foo/SKILL.md": "",
+			});
+			await installPacked();
+			ui.multiselect.mockResolvedValue([0, 1]);
+
+			expect(await exitCode(runAdd("owner/repo", {}, ui))).toBe(1);
+
+			expect(drawn()).toEqual(
+				refusedAfterClone(
+					"owner/repo: x/foo and y/foo would both install to .claude/skills/foo — choose one",
+					{
+						subjects: [
+							[],
+							[measuredWith(SOURCE, ["x/foo", "y/foo"], ["skills/api"])],
+						],
+						asked: [sourceRow("3 skills", [PACKED_API("skills/api")])],
+						rows: [
+							sourceRow("3 skills", [PACKED_API("skills/api")], "unchanged"),
+						],
+						notes: [machineOnly(API_NOTE)],
+					},
+				),
+			);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
+		});
+
+		it("settles the copying into a failed row, with the skills it left out, when the run then fails", async () => {
+			await upstream({ "skills/api/SKILL.md": "", "skills/jobs/SKILL.md": "" });
+			await installPacked();
+			const agntc = join(projectDir, ".agntc");
+			mockCopyItem.mockImplementationOnce(async (...args) => {
+				await chmod(agntc, 0o500);
+				return actualCopyItem.copyItem(...args);
+			});
+
+			try {
+				const code = await exitCode(
+					runAdd("owner/repo", { skill: ["api", "jobs"] }, ui),
+				);
+
+				expect(code).toBe(1);
+			} finally {
+				await chmod(agntc, 0o700);
+			}
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[],
+						[measuredWith(SOURCE, ["skills/jobs"], ["skills/api"])],
+					],
+					progress: [CLONING, copying()],
+					rows: [sourceRow("2 skills", [PACKED_API("skills/api")], "failed")],
+					notes: [machineOnly(API_NOTE)],
+					failed: [expect.stringContaining("EACCES")],
+				}),
+			);
+			expect(ui.blocks[1]!.tasks[0]!.settle).toHaveBeenCalledBefore(ui.fail);
 		});
 
 		it("--skill on a skill named like the installed pack's support folder isn't left out: the pack's folder is in its way", async () => {
@@ -1236,7 +2020,7 @@ describe("add command", () => {
 			]);
 		});
 
-		it("asks about a collision with another entry and installs once it's resolved", async () => {
+		it("asks about a collision with another entry and installs once it's resolved, its row saying whose files went", async () => {
 			await upstream({ "a/SKILL.md": "" });
 			await seedManifest({
 				"other/repo": installedEntry([".claude/skills/a/"]),
@@ -1250,6 +2034,129 @@ describe("add command", () => {
 			await runAdd("owner/repo", {}, ui);
 
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+			expect(ui.rows()).toEqual([
+				sourceRow("1 skill", [
+					{
+						name: "a",
+						detail: "skill\nremoved other/repo, whose files were in the way: a",
+					},
+				]),
+			]);
+		});
+
+		it("says on the item skipped at a no which entries a yes before it removed", async () => {
+			await upstream({
+				"p/agntc.json": PACK,
+				"p/skills/s/SKILL.md": "",
+				"p/skills/t/SKILL.md": "",
+			});
+			await seedManifest({
+				"other/one": installedEntry([".claude/skills/s/"]),
+				"other/two": installedEntry([".claude/skills/t/"]),
+			});
+			mockResolveCollisions.mockImplementation(async (_, current) => {
+				const { "other/one": _one, ...rest } = current;
+				return { resolved: false, updatedManifest: rest };
+			});
+
+			await runAdd("owner/repo/p", {}, ui);
+
+			expect(Object.keys(await manifest())).toEqual(["other/two"]);
+			expect(ui.rows()).toEqual([
+				sourceRow(
+					"1 pack",
+					[
+						{
+							name: "p",
+							detail: [
+								"files in the way belong to other/two: .claude/skills/t/",
+								"removed other/one, whose files were in the way: s",
+							].join("\n"),
+						},
+					],
+					"attention",
+				),
+			]);
+		});
+
+		it("lists the items in their own order, though one that fails its check is settled before one that installs", async () => {
+			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
+			await seedManifest({
+				"owner/repo/b": installedEntry([".claude/skills/x/"], "pack"),
+			});
+
+			expect(await exitCode(runAdd("owner/repo", { all: true }, ui))).toBe(1);
+
+			const [row] = ui.rows();
+			expect(row?.children?.map(({ name, status }) => [name, status])).toEqual([
+				["a", "done"],
+				["b", "failed"],
+			]);
+			const [body] = ui.report.mock.calls[0]! as [{ items: { key: string }[] }];
+			expect(body.items.map(({ key }) => key)).toEqual([
+				"owner/repo/b",
+				"owner/repo/a",
+			]);
+		});
+
+		describe("stopped before anything is copied", () => {
+			beforeEach(async () => {
+				await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
+				await seedManifest({
+					"other/repo": installedEntry([".claude/skills/a/"]),
+				});
+			});
+
+			it("draws the source's row, unchanged, before an error thrown while checking", async () => {
+				mockCheckItemLinks.mockRejectedValueOnce(new Error("lstat failed"));
+
+				expect(await exitCode(runAdd("owner/repo", { all: true }, ui))).toBe(1);
+
+				expect(drawn()).toEqual(
+					refusedAfterClone("lstat failed", {
+						subjects: [[], [measured(SOURCE, "a", "b")]],
+						rows: [unchanged("2 skills")],
+					}),
+				);
+				expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
+			});
+
+			it("draws the source's row, unchanged, before a failure raised through the Ui in a step", async () => {
+				mockResolveCollisions.mockImplementationOnce(
+					(_, _manifest, _root, ui) => ui.fail("can't ask without a terminal"),
+				);
+
+				expect(await exitCode(runAdd("owner/repo", { all: true }, ui))).toBe(1);
+
+				expect(drawn()).toEqual(
+					refusedAfterClone("can't ask without a terminal", {
+						subjects: [[], [measured(SOURCE, "a", "b")]],
+						rows: [unchanged("2 skills")],
+					}),
+				);
+				expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.fail);
+			});
+
+			it("draws the source's row, unchanged, before a cancel raised through the Ui in a step", async () => {
+				mockResolveCollisions.mockImplementationOnce(
+					async (_, _manifest, _root, ui) => {
+						ui.cancel("Cancelled");
+						throw new ExitSignal(0);
+					},
+				);
+
+				expect(await exitCode(runAdd("owner/repo", { all: true }, ui))).toBe(0);
+
+				expect(drawn()).toEqual(
+					screen({
+						subjects: [[], [measured(SOURCE, "a", "b")]],
+						progress: [CLONING],
+						rows: [unchanged("2 skills")],
+						cancelled: ["Cancelled"],
+					}),
+				);
+				expect(ui.blocks[1]!.row).toHaveBeenCalledBefore(ui.cancel);
+			});
 		});
 
 		it("skips an item whose collision isn't resolved and installs the rest", async () => {
@@ -1269,7 +2176,55 @@ describe("add command", () => {
 				"other/repo",
 				"owner/repo/b",
 			]);
-			expect(ui.said("warn")).toEqual(["a: skipped — conflict not resolved"]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "a", "b")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow(
+							"2 skills",
+							[
+								{
+									name: "a",
+									status: "attention",
+									detail:
+										"files in the way belong to other/repo: .claude/skills/a/",
+								},
+								{ ...skill("b"), status: "done" },
+							],
+							"attention",
+						),
+					],
+					tally: closed({ installed: 1, skipped: 1 }),
+				}),
+			);
+		});
+
+		it("names a local item on the question's row by its folder from home, as local", async () => {
+			const home = join(testDir, "home");
+			vi.mocked(homedir).mockReturnValue(home);
+			onTestFinished(() => {
+				vi.mocked(homedir).mockReset();
+			});
+			const local = join(home, "my-skills");
+			await write(local, { "a/SKILL.md": "", "b/SKILL.md": "" });
+			await write(projectDir, { ".claude/skills/a/SKILL.md": "mine" });
+			mockResolveUnmanaged.mockResolvedValue({
+				approved: [],
+				cancelled: [".claude/skills/a/"],
+			});
+
+			await runAdd(local, { all: true }, ui);
+
+			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
+				[
+					{
+						head: { subject: "~/my-skills/a", meta: "local" },
+						files: [".claude/skills/a/"],
+					},
+				],
+				interactive(),
+			);
 		});
 
 		it("skips an item whose unmanaged files the user won't overwrite", async () => {
@@ -1283,15 +2238,26 @@ describe("add command", () => {
 			await runAdd("owner/repo", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
-				[{ pluginKey: "owner/repo/a", files: [".claude/skills/a/"] }],
-				ui,
+				[{ head: { subject: "owner/repo/a" }, files: [".claude/skills/a/"] }],
+				interactive(),
 			);
 			expect(
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
 			).toBe("mine");
-			expect(ui.outro).toHaveBeenCalledWith(
-				"Nothing installed from owner/repo",
-			);
+			expect(ui.rows()).toEqual([
+				sourceRow(
+					"1 skill",
+					[
+						{
+							name: "a",
+							detail:
+								"files in the way weren't installed by agntc: .claude/skills/a/",
+						},
+					],
+					"attention",
+				),
+			]);
+			expect(drawn().tally).toEqual(closed({ skipped: 1 }));
 		});
 
 		it("fails an item holding an escaping symlink, installs its siblings, then exits non-zero", async () => {
@@ -1304,10 +2270,23 @@ describe("add command", () => {
 			expect(code).toBe(1);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/good"]);
 			expect(await installed(".claude/skills/bad")).toBe(false);
-			expect(ui.said("error")[0]).toMatch(/^bad: failed — symlink "bad\/leak"/);
+			expect(ui.rows()).toEqual([
+				sourceRow(
+					"2 skills",
+					[
+						{
+							name: "bad",
+							status: "failed",
+							detail: expect.stringMatching(/^symlink "bad\/leak"/),
+						},
+						{ ...skill("good"), status: "done" },
+					],
+					"failed",
+				),
+			]);
 		});
 
-		it("fails an item whose copy throws and exits non-zero after the summary", async () => {
+		it("fails an item whose copy throws and exits non-zero after the close", async () => {
 			await upstream({ "a/SKILL.md": "", "b/SKILL.md": "" });
 			mockCopyItem.mockImplementation(async (item, root, dir) => {
 				if (item.kind === "skill" && item.skill.name === "a") {
@@ -1320,11 +2299,27 @@ describe("add command", () => {
 
 			expect(code).toBe(1);
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/b"]);
-			expect(ui.said("error")).toEqual(["a: failed — disk full"]);
-			expect(ui.outro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "a", "b")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow(
+							"2 skills",
+							[
+								{ name: "a", status: "failed", detail: "disk full" },
+								{ ...skill("b"), status: "done" },
+							],
+							"failed",
+						),
+					],
+					tally: closed({ installed: 1, failed: 1 }),
+				}),
+			);
+			expect(ui.close).toHaveBeenCalledBefore(ui.report);
 		});
 
-		it("summarises one line per item, with a pack's counts", async () => {
+		it("hangs each item under the source's row, a pack with its counts", async () => {
 			await upstream({
 				"p/agntc.json": PACK,
 				"p/skills/x/SKILL.md": "",
@@ -1336,13 +2331,22 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", { all: true }, ui);
 
-			expect(ui.said("success")).toEqual([
-				"p (pack · 2 skills, 1 agent, 1 hook)\ntools/lint",
-			]);
-			expect(ui.outro).toHaveBeenCalledWith("Installed owner/repo@HEAD");
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [measured(SOURCE, "p", "tools/lint")]],
+					progress: [CLONING, copying()],
+					rows: [
+						sourceRow("1 pack · 1 skill", [
+							{ name: "p", detail: "pack · 2 skills, 1 agent, 1 hook" },
+							skill("tools/lint"),
+						]),
+					],
+					tally: closed({ installed: 2 }),
+				}),
+			);
 		});
 
-		it("copies under a spinner only when something will be copied", async () => {
+		it("copies under progress in the source's row only when something will be copied", async () => {
 			await upstream({ "a/SKILL.md": "" });
 			mockResolveUnmanaged.mockResolvedValue({
 				approved: [],
@@ -1352,10 +2356,8 @@ describe("add command", () => {
 
 			await runAdd("owner/repo", {}, ui);
 
-			const started = ui.spinners.flatMap((spin) =>
-				spin.start.mock.calls.map(([text]) => text),
-			);
-			expect(started).toEqual(["Cloning repository..."]);
+			expect(drawn().progress).toEqual([CLONING]);
+			expect(ui.blocks[1]!.row).toHaveBeenCalledOnce();
 		});
 	});
 	describe("--overwrite", () => {
@@ -1379,6 +2381,14 @@ describe("add command", () => {
 			expect(
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
 			).toBe("new");
+			expect(ui.rows()).toEqual([
+				sourceRow("1 skill", [
+					{
+						name: "a",
+						detail: "skill\nremoved other/repo, whose files were in the way: a",
+					},
+				]),
+			]);
 		});
 
 		it("replaces files agntc didn't install without asking", async () => {
@@ -1391,6 +2401,14 @@ describe("add command", () => {
 				await readFile(join(projectDir, ".claude/skills/a/SKILL.md"), "utf-8"),
 			).toBe("new");
 			expect(Object.keys(await manifest())).toEqual(["owner/repo/a"]);
+			expect(ui.rows()).toEqual([
+				sourceRow("1 skill", [
+					{
+						name: "a",
+						detail: "skill\nreplaced files agntc didn't install: a",
+					},
+				]),
+			]);
 		});
 
 		it("replaces another entry's files without a terminal", async () => {
@@ -1607,10 +2625,17 @@ describe("add command", () => {
 			await runAdd("owner/repo", {}, ui);
 
 			expect(mockResolveUnmanaged).toHaveBeenCalledWith(
-				[{ pluginKey: "owner/repo", files: TARGETS }],
-				ui,
+				[{ head: { subject: "owner/repo" }, files: TARGETS }],
+				interactive(),
 			);
 			await expectPackInstalled();
+			expect(ui.rows()[0]!.children).toEqual([
+				{
+					name: "repo",
+					detail:
+						"pack · 1 skill, 1 agent, 1 hook\nreplaced files agntc didn't install: foo.md and x.sh",
+				},
+			]);
 		});
 	});
 
@@ -1625,24 +2650,55 @@ describe("add command", () => {
 			});
 		});
 
-		it("shows each pack with its skill count and each skill with its description, installing nothing", async () => {
+		it("hangs each pack with its skill count and each skill with its description under the source's row, installing nothing", async () => {
 			await runAdd("owner/repo@v1.0.0", { list: true }, ui);
 
 			expect(mockCloneSource).toHaveBeenCalledWith(
 				expect.objectContaining({ ref: "v1.0.0" }),
 			);
-			expect(ui.log.message).toHaveBeenCalledWith(
-				"p (pack · 1 skill)\ntools/a (Does A)",
+			const listed = sourceRow(
+				"1 pack · 1 skill",
+				[
+					{ name: "p", detail: "pack · 1 skill" },
+					{ name: "tools/a", detail: "Does A" },
+				],
+				"done",
+				{ subject: "owner/repo", meta: "v1.0.0" },
 			);
-			expect(ui.said("warn")).toEqual([
-				"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
-			]);
-			expect(ui.outro).toHaveBeenCalledWith(
-				"owner/repo@v1.0.0 holds 1 pack and 1 skill",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[], [listed]],
+					progress: [CLONING],
+					rows: [listed],
+					warnings: [
+						sentence(
+							"repo has agents/ that won't be installed — it contains packs (p), so --pack can't bundle it",
+						),
+					],
+					tally: closed({}),
+				}),
 			);
 			expect(ui.multiselect).not.toHaveBeenCalled();
 			expect(await installed(".agntc")).toBe(false);
 			expect(await installed(".claude")).toBe(false);
+		});
+
+		it("puts a stray's --pack line under Next", async () => {
+			await upstream({ "tools/agents/b.md": "" });
+
+			await runAdd("owner/repo/tools", { list: true }, ui);
+
+			const command = "npx agntc add owner/repo/tools --pack";
+			expect(drawn()).toMatchObject({
+				warnings: [
+					machineOnly(
+						`tools has agents/ that won't be installed — to install them as a pack: ${command}`,
+					),
+				],
+				next: [packLine("tools", "agents/", command)],
+				tally: closed({}),
+			});
+			expect(ui.next).toHaveBeenCalledBefore(ui.close);
 		});
 
 		it("prints the listing as one document without a terminal", async () => {
@@ -1711,7 +2767,7 @@ describe("add command", () => {
 			);
 
 			expect(code).toBe(1);
-			expect(ui.said("cancel")).toEqual([message]);
+			expect(drawn()).toEqual(screen({ failed: [message] }));
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 	});

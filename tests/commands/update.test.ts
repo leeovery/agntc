@@ -1,10 +1,18 @@
 import type { Stats } from "node:fs";
-import { basename } from "node:path";
+import { homedir } from "node:os";
+import { basename, join, sep } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExitSignal } from "../../src/exit-signal.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import { type Message, machineOnly, sentence } from "../../src/message.js";
+import type {
+	BlockSubject,
+	NextItem,
+	Progress,
+	Row,
+} from "../../src/terminal/types.js";
+import type { Tally, UpdateTally } from "../../src/ui.js";
 import type { UpdateCheckResult } from "../../src/update-check.js";
-import type { PluginOutcome } from "../../src/update-groups.js";
 
 vi.mock("../../src/manifest.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/manifest.js")>()),
@@ -79,16 +87,7 @@ vi.mock("../../src/copy-safety.js", async (importOriginal) => {
 });
 
 import { access, stat } from "node:fs/promises";
-import {
-	buildAbortMessage,
-	buildCopySafetyMessage,
-} from "../../src/clone-reinstall.js";
-import {
-	failureMemberLine,
-	runUpdate,
-	streamGroupMemberLines,
-	updateCommand,
-} from "../../src/commands/update.js";
+import { runUpdate, updateCommand } from "../../src/commands/update.js";
 import { copyBareSkill } from "../../src/copy-bare-skill.js";
 import { copyPack } from "../../src/copy-pack.js";
 import {
@@ -165,7 +164,7 @@ import { globalScope } from "../../src/scope.js";
 import { makeEntry } from "../helpers/factories.js";
 import { SSH_REFUSAL } from "../helpers/git-mocks.js";
 import { runMachine } from "../helpers/machine.js";
-import { type TestSpinner, type TestUi, testUi } from "../helpers/test-ui.js";
+import { type TestUi, testUi } from "../helpers/test-ui.js";
 
 const INSTALLED_SHA = "a".repeat(40);
 const REMOTE_SHA = "b".repeat(40);
@@ -232,6 +231,253 @@ function installGroupTargetBridge(): void {
 
 let ui: TestUi;
 
+/** Everything update showed at the terminal, as the double took it. */
+interface Drawn {
+	/** Each block's subjects, as it opened with them. */
+	subjects: BlockSubject[][];
+	rows: Row[];
+	next: NextItem[];
+	notes: Message[];
+	/** What each close was given to count. */
+	tally: Tally[];
+}
+
+function drawn(): Drawn {
+	return {
+		subjects: ui.block.mock.calls.map(([subjects]) => [...subjects]),
+		rows: ui.rows(),
+		next: ui.next.mock.calls.map(([item]) => item),
+		notes: ui.note.mock.calls.map(([message]) => message),
+		tally: ui.close.mock.calls.map(([tally]) => tally),
+	};
+}
+
+/** What every task the run's blocks spun said it was doing, in the order they started. */
+function progress(): Progress[] {
+	return ui.blocks.flatMap((block) =>
+		block.task.mock.calls.map(([step]) => step),
+	);
+}
+
+/** When the row with `subject` was drawn, in the order of every mocked call. */
+function drawnAt(subject: string): number {
+	const calls = ui.blocks.flatMap(({ row, tasks }) =>
+		[row, ...tasks.map(({ settle }) => settle)].flatMap((fn) =>
+			fn.mock.calls.map(([drawnRow], i) => ({
+				subject: drawnRow.subject,
+				order: fn.mock.invocationCallOrder[i]!,
+			})),
+		),
+	);
+	const call = calls.find((drawnRow) => drawnRow.subject === subject);
+	if (call === undefined) {
+		throw new Error(`no row for ${subject}`);
+	}
+	return call.order;
+}
+
+/** What a run drew: nothing, but for what's given. */
+function screen(drew: Partial<Drawn>): Drawn {
+	return { subjects: [], rows: [], next: [], notes: [], tally: [], ...drew };
+}
+
+const NOTHING_INSTALLED = screen({
+	subjects: [[{ subject: "No skills or packs installed." }]],
+	rows: [{ status: "unchanged", subject: "No skills or packs installed." }],
+});
+
+/** A group's block subject: its label and intent, each member given a glyph's room. */
+function group(subject: string, meta: string, ...members: string[]) {
+	return {
+		subject,
+		meta,
+		children: members.map((name) => ({ name, status: "done" as const })),
+	};
+}
+
+function local(path: string): BlockSubject {
+	return { subject: path, meta: "local" };
+}
+
+/** The one close of a run, counting `counts`. */
+function closed(counts: UpdateTally): Tally[] {
+	return [{ command: "update", counts }];
+}
+
+const OLD7 = "aaaaaaa";
+const NEW7 = "bbbbbbb";
+const HASHES = { from: OLD7, to: NEW7 };
+
+/**
+ * Who ran the update: all-mode; a key naming several entries; or a key
+ * naming one, `member` its entry's name. A key's check that failed or found
+ * no tag fails the run, so its row is failed where all-mode's only needs a
+ * look; a key naming one entry names it beneath its row, as a group's row
+ * names none.
+ */
+type RunBy = "all" | "prefix" | { member: string };
+
+function leftAlone(row: Row, by: RunBy, failsAKey = false): Row {
+	const status = failsAKey && by !== "all" ? "failed" : row.status;
+	return typeof by === "object"
+		? { ...row, status, children: [{ name: by.member }] }
+		: { ...row, status };
+}
+
+function upToDate(subject: string, meta: string, by: RunBy = "all"): Row {
+	return leftAlone(
+		{ status: "unchanged", subject, meta, detail: "up to date" },
+		by,
+	);
+}
+
+function notChecked(
+	subject: string,
+	meta: string,
+	cause: string,
+	by: RunBy = "all",
+): Row {
+	return leftAlone(
+		{
+			status: "attention",
+			subject,
+			meta,
+			detail: { label: "not checked", aside: cause },
+		},
+		by,
+		true,
+	);
+}
+
+function noMatch(subject: string, constraint: string, by: RunBy = "all"): Row {
+	return leftAlone(
+		{
+			status: "attention",
+			subject,
+			meta: constraint,
+			detail: { label: `no tags satisfy ${constraint}` },
+		},
+		by,
+		true,
+	);
+}
+
+function newerTags(subject: string, meta: string, by: RunBy = "all"): Row {
+	return leftAlone(
+		{ status: "unchanged", subject, meta, detail: "newer tags available" },
+		by,
+	);
+}
+
+/** A group whose members all updated along `move`, each `[name, detail]`. */
+function updated(
+	subject: string,
+	meta: string,
+	move: { from: string; to: string },
+	...children: [name: string, detail: string][]
+): Row {
+	return {
+		status: "done",
+		subject,
+		meta,
+		detail: { move },
+		children: children.map(([name, detail]) => ({ name, detail })),
+	};
+}
+
+/** A local entry refreshed from its folder, what it installed aside. */
+function refreshed(path: string, aside: string): Row {
+	return {
+		status: "done",
+		subject: path,
+		meta: "local",
+		detail: { label: "refreshed", aside },
+	};
+}
+
+/** A group none of whose members landed, `ended` beside its move. */
+function stopped(
+	subject: string,
+	meta: string,
+	move: { from: string; to: string },
+	ended: string,
+	...children: [name: string, detail: string][]
+): Row {
+	return {
+		status: "failed",
+		subject,
+		meta,
+		detail: { move, note: ended },
+		children: children.map(([name, detail]) => ({ name, detail })),
+	};
+}
+
+function cloneFailed(
+	subject: string,
+	meta: string,
+	reason: string,
+	...members: string[]
+): Row {
+	return {
+		status: "failed",
+		subject,
+		meta,
+		detail: { label: "clone failed", aside: reason },
+		children: members.map((name) => ({ name })),
+	};
+}
+
+/** The Next item that follows a moved skill to one of the `adds` now named as it was. */
+function followOne(subject: string, ...adds: string[]): NextItem {
+	return {
+		subject,
+		remedy: {
+			lead: "To follow one of them:",
+			steps: [{ command: `npx agntc remove ${subject}` }, { choice: adds }],
+		},
+	};
+}
+
+/** What a moved skill's abort says, `name` now the folder of each of `paths`. */
+function nowNamed(name: string, ...paths: string[]): string {
+	return `can't be updated: its SKILL.md is gone from ${name} and ${paths.length} skills are now named ${name}: ${paths.join(", ")}. The existing install is unchanged.`;
+}
+
+const ESCAPE =
+	'symlink "evil-link" points outside the clone (target: /etc/passwd). agntc won\'t follow that symlink, so the update is blocked. The existing install is unchanged.';
+
+/** The Next item a key pinned to `ref` queues, `tags` newest first. */
+function pinnedKey(
+	subject: string,
+	ref: string,
+	tags: string[],
+	command: string,
+): NextItem {
+	return {
+		subject,
+		remedy: {
+			lead: `Pinned to ${ref}, newer tags available (latest: ${tags[0]}). To upgrade:`,
+			steps: [{ command }],
+		},
+	};
+}
+
+/** The Next item that moves `subject` past its constraint. */
+function upgrade(
+	subject: string,
+	current: string,
+	latest: string,
+	...commands: string[]
+): NextItem {
+	return {
+		subject,
+		remedy: {
+			lead: `Newer version outside the constraint: ${current} → ${latest} available. To upgrade:`,
+			steps: commands.map((command) => ({ command })),
+		},
+	};
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
 	ui = testUi();
@@ -257,50 +503,22 @@ beforeEach(() => {
 	installGroupTargetBridge();
 });
 
-/**
- * Installs a STABLE spinner handle shared across every `ui.spinner()` call in a
- * test (the leading check spinner AND each streamed group-of-one spinner), so the
- * collapsed group-of-one stop-frames can be asserted directly. A group-of-one now
- * streams its single outcome as `spin.stop(text, code)` (code 2 = loud error ✗,
- * code 0 = success/benign ◇) — NOT a separate `ui.log.*` line.
- */
-function captureSpinner(): TestSpinner {
-	const handle: TestSpinner = { start: vi.fn(), stop: vi.fn() };
-	ui.spinner.mockImplementation(() => {
-		ui.spinners.push(handle);
-		return handle;
-	});
-	return handle;
-}
-
-/**
- * The collapsed group-of-one lines a run streamed as spinner stop-frames — every
- * two-arg `spin.stop(text, code)` call, optionally filtered to one `code`
- * (2 = error, 0 = success/benign). Excludes the leading check spinner's single-arg
- * `stop("Update checks complete.")` and the >=2-member header stop (both one arg).
- */
-function stopTexts(handle: TestSpinner, code?: 0 | 2): string[] {
-	return handle.stop.mock.calls
-		.filter((c) => c.length >= 2 && (code === undefined || c[1] === code))
-		.map((c) => c[0] as string);
-}
-
 describe("update command", () => {
-	describe("intro", () => {
-		it("shows the 'agntc update' intro (all-plugins mode)", async () => {
+	describe("header", () => {
+		it("opens on the header (all-plugins mode)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.intro).toHaveBeenCalledWith("agntc update");
+			expect(ui.header).toHaveBeenCalledOnce();
 		});
 
-		it("shows the 'agntc update' intro (single-key mode)", async () => {
+		it("opens on the header (single-key mode)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({});
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.intro).toHaveBeenCalledWith("agntc update");
+			expect(ui.header).toHaveBeenCalledOnce();
 		});
 	});
 
@@ -310,7 +528,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
+			expect(drawn()).toEqual(NOTHING_INSTALLED);
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 
@@ -359,14 +577,14 @@ describe("update command", () => {
 			mockReadManifestOrExit.mockResolvedValue({ "owner/repo": entry });
 			mockCheckForUpdate.mockResolvedValue({ status: "up-to-date" });
 
-			const mockSpinner = captureSpinner();
-
 			await runUpdate(undefined, {}, ui);
 
-			expect(mockSpinner.start).toHaveBeenCalledWith(
-				expect.stringContaining("Checking for updates"),
-			);
-			expect(mockSpinner.stop).toHaveBeenCalled();
+			const [block] = ui.blocks;
+			expect(block!.task.mock.calls[0]).toEqual([
+				{ text: "checking for updates…" },
+			]);
+			expect(block!.tasks[0]!.clear).toHaveBeenCalledOnce();
+			expect(block!.tasks[0]!.settle).not.toHaveBeenCalled();
 		});
 
 		it("shows all up-to-date message when every entry is current", async () => {
@@ -378,7 +596,21 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith("Everything is up to date.");
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "HEAD", "repo-b"),
+						],
+					],
+					rows: [
+						upToDate("owner/repo-a", "HEAD"),
+						upToDate("owner/repo-b", "HEAD"),
+					],
+					tally: closed({ upToDate: 2 }),
+				}),
+			);
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
@@ -459,12 +691,22 @@ describe("update command", () => {
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-			// Summary should mention newer tags
-			const allLogCalls = [...ui.said("info"), ...ui.said("message")];
-			const hasNewerTagsInfo = allLogCalls.some(
-				(msg) => typeof msg === "string" && msg.includes("newer tags"),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "v1.0", "repo")]],
+					rows: [newerTags("owner/repo", "v1.0")],
+					next: [
+						{
+							subject: "owner/repo",
+							remedy: {
+								lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
+								steps: [{ command: "npx agntc add owner/repo@v3.0" }],
+							},
+						},
+					],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
-			expect(hasNewerTagsInfo).toBe(true);
 		});
 
 		it("notes check-failed plugins in summary", async () => {
@@ -478,8 +720,12 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.log.warn).toHaveBeenCalledWith(
-				"owner/repo: couldn't check for updates (network timeout) — left untouched",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [notChecked("owner/repo", "HEAD", "network timeout")],
+					tally: closed({ notChecked: 1 }),
+				}),
 			);
 		});
 
@@ -494,19 +740,12 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const allLogCalls = [
-				...ui.said("warn"),
-				...ui.said("message"),
-				...ui.said("info"),
-			];
-			const hasFailedNote = allLogCalls.some(
-				(msg) =>
-					typeof msg === "string" &&
-					(msg.includes("failed") || msg.includes("Failed")),
-			);
-			expect(hasFailedNote).toBe(false);
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("up to date"),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("nuxt/ui", "v4", "ui")]],
+					rows: [upToDate("nuxt/ui", "v4")],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 		});
 
@@ -623,7 +862,6 @@ describe("update command", () => {
 		});
 
 		it("shows per-plugin summary", async () => {
-			const handle = captureSpinner();
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
 				files: [".claude/skills/skill-a/"],
@@ -655,23 +893,23 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Should have per-plugin info in the output — the updated repo-a now
-			// streams as its group-of-one spinner stop-frame, repo-b (up-to-date)
-			// via the trailing ui.log summary.
-			const allMessages = [
-				...ui.said("info"),
-				...ui.said("message"),
-				...ui.said("success"),
-				...stopTexts(handle),
-			];
-			const hasRepoA = allMessages.some(
-				(msg) => typeof msg === "string" && msg.includes("owner/repo-a"),
+			// The updated repo-a settles into its row as it lands; repo-b, up to
+			// date, follows once the actioned work has.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "HEAD", "repo-b"),
+						],
+					],
+					rows: [
+						updated("owner/repo-a", "HEAD", HASHES, ["repo-a", "skill"]),
+						upToDate("owner/repo-b", "HEAD"),
+					],
+					tally: closed({ updated: 1, upToDate: 1 }),
+				}),
 			);
-			const hasRepoB = allMessages.some(
-				(msg) => typeof msg === "string" && msg.includes("owner/repo-b"),
-			);
-			expect(hasRepoA).toBe(true);
-			expect(hasRepoB).toBe(true);
 		});
 
 		it("does not write manifest when nothing was updated", async () => {
@@ -777,8 +1015,7 @@ describe("update command", () => {
 			expect(mockWriteManifest).toHaveBeenCalled();
 		});
 
-		it("the grouped path does not emit the per-clone Cloning repository... spinner", async () => {
-			const mockSpinner = captureSpinner();
+		it("the grouped path spins a task for the check, then one in the group's row while it updates", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
@@ -803,21 +1040,18 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const startCalls = mockSpinner.start.mock.calls.map(
-				(c) => c[0] as string,
-			);
-			// The per-clone spinner lives only in cloneAndReinstall (singletons/locals).
-			expect(startCalls.some((m) => m.includes("Cloning repository"))).toBe(
-				false,
-			);
-			// The single leading check spinner still frames the group resolution.
-			expect(startCalls.some((m) => m.includes("Checking for updates"))).toBe(
-				true,
-			);
+			// One progress line frames the group resolution and clears; the
+			// group's own task spins where its row settles. No clone spinner.
+			expect(progress()).toEqual([
+				{ text: "checking for updates…" },
+				{ subject: "owner/repo", meta: "HEAD", text: "updating to bbbbbbb…" },
+			]);
+			const [checking, updating] = ui.blocks[0]!.tasks;
+			expect(checking!.clear).toHaveBeenCalledOnce();
+			expect(updating!.settle).toHaveBeenCalledOnce();
 		});
 
-		it("single-key still routes through cloneAndReinstall (per-clone spinner, no group check)", async () => {
-			const mockSpinner = captureSpinner();
+		it("single-key checks its key alone, spinning in its row's place while it checks and updates", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					commit: INSTALLED_SHA,
@@ -838,13 +1072,13 @@ describe("update command", () => {
 			});
 
 			await runUpdate("owner/repo", {}, ui);
-
-			const startCalls = mockSpinner.start.mock.calls.map(
-				(c) => c[0] as string,
-			);
-			expect(startCalls.some((m) => m.includes("Cloning repository"))).toBe(
-				true,
-			);
+			expect(progress()).toEqual([
+				{ subject: "owner/repo", meta: "HEAD", text: "checking for updates…" },
+				{ subject: "owner/repo", meta: "HEAD", text: "updating to bbbbbbb…" },
+			]);
+			const [checking, updating] = ui.blocks[0]!.tasks;
+			expect(checking!.clear).toHaveBeenCalledOnce();
+			expect(updating!.settle).toHaveBeenCalledOnce();
 			expect(mockResolveGroupTarget).not.toHaveBeenCalled();
 			expect(mockCheckForUpdate).toHaveBeenCalledWith(
 				"owner/repo",
@@ -1083,7 +1317,6 @@ describe("update command", () => {
 			// outcome. Per-group persistence doesn't change exit accounting: every
 			// member outcome still accumulates into outcomes[], so any
 			// copy-failed/aborted/blocked trips the non-zero exit.
-			const handle = captureSpinner();
 			const cf = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -1145,16 +1378,57 @@ describe("update command", () => {
 			expect((err as ExitSignal).code).toBe(1);
 			// All three failure outcomes were collected and reported (accumulated into
 			// outcomes[]), and the copy-failed one persisted its removal per group.
-			// Each is a group-of-one, so its loud line is the spinner stop-frame at
-			// code 2 (error ✗).
-			const errorCalls = stopTexts(handle, 2);
-			expect(errorCalls.some((m) => m.includes("owner/cf"))).toBe(true);
-			expect(
-				errorCalls.some((m) =>
-					m.includes("owner/ab can't be updated: its SKILL.md is gone"),
-				),
-			).toBe(true);
-			expect(errorCalls.some((m) => m.includes("owner/bl"))).toBe(true);
+			// Each group-of-one settles into a ✗ row, its member's reason under it.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/cf", "HEAD", "cf"),
+							group("owner/ab", "HEAD", "ab"),
+							group("owner/bl", "HEAD", "bl"),
+						],
+					],
+					rows: [
+						stopped("owner/cf", "HEAD", HASHES, "failed", [
+							"cf",
+							"update failed after removing old files (disk full). It is currently uninstalled.",
+						]),
+						stopped("owner/ab", "HEAD", HASHES, "not updated", [
+							"ab",
+							"can't be updated: its SKILL.md is gone from ab and 2 skills are now named ab: x/ab, y/ab. The existing install is unchanged.",
+						]),
+						stopped("owner/bl", "HEAD", HASHES, "not updated", [
+							"bl",
+							'symlink "evil-link" points outside the clone (target: /etc/passwd). agntc won\'t follow that symlink, so the update is blocked. The existing install is unchanged.',
+						]),
+					],
+					next: [
+						{
+							subject: "owner/cf",
+							remedy: {
+								lead: "To install it again:",
+								steps: [{ command: "npx agntc add owner/cf" }],
+							},
+						},
+						{
+							subject: "owner/ab",
+							remedy: {
+								lead: "To follow one of them:",
+								steps: [
+									{ command: "npx agntc remove owner/ab" },
+									{
+										choice: [
+											"npx agntc add owner/ab/x/ab",
+											"npx agntc add owner/ab/y/ab",
+										],
+									},
+								],
+							},
+						},
+					],
+					tally: closed({ failed: 1, notUpdated: 2 }),
+				}),
+			);
 			expect(mockRemoveEntry).toHaveBeenCalledWith(
 				expect.anything(),
 				"owner/cf",
@@ -1163,9 +1437,14 @@ describe("update command", () => {
 	});
 
 	describe("streamed actioned phase (task 2-4)", () => {
-		const A_SUMMARY = "owner/repo-a: Updated aaaaaaa -> bbbbbbb";
-		const B_SUMMARY = "owner/repo-b: Updated aaaaaaa -> bbbbbbb";
-		const LOCAL_SUMMARY = "/local/path: Refreshed from local path";
+		const A_ROW = updated("owner/repo-a", "HEAD", HASHES, ["repo-a", "skill"]);
+		const B_ROW = updated("owner/repo-b", "HEAD", HASHES, ["repo-b", "skill"]);
+		const LOCAL_ROW: Row = {
+			status: "done",
+			subject: "/local/path",
+			meta: "local",
+			detail: { label: "refreshed", aside: "skill" },
+		};
 
 		function gitEntry(name: string): ManifestEntry {
 			return makeEntry({
@@ -1185,7 +1464,6 @@ describe("update command", () => {
 		}
 
 		it("streams updatable groups and local entries in manifest order", async () => {
-			const handle = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-a": gitEntry("a"),
 				"/local/path": localPluginEntry(),
@@ -1206,25 +1484,30 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Each git group streams under its own Updating spinner (the local never does).
-			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-a");
-			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-b");
-			// Streamed outcome lines appear in manifest (processing) order: git A
-			// (its group-of-one spinner stop-frame), then the interleaved local
-			// (ui.log.success, no spinner), then git B (its stop-frame).
-			expect(stopTexts(handle, 0)).toEqual([A_SUMMARY, B_SUMMARY]);
-			expect(ui.said("success")).toEqual([LOCAL_SUMMARY]);
-			const stopOrder = (text: string) =>
-				handle.stop.mock.invocationCallOrder[
-					handle.stop.mock.calls.findIndex((c) => c[0] === text)
-				]!;
-			const localOrder = ui.saidOrders("success")[0]!;
-			expect(stopOrder(A_SUMMARY)).toBeLessThan(localOrder);
-			expect(localOrder).toBeLessThan(stopOrder(B_SUMMARY));
+			// Each unit spins in its row's place, the local refreshing, the git
+			// groups updating; their rows land in manifest (processing) order.
+			expect(progress()).toEqual([
+				{ text: "checking for updates…" },
+				{ subject: "owner/repo-a", meta: "HEAD", text: "updating to bbbbbbb…" },
+				{ subject: "/local/path", meta: "local", text: "refreshing…" },
+				{ subject: "owner/repo-b", meta: "HEAD", text: "updating to bbbbbbb…" },
+			]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "HEAD", "repo-b"),
+							local("/local/path"),
+						],
+					],
+					rows: [A_ROW, LOCAL_ROW, B_ROW],
+					tally: closed({ updated: 2, refreshed: 1 }),
+				}),
+			);
 		});
 
-		it("collapses a standalone updatable group to one Updated line", async () => {
-			const handle = captureSpinner();
+		it("draws a standalone updatable group as one row, its entry under it", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": gitEntry("a"),
 			});
@@ -1242,27 +1525,20 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Animation is KEPT: the group-of-one still opens an Updating spinner...
-			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
-			// ...whose settled stop-frame IS the single collapsed Updated line (code 0
-			// = success). No separate ui.log line beneath a header.
-			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo: Updated aaaaaaa -> bbbbbbb",
-				0,
+			// The group-of-one spins in its row's place, then settles into it.
+			expect(ui.blocks[0]!.tasks[1]!.settle.mock.calls).toEqual([
+				[updated("owner/repo", "HEAD", HASHES, ["repo", "skill"])],
+			]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [updated("owner/repo", "HEAD", HASHES, ["repo", "skill"])],
+					tally: closed({ updated: 1 }),
+				}),
 			);
-			expect(ui.said("success")).toEqual([]);
-			// Neither the start nor the stop carries a `(1 members)` header line.
-			const messages = [
-				...handle.start.mock.calls.map((c) => c[0] as string),
-				...handle.stop.mock.calls.map((c) => c[0] as string),
-			];
-			for (const m of messages) {
-				expect(m).not.toContain("(1 members)");
-			}
 		});
 
-		it("collapses a single updated collection member to one line keeping the /member suffix", async () => {
-			const handle = captureSpinner();
+		it("names a single updated collection member under its repo, beside its up-to-date sibling", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
@@ -1289,19 +1565,29 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Collapsed to the spinner stop-frame carrying the FULL member key (the /a
-			// suffix distinguishes it from a true standalone), code 0, no separate line.
-			expect(handle.stop).toHaveBeenCalledWith(
-				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
-				0,
+			// The repo's one row carries the move; the member that moved and the
+			// one already current hang under it, each with its own glyph.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "b")]],
+					rows: [
+						{
+							status: "done",
+							subject: "owner/repo",
+							meta: "HEAD",
+							detail: { move: HASHES },
+							children: [
+								{ name: "a", status: "done", detail: "skill" },
+								{ name: "b", status: "unchanged", detail: "up to date" },
+							],
+						},
+					],
+					tally: closed({ updated: 1, upToDate: 1 }),
+				}),
 			);
-			expect(ui.said("success")).toEqual([]);
-			// The spinner still starts on the bare repo label (no member suffix, no count).
-			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 		});
 
-		it("collapses a standalone whose single member copy-fails to one error stop-frame (code 2)", async () => {
-			const handle = captureSpinner();
+		it("draws a standalone whose single member copy-fails as one ✗ row, its recovery under Next", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": gitEntry("a"),
 			});
@@ -1319,18 +1605,30 @@ describe("update command", () => {
 			// copy-failed trips the non-zero exit; catch so assertions run.
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// The single failure IS the spinner stop-frame at code 2 (error), carrying
-			// the copy-failed member line — no separate ui.log.error beneath a header.
-			expect(handle.stop).toHaveBeenCalledWith(
-				"Update failed for owner/repo after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
-				2,
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						stopped("owner/repo", "HEAD", HASHES, "failed", [
+							"repo",
+							"update failed after removing old files (disk full). It is currently uninstalled.",
+						]),
+					],
+					next: [
+						{
+							subject: "owner/repo",
+							remedy: {
+								lead: "To install it again:",
+								steps: [{ command: "npx agntc add owner/repo" }],
+							},
+						},
+					],
+					tally: closed({ failed: 1 }),
+				}),
 			);
-			expect(ui.said("error")).toEqual([]);
-			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo");
 		});
 
-		it("emits header + one member line per attempted member for a >=2-member group (mixed success/failure in one block)", async () => {
-			const handle = captureSpinner();
+		it("draws one row for a >=2-member group, each member's own outcome under it (mixed success/failure)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": makeEntry({
 					commit: INSTALLED_SHA,
@@ -1374,24 +1672,64 @@ describe("update command", () => {
 			// copy-failed trips the non-zero exit; catch so assertions run.
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// One header carrying the attempted count.
-			expect(handle.start).toHaveBeenCalledWith(
-				"Updating owner/repo  aaaaaaa -> bbbbbbb  (3 members)",
-			);
-			// One member line each, all under the one header, at the matching level.
-			expect(ui.log.success).toHaveBeenCalledWith("a");
-			expect(ui.log.error).toHaveBeenCalledWith(
-				"Update failed for owner/repo/b after removing old files (disk full). It is currently uninstalled. Run `npx agntc add owner/repo/b` to install it again.",
-			);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				expect.stringMatching(
-					/^owner\/repo\/c can't be updated: its SKILL.md is gone/,
-				),
+			// One row, its glyph the worst of its members', each member's own
+			// glyph and reason under it, their remedies under Next.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "b", "c")]],
+					rows: [
+						{
+							status: "failed",
+							subject: "owner/repo",
+							meta: "HEAD",
+							detail: { move: HASHES },
+							children: [
+								{ name: "a", status: "done", detail: "skill" },
+								{
+									name: "b",
+									status: "failed",
+									detail:
+										"update failed after removing old files (disk full). It is currently uninstalled.",
+								},
+								{
+									name: "c",
+									status: "failed",
+									detail:
+										"can't be updated: its SKILL.md is gone from c and 2 skills are now named c: x/c, y/c. The existing install is unchanged.",
+								},
+							],
+						},
+					],
+					next: [
+						{
+							subject: "owner/repo/b",
+							remedy: {
+								lead: "To install it again:",
+								steps: [{ command: "npx agntc add owner/repo/b" }],
+							},
+						},
+						{
+							subject: "owner/repo/c",
+							remedy: {
+								lead: "To follow one of them:",
+								steps: [
+									{ command: "npx agntc remove owner/repo/c" },
+									{
+										choice: [
+											"npx agntc add owner/repo/x/c",
+											"npx agntc add owner/repo/y/c",
+										],
+									},
+								],
+							},
+						},
+					],
+					tally: closed({ updated: 1, failed: 1, notUpdated: 1 }),
+				}),
 			);
 		});
 
-		it("emits a local entry Refreshed line with no spinner and no clone, interleaved at its manifest position", async () => {
-			const handle = captureSpinner();
+		it("draws a local entry's refreshed row with no clone, at its manifest position", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"/local/path": localPluginEntry(),
 				"owner/repo-a": gitEntry("a"),
@@ -1411,29 +1749,21 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Local streams first (manifest index 0) via ui.log.success; the git group
-			// follows as its group-of-one spinner stop-frame.
-			expect(ui.said("success")).toEqual([LOCAL_SUMMARY]);
-			expect(stopTexts(handle, 0)).toEqual([
-				"owner/repo-a: Updated aaaaaaa -> bbbbbbb",
-			]);
-			const aStopOrder =
-				handle.stop.mock.invocationCallOrder[
-					handle.stop.mock.calls.findIndex(
-						(c) => c[0] === "owner/repo-a: Updated aaaaaaa -> bbbbbbb",
-					)
-				]!;
-			expect(ui.saidOrders("success")[0]!).toBeLessThan(aStopOrder);
-			// The local never clones and never opens an Updating spinner; only the git
-			// group does.
+			// The local lands first (manifest index 0); the git group follows. The
+			// local never clones: only the git group does.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[group("owner/repo-a", "HEAD", "repo-a"), local("/local/path")],
+					],
+					rows: [LOCAL_ROW, A_ROW],
+					tally: closed({ updated: 1, refreshed: 1 }),
+				}),
+			);
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
-			const starts = handle.start.mock.calls.map((c) => c[0] as string);
-			expect(starts.some((m) => m.includes("/local/path"))).toBe(false);
-			expect(handle.start).toHaveBeenCalledWith("Updating owner/repo-a");
 		});
 
-		it("writes the group manifest before emitting that group ✓ (persistence before stream)", async () => {
-			const handle = captureSpinner();
+		it("writes the group manifest before its row settles ✓ (persistence before stream)", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-a": gitEntry("a"),
 				"owner/repo-b": gitEntry("b"),
@@ -1452,22 +1782,17 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Two distinct repos → two groups-of-one; each ✓ is now that group's
-			// spinner stop-frame (the collapsed Updated line), not a ui.log line.
+			// Two distinct repos → two groups-of-one, each settling into its row.
 			const writeOrders = mockWriteManifest.mock.invocationCallOrder;
-			const stopCalls = handle.stop.mock.calls;
-			const stopOrder = (text: string) =>
-				handle.stop.mock.invocationCallOrder[
-					stopCalls.findIndex((c) => c[0] === text)
-				]!;
-			const stopA = stopOrder("owner/repo-a: Updated aaaaaaa -> bbbbbbb");
-			const stopB = stopOrder("owner/repo-b: Updated aaaaaaa -> bbbbbbb");
-			// Group A's manifest write precedes its own stop-frame (persist before show)...
-			expect(writeOrders[0]).toBeLessThan(stopA);
-			// ...and A's stop-frame streams before group B's write even starts (per-group
+			const rowA = drawnAt("owner/repo-a");
+			const rowB = drawnAt("owner/repo-b");
+			// Group A's manifest write precedes its own row (persist before show)...
+			expect(writeOrders[0]).toBeLessThan(rowA);
+			// ...and A's row lands before group B's write even starts (per-group
 			// streaming, not a single batched end-of-run render).
-			expect(stopA).toBeLessThan(writeOrders[1]!);
-			expect(stopA).toBeLessThan(stopB);
+			expect(rowA).toBeLessThan(writeOrders[1]!);
+			expect(rowA).toBeLessThan(rowB);
+			expect(drawn().rows).toEqual([A_ROW, B_ROW]);
 		});
 
 		it("does not tick the spinner per member during reinstall", async () => {
@@ -1499,18 +1824,23 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(
-				ui.spinners.flatMap((spin) =>
-					spin.start.mock.calls.map(([text]) => text),
+			expect(progress()).toEqual([
+				{ text: "checking for updates…" },
+				{ subject: "owner/repo", meta: "HEAD", text: "updating to bbbbbbb…" },
+			]);
+			expect(drawn().rows).toEqual([
+				updated(
+					"owner/repo",
+					"HEAD",
+					HASHES,
+					["a", "skill"],
+					["b", "skill"],
+					["c", "skill"],
 				),
-			).toEqual([
-				"Checking for updates...",
-				"Updating owner/repo  aaaaaaa -> bbbbbbb  (3 members)",
 			]);
 		});
 
-		it("starts no Updating spinner for a group whose members are all non-updatable", async () => {
-			const handle = captureSpinner();
+		it("spins no task for a group whose members are all non-updatable", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/updatable": gitEntry("u"),
 				"owner/pinned": makeEntry({ ref: "v1.0", commit: INSTALLED_SHA }),
@@ -1531,13 +1861,40 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const starts = handle.start.mock.calls.map((c) => c[0] as string);
-			// The updatable group streams under a spinner...
-			expect(starts.some((m) => m.includes("Updating owner/updatable"))).toBe(
-				true,
+			// The updatable group spins while it updates; the pinned (newer-tags)
+			// group never clones and its row is drawn once the work has landed.
+			expect(progress()).toEqual([
+				{ text: "checking for updates…" },
+				{
+					subject: "owner/updatable",
+					meta: "HEAD",
+					text: "updating to bbbbbbb…",
+				},
+			]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/updatable", "HEAD", "updatable"),
+							group("owner/pinned", "v1.0", "pinned"),
+						],
+					],
+					rows: [
+						updated("owner/updatable", "HEAD", HASHES, ["updatable", "skill"]),
+						newerTags("owner/pinned", "v1.0"),
+					],
+					next: [
+						{
+							subject: "owner/pinned",
+							remedy: {
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
+								steps: [{ command: "npx agntc add owner/pinned@v2.0" }],
+							},
+						},
+					],
+					tally: closed({ updated: 1, upToDate: 1 }),
+				}),
 			);
-			// ...but the pinned (newer-tags) group never clones and never opens one.
-			expect(starts.some((m) => m.includes("owner/pinned"))).toBe(false);
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 		});
 	});
@@ -1556,8 +1913,7 @@ describe("update command", () => {
 			});
 		}
 
-		it("grouped streaming threads old = members entry.ref and new = resolved target.tag into the header/member move", async () => {
-			const handle = captureSpinner();
+		it("grouped streaming threads old = members entry.ref and new = resolved target.tag into the row's move", async () => {
 			// A 2-member constrained collection sharing one old tag (v1.2.3) and one
 			// old commit → shared-old header renders the tag move v1.2.3 -> v1.3.0.
 			mockReadManifestOrExit.mockResolvedValue({
@@ -1581,14 +1937,31 @@ describe("update command", () => {
 			await runUpdate(undefined, {}, ui);
 
 			// The resolved target.tag (v1.3.0) and the shared members' entry.ref
-			// (v1.2.3) render as tags in the group header — not commit hashes.
-			expect(handle.start).toHaveBeenCalledWith(
-				"Updating owner/repo  v1.2.3 -> v1.3.0  (2 members)",
+			// (v1.2.3) render as tags in the group's row — not commit hashes — and
+			// it spins saying where it's going.
+			expect(progress()[1]).toEqual({
+				subject: "owner/repo",
+				meta: "^1.0",
+				text: "updating to v1.3.0…",
+			});
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "a", "b")]],
+					rows: [
+						updated(
+							"owner/repo",
+							"^1.0",
+							{ from: "v1.2.3", to: "v1.3.0" },
+							["a", "skill"],
+							["b", "skill"],
+						),
+					],
+					tally: closed({ updated: 2 }),
+				}),
 			);
 		});
 
-		it("divergent-old constrained members each carry their own <oldTag> -> <newTag> in tags (header target-only)", async () => {
-			const handle = captureSpinner();
+		it("divergent-old constrained members each carry their own <oldTag> → <newTag> in tags (row target-only)", async () => {
 			const SHA_A = "c".repeat(40);
 			const SHA_B = "d".repeat(40);
 			// Two members at DIFFERENT old tags/commits, both constrained ^1.0, both
@@ -1614,87 +1987,60 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Divergent olds → header carries the resolved tag target only.
-			expect(handle.start).toHaveBeenCalledWith(
-				"Updating owner/repo -> v1.3.0  (2 members)",
-			);
-			// Each member threads its OWN entry.ref as oldRef against the shared
-			// target.tag → its own tag move on the member line.
-			expect(ui.log.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
-			expect(ui.log.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
-		});
-	});
-
-	// Structural guard: streamGroupMemberLines gates the per-member move on the
-	// caller-supplied `divergent` flag (single source of truth in streamGroupWork),
-	// NOT on any Set re-derived from item.updating's commits. Each case feeds
-	// updating commits whose Set size CONTRADICTS the passed flag to prove the flag
-	// alone drives member-line placement.
-	describe("streamGroupMemberLines consumes the caller-supplied divergent flag", () => {
-		function successOutcome(key: string): PluginOutcome {
-			return {
-				status: "updated",
-				key,
-				summary: `${key}: Updated`,
-				newEntry: makeEntry(),
-				notes: [],
-				absorbed: [],
-			};
-		}
-
-		function groupItem(memberCommits: [string, string]) {
-			const updating = [
+			// Divergent olds → the row carries the resolved tag target only; each
+			// member threads its OWN entry.ref as oldRef against the shared
+			// target.tag → its own tag move under the row.
+			expect(drawn().rows).toEqual([
 				{
-					key: "owner/repo/a",
-					entry: makeEntry({ ref: "v1.2.0", commit: memberCommits[0] }),
+					status: "done",
+					subject: "owner/repo",
+					meta: "^1.0",
+					detail: { label: "updated to v1.3.0" },
+					children: [
+						{ name: "a", detail: "v1.2.0 → v1.3.0 · skill" },
+						{ name: "b", detail: "v1.1.0 → v1.3.0 · skill" },
+					],
 				},
-				{
-					key: "owner/repo/b",
-					entry: makeEntry({ ref: "v1.1.0", commit: memberCommits[1] }),
-				},
-			];
-			return {
-				kind: "group" as const,
-				position: 0,
-				group: {
-					cloneUrl: "https://github.com/owner/repo.git",
-					versionIntent: "^1.0",
-					constrained: true,
-					members: updating,
-				},
-				target: { kind: "head" as const, resolvedSha: REMOTE_SHA },
-				updating,
-			};
-		}
-
-		it("emits a per-member move when divergent=true even though the updating commits are identical", () => {
-			// Identical commits — an internal Set derivation would say shared-old.
-			const item = groupItem([INSTALLED_SHA, INSTALLED_SHA]);
-			const outcomes = [
-				successOutcome("owner/repo/a"),
-				successOutcome("owner/repo/b"),
-			];
-
-			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", true, ui);
-
-			// Caller says divergent → each member line carries its own tag move.
-			expect(ui.log.success).toHaveBeenCalledWith("a  (v1.2.0 -> v1.3.0)");
-			expect(ui.log.success).toHaveBeenCalledWith("b  (v1.1.0 -> v1.3.0)");
+			]);
 		});
 
-		it("leaves member lines bare when divergent=false even though the updating commits differ", () => {
-			// Distinct commits — an internal Set derivation would say divergent-old.
-			const item = groupItem(["c".repeat(40), "d".repeat(40)]);
-			const outcomes = [
-				successOutcome("owner/repo/a"),
-				successOutcome("owner/repo/b"),
-			];
+		it("divergent-old members on a branch each carry their own short-hash move", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo/a": makeEntry({
+					commit: "c".repeat(40),
+					files: [".claude/skills/a/"],
+				}),
+				"owner/repo/b": makeEntry({
+					commit: "d".repeat(40),
+					files: [".claude/skills/b/"],
+				}),
+			});
+			mockResolveGroupTarget.mockResolvedValue({
+				kind: "head",
+				resolvedSha: REMOTE_SHA,
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/clone",
+				commit: REMOTE_SHA,
+			});
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/x/"],
+			});
 
-			streamGroupMemberLines(item, outcomes, REMOTE_SHA, "v1.3.0", false, ui);
+			await runUpdate(undefined, {}, ui);
 
-			// Caller says shared → the move stays on the header, member lines are bare.
-			expect(ui.log.success).toHaveBeenCalledWith("a");
-			expect(ui.log.success).toHaveBeenCalledWith("b");
+			expect(drawn().rows).toEqual([
+				{
+					status: "done",
+					subject: "owner/repo",
+					meta: "HEAD",
+					detail: { label: "updated to bbbbbbb" },
+					children: [
+						{ name: "a", detail: "ccccccc → bbbbbbb · skill" },
+						{ name: "b", detail: "ddddddd → bbbbbbb · skill" },
+					],
+				},
+			]);
 		});
 	});
 
@@ -1717,8 +2063,7 @@ describe("update command", () => {
 			});
 		}
 
-		it("collapses N up-to-date members of a group to one N up to date line", async () => {
-			captureSpinner();
+		it("collapses N up-to-date members of a group to one up to date row", async () => {
 			const manifest: Manifest = {};
 			for (let i = 1; i <= 7; i++) {
 				manifest[`owner/repo/${i}`] = member(String(i));
@@ -1739,12 +2084,22 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const messageCalls = ui.said("message");
-			// ONE collapsed count line for the 7-member group, keyed by the group.
-			expect(messageCalls).toEqual(["owner/repo: 7 up to date"]);
-			// Not 7 near-identical per-member up-to-date lines.
-			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
-				1,
+			// ONE row for the 7-member group, counted 7 in the tally, never 7
+			// near-identical per-member lines.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo", "HEAD", "1", "2", "3", "4", "5", "6", "7"),
+							group("owner/other", "HEAD", "other"),
+						],
+					],
+					rows: [
+						updated("owner/other", "HEAD", HASHES, ["other", "skill"]),
+						upToDate("owner/repo", "HEAD"),
+					],
+					tally: closed({ updated: 1, upToDate: 7 }),
+				}),
 			);
 		});
 
@@ -1767,19 +2122,31 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.said("info");
-			expect(infoCalls).toContain(
-				[
-					"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
-					"    npx agntc add owner/repo@v3.0 --skill alpha zeta",
-					"    npx agntc add owner/repo/web@v3.0 --pack",
-					"    npx agntc add owner/repo/tools@v3.0 --pack",
-				].join("\n"),
+			// One row and one Next item for the group, not one per member.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[group("owner/repo", "v1.0", "zeta", "web", "alpha", "tools")],
+					],
+					rows: [newerTags("owner/repo", "v1.0")],
+					next: [
+						{
+							subject: "owner/repo",
+							remedy: {
+								lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
+								steps: [
+									{
+										command: "npx agntc add owner/repo@v3.0 --skill alpha zeta",
+									},
+									{ command: "npx agntc add owner/repo/web@v3.0 --pack" },
+									{ command: "npx agntc add owner/repo/tools@v3.0 --pack" },
+								],
+							},
+						},
+					],
+					tally: closed({ upToDate: 4 }),
+				}),
 			);
-			// Not one near-identical newer-tags line per member.
-			expect(
-				infoCalls.filter((m) => m.includes("newer tags available")),
-			).toHaveLength(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -1795,11 +2162,15 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.said("info");
-			expect(infoCalls).toContain(
-				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade: npx agntc add owner/repo/a@v3.0",
-			);
-			expect(infoCalls.some((m) => m.includes("add owner/repo@"))).toBe(false);
+			expect(drawn().next).toEqual([
+				{
+					subject: "owner/repo",
+					remedy: {
+						lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
+						steps: [{ command: "npx agntc add owner/repo/a@v3.0" }],
+					},
+				},
+			]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -1817,16 +2188,16 @@ describe("update command", () => {
 
 			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
-			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
+			// All-mode check-failed exits 0 (excluded from hasFailedOutcome).
 			expect(err).toBeUndefined();
-			const warnCalls = ui.said("warn");
-			// ONE collapsed line carrying the shared probe reason — no per-member enumeration.
-			expect(warnCalls).toContain(
-				`owner/repo: couldn't check for updates (${REASON}) — left untouched`,
+			// ONE row carrying the shared probe reason — no per-member enumeration.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "b", "c")]],
+					rows: [notChecked("owner/repo", "HEAD", REASON)],
+					tally: closed({ notChecked: 3 }),
+				}),
 			);
-			expect(
-				warnCalls.filter((m) => m.includes("couldn't check for updates")),
-			).toHaveLength(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -1841,8 +2212,12 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.said("warn")).toEqual([
-				"leeovery/agentic-workflows: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+			expect(drawn().rows).toEqual([
+				notChecked(
+					"leeovery/agentic-workflows",
+					"HEAD",
+					"git@github.com: Permission denied (publickey).",
+				),
 			]);
 		});
 
@@ -1857,14 +2232,14 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = ui.said("warn");
-			// ONE collapsed line carrying the shared constraint.
-			expect(warnCalls).toContain(
-				"owner/repo: no tags satisfy ^2.0 — left untouched",
+			// ONE row carrying the shared constraint.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^2.0", "a", "b")]],
+					rows: [noMatch("owner/repo", "^2.0")],
+					tally: closed({ notChecked: 2 }),
+				}),
 			);
-			expect(
-				warnCalls.filter((m) => m.includes("no tags satisfy")),
-			).toHaveLength(1);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -1883,18 +2258,26 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = ui.said("warn");
-			const messageCalls = ui.said("message");
-			expect(warnCalls).toContain(
-				"owner/repo@^1.2.3: no tags satisfy ^1.2.3 — left untouched",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo@^1.2.3", "^1.2.3", "a"),
+							group("owner/repo@v2.0.0", "v2.0.0", "b"),
+						],
+					],
+					rows: [
+						noMatch("owner/repo@^1.2.3", "^1.2.3"),
+						upToDate("owner/repo@v2.0.0", "v2.0.0"),
+					],
+					tally: closed({ notChecked: 1, upToDate: 1 }),
+				}),
 			);
-			expect(messageCalls).toEqual(["owner/repo@v2.0.0: 1 up to date"]);
 		});
 
-		it("reports only the up-to-date members of a split group as the trailing count (behind members streamed, not counted here)", async () => {
-			const handle = captureSpinner();
-			// One HEAD group: member a is behind (streams an update), members b and c
-			// are already at the resolved target (up-to-date, collapse trailing).
+		it("draws a split group's up-to-date members under its row, each with its own status", async () => {
+			// One HEAD group: member a is behind (updates), members b and c are
+			// already at the resolved target (up to date).
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/a": member("a", { commit: INSTALLED_SHA }),
 				"owner/repo/b": member("b", { commit: REMOTE_SHA }),
@@ -1908,22 +2291,24 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// The behind member streamed inline (its own updated line), NOT counted here.
-			expect(stopTexts(handle, 0)).toContain(
-				"owner/repo/a: Updated aaaaaaa -> bbbbbbb",
-			);
-			const messageCalls = ui.said("message");
-			// Only the two up-to-date members appear — as the collapsed count (2, not 3).
-			expect(messageCalls).toEqual(["owner/repo: 2 up to date"]);
-			expect(messageCalls.filter((m) => m.includes("up to date"))).toHaveLength(
-				1,
-			);
-			// The up-to-date members never surface as per-member lines.
-			expect(messageCalls.some((m) => m.startsWith("owner/repo/b"))).toBe(
-				false,
-			);
-			expect(messageCalls.some((m) => m.startsWith("owner/repo/c"))).toBe(
-				false,
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "b", "c")]],
+					rows: [
+						{
+							status: "done",
+							subject: "owner/repo",
+							meta: "HEAD",
+							detail: { move: HASHES },
+							children: [
+								{ name: "a", status: "done", detail: "skill" },
+								{ name: "b", status: "unchanged", detail: "up to date" },
+								{ name: "c", status: "unchanged", detail: "up to date" },
+							],
+						},
+					],
+					tally: closed({ updated: 1, upToDate: 2 }),
+				}),
 			);
 		});
 	});
@@ -1934,7 +2319,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith("No skills or packs installed.");
+			expect(drawn()).toEqual(NOTHING_INSTALLED);
 			expect(mockCheckForUpdate).not.toHaveBeenCalled();
 		});
 	});
@@ -1949,7 +2334,9 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.said("error")).toEqual(["owner/repo is not installed."]);
+			expect(ui.fail).toHaveBeenCalledExactlyOnceWith(
+				"owner/repo is not installed.",
+			);
 		});
 	});
 
@@ -1962,8 +2349,12 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				"owner/repo is already up to date.",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [upToDate("owner/repo", "HEAD", { member: "repo" })],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
@@ -1971,7 +2362,7 @@ describe("update command", () => {
 		it("single-key update of a v4-branch entry that is up-to-date exits 0", async () => {
 			// Cross-surface recovery: a branch ref that looks like a tag ("v4") now
 			// resolves to a real status. The single-key path must take the up-to-date
-			// branch (outro + exit 0), NOT the check-failed exit-1 branch it hit
+			// branch (its row + exit 0), NOT the check-failed exit-1 branch it hit
 			// before Task 1.2's classification fix.
 			mockReadManifestOrExit.mockResolvedValue({
 				"nuxt/ui": makeEntry({ ref: "v4", commit: INSTALLED_SHA }),
@@ -1982,9 +2373,14 @@ describe("update command", () => {
 
 			// Resolves (no ExitSignal) — up-to-date, not the check-failed exit-1 path.
 			expect(err).toBeUndefined();
-			expect(ui.outro).toHaveBeenCalledWith("nuxt/ui is already up to date.");
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("nuxt/ui", "v4", "ui")]],
+					rows: [upToDate("nuxt/ui", "v4", { member: "ui" })],
+					tally: closed({ upToDate: 1 }),
+				}),
+			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -2002,8 +2398,16 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				"owner/repo: couldn't check for updates (network timeout) — left untouched",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						notChecked("owner/repo", "HEAD", "network timeout", {
+							member: "repo",
+						}),
+					],
+					tally: closed({ notChecked: 1 }),
+				}),
 			);
 		});
 
@@ -2018,8 +2422,13 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => undefined);
 
-			expect(ui.said("error")).toEqual([
-				"owner/repo: couldn't check for updates (git@github.com: Permission denied (publickey).) — left untouched",
+			expect(drawn().rows).toEqual([
+				notChecked(
+					"owner/repo",
+					"HEAD",
+					"git@github.com: Permission denied (publickey).",
+					{ member: "repo" },
+				),
 			]);
 		});
 	});
@@ -2139,11 +2548,12 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining(INSTALLED_SHA.slice(0, 7)),
-			);
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining(REMOTE_SHA.slice(0, 7)),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [updated("owner/repo", "HEAD", HASHES, ["repo", "skill"])],
+					tally: closed({ updated: 1 }),
+				}),
 			);
 		});
 	});
@@ -2242,9 +2652,9 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				"Updated owner/repo: aaaaaaa -> bbbbbbb — 1 file(s)",
-			);
+			expect(drawn().rows).toEqual([
+				updated("owner/repo", "HEAD", HASHES, ["repo", "skill"]),
+			]);
 		});
 	});
 
@@ -2284,14 +2694,25 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			const errorCalls = ui.said("error");
-			const msg = errorCalls.find((m) => m.includes("owner/repo"));
-			expect(msg).toBeDefined();
-			expect(msg).toContain("skill");
-			expect(msg).toContain("SKILL.md");
-			expect(msg).toContain("unchanged");
-			expect(msg).toContain("npx agntc remove owner/repo");
-			expect(msg).toContain("npx agntc add");
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						stopped("owner/repo", "HEAD", HASHES, "not updated", [
+							"repo",
+							nowNamed("repo", "a/repo", "b/repo"),
+						]),
+					],
+					next: [
+						followOne(
+							"owner/repo",
+							"npx agntc add owner/repo/a/repo",
+							"npx agntc add owner/repo/b/repo",
+						),
+					],
+					tally: closed({ notUpdated: 1 }),
+				}),
+			);
 		});
 
 		it("does not nuke or mutate the manifest on abort (install intact)", async () => {
@@ -2312,13 +2733,13 @@ describe("update command", () => {
 			// Copy-failed removes the entry + writes the manifest; abort must not.
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 			expect(mockRemoveEntry).not.toHaveBeenCalled();
-			const errorCalls = ui.said("error");
-			// Copy-failed hint tells the user the unit is currently uninstalled;
-			// abort must NOT use that wording (install is intact).
-			const hasRetryHint = errorCalls.some((m) =>
-				m.includes("currently uninstalled"),
-			);
-			expect(hasRetryHint).toBe(false);
+			// Copy-failed tells the user the unit is currently uninstalled and
+			// offers its re-add; an abort leaves the install intact.
+			const { rows, next } = drawn();
+			expect(JSON.stringify(rows)).not.toContain("currently uninstalled");
+			expect(next.map(({ remedy }) => remedy.lead)).toEqual([
+				"To follow one of them:",
+			]);
 		});
 
 		it("all-updates: aborted outcome does not mutate the manifest", async () => {
@@ -2375,7 +2796,6 @@ describe("update command", () => {
 		});
 
 		it("all-updates: aborted outcome reports loud per-unit message naming remedy", async () => {
-			const handle = captureSpinner();
 			const entry = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -2393,19 +2813,29 @@ describe("update command", () => {
 			mockAccess.mockRejectedValue(new Error("ENOENT"));
 			rewalkFinds("a/repo", "b/repo");
 
-			// All-updates abort exits non-zero after rendering the loud summary;
-			// catch so the summary assertions below still run.
+			// All-updates abort exits non-zero after drawing its row; catch so
+			// the assertions below still run.
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// The single aborted member is a group-of-one → its loud line is the
-			// spinner stop-frame at code 2 (error ✗).
-			const msg = stopTexts(handle, 2).find(
-				(m) => m.includes("owner/repo") && m.includes("skill"),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						stopped("owner/repo", "HEAD", HASHES, "not updated", [
+							"repo",
+							nowNamed("repo", "a/repo", "b/repo"),
+						]),
+					],
+					next: [
+						followOne(
+							"owner/repo",
+							"npx agntc add owner/repo/a/repo",
+							"npx agntc add owner/repo/b/repo",
+						),
+					],
+					tally: closed({ notUpdated: 1 }),
+				}),
 			);
-			expect(msg).toBeDefined();
-			expect(msg).toContain("SKILL.md");
-			expect(msg).toContain("unchanged");
-			expect(msg).toContain("npx agntc remove owner/repo");
 		});
 	});
 
@@ -2448,16 +2878,19 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			const errorCalls = ui.said("error");
-			const msg = errorCalls.find((m) => m.includes("owner/repo"));
-			expect(msg).toBeDefined();
-			expect(msg).toContain("evil-link");
-			expect(msg?.toLowerCase()).toContain("symlink");
-			expect(msg).toContain("unchanged");
-			// Must NOT use the derive-before-delete framing or remedy.
-			expect(msg).not.toContain("no longer supports that type");
-			expect(msg).not.toContain("npx agntc remove");
-			expect(msg).not.toContain("To migrate");
+			// No derive-before-delete framing, and no remedy: nothing in Next.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						stopped("owner/repo", "HEAD", HASHES, "not updated", [
+							"repo",
+							ESCAPE,
+						]),
+					],
+					tally: closed({ notUpdated: 1 }),
+				}),
+			);
 		});
 
 		it("does not nuke or mutate the manifest on a symlink-escape block (install intact)", async () => {
@@ -2471,7 +2904,6 @@ describe("update command", () => {
 		});
 
 		it("all-updates: a symlink-escape member produces a non-success outcome (non-zero exit), manifest untouched, sibling still updates", async () => {
-			const handle = captureSpinner();
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -2535,14 +2967,26 @@ describe("update command", () => {
 				expect(written["owner/repo-a"]).toBeDefined();
 			}
 
-			// Copy-safety message rendered for the blocked member — a group-of-one,
-			// so its loud line is the spinner stop-frame at code 2 (error ✗).
-			const blockedMsg = stopTexts(handle, 2).find((m) =>
-				m.includes("owner/repo-a"),
+			// The copy-safety reason under the blocked member's row; the sibling
+			// updated beside it.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "HEAD", "repo-b"),
+						],
+					],
+					rows: [
+						stopped("owner/repo-a", "HEAD", HASHES, "not updated", [
+							"repo-a",
+							ESCAPE,
+						]),
+						updated("owner/repo-b", "HEAD", HASHES, ["repo-b", "skill"]),
+					],
+					tally: closed({ notUpdated: 1, updated: 1 }),
+				}),
 			);
-			expect(blockedMsg).toBeDefined();
-			expect(blockedMsg).toContain("evil-link");
-			expect(blockedMsg).not.toContain("no longer supports that type");
 		});
 	});
 
@@ -2669,39 +3113,39 @@ describe("update command", () => {
 			expect(writtenManifest["owner/repo-a"]).toEqual(entryA);
 		});
 
-		it("reports the aborted unit loudly in the per-unit summary", async () => {
-			const handle = captureSpinner();
+		it("draws the aborted and the succeeded unit each in its own row, the abort's remedy in Next", async () => {
 			arrangePartialAbort();
 
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// repo-a aborts as a group-of-one → its loud line is the spinner
-			// stop-frame at code 2 (error ✗).
-			const msg = stopTexts(handle, 2).find((m) => m.includes("owner/repo-a"));
-			expect(msg).toBeDefined();
-			expect(msg).toContain("skill");
-			expect(msg).toContain("unchanged");
-			expect(msg).toContain("npx agntc remove owner/repo-a");
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "HEAD", "repo-b"),
+						],
+					],
+					rows: [
+						stopped("owner/repo-a", "HEAD", HASHES, "not updated", [
+							"repo-a",
+							nowNamed("repo-a", "x/repo-a", "y/repo-a"),
+						]),
+						updated("owner/repo-b", "HEAD", HASHES, ["repo-b", "skill"]),
+					],
+					next: [
+						followOne(
+							"owner/repo-a",
+							"npx agntc add owner/repo-a/x/repo-a",
+							"npx agntc add owner/repo-a/y/repo-a",
+						),
+					],
+					tally: closed({ notUpdated: 1, updated: 1 }),
+				}),
+			);
 		});
 
-		it("lists per-unit outcomes for both the aborted and the succeeded unit", async () => {
-			const handle = captureSpinner();
-			arrangePartialAbort();
-
-			await runUpdate(undefined, {}, ui).catch(() => {});
-
-			// Each is its own group-of-one: repo-b succeeds (stop code 0), repo-a
-			// aborts (stop code 2).
-			expect(stopTexts(handle, 0).some((m) => m.includes("owner/repo-b"))).toBe(
-				true,
-			);
-			expect(stopTexts(handle, 2).some((m) => m.includes("owner/repo-a"))).toBe(
-				true,
-			);
-		});
-
-		it("reports each aborted entry with its own reason (two distinct loud lines)", async () => {
-			const handle = captureSpinner();
+		it("reports each aborted entry with its own reason (two rows, two remedies)", async () => {
 			const entryA = makeEntry({
 				type: "skill",
 				commit: INSTALLED_SHA,
@@ -2731,21 +3175,39 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// Two standalone repos, each a group-of-one → two distinct loud
-			// stop-frames at code 2 (error ✗).
-			const errorCalls = stopTexts(handle, 2);
-			const msgA = errorCalls.find((m) => m.includes("owner/repo-a"));
-			const msgB = errorCalls.find((m) => m.includes("owner/repo-b"));
-			expect(msgA).toBeDefined();
-			expect(msgB).toBeDefined();
-			expect(msgA).toContain(
-				"2 skills are now named repo-a: x/repo-a, y/repo-a",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "HEAD", "repo-b"),
+						],
+					],
+					rows: [
+						stopped("owner/repo-a", "HEAD", HASHES, "not updated", [
+							"repo-a",
+							nowNamed("repo-a", "x/repo-a", "y/repo-a"),
+						]),
+						stopped("owner/repo-b", "HEAD", HASHES, "not updated", [
+							"repo-b",
+							nowNamed("repo-b", "x/repo-b", "y/repo-b"),
+						]),
+					],
+					next: [
+						followOne(
+							"owner/repo-a",
+							"npx agntc add owner/repo-a/x/repo-a",
+							"npx agntc add owner/repo-a/y/repo-a",
+						),
+						followOne(
+							"owner/repo-b",
+							"npx agntc add owner/repo-b/x/repo-b",
+							"npx agntc add owner/repo-b/y/repo-b",
+						),
+					],
+					tally: closed({ notUpdated: 2 }),
+				}),
 			);
-			expect(msgB).toContain(
-				"2 skills are now named repo-b: x/repo-b, y/repo-b",
-			);
-			expect(msgA).toContain("npx agntc remove owner/repo-a");
-			expect(msgB).toContain("npx agntc remove owner/repo-b");
 		});
 
 		it("exits non-zero once even when multiple units abort", async () => {
@@ -2781,7 +3243,6 @@ describe("update command", () => {
 		it("abort is not swallowed by the all-up-to-date early return", async () => {
 			// owner/repo-current is up to date; owner/repo-a aborts. The abort must
 			// still be reported and force a non-zero exit (not the up-to-date path).
-			const handle = captureSpinner();
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo-current": makeEntry({
 					commit: INSTALLED_SHA,
@@ -2810,12 +3271,30 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.outro).not.toHaveBeenCalledWith(
-				expect.stringContaining("up to date"),
-			);
-			// repo-a aborts as a group-of-one → loud stop-frame at code 2 (error ✗).
-			expect(stopTexts(handle, 2).some((m) => m.includes("owner/repo-a"))).toBe(
-				true,
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-current", "HEAD", "repo-current"),
+							group("owner/repo-a", "HEAD", "repo-a"),
+						],
+					],
+					rows: [
+						stopped("owner/repo-a", "HEAD", HASHES, "not updated", [
+							"repo-a",
+							nowNamed("repo-a", "x/repo-a", "y/repo-a"),
+						]),
+						upToDate("owner/repo-current", "HEAD"),
+					],
+					next: [
+						followOne(
+							"owner/repo-a",
+							"npx agntc add owner/repo-a/x/repo-a",
+							"npx agntc add owner/repo-a/y/repo-a",
+						),
+					],
+					tally: closed({ notUpdated: 1, upToDate: 1 }),
+				}),
 			);
 		});
 
@@ -2927,11 +3406,15 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			expect(ui.said("cancel")).toHaveLength(1);
-			expect(ui.cancel).toHaveBeenCalledWith(
-				expect.stringContaining("git clone failed"),
+			// A failure, drawn ✗ in its row: never a cancel, which reads ○.
+			expect(ui.cancel).not.toHaveBeenCalled();
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [cloneFailed("owner/repo", "HEAD", "network error", "repo")],
+					tally: closed({ failed: 1 }),
+				}),
 			);
-			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -2960,26 +3443,31 @@ describe("update command", () => {
 			});
 		}
 
-		it("renders a group clone failure as one enumerated error line, not N lines", async () => {
-			const handle = captureSpinner();
+		it("renders a group clone failure as one row naming the affected members, not N lines", async () => {
 			threeMemberCollection();
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// ONE enumerated grouped error line naming the affected member basenames
-			// alongside the count — emitted in place of the header's per-member lines.
-			expect(ui.said("error")).toEqual([
-				"owner/repo: clone failed — affects 3 members: a, b, c",
-			]);
-			// The interim per-member `<key>: Failed — …` warn lines are gone: the
-			// N-outcome fan-out is a DISPLAY-only collapse now (never one line per member).
-			const warnCalls = ui.said("warn");
-			expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
-			// The >=2-member group still opens (and settles) its Updating header spinner.
-			expect(handle.start).toHaveBeenCalledWith(
-				expect.stringContaining("Updating owner/repo"),
+			// ONE row naming the affected members beneath it, its task settling
+			// into it; the tally still counts the N failed outcomes.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "b", "c")]],
+					rows: [
+						cloneFailed(
+							"owner/repo",
+							"HEAD",
+							"git clone failed",
+							"a",
+							"b",
+							"c",
+						),
+					],
+					tally: closed({ failed: 3 }),
+				}),
 			);
+			expect(ui.blocks[0]!.tasks[1]!.settle).toHaveBeenCalledOnce();
 		});
 
 		it("mutates no manifest state for the clone-failed group", async () => {
@@ -3042,12 +3530,29 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			// Group A collapses to ONE enumerated error line; group B streams both
-			// member ✓ lines under its own header.
-			expect(ui.said("error")).toEqual([
-				"owner/repo-a: clone failed — affects 2 members: x, y",
-			]);
-			expect(ui.said("success")).toEqual(["m", "n"]);
+			// Group A settles as one clone-failed row; group B's row carries both
+			// members updated.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "x", "y"),
+							group("owner/repo-b", "HEAD", "m", "n"),
+						],
+					],
+					rows: [
+						cloneFailed("owner/repo-a", "HEAD", "git clone failed", "x", "y"),
+						updated(
+							"owner/repo-b",
+							"HEAD",
+							HASHES,
+							["m", "skill"],
+							["n", "skill"],
+						),
+					],
+					tally: closed({ failed: 2, updated: 2 }),
+				}),
+			);
 			// Only group B persisted; group A (clone-failed) wrote nothing.
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
 			expect(mockAddEntry).toHaveBeenCalledWith(
@@ -3068,13 +3573,9 @@ describe("update command", () => {
 			expect(mockRemoveEntry).not.toHaveBeenCalled();
 		});
 
-		it("a group-of-one clone failure renders ONE collapsed spin.stop line, not a header + enumerated line", async () => {
-			// A standalone repo → a group-of-one (attempted count === 1). Its clone
-			// throws. Per the task-2-4 collapse principle it stays a SINGLE physical
-			// line — the red ▲ spinner stop-frame (code 2) — NOT a header stop plus a
-			// separate enumerated `affects 1 members` line (which would be redundant
-			// with the repo name AND regress the group-of-one collapse).
-			const handle = captureSpinner();
+		it("a group-of-one clone failure settles into the same row as a larger group's", async () => {
+			// A standalone repo → a group-of-one. Its clone throws: one row, its
+			// one member beneath it, as any group's.
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					commit: INSTALLED_SHA,
@@ -3089,16 +3590,13 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// The single collapsed failed line IS the spinner stop-frame at code 2.
-			expect(stopTexts(handle, 2)).toEqual([
-				"owner/repo: Failed — git clone failed",
-			]);
-			// No enumerated grouped line for a group-of-one — no "affects" text anywhere.
-			const errorCalls = ui.said("error");
-			expect(errorCalls.some((m) => m.includes("clone failed — affects"))).toBe(
-				false,
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [cloneFailed("owner/repo", "HEAD", "git clone failed", "repo")],
+					tally: closed({ failed: 1 }),
+				}),
 			);
-			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -3136,18 +3634,18 @@ describe("update command", () => {
 
 			const err = await runUpdate(undefined, {}, ui).catch((e) => e);
 
-			// All-mode check-failed warns and exits 0 (excluded from hasFailedOutcome).
+			// All-mode check-failed exits 0 (excluded from hasFailedOutcome).
 			expect(err).toBeUndefined();
-			// The MODEL stays N check-failed outcomes (exit accounting); the DISPLAY
-			// count-collapses to ONE group line (task 2-5) — a group-level probe
-			// failure is one shared reason, never one line per member.
-			const warnCalls = ui.said("warn");
-			const checkFailedLines = warnCalls.filter((m) =>
-				m.includes("couldn't check for updates"),
+			// The MODEL stays N check-failed outcomes (the tally counts 3); the
+			// DISPLAY is ONE group row — a group-level probe failure is one shared
+			// reason, never one line per member.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "b", "c")]],
+					rows: [notChecked("owner/repo", "HEAD", PROBE_REASON)],
+					tally: closed({ notChecked: 3 }),
+				}),
 			);
-			expect(checkFailedLines).toEqual([
-				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
-			]);
 		});
 
 		it("a check-failed group runs no clone and mutates no manifest state", async () => {
@@ -3211,20 +3709,15 @@ describe("update command", () => {
 			);
 		});
 
-		it("collapses the trailing summary to the group label — no per-member enumeration", async () => {
+		it("draws the group's row under its label — no per-member row or child", async () => {
 			threeMemberCollection();
 
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			const warnCalls = ui.said("warn");
-			// One group line keyed by the group label (task 2-5)...
-			expect(warnCalls).toContain(
-				`owner/repo: couldn't check for updates (${PROBE_REASON}) — left untouched`,
-			);
-			// ...and the individual member keys never each surface a line.
-			for (const key of ["owner/repo/a", "owner/repo/b", "owner/repo/c"]) {
-				expect(warnCalls.some((m) => m.startsWith(`${key}:`))).toBe(false);
-			}
+			expect(drawn().rows).toEqual([
+				notChecked("owner/repo", "HEAD", PROBE_REASON),
+			]);
+			expect(ui.warn).not.toHaveBeenCalled();
 		});
 	});
 
@@ -3278,11 +3771,19 @@ describe("update command", () => {
 
 			const err = await runUpdate("owner/repo", {}, ui).catch((e) => e);
 
-			// The requested action did not happen -> ExitSignal(1), loud error.
+			// The requested action did not happen -> ExitSignal(1).
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				"owner/repo: couldn't check for updates (network timeout) — left untouched",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						notChecked("owner/repo", "HEAD", "network timeout", {
+							member: "repo",
+						}),
+					],
+					tally: closed({ notChecked: 1 }),
+				}),
 			);
 		});
 
@@ -3300,8 +3801,12 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				"No tags satisfy the constraint for owner/repo. Left untouched.",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^2.0", "repo")]],
+					rows: [noMatch("owner/repo", "^2.0", { member: "repo" })],
+					tally: closed({ notChecked: 1 }),
+				}),
 			);
 		});
 
@@ -3338,12 +3843,22 @@ describe("update command", () => {
 
 			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
 			expect(err).toBeUndefined();
-			// Surfaced via warn, NOT error.
-			const warnCalls = ui.said("warn");
-			expect(warnCalls).toContain(
-				`owner/repo-a: couldn't check for updates (${REASON}) — left untouched`,
+			// Drawn as needing attention (!), never failed (✗).
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "HEAD", "repo-b"),
+						],
+					],
+					rows: [
+						updated("owner/repo-b", "HEAD", HASHES, ["repo-b", "skill"]),
+						notChecked("owner/repo-a", "HEAD", REASON),
+					],
+					tally: closed({ updated: 1, notChecked: 1 }),
+				}),
 			);
-			expect(ui.said("error")).toEqual([]);
 			// The check-failed group mutates no manifest state (probe failed before any
 			// clone); the succeeding sibling B still persists.
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
@@ -3379,12 +3894,14 @@ describe("update command", () => {
 
 			// Excluded from hasFailedOutcome -> the batch resolves (exit 0).
 			expect(err).toBeUndefined();
-			// Surfaced via warn, NOT error.
-			const warnCalls = ui.said("warn");
-			expect(warnCalls).toContain(
-				"owner/repo: no tags satisfy ^2.0 — left untouched",
+			// Drawn as needing attention (!), never failed (✗).
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^2.0", "repo")]],
+					rows: [noMatch("owner/repo", "^2.0")],
+					tally: closed({ notChecked: 1 }),
+				}),
 			);
-			expect(ui.said("error")).toEqual([]);
 			// Entry left untouched: no clone, no write, no add/remove.
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -3593,7 +4110,6 @@ describe("update command", () => {
 		// no non-actioned category trips the all-mode non-zero exit ---
 
 		it("no non-actioned status (up-to-date / newer-tags / check-failed / constrained-no-match) trips the all-mode non-zero exit", async () => {
-			captureSpinner();
 			const CHECK_REASON = "ls-remote failed: dead remote";
 			// Four groups, one per non-actioned category — none of which is a member
 			// of hasFailedOutcome (aborted | blocked | failed | copy-failed).
@@ -3636,23 +4152,37 @@ describe("update command", () => {
 
 			// None of the four categories is a hasFailedOutcome member -> exit 0.
 			expect(err).toBeUndefined();
-			// Every category was genuinely produced (not swallowed by an early return):
-			const warnCalls = ui.said("warn");
-			const infoCalls = ui.said("info");
-			const messageCalls = ui.said("message");
-			expect(warnCalls).toContain(
-				`owner/checkfail: couldn't check for updates (${CHECK_REASON}) — left untouched`,
+			// Every category was genuinely produced (not swallowed by an early
+			// return), and none drew as failed.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/uptodate", "HEAD", "uptodate"),
+							group("owner/newer", "v1.0", "newer"),
+							group("owner/checkfail", "HEAD", "checkfail"),
+							group("owner/nomatch", "^2.0", "nomatch"),
+						],
+					],
+					rows: [
+						upToDate("owner/uptodate", "HEAD"),
+						newerTags("owner/newer", "v1.0"),
+						notChecked("owner/checkfail", "HEAD", CHECK_REASON),
+						noMatch("owner/nomatch", "^2.0"),
+					],
+					next: [
+						{
+							subject: "owner/newer",
+							remedy: {
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
+								steps: [{ command: "npx agntc add owner/newer@v2.0" }],
+							},
+						},
+					],
+					tally: closed({ upToDate: 2, notChecked: 2 }),
+				}),
 			);
-			expect(warnCalls).toContain(
-				"owner/nomatch: no tags satisfy ^2.0 — left untouched",
-			);
-			expect(infoCalls.some((m) => m.includes("newer tags available"))).toBe(
-				true,
-			);
-			expect(messageCalls.some((m) => m.includes("up to date"))).toBe(true);
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			// No hard-failure category surfaced -> no loud error anywhere.
-			expect(ui.said("error")).toEqual([]);
 		});
 	});
 
@@ -3841,7 +4371,7 @@ describe("update command", () => {
 			);
 		});
 
-		it("reports a pack entry that is now a single skill before the outro", async () => {
+		it("notes a pack entry that is now a single skill under its row", async () => {
 			const entry = makeEntry({
 				type: "pack",
 				files: [".claude/agents/openai.yaml"],
@@ -3864,11 +4394,22 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo/swift", {}, ui);
 
-			const note =
-				"owner/repo/swift is a single skill — reinstalled as a skill";
-			expect(ui.note).toHaveBeenCalledWith(note);
-			expect(ui.saidOrders("info").at(-1)).toBeLessThan(
-				ui.outro.mock.invocationCallOrder.at(-1)!,
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "swift")]],
+					rows: [updated("owner/repo", "HEAD", HASHES, ["swift", "skill"])],
+					notes: [
+						sentence(
+							"owner/repo/swift is a single skill — reinstalled as a skill",
+						),
+					],
+					tally: closed({ updated: 1 }),
+				}),
+			);
+			// Noted while its task spins, so it prints under the row it settles.
+			const [, updating] = ui.blocks[0]!.tasks;
+			expect(ui.note.mock.invocationCallOrder[0]).toBeLessThan(
+				updating!.settle.mock.invocationCallOrder[0]!,
 			);
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/agents/openai.yaml",
@@ -3885,8 +4426,7 @@ describe("update command", () => {
 	});
 
 	describe("all-mode reinstall notes", () => {
-		it("prints a member's note after its group settles", async () => {
-			const handle = captureSpinner();
+		it("notes a member while its group's task spins, so it prints under the group's row", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo/swift": makeEntry({
 					type: "pack",
@@ -3910,11 +4450,22 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.note).toHaveBeenCalledWith(
-				"owner/repo/swift is a single skill — reinstalled as a skill",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "swift")]],
+					rows: [updated("owner/repo", "HEAD", HASHES, ["swift", "skill"])],
+					notes: [
+						sentence(
+							"owner/repo/swift is a single skill — reinstalled as a skill",
+						),
+					],
+					tally: closed({ updated: 1 }),
+				}),
 			);
-			const settled = handle.stop.mock.invocationCallOrder.at(-1)!;
-			expect(ui.saidOrders("info")[0]).toBeGreaterThan(settled);
+			const [, updating] = ui.blocks[0]!.tasks;
+			expect(ui.note.mock.invocationCallOrder[0]).toBeLessThan(
+				updating!.settle.mock.invocationCallOrder[0]!,
+			);
 		});
 	});
 
@@ -3958,8 +4509,20 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.log.info).toHaveBeenCalledWith(
-				"Pinned to v1.0. Newer tags available:",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "v1.0", "repo")]],
+					rows: [newerTags("owner/repo", "v1.0", { member: "repo" })],
+					next: [
+						pinnedKey(
+							"owner/repo",
+							"v1.0",
+							["v3.0", "v2.0"],
+							"npx agntc add owner/repo@v3.0",
+						),
+					],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 		});
 
@@ -3974,24 +4537,14 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			const messageCalls = ui.said("message");
-			expect(messageCalls).toEqual(["  v4.0", "  v3.0", "  v2.0"]);
-		});
-
-		it("shows re-add command with newest tag", async () => {
-			mockReadManifestOrExit.mockResolvedValue({
-				"owner/repo": makeEntry({ ref: "v1.0" }),
-			});
-			mockCheckForUpdate.mockResolvedValue({
-				status: "newer-tags",
-				tags: ["v2.0", "v3.0"],
-			});
-
-			await runUpdate("owner/repo", {}, ui);
-
-			expect(ui.outro).toHaveBeenCalledWith(
-				"To upgrade: npx agntc add owner/repo@v3.0",
-			);
+			expect(drawn().next).toEqual([
+				pinnedKey(
+					"owner/repo",
+					"v1.0",
+					["v4.0", "v3.0", "v2.0"],
+					"npx agntc add owner/repo@v4.0",
+				),
+			]);
 		});
 
 		it("does not clone, nuke, or write manifest", async () => {
@@ -4033,12 +4586,24 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo/go", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				"To upgrade: npx agntc add owner/repo/go@v3.0",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "v1.0", "go")]],
+					rows: [newerTags("owner/repo", "v1.0", { member: "go" })],
+					next: [
+						pinnedKey(
+							"owner/repo/go",
+							"v1.0",
+							["v3.0", "v2.0"],
+							"npx agntc add owner/repo/go@v3.0",
+						),
+					],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 		});
 
-		it("single-key exact-pin standalone outros npx agntc add owner/repo@<newest>", async () => {
+		it("single-key exact-pin standalone queues npx agntc add owner/repo@<newest>", async () => {
 			// Regression-lock (task 4-2): the single-key path for an exact-pin
 			// standalone stays key-scoped — it suggests the newest tag as
 			// `add owner/repo@v3.0` (update.ts:151, pre-existing), NEVER the bare
@@ -4054,16 +4619,18 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				"To upgrade: npx agntc add owner/repo@v3.0",
-			);
 			// Exact-pin keeps the @<newest> suffix — never the bare caret re-add.
-			expect(ui.outro).not.toHaveBeenCalledWith(
-				"To upgrade: npx agntc add owner/repo",
-			);
+			expect(drawn().next).toEqual([
+				pinnedKey(
+					"owner/repo",
+					"v1.0",
+					["v3.0", "v2.0"],
+					"npx agntc add owner/repo@v3.0",
+				),
+			]);
 		});
 
-		it("single-key exact-pin collection member outros npx agntc add owner/repo/<member>@<newest>", async () => {
+		it("single-key exact-pin collection member queues npx agntc add owner/repo/<member>@<newest>", async () => {
 			// Regression-lock (task 4-2): a single-key COLLECTION MEMBER stays
 			// member-scoped — the command targets the one plugin
 			// (`add owner/repo/go@v3.0`), NOT the repo-level collapse
@@ -4078,13 +4645,15 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo/go", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				"To upgrade: npx agntc add owner/repo/go@v3.0",
-			);
 			// Member-scoped, NOT the repo-level command the all-mode collapse uses.
-			expect(ui.outro).not.toHaveBeenCalledWith(
-				"To upgrade: npx agntc add owner/repo@v3.0",
-			);
+			expect(drawn().next).toEqual([
+				pinnedKey(
+					"owner/repo/go",
+					"v1.0",
+					["v3.0", "v2.0"],
+					"npx agntc add owner/repo/go@v3.0",
+				),
+			]);
 		});
 	});
 
@@ -4097,8 +4666,12 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				"owner/repo is already up to date.",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "v3.0", "repo")]],
+					rows: [upToDate("owner/repo", "v3.0", { member: "repo" })],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
@@ -4157,8 +4730,19 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				`${LOCAL_KEY}: path does not exist`,
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[local(LOCAL_KEY)]],
+					rows: [
+						{
+							status: "failed",
+							subject: LOCAL_KEY,
+							meta: "local",
+							detail: "path does not exist",
+						},
+					],
+					tally: closed({ failed: 1 }),
+				}),
 			);
 		});
 
@@ -4171,9 +4755,14 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				`${LOCAL_KEY}: path is not a directory`,
-			);
+			expect(drawn().rows).toEqual([
+				{
+					status: "failed",
+					subject: LOCAL_KEY,
+					meta: "local",
+					detail: "path is not a directory",
+				},
+			]);
 		});
 
 		it("does not use git clone for local updates", async () => {
@@ -4225,8 +4814,45 @@ describe("update command", () => {
 
 			await runUpdate(LOCAL_KEY, {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("Refreshed"),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[local(LOCAL_KEY)]],
+					rows: [
+						{
+							status: "done",
+							subject: LOCAL_KEY,
+							meta: "local",
+							detail: { label: "refreshed", aside: "skill" },
+						},
+					],
+					tally: closed({ refreshed: 1 }),
+				}),
+			);
+			expect(progress()).toEqual([
+				{ subject: LOCAL_KEY, meta: "local", text: "refreshing…" },
+			]);
+		});
+
+		it("draws a local entry under the home folder by its path from ~, in all-mode too", async () => {
+			const underHome = join(homedir(), "Code", "my-plugin");
+			mockReadManifestOrExit.mockResolvedValue({ [underHome]: LOCAL_ENTRY });
+			mockStat.mockResolvedValue({ isDirectory: () => true } as Stats);
+			mockCopyBareSkill.mockResolvedValue({
+				copiedFiles: [".claude/skills/my-plugin/"],
+			});
+
+			await runUpdate(undefined, {}, ui);
+
+			const shortened = `~${sep}Code${sep}my-plugin`;
+			expect(progress()).toEqual([
+				{ subject: shortened, meta: "local", text: "refreshing…" },
+			]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[local(shortened)]],
+					rows: [refreshed(shortened, "skill")],
+					tally: closed({ refreshed: 1 }),
+				}),
 			);
 		});
 
@@ -4278,11 +4904,15 @@ describe("update command", () => {
 			const err = await runUpdate(LOCAL_KEY, {}, ui).catch((e) => e);
 
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.said("error")).toHaveLength(1);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				expect.stringMatching(new RegExp(`^${LOCAL_KEY}: .*"\\.\\./x"`)),
-			);
-			expect(ui.said("cancel")).toEqual([]);
+			expect(drawn().rows).toEqual([
+				{
+					status: "failed",
+					subject: LOCAL_KEY,
+					meta: "local",
+					detail: 'subpath "../x" resolves outside the clone root',
+				},
+			]);
+			expect(ui.cancel).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		});
 	});
@@ -4421,7 +5051,9 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.said("error")).toEqual(["nonexistent/repo is not installed."]);
+			expect(ui.fail).toHaveBeenCalledExactlyOnceWith(
+				"nonexistent/repo is not installed.",
+			);
 		});
 
 		it("prefers exact match when key exists as both standalone and collection prefix", async () => {
@@ -4511,8 +5143,26 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui).catch(() => {});
 
-			expect(ui.log.error).toHaveBeenCalledWith(
-				"Update failed for owner/repo after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled. Run `npx agntc add owner/repo` to install it again.",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						stopped("owner/repo", "HEAD", HASHES, "failed", [
+							"repo",
+							"update failed after removing old files (ENOSPC: no space left on device, write). It is currently uninstalled.",
+						]),
+					],
+					next: [
+						{
+							subject: "owner/repo",
+							remedy: {
+								lead: "To install it again:",
+								steps: [{ command: "npx agntc add owner/repo" }],
+							},
+						},
+					],
+					tally: closed({ failed: 1 }),
+				}),
 			);
 		});
 	});
@@ -4555,8 +5205,29 @@ describe("update command", () => {
 
 			await runUpdate(LOCAL_KEY, {}, ui).catch(() => {});
 
-			expect(ui.log.error).toHaveBeenCalledWith(
-				expect.stringContaining(`npx agntc add ${LOCAL_KEY}`),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[local(LOCAL_KEY)]],
+					rows: [
+						{
+							status: "failed",
+							subject: LOCAL_KEY,
+							meta: "local",
+							detail:
+								"update failed after removing old files (disk full). It is currently uninstalled.",
+						},
+					],
+					next: [
+						{
+							subject: LOCAL_KEY,
+							remedy: {
+								lead: "To install it again:",
+								steps: [{ command: `npx agntc add ${LOCAL_KEY}` }],
+							},
+						},
+					],
+					tally: closed({ failed: 1 }),
+				}),
 			);
 		});
 	});
@@ -4592,7 +5263,7 @@ describe("update command", () => {
 			]);
 		});
 
-		it("passes new tag as newRef and new commit as newCommit to cloneAndReinstall", async () => {
+		it("passes new tag as newRef and new commit as newCommit to reinstallEntry", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -4624,7 +5295,7 @@ describe("update command", () => {
 			);
 		});
 
-		it("single-key runSinglePluginUpdate passes entry.ref and result.manifestEntry.ref into renderGitUpdateSummary", async () => {
+		it("single-key draws the move from entry.ref to result.manifestEntry.ref", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -4649,11 +5320,21 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			// oldRef = pre-update entry.ref (v1.2.3), newRef = post-update
-			// result.manifestEntry.ref (resolved v1.3.0) → the shared formatVersionMove
-			// renders the tag move, not commit hashes.
-			expect(ui.outro).toHaveBeenCalledWith(
-				"Updated owner/repo: v1.2.3 -> v1.3.0 — 1 file(s)",
+			// result.manifestEntry.ref (resolved v1.3.0) → the shared versionMove
+			// draws the tag move, not commit hashes.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [
+						updated("owner/repo", "^1.0", { from: "v1.2.3", to: "v1.3.0" }, [
+							"repo",
+							"skill",
+						]),
+					],
+					tally: closed({ updated: 1 }),
+				}),
 			);
+			expect(progress()[1]!.text).toBe("updating to v1.3.0…");
 		});
 
 		it("updates ref and commit in manifest to new resolved tag values", async () => {
@@ -4749,10 +5430,10 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			// Both refs are semver tags and the ref moved (v1.2.3 -> v1.3.0) → the
-			// shared formatVersionMove renders tags, not the commit hashes.
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("v1.2.3 -> v1.3.0"),
-			);
+			// shared versionMove draws tags, not the commit hashes.
+			expect(drawn().rows[0]!.detail).toEqual({
+				move: { from: "v1.2.3", to: "v1.3.0" },
+			});
 		});
 
 		it("never downgrades — reports up-to-date when current ref is higher than resolved tag", async () => {
@@ -4773,8 +5454,12 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			expect(ui.outro).toHaveBeenCalledWith(
-				"owner/repo is already up to date.",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [upToDate("owner/repo", "^1.0", { member: "repo" })],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 		});
 	});
@@ -4794,8 +5479,12 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				"owner/repo is already up to date.",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [upToDate("owner/repo", "^1.0", { member: "repo" })],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 		});
 
@@ -4850,11 +5539,12 @@ describe("update command", () => {
 
 			expect(err).toBeInstanceOf(ExitSignal);
 			expect((err as ExitSignal).code).toBe(1);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				expect.stringContaining("owner/repo"),
-			);
-			expect(ui.log.error).toHaveBeenCalledWith(
-				expect.stringContaining("constraint"),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^2.0", "repo")]],
+					rows: [noMatch("owner/repo", "^2.0", { member: "repo" })],
+					tally: closed({ notChecked: 1 }),
+				}),
 			);
 		});
 
@@ -4944,14 +5634,18 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("up to date"),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [upToDate("owner/repo", "^1.0")],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
-		it("collapses a constrained-no-match group to one trailing line with the shared constraint", async () => {
+		it("draws a constrained-no-match group as one row with the shared constraint", async () => {
 			mockReadManifestOrExit.mockResolvedValue({
 				"owner/repo": makeEntry({
 					ref: "v1.2.3",
@@ -4965,17 +5659,18 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const warnCalls = ui.said("warn");
-			// Collapsed group line carrying the shared constraint (task 2-5).
-			expect(warnCalls).toContain(
-				"owner/repo: no tags satisfy ^2.0 — left untouched",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^2.0", "repo")]],
+					rows: [noMatch("owner/repo", "^2.0")],
+					tally: closed({ notChecked: 1 }),
+				}),
 			);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
 		});
 
 		it("handles batch with all constrained plugins — mixed constrained statuses", async () => {
-			const handle = captureSpinner();
 			const entryA = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -5029,24 +5724,44 @@ describe("update command", () => {
 			// A should be updated (constrained-update-available)
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 			expect(mockWriteManifest).toHaveBeenCalled();
-			// Summary should contain info for all three — the updated repo-a streams
-			// as its group-of-one stop-frame; repo-b/repo-c via trailing ui.log lines.
-			const allMessages = [
-				...ui.said("success"),
-				...ui.said("message"),
-				...ui.said("warn"),
-				...stopTexts(handle),
-			];
-			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
-			const hasRepoB = allMessages.some((msg) => msg.includes("owner/repo-b"));
-			const hasRepoC = allMessages.some((msg) => msg.includes("owner/repo-c"));
-			expect(hasRepoA).toBe(true);
-			expect(hasRepoB).toBe(true);
-			expect(hasRepoC).toBe(true);
+			// A row for each of the three, the updated repo-a settling first.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "^1.0", "repo-a"),
+							group("owner/repo-b", "^2.0", "repo-b"),
+							group("owner/repo-c", "^4.0", "repo-c"),
+						],
+					],
+					rows: [
+						updated("owner/repo-a", "^1.0", { from: "v1.2.3", to: "v1.3.0" }, [
+							"repo-a",
+							"skill",
+						]),
+						upToDate("owner/repo-b", "^2.0"),
+						noMatch("owner/repo-c", "^4.0"),
+					],
+					next: [
+						upgrade(
+							"owner/repo-a",
+							"v1.3.0",
+							"v2.0.0",
+							"npx agntc add owner/repo-a",
+						),
+						upgrade(
+							"owner/repo-b",
+							"v2.1.0",
+							"v3.1.0",
+							"npx agntc add owner/repo-b",
+						),
+					],
+					tally: closed({ updated: 1, upToDate: 1, notChecked: 1 }),
+				}),
+			);
 		});
 
 		it("handles mix of constrained + branch-tracking + tag-pinned + local plugins", async () => {
-			const handle = captureSpinner();
 			const constrainedEntry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -5116,29 +5831,49 @@ describe("update command", () => {
 			// Per-group persistence (task 1-6): constrained, branch, and local each
 			// persist as their own unit → three writes (tagged never mutates).
 			expect(mockWriteManifest).toHaveBeenCalledTimes(3);
-			// All four should appear in the summary — the updated constrained/branch
-			// standalones stream as group-of-one stop-frames; tagged (info) and local
-			// (ui.log.success) via trailing ui.log lines.
-			const allMessages = [
-				...ui.said("success"),
-				...ui.said("message"),
-				...ui.said("info"),
-				...stopTexts(handle),
-			];
-			const hasConstrained = allMessages.some((msg) =>
-				msg.includes("owner/constrained"),
+			// All four draw a row: the actioned three as they settle, then the
+			// tagged one left alone.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/constrained", "^1.0", "constrained"),
+							group("owner/branch", "HEAD", "branch"),
+							group("owner/tagged", "v1.0", "tagged"),
+							local("/local/path"),
+						],
+					],
+					rows: [
+						updated(
+							"owner/constrained",
+							"^1.0",
+							{ from: "v1.2.3", to: "v1.3.0" },
+							["constrained", "skill"],
+						),
+						updated("owner/branch", "HEAD", HASHES, ["branch", "skill"]),
+						{
+							status: "done",
+							subject: "/local/path",
+							meta: "local",
+							detail: { label: "refreshed", aside: "skill" },
+						},
+						newerTags("owner/tagged", "v1.0"),
+					],
+					next: [
+						{
+							subject: "owner/tagged",
+							remedy: {
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
+								steps: [{ command: "npx agntc add owner/tagged@v2.0" }],
+							},
+						},
+					],
+					tally: closed({ updated: 2, refreshed: 1, upToDate: 1 }),
+				}),
 			);
-			const hasBranch = allMessages.some((msg) => msg.includes("owner/branch"));
-			const hasTagged = allMessages.some((msg) => msg.includes("owner/tagged"));
-			const hasLocal = allMessages.some((msg) => msg.includes("/local/path"));
-			expect(hasConstrained).toBe(true);
-			expect(hasBranch).toBe(true);
-			expect(hasTagged).toBe(true);
-			expect(hasLocal).toBe(true);
 		});
 
 		it("batch with no constrained plugins behaves identically to pre-feature", async () => {
-			const handle = captureSpinner();
 			const entryA = makeEntry({
 				commit: INSTALLED_SHA,
 				files: [".claude/skills/skill-a/"],
@@ -5173,17 +5908,30 @@ describe("update command", () => {
 
 			expect(mockCloneSource).toHaveBeenCalledTimes(1);
 			expect(mockWriteManifest).toHaveBeenCalledTimes(1);
-			// The updated repo-a streams as its group-of-one stop-frame; repo-b
-			// (newer-tags) via the trailing ui.log.info summary.
-			const allMessages = [
-				...ui.said("success"),
-				...ui.said("info"),
-				...stopTexts(handle),
-			];
-			const hasRepoA = allMessages.some((msg) => msg.includes("owner/repo-a"));
-			const hasRepoB = allMessages.some((msg) => msg.includes("owner/repo-b"));
-			expect(hasRepoA).toBe(true);
-			expect(hasRepoB).toBe(true);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "HEAD", "repo-a"),
+							group("owner/repo-b", "v1.0", "repo-b"),
+						],
+					],
+					rows: [
+						updated("owner/repo-a", "HEAD", HASHES, ["repo-a", "skill"]),
+						newerTags("owner/repo-b", "v1.0"),
+					],
+					next: [
+						{
+							subject: "owner/repo-b",
+							remedy: {
+								lead: "Pinned to v1.0, newer tags available (latest: v2.0). To upgrade:",
+								steps: [{ command: "npx agntc add owner/repo-b@v2.0" }],
+							},
+						},
+					],
+					tally: closed({ updated: 1, upToDate: 1 }),
+				}),
+			);
 		});
 
 		it("collects out-of-constraint info from constrained-update-available results", async () => {
@@ -5210,11 +5958,10 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// The out-of-constraint info should be collected for rendering.
-			// Since vc-3-5 handles rendering, we verify the function returns
-			// successfully and the plugin is updated. The actual out-of-constraint
-			// data structure is stored internally for vc-3-5 to consume.
 			expect(mockWriteManifest).toHaveBeenCalled();
+			expect(drawn().next).toEqual([
+				upgrade("owner/repo", "v1.3.0", "v2.0.0", "npx agntc add owner/repo"),
+			]);
 		});
 
 		it("collects out-of-constraint info from constrained-up-to-date results", async () => {
@@ -5248,9 +5995,30 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// All up-to-date, so the "all up to date" message should appear
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("up to date"),
+			// Both up to date; only the one with a newer version outside its
+			// constraint queues an upgrade.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo-a", "^1.0", "repo-a"),
+							group("owner/repo-b", "^2.0", "repo-b"),
+						],
+					],
+					rows: [
+						upToDate("owner/repo-a", "^1.0"),
+						upToDate("owner/repo-b", "^2.0"),
+					],
+					next: [
+						upgrade(
+							"owner/repo-a",
+							"v1.3.0",
+							"v2.0.0",
+							"npx agntc add owner/repo-a",
+						),
+					],
+					tally: closed({ upToDate: 2 }),
+				}),
 			);
 		});
 
@@ -5273,13 +6041,17 @@ describe("update command", () => {
 
 			// Should not clone (no downgrade)
 			expect(mockCloneSource).not.toHaveBeenCalled();
-			// The never-downgraded member is demoted to up-to-date and reported via the
-			// collapsed per-group count line (task 2-5): one member → "1 up to date".
-			const messageCalls = ui.said("message");
-			expect(messageCalls).toEqual(["owner/repo: 1 up to date"]);
+			// The never-downgraded member is demoted to up to date.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [upToDate("owner/repo", "^1.0")],
+					tally: closed({ upToDate: 1 }),
+				}),
+			);
 		});
 
-		it("constrained-update-available with all constrained-up-to-date does not show all-up-to-date message", async () => {
+		it("constrained-update-available draws the update, not up to date", async () => {
 			const entry = makeEntry({
 				ref: "v1.2.3",
 				commit: INSTALLED_SHA,
@@ -5303,8 +6075,18 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// Should NOT show "Everything is up to date." — there was an update
-			expect(ui.outro).not.toHaveBeenCalledWith("Everything is up to date.");
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [
+						updated("owner/repo", "^1.0", { from: "v1.2.3", to: "v1.3.0" }, [
+							"repo",
+							"skill",
+						]),
+					],
+					tally: closed({ updated: 1 }),
+				}),
+			);
 		});
 	});
 
@@ -5361,8 +6143,7 @@ describe("update command", () => {
 			expect(writtenManifest["owner/repo-b"]).toBeDefined();
 		});
 
-		it("logs recovery hint in summary for copy-failed plugin", async () => {
-			const handle = captureSpinner();
+		it("queues the recovery re-add in Next for a copy-failed plugin", async () => {
 			const entry = makeEntry({
 				commit: INSTALLED_SHA,
 				files: [".claude/skills/my-skill/"],
@@ -5378,16 +6159,31 @@ describe("update command", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			// Copy failure exits non-zero after the summary is rendered; catch so
-			// the recovery-hint assertion below still runs.
+			// Copy failure exits non-zero after the run is drawn; catch so the
+			// assertion below still runs.
 			await runUpdate(undefined, {}, ui).catch(() => {});
 
-			// The copy-failed standalone is a group-of-one → its loud recovery-hint
-			// line is the spinner stop-frame at code 2 (error ✗).
-			const hasRecoveryHint = stopTexts(handle, 2).some((msg) =>
-				msg.includes("npx agntc add owner/repo"),
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "repo")]],
+					rows: [
+						stopped("owner/repo", "HEAD", HASHES, "failed", [
+							"repo",
+							"update failed after removing old files (disk full). It is currently uninstalled.",
+						]),
+					],
+					next: [
+						{
+							subject: "owner/repo",
+							remedy: {
+								lead: "To install it again:",
+								steps: [{ command: "npx agntc add owner/repo" }],
+							},
+						},
+					],
+					tally: closed({ failed: 1 }),
+				}),
 			);
-			expect(hasRecoveryHint).toBe(true);
 		});
 
 		it("removes entry from batch manifest for local copy failure", async () => {
@@ -5443,12 +6239,27 @@ describe("update command", () => {
 
 			// A same-run safe bump lands v1.3.0; the footer names that POST-BUMP
 			// landed tag (group target.tag), not the pre-bump ref, so it agrees with
-			// the inline Updated line.
-			const infoCalls = ui.said("info");
-			expect(infoCalls).toContain(
-				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+			// the row's move.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [
+						updated("owner/repo", "^1.0", { from: "v1.2.3", to: "v1.3.0" }, [
+							"repo",
+							"skill",
+						]),
+					],
+					next: [
+						upgrade(
+							"owner/repo",
+							"v1.3.0",
+							"v2.0.0",
+							"npx agntc add owner/repo",
+						),
+					],
+					tally: closed({ updated: 1 }),
+				}),
 			);
-			expect(infoCalls).toContain("Newer versions outside constraints:");
 		});
 
 		it("omits info section in batch mode when no out-of-constraint versions exist", async () => {
@@ -5475,11 +6286,7 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.said("info");
-			const hasHeader = infoCalls.some((msg) =>
-				msg.includes("Newer versions outside constraints"),
-			);
-			expect(hasHeader).toBe(false);
+			expect(drawn().next).toEqual([]);
 		});
 
 		it("renders info section for multiple plugins in batch mode", async () => {
@@ -5515,15 +6322,20 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.said("info");
-			const hasRepoA = infoCalls.some(
-				(msg) => msg.includes("owner/repo-a") && msg.includes("v2.0.0"),
-			);
-			const hasRepoB = infoCalls.some(
-				(msg) => msg.includes("owner/repo-b") && msg.includes("v3.1.0"),
-			);
-			expect(hasRepoA).toBe(true);
-			expect(hasRepoB).toBe(true);
+			expect(drawn().next).toEqual([
+				upgrade(
+					"owner/repo-a",
+					"v1.2.3",
+					"v2.0.0",
+					"npx agntc add owner/repo-a",
+				),
+				upgrade(
+					"owner/repo-b",
+					"v2.1.0",
+					"v3.1.0",
+					"npx agntc add owner/repo-b",
+				),
+			]);
 		});
 
 		it("single-key names the post-bump landed tag as current (v1.3.0 -> v2.0.0), consistent with the inline Updated line", async () => {
@@ -5551,12 +6363,28 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			// current is the LANDED tag (checkResult.tag = v1.3.0), NOT the pre-bump
-			// entry.ref (v1.2.3) — matching the inline `Updated ... -> v1.3.0` line.
-			const infoCalls = ui.said("info");
-			expect(infoCalls).toContain(
-				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+			// entry.ref (v1.2.3) — matching the row's move to v1.3.0. Anything
+			// queued gets Next and the tally, even after one outcome.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [
+						updated("owner/repo", "^1.0", { from: "v1.2.3", to: "v1.3.0" }, [
+							"repo",
+							"skill",
+						]),
+					],
+					next: [
+						upgrade(
+							"owner/repo",
+							"v1.3.0",
+							"v2.0.0",
+							"npx agntc add owner/repo",
+						),
+					],
+					tally: closed({ updated: 1 }),
+				}),
 			);
-			expect(infoCalls).toContain("Newer versions outside constraints:");
 		});
 
 		it("omits info section in single-plugin mode when no out-of-constraint version", async () => {
@@ -5583,11 +6411,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			const infoCalls = ui.said("info");
-			const hasHeader = infoCalls.some((msg) =>
-				msg.includes("Newer versions outside constraints"),
-			);
-			expect(hasHeader).toBe(false);
+			expect(drawn().next).toEqual([]);
 		});
 
 		it("single-key constrained-up-to-date names entry.ref as current (pre/post coincide)", async () => {
@@ -5606,11 +6430,21 @@ describe("update command", () => {
 			await runUpdate("owner/repo", {}, ui);
 
 			// No safe bump this run: pre/post coincide, so current = entry.ref = v1.3.0.
-			const infoCalls = ui.said("info");
-			expect(infoCalls).toContain(
-				"  owner/repo  v1.3.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "repo")]],
+					rows: [upToDate("owner/repo", "^1.0", { member: "repo" })],
+					next: [
+						upgrade(
+							"owner/repo",
+							"v1.3.0",
+							"v2.0.0",
+							"npx agntc add owner/repo",
+						),
+					],
+					tally: closed({ upToDate: 1 }),
+				}),
 			);
-			expect(infoCalls).toContain("Newer versions outside constraints:");
 		});
 
 		it("a ^0.3.3 entry with 0.4.0 out of constraint renders the same actionable line (0.x-minor gate)", async () => {
@@ -5630,10 +6464,40 @@ describe("update command", () => {
 
 			// A 0.x-minor (^0.3.3 gates 0.4.0) rides the SAME out-of-constraint path as
 			// a major — identical actionable wording, current from the check result.
-			const infoCalls = ui.said("info");
-			expect(infoCalls).toContain(
-				"  owner/repo  v0.3.3 -> v0.4.0 available. To upgrade: npx agntc add owner/repo",
+			expect(drawn().next).toEqual([
+				upgrade("owner/repo", "v0.3.3", "v0.4.0", "npx agntc add owner/repo"),
+			]);
+		});
+
+		it("queues no upgrade for a key whose update failed, its install unmoved", async () => {
+			mockReadManifestOrExit.mockResolvedValue({
+				"owner/repo": makeEntry({
+					ref: "v1.2.3",
+					commit: INSTALLED_SHA,
+					constraint: "^1.0",
+					files: [".claude/skills/my-skill/"],
+				}),
+			});
+			mockCheckForUpdate.mockResolvedValue({
+				status: "constrained-update-available",
+				tag: "v1.3.0",
+				commit: REMOTE_SHA,
+				latestOverall: "v2.0.0",
+			});
+			mockCloneSource.mockResolvedValue({
+				tempDir: "/tmp/agntc-clone",
+				commit: REMOTE_SHA,
+			});
+			// Blocked leaves the entry installed as it was, so only the gate on
+			// the failure keeps its upgrade out of Next.
+			mockScanForEscapingSymlinks.mockRejectedValue(
+				new SymlinkEscapeError("evil-link", "/etc/passwd"),
 			);
+
+			await runUpdate("owner/repo", {}, ui).catch(() => {});
+
+			expect(drawn().rows[0]!.status).toBe("failed");
+			expect(drawn().next).toEqual([]);
 		});
 
 		it("does not render info line when within-constraint best equals absolute latest", async () => {
@@ -5651,11 +6515,7 @@ describe("update command", () => {
 
 			await runUpdate("owner/repo", {}, ui);
 
-			const infoCalls = ui.said("info");
-			const hasHeader = infoCalls.some((msg) =>
-				msg.includes("Newer versions outside constraints"),
-			);
-			expect(hasHeader).toBe(false);
+			expect(drawn().next).toEqual([]);
 		});
 
 		// --- Per-group footer collapse (task 2-7) ---
@@ -5689,18 +6549,18 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.said("info");
-			// ONE footer line for the whole collection: current = group target.tag,
-			// keyed by the group label, the group's bare re-add commands.
-			expect(infoCalls).toContain(
-				[
-					"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade:",
-					"    npx agntc add owner/repo --skill a b",
-					"    npx agntc add owner/repo/tools --pack",
-				].join("\n"),
-			);
-			// Not N near-identical per-member footer lines.
-			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
+			// ONE Next item for the whole collection: current = group target.tag,
+			// keyed by the group label, the group's bare re-add commands — not N
+			// near-identical per-member items.
+			expect(drawn().next).toEqual([
+				upgrade(
+					"owner/repo",
+					"v1.2.3",
+					"v2.0.0",
+					"npx agntc add owner/repo --skill a b",
+					"npx agntc add owner/repo/tools --pack",
+				),
+			]);
 		});
 
 		it("a multi-group repo renders two @intent-prefixed footer lines, each with its member's bare re-add command", async () => {
@@ -5738,16 +6598,22 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.said("info");
-			// Two footer lines: prefix disambiguated by @intent, command stays bare
+			// Two Next items: subject disambiguated by @intent, command stays bare
 			// (no @intent). current = each group's own target.tag.
-			expect(infoCalls).toContain(
-				"  owner/repo@^1.2.3  v1.2.3 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/a",
-			);
-			expect(infoCalls).toContain(
-				"  owner/repo@^2.0.0  v2.0.0 -> v3.0.0 available. To upgrade: npx agntc add owner/repo/b",
-			);
-			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(2);
+			expect(drawn().next).toEqual([
+				upgrade(
+					"owner/repo@^1.2.3",
+					"v1.2.3",
+					"v3.0.0",
+					"npx agntc add owner/repo/a",
+				),
+				upgrade(
+					"owner/repo@^2.0.0",
+					"v2.0.0",
+					"v3.0.0",
+					"npx agntc add owner/repo/b",
+				),
+			]);
 		});
 
 		it("all-mode footer names the group target tag as current and the group's bare --skill re-add command", async () => {
@@ -5764,17 +6630,23 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			// The footer is the ONLY info output on this all-up-to-date path, so the
-			// exact two lines pin the actionable wording verbatim: current = group
-			// target.tag (v1.2.3), a bare --skill command, no (constraint: ...) tail.
-			const infoCalls = ui.said("info");
-			expect(infoCalls).toEqual([
-				"Newer versions outside constraints:",
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
-			]);
-			// No (constraint: ...) tail survives the reword.
-			const footer = infoCalls.join("\n");
-			expect(footer).not.toContain("available (constraint");
+			// current = group target.tag (v1.2.3), a bare --skill command, no
+			// (constraint: ...) tail.
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "^1.0", "a", "b")]],
+					rows: [upToDate("owner/repo", "^1.0")],
+					next: [
+						upgrade(
+							"owner/repo",
+							"v1.2.3",
+							"v2.0.0",
+							"npx agntc add owner/repo --skill a b",
+						),
+					],
+					tally: closed({ upToDate: 2 }),
+				}),
+			);
 		});
 
 		it("the out-of-constraint footer keeps the all-mode (and single-key) exit at 0", async () => {
@@ -5793,9 +6665,14 @@ describe("update command", () => {
 
 			// The footer does not feed hasFailedOutcome, so all-mode exit stays 0.
 			expect(allModeErr).toBeUndefined();
-			expect(ui.said("info")).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
-			);
+			expect(drawn().next).toEqual([
+				upgrade(
+					"owner/repo",
+					"v1.2.3",
+					"v2.0.0",
+					"npx agntc add owner/repo --skill a b",
+				),
+			]);
 
 			// Single-key path: constrained-up-to-date, out of constraint — also exit 0.
 			mockReadManifestOrExit.mockResolvedValue({
@@ -5848,19 +6725,17 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const allLines = [
-				...ui.said("info"),
-				...ui.said("message"),
-				...ui.said("warn"),
-				...ui.outro.mock.calls.map((c) => c[0]),
-			].filter((m): m is string => typeof m === "string");
-			// No newer-tags surface at all: neither the "newer tags available" notice...
-			expect(allLines.some((m) => m.includes("newer tags available"))).toBe(
-				false,
-			);
+			const { rows, next } = drawn();
+			// No newer-tags surface at all: neither the "newer tags available" row...
+			expect(rows).toEqual([upToDate("owner/repo", "^1.2.3")]);
 			// ...nor any @<newest> re-add command (`npx agntc add <anything>@…`). The
 			// caret footer's command is the BARE `npx agntc add owner/repo` (no @).
-			expect(allLines.some((m) => /npx agntc add \S+@/.test(m))).toBe(false);
+			const commands = next.flatMap(({ remedy }) =>
+				remedy.steps.flatMap((step) =>
+					"command" in step ? [step.command] : [],
+				),
+			);
+			expect(commands).toEqual(["npx agntc add owner/repo --skill a b"]);
 			expect(mockCloneSource).not.toHaveBeenCalled();
 		});
 
@@ -5878,85 +6753,32 @@ describe("update command", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const infoCalls = ui.said("info");
 			// The caret out-of-constraint footer: current -> newer with the group's
-			// BARE re-add command (no @ suffix), collapsed to one line for the group.
-			expect(infoCalls).toContain("Newer versions outside constraints:");
-			expect(infoCalls).toContain(
-				"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill a b",
-			);
-			expect(infoCalls.filter((m) => m.includes("To upgrade"))).toHaveLength(1);
+			// BARE re-add command (no @ suffix), one item for the group.
+			expect(drawn().next).toEqual([
+				upgrade(
+					"owner/repo",
+					"v1.2.3",
+					"v2.0.0",
+					"npx agntc add owner/repo --skill a b",
+				),
+			]);
 		});
 	});
 });
 
-describe("failureMemberLine (shared loud member-line rendering)", () => {
-	// The collapsed group-of-one path (collapsedMemberLine) and the streamed
-	// multi-member path (emitMemberLine) both route their loud outcomes
-	// through this ONE helper. Each outcome's message already names the member
-	// by its key, so the line is the message alone, never `<key>: <key> …`.
-	const KEY = "owner/repo/design";
-
-	it.each([
-		{
-			status: "copy-failed",
-			summary: `Update failed for ${KEY} after removing old files (disk full). It is currently uninstalled. Run \`npx agntc add ${KEY}\` to install it again.`,
-			absorbed: [],
-		},
-		{
-			status: "aborted",
-			summary: buildAbortMessage(
-				KEY,
-				makeEntry({ type: "pack" }),
-				{ reason: "its folder now contains packs" },
-				"project",
-			),
-		},
-		{
-			status: "blocked",
-			summary: buildCopySafetyMessage(KEY, 'symlink "evil" points outside'),
-		},
-	] as const)("renders $status at error level as its message alone, which names the member", (fields) => {
-		const outcome = { key: KEY, ...fields } as PluginOutcome;
-
-		const line = failureMemberLine(outcome);
-
-		expect(line).toEqual({ level: "error", text: fields.summary });
-	});
-
-	it("returns null for a bare `failed` — its rendering is NOT shared (each caller renders it itself)", () => {
-		// Both paths render a bare `failed` at ERROR (red ✗) but by different mechanics:
-		// the collapsed path settles a red error spinner stop-frame (code 2), the
-		// streamed path emits ui.log.error via renderFailedOutcome. A single shared
-		// MemberLine cannot reproduce both, so the helper declines (null) and each
-		// caller keeps its own bare-`failed` fallback.
-		const outcome: PluginOutcome = {
-			status: "failed",
-			key: "owner/repo",
-			summary: "owner/repo: Failed — git clone failed",
-		};
-
-		expect(failureMemberLine(outcome)).toBeNull();
-	});
-});
-
-describe("bare-`failed` member-line severity (uniform red across layouts)", () => {
+describe("a bare `failed` draws failed on every layout", () => {
 	// A bare `failed` member outcome (a per-member reinstall that threw, or a
-	// group-fatal clone failure fanned out per member) must render at ERROR (red ✗)
-	// severity on EVERY layout — the streamed multi-member path, the local path, and
-	// the group-of-one collapsed spinner stop-frame — never the yellow warn glyph.
-	// clack's spin.stop has no warn code, so the group-of-one collapse can only be
-	// green or red; red is the honest choice, so the other paths normalise UP to red
-	// (renderFailedOutcome emits ui.log.error for `failed`). Exit accounting is
-	// unchanged: `failed` still trips hasFailedOutcome → ExitSignal(1).
+	// group-fatal clone failure fanned out per member) draws ✗ — the row's
+	// status, and a divergent member's own — on every layout: a member of a
+	// group, a local entry, a group of one. Never ! (attention). Exit accounting
+	// is unchanged: `failed` still trips hasFailedOutcome → ExitSignal(1).
 
-	it("renders a streamed multi-member `failed` via ui.log.error (not ui.log.warn)", async () => {
+	it("draws a group member's `failed` under the group's row, the row failed", async () => {
 		// A 2-member collection → one group, one shared clone that SUCCEEDS. Member a
-		// reinstalls cleanly (✓); member b's per-member symlink scan throws, propagating
-		// to reinstallMember's defensive catch → a bare `failed` outcome with
-		// cloneFailed === false, so it streams through emitMemberLine →
-		// renderFailedOutcome (NOT the enumerated clone-failure line).
-		captureSpinner();
+		// reinstalls cleanly; member b's per-member symlink scan throws, propagating
+		// to reinstallMember's defensive catch → a bare `failed` outcome, not the
+		// group's clone failure.
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/repo/a": makeEntry({
 				commit: INSTALLED_SHA,
@@ -5990,20 +6812,30 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 		// `failed` trips the non-zero exit; catch so assertions run.
 		await runUpdate(undefined, {}, ui).catch(() => {});
 
-		// The bare `failed` member renders RED via ui.log.error…
-		expect(ui.log.error).toHaveBeenCalledWith("owner/repo/b: Failed — boom");
-		// …and never the yellow warn glyph.
-		const warnCalls = ui.said("warn");
-		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
-		// The successful sibling still streams its ✓ line under the shared header.
-		expect(ui.log.success).toHaveBeenCalledWith("a");
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "a", "b")]],
+				rows: [
+					{
+						status: "failed",
+						subject: "owner/repo",
+						meta: "HEAD",
+						detail: { move: HASHES },
+						children: [
+							{ name: "a", status: "done", detail: "skill" },
+							{ name: "b", status: "failed", detail: "boom" },
+						],
+					},
+				],
+				tally: closed({ updated: 1, failed: 1 }),
+			}),
+		);
+		expect(ui.warn).not.toHaveBeenCalled();
 	});
 
-	it("renders a local `failed` red via ui.log.error (not ui.log.warn)", async () => {
-		// A lone local entry (commit null) is streamed via streamLocalWork with NO
-		// spinner. Its source path fails validation (stat rejects) → processLocalUpdate
-		// returns a bare `failed` outcome → streamCollapsedOutcome → emitMemberLine →
-		// renderFailedOutcome. It must render RED, matching the git layouts.
+	it("draws a local `failed` as a failed row", async () => {
+		// A lone local entry (commit null) whose source path fails validation (stat
+		// rejects) → a bare `failed` outcome.
 		const LOCAL_KEY = "/local/path";
 		mockReadManifestOrExit.mockResolvedValue({
 			[LOCAL_KEY]: {
@@ -6014,26 +6846,29 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 				cloneUrl: null,
 			},
 		});
-		// Local source path no longer exists → validateLocalSourcePath fails →
-		// `failed` outcome carrying the "path does not exist" reason.
 		mockStat.mockRejectedValue(new Error("ENOENT"));
 
 		// `failed` trips the non-zero exit; catch so assertions run.
 		await runUpdate(undefined, {}, ui).catch(() => {});
 
-		expect(ui.log.error).toHaveBeenCalledWith(
-			`${LOCAL_KEY}: Failed — ${LOCAL_KEY}: path does not exist`,
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[local(LOCAL_KEY)]],
+				rows: [
+					{
+						status: "failed",
+						subject: LOCAL_KEY,
+						meta: "local",
+						detail: "path does not exist",
+					},
+				],
+				tally: closed({ failed: 1 }),
+			}),
 		);
-		const warnCalls = ui.said("warn");
-		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
+		expect(ui.warn).not.toHaveBeenCalled();
 	});
 
-	it("renders a group-of-one collapsed `failed` at error (spin.stop code 2), never warn — uniform with the other layouts", async () => {
-		// A standalone repo → a group-of-one whose shared clone throws. It collapses to
-		// ONE red spinner stop-frame at code 2 (clack has no warn code), NOT a separate
-		// ui.log.* line. This is the third layout: together with the streamed and local
-		// paths above, a bare `failed` is now uniformly RED everywhere.
-		const handle = captureSpinner();
+	it("draws a group of one's clone `failed` as a failed row, never a cancel", async () => {
 		mockReadManifestOrExit.mockResolvedValue({
 			"owner/repo": makeEntry({
 				commit: INSTALLED_SHA,
@@ -6048,13 +6883,11 @@ describe("bare-`failed` member-line severity (uniform red across layouts)", () =
 
 		await runUpdate(undefined, {}, ui).catch(() => {});
 
-		// The collapsed `failed` line IS the spinner stop-frame at code 2 (red ✗).
-		expect(stopTexts(handle, 2)).toEqual([
-			"owner/repo: Failed — git clone failed",
+		expect(drawn().rows).toEqual([
+			cloneFailed("owner/repo", "HEAD", "git clone failed", "repo"),
 		]);
-		// No warn glyph for the collapsed failure.
-		const warnCalls = ui.said("warn");
-		expect(warnCalls.some((m) => m.includes("Failed"))).toBe(false);
+		expect(ui.cancel).not.toHaveBeenCalled();
+		expect(ui.warn).not.toHaveBeenCalled();
 	});
 });
 
@@ -6375,7 +7208,7 @@ describe("a key naming several entries", () => {
 		);
 	}
 
-	const updated = (name: string) =>
+	const landed = (name: string) =>
 		expect.objectContaining({
 			commit: REMOTE_SHA,
 			files: [`.claude/skills/${name}/`],
@@ -6399,15 +7232,14 @@ describe("a key naming several entries", () => {
 		expect(mockCloneSource).toHaveBeenCalledOnce();
 		expect(mockCopyBareSkill).toHaveBeenCalledTimes(3);
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
-			"owner/repo/a": updated("a"),
+			"owner/repo/a": landed("a"),
 			"other/repo": other,
-			"owner/repo/b": updated("b"),
-			"owner/repo/c": updated("c"),
+			"owner/repo/b": landed("b"),
+			"owner/repo/c": landed("c"),
 		});
 	});
 
-	it("streams the repo's group under one header", async () => {
-		const handle = captureSpinner();
+	it("draws the repo's group as one row", async () => {
 		arrangeBehind({
 			"owner/repo/a": skill("a"),
 			"owner/repo/b": skill("b"),
@@ -6415,12 +7247,15 @@ describe("a key naming several entries", () => {
 
 		await runUpdate("owner/repo", {}, ui);
 
-		expect(handle.start).toHaveBeenCalledWith(
-			"Updating owner/repo  aaaaaaa -> bbbbbbb  (2 members)",
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "a", "b")]],
+				rows: [
+					updated("owner/repo", "HEAD", HASHES, ["a", "skill"], ["b", "skill"]),
+				],
+				tally: closed({ updated: 2 }),
+			}),
 		);
-		expect(ui.log.success).toHaveBeenCalledWith("a");
-		expect(ui.log.success).toHaveBeenCalledWith("b");
-		expect(ui.outro).not.toHaveBeenCalled();
 	});
 
 	it("probes and clones each group once when the key spans several", async () => {
@@ -6440,15 +7275,14 @@ describe("a key naming several entries", () => {
 		]);
 		expect(mockCloneSource).toHaveBeenCalledTimes(3);
 		expect(mockWriteManifest).toHaveBeenLastCalledWith("/fake/project", {
-			"owner/one/a": updated("a"),
-			"owner/one/b": updated("b"),
-			"owner/two/c": updated("c"),
-			"owner/two/d": updated("d"),
+			"owner/one/a": landed("a"),
+			"owner/one/b": landed("b"),
+			"owner/two/c": landed("c"),
+			"owner/two/d": landed("d"),
 		});
 	});
 
 	it("labels a group by the groups the key names, not the whole manifest", async () => {
-		const handle = captureSpinner();
 		arrangeBehind({
 			"owner/repo/packs/x": skill("x"),
 			"owner/repo/packs/y": skill("y"),
@@ -6460,8 +7294,33 @@ describe("a key naming several entries", () => {
 		expect(probedKeys()).toEqual([
 			["owner/repo/packs/x", "owner/repo/packs/y"],
 		]);
-		expect(handle.start).toHaveBeenCalledWith(
-			"Updating owner/repo  aaaaaaa -> bbbbbbb  (2 members)",
+		// Bare owner/repo: the @ref the manifest's other group would need
+		// stays off. Each skill moves to the key add gives it.
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "x", "y")]],
+				rows: [
+					updated(
+						"owner/repo",
+						"HEAD",
+						HASHES,
+						["x", "skill · now keyed owner/repo/x"],
+						["y", "skill · now keyed owner/repo/y"],
+					),
+				],
+				// The rows say where each moved; machine mode alone hears the notes.
+				notes: [
+					{
+						text: "",
+						plain: "owner/repo/packs/x is now keyed owner/repo/x",
+					},
+					{
+						text: "",
+						plain: "owner/repo/packs/y is now keyed owner/repo/y",
+					},
+				],
+				tally: closed({ updated: 2 }),
+			}),
 		);
 	});
 
@@ -6480,11 +7339,15 @@ describe("a key naming several entries", () => {
 			mockCopyBareSkill.mock.calls.map(([{ sourceDir }]) => sourceDir),
 		).toEqual(["/Users/lee/Code/a", "/Users/lee/Code/b"]);
 		expect(mockWriteManifest).toHaveBeenCalledTimes(2);
-		expect(ui.log.success).toHaveBeenCalledWith(
-			"/Users/lee/Code/a: Refreshed from local path",
-		);
-		expect(ui.log.success).toHaveBeenCalledWith(
-			"/Users/lee/Code/b: Refreshed from local path",
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[local("/Users/lee/Code/a"), local("/Users/lee/Code/b")]],
+				rows: [
+					refreshed("/Users/lee/Code/a", "skill"),
+					refreshed("/Users/lee/Code/b", "skill"),
+				],
+				tally: closed({ refreshed: 2 }),
+			}),
 		);
 	});
 
@@ -6505,7 +7368,7 @@ describe("a key naming several entries", () => {
 		expect(mockCloneSource).toHaveBeenCalledTimes(2);
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
 			"owner/one/a": failing,
-			"owner/two/b": updated("b"),
+			"owner/two/b": landed("b"),
 		});
 	});
 
@@ -6525,10 +7388,19 @@ describe("a key naming several entries", () => {
 		expect(mockCloneSource).toHaveBeenCalledOnce();
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
 			"owner/one/a": unchecked,
-			"owner/two/b": updated("b"),
+			"owner/two/b": landed("b"),
 		});
-		expect(ui.log.warn).toHaveBeenCalledWith(
-			"owner/one: couldn't check for updates (network timeout) — left untouched",
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [
+					[group("owner/one", "HEAD", "a"), group("owner/two", "HEAD", "b")],
+				],
+				rows: [
+					updated("owner/two", "HEAD", HASHES, ["b", "skill"]),
+					notChecked("owner/one", "HEAD", "network timeout", "prefix"),
+				],
+				tally: closed({ updated: 1, notChecked: 1 }),
+			}),
 		);
 	});
 
@@ -6654,12 +7526,29 @@ describe("a key naming several entries", () => {
 			"owner/repo/go",
 			expect.anything(),
 		);
-		expect(ui.outro).toHaveBeenCalledOnce();
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "go")]],
+				rows: [updated("owner/repo", "HEAD", HASHES, ["go", "skill"])],
+				tally: closed({ updated: 1 }),
+			}),
+		);
 	});
 });
 
 describe("an entry gone upstream", () => {
 	const GONE_KEY = "owner/repo/go";
+	/** The row go's question is asked under. */
+	const ASKED: Row = {
+		status: "attention",
+		subject: GONE_KEY,
+		detail: { label: "gone upstream", aside: "skill" },
+		fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+	};
+	const QUESTION = {
+		message: "Remove it and its folder?",
+		initialValue: false,
+	};
 
 	function goneEntry(): ManifestEntry {
 		return makeEntry({
@@ -6697,6 +7586,44 @@ describe("an entry gone upstream", () => {
 		rewalkFinds("skills/other");
 	}
 
+	const KEPT_DETAIL = "kept — it's gone upstream; update will ask again";
+	const REMOVED_DETAIL = "removed — it's gone upstream";
+
+	/** The row of a group whose one member, go, was gone upstream and `ended` so: no move, as it made none. */
+	function goneRow(ended: "kept" | "removed"): Row {
+		return {
+			status: ended === "kept" ? "attention" : "done",
+			subject: "owner/repo",
+			meta: "HEAD",
+			detail: { label: ended },
+			children: [
+				{ name: "go", detail: ended === "kept" ? KEPT_DETAIL : REMOVED_DETAIL },
+			],
+		};
+	}
+
+	/** The row of a group whose a updated while go, gone upstream, was kept. */
+	const KEPT_BESIDE_A: Row = {
+		status: "attention",
+		subject: "owner/repo",
+		meta: "HEAD",
+		detail: { move: HASHES },
+		children: [
+			{ name: "a", status: "done", detail: "skill" },
+			{ name: "go", status: "attention", detail: KEPT_DETAIL },
+		],
+	};
+
+	/** Asked while the group's own task spun, the terminal pausing it to ask. */
+	function askedWhileSpinning(): void {
+		const asked = ui.confirm.mock.invocationCallOrder[0]!;
+		const updating = ui.blocks[0]!.tasks.at(-1)!;
+		expect(updating.settle.mock.invocationCallOrder[0]).toBeGreaterThan(asked);
+		expect(ui.blocks[0]!.task.mock.invocationCallOrder.at(-1)).toBeLessThan(
+			asked,
+		);
+	}
+
 	function recordOrder(): string[] {
 		const order: string[] = [];
 		mockNukeManifestFiles.mockImplementation(async () => {
@@ -6716,10 +7643,12 @@ describe("an entry gone upstream", () => {
 
 			await runUpdate(GONE_KEY, {}, ui);
 
-			expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-				message: "owner/repo/go is gone upstream — remove it?",
-				initialValue: false,
-			});
+			expect(ui.block).toHaveBeenLastCalledWith([ASKED]);
+			expect(ui.blocks.at(-1)!.confirm).toHaveBeenCalledExactlyOnceWith(
+				ASKED,
+				QUESTION,
+			);
+			expect(ui.blocks.at(-1)!.row).not.toHaveBeenCalled();
 		});
 
 		it("keeps its files and entry on no, says update will ask again, and exits 0", async () => {
@@ -6732,9 +7661,14 @@ describe("an entry gone upstream", () => {
 			expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 			expect(mockCopyBareSkill).not.toHaveBeenCalled();
 			expect(mockWriteManifest).not.toHaveBeenCalled();
-			expect(ui.log.warn).toHaveBeenCalledWith(
-				"Kept owner/repo/go — it's gone upstream; update will ask again",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "go")], [ASKED]],
+					rows: [goneRow("kept")],
+					tally: closed({ kept: 1 }),
+				}),
 			);
+			askedWhileSpinning();
 		});
 
 		it("removes its files and then its entry on yes, and exits 0", async () => {
@@ -6755,8 +7689,12 @@ describe("an entry gone upstream", () => {
 				{ "owner/other": other },
 			);
 			expect(order).toEqual(["nuke", "write"]);
-			expect(ui.log.success).toHaveBeenCalledWith(
-				"Removed owner/repo/go — it's gone upstream",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "go")], [ASKED]],
+					rows: [goneRow("removed")],
+					tally: closed({ removed: 1 }),
+				}),
 			);
 		});
 
@@ -6793,10 +7731,10 @@ describe("an entry gone upstream", () => {
 
 			expect(err).toBeUndefined();
 			expect(mockDiscover).toHaveBeenCalledWith(localKey, { rootName: "go" });
-			expect(ui.confirm).toHaveBeenCalledWith({
-				message: "/Users/lee/Code/go is gone upstream — remove it?",
-				initialValue: false,
-			});
+			expect(ui.blocks.at(-1)!.confirm).toHaveBeenCalledExactlyOnceWith(
+				{ ...ASKED, subject: localKey, meta: "local" },
+				QUESTION,
+			);
 			expect(mockNukeManifestFiles).toHaveBeenCalledWith("/fake/project", [
 				".claude/skills/go/",
 			]);
@@ -6805,8 +7743,7 @@ describe("an entry gone upstream", () => {
 	});
 
 	describe("in all-mode at a terminal", () => {
-		it("asks only once the group's spinner has stopped, after the group's lines", async () => {
-			const handle = captureSpinner();
+		it("asks while the group's task spins, its row settling with the answer", async () => {
 			arrangeGone({ "owner/repo/a": looseEntry("a"), [GONE_KEY]: goneEntry() });
 			mockCopyBareSkill.mockResolvedValue({
 				copiedFiles: [".claude/skills/a/"],
@@ -6815,37 +7752,24 @@ describe("an entry gone upstream", () => {
 
 			await runUpdate(undefined, {}, ui);
 
-			const asked = ui.confirm.mock.invocationCallOrder[0]!;
-			const beforeAsking = (order: number[]) => order.filter((o) => o < asked);
-			// The check spinner and the group's spinner both started and stopped
-			// before the question, and no spinner starts after it.
-			expect(beforeAsking(handle.start.mock.invocationCallOrder)).toHaveLength(
-				2,
+			askedWhileSpinning();
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "go")], [ASKED]],
+					rows: [KEPT_BESIDE_A],
+					tally: closed({ updated: 1, kept: 1 }),
+				}),
 			);
-			expect(beforeAsking(handle.stop.mock.invocationCallOrder)).toHaveLength(
-				2,
-			);
-			expect(handle.start).toHaveBeenCalledTimes(2);
-			expect(handle.stop).toHaveBeenLastCalledWith(
-				"Updating owner/repo  aaaaaaa -> bbbbbbb  (2 members)",
-			);
-			// a's member line is out before the question; the answer follows it.
-			expect(ui.log.success).toHaveBeenCalledWith("a");
-			expect(ui.saidOrders("success")[0]).toBeLessThan(asked);
-			expect(ui.saidOrders("warn")[0]).toBeGreaterThan(asked);
 		});
 
-		it("stops a group of one on its header before asking", async () => {
-			const handle = captureSpinner();
+		it("asks a group of one under its task too", async () => {
 			arrangeGone();
 			ui.confirm.mockResolvedValue(false);
 
 			await runUpdate(undefined, {}, ui);
 
-			expect(handle.stop).toHaveBeenLastCalledWith("Updating owner/repo");
-			expect(handle.stop.mock.invocationCallOrder.at(-1)).toBeLessThan(
-				ui.confirm.mock.invocationCallOrder[0]!,
-			);
+			askedWhileSpinning();
+			expect(drawn().rows).toEqual([goneRow("kept")]);
 		});
 
 		it("keeps it on no and exits 0 while its sibling updates", async () => {
@@ -6866,9 +7790,7 @@ describe("an entry gone upstream", () => {
 			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
 			expect(written[GONE_KEY]).toEqual(gone);
 			expect(written["owner/repo/a"]!.commit).toBe(REMOTE_SHA);
-			expect(ui.log.warn).toHaveBeenCalledWith(
-				"Kept owner/repo/go — it's gone upstream; update will ask again",
-			);
+			expect(drawn().rows).toEqual([KEPT_BESIDE_A]);
 		});
 
 		it("removes its files and then its entry on yes", async () => {
@@ -6886,8 +7808,20 @@ describe("an entry gone upstream", () => {
 			]);
 			const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
 			expect(Object.keys(written)).toEqual(["owner/repo/a"]);
-			expect(ui.log.success).toHaveBeenCalledWith(
-				"Removed owner/repo/go — it's gone upstream",
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "go")], [ASKED]],
+					rows: [
+						updated(
+							"owner/repo",
+							"HEAD",
+							HASHES,
+							["a", "skill"],
+							["go", REMOVED_DETAIL],
+						),
+					],
+					tally: closed({ updated: 1, removed: 1 }),
+				}),
 			);
 		});
 
@@ -6927,9 +7861,15 @@ describe("an entry gone upstream", () => {
 				"owner/repo/a": expect.objectContaining({ commit: REMOTE_SHA }),
 				"other/repo": other,
 			});
-			expect(ui.log.success).toHaveBeenCalledWith(
-				"Removed owner/repo/go — it's gone upstream",
-			);
+			expect(drawn().rows).toEqual([
+				updated(
+					"owner/repo",
+					"HEAD",
+					HASHES,
+					["a", "skill"],
+					["go", REMOVED_DETAIL],
+				),
+			]);
 		});
 	});
 
@@ -7017,6 +7957,8 @@ describe("a pack taking over loose skills from its own source", () => {
 		assetDirs: [],
 	};
 	const NOTE = "owner/repo/tools now includes a, installed on its own before";
+	/** The note machine mode prints; at a terminal the skill's own line under the pack tells it. */
+	const TOLD = machineOnly(NOTE);
 
 	function packEntry(): ManifestEntry {
 		return makeEntry({
@@ -7024,6 +7966,20 @@ describe("a pack taking over loose skills from its own source", () => {
 			commit: INSTALLED_SHA,
 			files: [".claude/skills/b/"],
 		});
+	}
+
+	/** The Next item that clears the files in the pack's way, `-g ` given for a global run. */
+	function replaceThem(global = ""): NextItem {
+		return {
+			subject: PACK_KEY,
+			remedy: {
+				lead: "Clear them and update again, or replace them:",
+				steps: [
+					{ command: `npx agntc remove ${global}${PACK_KEY}` },
+					{ command: `npx agntc add ${global}${PACK_KEY} --pack --overwrite` },
+				],
+			},
+		};
 	}
 
 	function looseA(overrides: Partial<ManifestEntry> = {}): ManifestEntry {
@@ -7071,7 +8027,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			".claude/skills/a/",
 			".claude/skills/b/",
 		]);
-		expect(ui.note).toHaveBeenCalledWith(NOTE);
+		expect(ui.note).toHaveBeenCalledWith(TOLD);
 	});
 
 	it("all-mode skips a taken-over loose entry whose own group comes after the pack's", async () => {
@@ -7087,6 +8043,56 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockCopyBareSkill).not.toHaveBeenCalled();
 		const written = mockWriteManifest.mock.calls.at(-1)![1] as Manifest;
 		expect(Object.keys(written)).toEqual([PACK_KEY]);
+		// The skill shows under the pack's row, where it went; its own group,
+		// with nothing left to do, draws no row.
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [
+					[
+						group("owner/repo@HEAD", "HEAD", "tools", "a"),
+						group("owner/repo@main", "main", "a"),
+					],
+				],
+				rows: [
+					updated(
+						"owner/repo@HEAD",
+						"HEAD",
+						HASHES,
+						["tools", "pack · 2 skills"],
+						["a", "is now part of the pack owner/repo/tools"],
+					),
+				],
+				notes: [TOLD],
+				tally: closed({ updated: 2 }),
+			}),
+		);
+	});
+
+	it("draws no row for a pinned loose entry a pack on HEAD took over from another group, telling it under the pack", async () => {
+		arrangeTakeover({
+			[PACK_KEY]: packEntry(),
+			"owner/repo/a": looseA({ ref: "v1.0" }),
+		});
+		// The pin is up to date, so its group is only left alone: the pack's
+		// takeover is all that keeps it from drawing a row of its own.
+		mockResolveGroupTarget.mockImplementation(async (group) =>
+			group.versionIntent === null
+				? { kind: "head", resolvedSha: REMOTE_SHA }
+				: { kind: "tag", tag: "v1.0", newerTags: [] },
+		);
+
+		await runUpdate(undefined, {}, ui);
+
+		expect(drawn().rows).toEqual([
+			updated(
+				"owner/repo@HEAD",
+				"HEAD",
+				HASHES,
+				["tools", "pack · 2 skills"],
+				["a", "is now part of the pack owner/repo/tools"],
+			),
+		]);
+		expect(drawn().tally).toEqual(closed({ updated: 2 }));
 	});
 
 	describe("when the loose entry's own group comes before the pack's", () => {
@@ -7129,16 +8135,32 @@ describe("a pack taking over loose skills from its own source", () => {
 			]);
 		});
 
-		it("streams the pack's line, never an Updated line for the skill", async () => {
-			const handle = captureSpinner();
+		it("draws the pack's row, the skill under it, never a row of its own", async () => {
 			arrangeSkillGroupFirst();
 
 			await runUpdate("owner/repo", {}, ui);
 
-			expect(stopTexts(handle)).toEqual([
-				expect.stringMatching(/^owner\/repo\/tools: Updated/),
-			]);
-			expect(ui.said("success")).toEqual([]);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [
+						[
+							group("owner/repo@main", "main", "a"),
+							group("owner/repo@HEAD", "HEAD", "tools", "a"),
+						],
+					],
+					rows: [
+						updated(
+							"owner/repo@HEAD",
+							"HEAD",
+							HASHES,
+							["tools", "pack · 2 skills"],
+							["a", "is now part of the pack owner/repo/tools"],
+						),
+					],
+					notes: [TOLD],
+					tally: closed({ updated: 2 }),
+				}),
+			);
 		});
 	});
 
@@ -7209,7 +8231,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			expect(run.document.notes).toEqual([]);
 		});
 
-		it("a key naming both drops the loose entry with the pack's", async () => {
+		it("a key naming both drops the loose entry with the pack's, failed as the pack is", async () => {
 			arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
 			mockCopyPack.mockRejectedValue(new Error("disk full"));
 
@@ -7220,7 +8242,41 @@ describe("a pack taking over loose skills from its own source", () => {
 				"/fake/project",
 				{},
 			);
-			expect(ui.log.error).toHaveBeenCalledWith(PACK_MESSAGE);
+			expect(drawn()).toEqual(
+				screen({
+					subjects: [[group("owner/repo", "HEAD", "a", "tools")]],
+					rows: [
+						{
+							status: "failed",
+							subject: "owner/repo",
+							meta: "HEAD",
+							detail: { move: HASHES, note: "failed" },
+							children: [
+								{
+									name: "tools",
+									detail:
+										"update failed after removing old files (disk full), and the skill it took over was removed: owner/repo/a. It is currently uninstalled.",
+								},
+								{
+									name: "a",
+									detail:
+										"was removed — the pack owner/repo/tools took it over, then failed to install",
+								},
+							],
+						},
+					],
+					next: [
+						{
+							subject: PACK_KEY,
+							remedy: {
+								lead: "To install it again:",
+								steps: [{ command: "npx agntc add owner/repo/tools --pack" }],
+							},
+						},
+					],
+					tally: closed({ failed: 2 }),
+				}),
+			);
 		});
 	});
 
@@ -7235,7 +8291,30 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/fake/project", {
 			[PACK_KEY]: expect.objectContaining({ commit: REMOTE_SHA }),
 		});
-		expect(ui.note).toHaveBeenCalledWith(NOTE);
+		expect(ui.note).toHaveBeenCalledWith(TOLD);
+	});
+
+	it("a key naming the pack alone draws the skill it took over under its row, as a group's row does", async () => {
+		arrangeTakeover({ "owner/repo/a": looseA(), [PACK_KEY]: packEntry() });
+
+		await runUpdate(PACK_KEY, {}, ui);
+
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "tools", "a")]],
+				rows: [
+					updated(
+						"owner/repo",
+						"HEAD",
+						HASHES,
+						["tools", "pack · 2 skills"],
+						["a", "is now part of the pack owner/repo/tools"],
+					),
+				],
+				notes: [TOLD],
+				tally: closed({ updated: 2 }),
+			}),
+		);
 	});
 
 	it("aborts the pack, install intact, when its skills would land on another source's files", async () => {
@@ -7260,8 +8339,18 @@ describe("a pack taking over loose skills from its own source", () => {
 
 		await runUpdate(PACK_KEY, {}, ui).catch(() => {});
 
-		expect(ui.log.error).toHaveBeenCalledWith(
-			"owner/repo/tools can't be updated: files of other/repo/a are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "tools")]],
+				rows: [
+					stopped("owner/repo", "HEAD", HASHES, "not updated", [
+						"tools",
+						"can't be updated: files of other/repo/a are in the way: .claude/skills/a/. The existing install is unchanged.",
+					]),
+				],
+				next: [replaceThem()],
+				tally: closed({ notUpdated: 1 }),
+			}),
 		);
 	});
 
@@ -7280,8 +8369,18 @@ describe("a pack taking over loose skills from its own source", () => {
 		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
 		expect(mockCopyPack).not.toHaveBeenCalled();
 		expect(mockWriteManifest).not.toHaveBeenCalled();
-		expect(ui.log.error).toHaveBeenCalledWith(
-			"owner/repo/tools can't be updated: files agntc didn't install are in the way: .claude/skills/a/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/tools then npx agntc add owner/repo/tools --pack --overwrite",
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "tools")]],
+				rows: [
+					stopped("owner/repo", "HEAD", HASHES, "not updated", [
+						"tools",
+						"can't be updated: files agntc didn't install are in the way: .claude/skills/a/. The existing install is unchanged.",
+					]),
+				],
+				next: [replaceThem()],
+				tally: closed({ notUpdated: 1 }),
+			}),
 		);
 	});
 
@@ -7297,11 +8396,7 @@ describe("a pack taking over loose skills from its own source", () => {
 			{ [PACK_KEY]: packEntry() },
 			HOME,
 		);
-		expect(ui.log.error).toHaveBeenCalledWith(
-			expect.stringContaining(
-				"replace them: npx agntc remove -g owner/repo/tools then npx agntc add -g owner/repo/tools --pack --overwrite",
-			),
-		);
+		expect(drawn().next).toEqual([replaceThem("-g ")]);
 	});
 });
 
@@ -7360,7 +8455,30 @@ describe("a pack that would remove folders still in its source", () => {
 		const err = await runUpdate(KEY, {}, ui).catch((e) => e);
 
 		expect(err).toBeInstanceOf(ExitSignal);
-		expect(ui.log.error).toHaveBeenCalledWith(MESSAGE);
+		expect(drawn()).toEqual(
+			screen({
+				subjects: [[group("owner/repo", "HEAD", "tools")]],
+				rows: [
+					stopped("owner/repo", "HEAD", HASHES, "not updated", [
+						"tools",
+						"can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged.",
+					]),
+				],
+				next: [
+					{
+						subject: KEY,
+						remedy: {
+							lead: "To update it anyway:",
+							steps: [
+								{ command: `npx agntc remove ${KEY}` },
+								{ command: `npx agntc add ${KEY} --pack` },
+							],
+						},
+					},
+				],
+				tally: closed({ notUpdated: 1 }),
+			}),
+		);
 		expect(mockWriteManifest).not.toHaveBeenCalled();
 	});
 
@@ -7381,12 +8499,12 @@ describe("a pack that would remove folders still in its source", () => {
 });
 
 describe("a global update", () => {
-	it("titles itself global", async () => {
+	it("opens on the header and reads the global manifest", async () => {
 		mockReadManifestOrExit.mockResolvedValue({});
 
 		await runUpdate(undefined, {}, ui, GLOBAL);
 
-		expect(ui.intro).toHaveBeenCalledWith("agntc update · global");
+		expect(ui.header).toHaveBeenCalledOnce();
 		expect(mockReadManifestOrExit).toHaveBeenCalledWith(HOME, ui);
 	});
 
@@ -7401,9 +8519,14 @@ describe("a global update", () => {
 
 		await runUpdate("owner/repo", {}, ui, GLOBAL);
 
-		expect(ui.outro).toHaveBeenCalledWith(
-			"To upgrade: npx agntc add -g owner/repo@v3.0",
-		);
+		expect(drawn().next).toEqual([
+			pinnedKey(
+				"owner/repo",
+				"v1.0",
+				["v3.0", "v2.0"],
+				"npx agntc add -g owner/repo@v3.0",
+			),
+		]);
 	});
 
 	it("carries -g in a key's out-of-constraint upgrade command", async () => {
@@ -7421,9 +8544,9 @@ describe("a global update", () => {
 
 		await runUpdate("owner/repo", {}, ui, GLOBAL);
 
-		expect(ui.log.info).toHaveBeenCalledWith(
-			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo",
-		);
+		expect(drawn().next).toEqual([
+			upgrade("owner/repo", "v1.2.3", "v2.0.0", "npx agntc add -g owner/repo"),
+		]);
 	});
 
 	it("carries -g on every line of a pinned group's upgrade commands", async () => {
@@ -7443,13 +8566,18 @@ describe("a global update", () => {
 
 		await runUpdate(undefined, {}, ui, GLOBAL);
 
-		expect(ui.log.info).toHaveBeenCalledWith(
-			[
-				"owner/repo: Pinned to v1.0 — newer tags available (latest: v3.0). To upgrade:",
-				"    npx agntc add -g owner/repo/a@v3.0",
-				"    npx agntc add -g owner/repo/tools@v3.0 --pack",
-			].join("\n"),
-		);
+		expect(drawn().next).toEqual([
+			{
+				subject: "owner/repo",
+				remedy: {
+					lead: "Pinned to v1.0, newer tags available (latest: v3.0). To upgrade:",
+					steps: [
+						{ command: "npx agntc add -g owner/repo/a@v3.0" },
+						{ command: "npx agntc add -g owner/repo/tools@v3.0 --pack" },
+					],
+				},
+			},
+		]);
 	});
 
 	it("carries -g in a constrained group's out-of-constraint upgrade command", async () => {
@@ -7472,8 +8600,13 @@ describe("a global update", () => {
 
 		await runUpdate(undefined, {}, ui, GLOBAL);
 
-		expect(ui.log.info).toHaveBeenCalledWith(
-			"  owner/repo  v1.2.3 -> v2.0.0 available. To upgrade: npx agntc add -g owner/repo --skill a b",
-		);
+		expect(drawn().next).toEqual([
+			upgrade(
+				"owner/repo",
+				"v1.2.3",
+				"v2.0.0",
+				"npx agntc add -g owner/repo --skill a b",
+			),
+		]);
 	});
 });

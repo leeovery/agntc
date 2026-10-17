@@ -29,24 +29,25 @@ export function renderHeader(
 	return [spread(left, style.dim(right), width) ?? left];
 }
 
+/**
+ * Where it installs and the version, as much as fits: both whole, else where
+ * cut from the left (down to {@link MIN_WHERE}), else the version alone,
+ * which {@link spread} leaves out when even that doesn't fit.
+ */
 function rightSide(header: Header, room: number): string | undefined {
 	const version =
 		header.version === undefined ? undefined : `v${header.version}`;
-	const full = [header.where, version]
-		.filter((part) => part !== undefined)
-		.join(" · ");
-	if (full === "") {
-		return undefined;
-	}
-	if (visibleWidth(full) <= room) {
-		return full;
-	}
-	if (header.where === undefined) {
-		return undefined;
-	}
 	const suffix = version === undefined ? "" : ` · ${version}`;
-	const whereRoom = room - visibleWidth(suffix);
-	return whereRoom < MIN_WHERE
-		? undefined
-		: truncateStart(header.where, whereRoom) + suffix;
+	const where = whereWithin(header.where, room - visibleWidth(suffix));
+	return where === undefined ? version : where + suffix;
+}
+
+function whereWithin(
+	where: string | undefined,
+	room: number,
+): string | undefined {
+	if (where === undefined || visibleWidth(where) <= room) {
+		return where;
+	}
+	return room < MIN_WHERE ? undefined : truncateStart(where, room);
 }

@@ -1,149 +1,253 @@
+import { homedir } from "node:os";
 import { Command } from "commander";
-import { type AssetType, identifyAssetType } from "../asset-targets.js";
 import { commandAction, globalOption, jsonOption } from "../command-action.js";
 import { type Removal, removeBody } from "../documents.js";
+import { assetSummary, kindAndCounts } from "../entry-assets.js";
 import { errorMessage } from "../errors.js";
 import { ExitSignal } from "../exit-signal.js";
+import { nothingInstalledRow } from "../list-render.js";
 import {
 	type Manifest,
+	type ManifestEntry,
 	readManifestOrExit,
 	removeEntry,
 	writeManifest,
 } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
+import {
+	removalQuestion,
+	removalRow,
+	removedRow,
+	removeFailedRow,
+} from "../remove-render.js";
 import { resolveTargetKeys } from "../resolve-target-keys.js";
 import {
 	agntcCommand,
-	commandTitle,
+	homeShortened,
 	projectScope,
 	type Scope,
 	type ScopeName,
 } from "../scope.js";
-import { renderRemoveSummary } from "../summary.js";
-import { interactiveUi, type Ui } from "../ui.js";
+import { formatRefLabel } from "../summary.js";
+import type { Noun, Row } from "../terminal/types.js";
+import type { Choice, Ui } from "../ui.js";
 
 export interface RemoveOptions {
 	/** Remove without asking for confirmation. */
 	yes?: boolean;
 }
 
-interface Targets {
-	keys: string[];
-	summaryLabel: string;
+/** What the question counts the entries its room leaves out as. */
+const ENTRY: Noun = { one: "entry", many: "entries" };
+
+/** An entry `remove` set out to remove, as its rows name it. */
+interface Target {
+	key: string;
+	entry: ManifestEntry;
+	/** Its key as a row names it: a local one shortened against the home folder. */
+	subject: string;
+	/** Its kind, a pack's with what it installs. */
+	kind: string;
 }
 
-async function selectKeysInteractive(
-	manifest: Manifest,
-	ui: Ui,
-): Promise<string[]> {
-	const options = Object.entries(manifest).map(([key, entry]) => ({
-		value: key,
-		label: key,
-		hint: entry.ref ?? "HEAD",
-	}));
-
-	return ui.multiselect<string>({
-		message: "Select what to remove",
-		options,
-		required: false,
-	});
-}
-
-interface FileGroup {
-	header: string;
-	files: string[];
-}
-
-const ASSET_TYPE_LABELS: Record<AssetType, string> = {
-	skills: "Skills",
-	agents: "Agents",
-	hooks: "Hooks",
-};
-
-function classifyFile(file: string): string {
-	const assetType = identifyAssetType(file);
-	return assetType === null ? "Other" : ASSET_TYPE_LABELS[assetType];
-}
-
-function groupFilesByType(files: string[]): FileGroup[] {
-	const order = ["Skills", "Agents", "Hooks", "Other"];
-	const groups = new Map<string, string[]>();
-
-	for (const file of files) {
-		const type = classifyFile(file);
-		const existing = groups.get(type);
-		if (existing) {
-			existing.push(file);
-		} else {
-			groups.set(type, [file]);
-		}
-	}
-
-	const result: FileGroup[] = [];
-	for (const type of order) {
-		const typeFiles = groups.get(type);
-		if (typeFiles && typeFiles.length > 0) {
-			result.push({ header: type, files: typeFiles });
-		}
-	}
-	return result;
-}
-
+/**
+ * Removes the entries `key` names, or those picked at a terminal, once their
+ * rows' question is answered or `-y` answers it. Each entry whose files are
+ * removed goes from the manifest; one whose files can't be stays, so
+ * whatever is left of it stays tracked, and the command exits 1.
+ */
 export async function runRemove(
-	key?: string,
-	options: RemoveOptions = {},
-	ui: Ui = interactiveUi,
+	key: string | undefined,
+	options: RemoveOptions,
+	ui: Ui,
 	scope: Scope = projectScope(),
 ): Promise<void> {
-	ui.intro(commandTitle("remove", scope.name));
+	ui.header();
 
+	const home = homedir();
 	const manifest = await readManifestOrExit(scope.root, ui);
 
 	if (Object.keys(manifest).length === 0) {
-		ui.outro("No skills or packs installed.");
+		const row = nothingInstalledRow();
+		ui.block([row]).row(row);
+		ui.close({ command: "remove", counts: {} });
 		ui.report(removeBody(manifest, { removed: [], failed: [] }));
 		return;
 	}
 
-	const targets =
+	const keys =
 		key !== undefined
-			? targetsForKey(key, manifest, ui)
-			: await pickTargets(manifest, scope.name, ui);
+			? keysFor(key, manifest, options, ui)
+			: await pickKeys(manifest, scope.name, ui, home);
+	const targets = await describeTargets(keys, manifest, scope.root, home);
 
-	const allFiles = targets.keys.flatMap((k) => manifest[k]?.files ?? []);
-
-	if (key !== undefined && targets.keys.length > 1) {
-		for (const k of targets.keys) {
-			ui.log.info(k);
-		}
+	if (!options.yes) {
+		await confirmRemoval(targets, ui);
 	}
 
-	for (const group of groupFilesByType(allFiles)) {
-		ui.log.message(group.header);
-		for (const file of group.files) {
-			ui.log.message(`  ${file}`);
-		}
-	}
-
-	await confirmRemoval(targets.summaryLabel, allFiles.length, options, ui);
-
-	const removal = await removeEach(targets.keys, manifest, scope.root);
+	const removal = await removeEach(keys, manifest, scope.root);
 	await writeManifest(
 		scope.root,
 		removal.removed.reduce(removeEntry, manifest),
 	);
 
-	for (const failure of removal.failed) {
-		ui.log.error(
-			`${failure.key}: failed — ${failure.reason}; it stays recorded`,
-		);
+	const rows = targets.map((target) => resultRow(target, removal));
+	const block = ui.block(rows);
+	for (const row of rows) {
+		block.row(row);
 	}
-	ui.outro(removalSummary(targets, removal, manifest));
+	ui.close({
+		command: "remove",
+		counts: {
+			removed: removal.removed.length,
+			failed: removal.failed.length,
+		},
+	});
 	ui.report(removeBody(manifest, removal));
 
 	if (removal.failed.length > 0) {
 		throw new ExitSignal(1);
 	}
+}
+
+/**
+ * The entries `key` names. Without `-y` and a terminal to ask at, refuses
+ * before anything is deleted, naming the flag that answers the question.
+ */
+function keysFor(
+	key: string,
+	manifest: Manifest,
+	options: RemoveOptions,
+	ui: Ui,
+): string[] {
+	const keys = resolveTargetKeys(key, manifest, ui);
+	if (!options.yes && ui.mode === "machine") {
+		const fileCount = keys.flatMap((k) => manifest[k]?.files ?? []).length;
+		ui.fail(
+			`removing ${labelFor(keys, key)} deletes ${fileCount} file(s) — confirm with -y`,
+			{ flags: ["-y"] },
+		);
+	}
+	return keys;
+}
+
+/** A lone key names itself; several go by the key naming them. */
+function labelFor(keys: string[], key: string): string {
+	const [only] = keys;
+	return keys.length === 1 && only !== undefined ? only : key;
+}
+
+/** The entries picked at a terminal; machine mode needs the key instead. */
+async function pickKeys(
+	manifest: Manifest,
+	scope: ScopeName,
+	ui: Ui,
+	home: string,
+): Promise<string[]> {
+	if (ui.mode === "machine") {
+		ui.fail(
+			`remove needs the key of what to remove without a terminal: ${agntcCommand(scope, "remove", [])} <key>`,
+			{ flags: ["<key>"] },
+		);
+	}
+	const keys = await ui.multiselect<string>({
+		message: "Select what to remove",
+		options: Object.entries(manifest).map(([key, entry]) =>
+			pickerChoice(key, entry, home),
+		),
+		required: false,
+	});
+	if (keys.length === 0) {
+		return cancel(ui);
+	}
+	return keys;
+}
+
+/** An entry by its key, a local one's shortened, then its kind and its ref, dim; a narrow line drops the kind, then the ref. */
+function pickerChoice(
+	key: string,
+	entry: ManifestEntry,
+	home: string,
+): Choice<string> {
+	return {
+		value: key,
+		label: subjectOf(key, entry, home),
+		cells: [
+			{ text: entry.type ?? "skill", dim: true, drop: 1 },
+			{ text: formatRefLabel(entry.ref, entry.commit), dim: true, drop: 2 },
+		],
+	};
+}
+
+function subjectOf(key: string, entry: ManifestEntry, home: string): string {
+	return entry.commit === null ? homeShortened(key, home) : key;
+}
+
+/** Each entry with what its rows say of it, read before its files go. */
+function describeTargets(
+	keys: readonly string[],
+	manifest: Manifest,
+	installRoot: string,
+	home: string,
+): Promise<Target[]> {
+	return Promise.all(
+		keys.flatMap((key) => {
+			const entry = manifest[key];
+			return entry === undefined
+				? []
+				: [describeTarget(key, entry, installRoot, home)];
+		}),
+	);
+}
+
+async function describeTarget(
+	key: string,
+	entry: ManifestEntry,
+	installRoot: string,
+	home: string,
+): Promise<Target> {
+	const assets = await assetSummary(entry, installRoot);
+	return {
+		key,
+		entry,
+		subject: subjectOf(key, entry, home),
+		kind: kindAndCounts(entry, assets),
+	};
+}
+
+/** Asks under every entry's row, fitted together; no ends the run. */
+async function confirmRemoval(
+	targets: readonly Target[],
+	ui: Ui,
+): Promise<void> {
+	const rows = targets.map(({ subject, kind, entry }) =>
+		removalRow(subject, kind, entry.files),
+	);
+	const confirmed = await ui.block(rows).confirm(
+		{ rows, noun: ENTRY },
+		{
+			message: removalQuestion(targets.map(({ entry }) => entry.files)),
+		},
+	);
+	if (!confirmed) {
+		cancel(ui);
+	}
+}
+
+function cancel(ui: Ui): never {
+	ui.cancel("Cancelled");
+	throw new ExitSignal(0);
+}
+
+/** What became of the entry: removed, with what it installed, or failed, with why. */
+function resultRow(
+	{ key, entry, subject, kind }: Target,
+	{ failed }: Removal,
+): Row {
+	const failure = failed.find((each) => each.key === key);
+	return failure === undefined
+		? removedRow(subject, kind, entry.files)
+		: removeFailedRow(subject, failure.reason);
 }
 
 /**
@@ -165,77 +269,6 @@ async function removeEach(
 		}
 	}
 	return removal;
-}
-
-function removalSummary(
-	targets: Targets,
-	{ removed }: Removal,
-	manifest: Manifest,
-): string {
-	if (removed.length === 0) {
-		return "Nothing removed";
-	}
-	const summaryLabel =
-		removed.length === targets.keys.length
-			? targets.summaryLabel
-			: labelFor(removed, `${removed.length} install(s)`);
-	const fileCount = removed.flatMap((k) => manifest[k]?.files ?? []).length;
-	return renderRemoveSummary({ summaryLabel, fileCount });
-}
-
-function targetsForKey(key: string, manifest: Manifest, ui: Ui): Targets {
-	const keys = resolveTargetKeys(key, manifest, ui);
-	return { keys, summaryLabel: labelFor(keys, key) };
-}
-
-async function pickTargets(
-	manifest: Manifest,
-	scope: ScopeName,
-	ui: Ui,
-): Promise<Targets> {
-	if (ui.mode === "machine") {
-		ui.fail(
-			`remove needs the key of what to remove without a terminal: ${agntcCommand(scope, "remove", [])} <key>`,
-			{ flags: ["<key>"] },
-		);
-	}
-	const keys = await selectKeysInteractive(manifest, ui);
-	if (keys.length === 0) {
-		ui.cancel("Cancelled");
-		throw new ExitSignal(0);
-	}
-	return { keys, summaryLabel: labelFor(keys, `${keys.length} install(s)`) };
-}
-
-/** A lone key names itself; several go by `several`. */
-function labelFor(keys: string[], several: string): string {
-	const [only] = keys;
-	return keys.length === 1 && only !== undefined ? only : several;
-}
-
-/** `-y` answers the question; without it, machine mode refuses before anything is deleted. */
-async function confirmRemoval(
-	summaryLabel: string,
-	fileCount: number,
-	options: RemoveOptions,
-	ui: Ui,
-): Promise<void> {
-	if (options.yes) {
-		return;
-	}
-	if (ui.mode === "machine") {
-		ui.fail(
-			`removing ${summaryLabel} deletes ${fileCount} file(s) — confirm with -y`,
-			{ flags: ["-y"] },
-		);
-	}
-	const confirmed = await ui.confirm({
-		message: `Remove ${summaryLabel}? ${fileCount} file(s) will be deleted.`,
-	});
-	if (!confirmed) {
-		ui.cancel("Cancelled");
-		throw new ExitSignal(0);
-	}
 }
 
 export const removeCommand = new Command("remove")

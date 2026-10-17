@@ -41,6 +41,7 @@ import {
 } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
 import type { ParsedSource } from "../../src/source-parser.js";
+import type { NextItem } from "../../src/terminal/types.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 import { type MachineRun, runMachine } from "../helpers/machine.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
@@ -400,8 +401,13 @@ describe("the out-of-constraint footer of a run that moves an entry", () => {
 
 		await runUpdate(undefined, {}, ui);
 
-		expect(ui.log.info).toHaveBeenCalledWith(
-			"  owner/repo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo --skill bar foo",
+		expect(ui.next).toHaveBeenCalledWith(
+			upgrade(
+				"owner/repo",
+				"v1.1.0",
+				"v2.0.0",
+				"npx agntc add owner/repo --skill bar foo",
+			),
 		);
 	});
 
@@ -410,11 +416,22 @@ describe("the out-of-constraint footer of a run that moves an entry", () => {
 
 		await runUpdate("owner/repo/packs/foo", {}, ui);
 
-		expect(ui.outro).toHaveBeenCalledWith(
-			"Updated owner/repo/foo: v1.0.0 -> v1.1.0 — 1 file(s)",
-		);
-		expect(ui.log.info).toHaveBeenCalledWith(
-			"  owner/repo/foo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo/packs/foo",
+		expect(ui.rows()).toEqual([
+			{
+				status: "done",
+				subject: "owner/repo",
+				meta: "^1.0.0",
+				detail: { move: { from: "v1.0.0", to: "v1.1.0" } },
+				children: [{ name: "foo", detail: "skill · now keyed owner/repo/foo" }],
+			},
+		]);
+		expect(ui.next).toHaveBeenCalledWith(
+			upgrade(
+				"owner/repo/foo",
+				"v1.1.0",
+				"v2.0.0",
+				"npx agntc add owner/repo/packs/foo",
+			),
 		);
 	});
 });
@@ -447,8 +464,10 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 	}
 
 	/** The footer lines the run printed. */
-	function footer(): string[] {
-		return ui.said("info").filter((line) => line.includes(" available."));
+	function footer(): NextItem[] {
+		return ui.next.mock.calls
+			.map(([item]) => item)
+			.filter(({ remedy }) => remedy.lead.startsWith("Newer version"));
 	}
 
 	it("leaves out a member a pack took over", async () => {
@@ -470,7 +489,12 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 		await runUpdate(undefined, {}, ui);
 
 		expect(footer()).toEqual([
-			"  owner/repo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo/packs --pack",
+			upgrade(
+				"owner/repo",
+				"v1.1.0",
+				"v2.0.0",
+				"npx agntc add owner/repo/packs --pack",
+			),
 		]);
 	});
 
@@ -487,7 +511,7 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 
 		expect(await savedManifest()).not.toHaveProperty(["owner/repo/bar"]);
 		expect(footer()).toEqual([
-			"  owner/repo  v1.1.0 -> v2.0.0 available. To upgrade: npx agntc add owner/repo/foo",
+			upgrade("owner/repo", "v1.1.0", "v2.0.0", "npx agntc add owner/repo/foo"),
 		]);
 	});
 
@@ -521,8 +545,24 @@ describe("the out-of-constraint footer of a run that leaves an entry uninstalled
 	});
 });
 
-describe("the streamed line of a member the run moved", () => {
-	it("names it by the key the run left it under", async () => {
+/** The Next item that moves `subject` past its constraint, from `current` to `latest`. */
+function upgrade(
+	subject: string,
+	current: string,
+	latest: string,
+	command: string,
+): NextItem {
+	return {
+		subject,
+		remedy: {
+			lead: `Newer version outside the constraint: ${current} → ${latest} available. To upgrade:`,
+			steps: [{ command }],
+		},
+	};
+}
+
+describe("the row of a member the run moved", () => {
+	it("names it by the key it had, saying the key it moved to, and notes it for machine mode alone", async () => {
 		await repo("owner/repo", {
 			"plugins/foo/SKILL.md": "foo v2",
 			"bar/SKILL.md": "bar v2",
@@ -545,9 +585,15 @@ describe("the streamed line of a member the run moved", () => {
 
 		await runUpdate(undefined, {}, ui);
 
-		const lines = ui.said("success");
-		expect(lines).toContain("foo");
-		expect(lines).not.toContain("my-plugin");
+		const children = ui.rows().flatMap(({ children = [] }) => children);
+		expect(children).toContainEqual({
+			name: "my-plugin",
+			detail: "skill · now keyed owner/repo/foo",
+		});
+		expect(ui.note).toHaveBeenCalledExactlyOnceWith({
+			text: "",
+			plain: "owner/repo/my-plugin is now keyed owner/repo/foo",
+		});
 	});
 });
 

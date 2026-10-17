@@ -1,43 +1,55 @@
 import { errorMessage } from "../errors.js";
+import type { ListActionResult } from "../list-render.js";
 import type { Manifest, ManifestEntry } from "../manifest.js";
 import { removeEntry, writeManifest } from "../manifest.js";
 import { nukeManifestFiles } from "../nuke-files.js";
+import {
+	removalQuestion,
+	removalRow,
+	removedRow,
+	removeFailedRow,
+} from "../remove-render.js";
 import type { Scope } from "../scope.js";
+import type { Row } from "../terminal/types.js";
 import type { Ui } from "../ui.js";
 
-export interface RemoveActionResult {
-	removed: boolean;
-	message: string;
+/** The entry as the remove action's rows name it. */
+export interface RemovedEntry {
+	key: string;
+	entry: ManifestEntry;
+	/** Its key as a row names it: a local one shortened against the home folder. */
+	subject: string;
+	/** Its kind, a pack's with what it installs. */
+	kind: string;
 }
 
+/**
+ * Asks to remove the entry under the row naming what it installed, then
+ * removes it and its files, leaving a row saying which. A removal that fails
+ * leaves the entry recorded, so whatever is left stays tracked.
+ */
 export async function executeRemoveAction(
-	key: string,
-	entry: ManifestEntry,
+	{ key, entry, subject, kind }: RemovedEntry,
 	manifest: Manifest,
 	scope: Scope,
 	ui: Ui,
-): Promise<RemoveActionResult> {
-	for (const file of entry.files) {
-		ui.log.message(`  ${file}`);
-	}
-
-	const confirmed = await ui.confirm({
-		message: `Remove ${key}? ${entry.files.length} file(s) will be deleted.`,
+): Promise<ListActionResult> {
+	const asked = removalRow(subject, kind, entry.files);
+	const confirmed = await ui.block([asked]).confirm(asked, {
+		message: removalQuestion([entry.files]),
 	});
-
 	if (!confirmed) {
-		return { removed: false, message: "Cancelled" };
+		return { key, change: null };
 	}
 
+	const said = (row: Row) => ui.block([row]).row(row);
 	try {
 		await nukeManifestFiles(scope.root, entry.files);
 	} catch (err) {
-		return {
-			removed: false,
-			message: `Couldn't remove ${key}: ${errorMessage(err)}; it stays recorded`,
-		};
+		said(removeFailedRow(subject, errorMessage(err)));
+		return { key, change: null };
 	}
 	await writeManifest(scope.root, removeEntry(manifest, key));
-
-	return { removed: true, message: `Removed ${key}` };
+	said(removedRow(subject, kind));
+	return { key, change: "removed" };
 }

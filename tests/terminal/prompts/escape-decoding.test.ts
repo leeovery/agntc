@@ -7,7 +7,7 @@ import * as multiselect from "../../../src/terminal/prompts/multiselect.js";
 import * as select from "../../../src/terminal/prompts/select.js";
 import type { PromptContext } from "../../../src/terminal/prompts/session.js";
 import { createStyle } from "../../../src/terminal/style.js";
-import { CaptureStdout, FakeHost, FakeStdin, tick } from "./terminal.js";
+import { CaptureStdout, FakeOwner, FakeStdin, tick } from "./terminal.js";
 
 // The filter may take replies out and nothing else: a prompt reads every key
 // through it as it would read stdin itself. Each prompt here is given an ESC,
@@ -123,7 +123,7 @@ function asking(prompts: Prompts, ask: Ask, input: FakeStdin) {
 		width: 80,
 		style: createStyle(0),
 		background: [0, 0, 0],
-		host: new FakeHost(),
+		owner: new FakeOwner(),
 	});
 }
 

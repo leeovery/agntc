@@ -1,11 +1,17 @@
+import { homedir } from "node:os";
 import { Argument, Command } from "commander";
 import { commandAction, jsonOption } from "../command-action.js";
 import { ExitSignal } from "../exit-signal.js";
-import { formatInitReport } from "../init/format-report.js";
-import { previewAndConfirm } from "../init/preview-confirm.js";
+import {
+	initTally,
+	NEXT_STEP,
+	scaffoldedRows,
+	scaffoldRow,
+} from "../init/init-render.js";
 import { packScaffold } from "../init/scaffold-pack.js";
 import { skillScaffold } from "../init/scaffold-skill.js";
 import {
+	existingFiles,
 	type Scaffold,
 	type ScaffoldFile,
 	writeScaffold,
@@ -15,7 +21,9 @@ import {
 	type InitType,
 	selectInitType,
 } from "../init/type-select.js";
-import { interactiveUi, type Ui } from "../ui.js";
+import { sentence } from "../message.js";
+import { homeShortened } from "../scope.js";
+import type { Ui } from "../ui.js";
 
 export interface InitOptions {
 	/** Scaffold without the preview and its confirmation. */
@@ -27,25 +35,42 @@ const scaffolds: Record<InitType, Scaffold> = {
 	pack: packScaffold,
 };
 
+/**
+ * Scaffolds a skill or a pack in the working folder, once asked under the
+ * row of the files it will create, or told to by `-y`: a row per file,
+ * created or left as it was, then what the folder still needs.
+ */
 export async function runInit(
 	given: InitType | undefined,
 	options: InitOptions,
-	ui: Ui = interactiveUi,
+	ui: Ui,
 ): Promise<void> {
-	ui.intro("agntc init");
+	ui.header();
 
 	const type = given ?? (await chooseType(ui));
 	const targetDir = process.cwd();
 	const scaffold = scaffolds[type];
 	const files = scaffold.files(targetDir);
 
-	await confirmScaffold(type, files, options, ui);
+	await confirmScaffold(type, targetDir, files, options, ui);
 
 	const result = await writeScaffold(targetDir, files);
-	for (const warning of await scaffold.warnings(targetDir)) {
-		ui.warn(warning);
+	const rows = scaffoldedRows(
+		files.map(({ path }) => path),
+		result,
+	);
+	const block = ui.block(rows);
+	for (const row of rows) {
+		block.row(row);
 	}
-	ui.outro(formatInitReport(result, type));
+	for (const warning of await scaffold.warnings(targetDir)) {
+		ui.warn(sentence(warning));
+	}
+	// Machine mode's document says what was created; the next step is the terminal's.
+	if (ui.mode === "interactive" && result.created.length > 0) {
+		ui.note(sentence(NEXT_STEP[type]));
+	}
+	ui.close({ command: "init", counts: initTally(result) });
 	ui.report({ type, files: result.created, skipped: result.skipped });
 }
 
@@ -64,9 +89,15 @@ async function chooseType(ui: Ui): Promise<InitType> {
 	return type;
 }
 
-/** `-y` answers the question; without it, machine mode refuses before anything is written. */
+/**
+ * `-y` answers the question; without it, machine mode refuses before
+ * anything is written, and a terminal asks under the row of the files, the
+ * folder named as the row shows it, those already there marked so. With every
+ * file already there it has nothing to ask about, as nothing would be written.
+ */
 async function confirmScaffold(
 	type: InitType,
+	targetDir: string,
 	files: ScaffoldFile[],
 	options: InitOptions,
 	ui: Ui,
@@ -80,7 +111,17 @@ async function confirmScaffold(
 			{ flags: ["-y"] },
 		);
 	}
-	if (!(await previewAndConfirm(files, ui))) {
+	const existing = await existingFiles(targetDir, files);
+	if (existing.length === files.length) {
+		return;
+	}
+	const row = scaffoldRow(
+		homeShortened(targetDir, homedir()),
+		type,
+		files.map(({ path }) => path),
+		existing,
+	);
+	if (!(await ui.block([row]).confirm(row, { message: "Proceed?" }))) {
 		cancel(ui);
 	}
 }

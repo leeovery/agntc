@@ -5,6 +5,7 @@ import {
 	claimFiles,
 	takenOverRemoved,
 } from "./absorb.js";
+import type { AssetCounts } from "./asset-targets.js";
 import { checkFileCollisions } from "./collision-check.js";
 import {
 	computeIncomingFiles,
@@ -13,6 +14,7 @@ import {
 	skillClaims,
 } from "./compute-incoming-files.js";
 import { checkItemLinks, copyItem } from "./copy-item.js";
+import type { CopyResult } from "./copy-pack.js";
 import { type CopySource, inspectSourcePath } from "./copy-safety.js";
 import {
 	comparePaths,
@@ -39,6 +41,12 @@ import {
 	type Manifest,
 	type ManifestEntry,
 } from "./manifest.js";
+import {
+	type Message,
+	machineOnly,
+	type SubjectMessage,
+	sentence,
+} from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
 import type { Scope } from "./scope.js";
 import { memberName, repoFromKey } from "./source-parser.js";
@@ -115,8 +123,10 @@ interface NukeReinstallSuccess {
 	key: string;
 	entry: ManifestEntry;
 	copiedFiles: string[];
+	/** What the copy installed, counted as `add` counts it. */
+	assetCounts: AssetCounts;
 	/** What the user should hear about how the entry was reinstalled. */
-	notes: string[];
+	notes: Message[];
 	/** The loose skill entries a pack took over; their files are already removed. */
 	absorbed: string[];
 }
@@ -128,7 +138,8 @@ interface NukeReinstallSuccess {
 interface NukeReinstallCopyFailed {
 	status: "copy-failed";
 	errorMessage: string;
-	recoveryHint: string;
+	/** What went wrong, and the re-add that installs it again. */
+	recovery: SubjectMessage;
 	/** The loose skill entries a pack took over; their files are gone. */
 	absorbed: string[];
 }
@@ -350,39 +361,52 @@ async function reinstall(
 		};
 	}
 
-	let copiedFiles: string[];
+	let copied: CopyResult;
 	try {
-		({ copiedFiles } = await copyItem(replay.item, source, scope.root));
+		copied = await copyItem(replay.item, source, scope.root);
 	} catch (err: unknown) {
 		return copyFailed(options, err, cleared);
 	}
+	const { copiedFiles, assetCounts } = copied;
 
 	return {
 		status: "success",
 		key: keyed.key,
 		entry: replayedEntry(options, cleared, copiedFiles),
 		copiedFiles,
+		assetCounts,
 		notes: [
 			...replayNotes(key, keyed.key, replay.note),
-			...absorbed.map((looseKey) => absorptionNote(keyed.key, looseKey)),
+			// The absorbed entry's own line under the pack's row tells it at a terminal.
+			...absorbed.map((looseKey) =>
+				machineOnly(absorptionNote(keyed.key, looseKey)),
+			),
 		],
 		absorbed,
 	};
 }
 
-/** The replay's note and the key the entry moved to, told as one note. */
+/**
+ * The replay's note and the key the entry moved to, told as one note. At a
+ * terminal the entry's row says where it moved, so the note tells only the
+ * replay, and nothing when there's no replay to tell.
+ */
 function replayNotes(
 	key: string,
 	newKey: string,
 	note: string | undefined,
-): string[] {
+): Message[] {
 	if (newKey === key) {
-		return note === undefined ? [] : [note];
+		return note === undefined ? [] : [sentence(note)];
 	}
 	return [
-		note === undefined
-			? `${key} is now keyed ${newKey}`
-			: `${note}, now keyed ${newKey}`,
+		{
+			text: note ?? "",
+			plain:
+				note === undefined
+					? `${key} is now keyed ${newKey}`
+					: `${note}, now keyed ${newKey}`,
+		},
 	];
 }
 
@@ -638,7 +662,7 @@ function replayedEntry(
 }
 
 /**
- * The hint names what went wrong, the error's first line, and its remedy
+ * The recovery names what went wrong, the error's first line, and its remedy
  * installs the item as replayed, under the key `add` gives it, at the version
  * the replayed entry tracks.
  */
@@ -656,13 +680,18 @@ function copyFailed(
 		absorbed.length > 0 ? `, and ${takenOverRemoved(absorbed)}` : "";
 	const replayed = replayedAs(options, cleared);
 	const reAdd = restoreCommand(replayed.key, replayed.entry, scope.name);
+	const failed = `after removing old files${why}${takenOver}. It is currently uninstalled.`;
+	const text = `Update failed for ${key} ${failed}`;
 	return {
 		status: "copy-failed",
 		errorMessage: message,
 		absorbed,
-		recoveryHint:
-			`Update failed for ${key} after removing old files${why}${takenOver}. ` +
-			`It is currently uninstalled. ` +
-			`Run \`${reAdd}\` to install it again.`,
+		recovery: {
+			subject: key,
+			detail: `update failed ${failed}`,
+			text,
+			remedy: { lead: "To install it again:", steps: [{ command: reAdd }] },
+			plain: `${text} Run \`${reAdd}\` to install it again.`,
+		},
 	};
 }

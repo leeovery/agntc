@@ -1,4 +1,6 @@
 import type { AssetCounts } from "./asset-targets.js";
+import type { Clearance } from "./clear-conflicts.js";
+import type { Advice, SubjectMessage, WordedRemedy } from "./message.js";
 import { formatVersionMove } from "./version-resolve.js";
 
 export function pluralize(count: number, singular: string): string {
@@ -49,94 +51,22 @@ export interface ItemIdentity {
 }
 
 /**
- * What became of one item `add` set out to install. A skipped item carrying
- * `flags` was stopped for want of them, with no terminal to ask.
+ * What became of one item `add` set out to install, and what was cleared out
+ * of its way, when anything was. A skipped item carrying `flags` was stopped
+ * for want of them, with no terminal to ask. One carrying a `message` says
+ * its `reason` with a remedy apart, the reason its `plain`.
  */
-export type ItemOutcome = ItemIdentity &
-	(
+export type ItemOutcome = ItemIdentity & {
+	cleared?: Clearance[];
+} & (
 		| { status: "installed"; assetCounts: AssetCounts; files: string[] }
-		| { status: "skipped" | "failed"; reason: string; flags?: string[] }
+		| {
+				status: "skipped" | "failed";
+				reason: string;
+				flags?: string[];
+				message?: SubjectMessage;
+		  }
 	);
-
-interface AddSummaryInput {
-	sourceKey: string;
-	ref: string | null;
-	commit: string | null;
-	outcomes: ItemOutcome[];
-}
-
-/**
- * An add summary: one line per item, grouped by how it ended, plus the
- * `headline` for the closing outro.
- */
-export interface AddSummary {
-	headline: string;
-	installed: string[];
-	skipped: string[];
-	failed: string[];
-}
-
-export function renderAddSummary(input: AddSummaryInput): AddSummary {
-	const summary: AddSummary = {
-		headline: "",
-		installed: [],
-		skipped: [],
-		failed: [],
-	};
-	for (const outcome of input.outcomes) {
-		if (outcome.status === "installed") {
-			summary.installed.push(installedLine(outcome));
-		} else {
-			summary[outcome.status].push(
-				`${outcome.label}: ${outcome.status} — ${outcome.reason}`,
-			);
-		}
-	}
-	summary.headline =
-		summary.installed.length > 0
-			? `Installed ${input.sourceKey}@${formatRefLabel(input.ref, input.commit)}`
-			: `Nothing installed from ${input.sourceKey}`;
-	return summary;
-}
-
-function installedLine(
-	outcome: Extract<ItemOutcome, { status: "installed" }>,
-): string {
-	if (outcome.kind === "skill") {
-		return outcome.label;
-	}
-	return `${outcome.label} (pack · ${formatPackCounts(outcome.assetCounts)})`;
-}
-
-interface GitUpdateSummaryInput {
-	key: string;
-	oldRef: string | null;
-	newRef: string | null;
-	oldCommit: string | null;
-	newCommit: string;
-	copiedFiles: string[];
-}
-
-export function renderGitUpdateSummary(input: GitUpdateSummaryInput): string {
-	const move = formatVersionMove({
-		oldRef: input.oldRef,
-		newRef: input.newRef,
-		oldCommit: input.oldCommit,
-		newCommit: input.newCommit,
-	});
-	return `Updated ${input.key}: ${move} — ${input.copiedFiles.length} file(s)`;
-}
-
-interface LocalUpdateSummaryInput {
-	key: string;
-	copiedFiles: string[];
-}
-
-export function renderLocalUpdateSummary(
-	input: LocalUpdateSummaryInput,
-): string {
-	return `Refreshed ${input.key} — ${input.copiedFiles.length} file(s)`;
-}
 
 type UpdateOutcomeInput =
 	| {
@@ -166,70 +96,55 @@ export function renderUpdateOutcomeSummary(input: UpdateOutcomeInput): string {
 	return `${input.key}: Refreshed from local path`;
 }
 
-interface RemoveSummaryInput {
-	summaryLabel: string;
-	fileCount: number;
-}
-
-export function renderRemoveSummary(input: RemoveSummaryInput): string {
-	return `Removed ${input.summaryLabel} — ${input.fileCount} file(s)`;
-}
-
 export interface OutOfConstraintInfo {
 	/**
-	 * The member key — populated ONLY by the single-key path (runSingleUpdate),
-	 * which has no group. Rendered via the `label ?? key` fallback so this path
-	 * stays byte-identical.
+	 * What the item is about: the group label in all-mode, so an N-member
+	 * group collapses to ONE item and two distinct-intent groups of one repo
+	 * keep their own @intent-disambiguated ones; the key for a single key.
 	 */
-	key?: string;
-	/**
-	 * The group label — populated by the all-mode per-group footer so
-	 * an N-member group collapses to ONE line and two distinct-intent groups
-	 * of one repo keep their own @intent-disambiguated lines. Takes precedence over
-	 * {@link key} when present.
-	 */
-	label?: string;
+	subject: string;
 	/**
 	 * The POST-BUMP current version — the tag this run actually landed on (the
 	 * resolved best-within-constraint tag), NOT the pre-bump `entry.ref`. Naming
-	 * the pre-bump ref would report a stale current, contradicting the inline
-	 * `Updated <old> -> <tag>` line for a same-run safe bump. Rendered as the left
-	 * side of the actionable `<current> -> <latestOverall>` move.
+	 * the pre-bump ref would report a stale current, contradicting the row's
+	 * move for a same-run safe bump.
 	 */
 	current: string;
 	latestOverall: string;
 	/**
-	 * The re-add command of each entry the line covers, without a version: a
+	 * The re-add command of each entry the item covers, without a version: a
 	 * bare add re-resolves the latest semver tag and re-establishes caret at the
 	 * new major, so it jumps the boundary.
 	 */
 	commands: string[];
 }
 
-export function renderOutOfConstraintSection(
-	infos: OutOfConstraintInfo[],
-): string[] {
-	if (infos.length === 0) return [];
-
-	// One informative (non-error, exit-0) line per group: the actionable
-	// current->newer move plus the re-add commands. All-mode sets `label`,
-	// single-key sets `key`.
-	const lines: string[] = ["Newer versions outside constraints:"];
-	for (const info of infos) {
-		lines.push(
-			`  ${info.label ?? info.key}  ${info.current} -> ${info.latestOverall} available. ${upgradeAdvice(info.commands)}`,
-		);
-	}
-	return lines;
+/** A newer version outside the constraint, and the commands that move to it. */
+export function outOfConstraintMessage(info: OutOfConstraintInfo): Advice {
+	const { subject, current, latestOverall } = info;
+	const available = `${current} → ${latestOverall} available.`;
+	const advice = upgradeAdvice(info.commands);
+	return {
+		subject,
+		detail: `Newer version outside the constraint: ${available}`,
+		text: `${subject}  ${available}`,
+		remedy: advice.remedy,
+		plain: `${subject}  ${current} -> ${latestOverall} available. ${advice.plain}`,
+	};
 }
 
-/** `To upgrade: <command>`, or the commands one per line when there are several. */
-export function upgradeAdvice(commands: string[]): string {
+/**
+ * `To upgrade:` and the commands, once each. Its sentence runs one command
+ * on after the lead, and sets several a line each.
+ */
+export function upgradeAdvice(commands: string[]): WordedRemedy {
 	const distinct = [...new Set(commands)];
-	if (distinct.length === 1) {
-		return `To upgrade: ${distinct[0]}`;
-	}
-	return ["To upgrade:", ...distinct.map((command) => `    ${command}`)].join(
-		"\n",
-	);
+	const lead = "To upgrade:";
+	return {
+		remedy: { lead, steps: distinct.map((command) => ({ command })) },
+		plain:
+			distinct.length === 1
+				? `${lead} ${distinct[0]}`
+				: [lead, ...distinct.map((command) => `    ${command}`)].join("\n"),
+	};
 }

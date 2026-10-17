@@ -34,7 +34,9 @@ import { ExitSignal } from "../../src/exit-signal.js";
 import { cloneSource } from "../../src/git-clone.js";
 import { fetchRemoteTags, lsRemote } from "../../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../../src/manifest.js";
+import { sentence } from "../../src/message.js";
 import type { ParsedSource } from "../../src/source-parser.js";
+import type { Row } from "../../src/terminal/types.js";
 import { MachineUi } from "../../src/ui.js";
 import { resolveGroupTarget } from "../../src/update-check.js";
 import { type TestUi, testUi } from "../helpers/test-ui.js";
@@ -177,7 +179,8 @@ describe("integration: add and update", () => {
 				cloneUrl: "https://github.com/avdlee/swift-skill.git",
 			}),
 		});
-		expect(ui.said("warn")).toEqual([]);
+		expect(ui.warn).not.toHaveBeenCalled();
+		expect(ui.next).not.toHaveBeenCalled();
 	});
 
 	describe("a v1-style plugin root", () => {
@@ -194,12 +197,27 @@ describe("integration: add and update", () => {
 
 			await runAdd("owner/v1-plugin", {}, ui);
 
-			expect(ui.said("warn")).toEqual([
-				"v1-plugin has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/v1-plugin --pack",
+			expect(ui.next.mock.calls).toEqual([
+				[
+					{
+						subject: "v1-plugin",
+						remedy: {
+							lead: "has agents/ and hooks/ that won't be installed. To install them as a pack:",
+							steps: [{ command: "npx agntc add owner/v1-plugin --pack" }],
+						},
+					},
+				],
 			]);
-			expect(ui.saidOrders("warn")[0]).toBeLessThan(
-				ui.multiselect.mock.invocationCallOrder[0]!,
-			);
+			expect(ui.warn.mock.calls).toEqual([
+				[
+					{
+						text: "",
+						plain:
+							"v1-plugin has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/v1-plugin --pack",
+					},
+				],
+			]);
+			expect(ui.next).toHaveBeenCalledBefore(ui.multiselect);
 			const manifest = await savedManifest();
 			expect(Object.keys(manifest)).toEqual([
 				"owner/v1-plugin/a",
@@ -379,6 +397,7 @@ describe("integration: add and update", () => {
 			await runAdd("owner/repo", { skill: SKILLS }, ui);
 			await publish("v2");
 			mockCloneSource.mockClear();
+			ui = testUi();
 		});
 
 		it("update owner/repo clones the repo once and updates every skill", async () => {
@@ -407,9 +426,15 @@ describe("integration: add and update", () => {
 			expect(
 				SKILLS.map((name) => manifest[`owner/repo/${name}`]?.commit),
 			).toEqual([OLD_SHA, NEW_SHA, OLD_SHA]);
-			expect(ui.outro).toHaveBeenCalledWith(
-				expect.stringContaining("owner/repo/b"),
-			);
+			expect(ui.rows()).toEqual([
+				{
+					status: "done",
+					subject: "owner/repo",
+					meta: "HEAD",
+					detail: { move: { from: "aaaaaaa", to: "bbbbbbb" } },
+					children: [{ name: "b", detail: "skill" }],
+				},
+			]);
 		});
 	});
 
@@ -505,7 +530,7 @@ describe("integration: add and update", () => {
 				type: "skill",
 				files: [".claude/skills/swift/"],
 			});
-			expect(ui.said("info")).toEqual([
+			expect(ui.said("note")).toEqual([
 				"avdlee/skills/swift is a single skill — reinstalled as a skill",
 			]);
 		});
@@ -550,7 +575,7 @@ describe("integration: add and update", () => {
 
 				expect(err).toBeUndefined();
 				expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-					message: "owner/repo/gone is gone upstream — remove it?",
+					message: "Remove it and its folder?",
 					initialValue: false,
 				});
 				expect(await installed(".claude/skills/gone/SKILL.md")).toBe(true);
@@ -683,9 +708,20 @@ describe("integration: add and update", () => {
 					],
 				}),
 			});
-			expect(ui.log.success).toHaveBeenCalledWith(
-				"agentic-workflows (pack · 2 skills, 2 folders, 1 agent)",
-			);
+			expect(ui.rows()).toEqual([
+				{
+					status: "done",
+					subject: KEY,
+					meta: "HEAD",
+					detail: "1 pack",
+					children: [
+						{
+							name: "agentic-workflows",
+							detail: "pack · 2 skills, 2 folders, 1 agent",
+						},
+					],
+				},
+			]);
 		});
 
 		it("update replaces each support folder whole, bringing in a new one", async () => {
@@ -867,7 +903,20 @@ describe("integration: add and update", () => {
 
 				await runUpdate(undefined, {}, ui);
 
-				expect(ui.said("error")).toEqual([]);
+				expect(ui.rows()).toEqual([
+					{
+						status: "done",
+						subject: KEY,
+						meta: "HEAD",
+						detail: { move: { from: "aaaaaaa", to: "bbbbbbb" } },
+						children: [
+							{
+								name: "agentic-workflows",
+								detail: "pack · 2 skills, 2 folders, 1 agent",
+							},
+						],
+					},
+				]);
 				expect(await sharedText()).toBe("v1");
 				expect(await installedFiles()).toEqual(
 					[
@@ -887,8 +936,34 @@ describe("integration: add and update", () => {
 			});
 
 			describe("when upstream moved a support folder out of skills/", () => {
-				const MESSAGE =
-					"leeovery/agentic-workflows can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove leeovery/agentic-workflows then npx agntc add leeovery/agentic-workflows --pack";
+				const WHY =
+					"can't be updated: it would remove workflow-shared, which is still in the source but would no longer be installed. The existing install is unchanged.";
+				const ANYWAY = {
+					subject: KEY,
+					remedy: {
+						lead: "To update it anyway:",
+						steps: [
+							{ command: "npx agntc remove leeovery/agentic-workflows" },
+							{
+								command: "npx agntc add leeovery/agentic-workflows --pack",
+							},
+						],
+					},
+				};
+
+				/** The pack's row: its repo, the entry under it with why it stopped. */
+				function stoppedRow(): Row {
+					return {
+						status: "failed",
+						subject: KEY,
+						meta: "HEAD",
+						detail: {
+							move: { from: "aaaaaaa", to: "bbbbbbb" },
+							note: "not updated",
+						},
+						children: [{ name: "agentic-workflows", detail: WHY }],
+					};
+				}
 
 				beforeEach(async () => {
 					const {
@@ -919,17 +994,16 @@ describe("integration: add and update", () => {
 				it("update by key stops before removing anything, naming the folder", async () => {
 					expect(await updateError(KEY)).toBeInstanceOf(ExitSignal);
 
-					expect(ui.log.error).toHaveBeenCalledWith(MESSAGE);
+					expect(ui.rows()).toEqual([stoppedRow()]);
+					expect(ui.next.mock.calls).toEqual([[ANYWAY]]);
 					await expectInstallIntact();
 				});
 
 				it("update of everything stops it with the same message, the key printed once", async () => {
 					expect(await updateError()).toBeInstanceOf(ExitSignal);
 
-					const stops = ui.spinners.flatMap((spin) =>
-						spin.stop.mock.calls.map(([text]) => text),
-					);
-					expect(stops).toContain(MESSAGE);
+					expect(ui.rows()).toEqual([stoppedRow()]);
+					expect(ui.next.mock.calls).toEqual([[ANYWAY]]);
 					await expectInstallIntact();
 				});
 			});
@@ -949,9 +1023,20 @@ describe("integration: add and update", () => {
 
 				await runAdd(KEY, {}, ui);
 
-				expect(ui.box).toHaveBeenCalledWith(
-					expect.stringContaining(".claude/skills/workflow-shared/"),
-					`Unmanaged files for "${KEY}"`,
+				expect(ui.blocks[2]!.select).toHaveBeenCalledWith(
+					expect.objectContaining({
+						subject: KEY,
+						children: [
+							{
+								name: ".claude/skills/workflow-shared/",
+								dim: true,
+								noun: "folder",
+							},
+						],
+					}),
+					expect.objectContaining({
+						message: "How would you like to proceed?",
+					}),
 				);
 				expect(await readMine()).toBe("mine");
 				expect(await installed(".claude/skills/workflow-start")).toBe(false);
@@ -1003,6 +1088,7 @@ describe("integration: add and update", () => {
 				"laravel/skills/models/SKILL.md": "v2",
 				"skills/jobs/SKILL.md": "v1",
 			});
+			ui = testUi();
 
 			await runAdd("owner/repo/laravel", {}, ui);
 
@@ -1021,9 +1107,15 @@ describe("integration: add and update", () => {
 					"utf-8",
 				),
 			).toBe("v2");
-			expect(ui.said("info")).toEqual([
-				"owner/repo/laravel now includes api, installed on its own before",
+			expect(ui.note.mock.calls).toEqual([
+				[
+					sentence(
+						"owner/repo/laravel now includes api, installed on its own before",
+					),
+				],
 			]);
+			const [copying] = ui.blocks[1]!.tasks;
+			expect(ui.note).toHaveBeenCalledBefore(copying!.settle);
 			expect(ui.select).not.toHaveBeenCalled();
 			expect(ui.confirm).not.toHaveBeenCalled();
 		});
@@ -1035,6 +1127,7 @@ describe("integration: add and update", () => {
 				"skills/other/SKILL.md": "",
 			});
 			await runAdd("owner/repo/laravel", {}, ui);
+			ui = testUi();
 
 			const err = await runAdd(
 				"owner/repo",
@@ -1047,13 +1140,33 @@ describe("integration: add and update", () => {
 				"owner/repo/laravel",
 				"owner/repo/other",
 			]);
-			expect(ui.said("info")).toEqual([
-				"api is already installed as part of the pack owner/repo/laravel",
+			expect(ui.note.mock.calls).toEqual([
+				[
+					{
+						text: "",
+						plain:
+							"api is already installed as part of the pack owner/repo/laravel",
+					},
+				],
 			]);
-			expect(ui.said("info")).not.toContainEqual(
-				expect.stringContaining("installed on its own"),
-			);
-			expect(ui.said("error")).toEqual([]);
+			expect(ui.rows()).toEqual([
+				{
+					status: "done",
+					subject: "owner/repo",
+					meta: "HEAD",
+					detail: "1 pack · 1 skill",
+					children: [
+						{ name: "skills/other", detail: "skill" },
+						{
+							name: "laravel/skills/api",
+							status: "note",
+							detail:
+								"already installed as part of the pack owner/repo/laravel",
+						},
+					],
+				},
+			]);
+			expect(ui.fail).not.toHaveBeenCalled();
 		});
 
 		describe("with a support folder named like a loose skill", () => {
@@ -1113,20 +1226,21 @@ describe("integration: add and update", () => {
 				await runAdd("owner/repo", { skill: ["shared"] }, ui);
 				const before = await savedManifest();
 				await repo("owner/repo", WITH_SHARED);
+				ui = testUi();
 
 				expect(await updateError("owner/repo/laravel")).toBeInstanceOf(
 					ExitSignal,
 				);
 
-				expect(ui.log.error).toHaveBeenCalledWith(
-					expect.stringContaining(
-						"files of owner/repo/shared are in the way: .claude/skills/shared/",
-					),
+				const [stopped] = ui.rows();
+				expect(stopped).toMatchObject({ status: "failed" });
+				expect(stopped?.children?.[0]?.detail).toContain(
+					"files of owner/repo/shared are in the way: .claude/skills/shared/",
 				);
 				expect(await savedManifest()).toEqual(before);
 				expect(await looseText()).toBe("loose");
 				expect(await installed(".claude/skills/shared/notes.md")).toBe(false);
-				expect(ui.said("info")).not.toContainEqual(
+				expect(ui.said("note")).not.toContainEqual(
 					expect.stringContaining("now includes shared"),
 				);
 			});
@@ -1144,6 +1258,7 @@ describe("integration: add and update", () => {
 					...LARAVEL,
 					"laravel/skills/shared/SKILL.md": "the pack's",
 				});
+				ui = testUi();
 
 				await runUpdate("owner/repo/laravel", {}, ui);
 
@@ -1151,7 +1266,7 @@ describe("integration: add and update", () => {
 					"owner/repo/laravel",
 				]);
 				expect(await looseText()).toBe("the pack's");
-				expect(ui.said("info")).toEqual([
+				expect(ui.said("note")).toEqual([
 					"owner/repo/laravel now includes shared, installed on its own before",
 				]);
 			});
@@ -1295,8 +1410,9 @@ describe("integration: add and update", () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError("owner/repo"));
-			expect(ui.said("error")).toEqual([
-				`owner/repo/skillB: Failed — ${refusal()}`,
+			expect(ui.rows()[0]?.children).toEqual([
+				{ name: "packA", status: "done", detail: "pack · 1 skill" },
+				{ name: "skillB", status: "failed", detail: refusal() },
 			]);
 		});
 
@@ -1304,8 +1420,9 @@ describe("integration: add and update", () => {
 			await arrange();
 
 			await packKeptSkillTracked(await updateError());
-			expect(ui.said("error")).toEqual([
-				`owner/repo/skillB: Failed — ${refusal()}`,
+			expect(ui.rows()[0]?.children).toEqual([
+				{ name: "packA", status: "done", detail: "pack · 1 skill" },
+				{ name: "skillB", status: "failed", detail: refusal() },
 			]);
 		});
 	});

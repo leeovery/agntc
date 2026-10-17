@@ -8,7 +8,8 @@ export type Status =
 	| "failed"
 	| "subject"
 	| "newer"
-	| "note";
+	| "note"
+	| "local";
 
 export interface Move {
 	from: string;
@@ -29,14 +30,64 @@ export interface Row {
 	subject: string;
 	meta?: string;
 	detail?: Detail;
+	/** Labelled lines under the row's own, above its children. */
+	fields?: Field[];
 	children?: Child[];
 }
+
+/** A labelled line under a row: its label dim, in a column as wide as the row's widest. */
+export interface Field {
+	label: string;
+	/** Words wrapped beside the label, or items two spaces apart, wrapping between them. */
+	value: string | readonly string[];
+	/** Paints the value in the status's colour, as a failed check's reason does; plain without. */
+	status?: Status;
+	/** What one of its items is, as `folder`: a row cut short counts them by it. */
+	noun?: string;
+}
+
+/** A row's subject and its dim meta: a repo and the intent it tracks, or a local entry's folder. */
+export type RowHead = Required<Pick<Row, "subject" | "meta">>;
 
 export interface Child {
 	name: string;
 	/** Set by the caller when the child's own outcome is worth a glyph. */
 	status?: Status;
 	detail?: string;
+	/** Drawn dim whole, as a line standing in for children left out. */
+	dim?: boolean;
+	/** How many levels it hangs below the row, under the child before it one level up: 0 unless given. */
+	depth?: number;
+	/** What it is, as `file`: a row cut short counts the children left out by it. */
+	noun?: string;
+}
+
+/** What one of something is, and several. */
+export interface Noun {
+	one: string;
+	many: string;
+}
+
+/** Rows fitted together, as a question asks about them, and what one is, for counting those a cut leaves out. */
+export interface Rows {
+	rows: readonly Row[];
+	noun: Noun;
+}
+
+/**
+ * What a block's columns are measured from: each row's subject and meta, and
+ * its children's names, a child with a status given a glyph's room.
+ */
+export type BlockSubject = Pick<Row, "subject" | "meta"> & {
+	children?: readonly Pick<Child, "name" | "status" | "depth">[];
+};
+
+/** A step still running: the row it will settle into, when it has one, and what it's doing. */
+export interface Progress {
+	subject?: string;
+	meta?: string;
+	/** Dim, as `updating to v0.2.5…`. */
+	text: string;
 }
 
 export interface TallyItem {

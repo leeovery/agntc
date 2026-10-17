@@ -178,6 +178,32 @@ describe("promptConfirm", () => {
 		expect(await answer).toBe(false);
 	});
 
+	it("asks its above for the room its question and buttons leave, and erases what it gives with it", async () => {
+		const terminal = new Terminal(80, 4);
+		terminal.output.write("before\n");
+		const rooms: number[] = [];
+		const answer = promptConfirm(
+			{
+				message: "Proceed?",
+				above: (room) => {
+					rooms.push(room);
+					return [" ✓ owner/repo   HEAD", ""];
+				},
+			},
+			terminal.context(),
+		);
+		await terminal.press();
+		expect(rooms).toEqual([2]);
+		expect((await terminal.lines()).slice(1)).toEqual([
+			" ✓ owner/repo   HEAD",
+			"",
+			YES,
+		]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toBe(true);
+		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
 	it("closes once on y, with a single newline", async () => {
 		const terminal = new Terminal();
 		const answer = ask(terminal);

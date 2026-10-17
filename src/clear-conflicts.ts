@@ -4,6 +4,7 @@ import {
 	removeCollidingEntries,
 	resolveCollisions,
 } from "./collision-resolve.js";
+import type { EntryHead } from "./entry-head.js";
 import { errorMessage } from "./errors.js";
 import { ExitSignal } from "./exit-signal.js";
 import type { Manifest } from "./manifest.js";
@@ -33,11 +34,15 @@ export interface ConflictCheck {
 	/** The item's own key: files recorded under it are its own, not in the way. */
 	key: string;
 	projectDir: string;
+	/** The item, as a question's row names it. */
+	head: EntryHead;
+	/** The home folder a question's row shortens a local entry's key against. */
+	home: string;
 }
 
 /**
- * Why an item won't be copied: skipped, as the policy has it, or failed,
- * when clearing its way threw.
+ * Why an item won't be copied: skipped, as the policy has it or as the
+ * question was answered, or failed, when clearing its way threw.
  */
 export interface Stop {
 	status: "skipped" | "failed";
@@ -46,16 +51,19 @@ export interface Stop {
 	flags?: string[];
 }
 
+/** What was cleared out of an item's way: another entry, removed, or files agntc didn't install, replaced. */
+export type Clearance =
+	| { kind: "entry"; key: string; files: string[] }
+	| { kind: "unmanaged"; files: string[] };
+
 export interface ClearedConflicts {
 	/** Without the entries removed, even when a later removal failed. */
 	manifest: Manifest;
 	stop: Stop | null;
+	/** What was cleared out of the item's way, in the order it went, whether it then stopped or not. */
+	cleared: Clearance[];
 }
 
-const NOT_RESOLVED: Stop = {
-	status: "skipped",
-	reason: "conflict not resolved",
-};
 const OVERWRITE_FLAGS = ["--overwrite"];
 
 /**
@@ -69,42 +77,80 @@ export async function clearConflicts(
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<ClearedConflicts> {
+	const collisions = checkFileCollisions(
+		check.incomingFiles,
+		check.manifest,
+		check.key,
+	);
 	let manifest = check.manifest;
+	let replaced: string[] = [];
+	const ended = (stop: Stop | null): ClearedConflicts => ({
+		manifest,
+		stop,
+		cleared: [
+			...removedEntries(collisions, manifest),
+			...(replaced.length > 0
+				? [{ kind: "unmanaged" as const, files: replaced }]
+				: []),
+		],
+	});
 	try {
-		const afterCollisions = await clearCollisions(check, policy, ui);
+		const afterCollisions = await clearCollisions(
+			collisions,
+			check,
+			policy,
+			ui,
+		);
 		manifest = afterCollisions.manifest;
 		if (afterCollisions.stop !== null) {
-			return afterCollisions;
+			return ended(afterCollisions.stop);
 		}
 		const unmanaged = await checkUnmanagedConflicts(
 			check.incomingFiles,
 			manifest,
 			check.projectDir,
 		);
-		return {
-			manifest,
-			stop: await clearUnmanaged(unmanaged, check, policy, ui),
-		};
+		const stop = await clearUnmanaged(unmanaged, check, policy, ui);
+		if (stop === null) {
+			replaced = unmanaged;
+		}
+		return ended(stop);
 	} catch (err) {
 		if (err instanceof ExitSignal) {
 			throw err;
 		}
-		return {
-			manifest: err instanceof PartialRemovalError ? err.manifest : manifest,
-			stop: {
-				status: "failed",
-				reason: `couldn't clear the files in its way: ${errorMessage(err)}`,
-			},
-		};
+		if (err instanceof PartialRemovalError) {
+			manifest = err.manifest;
+		}
+		return ended({
+			status: "failed",
+			reason: `couldn't clear the files in its way: ${errorMessage(err)}`,
+		});
 	}
 }
 
+/** The colliding entries `manifest` no longer holds, each with its files that were in the way. */
+function removedEntries(
+	collisions: Map<string, string[]>,
+	manifest: Manifest,
+): Clearance[] {
+	return [...collisions]
+		.filter(([key]) => manifest[key] === undefined)
+		.map(([key, files]) => ({ kind: "entry", key, files }));
+}
+
+interface ClearedCollisions {
+	manifest: Manifest;
+	stop: Stop | null;
+}
+
+/** A question answered no stops the item on the entries still in its way. */
 async function clearCollisions(
-	{ incomingFiles, manifest, key, projectDir }: ConflictCheck,
+	collisions: Map<string, string[]>,
+	{ manifest, projectDir, home }: ConflictCheck,
 	policy: ConflictPolicy,
 	ui: Ui,
-): Promise<ClearedConflicts> {
-	const collisions = checkFileCollisions(incomingFiles, manifest, key);
+): Promise<ClearedCollisions> {
 	if (collisions.size === 0) {
 		return { manifest, stop: null };
 	}
@@ -119,15 +165,21 @@ async function clearCollisions(
 				stop: null,
 			};
 		case "ask": {
-			const resolution = await resolveCollisions(
+			const { resolved, updatedManifest } = await resolveCollisions(
 				collisions,
 				manifest,
 				projectDir,
 				ui,
+				home,
+			);
+			const left = [...collisions].filter(
+				([key]) => updatedManifest[key] !== undefined,
 			);
 			return {
-				manifest: resolution.updatedManifest,
-				stop: resolution.resolved ? null : NOT_RESOLVED,
+				manifest: updatedManifest,
+				stop: resolved
+					? null
+					: { status: "skipped", reason: collisionReason(new Map(left)) },
 			};
 		}
 		case "stop":
@@ -135,11 +187,16 @@ async function clearCollisions(
 				manifest,
 				stop: {
 					status: "skipped",
-					reason: `files in the way belong to ${joinWithAnd([...collisions.keys()])}: ${[...collisions.values()].flat().join(", ")}`,
+					reason: collisionReason(collisions),
 					flags: OVERWRITE_FLAGS,
 				},
 			};
 	}
+}
+
+/** Whose files are in the way, and which. */
+function collisionReason(collisions: Map<string, string[]>): string {
+	return `files in the way belong to ${joinWithAnd([...collisions.keys()])}: ${[...collisions.values()].flat().join(", ")}`;
 }
 
 /**
@@ -148,27 +205,24 @@ async function clearCollisions(
  */
 async function clearUnmanaged(
 	files: string[],
-	{ key, projectDir }: ConflictCheck,
+	{ head, projectDir }: ConflictCheck,
 	policy: ConflictPolicy,
 	ui: Ui,
 ): Promise<Stop | null> {
 	if (files.length === 0) {
 		return null;
 	}
+	const reason = `files in the way weren't installed by agntc: ${files.join(", ")}`;
 	if (policy === "stop") {
-		return {
-			status: "skipped",
-			reason: `files in the way weren't installed by agntc: ${files.join(", ")}`,
-			flags: OVERWRITE_FLAGS,
-		};
+		return { status: "skipped", reason, flags: OVERWRITE_FLAGS };
 	}
 	if (policy === "ask") {
 		const { cancelled } = await resolveUnmanagedConflicts(
-			[{ pluginKey: key, files }],
+			[{ head, files }],
 			ui,
 		);
 		if (cancelled.length > 0) {
-			return NOT_RESOLVED;
+			return { status: "skipped", reason };
 		}
 	}
 	await removePathsInTheWay(projectDir, files);

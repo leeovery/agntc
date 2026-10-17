@@ -9,6 +9,7 @@ import {
 	truncateStart,
 	visibleWidth,
 	wrap,
+	wrapItems,
 } from "../../src/terminal/layout.js";
 
 describe("visibleWidth", () => {
@@ -93,6 +94,42 @@ describe("spread", () => {
 	});
 });
 
+describe("wrapItems", () => {
+	it("lays the items two spaces apart", () => {
+		expect(wrapItems(["laravel", "nuxt", "go"], 40)).toEqual([
+			"laravel  nuxt  go",
+		]);
+	});
+
+	it("breaks between items, never inside one that fits a line", () => {
+		expect(wrapItems(["laravel", "nuxt-ui", "go"], 14)).toEqual([
+			"laravel",
+			"nuxt-ui  go",
+		]);
+	});
+
+	it("wraps an item too long for a line of its own as prose, the next item after it", () => {
+		expect(wrapItems(["a", "abcdefghij", "b"], 6)).toEqual([
+			"a",
+			"abcdef",
+			"ghij",
+			"b",
+		]);
+	});
+
+	it("joins an item that fills the line exactly", () => {
+		expect(wrapItems(["abc", "de"], 7)).toEqual(["abc  de"]);
+	});
+
+	it("wraps a first item too long for a line, leaving no empty line before it", () => {
+		expect(wrapItems(["abcdefghij", "b"], 6)).toEqual(["abcdef", "ghij", "b"]);
+	});
+
+	it("gives no lines for no items", () => {
+		expect(wrapItems([], 10)).toEqual([]);
+	});
+});
+
 describe("wrap", () => {
 	it("breaks at spaces inside the width", () => {
 		expect(wrap("the quick brown fox jumps", 10)).toEqual([
@@ -114,6 +151,108 @@ describe("wrap", () => {
 			"kl",
 			"end",
 		]);
+	});
+
+	it("breaks a long word after the last `/` that fits", () => {
+		expect(wrap("owner/repo/a-long-skill", 15)).toEqual([
+			"owner/repo/",
+			"a-long-skill",
+		]);
+	});
+
+	it("starts a word too long for a line of its own on the line it would join, up to the last `/` that fits there", () => {
+		expect(wrap("see owner/repo/a-long-skill", 15)).toEqual([
+			"see owner/repo/",
+			"a-long-skill",
+		]);
+		expect(wrap("fatal: /aa/bbbb/cccccccc", 12)).toEqual([
+			"fatal: /aa/",
+			"bbbb/",
+			"cccccccc",
+		]);
+	});
+
+	it("starts such a word on a first line narrower than the rest too", () => {
+		expect(wrap("ab/cdefghij", 10, 5)).toEqual(["ab/", "cdefghij"]);
+	});
+
+	it("moves a word that fits a line of its own there whole, and one with no `/` in reach of its line", () => {
+		expect(wrap("see owner/repo/ski", 15)).toEqual(["see", "owner/repo/ski"]);
+		expect(wrap("fatal: abcdefghijklmnop/q", 10)).toEqual([
+			"fatal:",
+			"abcdefghij",
+			"klmnop/q",
+		]);
+		// The `/` a path opens with is no break.
+		expect(wrap("fatal: /abcdefghijklmnop", 10)).toEqual([
+			"fatal:",
+			"/abcdefghi",
+			"jklmnop",
+		]);
+	});
+
+	it("never opens a line on a `/` its hard break would leave there, cutting a character sooner", () => {
+		expect(wrap("abcdefgh/ij", 8)).toEqual(["abcdefg", "h/ij"]);
+		expect(wrap("x abcdefgh/ijklmnopqr", 8)).toEqual([
+			"x",
+			"abcdefg",
+			"h/",
+			"ijklmnop",
+			"qr",
+		]);
+	});
+
+	it("looks for a `/` afresh on each line a break leaves", () => {
+		expect(wrap(`aaaa/${"b".repeat(20)}`, 8)).toEqual([
+			"aaaa/",
+			"bbbbbbbb",
+			"bbbbbbbb",
+			"bbbb",
+		]);
+	});
+
+	it("breaks after a `/` that is a word's second character", () => {
+		expect(wrap("~/abcdefghij", 6)).toEqual(["~/", "abcdef", "ghij"]);
+	});
+
+	it("carries what follows a `/` when it and the overflowing character fill the next line exactly, wide ones included", () => {
+		expect(wrap("a/bcd日", 5)).toEqual(["a/", "bcd日"]);
+	});
+
+	it("gives the line after a broken word its whole room, past a first line wider than the rest", () => {
+		expect(wrap("abcdefghijklmnop qr", 4, 12)).toEqual([
+			"abcdefghijkl",
+			"mnop",
+			"qr",
+		]);
+	});
+
+	it("breaks hard where no `/` is in reach, and at a `/` again once one is", () => {
+		expect(
+			wrap("~/Code/agntc-sources/a-rather-long-local-folder-name/nuxt", 30),
+		).toEqual([
+			"~/Code/agntc-sources/",
+			"a-rather-long-local-folder-nam",
+			"e/nuxt",
+		]);
+		expect(wrap("abcdefghijkl/mn", 5)).toEqual(["abcde", "fghij", "kl/mn"]);
+	});
+
+	it("never breaks after a `/` that opens the line", () => {
+		expect(wrap("/abcdefghij", 5)).toEqual(["/abcd", "efghi", "j"]);
+	});
+
+	it("breaks hard when what follows the `/` wouldn't fit the next line either", () => {
+		expect(wrap("ab/cdefghijkl", 4, 12)).toEqual(["ab/cdefghijk", "l"]);
+		// What follows fills the next line exactly, but the character that
+		// overflowed would push it over.
+		expect(wrap("ab/cdefg", 4, 7)).toEqual(["ab/cdef", "g"]);
+	});
+
+	it("lets a line open on a `/` rather than carry a wide character and the `/` past the width", () => {
+		// The first line is wider than the rest, so 日 and the `/` after it
+		// (3 columns) would overflow a line of 2.
+		expect(wrap("abcdefghij日/x", 2, 12)).toEqual(["abcdefghij日", "/x"]);
 	});
 
 	it("wraps the first line to its own width", () => {

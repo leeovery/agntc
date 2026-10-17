@@ -460,7 +460,7 @@ export function locateSource(
 /**
  * The single home of the per-member path-traversal containment guard paired
  * with source-dir resolution — composed by BOTH clone entry points
- * (`cloneAndReinstall`'s remote branch and the group orchestrator's
+ * (`reinstallEntry`'s remote branch and the group orchestrator's
  * `reinstallMember`). This is a security invariant (symlink / `../` escape
  * rejection), a preservation constraint rather than a design choice; authoring
  * it once here means a future change to the escape rule or its error mapping

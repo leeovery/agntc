@@ -11,7 +11,7 @@ import { KEY, Terminal } from "./terminal.js";
 const plain = createStyle(0);
 const colour = createStyle(3);
 const gap = (columns: number) => " ".repeat(columns);
-const HINTS = "↑↓ move · space pick · a all · ⏎ done · esc cancel";
+const HINTS = "↑↓ move   space pick   a all   ⏎ done   esc cancel";
 const PICKED = "\x1b[38;2;167;139;250m●\x1b[39m";
 const UNPICKED = "\x1b[2m○\x1b[22m";
 
@@ -82,6 +82,53 @@ describe("renderMultiselect", () => {
 			" ▌ ○ …/a-long-session-folder/3a/two-skills/alpha  skill",
 			"   ● …1/a-long-session-folder/3a/two-skills/beta  skill",
 		]);
+	});
+
+	describe("with cells", () => {
+		const ENTRIES: Choice<string>[] = [
+			{
+				value: "nuxt",
+				label: "leeovery/agentic-skills/nuxt",
+				cells: [
+					{ text: "pack", dim: true, drop: 1 },
+					{ text: "v0.5.3", dim: true, drop: 2 },
+				],
+			},
+			{
+				value: "git",
+				label: "leeovery/git-hygiene",
+				cells: [
+					{ text: "skill", dim: true, drop: 1 },
+					{ text: "HEAD", dim: true, drop: 2 },
+				],
+			},
+		];
+		const lines = (width: number, style = plain) =>
+			renderMultiselect(
+				view({ options: ENTRIES, cursor: 0, picked: [1] }),
+				width,
+				style,
+			).slice(1, 3);
+
+		it("lines the cells up in columns past the mark, as a select's are", () => {
+			expect(lines(80)).toEqual([
+				" ▌ ○ leeovery/agentic-skills/nuxt   pack    v0.5.3",
+				"   ● leeovery/git-hygiene           skill   HEAD",
+			]);
+		});
+
+		it("drops the columns in their order where the line is too narrow", () => {
+			expect(lines(50)).toEqual([
+				" ▌ ○ leeovery/agentic-skills/nuxt   v0.5.3",
+				"   ● leeovery/git-hygiene           HEAD",
+			]);
+		});
+
+		it("paints a dim cell dim", () => {
+			expect(lines(80, colour)[1]).toBe(
+				`   ${PICKED} leeovery/git-hygiene           \x1b[2mskill\x1b[22m   \x1b[2mHEAD\x1b[22m`,
+			);
+		});
 	});
 
 	it("cuts the hints to fit at 40, without the key hints", () => {
@@ -257,6 +304,69 @@ describe("promptMultiselect", () => {
 		await terminal.press(KEY.enter);
 		expect(await answer).toEqual(["python"]);
 		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
+	it("asks its above for the room the question, its options and its footer leave, and erases what it gives with it", async () => {
+		const terminal = new Terminal(80, 14);
+		terminal.output.write("before\n");
+		const rooms: number[] = [];
+		const answer = promptMultiselect(
+			{
+				message: "What to install",
+				options: OPTIONS,
+				above: (room) => {
+					rooms.push(room);
+					return [" ✓ owner/repo   HEAD", ""];
+				},
+			},
+			terminal.context(),
+		);
+		await terminal.press(KEY.space);
+		expect(rooms).toEqual([5]);
+		expect((await terminal.lines()).slice(1)).toEqual([
+			" ✓ owner/repo   HEAD",
+			"",
+			` ? What to install${gap(11)}${HINTS}`,
+			" ▌ ● laravel         pack · 14 skills",
+			"   ○ nuxt            pack · 9 skills, 2 folders",
+			"   ○ python          pack · 11 skills",
+			"   ○ git-hygiene     Keep commits small and messages honest",
+			"   ○ release-notes   Draft release notes from the changes since the last tag",
+			"",
+			`${gap(66)}1 of 5 picked`,
+		]);
+		await terminal.press(KEY.enter);
+		expect(await answer).toEqual(["laravel"]);
+		expect(await terminal.lines()).toEqual(["before"]);
+	});
+
+	it("keeps its options' share of the screen under a row that would take all of it", async () => {
+		const terminal = new Terminal(80, 12);
+		const answer = promptMultiselect(
+			{
+				message: "What to install",
+				options: OPTIONS,
+				above: (room) =>
+					Array.from({ length: room }, (_, index) => `   · child ${index}`),
+			},
+			terminal.context(),
+		);
+		await terminal.press(KEY.space);
+		expect(await terminal.lines()).toEqual([
+			"   · child 0",
+			"   · child 1",
+			"   · child 2",
+			` ? What to install${gap(11)}${HINTS}`,
+			" ▌ ● laravel         pack · 14 skills",
+			"   ○ nuxt            pack · 9 skills, 2 folders",
+			"   ○ python          pack · 11 skills",
+			"   ○ git-hygiene     Keep commits small and messages honest",
+			"   ○ release-notes   Draft release notes from the changes since the last tag",
+			"",
+			`${gap(66)}1 of 5 picked`,
+		]);
+		await terminal.press(KEY.enter);
+		await answer;
 	});
 
 	it("picks and unpicks the cursor's option with space", async () => {

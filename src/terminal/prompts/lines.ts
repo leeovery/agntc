@@ -8,6 +8,7 @@ import {
 	spread,
 	truncate,
 	truncateStart,
+	visibleWidth,
 	wrap,
 } from "../layout.js";
 import { identity, type Painter, type Style } from "../style.js";
@@ -18,6 +19,11 @@ export const TEXT_AT = 3;
 const LABEL_GAP = 3;
 const MIN_LABEL_GAP = 2;
 const LABEL_SHARE = 0.45;
+/**
+ * The fewest columns a label, its inset with it, is cut to before what's
+ * beside it gives way, so choices still read apart at the narrowest widths.
+ */
+export const LABEL_FLOOR = 10;
 
 /** ` ? <question>`, wrapped, with dim key hints on the right of a line it fits on. */
 export function questionLines(
@@ -57,9 +63,12 @@ export function withHints(
 	return spread(line, style.dim(hints), width) ?? line;
 }
 
-/** A list's usual key hints: moving, its own keys, then cancelling. */
-export function listHints(...keys: string[]): string {
-	return ["↑↓ move", ...keys, "esc cancel"].join(" · ");
+/** The columns between one key's hint and the next, on the question's line and in a footer alike. */
+export const KEY_GAP = "   ";
+
+/** A list's usual key hints: moving, its own keys, then what esc does, cancelling unless given. */
+export function listHints(keys: readonly string[], esc = "cancel"): string {
+	return ["↑↓ move", ...keys, `esc ${esc}`].join(KEY_GAP);
 }
 
 /**
@@ -81,7 +90,8 @@ export function labelColumn(
  * column, inside `room`. The hint keeps its column: a label too wide to end
  * two short of it is cut at its start with `…`, as a key or a name is told
  * apart by its tail. A hint is cut with `…` to fit, and left out when nothing
- * of it would show; the label then takes the room.
+ * of it would show, or when beside it the label would be cut below
+ * {@link LABEL_FLOOR}; the label then takes the room.
  */
 export function optionText<T>(
 	choice: Choice<T>,
@@ -91,7 +101,11 @@ export function optionText<T>(
 	current: boolean,
 	inset = 0,
 ): string {
-	const hint = fitHint(choice.hint ?? "", room - column);
+	const floor = Math.min(inset + visibleWidth(choice.label), LABEL_FLOOR);
+	const hint =
+		column - MIN_LABEL_GAP < floor
+			? ""
+			: fitHint(choice.hint ?? "", room - column);
 	const labelRoom = (hint === "" ? room : column - MIN_LABEL_GAP) - inset;
 	const label = truncateStart(choice.label, Math.max(0, labelRoom));
 	const lead =
@@ -169,6 +183,17 @@ export function windowLines<O>(
 			.map((option, index) => line(option, top + index)),
 		...more("↓", below),
 	];
+}
+
+/**
+ * What a question's `above` gives in `room` lines: nothing without room, and
+ * never more than the room, so the frame stays a line short of the screen.
+ */
+export function linesAbove(
+	above: ((room: number) => readonly string[]) | undefined,
+	room: number,
+): string[] {
+	return above === undefined || room < 1 ? [] : above(room).slice(0, room);
 }
 
 function moreLine(

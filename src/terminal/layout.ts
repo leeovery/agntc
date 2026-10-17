@@ -257,8 +257,11 @@ export function prose(
 
 /**
  * Plain prose wrapped at spaces into lines of `width` columns, the first line
- * `firstWidth`. A word too long for the first line starts the next, leaving
- * the first empty; a word longer than `width` is broken.
+ * `firstWidth`. A word too long for the line it would join
+ * starts the next, leaving the first empty when it's the first word; a word
+ * longer than `width` is broken, starting on the line it would join when a
+ * `/` past its first character ends a part of it that fits there, so no line
+ * is left holding the word before a path alone.
  */
 export function wrap(
 	text: string,
@@ -272,6 +275,31 @@ export function wrap(
 		);
 }
 
+const ITEM_GAP = "  ";
+
+/**
+ * Items two spaces apart, in lines of `width` columns broken between them;
+ * an item too long for a line of its own wraps as prose does.
+ */
+export function wrapItems(items: readonly string[], width: number): string[] {
+	const lines: string[] = [];
+	let line = "";
+	for (const item of items) {
+		const joined = line === "" ? item : `${line}${ITEM_GAP}${item}`;
+		if (visibleWidth(joined) <= width) {
+			line = joined;
+			continue;
+		}
+		if (line !== "") {
+			lines.push(line);
+		}
+		const pieces = wrap(item, width);
+		line = pieces.pop() ?? "";
+		lines.push(...pieces);
+	}
+	return line === "" ? lines : [...lines, line];
+}
+
 function wrapParagraph(
 	text: string,
 	width: number,
@@ -281,6 +309,7 @@ function wrapParagraph(
 	const lines: string[] = [];
 	let line = "";
 	let room = firstWidth;
+	const join = (part: string) => (line === "" ? part : `${line} ${part}`);
 	const breakLine = () => {
 		lines.push(line);
 		line = "";
@@ -289,27 +318,108 @@ function wrapParagraph(
 
 	for (const word of text.split(" ").filter((word) => word !== "")) {
 		const wordWidth = visibleWidth(word);
-		if (line !== "") {
-			if (visibleWidth(line) + 1 + wordWidth <= room) {
-				line += ` ${word}`;
-				continue;
-			}
+		const used = line === "" ? 0 : visibleWidth(line) + 1;
+		if (used + wordWidth <= room) {
+			line = join(word);
+			continue;
+		}
+		// Short of a whole line, a word too long for one starts here when part of
+		// it ends on a `/` that fits; on a whole one, breakWord decides alone.
+		const short = line !== "" || room < full;
+		const head =
+			short && wordWidth > full ? slashHead(word, room - used) : undefined;
+		if (head !== undefined) {
+			line = join(head);
+		}
+		if (short) {
 			breakLine();
 		}
-		if (wordWidth > room && room < full) {
-			breakLine();
-		}
-		let used = 0;
-		for (const cluster of clustersOf(word)) {
-			const columns = clusterWidth(cluster);
-			if (line !== "" && used + columns > room) {
-				breakLine();
-				used = 0;
-			}
-			line += cluster;
-			used += columns;
+		const pieces = breakWord(word.slice(head?.length ?? 0), room, full);
+		line = pieces.pop() ?? "";
+		lines.push(...pieces);
+		// A first line wider than the rest isn't broken above, so its room
+		// still holds when the word is: the word's last piece sits on a full one.
+		if (pieces.length > 0) {
+			room = full;
 		}
 	}
 	lines.push(line);
 	return lines;
+}
+
+/**
+ * The longest start of `word` that ends on a `/` past its first character
+ * and fits in `room` columns; undefined when none does.
+ */
+function slashHead(word: string, room: number): string | undefined {
+	let head: string | undefined;
+	let taken = "";
+	let used = 0;
+	for (const [index, cluster] of clustersOf(word).entries()) {
+		used += clusterWidth(cluster);
+		if (used > room) {
+			break;
+		}
+		taken += cluster;
+		if (cluster === "/" && index > 0) {
+			head = taken;
+		}
+	}
+	return head;
+}
+
+/**
+ * A word in lines of `rest` columns, the first `first`. A line it overflows
+ * ends after its last `/` past its first character, when what follows the
+ * `/` fits the next line; else where its room runs out, but a character
+ * short where that would open the next line on a `/`.
+ */
+function breakWord(word: string, first: number, rest: number): string[] {
+	const lines: string[] = [];
+	let line: string[] = [];
+	let used = 0;
+	let room = first;
+	let slash = 0;
+	for (const cluster of clustersOf(word)) {
+		const columns = clusterWidth(cluster);
+		if (line.length > 0 && used + columns > room) {
+			const cut = cutAt(line, slash, cluster, rest);
+			lines.push(line.slice(0, cut).join(""));
+			line = line.slice(cut);
+			used = columnsOf(line);
+			slash = 0;
+			room = rest;
+		}
+		line.push(cluster);
+		used += columns;
+		if (cluster === "/" && line.length > 1) {
+			slash = line.length;
+		}
+	}
+	lines.push(line.join(""));
+	return lines;
+}
+
+/**
+ * Where a line `next` overflows is cut: after its last `/` (at `slash`) when
+ * what follows it and `next` fit `rest`; else before `next`, or a character
+ * sooner when `next` is a `/`, so the line after doesn't open on it.
+ */
+function cutAt(
+	line: readonly string[],
+	slash: number,
+	next: string,
+	rest: number,
+): number {
+	const fits = (from: number) =>
+		columnsOf(line.slice(from)) + clusterWidth(next) <= rest;
+	if (slash > 0 && fits(slash)) {
+		return slash;
+	}
+	const sooner = line.length - 1;
+	return next === "/" && sooner > 0 && fits(sooner) ? sooner : line.length;
+}
+
+function columnsOf(clusters: readonly string[]): number {
+	return clusters.reduce((sum, cluster) => sum + clusterWidth(cluster), 0);
 }

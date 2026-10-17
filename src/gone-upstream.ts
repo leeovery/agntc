@@ -1,91 +1,107 @@
-import { errorMessage } from "./errors.js";
-import {
-	type Manifest,
-	type ManifestEntry,
-	removeEntry,
-	writeManifest,
-} from "./manifest.js";
+import { assetSummary, kindAndCounts } from "./entry-assets.js";
+import type { EntryHead } from "./entry-head.js";
+import type { ManifestEntry } from "./manifest.js";
+import type { SubjectMessage } from "./message.js";
 import { nukeManifestFiles } from "./nuke-files.js";
+import { installedFolders, removalQuestion } from "./remove-render.js";
 import { agntcCommand, type Scope } from "./scope.js";
+import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
 
 export interface GoneOptions {
 	/** `-y`: remove without asking. */
 	yes: boolean;
 	ui: Ui;
+	/** How the question's row names the entry: a local one as the row it settles into does. */
+	head: EntryHead;
 }
 
 /** What became of an entry whose source no longer holds it. */
 export interface GoneSettlement {
 	removed: boolean;
-	message: string;
+	message: SubjectMessage;
 	/** The flags that would have removed it, when there was no terminal to ask. */
 	flags?: string[];
 }
 
 /**
  * Removes or keeps an entry gone upstream: `-y` removes it, a terminal asks
- * (no by default), and machine mode keeps it. Removing deletes its files; the
- * caller drops its manifest entry.
+ * under the entry's row (no by default), and machine mode keeps it. Removing
+ * deletes its files; the caller drops its manifest entry.
  */
 export async function settleGone(
 	key: string,
 	entry: ManifestEntry,
 	scope: Scope,
-	{ yes, ui }: GoneOptions,
+	{ yes, ui, head }: GoneOptions,
 ): Promise<GoneSettlement> {
 	if (!yes && ui.mode === "machine") {
 		const removal = agntcCommand(scope.name, "update", [key, "-y"]);
 		return {
-			removed: false,
-			message: `Kept ${key} — it's gone upstream; ${removal} removes it`,
+			...settled(key, "Kept", `it's gone upstream; ${removal} removes it`),
 			flags: ["-y"],
 		};
 	}
-	const remove =
-		yes ||
-		(await ui.confirm({
-			message: `${key} is gone upstream — remove it?`,
-			initialValue: false,
-		}));
+	const remove = yes || (await askToRemove(head, entry, scope, ui));
 	if (!remove) {
-		return {
-			removed: false,
-			message: `Kept ${key} — it's gone upstream; update will ask again`,
-		};
+		return settled(key, "Kept", "it's gone upstream; update will ask again");
 	}
 	await nukeManifestFiles(scope.root, entry.files);
-	return { removed: true, message: `Removed ${key} — it's gone upstream` };
+	return settled(key, "Removed", "it's gone upstream");
 }
 
-/** What a `list` action reports; `ok` is false when a chosen removal failed. */
-export interface ListGoneSettlement {
-	ok: boolean;
-	message: string;
+/** Asks under the entry's row, which names it, its kind and counts, and what it installed. */
+async function askToRemove(
+	head: EntryHead,
+	entry: ManifestEntry,
+	scope: Scope,
+	ui: Ui,
+): Promise<boolean> {
+	const kind = kindAndCounts(entry, await assetSummary(entry, scope.root));
+	const row = goneRow(head, kind, entry.files);
+	return ui.block([row]).confirm(row, {
+		message: removalQuestion([entry.files]),
+		initialValue: false,
+	});
+}
+
+function settled(
+	key: string,
+	verb: "Kept" | "Removed",
+	why: string,
+): GoneSettlement {
+	return { removed: verb === "Removed", message: goneMessage(key, verb, why) };
+}
+
+/** `<verb> <key> — <why>`, of an entry gone upstream. */
+export function goneMessage(
+	key: string,
+	verb: "Kept" | "Removed",
+	why: string,
+): SubjectMessage {
+	const text = `${verb} ${key} — ${why}`;
+	return {
+		subject: key,
+		detail: `${verb.toLowerCase()} — ${why}`,
+		text,
+		plain: text,
+	};
 }
 
 /**
- * Settles an entry a `list` action found gone upstream. `list` only runs at a
- * terminal, so it asks; a removal is recorded at once, and one that fails
- * leaves the entry recorded.
+ * An entry gone upstream, as `update` asks whether to remove it: its head, a
+ * local one's meta with it as the row it settles into has, its kind and
+ * counts, then what it installed under each asset folder.
  */
-export async function settleGoneInList(
-	key: string,
-	entry: ManifestEntry,
-	manifest: Manifest,
-	scope: Scope,
-	ui: Ui,
-): Promise<ListGoneSettlement> {
-	try {
-		const settled = await settleGone(key, entry, scope, { yes: false, ui });
-		if (settled.removed) {
-			await writeManifest(scope.root, removeEntry(manifest, key));
-		}
-		return { ok: true, message: settled.message };
-	} catch (err) {
-		return {
-			ok: false,
-			message: `Couldn't remove ${key}: ${errorMessage(err)}; it stays recorded`,
-		};
-	}
+export function goneRow(
+	head: EntryHead,
+	kind: string,
+	files: readonly string[],
+): Row {
+	return {
+		status: "attention",
+		...head,
+		detail: { label: "gone upstream", aside: kind },
+		fields: installedFolders(files),
+	};
 }

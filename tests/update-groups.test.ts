@@ -50,6 +50,7 @@ import { pathExists } from "../src/fs-utils.js";
 import { cleanupTempDir, cloneSource } from "../src/git-clone.js";
 import { fetchRemoteTagRefs, lsRemote } from "../src/git-utils.js";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
+import type { SubjectMessage } from "../src/message.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { projectScope } from "../src/scope.js";
 import {
@@ -105,6 +106,12 @@ describe("failedOutcome", () => {
 			status: "failed",
 			key: "owner/repo/a",
 			summary: "owner/repo/a: Failed — boom",
+			message: {
+				subject: "owner/repo/a",
+				detail: "boom",
+				text: "owner/repo/a: Failed — boom",
+				plain: "owner/repo/a: Failed — boom",
+			},
 		});
 	});
 });
@@ -167,6 +174,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			key,
 			manifestEntry,
 			copiedFiles: manifestEntry.files,
+			assetCounts: { skills: 1 },
 			notes: [],
 			absorbed: [],
 		};
@@ -191,6 +199,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			newEntry,
 			notes: [],
 			absorbed: [],
+			assetCounts: { skills: 1 },
 		});
 	});
 
@@ -213,6 +222,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			newEntry,
 			notes: [],
 			absorbed: [],
+			assetCounts: { skills: 1 },
 		});
 	});
 
@@ -265,6 +275,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			newEntry,
 			notes: [],
 			absorbed: [],
+			assetCounts: { skills: 1 },
 		});
 		expect(keyBefore(outcome)).toBe("owner/repo/packs/foo");
 	});
@@ -299,8 +310,21 @@ describe("mapReinstallResultToOutcome success", () => {
 			status: "gone-kept",
 			key: "owner/repo/a",
 			summary: "Kept owner/repo/a — it's gone upstream",
+			message: {
+				subject: "owner/repo/a",
+				detail: "kept — it's gone upstream",
+				text: "Kept owner/repo/a — it's gone upstream",
+				plain: "Kept owner/repo/a — it's gone upstream",
+			},
 		});
 	});
+
+	const HINT: SubjectMessage = {
+		subject: "owner/repo/laravel",
+		detail: "update failed",
+		text: "Update failed for owner/repo/laravel",
+		plain: "hint",
+	};
 
 	it("maps a copy failure to copy-failed, carrying what the pack took over", () => {
 		expect(
@@ -310,7 +334,7 @@ describe("mapReinstallResultToOutcome success", () => {
 				{
 					status: "failed",
 					failureReason: "copy-failed",
-					message: "hint",
+					recovery: HINT,
 					absorbed: ["owner/repo/queues"],
 				},
 				null,
@@ -320,6 +344,7 @@ describe("mapReinstallResultToOutcome success", () => {
 			status: "copy-failed",
 			key: "owner/repo/laravel",
 			summary: "hint",
+			message: HINT,
 			absorbed: ["owner/repo/queues"],
 		});
 	});
@@ -337,9 +362,13 @@ describe("mapReinstallResultToOutcome success", () => {
 			"project",
 		);
 
-		expect(outcome).toEqual({
-			status: "failed",
-			key: "owner/repo/laravel",
+		expect(outcome).toEqual(
+			failedOutcome(
+				"owner/repo/laravel",
+				"couldn't remove its old files: EACCES",
+			),
+		);
+		expect(outcome).toMatchObject({
 			summary:
 				"owner/repo/laravel: Failed — couldn't remove its old files: EACCES",
 		});
@@ -461,6 +490,19 @@ describe("applyOutcome", () => {
 	});
 });
 
+/** An absorbed outcome, its summary the sentence of its message; its pack landed unless it was removed. */
+function absorbedAs(key: string, into: string, detail: string): PluginOutcome {
+	const text = `${key} ${detail}`;
+	return {
+		status: "absorbed",
+		key,
+		into,
+		landed: !detail.startsWith("was removed"),
+		summary: text,
+		message: { subject: key, detail, text, plain: text },
+	};
+}
+
 describe("withAbsorptions", () => {
 	it("replaces what an absorbed entry got before with an absorbed outcome naming the pack", () => {
 		const outcomes = withAbsorptions([
@@ -479,12 +521,13 @@ describe("withAbsorptions", () => {
 			"updated",
 			"absorbed",
 		]);
-		expect(outcomes[1]).toEqual({
-			status: "absorbed",
-			key: "owner/repo/loose",
-			into: "owner/repo/pack",
-			summary: "owner/repo/loose is now part of the pack owner/repo/pack",
-		});
+		expect(outcomes[1]).toEqual(
+			absorbedAs(
+				"owner/repo/loose",
+				"owner/repo/pack",
+				"is now part of the pack owner/repo/pack",
+			),
+		);
 	});
 
 	it("adds an absorbed outcome for an entry that was skipped", () => {
@@ -528,13 +571,11 @@ describe("withAbsorptions", () => {
 
 		expect(outcomes).toEqual([
 			expect.objectContaining({ key: "owner/repo/packs" }),
-			{
-				status: "absorbed",
-				key: "owner/repo/packs/foo",
-				into: "owner/repo/packs",
-				summary:
-					"owner/repo/packs/foo is now part of the pack owner/repo/packs",
-			},
+			absorbedAs(
+				"owner/repo/packs/foo",
+				"owner/repo/packs",
+				"is now part of the pack owner/repo/packs",
+			),
 		]);
 	});
 
@@ -556,13 +597,11 @@ describe("withAbsorptions", () => {
 
 		expect(outcomes).toEqual([
 			pack,
-			{
-				status: "absorbed",
-				key: "owner/repo/packs/tools",
-				into: "owner/repo/packs/tools",
-				summary:
-					"owner/repo/packs/tools is now part of the pack owner/repo/tools, which moved to its key",
-			},
+			absorbedAs(
+				"owner/repo/packs/tools",
+				"owner/repo/packs/tools",
+				"is now part of the pack owner/repo/tools, which moved to its key",
+			),
 		]);
 	});
 
@@ -576,13 +615,13 @@ describe("withAbsorptions", () => {
 			},
 		]);
 
-		expect(outcomes[1]).toEqual({
-			status: "absorbed",
-			key: "owner/repo/loose",
-			into: "owner/repo/pack",
-			summary:
-				"owner/repo/loose was removed — the pack owner/repo/pack took it over, then failed to install",
-		});
+		expect(outcomes[1]).toEqual(
+			absorbedAs(
+				"owner/repo/loose",
+				"owner/repo/pack",
+				"was removed — the pack owner/repo/pack took it over, then failed to install",
+			),
+		);
 	});
 });
 
@@ -1561,9 +1600,13 @@ describe("processGroupUpdate", () => {
 		]);
 		expect(outcomes.every((o) => o.status === "failed")).toBe(true);
 		for (const o of outcomes) {
-			expect(o).toEqual({
-				status: "failed",
-				key: o.key,
+			expect(o).toEqual(
+				failedOutcome(
+					o.key,
+					"git clone failed after 3 attempts: network error",
+				),
+			);
+			expect(o).toMatchObject({
 				summary: `${o.key}: Failed — git clone failed after 3 attempts: network error`,
 			});
 		}

@@ -22,7 +22,7 @@ program.addCommand(updateCommand);
 program.showHelpAfterError(true);
 
 // The banner heads every help screen, the no-args landing included; a command
-// prints it itself when it runs at a terminal. A bare version query stays clean
+// run opens with its one-line header instead. A bare version query stays clean
 // for scripts that capture stdout.
 program.addHelpText("beforeAll", renderBanner(BANNER_VERSION));
 

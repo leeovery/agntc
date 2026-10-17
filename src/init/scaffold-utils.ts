@@ -21,6 +21,20 @@ export interface Scaffold {
 	warnings(targetDir: string): Promise<string[]>;
 }
 
+/** The files of the scaffold already in `targetDir`, which writing it leaves as they are. */
+export async function existingFiles(
+	targetDir: string,
+	files: readonly ScaffoldFile[],
+): Promise<string[]> {
+	const found: string[] = [];
+	for (const { path } of files) {
+		if (await pathExists(join(targetDir, path))) {
+			found.push(path);
+		}
+	}
+	return found;
+}
+
 /** Writes each file that doesn't exist yet; one that does is left as it is. */
 export async function writeScaffold(
 	targetDir: string,

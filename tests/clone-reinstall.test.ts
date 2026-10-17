@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Manifest, ManifestEntry } from "../src/manifest.js";
+import type { Remedy, SubjectMessage } from "../src/message.js";
 
 vi.mock("../src/manifest.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../src/manifest.js")>()),
@@ -47,19 +48,19 @@ vi.mock("../src/copy-safety.js", async (importOriginal) => {
 });
 
 import type {
+	AbortCause,
 	CloneFailureHandlers,
 	CloneReinstallResult,
 } from "../src/clone-reinstall.js";
 import {
 	buildAbortMessage,
 	buildCopySafetyMessage,
-	cloneAndReinstall,
 	cloneRepoOnce,
-	failureMessage,
 	isCloneReinstallFailure,
 	mapCloneFailure,
 	recordCopyFailure,
 	recordReinstall,
+	reinstallEntry,
 } from "../src/clone-reinstall.js";
 import { copyBareSkill } from "../src/copy-bare-skill.js";
 import { copyPack } from "../src/copy-pack.js";
@@ -91,14 +92,11 @@ const mockScanForEscapingSymlinks = vi.mocked(scanForEscapingSymlinks);
 const mockAssertSubpathWithinClone = vi.mocked(assertSubpathWithinClone);
 
 import { makeEntry } from "./helpers/factories.js";
-import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const REMOTE_SHA = "b".repeat(40);
-let ui: TestUi;
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	ui = testUi();
 	mockCleanupTempDir.mockResolvedValue(undefined);
 	mockNukeManifestFiles.mockResolvedValue({ removed: [], skipped: [] });
 	mockPathExists.mockResolvedValue(true);
@@ -113,7 +111,7 @@ beforeEach(() => {
 	});
 });
 
-describe("cloneAndReinstall", () => {
+describe("reinstallEntry", () => {
 	describe("git (remote) path — success", () => {
 		it("returns success with manifest entry and copied files", async () => {
 			const entry = makeEntry({
@@ -128,13 +126,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -167,13 +164,12 @@ describe("cloneAndReinstall", () => {
 				return { copiedFiles: [".claude/skills/my-skill/"] };
 			});
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -191,13 +187,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -213,22 +208,19 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
 			expect(mockCleanupTempDir).toHaveBeenCalledWith("/tmp/agntc-clone");
 		});
 
-		it("uses spinner for clone", async () => {
-			const entry = makeEntry();
-
+		it("shows nothing over the clone: its caller's own progress covers it", async () => {
 			mockCloneSource.mockResolvedValue({
 				tempDir: "/tmp/agntc-clone",
 				commit: REMOTE_SHA,
@@ -237,19 +229,19 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
-					entry,
+					entry: makeEntry(),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
-			const [spinner] = ui.spinners;
-			expect(spinner!.start).toHaveBeenCalledWith("Cloning repository...");
-			expect(spinner!.stop).toHaveBeenCalledWith("Cloned successfully");
+			expect(result).toMatchObject({
+				status: "success",
+				assetCounts: { skills: 1 },
+			});
 		});
 	});
 
@@ -278,13 +270,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove();
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -302,13 +293,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove();
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -323,14 +313,13 @@ describe("cloneAndReinstall", () => {
 			const manifest: Manifest = { "owner/repo": entry };
 			arrangeAmbiguousMove();
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				manifest,
 			);
 
@@ -345,13 +334,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove();
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -365,13 +353,12 @@ describe("cloneAndReinstall", () => {
 			});
 			arrangeAmbiguousMove("go");
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -406,13 +393,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -452,13 +438,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -485,20 +470,24 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
 			expect(result.status).toBe("failed");
 			if (result.status === "failed") {
 				expect(result.failureReason).toBe("copy-failed");
-				expect(result.message).toContain("npx agntc add owner/repo");
+				expect(
+					result.failureReason === "copy-failed" && result.recovery.remedy,
+				).toEqual({
+					lead: "To install it again:",
+					steps: [{ command: "npx agntc add owner/repo" }],
+				});
 			}
 		});
 
@@ -512,14 +501,13 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				{},
 			);
 
@@ -539,13 +527,12 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyBareSkill.mockRejectedValue(new Error("disk full"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -564,14 +551,13 @@ describe("cloneAndReinstall", () => {
 				new Error("EACCES: permission denied"),
 			);
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest: { "owner/repo": entry },
 				},
-				ui,
 				{},
 			);
 
@@ -592,21 +578,20 @@ describe("cloneAndReinstall", () => {
 
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
-			expect(result.status).toBe("failed");
-			if (result.status === "failed") {
-				expect(result.failureReason).toBe("clone-failed");
-				expect(result.message).toContain("git clone failed");
-			}
+			expect(result).toMatchObject({
+				status: "failed",
+				failureReason: "clone-failed",
+				message: expect.stringContaining("git clone failed"),
+			});
 		});
 
 		it("does not nuke on clone failure", async () => {
@@ -614,13 +599,12 @@ describe("cloneAndReinstall", () => {
 
 			mockCloneSource.mockRejectedValue(new Error("git clone failed"));
 
-			await cloneAndReinstall(
+			await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -641,14 +625,13 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-plugin/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key,
 					entry,
 					scope: projectScope("/fake/project"),
 					sourceDir: key,
 				},
-				ui,
 				{},
 			);
 
@@ -672,14 +655,13 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/hooks/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "/Users/lee/Code/skills/hooks",
 					entry,
 					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
-				ui,
 				{},
 			);
 
@@ -707,14 +689,13 @@ describe("cloneAndReinstall", () => {
 				throw new PathTraversalError("../evil");
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "/Users/lee/Code/skills/evil",
 					entry,
 					scope: projectScope("/fake/project"),
 					sourceDir: "/Users/lee/Code/skills",
 				},
-				ui,
 				{},
 			);
 
@@ -739,7 +720,7 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/swift/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/swift",
 					entry: makeEntry({
@@ -748,13 +729,18 @@ describe("cloneAndReinstall", () => {
 					}),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
 			expect(result).toMatchObject({
 				status: "success",
-				notes: ["owner/repo/swift is a single skill — reinstalled as a skill"],
+				notes: [
+					{
+						text: "owner/repo/swift is a single skill — reinstalled as a skill",
+						plain:
+							"owner/repo/swift is a single skill — reinstalled as a skill",
+					},
+				],
 				manifestEntry: { type: "skill" },
 			});
 		});
@@ -771,13 +757,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/swift/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/packs/swift",
 					entry: makeEntry({ type: "pack" }),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -797,13 +782,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/repo/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry: makeEntry({ type: "skill" }),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -844,13 +828,12 @@ describe("cloneAndReinstall", () => {
 				assetCounts: { skills: 2 },
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/laravel",
 					entry: pack,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				manifest,
 			);
 
@@ -862,7 +845,12 @@ describe("cloneAndReinstall", () => {
 				status: "success",
 				absorbed: ["owner/repo/queues"],
 				notes: [
-					"owner/repo/laravel now includes queues, installed on its own before",
+					// The absorbed entry's own line tells it at a terminal.
+					{
+						text: "",
+						plain:
+							"owner/repo/laravel now includes queues, installed on its own before",
+					},
 				],
 			});
 			expect(mockWriteManifest).not.toHaveBeenCalled();
@@ -899,22 +887,23 @@ describe("cloneAndReinstall", () => {
 			});
 			mockCopyPack.mockRejectedValue(new Error("disk full"));
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/laravel",
 					entry: pack,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				manifest,
 			);
 
 			expect(result).toEqual({
 				status: "failed",
 				failureReason: "copy-failed",
-				message:
-					"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				recovery: expect.objectContaining({
+					plain:
+						"Update failed for owner/repo/laravel after removing old files (disk full), and the skill it took over was removed: owner/repo/queues. It is currently uninstalled. Run `npx agntc add owner/repo/laravel --pack` to install it again.",
+				}),
 				absorbed: ["owner/repo/queues"],
 			});
 			expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith(
@@ -939,14 +928,13 @@ describe("cloneAndReinstall", () => {
 			const manifest: Manifest = { "owner/repo/go": entry };
 			arrangeGoneSkill();
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 					manifest,
 				},
-				ui,
 				manifest,
 			);
 
@@ -961,14 +949,13 @@ describe("cloneAndReinstall", () => {
 			mockPathExists.mockResolvedValue(false);
 			mockDiscover.mockResolvedValue({ packs: [], skills: [], strays: [] });
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "/src/kit",
 					entry: makeEntry({ type: "skill", commit: null }),
 					scope: projectScope("/fake/project"),
 					sourceDir: "/src/kit",
 				},
-				ui,
 				{},
 			);
 
@@ -992,14 +979,13 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry,
 					scope: projectScope("/fake/project"),
 					newRef: "v2.0.0",
 				},
-				ui,
 				{},
 			);
 
@@ -1021,13 +1007,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/my-skill/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo",
 					entry: makeEntry({ ref }),
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -1055,13 +1040,12 @@ describe("cloneAndReinstall", () => {
 				copiedFiles: [".claude/skills/go/"],
 			});
 
-			const result = await cloneAndReinstall(
+			const result = await reinstallEntry(
 				{
 					key: "owner/repo/go",
 					entry,
 					scope: projectScope("/fake/project"),
 				},
-				ui,
 				{},
 			);
 
@@ -1085,13 +1069,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1117,13 +1100,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/go/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo/go",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1147,14 +1129,13 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-plugin/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key,
 						entry,
 						scope: projectScope("/fake/project"),
 						sourceDir: key,
 					},
-					ui,
 					{},
 				);
 
@@ -1180,13 +1161,12 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1215,14 +1195,13 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 						manifest,
 					},
-					ui,
 					{},
 				);
 
@@ -1258,13 +1237,12 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil-link", "../../../etc/passwd"),
 				);
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1294,13 +1272,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo/my-skill",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1330,13 +1307,12 @@ describe("cloneAndReinstall", () => {
 					throw new PathTraversalError("../evil");
 				});
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo/evil",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1344,12 +1320,13 @@ describe("cloneAndReinstall", () => {
 					"/tmp/agntc-clone",
 					"../evil",
 				);
-				expect(result.status).toBe("failed");
-				if (result.status === "failed") {
-					expect(result.failureReason).toBe("clone-failed");
-					expect(result.message).toContain("../evil");
-					expect(result.message).toContain("outside the clone root");
-				}
+				expect(result).toMatchObject({
+					status: "failed",
+					failureReason: "clone-failed",
+					message: expect.stringMatching(
+						/"\.\.\/evil".*outside the clone root/,
+					),
+				});
 				// Pre-flight: the guard precedes the source read, nuke, and copy.
 				expect(mockPathExists).not.toHaveBeenCalled();
 				expect(mockScanForEscapingSymlinks).not.toHaveBeenCalled();
@@ -1375,14 +1352,13 @@ describe("cloneAndReinstall", () => {
 					throw new PathTraversalError("../evil");
 				});
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo/evil",
 						entry,
 						scope: projectScope("/fake/project"),
 						manifest,
 					},
-					ui,
 					{},
 				);
 
@@ -1408,13 +1384,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/go/"],
 				});
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo/go",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1445,13 +1420,12 @@ describe("cloneAndReinstall", () => {
 					copiedFiles: [".claude/skills/my-skill/"],
 				});
 
-				const result = await cloneAndReinstall(
+				const result = await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1472,13 +1446,12 @@ describe("cloneAndReinstall", () => {
 					new SymlinkEscapeError("evil", "../escape"),
 				);
 
-				await cloneAndReinstall(
+				await reinstallEntry(
 					{
 						key: "owner/repo",
 						entry,
 						scope: projectScope("/fake/project"),
 					},
-					ui,
 					{},
 				);
 
@@ -1568,11 +1541,16 @@ describe("cloneRepoOnce", () => {
 	});
 });
 
+/** A copy failure's recovery whose sentence is `plain`. */
+function recovery(plain: string): SubjectMessage {
+	return { subject: "owner/repo", detail: plain, text: plain, plain };
+}
+
 describe("mapCloneFailure", () => {
 	function makeHandlers(): CloneFailureHandlers<string> {
 		return {
 			onCloneFailed: (msg) => `clone-failed: ${msg}`,
-			onCopyFailed: (msg) => `copy-failed: ${msg}`,
+			onCopyFailed: (recovery) => `copy-failed: ${recovery.plain}`,
 			onAborted: ({ reason, inTheWay }) =>
 				`aborted${inTheWay ? " (in the way)" : ""}: ${reason}`,
 			onBlocked: (reason) => `blocked: ${reason}`,
@@ -1597,7 +1575,7 @@ describe("mapCloneFailure", () => {
 			{
 				status: "failed",
 				failureReason: "copy-failed",
-				message: "disk full",
+				recovery: recovery("disk full"),
 				absorbed: [],
 			},
 			makeHandlers(),
@@ -1701,6 +1679,7 @@ describe("isCloneReinstallFailure", () => {
 			key: "owner/repo",
 			manifestEntry: makeEntry(),
 			copiedFiles: [".claude/skills/my-skill/"],
+			assetCounts: { skills: 1 },
 			notes: [],
 			absorbed: [],
 		};
@@ -1726,99 +1705,30 @@ describe("isCloneReinstallFailure", () => {
 	});
 });
 
-describe("failureMessage", () => {
-	it("returns the failure's own message for clone-failed", () => {
-		const msg = failureMessage(
-			{
-				status: "failed",
-				failureReason: "clone-failed",
-				message: "network error",
-			},
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe("network error");
-	});
-
-	it("returns the failure's own message for copy-failed", () => {
-		const msg = failureMessage(
-			{
-				status: "failed",
-				failureReason: "copy-failed",
-				message: "disk full hint",
-				absorbed: [],
-			},
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe("disk full hint");
-	});
-
-	it("returns the failure's own message for remove-failed", () => {
-		const msg = failureMessage(
-			{
-				status: "failed",
-				failureReason: "remove-failed",
-				message: "couldn't remove its old files: EACCES",
-			},
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe("couldn't remove its old files: EACCES");
-	});
-
-	it("returns buildAbortMessage output for aborted", () => {
-		const reason = "its folder now contains packs";
-		const entry = makeEntry({ type: "pack" });
-		const msg = failureMessage(
-			{ status: "aborted", reason },
-			"owner/repo",
-			entry,
-			"project",
-		);
-		expect(msg).toBe(
-			buildAbortMessage("owner/repo", entry, { reason }, "project"),
-		);
-	});
-
-	it("returns buildCopySafetyMessage output for blocked", () => {
-		const reason =
-			'symlink "evil-link" points outside the clone (target: /etc/passwd)';
-		const msg = failureMessage(
-			{ status: "blocked", reason },
-			"owner/repo",
-			makeEntry(),
-			"project",
-		);
-		expect(msg).toBe(buildCopySafetyMessage("owner/repo", reason));
-	});
-});
-
 describe("buildCopySafetyMessage", () => {
 	const reason =
 		'symlink "evil-link" points outside the clone (target: /etc/passwd)';
 
 	it("names the source key", () => {
-		expect(buildCopySafetyMessage("owner/repo", reason)).toContain(
+		expect(buildCopySafetyMessage("owner/repo", reason).plain).toContain(
 			"owner/repo",
 		);
 	});
 
 	it("carries the escape reason verbatim", () => {
-		expect(buildCopySafetyMessage("owner/repo", reason)).toContain(reason);
+		expect(buildCopySafetyMessage("owner/repo", reason).plain).toContain(
+			reason,
+		);
 	});
 
 	it("states the update is blocked and the existing install is left intact", () => {
-		const msg = buildCopySafetyMessage("owner/repo", reason);
+		const msg = buildCopySafetyMessage("owner/repo", reason).plain;
 		expect(msg).toContain("blocked");
 		expect(msg).toContain("unchanged");
 	});
 
 	it("does NOT use the type-migration wording or the remove+add remedy", () => {
-		const msg = buildCopySafetyMessage("owner/repo", reason);
+		const msg = buildCopySafetyMessage("owner/repo", reason).plain;
 		expect(msg).not.toContain("no longer supports that type");
 		expect(msg).not.toContain("npx agntc remove");
 		expect(msg).not.toContain("To migrate");
@@ -1828,17 +1738,17 @@ describe("buildCopySafetyMessage", () => {
 		const onPath =
 			'symlink "skills/foo" is on the path to skills/foo — agntc won\'t copy through it';
 
-		expect(buildCopySafetyMessage("owner/repo/foo", onPath)).toBe(
+		expect(buildCopySafetyMessage("owner/repo/foo", onPath).plain).toBe(
 			`owner/repo/foo: ${onPath}. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.`,
 		);
 	});
 
 	it("describes a symlink escaping the clone (consistent with abort being a different concern)", () => {
-		const msg = buildCopySafetyMessage("owner/repo", reason);
+		const msg = buildCopySafetyMessage("owner/repo", reason).plain;
 		expect(msg.toLowerCase()).toContain("symlink");
 		// Guard against accidental reuse of the derive-before-delete framing.
 		expect(msg).not.toBe(
-			buildAbortMessage("owner/repo", makeEntry(), { reason }, "project"),
+			buildAbortMessage("owner/repo", makeEntry(), { reason }, "project").plain,
 		);
 	});
 
@@ -1850,7 +1760,7 @@ describe("buildCopySafetyMessage", () => {
 		const escapeMessage =
 			'symlink "evil-link" points outside the clone (target: /etc/passwd)';
 		const addFraming = `owner/repo: ${escapeMessage}`;
-		const updateMsg = buildCopySafetyMessage("owner/repo", escapeMessage);
+		const updateMsg = buildCopySafetyMessage("owner/repo", escapeMessage).plain;
 		expect(updateMsg.startsWith(addFraming)).toBe(true);
 		expect(updateMsg).toContain("points outside the clone");
 	});
@@ -1863,7 +1773,7 @@ describe("buildAbortMessage", () => {
 			makeEntry({ type: "pack" }),
 			{ reason: "its folder now contains packs" },
 			"project",
-		);
+		).plain;
 
 		expect(msg).toBe(
 			"owner/repo/laravel was installed as a pack and can't be updated (its folder now contains packs). The existing install is unchanged. To migrate: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel --pack",
@@ -1881,7 +1791,7 @@ describe("buildAbortMessage", () => {
 			},
 			"project",
 			"v2.0.0",
-		);
+		).plain;
 
 		expect(msg).toBe(
 			"owner/repo/laravel can't be updated: in its source, laravel/skills/back/refs and laravel/skills/front/refs would both install to .claude/skills/refs, so it can't be installed as it stands. The existing install is left as it is.",
@@ -1894,7 +1804,7 @@ describe("buildAbortMessage", () => {
 			makeEntry({ type: "skill", sourceSubpath: "skills/go" }),
 			{ reason: "two skills are named go" },
 			"project",
-		);
+		).plain;
 
 		expect(msg).toContain(
 			"npx agntc remove owner/repo/go then npx agntc add owner/repo/skills/go",
@@ -1916,7 +1826,7 @@ describe("buildAbortMessage", () => {
 				},
 			},
 			"project",
-		);
+		).plain;
 
 		expect(msg).toContain(
 			"replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo --overwrite",
@@ -1934,7 +1844,7 @@ describe("buildAbortMessage", () => {
 				inTheWay: true,
 			},
 			"project",
-		);
+		).plain;
 
 		expect(msg).toBe(
 			"owner/repo/laravel can't be updated: files agntc didn't install are in the way: .claude/skills/queues/. The existing install is unchanged. Clear them and update again, or replace them: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel --pack --overwrite",
@@ -1951,7 +1861,7 @@ describe("buildAbortMessage", () => {
 				makeEntry({ type: "skill", commit: null, localRoot: "/src/My Skills" }),
 				{ reason: "files are in the way", inTheWay: true },
 				"project",
-			),
+			).plain,
 		).toContain(
 			"replace them: npx agntc remove '/src/My Skills/go' then npx agntc add '/src/My Skills/go' --overwrite",
 		);
@@ -1966,7 +1876,7 @@ describe("buildAbortMessage", () => {
 				pack,
 				{ reason: "its folder now contains packs" },
 				"global",
-			),
+			).plain,
 		).toContain(
 			"To migrate: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack",
 		);
@@ -1976,7 +1886,7 @@ describe("buildAbortMessage", () => {
 				pack,
 				{ reason: "files are in the way", inTheWay: true },
 				"global",
-			),
+			).plain,
 		).toContain(
 			"replace them: npx agntc remove -g owner/repo/laravel then npx agntc add -g owner/repo/laravel --pack --overwrite",
 		);
@@ -2003,7 +1913,7 @@ describe("buildAbortMessage for a key another entry holds", () => {
 					takenKey: "owner/repo/foo",
 				},
 				scope,
-			),
+			).plain,
 		).toBe(message);
 	});
 });
@@ -2034,12 +1944,14 @@ describe("buildAbortMessage for folders still in the source", () => {
 			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove -g owner/repo then npx agntc add -g 'owner/repo@^1.2.0' --pack",
 		],
 	] as const)("names the folders and updates it anyway by a remove and re-add, in %s scope", (scope, message) => {
-		expect(buildAbortMessage("owner/repo", entry, cause, scope)).toBe(message);
+		expect(buildAbortMessage("owner/repo", entry, cause, scope).plain).toBe(
+			message,
+		);
 	});
 
 	it("re-adds at the tag a version change picked", () => {
 		expect(
-			buildAbortMessage("owner/repo", entry, cause, "project", "v2.0.0"),
+			buildAbortMessage("owner/repo", entry, cause, "project", "v2.0.0").plain,
 		).toBe(
 			"owner/repo can't be updated: it would remove workflow-shared and workflow-gates, which are still in the source but would no longer be installed. The existing install is unchanged. To update it anyway: npx agntc remove owner/repo then npx agntc add owner/repo@v2.0.0 --pack",
 		);
@@ -2054,7 +1966,7 @@ describe("buildAbortMessage keeps the version the entry tracks", () => {
 				makeEntry({ type: "pack", ref: "v1.4.0", constraint: "^1.2.0" }),
 				{ reason: "files are in the way", inTheWay: true },
 				"project",
-			),
+			).plain,
 		).toContain(
 			"replace them: npx agntc remove owner/repo/laravel then npx agntc add 'owner/repo/laravel@^1.2.0' --pack --overwrite",
 		);
@@ -2067,7 +1979,7 @@ describe("buildAbortMessage keeps the version the entry tracks", () => {
 				makeEntry({ type: "pack", ref: "main" }),
 				{ reason: "its folder now contains packs" },
 				"project",
-			),
+			).plain,
 		).toContain(
 			"To migrate: npx agntc remove owner/repo/laravel then npx agntc add owner/repo/laravel@main --pack",
 		);
@@ -2080,7 +1992,7 @@ describe("buildAbortMessage keeps the version the entry tracks", () => {
 				makeEntry({ type: "pack", ref: null }),
 				{ reason: "its folder now contains packs" },
 				"project",
-			),
+			).plain,
 		).toMatch(/then npx agntc add owner\/repo\/laravel --pack$/);
 	});
 });
@@ -2107,7 +2019,7 @@ describe("buildAbortMessage for a version change", () => {
 				},
 				"project",
 				"v2.0.0",
-			),
+			).plain,
 		).toBe(
 			"owner/repo/packs/foo can't be updated: it would move to owner/repo/foo, which is already installed. The existing install is unchanged. To replace that entry with it: npx agntc remove owner/repo/foo then change it to v2.0.0 again",
 		);
@@ -2121,10 +2033,127 @@ describe("buildAbortMessage for a version change", () => {
 				{ reason: "files are in the way", inTheWay: true, replayed },
 				"project",
 				"v2.0.0",
-			),
+			).plain,
 		).toBe(
 			"owner/repo/packs/foo can't be updated: files are in the way. The existing install is unchanged. Clear them and change it to v2.0.0 again, or replace them: npx agntc remove owner/repo/packs/foo then npx agntc add owner/repo/packs/foo@v2.0.0 --overwrite",
 		);
+	});
+});
+
+describe("an abort's parts, as a row and Next lay them out", () => {
+	const KEY = "owner/repo/laravel";
+	const pack = makeEntry({ type: "pack" });
+	const REMOVE = { command: "npx agntc remove owner/repo/laravel" };
+	const READD = "npx agntc add owner/repo/laravel --pack";
+
+	it("tells what happened apart from the key it's about", () => {
+		const message = buildAbortMessage(
+			KEY,
+			pack,
+			{ reason: "its folder now contains packs" },
+			"project",
+		);
+
+		expect(message).toMatchObject({
+			subject: KEY,
+			detail:
+				"was installed as a pack and can't be updated (its folder now contains packs). The existing install is unchanged.",
+			text: `${KEY} was installed as a pack and can't be updated (its folder now contains packs). The existing install is unchanged.`,
+		});
+	});
+
+	it.each<[string, AbortCause, Remedy]>([
+		[
+			"a migration",
+			{ reason: "r" },
+			{ lead: "To migrate:", steps: [REMOVE, { command: READD }] },
+		],
+		[
+			"folders still in the source",
+			{ reason: "r", stillInSource: true },
+			{ lead: "To update it anyway:", steps: [REMOVE, { command: READD }] },
+		],
+		[
+			"files in the way",
+			{ reason: "r", inTheWay: true },
+			{
+				lead: "Clear them and update again, or replace them:",
+				steps: [REMOVE, { command: `${READD} --overwrite` }],
+			},
+		],
+		[
+			"a taken key",
+			{ reason: "r", takenKey: "owner/repo/tools" },
+			{
+				lead: "To replace that entry with it:",
+				steps: [
+					{ command: "npx agntc remove owner/repo/tools" },
+					{ command: "npx agntc update owner/repo/laravel" },
+				],
+			},
+		],
+		[
+			"several namesakes",
+			{
+				reason: "r",
+				candidates: [
+					{ key: "owner/repo/a", entry: makeEntry({ type: "skill" }) },
+					{ key: "owner/repo/b", entry: makeEntry({ type: "skill" }) },
+				],
+			},
+			{
+				lead: "To follow one of them:",
+				steps: [
+					REMOVE,
+					{
+						choice: [
+							"npx agntc add owner/repo/a",
+							"npx agntc add owner/repo/b",
+						],
+					},
+				],
+			},
+		],
+	])("puts the commands of %s on lines of their own", (_, cause, remedy) => {
+		expect(buildAbortMessage(KEY, pack, cause, "project").remedy).toEqual(
+			remedy,
+		);
+	});
+
+	it("redoes a version change in words when a taken key is freed", () => {
+		expect(
+			buildAbortMessage(
+				KEY,
+				pack,
+				{ reason: "r", takenKey: "owner/repo/tools" },
+				"project",
+				"v2.0.0",
+			).remedy?.steps,
+		).toEqual([
+			{ command: "npx agntc remove owner/repo/tools" },
+			{ words: "change it to v2.0.0 again" },
+		]);
+	});
+
+	it("has no remedy when two of the source's folders install to one place", () => {
+		expect(
+			buildAbortMessage(
+				KEY,
+				pack,
+				{ reason: "r", sourceClash: true },
+				"project",
+			),
+		).not.toHaveProperty("remedy");
+	});
+
+	it("tells a copy-safety block apart from its key, with no remedy", () => {
+		expect(buildCopySafetyMessage(KEY, "a link escapes")).toEqual({
+			subject: KEY,
+			detail:
+				"a link escapes. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.",
+			text: `${KEY}: a link escapes. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.`,
+			plain: `${KEY}: a link escapes. agntc won't follow that symlink, so the update is blocked. The existing install is unchanged.`,
+		});
 	});
 });
 
@@ -2154,7 +2183,7 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 			strays: [],
 		});
 
-		const result = await cloneAndReinstall(
+		const result = await reinstallEntry(
 			{
 				key,
 				entry,
@@ -2162,15 +2191,14 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 				...(sourceDir !== undefined ? { sourceDir } : {}),
 				...(newRef !== undefined ? { newRef } : {}),
 			},
-			ui,
 			{ [key]: entry },
 		);
 
 		expect(mockNukeManifestFiles).not.toHaveBeenCalled();
-		if (!isCloneReinstallFailure(result)) {
+		if (result.status !== "aborted") {
 			throw new Error(`expected an abort, got ${result.status}`);
 		}
-		return failureMessage(result, key, entry, "project", version);
+		return buildAbortMessage(key, entry, result, "project", version).plain;
 	}
 
 	it("removes a remote skill recorded at a path, then adds one of those skills", async () => {
@@ -2252,7 +2280,7 @@ describe("buildAbortMessage for a skill several skills now carry the name of", (
 					candidates: [at("a/go"), at("b/go"), at("c/go")],
 				},
 				"project",
-			),
+			).plain,
 		).toMatch(
 			/then one of: npx agntc add owner\/repo\/a\/go or npx agntc add owner\/repo\/b\/go or npx agntc add owner\/repo\/c\/go$/,
 		);
@@ -2328,14 +2356,14 @@ describe("recordCopyFailure", () => {
 	});
 });
 
-describe("failureMessage for a global entry", () => {
+describe("buildAbortMessage for a global entry", () => {
 	it("carries -g in an abort's remedy", () => {
-		const msg = failureMessage(
-			{ status: "aborted", reason: "its folder now contains packs" },
+		const msg = buildAbortMessage(
 			"owner/repo",
 			makeEntry({ type: "pack" }),
+			{ reason: "its folder now contains packs" },
 			"global",
-		);
+		).plain;
 
 		expect(msg).toContain(
 			"npx agntc remove -g owner/repo then npx agntc add -g owner/repo --pack",

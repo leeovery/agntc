@@ -16,6 +16,7 @@ import { makeEntry } from "./helpers/factories.js";
 import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const mockedNuke = vi.mocked(nukeManifestFiles);
+const HOME = "/home/lee";
 let ui: TestUi;
 
 beforeEach(() => {
@@ -40,6 +41,7 @@ describe("resolveCollisions", () => {
 			manifest,
 			"/project",
 			ui,
+			HOME,
 		);
 
 		expect(result.resolved).toBe(true);
@@ -73,6 +75,7 @@ describe("resolveCollisions", () => {
 			manifest,
 			"/project",
 			ui,
+			HOME,
 		);
 
 		expect(result.resolved).toBe(true);
@@ -109,6 +112,7 @@ describe("resolveCollisions", () => {
 			manifest,
 			"/project",
 			ui,
+			HOME,
 		);
 
 		expect(result.resolved).toBe(false);
@@ -152,6 +156,7 @@ describe("resolveCollisions", () => {
 			manifest,
 			"/project",
 			ui,
+			HOME,
 		);
 
 		expect(result.resolved).toBe(true);
@@ -199,6 +204,7 @@ describe("resolveCollisions", () => {
 			manifest,
 			"/project",
 			ui,
+			HOME,
 		);
 
 		// Cancel stops everything
@@ -238,13 +244,14 @@ describe("resolveCollisions", () => {
 			manifest,
 			"/project",
 			ui,
+			HOME,
 		);
 
 		expect(result.resolved).toBe(false);
 		expect(mockedNuke).not.toHaveBeenCalled();
 	});
 
-	it("calls box with file list and collision title before select", async () => {
+	it("asks under the entry's row, naming the files of its in the way, dim", async () => {
 		const manifest: Manifest = {
 			"owner/repo-a": makeEntry({
 				ref: "main",
@@ -262,42 +269,49 @@ describe("resolveCollisions", () => {
 
 		ui.select.mockResolvedValueOnce("remove");
 
-		await resolveCollisions(collisions, manifest, "/project", ui);
+		await resolveCollisions(collisions, manifest, "/project", ui, HOME);
 
-		expect(ui.box).toHaveBeenCalledWith(
-			"  - .claude/skills/skill-a/\n  - .claude/agents/executor.md",
-			'File collision with "owner/repo-a"',
-		);
-		// box() must be called before select()
-		const boxOrder = ui.box.mock.invocationCallOrder[0];
-		const selectOrder = ui.select.mock.invocationCallOrder[0];
-		expect(boxOrder).toBeLessThan(selectOrder!);
+		const row = {
+			status: "attention",
+			subject: "owner/repo-a",
+			detail: "its files are in the way",
+			children: [
+				{ name: ".claude/skills/skill-a/", dim: true, noun: "folder" },
+				{ name: ".claude/agents/executor.md", dim: true, noun: "file" },
+			],
+		};
+		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
+		expect(ui.blocks[0]!.select).toHaveBeenCalledExactlyOnceWith(row, {
+			message: "How would you like to proceed?",
+			options: [
+				{ value: "remove", label: "Remove it and continue" },
+				{ value: "cancel", label: "Cancel installation" },
+			],
+		});
+		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
 	});
 
-	it("select message is single-line with plugin key (collision)", async () => {
+	it("names a local entry on its row by its folder, shortened against the home folder, as local, and nowhere in the question", async () => {
+		const key = `${HOME}/src/kit/loose1`;
 		const manifest: Manifest = {
-			"owner/repo-a": makeEntry({
-				ref: "main",
-				commit: "abc123",
-				installedAt: "2026-01-15T10:00:00.000Z",
-				files: [".claude/skills/skill-a/"],
+			[key]: makeEntry({
+				commit: null,
+				cloneUrl: null,
+				files: [".claude/skills/loose1/"],
 			}),
 		};
-		const collisions = new Map<string, string[]>([
-			["owner/repo-a", [".claude/skills/skill-a/"]],
-		]);
+		const collisions = new Map([[key, [".claude/skills/loose1/"]]]);
 
 		ui.select.mockResolvedValueOnce("cancel");
 
-		await resolveCollisions(collisions, manifest, "/project", ui);
+		await resolveCollisions(collisions, manifest, "/project", ui, HOME);
 
-		const call = ui.select.mock.calls[0]!;
-		const { message } = call[0] as { message: string };
-		expect(message).toBe('How would you like to proceed with "owner/repo-a"?');
-		expect(message).not.toContain("\n");
+		const [row, prompt] = ui.blocks[0]!.select.mock.calls[0]!;
+		expect(row).toMatchObject({ subject: "~/src/kit/loose1", meta: "local" });
+		expect(JSON.stringify(prompt)).not.toContain("kit");
 	});
 
-	it("calls box for each collision in sequential resolution", async () => {
+	it("asks about each collision under a row of its own", async () => {
 		const manifest: Manifest = {
 			"owner/repo-a": makeEntry({
 				ref: "main",
@@ -320,19 +334,22 @@ describe("resolveCollisions", () => {
 		ui.select.mockResolvedValueOnce("remove");
 		ui.select.mockResolvedValueOnce("remove");
 
-		await resolveCollisions(collisions, manifest, "/project", ui);
+		await resolveCollisions(collisions, manifest, "/project", ui, HOME);
 
-		expect(ui.box).toHaveBeenCalledTimes(2);
-		expect(ui.box).toHaveBeenNthCalledWith(
-			1,
-			"  - .claude/skills/skill-a/",
-			'File collision with "owner/repo-a"',
-		);
-		expect(ui.box).toHaveBeenNthCalledWith(
-			2,
-			"  - .claude/agents/my-agent.md",
-			'File collision with "owner/repo-b"',
-		);
+		expect(ui.blocks.map((block) => block.select.mock.calls[0]![0])).toEqual([
+			expect.objectContaining({
+				subject: "owner/repo-a",
+				children: [
+					{ name: ".claude/skills/skill-a/", dim: true, noun: "folder" },
+				],
+			}),
+			expect.objectContaining({
+				subject: "owner/repo-b",
+				children: [
+					{ name: ".claude/agents/my-agent.md", dim: true, noun: "file" },
+				],
+			}),
+		]);
 	});
 
 	it("does not offer install-anyway option", async () => {
@@ -350,7 +367,7 @@ describe("resolveCollisions", () => {
 
 		ui.select.mockResolvedValueOnce("cancel");
 
-		await resolveCollisions(collisions, manifest, "/project", ui);
+		await resolveCollisions(collisions, manifest, "/project", ui, HOME);
 
 		// Verify the options passed to select do NOT include "install-anyway"
 		const call = ui.select.mock.calls[0]!;
@@ -448,6 +465,7 @@ describe("removeCollidingEntries", () => {
 					manifest,
 					"/project",
 					ui,
+					HOME,
 				),
 			);
 

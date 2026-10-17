@@ -15,6 +15,7 @@ import type {
 	FoundSkill,
 	StrayAssets,
 } from "../src/discover.js";
+import { plainText, sentence } from "../src/message.js";
 
 const ctx: ChoiceContext = {
 	source: "owner/repo",
@@ -22,6 +23,9 @@ const ctx: ChoiceContext = {
 	scope: "project",
 };
 const AUTO: Selection = { kind: "auto" };
+
+/** A note as machine mode words it, whatever else it carries. */
+const said = (plain: string) => expect.objectContaining({ plain });
 
 function skill(path: string, extra: Partial<FoundSkill> = {}): FoundSkill {
 	return { name: path.split("/").pop() || "repo", path, ...extra };
@@ -208,8 +212,33 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.strayNotices).toEqual([
+			expect(choice.strayNotices.map(plainText)).toEqual([
 				"tools/x has agents/ that won't be installed — to install them as a pack: npx agntc add owner/repo/tools/x --pack",
+			]);
+		});
+
+		it("leads its --pack line with what it's about, the line a step of its own", () => {
+			const choice = chooseItems(
+				found({
+					skills: [skill("tools/x/lint")],
+					strays: [{ path: "tools/x", assetDirs: ["agents", "hooks"] }],
+				}),
+				AUTO,
+				ctx,
+			);
+
+			expect(choice.strayNotices).toEqual([
+				{
+					subject: "tools/x",
+					detail: "has agents/ and hooks/ that won't be installed.",
+					text: "tools/x has agents/ and hooks/ that won't be installed.",
+					remedy: {
+						lead: "To install them as a pack:",
+						steps: [{ command: "npx agntc add owner/repo/tools/x --pack" }],
+					},
+					plain:
+						"tools/x has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/repo/tools/x --pack",
+				},
 			]);
 		});
 
@@ -223,7 +252,7 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.strayNotices).toEqual([
+			expect(choice.strayNotices.map(plainText)).toEqual([
 				"repo has agents/ and hooks/ that won't be installed — to install them as a pack: npx agntc add owner/repo --pack",
 			]);
 		});
@@ -235,7 +264,7 @@ describe("chooseItems", () => {
 				{ ...ctx, version: "^1.0" },
 			);
 
-			expect(choice.strayNotices[0]).toContain(
+			expect(plainText(choice.strayNotices[0]!)).toContain(
 				"npx agntc add 'owner/repo/p@^1.0' --pack",
 			);
 		});
@@ -247,7 +276,7 @@ describe("chooseItems", () => {
 				{ source: "/home/me/skills", rootName: "skills", scope: "project" },
 			);
 
-			expect(choice.strayNotices[0]).toContain(
+			expect(plainText(choice.strayNotices[0]!)).toContain(
 				"npx agntc add /home/me/skills/p --pack",
 			);
 		});
@@ -259,7 +288,7 @@ describe("chooseItems", () => {
 				{ ...ctx, scope: "global" },
 			);
 
-			expect(choice.strayNotices[0]).toContain(
+			expect(plainText(choice.strayNotices[0]!)).toContain(
 				"to install them as a pack: npx agntc add -g owner/repo/p --pack",
 			);
 		});
@@ -275,7 +304,9 @@ describe("chooseItems", () => {
 			);
 
 			expect(choice.strayNotices).toEqual([
-				"repo has agents/ that won't be installed — it contains packs (packs/p), so --pack can't bundle it",
+				sentence(
+					"repo has agents/ that won't be installed — it contains packs (packs/p), so --pack can't bundle it",
+				),
 			]);
 		});
 
@@ -289,7 +320,7 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.strayNotices).toEqual([
+			expect(choice.strayNotices.map(plainText)).toEqual([
 				"tools has hooks/ that won't be installed — it contains packs (tools/a/p, tools/q), so --pack can't bundle it",
 			]);
 		});
@@ -304,7 +335,7 @@ describe("chooseItems", () => {
 				ctx,
 			);
 
-			expect(choice.strayNotices).toEqual([
+			expect(choice.strayNotices.map(plainText)).toEqual([
 				"tools has hooks/ that won't be installed — to install them as a pack: npx agntc add owner/repo/tools --pack",
 			]);
 		});
@@ -452,9 +483,32 @@ describe("chooseItems", () => {
 				kind: "install",
 				items: [{ kind: "skill", skill: skill("laravel/skills/api") }],
 				notes: [
-					"api is part of the pack laravel — installed on its own, without models and its agents/hooks",
+					said(
+						"api is part of the pack laravel — installed on its own, without models and its agents/hooks",
+					),
 				],
 			});
+		});
+
+		it("says it of the skill its label names, apart from the skill's name", () => {
+			const choice = chooseItems(
+				found({ packs: [{ ...LARAVEL, assetDirs: [] }] }),
+				{ kind: "skills", names: ["api"] },
+				ctx,
+			);
+
+			expect(choice.outcome).toMatchObject({
+				notes: [
+					{
+						subject: "laravel/skills/api",
+						detail:
+							"part of the pack laravel — installed on its own, without models",
+						text: "api is part of the pack laravel — installed on its own, without models",
+						path: "laravel/skills/api",
+					},
+				],
+			});
+			expect(choice.outcome).not.toHaveProperty("notes.0.heldBy");
 		});
 
 		it("mentions only the pack's skills when it has no agents or hooks", () => {
@@ -466,7 +520,9 @@ describe("chooseItems", () => {
 
 			expect(choice.outcome).toMatchObject({
 				notes: [
-					"api is part of the pack laravel — installed on its own, without models",
+					said(
+						"api is part of the pack laravel — installed on its own, without models",
+					),
 				],
 			});
 		});
@@ -482,7 +538,9 @@ describe("chooseItems", () => {
 
 			expect(choice.outcome).toMatchObject({
 				notes: [
-					"a is part of the pack p — installed on its own, without its hooks",
+					said(
+						"a is part of the pack p — installed on its own, without its hooks",
+					),
 				],
 			});
 		});
@@ -507,7 +565,9 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toMatchObject({
 				items: [{ kind: "skill", skill: skill("laravel/skills/api") }],
 				notes: [
-					"api is part of the pack laravel — installed on its own, without models, its agents/hooks and its support folders gates, shared",
+					said(
+						"api is part of the pack laravel — installed on its own, without models, its agents/hooks and its support folders gates, shared",
+					),
 				],
 			});
 		});
@@ -528,7 +588,9 @@ describe("chooseItems", () => {
 
 			expect(choice.outcome).toMatchObject({
 				notes: [
-					"a is part of the pack p — installed on its own, without its support folder shared",
+					said(
+						"a is part of the pack p — installed on its own, without its support folder shared",
+					),
 				],
 			});
 		});
@@ -542,8 +604,8 @@ describe("chooseItems", () => {
 
 			expect(choice.outcome).toMatchObject({
 				notes: [
-					"api is part of the pack laravel — installed on its own",
-					"models is part of the pack laravel — installed on its own",
+					said("api is part of the pack laravel — installed on its own"),
+					said("models is part of the pack laravel — installed on its own"),
 				],
 			});
 		});
@@ -556,7 +618,7 @@ describe("chooseItems", () => {
 			);
 
 			expect(choice.outcome).toMatchObject({
-				notes: ["a is part of the pack repo — installed on its own"],
+				notes: [said("a is part of the pack repo — installed on its own")],
 			});
 		});
 	});
@@ -732,6 +794,27 @@ describe("chooseItems", () => {
 			]),
 		};
 
+		it("says it's left out of the skill its label names", () => {
+			const choice = chooseItems(
+				found({ skills: [skill("tools/api"), skill("tools/lint")] }),
+				{ kind: "all" },
+				packed,
+			);
+
+			expect(choice.outcome).toMatchObject({
+				notes: [
+					{
+						subject: "tools/api",
+						detail: "already installed as part of the pack owner/repo/laravel",
+						text: API_NOTE,
+						plain: API_NOTE,
+						path: "tools/api",
+						heldBy: "owner/repo/laravel",
+					},
+				],
+			});
+		});
+
 		it("--skill neither installs it nor says it installs on its own, only that the pack has it", () => {
 			const choice = chooseItems(
 				found({ packs: [LARAVEL] }),
@@ -743,8 +826,10 @@ describe("chooseItems", () => {
 				kind: "install",
 				items: [{ kind: "skill", skill: skill("laravel/skills/models") }],
 				notes: [
-					API_NOTE,
-					"models is part of the pack laravel — installed on its own, without its agents/hooks",
+					said(API_NOTE),
+					said(
+						"models is part of the pack laravel — installed on its own, without its agents/hooks",
+					),
 				],
 			});
 		});
@@ -758,7 +843,9 @@ describe("chooseItems", () => {
 
 			expect(choice.outcome).toMatchObject({
 				notes: [
-					"models is part of the pack laravel — installed on its own, without its agents/hooks",
+					said(
+						"models is part of the pack laravel — installed on its own, without its agents/hooks",
+					),
 				],
 			});
 		});
@@ -773,7 +860,7 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toEqual({
 				kind: "install",
 				items: [],
-				notes: [API_NOTE],
+				notes: [said(API_NOTE)],
 			});
 		});
 
@@ -787,7 +874,7 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toEqual({
 				kind: "install",
 				items: [{ kind: "skill", skill: skill("tools/lint") }],
-				notes: [API_NOTE],
+				notes: [said(API_NOTE)],
 			});
 		});
 
@@ -801,7 +888,7 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toEqual({
 				kind: "install",
 				items: [],
-				notes: [API_NOTE],
+				notes: [said(API_NOTE)],
 			});
 		});
 
@@ -820,7 +907,7 @@ describe("chooseItems", () => {
 						label: "tools/lint",
 					},
 				],
-				notes: [API_NOTE],
+				notes: [said(API_NOTE)],
 			});
 		});
 
@@ -834,7 +921,7 @@ describe("chooseItems", () => {
 			expect(choice.outcome).toEqual({
 				kind: "install",
 				items: [],
-				notes: [API_NOTE],
+				notes: [said(API_NOTE)],
 			});
 		});
 

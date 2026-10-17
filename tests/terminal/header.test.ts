@@ -57,18 +57,94 @@ describe("renderHeader", () => {
 		).toEqual([` ■ agntc update${gap(24)}${LONG_WHERE} · v0.5.3`]);
 	});
 
-	it("drops the right side when where would be cut below about 12 columns", () => {
+	it("keeps the version alone when where would be cut below 12 columns", () => {
+		const version = "1.0.0-alpha.20261016.1234567890";
 		expect(
 			renderHeader(
-				{
-					command: "update",
-					where: LONG_WHERE,
-					version: "1.0.0-alpha.20261016.1234567890",
-				},
+				{ command: "update", where: LONG_WHERE, version },
+				60,
+				plain,
+			),
+		).toEqual([` ■ agntc update${gap(12)}v${version}`]);
+	});
+
+	it("cuts where to exactly 12 columns, and gives way to the version alone at 11", () => {
+		const where = `~/${"deep/".repeat(10)}project`;
+		// 60 columns leave 42 after the left side; a 26-digit version leaves where 12.
+		expect(
+			renderHeader(
+				{ command: "update", where, version: "1".repeat(26) },
+				60,
+				plain,
+			),
+		).toEqual([` ■ agntc update  …eep/project · v${"1".repeat(26)}`]);
+		expect(
+			renderHeader(
+				{ command: "update", where, version: "1".repeat(27) },
+				60,
+				plain,
+			),
+		).toEqual([` ■ agntc update${gap(16)}v${"1".repeat(27)}`]);
+	});
+
+	it("shows where whole when it fills its room exactly, and cuts it a column over", () => {
+		// 80 columns leave 65 after the left side; ` · v0.5.3` leaves where 56.
+		expect(
+			renderHeader(
+				{ command: "add", where: "x".repeat(56), version: "0.5.3" },
+				80,
+				plain,
+			),
+		).toEqual([` ■ agntc add  ${"x".repeat(56)} · v0.5.3`]);
+		expect(
+			renderHeader(
+				{ command: "add", where: "x".repeat(57), version: "0.5.3" },
+				80,
+				plain,
+			),
+		).toEqual([` ■ agntc add  …${"x".repeat(55)} · v0.5.3`]);
+	});
+
+	it("keeps a short where whole in less than 12 columns", () => {
+		const version = "1.0.0-alpha.20261016.123456789";
+		expect(
+			renderHeader({ command: "update", where: "global", version }, 60, plain),
+		).toEqual([` ■ agntc update${gap(4)}global · v${version}`]);
+	});
+
+	it("keeps a short where that fills its room exactly", () => {
+		const version = "1.0.0-alpha.20261016.12345678901";
+		expect(
+			renderHeader({ command: "update", where: "global", version }, 60, plain),
+		).toEqual([` ■ agntc update${gap(2)}global · v${version}`]);
+	});
+
+	it("drops the right side when not even the version fits", () => {
+		expect(
+			renderHeader(
+				{ command: "update", where: LONG_WHERE, version: "9".repeat(42) },
 				60,
 				plain,
 			),
 		).toEqual([" ■ agntc update"]);
+		expect(
+			renderHeader({ command: "update", version: "9".repeat(42) }, 60, plain),
+		).toEqual([" ■ agntc update"]);
+	});
+
+	it.each([
+		[60, 35],
+		[80, 55],
+		[100, 75],
+	])("keeps the version beside a long where at %i, cutting where from the left", (width, tail) => {
+		const where = `~/${"deep/".repeat(30)}project`;
+		const [line = ""] = renderHeader(
+			{ command: "add", where, version: "0.5.3" },
+			width,
+			plain,
+		);
+		expect(line).toBe(` ■ agntc add  …${where.slice(-tail)} · v0.5.3`);
+		expect(line.length).toBe(width - 1);
 	});
 
 	it("leaves out whichever of where and the version is absent", () => {

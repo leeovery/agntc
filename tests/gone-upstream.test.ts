@@ -4,60 +4,95 @@ vi.mock("../src/nuke-files.js", () => ({
 	nukeManifestFiles: vi.fn(),
 }));
 
-vi.mock("../src/manifest.js", async (importOriginal) => ({
-	...(await importOriginal<typeof import("../src/manifest.js")>()),
-	writeManifest: vi.fn(),
-}));
-
-import { settleGone, settleGoneInList } from "../src/gone-upstream.js";
-import { type Manifest, writeManifest } from "../src/manifest.js";
+import { goneRow, settleGone } from "../src/gone-upstream.js";
 import { nukeManifestFiles } from "../src/nuke-files.js";
 import { globalScope, projectScope } from "../src/scope.js";
-import { MachineUi, type Ui } from "../src/ui.js";
+import { MachineUi } from "../src/ui.js";
 import { makeEntry } from "./helpers/factories.js";
+import { type TestUi, testUi } from "./helpers/test-ui.js";
 
 const mockNuke = vi.mocked(nukeManifestFiles);
-const mockWriteManifest = vi.mocked(writeManifest);
 
 const KEY = "owner/repo/go";
 const PROJECT = projectScope("/project");
+const HEAD = { subject: KEY };
 const entry = makeEntry({ type: "skill", files: [".claude/skills/go/"] });
 
 /** A terminal that answers the one question it's asked. */
-function terminal(answer: boolean): Ui & { confirm: ReturnType<typeof vi.fn> } {
-	return {
-		mode: "interactive",
-		confirm: vi.fn(async () => answer),
-	} as unknown as Ui & { confirm: ReturnType<typeof vi.fn> };
+function terminal(answer: boolean): TestUi {
+	const ui = testUi();
+	ui.confirm.mockResolvedValue(answer);
+	return ui;
 }
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	mockNuke.mockResolvedValue({ removed: [], skipped: [] });
-	mockWriteManifest.mockResolvedValue(undefined);
 });
 
 describe("settleGone", () => {
-	it("asks at a terminal, no by default", async () => {
+	it("asks at a terminal under the entry's row, no by default, counting what it installed", async () => {
 		const ui = terminal(false);
 
-		await settleGone(KEY, entry, PROJECT, { yes: false, ui });
+		await settleGone(KEY, entry, PROJECT, { yes: false, ui, head: HEAD });
 
-		expect(ui.confirm).toHaveBeenCalledExactlyOnceWith({
-			message: "owner/repo/go is gone upstream — remove it?",
+		const row = {
+			status: "attention",
+			subject: KEY,
+			detail: { label: "gone upstream", aside: "skill" },
+			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
+		};
+		expect(ui.block).toHaveBeenCalledExactlyOnceWith([row]);
+		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(row, {
+			message: "Remove it and its folder?",
 			initialValue: false,
 		});
+		expect(ui.blocks[0]!.row).not.toHaveBeenCalled();
+	});
+
+	it("names the entry's row by the head its caller gives, a local one's meta with it", async () => {
+		const ui = terminal(false);
+		const local = makeEntry({
+			type: "pack",
+			commit: null,
+			cloneUrl: null,
+			files: [".claude/skills/a/", ".claude/agents/x.md"],
+		});
+
+		await settleGone("/home/lee/src/kit", local, PROJECT, {
+			yes: false,
+			ui,
+			head: { subject: "~/src/kit", meta: "local" },
+		});
+
+		expect(ui.blocks[0]!.confirm).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				subject: "~/src/kit",
+				meta: "local",
+				detail: { label: "gone upstream", aside: "pack · 1 skill, 1 agent" },
+			}),
+			{
+				message: "Remove it and its 1 folder and 1 agent?",
+				initialValue: false,
+			},
+		);
 	});
 
 	it("keeps it on no, removing nothing, and says update will ask again", async () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(false),
+			head: HEAD,
 		});
 
 		expect(settled).toEqual({
 			removed: false,
-			message: "Kept owner/repo/go — it's gone upstream; update will ask again",
+			message: {
+				subject: KEY,
+				detail: "kept — it's gone upstream; update will ask again",
+				text: "Kept owner/repo/go — it's gone upstream; update will ask again",
+				plain: "Kept owner/repo/go — it's gone upstream; update will ask again",
+			},
 		});
 		expect(mockNuke).not.toHaveBeenCalled();
 	});
@@ -66,11 +101,17 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: terminal(true),
+			head: HEAD,
 		});
 
 		expect(settled).toEqual({
 			removed: true,
-			message: "Removed owner/repo/go — it's gone upstream",
+			message: {
+				subject: KEY,
+				detail: "removed — it's gone upstream",
+				text: "Removed owner/repo/go — it's gone upstream",
+				plain: "Removed owner/repo/go — it's gone upstream",
+			},
 		});
 		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/project", [
 			".claude/skills/go/",
@@ -83,10 +124,12 @@ describe("settleGone", () => {
 		const atTerminal = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
 			ui,
+			head: HEAD,
 		});
 		const machine = await settleGone(KEY, entry, PROJECT, {
 			yes: true,
 			ui: new MachineUi("update", "project"),
+			head: HEAD,
 		});
 
 		expect(ui.confirm).not.toHaveBeenCalled();
@@ -99,12 +142,15 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, PROJECT, {
 			yes: false,
 			ui: new MachineUi("update", "project"),
+			head: HEAD,
 		});
 
 		expect(settled).toEqual({
 			removed: false,
-			message:
-				"Kept owner/repo/go — it's gone upstream; npx agntc update owner/repo/go -y removes it",
+			message: expect.objectContaining({
+				plain:
+					"Kept owner/repo/go — it's gone upstream; npx agntc update owner/repo/go -y removes it",
+			}),
 			flags: ["-y"],
 		});
 		expect(mockNuke).not.toHaveBeenCalled();
@@ -114,9 +160,10 @@ describe("settleGone", () => {
 		const settled = await settleGone(KEY, entry, globalScope("/home/lee"), {
 			yes: false,
 			ui: new MachineUi("update", "global"),
+			head: HEAD,
 		});
 
-		expect(settled.message).toBe(
+		expect(settled.message.plain).toBe(
 			"Kept owner/repo/go — it's gone upstream; npx agntc update -g owner/repo/go -y removes it",
 		);
 	});
@@ -125,6 +172,7 @@ describe("settleGone", () => {
 		await settleGone(KEY, entry, globalScope("/home/lee"), {
 			yes: true,
 			ui: terminal(false),
+			head: HEAD,
 		});
 
 		expect(mockNuke).toHaveBeenCalledExactlyOnceWith("/home/lee", [
@@ -133,53 +181,24 @@ describe("settleGone", () => {
 	});
 });
 
-describe("settleGoneInList", () => {
-	const other = makeEntry({ files: [".claude/skills/other/"] });
-	const manifest: Manifest = { [KEY]: entry, "owner/other": other };
-
-	it("records the removal at once on yes, after the files are gone", async () => {
-		await settleGoneInList(KEY, entry, manifest, PROJECT, terminal(true));
-
-		expect(mockWriteManifest).toHaveBeenCalledExactlyOnceWith("/project", {
-			"owner/other": other,
+describe("goneRow", () => {
+	it("needs a look: the entry, gone upstream with its kind and counts, then what it installed", () => {
+		expect(
+			goneRow({ subject: "owner/repo/go" }, "skill", [
+				".claude/skills/go/",
+				".claude/skills/go/SKILL.md",
+			]),
+		).toEqual({
+			status: "attention",
+			subject: "owner/repo/go",
+			detail: { label: "gone upstream", aside: "skill" },
+			fields: [{ label: ".claude/skills/", value: ["go"], noun: "folder" }],
 		});
-		expect(mockNuke.mock.invocationCallOrder[0]).toBeLessThan(
-			mockWriteManifest.mock.invocationCallOrder[0]!,
-		);
 	});
 
-	it("writes nothing on no", async () => {
-		const settled = await settleGoneInList(
-			KEY,
-			entry,
-			manifest,
-			PROJECT,
-			terminal(false),
-		);
-
-		expect(settled).toEqual({
-			ok: true,
-			message: "Kept owner/repo/go — it's gone upstream; update will ask again",
-		});
-		expect(mockWriteManifest).not.toHaveBeenCalled();
-	});
-
-	it("keeps it recorded and says why when removing its files fails", async () => {
-		mockNuke.mockRejectedValue(new Error("EACCES: permission denied"));
-
-		const settled = await settleGoneInList(
-			KEY,
-			entry,
-			manifest,
-			PROJECT,
-			terminal(true),
-		);
-
-		expect(settled).toEqual({
-			ok: false,
-			message:
-				"Couldn't remove owner/repo/go: EACCES: permission denied; it stays recorded",
-		});
-		expect(mockWriteManifest).not.toHaveBeenCalled();
+	it("keeps the meta its head carries, as a local entry's", () => {
+		expect(
+			goneRow({ subject: "~/src/kit", meta: "local" }, "skill", []),
+		).toMatchObject({ subject: "~/src/kit", meta: "local" });
 	});
 });

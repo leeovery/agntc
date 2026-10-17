@@ -152,4 +152,18 @@ describe("renderCancel", () => {
 			" \x1b[2m○ Cancelled\x1b[22m",
 		]);
 	});
+
+	it("leaves off the blank lines a message ends with, and paints none it holds", () => {
+		expect(
+			renderCancel(
+				80,
+				createStyle(3),
+				"Could not resolve host\n\nfatal: unable to access\n",
+			),
+		).toEqual([
+			" \x1b[2m○ Could not resolve host\x1b[22m",
+			"",
+			"   \x1b[2mfatal: unable to access\x1b[22m",
+		]);
+	});
 });

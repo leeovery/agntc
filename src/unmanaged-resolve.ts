@@ -1,8 +1,11 @@
-import { formatFileList } from "./format-file-list.js";
+import type { EntryHead } from "./entry-head.js";
+import { unmanagedRow } from "./in-the-way-render.js";
+import type { Row } from "./terminal/types.js";
 import type { Ui } from "./ui.js";
 
 export interface UnmanagedPluginConflicts {
-	pluginKey: string;
+	/** The item, as its question's row names it. */
+	head: EntryHead;
 	files: string[];
 }
 
@@ -12,8 +15,9 @@ export interface UnmanagedResolution {
 }
 
 /**
- * Asks, per entry, whether to overwrite its unmanaged files (confirmed a
- * second time) or cancel that entry's install.
+ * Asks, per entry, under its row naming it and the files, whether to
+ * overwrite its unmanaged files (confirmed a second time) or cancel that
+ * entry's install.
  *
  * @param conflicts - Per-entry conflict groups
  * @returns Approved files (OK to overwrite) and cancelled files (skip install)
@@ -25,8 +29,9 @@ export async function resolveUnmanagedConflicts(
 	const approved: string[] = [];
 	const cancelled: string[] = [];
 
-	for (const { pluginKey, files } of conflicts) {
-		if (await approveOverwrite(pluginKey, files, ui)) {
+	for (const { head, files } of conflicts) {
+		const row = unmanagedRow(head, files);
+		if (await approveOverwrite(row, ui)) {
 			approved.push(...files);
 		} else {
 			cancelled.push(...files);
@@ -36,15 +41,10 @@ export async function resolveUnmanagedConflicts(
 	return { approved, cancelled };
 }
 
-async function approveOverwrite(
-	pluginKey: string,
-	files: string[],
-	ui: Ui,
-): Promise<boolean> {
-	ui.box(formatFileList(files), `Unmanaged files for "${pluginKey}"`);
-
-	const choice = await ui.select({
-		message: `How would you like to proceed with "${pluginKey}"?`,
+async function approveOverwrite(row: Row, ui: Ui): Promise<boolean> {
+	const block = ui.block([row]);
+	const choice = await block.select(row, {
+		message: "How would you like to proceed?",
 		options: [
 			{
 				value: "overwrite" as const,
@@ -60,7 +60,7 @@ async function approveOverwrite(
 		return false;
 	}
 
-	return ui.confirm({
+	return block.confirm(row, {
 		message: "Are you sure? These files will be permanently replaced.",
 	});
 }

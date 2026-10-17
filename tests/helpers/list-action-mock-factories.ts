@@ -9,7 +9,7 @@ import { vi } from "vitest";
  * literal module path at hoist time, so each `vi.mock(path, ...)` call must stay
  * in the test file. The factory *contents* — byte-identical across both files —
  * live here once and are delegated to via the dynamic-`import()`-inside-async-
- * factory pattern this codebase already uses for `mockClack`/`mockCopySafety`.
+ * factory pattern this codebase already uses for `mockCopySafety`.
  *
  * IMPORTANT: this module must NOT statically import any of the production
  * modules being mocked. Doing so would re-enter a half-evaluated mock factory

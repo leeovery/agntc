@@ -99,6 +99,7 @@ describe("updateBody", () => {
 				status: "absorbed",
 				key: "owner/repo",
 				into: "owner/repo/tools",
+				landed: true,
 				summary: "owner/repo is now part of the pack owner/repo/tools",
 			},
 		];
@@ -203,6 +204,7 @@ describe("updateBody", () => {
 			status: "absorbed",
 			key: "owner/repo",
 			into: "owner/repo/tools",
+			landed: true,
 			summary: "owner/repo is now part of the pack owner/repo/tools",
 		};
 
