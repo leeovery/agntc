@@ -11,7 +11,7 @@ agntc installs skills into `.claude/` and records what it installed,
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7+-3178C6.svg)](https://www.typescriptlang.org)
 
-[Install](#install) · [Quick start](#quick-start) · [Packs](#packs) · [Commands](#commands) · [Authoring](#authoring)
+[Install](#install) · [Quick start](#quick-start) · [Packs](#packs) · [Commands](#commands) · [Scripts and agents](#scripts-and-agents) · [Authoring](#authoring)
 
 <br>
 
@@ -37,16 +37,19 @@ agntc installs a **pack** as one thing, and every `update` reads it again: new s
 npx agntc@latest <command>
 ```
 
-Or `npm install -g agntc`.
+Keep the `@latest`: npx caches packages, so plain `npx agntc` can run an old version. Or install it globally with `npm install -g agntc`.
 
 ## Quick start
 
 ```bash
-npx agntc@latest add owner/repo            # install from a repo, with a menu if it holds several things
-npx agntc@latest add owner/repo/laravel    # install one pack or skill by its path
-npx agntc@latest list                      # see what's installed and what has updates
-npx agntc@latest update                    # update everything
-npx agntc@latest remove owner/repo/laravel # remove an install
+npx agntc@latest add owner/repo                    # install from a repo; a menu if it holds several things
+npx agntc@latest add owner/repo/laravel            # one pack or skill, by its path
+npx agntc@latest add owner/repo --skill go python  # named skills
+npx agntc@latest add 'owner/repo@^1.0'             # within a version range
+npx agntc@latest list                              # what's installed, and what has updates
+npx agntc@latest update                            # update everything within its range
+npx agntc@latest remove owner/repo/laravel         # remove an install
+npx agntc@latest init pack                         # scaffold a pack
 ```
 
 ## Packs
@@ -57,32 +60,65 @@ Install a pack to get what its author ships, as they change it. Install loose sk
 
 ## Commands
 
-`-g` works on `~/.claude/` instead of the project, and `--json` prints JSON for scripts.
+| Command | What it does |
+|---|---|
+| [`add <source>`](#add) | Install skills and packs from a git repo or local folder |
+| [`update [key]`](#update) | Update installs within their version range |
+| [`list`](#list) | Show what's installed and what has updates, with actions |
+| [`remove [key]`](#remove) | Remove installs and their files |
+| [`init [skill\|pack]`](#init) | Scaffold a skill or a pack |
+
+Every command but `init` takes `-g` to work on `~/.claude/` instead of the project. Every command takes `--json` (see [Scripts and agents](#scripts-and-agents)).
 
 ### `add`
 
 ```bash
-npx agntc@latest add <source>
+npx agntc@latest add <source> [--skill <names...> | --pack | --all] [--list] [--overwrite] [-g] [--json]
 ```
 
 <img src="art/add.webp" alt="add acme/team-skills: the source's row, with the menu of its pack and loose skills asked under it" width="840">
 
-A source is a GitHub `owner/repo`, any git URL, or a local folder, optionally with a path or a version (`@^1.0`, `@v2.0.0`). Pick skills by name with `--skill`, or everything with `--all`.
+One thing found installs directly; several give a menu.
+
+| Flag | What it does |
+|---|---|
+| `--skill <names...>` | Install only the named skills, from anywhere in the source |
+| `--pack` | Install the source path as one pack |
+| `--all` | Install everything found |
+| `--list` | Show what the source holds without installing anything |
+| `--overwrite` | Replace files in the way without asking |
+
+| Source | Example |
+|---|---|
+| GitHub shorthand | `owner/repo` |
+| A path in the repo | `owner/repo/skills/go` |
+| A version range | `'owner/repo@^1.0'`, `'owner/repo@~2.1'` |
+| An exact tag | `owner/repo@v2.0.0` |
+| HTTPS URL, any host | `https://gitlab.com/org/repo` |
+| SSH URL | `git@github.com:owner/repo.git` |
+| Tree URL | `https://github.com/owner/repo/tree/main/laravel` |
+| Local folder | `./my-skills`, `~/dev/skills` |
+
+A bare `owner/repo` installs the latest semver tag and tracks `^major.minor.patch`; a repo without tags installs its default branch.
 
 ### `update`
 
 ```bash
-npx agntc@latest update [key]
+npx agntc@latest update [key] [-y] [-g] [--json]
 ```
 
 <img src="art/update.webp" alt="update: a repo's pack and skill moved from v1.2.0 to v1.3.0 as one row, a local skill refreshed, a pinned skill with newer tags, Next with the adds that reach them, and the tally" width="840">
 
-Brings installs up to date within their version range. Packs pick up what changed upstream, and anything gone upstream is asked about first.
+Updates everything, or the installs a key names (`owner/repo` names all of a repo's). Packs pick up what changed upstream, and anything gone upstream is asked about first.
+
+| Flag | What it does |
+|---|---|
+| `-y`, `--yes` | Remove what's gone upstream without asking |
 
 ### `list`
 
 ```bash
-npx agntc@latest list
+npx agntc@latest list [-g] [--json]
 ```
 
 <img src="art/list.webp" alt="list's dashboard: installs grouped by repo, each with its kind, version, constraint and status, and the counts of what wants attention" width="840">
@@ -92,22 +128,43 @@ What's installed and its update status. Pick one to update it, change its versio
 ### `remove`
 
 ```bash
-npx agntc@latest remove [key]
+npx agntc@latest remove [key] [-y] [-g] [--json]
 ```
 
 <img src="art/remove.webp" alt="remove: a pack's row with its folders under each asset folder, and the confirm under it" width="840">
 
-Removes an install and its files, or every install from a repo.
+Removes an install, or every install a key names. Without a key, you pick from a list.
+
+| Flag | What it does |
+|---|---|
+| `-y`, `--yes` | Remove without asking for confirmation |
 
 ### `init`
 
 ```bash
-npx agntc@latest init [skill|pack]
+npx agntc@latest init [skill|pack] [-y] [--json]
 ```
 
 <img src="art/init.webp" alt="init pack: the folder's row with the files it will create as a tree, and the confirm" width="840">
 
-Scaffolds a skill or a pack.
+Scaffolds a skill or a pack. Files already there are left alone.
+
+| Flag | What it does |
+|---|---|
+| `-y`, `--yes` | Scaffold without asking for confirmation |
+
+## Scripts and agents
+
+Without a terminal, or with `--json`, every command prints one JSON document and never waits. Where a terminal would ask a question, the command stops instead, naming the flag that answers it:
+
+| Question | Answer with |
+|---|---|
+| What to install | `--skill`, `--pack` or `--all` |
+| Replace files in the way | `--overwrite` |
+| Confirm a removal | `remove -y` |
+| What to remove | `remove <key>` |
+| Remove what's gone upstream | `update -y` (otherwise it's kept) |
+| What to scaffold | `init <type> -y` |
 
 ## Authoring
 
