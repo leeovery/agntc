@@ -58,6 +58,14 @@ A **skill** is a folder with a `SKILL.md`. A **pack** is a folder of skills, wit
 
 Install a pack to get what its author ships, as they change it. Install loose skills to get just those skills.
 
+| What | Installs to |
+|---|---|
+| skills, and a pack's support folders | `.claude/skills/<folder>/` |
+| a pack's agents (`.md` files) | `.claude/agents/` |
+| a pack's hooks | `.claude/hooks/` |
+
+Agents and hooks install only as part of a pack. A folder with `agents/` or `hooks/` that isn't a pack gets a notice with the `--pack` command that would install them.
+
 ## Commands
 
 | Command | What it does |
@@ -68,7 +76,7 @@ Install a pack to get what its author ships, as they change it. Install loose sk
 | [`remove [key]`](#remove) | Remove installs and their files |
 | [`init [skill\|pack]`](#init) | Scaffold a skill or a pack |
 
-Every command but `init` takes `-g` to work on `~/.claude/` instead of the project. Every command takes `--json` (see [Scripts and agents](#scripts-and-agents)).
+Every command but `init` takes `-g` to work on `~/.claude/` instead of the project, with the manifest at `~/.agntc/manifest.json`; a command never touches the other scope. Every command takes `--json` (see [Scripts and agents](#scripts-and-agents)). Colour follows `NO_COLOR` and `FORCE_COLOR`.
 
 ### `add`
 
@@ -99,7 +107,14 @@ One thing found installs directly; several give a menu.
 | Tree URL | `https://github.com/owner/repo/tree/main/laravel` |
 | Local folder | `./my-skills`, `~/dev/skills` |
 
-A bare `owner/repo` installs the latest semver tag and tracks `^major.minor.patch`; a repo without tags installs its default branch.
+**Versions.**
+
+- A bare `owner/repo` installs the latest semver tag and tracks `^major.minor.patch`. On 0.x the caret holds the minor.
+- `@^1.0` or `@~2.1` installs the best tag in the range and tracks the range. Quote it in zsh.
+- `@v2.0.0` pins that tag, with no range.
+- A repo without semver tags installs its default branch.
+
+`--skill`, `--pack` and `--all` don't combine; `--list` combines with `--pack` only. A skill taken from a pack with `--skill` installs on its own, without the pack's support folders.
 
 ### `update`
 
@@ -115,6 +130,8 @@ Updates everything, or the installs a key names (`owner/repo` names all of a rep
 |---|---|
 | `-y`, `--yes` | Remove what's gone upstream without asking |
 
+An install that fails or can't go ahead doesn't stop the others, and the command exits non-zero. An update that can't go ahead leaves the install as it was and prints the commands that would fix it.
+
 ### `list`
 
 ```bash
@@ -123,7 +140,7 @@ npx agntc@latest list [-g] [--json]
 
 <img src="art/list.webp" alt="list's dashboard: installs grouped by repo, each with its kind, version, constraint and status, and the counts of what wants attention" width="840">
 
-What's installed and its update status. Pick one to update it, change its version or remove it.
+What's installed and its update status. Pick one for its details and to update it, change its version or remove it. Change version installs the tag you pick and drops the range.
 
 ### `remove`
 
@@ -147,7 +164,12 @@ npx agntc@latest init [skill|pack] [-y] [--json]
 
 <img src="art/init.webp" alt="init pack: the folder's row with the files it will create as a tree, and the confirm" width="840">
 
-Scaffolds a skill or a pack. Files already there are left alone.
+Scaffolds in the current folder, asking for the type when you leave it out. Files already there are left alone.
+
+| Type | Creates |
+|---|---|
+| `skill` | `SKILL.md` with `name` and `description` frontmatter |
+| `pack` | `agntc.json` (`{"type": "pack"}`), `skills/my-skill/SKILL.md`, `agents/my-agent.md`, `hooks/my-hook.sh` |
 
 | Flag | What it does |
 |---|---|
@@ -155,7 +177,7 @@ Scaffolds a skill or a pack. Files already there are left alone.
 
 ## Scripts and agents
 
-Without a terminal, or with `--json`, every command prints one JSON document and never waits. Where a terminal would ask a question, the command stops instead, naming the flag that answers it:
+Without a terminal, or with `--json`, every command prints one JSON document and never waits. Its `ok` is true exactly when the exit code is 0; an error is a document too, with an `error` naming any `flags` that answer it. Where a terminal would ask a question, the command stops instead, naming the flag that answers it:
 
 | Question | Answer with |
 |---|---|
@@ -168,7 +190,7 @@ Without a terminal, or with `--json`, every command prints one JSON document and
 
 ## Authoring
 
-A folder with a `SKILL.md` is a skill; nothing else is needed. To ship skills, agents and hooks together, make a pack:
+A folder with a `SKILL.md` is a skill; nothing else is needed. Its folder name is its name, and its frontmatter `description` shows in the menu and in `--list`. To ship skills, agents and hooks together, make a pack:
 
 ```
 laravel/
@@ -176,9 +198,27 @@ laravel/
   skills/
     eloquent/SKILL.md
     testing/SKILL.md
-  agents/reviewer.md
-  hooks/pre-commit.sh
+    shared/           ← no SKILL.md: a support folder, installed beside the skills
+  agents/reviewer.md  ← only .md files install as agents
+  hooks/pre-commit.sh ← everything in hooks/ installs
 ```
+
+- `agntc.json` holds only `type`; the older `"plugin"` still reads as `"pack"`. It's never copied into an install.
+- Packs don't nest, and a folder with both `SKILL.md` and a pack declaration is a skill.
+- `npx agntc init pack` scaffolds this layout.
+
+## The manifest
+
+`.agntc/manifest.json` (`~/.agntc/manifest.json` with `-g`) records each install: its source, version, range and every file it wrote. `remove` and `update` delete exactly those files.
+
+## Upgrading from 0.4 or earlier
+
+0.5.0 was a breaking release:
+
+- **Claude only.** Codex and Cursor support is gone. Installs made for several agents move to `.claude/` on their next `update`.
+- **Plugins are packs.** `"type": "plugin"` and `--plugin` still work.
+- **Packs are declared.** A folder with `agents/` or `hooks/` is no longer a pack by its shape; use `--pack`, or ask its author to declare it.
+- **Collections are gone.** A repo holding several things gives a menu.
 
 ## Contributing
 
