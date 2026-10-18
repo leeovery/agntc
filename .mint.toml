@@ -3,9 +3,11 @@
 
 # Everything tracked that isn't the CLI a user installs, kept out of the AI
 # notes/commit diff so release notes describe the product: its source, its
-# package.json, its bundle config, the README and what ships. Tests are the bulk
-# of any change's diff, enough to crowd the behaviour out of the notes.
+# package.json and its bundle config. Tests are the bulk of any change's diff,
+# enough to crowd the behaviour out of the notes.
 diff_exclude = [
+    'README.md',          # docs, not a change to the CLI
+    'docs/**',            # docs for scripts and agents
     '.workflows/**',      # workflow specs/plans/knowledge
     '.claude/**',         # Claude Code agents, skills, settings
     '.agntc/**',          # agent tooling manifest
@@ -25,6 +27,7 @@ diff_exclude = [
     'vitest.config.ts',
     '.gitignore',
     '.mint.toml',
+    '.nvmrc',             # the node version CI and the gate use
 ]
 
 [release.hooks]
