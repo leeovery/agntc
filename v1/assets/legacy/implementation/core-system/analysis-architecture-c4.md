@@ -1,0 +1,9 @@
+AGENT: architecture
+FINDINGS:
+- FINDING: `runRemoteUpdate` and `runLocalUpdate` in list-update-action.ts are structurally identical
+  SEVERITY: low
+  FILES: src/commands/list-update-action.ts:26-79, src/commands/list-update-action.ts:81-149
+  DESCRIPTION: These two functions share the same structure: call `cloneAndReinstall`, check `result.status === "failed"`, handle copy-failed removal, call `mapCloneFailure` with the same `UpdateActionResult` shape, then on success write manifest and return. The only difference is `runLocalUpdate` adds a `validateLocalSourcePath` guard and passes `sourceDir`, and the message strings say "has no agntc.json" vs "New version of ... has no agntc.json". The c3 analysis flagged a similar pattern in `update.ts` which was consolidated into `runSinglePluginUpdate`; the same consolidation was not applied to `list-update-action.ts`. The practical risk is low since `mapCloneFailure` enforces exhaustive handling, but any behavioral change to the update flow requires updating both functions.
+  RECOMMENDATION: Unify into a single `runUpdate(key, entry, manifest, projectDir)` function that checks `entry.commit === null` to determine local vs remote mode internally, the same way `update.ts:runSinglePluginUpdate` does. The message text difference (local vs remote) can be parameterized.
+
+SUMMARY: The architecture is in strong shape after three cycles of refinement. All high and medium severity issues from previous cycles have been addressed: type safety at interfaces (AssetType, AgentId), centralized clone URL derivation, integration tests, exhaustive failure mapping via mapCloneFailure, and unified update orchestration in update.ts. The only remaining issue is a low-severity structural duplication in list-update-action.ts that mirrors a pattern already fixed in update.ts.

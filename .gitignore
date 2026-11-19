@@ -1,0 +1,9 @@
+/.knowledge/
+/.cache/
+/.lock
+/.lock.*
+.manifest.json.*.tmp
+/.ledger.jsonl.*.tmp
+/.tick/cache.db*
+/.tick/lock
+/.tick/.tasks-*.jsonl.tmp

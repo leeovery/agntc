@@ -1,0 +1,67 @@
+{
+  "name": "v1",
+  "work_type": "epic",
+  "status": "completed",
+  "created": "2026-03-21",
+  "description": "v1 work unit",
+  "phases": {
+    "discussion": {
+      "items": {
+        "cli-commands-ux": {
+          "status": "completed"
+        },
+        "config-file-simplification": {
+          "status": "completed"
+        },
+        "core-architecture": {
+          "status": "completed"
+        },
+        "deferred-items-triage": {
+          "status": "completed"
+        },
+        "multi-agent-support": {
+          "status": "completed"
+        },
+        "plugin-init-scaffolding": {
+          "status": "completed"
+        }
+      }
+    },
+    "discovery": {
+      "items": {
+        "cli-commands-ux": {
+          "source": "migration-seeded",
+          "order": 1
+        },
+        "config-file-simplification": {
+          "source": "migration-seeded",
+          "order": 2
+        },
+        "core-architecture": {
+          "source": "migration-seeded",
+          "order": 3
+        },
+        "deferred-items-triage": {
+          "source": "migration-seeded",
+          "order": 4
+        },
+        "multi-agent-support": {
+          "source": "migration-seeded",
+          "order": 5
+        },
+        "plugin-init-scaffolding": {
+          "source": "migration-seeded",
+          "order": 7
+        }
+      },
+      "approved_at": "2026-03-21T00:00:00.000Z"
+    }
+  },
+  "completed_at": "2026-03-21",
+  "spec": {
+    "joined": [
+      "core-system",
+      "plugin-authoring"
+    ]
+  }
+}

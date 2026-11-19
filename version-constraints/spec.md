@@ -1,0 +1,266 @@
+# Version Constraints
+
+## 1. Version Constraints
+
+#### Specification
+
+#### Constraint Syntax
+
+agntc will support Composer/npm-style version constraints via the existing `@` syntax.
+
+##### Operators
+
+| Operator | Meaning | Example | Range |
+|----------|---------|---------|-------|
+| `^` (caret) | Pin major, allow minor+patch | `^1.2.3` | `>=1.2.3, <2.0.0` |
+| `~` (tilde) | Pin minor, allow patch only | `~1.2.3` | `>=1.2.3, <1.3.0` |
+| Exact tag | Pin exactly (existing behavior) | `v1.2.3` | `=1.2.3` |
+
+##### Partial Versions
+
+Partial versions fill zeros for both operators. Behavior follows the `semver` npm package conventions:
+
+- `^1` = `^1.0.0`, `^1.2` = `^1.2.0`
+- `~1` = `~1.0.0`, `~1.2` = `~1.2.0`
+
+Caret and tilde semantics are stable regardless of segment count.
+
+##### Pre-1.0 Handling
+
+Follows the Cargo/npm convention — no custom rules:
+
+- `^0.2.3` → `>=0.2.3, <0.3.0` (minor is breaking boundary)
+- `^0.0.3` → `>=0.0.3, <0.0.4` (patch is breaking boundary)
+- `^1.0.0`+ → normal behavior (`>=1.0.0, <2.0.0`)
+
+This gives plugin authors the standard semver tools to communicate breaking changes at `0.x` without prematurely committing to `1.0`.
+
+##### Parser Disambiguation
+
+Versions and refs are written in the `#` fragment (`owner/repo#^1.0`); `@` after the repo selects a skill by its declared name, Vercel's grammar (from `vercel-skills-compatibility`, 2026-10-07).
+
+Constraints are unambiguous — no git ref starts with `^` or `~`. The source parser can distinguish constraints from literal refs by prefix.
+
+##### Parser Output
+
+The source parser will detect constraint prefixes (`^`, `~`) in the `#` fragment and classify accordingly. `ParsedSource` will gain an optional `constraint` field:
+
+- `owner/repo#^1.0` → `{ constraint: "^1.0", ref: null }`
+- `owner/repo#~1.2` → `{ constraint: "~1.2", ref: null }`
+- `owner/repo#v1.2.3` → `{ constraint: null, ref: "v1.2.3" }`
+- `owner/repo#main` → `{ constraint: null, ref: "main" }`
+- `owner/repo` (bare) → `{ constraint: null, ref: null }`
+
+The bare-add default behavior (resolve latest semver tag, apply `^X.Y.Z`) is the responsibility of the add command, not the parser. The parser only classifies user input — it does not resolve tags or derive constraints.
+
+##### Source Type Support
+
+Constraints are supported on all remote source types that accept a `#` fragment:
+
+- GitHub shorthand: `owner/repo#^1.0`
+- HTTPS URL: `https://github.com/owner/repo#^1.0`
+- SSH URL: `git@github.com:owner/repo#^1.0`
+
+Constraints are not supported on:
+
+- Local paths — no remote tags to resolve against
+- Tree URLs (direct path to a specific commit) — already pinned to a specific ref
+
+##### Constraint Validation
+
+The parser will validate the constraint expression after extracting it. If the version portion is not valid semver (as determined by `semver.validRange()`), reject at parse time with a clear error message. Examples of invalid input: `#^abc`, `#^`, `#~`, `#^1.2.3.4`.
+
+#### Manifest Storage
+
+A new `constraint` field will be added to manifest entries alongside the existing `ref` and `commit` fields. The `constraint` field captures user *intent* (e.g. "I want compatible 1.x updates"), while `ref` + `commit` capture *current state*. These shift independently — on `update`, `ref` and `commit` change while `constraint` stays fixed.
+
+##### Entry Shape
+
+```json
+{ "constraint": "^1.0", "ref": "v1.2.3", "commit": "abc123" }
+```
+
+- `constraint` — the constraint expression (e.g. `^1.0`, `~1.2`)
+- `ref` — the resolved git ref (tag) currently checked out
+- `commit` — the resolved SHA
+
+For non-constrained installs, `constraint` is absent. Its absence is the signal — no need for a sentinel value.
+
+##### Update Routing
+
+The presence or absence of `constraint` determines update behavior:
+
+| State | Behavior |
+|-------|----------|
+| `constraint` present | Resolve against tags, update within bounds |
+| `constraint` absent + tag ref | Existing behavior (refuse auto-update) |
+| `constraint` absent + branch ref | Existing behavior (track branch HEAD) |
+| `constraint` absent + no ref | Existing behavior (track HEAD) |
+
+##### Constrained Update Flow
+
+When `constraint` is present, the update command follows this flow:
+
+1. Fetch tags via `ls-remote`
+2. Resolve the best matching tag within constraint bounds using `semver.maxSatisfying`
+3. Compare the resolved tag against the current `ref`:
+   - **Same tag** — plugin is up to date, no action needed
+   - **Newer tag** — apply the standard nuke-and-reinstall: delete manifest `files`, re-clone at the new tag, re-copy for the same agents. Update `ref` and `commit`; `constraint` stays unchanged
+   - **Older tag** — should not occur (maxSatisfying returns the highest match), but if it does, skip — never downgrade
+4. If no tag satisfies the constraint, report an error and leave the plugin untouched
+
+##### Out-of-Constraint Detection
+
+After resolving the best tag within constraint bounds, determine if newer versions exist outside the constraint:
+
+1. Find the absolute latest stable semver tag using `semver.maxSatisfying(cleanedVersions, '*')`
+2. If the absolute latest is higher than the best within-constraint match, include it in the info line output
+3. This check runs for every constrained plugin during `update` and `list` — it uses the same tag data already fetched via `ls-remote`
+
+##### Migration
+
+No migration needed — `constraint` is purely additive. Old manifest entries without it behave exactly as before.
+
+#### Version Resolution
+
+Version resolution will use the `semver` npm package rather than a custom implementation.
+
+##### Dependency
+
+Add `semver` as a production dependency (alongside `commander` and `@clack/prompts`). Use `@types/semver` for TypeScript support. The package is ~50KB with zero dependencies.
+
+##### Resolution Algorithm
+
+1. Fetch all refs via `ls-remote`
+2. Filter to semver-valid tags using `semver.valid()` (non-semver tags are naturally excluded)
+3. Use `semver.clean()` for normalizing tag formats (see Tag Normalization Pipeline below)
+4. Pass filtered tags and the constraint to `semver.maxSatisfying(tags, constraint)` to select the best match
+
+`semver.maxSatisfying` handles all pre-1.0 special casing (`^0.x`, `^0.0.x`) automatically — no custom logic needed.
+
+##### Tag Normalization Pipeline
+
+1. Collect all tag names from `ls-remote`
+2. For each tag, attempt `semver.clean(tag)` — strips `v` prefix and whitespace (e.g. `v1.2.3` → `1.2.3`). Less aggressive than `coerce()`
+3. Discard tags where `clean()` returns `null` (not valid semver)
+4. Pass cleaned versions to `semver.maxSatisfying(cleanedVersions, constraint)`
+5. Map the matched clean version back to the original tag name
+6. Store the original tag name in `ref` (it's the git ref used for checkout)
+
+If multiple tags clean to the same semver version, prefer the `v`-prefixed form (e.g. `v1.2.3` over `1.2.3`). This matches the dominant tagging convention.
+
+`semver.coerce()` will not be used — it's too aggressive and could match non-version tags. `semver.clean()` plus `semver.valid()` is the correct pipeline.
+
+##### No Match
+
+If `maxSatisfying` returns `null` (no tags satisfy the constraint), report this to the user. This covers cases like a constraint of `^2.0` when only `v1.x` tags exist.
+
+#### Add Command Behavior
+
+##### Default Behavior (Bare Add)
+
+`agntc add owner/repo` (no `@` suffix) will resolve the latest semver tag and auto-apply a `^X.Y.Z` constraint. This mirrors npm/Composer behavior — the documented install path becomes simply `agntc add owner/repo` with no version syntax needed.
+
+If no semver tags exist, fall back to tracking HEAD with no constraint (existing behavior).
+
+##### Latest Tag Resolution (Bare Add)
+
+For bare `agntc add owner/repo`, the latest stable semver tag is determined by:
+
+1. Collect and clean tags via the tag normalization pipeline
+2. Use `semver.maxSatisfying(cleanedVersions, '*')` to find the highest stable version
+3. Pre-release tags (e.g. `2.0.0-beta.1`) are excluded — `maxSatisfying` with `*` only matches stable releases
+4. Apply `^X.Y.Z` using the resolved version
+
+If no stable semver tags exist, fall back to HEAD with no constraint.
+
+##### Resolution Order
+
+The full `add` resolution order:
+
+1. `agntc add owner/repo` — resolve latest semver tag, apply `^X.Y.Z`
+2. `agntc add owner/repo#^1` — explicit constraint, resolve best match
+3. `agntc add owner/repo#~1.2` — explicit constraint, resolve best match
+4. `agntc add owner/repo#v1.2.3` — exact pin, no constraint
+5. `agntc add owner/repo#main` — track branch HEAD, no constraint
+6. `agntc add owner/repo` (no semver tags) — fall back to HEAD, no constraint
+7. `agntc add owner/repo` where the newest tag lacks a skill the line names (`@skill`/`--skill`), or holds no skills — fall back to the default branch, say so, no constraint (from `vercel-skills-compatibility`, 2026-10-07)
+
+The `#^` and `#~` forms are power-user options. The `#branch` syntax (`#main`, `#develop`, feature branches) is kept as an escape hatch for testing PRs or unreleased work.
+
+##### Re-Add Behavior
+
+Re-adding an already-installed plugin follows the same resolution order as a fresh install. The existing manifest entry is overwritten via the standard nuke-and-reinstall — the new `constraint`, `ref`, and `commit` values replace the old ones entirely.
+
+Examples:
+- Installed with `^1.0` → re-add with `#^2.0` → constraint changes to `^2.0`, resolves new tag
+- Installed with `^1.0` → re-add with `#v1.5.0` → constraint removed, exact pin
+- Installed with exact pin → bare re-add → constraint auto-applied per default behavior
+
+No confirmation prompt for constraint changes — the user explicitly chose the new form.
+
+##### Explicit Tags Are Exact Pins
+
+`agntc add owner/repo#v1.2.3` means exact pin — no constraint applied. If you typed a specific version, you meant it. The `#^1` syntax exists for when you want constraints.
+
+##### Documentation Guidance
+
+Plugin READMEs and getting-started docs should advertise `agntc add owner/repo` — no version syntax. The `#^1`, `#~1.2`, and `#v1.2.3` forms are power-user options and should not appear in introductory documentation.
+
+##### Semver Compliance
+
+Semver compliance by plugin authors cannot be enforced — same as npm/Composer. The constraint system is a trust-based contract. Semver tagging will be recommended in authoring docs.
+
+#### Update Output UX
+
+When constrained plugins have newer versions outside their constraint bounds, the user should be informed without implying they did something wrong.
+
+##### Format
+
+An informational section will be collated at the end of update output, after all update results. Same format regardless of single-plugin or batch update.
+
+```
+✓ owner/plugin-a  v1.2.3 → v1.3.0
+✓ owner/plugin-b  (up to date)
+✓ owner/plugin-c  v2.1.0 → v2.1.5
+
+ℹ Newer versions outside constraints:
+  owner/plugin-a  v2.0.0 available (constraint: ^1.0)
+  owner/plugin-b  v3.1.0 available (constraint: ^2.0)
+```
+
+##### Rules
+
+- **Always collated at end** — never inline with individual plugin results
+- **Show latest only** — if they're going to bump their constraint, they want to know the ceiling, not every step
+- **Info tone, not warning** — the user chose the constraint deliberately; a warning implies they did something wrong
+- **Omit section entirely** if no out-of-constraint versions exist
+
+#### List Command Integration
+
+The `list` dashboard will surface constraint information:
+
+- **Display**: Show the constraint alongside the current ref when present (e.g. `^1.0 → v1.2.3`)
+- **Update status**: Differentiate between "update available within constraint" and "newer version outside constraint" — same distinction as the update output info line
+- **Change version action**: The existing change-version action operates outside the constraint system — it allows the user to pick any available tag. Selecting a specific tag via the list action is equivalent to re-adding with an exact pin, removing the constraint
+
+#### Collection Constraints
+
+Each plugin installed from a collection is tracked independently in the manifest with its own `constraint`, `ref`, and `commit`. A collection presents items for individual selection — this is distinct from a plugin that bundles multiple assets (skills, agents, hooks) installed as a single unit.
+
+- `agntc add owner/collection#^1.0` — user selects which plugins to install; each selected plugin gets `constraint: "^1.0"` in its own manifest entry
+- Bare `agntc add owner/collection` — auto-applies `^X.Y.Z` per default behavior to each selected plugin
+- On `update`, each plugin resolves its constraint independently — they may diverge if installed at different times or with different constraints
+- Individual plugins from a collection can be re-added with different constraints (e.g. `agntc add owner/collection#^2.0` and selecting only one plugin)
+
+---
+
+#### Working Notes
+
+[Optional - capture in-progress discussion if needed]
+
+#### Corrigenda
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): the version suffix `@` (`owner/repo@^1.0`, `@~1.2`, `@v1.2.3`, `@main`) → the `#` fragment (`owner/repo#^1.0`, `#~1.2`, `#v1.2.3`, `#main`), throughout; `@` after the repo now selects a skill by declared name.
+
+> **Corrigendum 2026-10-07** (from `vercel-skills-compatibility`): the resolution order ended at "`agntc add owner/repo` (no semver tags) — fall back to HEAD, no constraint" — corrected: a bare add also falls back to the default branch, with no constraint, when the newest tag lacks a skill the line names or holds no skills.

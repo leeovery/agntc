@@ -1,0 +1,16 @@
+AGENT: standards
+CYCLE: 7
+STATUS: clean
+FINDINGS_COUNT: 0
+
+SUMMARY: Re-verified the configless-install implementation end-to-end against every specification decision point (independent re-analysis; cycles 5 and 6 were also clean); it conforms to the spec and project conventions, and tsc --noEmit is clean. Coverage this cycle:
+
+- Config Model (src/config.ts) — readConfig is lenient (ENOENT/malformed/non-object/empty-agents → null; only non-ENOENT IO errors propagate raw); only the literal type:"plugin" is meaningful and every other value passes through verbatim to be ignored downstream; unknown agents filtered with per-agent warn; a type-only config retains {agents:[], type} so the skills-only bundle disambiguator survives an empty/invalid agents list (spec 54-64, 282-290).
+- Structural Type Detection (src/type-detection.ts) — single structural path; skills-only the sole ambiguous case; --plugin > config-type precedence centralised in detectType; agents-/hooks-only (non-skills-only) correctly classify as plugin (spec 110-112); type-vs-structure conflicts throw TypeConflictError pre-flight, surfaced identity-prefixed and correctly attributed to --plugin vs config type in add.ts; not-agntc never conflicts.
+- Identity — directory basename throughout, no frontmatter parsing; manifest keys unchanged.
+- Manifest Lifecycle (src/manifest.ts, src/nuke-reinstall-pipeline.ts) — type? optional; files-based backfill on read, mutated in-memory and persisted on next write; derive-before-delete validates recorded type against the re-cloned tree before any nuke (recorded skill → SKILL.md must exist; recorded plugin → ≥1 asset dir must remain) with abort leaving install intact; members replay by their own subdir.
+- Agent Selection (src/agent-select.ts) — KNOWN_AGENTS fallback for no-valid-constraint; auto-select scoped strictly to declared-single-detected; configless default always prompts; cancelled vs deliberate-empty distinguished and mapped per caller.
+- Collection Membership (src/commands/add.ts) — structural one-level scan; skills-only member resolved via asset-dir-gated forcePlugin; genuine member-dirs child stays an unsupported nested collection (skipped); per-member independent agent resolution and abort granularity.
+- Version Pinning — tagless→HEAD reused unchanged (ref: null canonical).
+- Copy-Safety (src/copy-safety.ts, src/copy-bare-skill.ts) — lexical path-traversal guard runs pre-read at the joined unitDir (add step 2c) before readConfig/detectType; symlink-escape pre-flight on both add and update before any nuke/copy; boundary = clone root, relative()-based (sibling-prefix safe), broken links judged lexically, symlinked dirs validated but not descended; bare-skill copy still deletes destination agntc.json.
+- Error & Abort (src/clone-reinstall.ts, src/commands/update.ts) — aborted vs blocked carry distinct messages and posture (no remove+add remedy for symlink blocks); partial-success non-zero exit aggregated after write+summary; change-version strips only the constraint and preserves the replayed type. The previously-noted single-key vs all-plugins check-failed exit-status divergence (cycle 4, low, spec-unenumerated, deliberately settled) was re-examined and not re-raised. No new spec or standards drift.

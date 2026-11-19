@@ -1,0 +1,34 @@
+{
+  "name": "update-output-overhaul",
+  "work_type": "feature",
+  "status": "completed",
+  "created": "2026-07-19",
+  "description": "Improve agntc update output: per-unit progress clarity, semver-tag summary wording, and safe-vs-major bump gating",
+  "phases": {
+    "discussion": {
+      "items": {
+        "update-output-overhaul": {
+          "status": "completed"
+        }
+      }
+    }
+  },
+  "seeds": [
+    {
+      "path": "seeds/2026-07-19-update-progress-clarity.md",
+      "source": "inbox:idea",
+      "seeded_at": "2026-07-19T14:10:58Z"
+    },
+    {
+      "path": "seeds/2026-06-09-show-version-tags-on-update.md",
+      "source": "inbox:idea",
+      "seeded_at": "2026-07-19T14:11:08Z"
+    }
+  ],
+  "completed_at": "2026-07-22",
+  "spec": {
+    "joined": [
+      "update-output-overhaul"
+    ]
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "project_id": "HAwkQRI3v8Tt8ZLSjMtwy",
+  "work_units": {
+    "v1": {
+      "work_type": "epic"
+    },
+    "version-constraints": {
+      "work_type": "feature"
+    },
+    "cursor-agent-driver": {
+      "work_type": "feature"
+    },
+    "collision-prompt-duplicates-on-toggle": {
+      "work_type": "bugfix"
+    },
+    "configless-install": {
+      "work_type": "feature"
+    },
+    "update-check-fails-on-branch-ref": {
+      "work_type": "bugfix"
+    },
+    "update-output-overhaul": {
+      "work_type": "feature"
+    },
+    "vercel-skills-compatibility": {
+      "work_type": "feature"
+    }
+  },
+  "defaults": {
+    "session_labels": true
+  },
+  "walkthrough": {
+    "status": "skipped"
+  },
+  "roadmap": {
+    "horizons": [
+      "later"
+    ],
+    "items": {
+      "global-skill-installs": {
+        "horizon": "later",
+        "summary": "Install skills once for every project (Vercel's -g), with update, list and remove aware of which scope they act on",
+        "origin": "park:vercel-skills-compatibility",
+        "sources": [
+          "vercel-skills-compatibility/topics/vercel-skills-compatibility/log.md"
+        ],
+        "kind": "idea"
+      },
+      "website-skill-sources": {
+        "horizon": "later",
+        "summary": "Install skills published from a website index (well-known endpoints such as open.feishu.cn) rather than a git repo",
+        "origin": "park:vercel-skills-compatibility",
+        "sources": [
+          "vercel-skills-compatibility/topics/vercel-skills-compatibility/log.md"
+        ],
+        "kind": "idea"
+      }
+    }
+  },
+  "brownfield_offer": "native",
+  "environment": {
+    "linters": [
+      {
+        "name": "biome",
+        "command": "npx biome check --fix src/"
+      },
+      {
+        "name": "tsc",
+        "command": "npx tsc --noEmit"
+      }
+    ]
+  },
+  "checklists": {
+    "directive": {
+      "079-records": {
+        "items": {},
+        "closed": "2026-11-19T08:24:51.488Z"
+      },
+      "080-cut-and-merges": {
+        "items": {},
+        "closed": "2026-11-19T08:25:38.445Z"
+      }
+    }
+  },
+  "drivers": {
+    "task": "tick"
+  }
+}

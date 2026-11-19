@@ -1,0 +1,147 @@
+## Investigation
+
+## Investigation: Collision Prompt Duplicates On Toggle
+
+### Symptoms
+
+#### Problem Description
+
+**Expected behavior:**
+Arrow key toggle on collision prompt should re-render in place, showing a single prompt at all times.
+
+**Actual behavior:**
+Each arrow key press appends a new copy of the "How would you like to proceed?" prompt block, causing a rapidly growing wall of duplicated UI.
+
+#### Manifestation
+
+- UI duplication: each arrow key toggle appends another full copy of the prompt section
+- Terminal becomes unusable after a few key presses
+- Secondary: file list is dense/cramped with no pagination or truncation
+- Secondary: no vertical spacing between file list and action prompt
+
+#### Reproduction Steps
+
+1. Have a plugin already installed (e.g., `leeovery/agentic-workflows`)
+2. Run `npx agntc@latest add ../agentic-workflows` (local path pointing to the same plugin)
+3. agntc detects file collision and presents two-option prompt
+4. Toggle between options using arrow keys
+5. Observe: each toggle appends another copy of the prompt
+
+**Reproducibility:** Always
+
+#### Environment
+
+- **Affected environments:** Local (CLI tool)
+- **Browser/platform:** Terminal (Node.js CLI)
+- **User conditions:** Plugin already installed, re-adding from local path
+
+#### Impact
+
+- **Severity:** Medium
+- **Scope:** All users encountering collision prompts
+- **Business impact:** Core UX flow broken — collision handling is a common scenario
+
+#### References
+
+- Relevant area: `src/commands/add.ts` (collision-handling prompt logic)
+
+---
+
+### Analysis
+
+#### Initial Hypotheses
+
+- The collision prompt may be using a rendering approach that appends rather than re-renders in place (e.g., `console.log` instead of a proper interactive prompt library's re-render)
+- Updated after code trace: the issue is multiline strings in `@clack/prompts` `select` message breaking cursor repositioning
+
+#### Code Trace
+
+**Entry point:**
+`src/commands/add.ts:102` — calls `resolveCollisions()` when `collisions.size > 0`
+
+**Execution path:**
+1. `src/commands/add.ts:102` — `resolveCollisions(collisions, currentManifest, projectDir)`
+2. `src/collision-resolve.ts:33-45` — `select()` called with multiline message:
+   ```ts
+   message: `File collision with "${key}":\n${fileList}\nHow would you like to proceed?`
+   ```
+   The `fileList` variable itself contains newlines (one `\n` per colliding file).
+3. `@clack/core` `Prompt.restoreCursor()` — counts lines in previous frame via `wrap(prevFrame).split('\n').length - 1`, then moves cursor up that many lines.
+4. `@clack/core` `Prompt.render()` — uses `diffLines()` to find changed lines, then writes partial updates.
+
+**The bug:** When the `message` string contains many embedded `\n` characters (the file list), the rendered frame spans many more terminal rows than typical. The most likely mechanism is **terminal scroll overflow**: when the frame exceeds terminal height, the initial render scrolls the terminal, pushing the top of the frame off-screen. On re-render, `restoreCursor()` emits ANSI cursor-up (`CSI nA`), but this is bounded by the top of the visible screen buffer — it cannot scroll backwards past content that has already scrolled off. The cursor lands partway through the frame, and subsequent writes append below rather than overwriting. Each arrow key toggle triggers a re-render that duplicates the entire prompt block.
+
+Note: `restoreCursor()` line counting arithmetic appears correct (double-wrapping is idempotent). The issue is the terminal's inability to cursor-up past scroll boundaries, not a miscalculation.
+
+**Key files involved:**
+- `src/collision-resolve.ts` — constructs the multiline message for `select()`
+- `src/unmanaged-resolve.ts` — same pattern, same bug (line 35)
+- `node_modules/@clack/core/dist/index.mjs` — rendering logic with `restoreCursor()` and `render()`
+
+#### Root Cause
+
+The `@clack/prompts` `select()` function's `message` parameter is designed for short, single-line messages. When a message containing many embedded newlines is passed (the collision file list), the rendered frame can exceed terminal height. On re-render, `@clack/core`'s `restoreCursor()` emits ANSI cursor-up commands, but these are bounded by the visible screen buffer — the cursor cannot move past content that has scrolled off-screen. This causes the cursor to land partway through the frame, and subsequent writes append below the previous frame rather than overwriting it.
+
+**Why this happens:**
+The terminal itself limits cursor-up movement to the top of the visible buffer. When the initial render scrolls the terminal (because the frame is taller than terminal height), the scroll offset creates an uncorrectable gap between where the cursor needs to be and where it can actually go. The `diffLines()` optimization then writes changed lines at incorrect terminal positions, producing duplication.
+
+#### Contributing Factors
+
+- The collision file list can be very long (two pages of files), making the message string span many terminal lines
+- `@clack/prompts` doesn't document or enforce single-line message constraints
+- The code dumps the full file list inline in the message rather than displaying it separately before the prompt
+
+#### Why It Wasn't Caught
+
+- The collision prompt is only triggered when re-installing over existing plugins — not a primary happy-path flow
+- Manual testing likely used small file lists that didn't trigger the rendering issue
+- No automated tests for interactive terminal rendering behavior
+
+#### Blast Radius
+
+**Directly affected:**
+- `src/collision-resolve.ts` — collision prompt (primary bug)
+- `src/unmanaged-resolve.ts` — unmanaged file prompt (same pattern, same bug)
+
+**Potentially affected:**
+- Any other `@clack/prompts` `select()` call with multiline messages (grep found only these two)
+
+---
+
+### Fix Direction
+
+#### Chosen Approach
+
+Move the file list out of the `select()` message parameter. Display it separately before the prompt using `p.log.info()` or `p.note()`, then pass a short single-line message to `select()`. This keeps the interactive frame small (3-4 lines) regardless of file count, avoiding the scroll overflow entirely.
+
+**Deciding factor:** Directly addresses root cause by ensuring the interactive frame never exceeds terminal height, regardless of file count. Zero risk to resolution logic.
+
+#### Options Explored
+
+Only one approach was discussed — it was the obvious fix given the root cause. Moving display content out of the interactive prompt parameter is the natural solution. No alternatives were considered necessary.
+
+#### Discussion
+
+Straightforward fix. User confirmed findings and direction without concerns. The fix scope naturally includes the secondary polish items (file list truncation, vertical spacing) since those files are already being modified. Both `collision-resolve.ts` and `unmanaged-resolve.ts` get the same treatment.
+
+#### Testing Recommendations
+
+- Test collision prompt renders correctly with large file lists (20+ files)
+- Test collision prompt renders correctly with small file lists (1-2 files)
+- Test unmanaged-conflict prompt with same scenarios
+- Verify arrow key toggle works without duplication in all cases
+
+#### Risk Assessment
+
+- **Fix complexity:** Low
+- **Regression risk:** Low — only changes display format, not resolution logic
+- **Recommended approach:** Regular release
+
+---
+
+### Notes
+
+Secondary polish included in fix scope:
+1. Truncate long file lists (e.g., show first 10, then "+N more")
+2. Add vertical spacing between file list and action prompt
+3. Both `collision-resolve.ts` and `unmanaged-resolve.ts` get the same fix
