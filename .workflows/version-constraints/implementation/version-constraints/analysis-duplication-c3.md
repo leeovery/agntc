@@ -1,3 +1,0 @@
-AGENT: duplication
-FINDINGS: none
-SUMMARY: No new medium+ severity duplication detected. Previous cycle remediations (unified VersionOverrides interface, extracted hasOutOfConstraintVersion predicate, shared mockExecFile helper migration) have been confirmed applied. Remaining cross-file similarities (isLocal guard in list-update-action.ts and update.ts, ManifestEntry construction patterns, cloneAndReinstall call-site option assembly) are either trivial one-liners below the rule-of-three threshold, or serve deliberately different error-handling strategies that make extraction counterproductive.
