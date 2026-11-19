@@ -88,5 +88,9 @@
   "github_rule": {
     "status": "failed",
     "reason": "gh is not signed in to github.com"
+  },
+  "github_squash": {
+    "status": "failed",
+    "reason": "gh is not signed in to github.com"
   }
 }
