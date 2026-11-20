@@ -86,11 +86,9 @@
     "task": "tick"
   },
   "github_rule": {
-    "status": "failed",
-    "reason": "gh is not signed in to github.com"
+    "status": "set"
   },
   "github_squash": {
-    "status": "failed",
-    "reason": "gh is not signed in to github.com"
+    "status": "set"
   }
 }
