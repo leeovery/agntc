@@ -10,7 +10,8 @@
 // works in the project until the directive is done.
 //
 // - `migrate check <id>` runs the directive's check: each piece of its work
-//   done, or what it still lacks. It reads, and answers whether the
+//   done, or what it still lacks, and where the check names one, the step
+//   the session takes on it next (079's). It reads, and answers whether the
 //   directive passes and how many of its pieces are done, then re-stamps
 //   the calling session's row at the migration's place where it carries the
 //   migration on (presence.cjs). A directive whose own steps end in raises
@@ -93,7 +94,7 @@ const { projectName } = require('./state-checks.cjs');
 const { unraised } = require('./raise.cjs');
 const { listWorkUnitManifests } = require('../kernel/manifest.cjs');
 const { CARRIED } = require('../../../ledger-migrate/scripts/record-files.cjs');
-const { MIGRATION_JOURNALS, finishing, codeFiles } = require('./migration-commit.cjs');
+const { MIGRATIONS_RECORD, MIGRATION_JOURNALS, finishing, codeFiles } = require('./migration-commit.cjs');
 const { refreshMigrationQuietly } = require('./presence.cjs');
 const { CHECKS_DONE } = require('../../../ledger-migrate/scripts/old-layout.cjs');
 const { markPath } = require('./cut-migrating.cjs');
@@ -104,10 +105,6 @@ const MIGRATE_SCRIPTS = path.resolve(__dirname, '..', '..', '..', 'ledger-migrat
 const MIGRATE_CJS = path.join(MIGRATE_SCRIPTS, 'migrate.cjs');
 const MIGRATIONS = path.join(MIGRATE_SCRIPTS, 'migrations');
 
-// The record of the migrations applied, state-relative, which the runner
-// writes and a directive's close appends to.
-const MIGRATIONS_RECORD = '.state/migrations';
-
 // The move's journal of the corrections it made (078), among the migration's journals.
 const MOVE_JOURNAL = 'move.json';
 
@@ -117,7 +114,7 @@ const MIGRATE_USAGE = ['migrate check <id>', 'migrate checked', 'migrate review'
 
 /** A directive the migrations hold: its id, the number its record line is, and its two files. @typedef {{id: string, number: string, file: string, check: string}} Directive */
 
-/** One piece of a directive's work, and what it still lacks. @typedef {{name: string, problems: string[]}} Piece */
+/** One piece of a directive's work, what it still lacks, and, where its check names one, the step the session takes on it next. @typedef {{name: string, problems: string[], next?: string}} Piece */
 
 /** What one of a directive's pieces is called, and many of them. @typedef {{one: string, many: string}} Counts */
 
@@ -162,7 +159,7 @@ function directiveOf(id) {
 
 /** @param {unknown} piece @returns {piece is Piece} */
 function isPiece(piece) {
-  return isObject(piece) && typeof piece.name === 'string' && Array.isArray(piece.problems) && piece.problems.every((problem) => typeof problem === 'string');
+  return isObject(piece) && typeof piece.name === 'string' && Array.isArray(piece.problems) && piece.problems.every((problem) => typeof problem === 'string') && (piece.next === undefined || isWords(piece.next));
 }
 
 /** @param {unknown} words @returns {words is string} */

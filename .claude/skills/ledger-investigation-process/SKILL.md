@@ -21,7 +21,7 @@ Load **[framework.md](../ledger-shared/references/framework.md)** and follow its
 
 ## Done When
 
-`investigation conclude` has answered: the engine holds the investigation concluded, with the unit whose code the bug is in where one is named, and its `next` hands the work into the spec.
+`investigation stage` has answered: the engine holds the investigation closed into its spec, its recap staged for ready to build, and its `next` hands the work into the spec.
 
 ## Entering
 
@@ -33,7 +33,7 @@ node .claude/skills/ledger-engine/scripts/engine.cjs enter investigation {work_u
 
 A refusal names the way on: say it in a line. Where another session holds the topic, the entry asks first; carrying on from it ends the turn. Waiting mail is the conversation's first business (**Mail**).
 
-Then read what the DATA names, each in full, an `earlier` one as input never changed. Take in each `landed` report as **Validations** says, and close each `lost` one with `agent incorporate`. Search earlier work units' entries in the bug's area with `knowledge query`.
+Then read what the DATA names, each in full, an `earlier` one as input never changed. Where the brief lists shared files, load **[reference-files.md](../ledger-shared/references/reference-files.md)** and follow its instructions as written. Take in each `landed` report as **Validations** says, and close each `lost` one with `agent incorporate`. Search earlier work units' entries in the bug's area with `knowledge query`.
 
 Then open the conversation; never stop in silence once you have read. The opening names each `kept branch` and `kept work` to the person, a piece of work with the calls its line gives. On resume, say in your own words, in a line, where the hunt stands and what comes next.
 
@@ -43,7 +43,7 @@ The rigour holds — the symptoms, then the code, and the root cause settled bef
 
 ### Symptoms
 
-The brief, the seeds and discovery's log are the person's account: confirm what they already answer rather than ask it again, and ask what they leave open — what should happen and what happens instead, the exact steps, how often, where, since when, and what they have tried. Start with what matters most and follow their answers down; never a barrage of questions. Log each symptom in their words as they give it (`investigation-log symptom`). What they don't know stays unknown, never guessed.
+The brief, the seeds and discovery's log are the person's account: confirm what they already answer rather than ask it again, and ask what they leave open — what should happen and what happens instead, the exact steps, how often, where, since when, and what they have tried. A point the brief marks as from before is where they had got to before, not yet their account: it goes on the map as an open question asked with its id from before, so every raise of it comes to them, the answer from before your lean. Start with what matters most and follow their answers down; never a barrage of questions. Log each symptom in their words as they give it (`investigation-log symptom`). What they don't know stays unknown, never guessed.
 
 ### The Plan
 
@@ -61,13 +61,11 @@ Trace from where the person meets the bug back to its source: the data's path, t
 
 What the code or a run shows is a finding, saying how it is known: `read` in the code, `documented` with its source, or `exploratory` with the command and its result. A check run to test a hypothesis is the investigation's own experiment, logged with what it showed and resting on its finding (`investigation-log experiment`). A trace or a longer account goes beneath its entry as `--body`. A hypothesis's state follows the evidence — confirmed, or ruled out, a dead end kept and never deleted — and one the person says is intended behaviour is `intended`, `--by` their answer. A new suspect joins as a hypothesis of its own.
 
-Whenever hypotheses resolve, before the trace moves on, write `{"resolved": ["H{n}", …], "next": "{what is checked next}"}`, those resolved since the last gate, to `.ledger/.cache/{work_unit}/investigation/{work_unit}/check-in.json`, then fetch the check-in gate:
+Whenever hypotheses resolve, before the trace moves on, write `{"resolved": ["H{n}", …], "next": "{what is checked next}"}`, those resolved since the last check-in, to `.ledger/.cache/{work_unit}/investigation/{work_unit}/check-in.json`, then draw the check-in and carry on past it:
 
 ```bash
 node .claude/skills/ledger-engine/scripts/engine.cjs render investigation-check-in {work_unit} --file .ledger/.cache/{work_unit}/investigation/{work_unit}/check-in.json
 ```
-
-Between gates, a line or two on what just flipped and why it matters keeps the person with the hunt, and never ends the turn.
 
 ### What Only the Person Can Say
 
@@ -112,7 +110,7 @@ Once the fix is decided, log the fix direction (`investigation-log fix-direction
 
 ### Mail
 
-At natural pauses, check `topic mailbox {work_unit} {work_unit}`: a message is what was found elsewhere for this investigation to settle, such as one carried into its mailbox from before Ledger. Put the question it raises on the map, then remove the message: `topic answered {work_unit} {work_unit} {NNN-slug} --entry {question}`.
+At natural pauses, check `topic mailbox {work_unit} {work_unit}`: a message is what was found elsewhere for this investigation to settle, such as one carried into its mailbox from before Ledger. Put the question it raises on the map, asked with its id from before where the message carries a point from before, then remove the message: `topic answered {work_unit} {work_unit} {NNN-slug} --entry {question}`.
 
 ### The Log
 
@@ -129,7 +127,7 @@ Content is one JSON object on stdin; `{place}` is `{work_unit}.investigation.{wo
 - A validation → `investigation-log validation {work_unit} {which:[root-cause|fix]} --found "{what it found}" --did "{what you did with it}"`.
 - Any of these takes `--body {file}`, lines beneath its entry.
 - The plan → `render investigation-plan {work_unit} --file {plan} [--revised]`; a check-in → `render investigation-check-in {work_unit} --file {check-in}`.
-- A question → `ledger ask {place}`, `{"text", "by": "person|claude", "who_moved_whom": "none"}`.
+- A question → `ledger ask {place}`, `{"text", "by": "person|claude", "who_moved_whom": "none"}`, adding `"from_before": "{id}"` for a point from before.
 - A finding → `ledger find {place} [--relies-on {id} …]`, adding `"how"`, `"known"`, and `"command"` and `"result"` where exploratory.
 - A decision → `ledger decide {place} --answers {id} [--relies-on {id} …]`, `{"text", "why", "rules_out", "by", "who_moved_whom": "none"}`; a changed one → `ledger replace {place} --replaces {id} --reason {reason:[new-fact|changed-mind|was-wrong]} [--cause {id}]`, the content of the kind it replaces with `"drops"`, a line for each part of the old it drops.
 - A call → `raise {place} --answers {id}`; a fix a validation changes for the person → `raise {place} --replaces {id} --reason new-fact --cause {id}`; a fix settled afresh once the person keeps shaping → `raise {place} --replaces {id} --reason changed-mind`; each of the fix direction's adding `--always design-problem` where the root cause is a design problem; a fact only the person holds → `raise {place} --answers {id} --fact`; a run against a live server → `ledger ask {work_unit}.investigation`, then `raise {work_unit}.investigation --answers {id} --always live-server`.
@@ -138,28 +136,26 @@ Content is one JSON object on stdin; `{place}` is `{work_unit}.investigation.{wo
 - Earlier work → `knowledge query "{term}" …`.
 - Mail → `topic mailbox`, `topic answered`.
 - A shared file → `asset import`, `render import-reprompt`, `asset add`.
-- The close → `render conclude {work_unit} [--file {recap}]`, whose yes runs `investigation conclude {work_unit}`.
+- The close → `investigation stage {work_unit} --file {recap}`.
 - The work as a feature → `workunit move {work_unit} --to feature --file {payload}`, whose yes runs `start-this-work yes`.
 - The work leaving → `render cancel-gate {work_unit}`, whose `next` runs `workunit cancel`, which answers its receipt.
 - A gate's answer → `gate "{name}" --pick {key}`, or `--typed {key}` for a typed row such as a Comment.
 
 ## Closing
 
-The investigation closes once the root cause and the fix stand, both validated since, nothing of the person's open on the map and no mail waiting. It has no checklist.
+The investigation closes once the root cause and the fix stand, both validated since, nothing of the person's open on the map and no mail waiting. It has no checklist and no gate: the recap is shown at ready to build, whose yes concludes it.
 
 The recap names what the bug is in, for the bugs found after review:
 - `fixes` — the work unit whose code the bug is in, read from the code's history and the project's units; asked of the person where it isn't plain, and left out where no unit built that code.
-- `area` — where the project records a verify setup, the area of the feature map it names that the bug sits in, in the words the gate's DATA lists an area by where it is one already recorded; left out otherwise.
+- `area` — where the project records a verify setup, the area of the feature map it names that the bug sits in; left out otherwise.
 
-Write `{"hunt": "{one paragraph}", "fixes": "{unit}", "area": "{area}"}` — the hunt told short in product terms, what was suspected and what ruled each out, what proved the cause; `fixes` and `area` only where named — to `.ledger/.cache/{work_unit}/investigation/{work_unit}/recap.json`, then stage it and fetch the conclude gate:
+Write `{"hunt": "{one paragraph}", "fixes": "{unit}", "area": "{area}"}` — the hunt told short in product terms, what was suspected and what ruled each out, what proved the cause; `fixes` and `area` only where named — to `.ledger/.cache/{work_unit}/investigation/{work_unit}/recap.json`, then stage it:
 
 ```bash
-node .claude/skills/ledger-engine/scripts/engine.cjs render conclude {work_unit} --file .ledger/.cache/{work_unit}/investigation/{work_unit}/recap.json
+node .claude/skills/ledger-engine/scripts/engine.cjs investigation stage {work_unit} --file .ledger/.cache/{work_unit}/investigation/{work_unit}/recap.json
 ```
 
-Where its DATA lists the area you named under another spelling, stage the recap again with the DATA's before emitting anything. A refusal names the way on: work it, then fetch the gate again; one refusing the recap is staged again as it says.
-
-The screen asks a verdict of each call the person changed, one at a time; after each, draw `render conclude {work_unit}` again. At the conclude gate, follow the `next` of what the yes runs. A Comment that changes what the screen says is worked, and the recap staged again.
+A refusal names the way on: work it, then stage it again. Then follow its `next`.
 
 ## Backlogging
 
@@ -177,7 +173,7 @@ The cancel takes the unit's cache, its agents' rows with it: stop every task you
 
 ## A Shared File
 
-The person shares a file, a path or an image — a log, an export, a screenshot of the failure. Load **[importing-shared-files.md](../ledger-shared/references/importing-shared-files.md)** with home = `{work_unit}`, phase = `investigation`, and follow its instructions as written. What a file shows is evidence like any other: link each from the finding it informs, `asset add {work_unit} {path} --entry {finding} --status reference`, or from the log.
+The person shares a file, a path or an image — a log, an export, a screenshot of the failure. Load **[importing-shared-files.md](../ledger-shared/references/importing-shared-files.md)** with home = `{work_unit}`, phase = `investigation`, topic = `{work_unit}`, and follow its instructions as written. What a file shows is evidence like any other: link each from the finding it informs, `asset add {work_unit} {path} --entry {finding} --status reference`, or from the log. The log's line for a folder names what the import renamed in it.
 
 ## Reworking It as a Feature
 

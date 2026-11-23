@@ -18,17 +18,24 @@
 //   already is refused, so a spike carried on is never started twice.
 // - An import (9.10.5, 9.10.11): `import <unit|product> <path>…` copies the
 //   files the person shared into the unit's `assets/`, or the product's,
-//   each named by the landing's filename rules (import-landing.cjs), and
-//   answers each one's path from the state root, for the log or an entry to
+//   each named by the landing's filename rules (import-landing.cjs), a
+//   shared folder landing whole under its own name, its tree and its names
+//   kept, and answers each one's path from the state root, a folder's its
+//   folder's with its files listed (`folders`), and each name it changed
+//   beyond the file rules (`renamed_imports`), for the log or an entry to
 //   link. Nothing is committed: a file enters the state with what links it.
-//   A path naming no file refuses the call, naming every such path
-//   (`missing_imports`), as does a call whose every file the rules skip.
+//   A path naming no file or folder refuses the call, naming every such
+//   path (`missing_imports`), as do a folder holding what cannot land,
+//   naming each such path with why, and a call whose every file the rules
+//   skip.
 // - A link is the ledger's `asset` event (ledger-events.cjs): an entry, a
 //   file's path from the state root, and the status the link gives the
 //   file, the lift it records, or both.
 //   - `add` is the first link of an entry and a path, and gives its status
-//     (9.10.7). The path names something on disk below a home — the unit's
-//     `assets/` or one of its spikes, or the product's (9.10.5, 9.10.11) —
+//     (9.10.7), at a unit or at the product, there for a file linked from a
+//     finding standing at the product's place (18.11.1). The path names
+//     something on disk below a home — the unit's `assets/` or one of its
+//     spikes, or the product's (9.10.5, 9.10.11) —
 //     or a spike's folder itself; a path naming nothing is refused, to be
 //     corrected or skipped (9.10.22). A file in a spike is reference unless the status is said,
 //     as draft code is (9.10.6); anywhere else it is said. An entry already
@@ -38,8 +45,9 @@
 //   - `lift` records a linked file lifted into the project, at a path from
 //     the project's root that is there (9.10.16): a link giving no status,
 //     so a status after it leaves the lift standing (ledger-fold.cjs).
-//   Each link names a current entry made in the unit (5.8.17), and `status`
-//   and `lift` an entry linking the path already. An entry the link would
+//   Each link names a current entry made in the unit, or at the product's
+//   place (5.8.17), and `status` and `lift` an entry linking the path
+//   already; `lift` is a unit's alone. An entry the link would
 //   give nothing new is passed over, and a call giving none anything writes
 //   nothing.
 // - Each link is tagged as its entry is — its unit, topic and phase — so it
@@ -108,8 +116,8 @@ const SPIKE_FOLDER = new RegExp(`^([0-9]{3,})-(${KEBAB_SLUG})$`);
 const VERBS = Object.freeze({
   spike: { args: [`<work-unit|${PRODUCT}>`, '<slug>'], flags: {} },
   import: { args: [`<work-unit|${PRODUCT}>`, '<path>'], more: true, flags: {} },
-  add: { args: ['<work-unit>', '<path>'], flags: { entry: true, status: false } },
-  status: { args: ['<work-unit>', '<path>', `<${ASSET_STATUSES.join('|')}>`], flags: { entry: false } },
+  add: { args: [`<work-unit|${PRODUCT}>`, '<path>'], flags: { entry: true, status: false } },
+  status: { args: [`<work-unit|${PRODUCT}>`, '<path>', `<${ASSET_STATUSES.join('|')}>`], flags: { entry: false } },
   lift: { args: ['<work-unit>', '<path>'], flags: { into: true, entry: true } },
   legacy: { args: [], optional: `<work-unit|${PRODUCT}>`, flags: {} },
   keep: { args: [`<work-unit|${PRODUCT}>`, '<path>'], repeated: true, flags: {} },
@@ -173,6 +181,15 @@ function unitRoot(cwd, said, unit, { takes } = {}) {
   const dead = takes === undefined ? null : liveness(root)(unit, null) ?? (manifest.status === 'completed' ? `${unit} is completed` : null);
   if (dead !== null) throw new Error(`${said}: ${unit} takes no ${takes} — ${dead}`);
   return root;
+}
+
+/**
+ * The state root, `name` checked: the product, or a unit the project has.
+ * @param {string} cwd @param {string} said @param {string} name
+ * @returns {string}
+ */
+function linkRoot(cwd, said, name) {
+  return name === PRODUCT ? stateRoot(cwd) : unitRoot(cwd, said, name);
 }
 
 /**
@@ -256,23 +273,31 @@ function importFiles(cwd, [name, ...paths]) {
   assertLandableSources(cwd, paths);
   const dir = path.join(root, owner, 'assets');
   return withStateLock(root, () => {
-    const { planned, skipped } = planImports(paths, dir);
+    const { planned, skipped, renamed } = planImports(cwd, paths, dir);
     if (planned.length === 0) throw new Error(`${said}: nothing to land — the filename rules skip every file given (${skipped.join(', ')})`);
     copyImports(cwd, dir, planned);
-    return { imports: planned.map(({ dest }) => `${owner}/assets/${dest}`), skipped_imports: skipped };
+    const at = (/** @type {string} */ dest) => `${owner}/assets/${dest}`;
+    const folders = planned.flatMap(({ dest, files }) => (files === undefined ? [] : [{ path: at(dest), files: files.map(({ to }) => to) }]));
+    return {
+      imports: planned.map(({ dest }) => at(dest)),
+      skipped_imports: skipped,
+      ...(renamed.length === 0 ? {} : { renamed_imports: renamed.map(({ from, to }) => ({ from, to: at(to) })) }),
+      ...(folders.length === 0 ? {} : { folders }),
+    };
   });
 }
 
 /**
  * The home a linked path sits below, or is — a spike's folder itself — or
- * null: one of the layout's asset homes, a unit's being `unit`'s own.
+ * null: one of the layout's asset homes, a unit's being `unit`'s own, and
+ * none of them the product's.
  * @param {string} unit @param {string} rel
  * @returns {string|null}
  */
 function homeOf(unit, rel) {
   const home = assetHome(rel);
   if (home === null) return null;
-  return home.startsWith('{unit}/') && rel.split('/')[0] !== unit ? null : home;
+  return home.startsWith('{unit}/') && (unit === PRODUCT || rel.split('/')[0] !== unit) ? null : home;
 }
 
 /**
@@ -302,10 +327,10 @@ function spelledInState(said, cwd, given) {
 function firstStatus(said, root, unit, rel, status) {
   const home = homeOf(unit, rel);
   if (home === null) {
-    throw new Error(`${said}: ${rel} is not where an asset lives — ${unit}/assets/, a spike of ${unit}'s, ${unit}/spikes/NNN-{slug}/, `
-      + 'or the product\'s .product/assets/ or .product/spikes/NNN-{slug}/');
+    const units = unit === PRODUCT ? '' : `${unit}/assets/, a spike of ${unit}'s, ${unit}/spikes/NNN-{slug}/, or `;
+    throw new Error(`${said}: ${rel} is not where an asset lives — ${units}the product's .product/assets/ or .product/spikes/NNN-{slug}/`);
   }
-  if (!fs.existsSync(path.join(root, rel))) throw new Error(`${said}: ${rel} names no file — save it there first, or correct the path`);
+  if (!fs.existsSync(path.join(root, rel))) throw new Error(`${said}: ${rel} names no file — land the file shared first, asset import ${unit} '<path>', and link the path it answers, or correct the path`);
   if (status !== undefined) return checkedStatus(said, status);
   if (!SPIKE_HOMES.includes(home)) throw new Error(`${said}: a first link gives the file its status — --status <${ASSET_STATUSES.join('|')}>`);
   return 'reference';
@@ -487,7 +512,7 @@ function linkFile(cwd, said, root, unit, rel, plan) {
  */
 function addAsset(cwd, [unit, given], flags) {
   const said = 'asset add';
-  const root = unitRoot(cwd, said, unit);
+  const root = linkRoot(cwd, said, unit);
   const rel = spelledInState(said, cwd, given);
   const status = firstStatus(said, root, unit, rel, flags.status);
   return linkFile(cwd, said, root, unit, rel, (reading) => {
@@ -508,7 +533,7 @@ function addAsset(cwd, [unit, given], flags) {
 function changeStatus(cwd, [unit, given, asked], flags) {
   const said = 'asset status';
   const status = checkedStatus(said, asked);
-  const root = unitRoot(cwd, said, unit);
+  const root = linkRoot(cwd, said, unit);
   const rel = spelledInState(said, cwd, given);
   return linkFile(cwd, said, root, unit, rel, (reading) => {
     const entries = flags.entry === undefined ? entriesLinking(reading, unit, rel) : [linking(said, reading, unit, rel, flags.entry)];

@@ -93,6 +93,11 @@
 //   answer or one they hand Claude; Claude's own decision, move or merge of
 //   it is refused, checked with the links, before the call and under the
 //   lock.
+// - What a point from before holds open: a question asked as one, its id in
+//   `from_before`, in any of its wordings, is answered by the person, their
+//   own answer or one they hand Claude, through its raise; Claude's own
+//   decision of it, and its merge into a decision standing as Claude's
+//   call, are refused, naming the raise, under the lock.
 // - What is the person's (16.5.7): a decision of theirs, as written or as
 //   their keep of it since gives it, is changed by a raise alone, which
 //   always asks them; Claude's own `ledger replace` of one is refused,
@@ -192,7 +197,7 @@ const { derivedMove, movedRefusal, reverses } = require('./ledger-verdicts.cjs')
 const { heldAgainst } = require('./ledger-affected.cjs');
 const { newEvent, keepEvent, landKept } = require('./trust-log.cjs');
 const { checkUnparked } = require('./questions.cjs');
-const { voidDecidedClose, itemOf, itemArchived, bringBack } = require('./derivations.cjs');
+const { voidTopicClose, itemOf, itemArchived, bringBack } = require('./derivations.cjs');
 const { pastItsSpec } = require('./spec-standing.cjs');
 const { loadWorkUnitManifest, saveWorkUnitManifest } = require('../kernel/manifest.cjs');
 
@@ -545,7 +550,7 @@ const MEASURED = Object.freeze(['measured', 'exploratory']);
 
 /** The content a write may leave out, and what it takes instead. @type {Readonly<Record<string, unknown>>} */
 const DEFAULTS = Object.freeze({
-  rules_out: [], product_wide: false, sealed: null, alternatives: [], evidence: [], given: 'own', command: null, result: null, cites: [],
+  rules_out: [], product_wide: false, sealed: null, alternatives: [], evidence: [], given: 'own', command: null, result: null, cites: [], from_before: null,
 });
 
 /** @param {Flag} flag */
@@ -1028,28 +1033,30 @@ function replacedEntry(said, at, given, read) {
  * its schema names, one left out taking its default — for a replacement's
  * product-wide mark, the replaced entry's. A fault is a link, a field the
  * engine gives, a field the event does not hold — the fields it does
- * named, but those its caller supplies itself, `supplied` — a field it
+ * named, but those its caller supplies itself, `supplied` — or one the
+ * caller never takes, `withheld`, which keeps its default; a field it
  * needs that is missing, and one of another type; the content holds every
  * field but those.
- * @param {string} said @param {Write} write @param {Record<string, unknown>} given @param {IdFacts|null} replaced @param {string[]} [supplied]
+ * @param {string} said @param {Write} write @param {Record<string, unknown>} given @param {IdFacts|null} replaced @param {readonly string[]} [supplied] @param {readonly string[]} [withheld]
  * @returns {{content: Record<string, unknown>, faults: string[]}}
  */
-function contentFaults(said, write, given, replaced, supplied = []) {
+function contentFaults(said, write, given, replaced, supplied = [], withheld = []) {
   const fields = eventFields(write.event, replaced === null ? null : replaced.kind).filter((f) => !FLAG_FIELDS.has(f.name) && !ENGINE_FIELDS.has(f.name));
   const defaults = replaced === null || replaced.product_wide === null ? DEFAULTS : { ...DEFAULTS, product_wide: replaced.product_wide };
-  const held = fields.map((f) => f.name).filter((name) => !supplied.includes(name)).join(', ');
+  const taken = fields.filter((f) => !withheld.includes(f.name));
+  const held = taken.map((f) => f.name).filter((name) => !supplied.includes(name)).join(', ');
   const faults = Object.keys(given).flatMap((key) => {
     if (FLAG_FIELDS.has(key)) {
       const flag = write.flags.find((f) => f.field === key);
       return [`${said}: the content carries ${key}, a link — a link is given as a flag${flag ? ` (${flagName(flag)})` : ''}, never in the content`];
     }
     if (ENGINE_FIELDS.has(key)) return [`${said}: the content carries ${key}, which the engine gives`];
-    return fields.some((f) => f.name === key) ? [] : [`${said}: the content has no field ${key} — it holds ${held}`];
+    return taken.some((f) => f.name === key) ? [] : [`${said}: the content has no field ${key} — it holds ${held}`];
   });
   /** @type {Record<string, unknown>} */
   const content = {};
   for (const { name, type } of fields) {
-    if (!Object.hasOwn(given, name)) {
+    if (!Object.hasOwn(given, name) || withheld.includes(name)) {
       if (Object.hasOwn(defaults, name)) content[name] = structuredClone(defaults[name]);
       else faults.push(`${said}: the content needs ${name}`);
     } else if (!type.test(given[name])) {
@@ -1203,6 +1210,34 @@ function checkUnmeasured({ said, write, at, content }, linked, read) {
 }
 
 /**
+ * The question a write closes with a call of Claude's own, or null: Claude's
+ * own decision of it, or its merge into a decision that stands as Claude's
+ * call.
+ * @param {string} event @param {Record<string, unknown>} content @param {Linked} linked @param {Folded} read
+ * @returns {string|null}
+ */
+function closedAsClaudes(event, content, linked, read) {
+  if (event === 'decided') return content.by === 'claude' && content.given === 'own' ? /** @type {string} */ (linked.answers) : null;
+  if (event === 'merged') return whoseDecision(read, /** @type {string} */ (linked.into)) === 'claude' ? /** @type {string} */ (linked.question) : null;
+  return null;
+}
+
+/**
+ * Refuse, in the words of `said`, the command asking, the close of a
+ * question that is a point from before, in any of its wordings, with a
+ * call of Claude's own (`closedAsClaudes`): it comes to the person through
+ * its raise. Their answer, and one they hand Claude, land.
+ * @param {Request} request @param {Linked} linked @param {Folded} read
+ */
+function checkFromBefore({ said, write, at, content }, linked, read) {
+  const question = closedAsClaudes(write.event, content, linked, read);
+  const id = question === null ? null : factsOf(read, question).from_before;
+  if (question === null || id === null) return;
+  const short = shortId(question, read.facts.keys());
+  throw new Error(`${said}: ${short} is ${id}, a point from before — Claude never closes one with a call of its own; it comes to the person: raise ${at.dotpath} --answers ${short}`);
+}
+
+/**
  * Where a decision or a replacement is to be written and the entries its
  * links name, read and checked as `ledger <verb>` checks them before the
  * lock, against the ledger as it stands, and refused in the words of
@@ -1339,6 +1374,7 @@ function eventOf(request, read) {
   write.checkLinked(request.said, linked, read);
   request.checkLinks(linked, read);
   checkUnmeasured(request, linked, read);
+  checkFromBefore(request, linked, read);
   return {
     event: write.event, unit: at.unit, topic: at.topic, phase: at.phase, session,
     ...content, ...linked, ...followed(write, linked, read), ...(kind === 'decision' ? decisionGiven(label, unchecked) : {}),
@@ -1423,27 +1459,29 @@ function commitEntry(cwd, { at, write }, id, warnings, paths = []) {
 }
 
 /**
- * The topic a write opens a question on — asked there, or moved onto it —
- * or null for any other write.
+ * The topic whose work a write takes on, so voiding its close — a question
+ * asked there or moved onto it, or an entry replaced at a bugfix's
+ * investigation — or null for any other write.
  * @param {Address} at @param {Write} write @param {Record<string, unknown>} fields @returns {string|null}
  */
 function opensOn(at, write, fields) {
   if (write.event === 'asked') return at.topic;
   if (write.event === 'moved' && typeof fields.to === 'string' && roadmapItemOf(fields.to) === null) return fields.to;
+  if (write.event === 'replaced' && at.phase === 'investigation') return at.topic ?? at.unit;
   return null;
 }
 
 /**
- * The decided close of the topic a write opens a question on voided, where
- * one stands, under the writer lock the caller holds: the manifest's path
- * for the commit where it was, else none.
+ * The close of the topic whose work a write takes on voided, where one
+ * stands, under the writer lock the caller holds: the manifest's path for
+ * the commit where it was, else none.
  * @param {string} cwd @param {Address} at @param {Write} write @param {Record<string, unknown>} fields @returns {string[]}
  */
 function voidOnQuestion(cwd, at, write, fields) {
   const topic = opensOn(at, write, fields);
   if (topic === null || at.manifest === null) return [];
   const manifest = loadWorkUnitManifest(cwd, at.unit);
-  if (!voidDecidedClose(manifest, topic, new Date().toISOString())) return [];
+  if (!voidTopicClose(manifest, topic, new Date().toISOString())) return [];
   saveWorkUnitManifest(cwd, at.unit, manifest);
   return [`${at.unit}/manifest.json`];
 }

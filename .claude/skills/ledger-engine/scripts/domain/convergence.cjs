@@ -10,8 +10,8 @@
 //   placed by the ledger entry each names — the line it landed, where it
 //   was made — in time order. An agreement extends it; a departure breaks
 //   it; an answer the person didn't follow, their "don't care" on a blind
-//   question, Claude's own calls and an answer a reversal cancels do
-//   neither; answers in another topic, unit or phase never reach it. It
+//   question, an answer to a point from before, Claude's own calls and an
+//   answer a reversal cancels do neither; answers in another topic, unit or phase never reach it. It
 //   starts again from the person's latest no to the offer, kept in the
 //   topic's cache (`convergence.json`) — so a new machine may offer once
 //   more — and from their latest yes, which the trust log holds.
@@ -30,12 +30,16 @@
 //   wording alone, the calls put at once (labeller.cjs), one that fails
 //   coming to the person (16.19.8) — as a call sorted by its kind,
 //   `several`, since Claude has made none of them yet, made in the topic's
-//   discussion, blocking no build work, replacing nothing, and measured by
-//   the experiment still running that measures it, if any (9.1.11): those
+//   discussion, blocking no build work, replacing nothing, measured by the
+//   experiment still running that measures it, if any (9.1.11), and always
+//   asked where it is a point from before, as its raise would be: those
 //   the rule lets proceed, or sends Claude to check, Claude would settle;
 //   the rest come to the person. No blind draw enters it: at settle time a
 //   point may still be drawn blind, which the offer's DATA says
-//   (projections/convergence.cjs).
+//   (projections/convergence.cjs). An offer whose forecast has Claude settle
+//   none of them would settle nothing (16.8.9): due, nothing is drawn and
+//   the run starts again, as the person's no starts it, so the next answer
+//   labels nothing afresh; on the person's word, one line says so.
 // - `convergence accept <wu> <topic>`, the person's yes: stated intent,
 //   logged in the trust log as a `convergence` event (16.8.6, 16.13.4), its
 //   id drawn from the conversation and when the offer was shown, so a rerun
@@ -67,11 +71,11 @@ const { careEntries } = require('./person.cjs');
 const { labelsAtOnce, questionText, kindOf } = require('./labeller.cjs');
 const { rule } = require('./ask-rule.cjs');
 const { answeredTo, lastShown } = require('./gate.cjs');
-const { offerScreen, OFFER_GATE } = require('./projections/convergence.cjs');
+const { offerScreen, nothingToSettle, OFFER_GATE } = require('./projections/convergence.cjs');
 
 /** @typedef {import('./event-fields.cjs').Kind} Kind */
 /** @typedef {import('./ledger-fold.cjs').IdFacts} IdFacts */
-/** An open question on the topic: its id, its short form, its wording, and the experiment still running that measures it, null for none. @typedef {{id: string, short: string, text: string, measured: string|null}} Open */
+/** An open question on the topic: its id, its short form, its wording, the experiment still running that measures it, null for none, and whether it is a point from before. @typedef {{id: string, short: string, text: string, measured: string|null, from_before: boolean}} Open */
 /** The topic as it stands: the run of agreements, its open questions, and whether one of them was open at the person's latest yes. @typedef {{run: number, open: Open[], settling: boolean}} Standing */
 /** What the rule forecasts for an open question: its short id, its kind, and whether Claude would settle it. @typedef {{short: string, kind: Kind|null, mine: boolean}} Forecast */
 
@@ -85,6 +89,13 @@ const CONVERGENCE_USAGE = [ACCEPT_USAGE, DECLINE_USAGE].join('\n');
 
 /** Where the topic's cache keeps the person's no. @param {string} cwd @param {string} unit @param {string} topic */
 const declinedFile = (cwd, unit, topic) => statePath(cwd, '.cache', unit, PHASE, topic, DECLINED);
+
+/** The run on the topic started again from `at`, as the person's no starts it. @param {string} cwd @param {string} unit @param {string} topic @param {string} at */
+function restartRun(cwd, unit, topic, at) {
+  const file = declinedFile(cwd, unit, topic);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  writeJsonAtomic(file, { declined: at });
+}
 
 /** When the person last declined the offer on the topic, null where they never did. @param {string} cwd @param {string} unit @param {string} topic */
 function declinedAt(cwd, unit, topic) {
@@ -155,7 +166,7 @@ function topicStanding(cwd, unit, topic, warnings) {
     const askedAt = (/** @type {string} */ id) => Date.parse(String(entryAt(fact(fact(id).root).place).at));
     return {
       run: runIn(events, facts, unit, topic, latest(yes, declinedAt(cwd, unit, topic))),
-      open: ids.map((id) => ({ id, short: /** @type {string} */ (shorts.get(id)), text: String(entryAt(fact(id).place).text), measured: measuredBy(manifest, facts, id) })),
+      open: ids.map((id) => ({ id, short: /** @type {string} */ (shorts.get(id)), text: String(entryAt(fact(id).place).text), measured: measuredBy(manifest, facts, id), from_before: fact(id).from_before !== null })),
       // The ledger keeps whole seconds: a question asked in the yes's own second counts as open at it.
       settling: yes !== null && ids.some((id) => askedAt(id) <= yes),
     };
@@ -195,10 +206,10 @@ function forecastOf(cwd, unit, topic, open) {
   const project = { id: projectId(root), name: projectName(cwd) };
   const counts = countsOf(root, { model: modelOf(cwd), now: Date.now() });
   const labels = labelsAtOnce(open.map(({ text }) => questionText(text, [])));
-  return open.map(({ short, measured }, i) => {
+  return open.map(({ short, measured, from_before: fromBefore }, i) => {
     const label = labels[i];
     const { decision } = rule({ sort: 'several' }, {
-      label, place: { unit, phase: PHASE, topic }, blocks_build: false, replaced_by: null, measured, always: null, checked: false, project, counts, settings, care,
+      label, place: { unit, phase: PHASE, topic }, blocks_build: false, replaced_by: null, measured, always: null, from_before: fromBefore, checked: false, project, counts, settings, care,
     });
     return { short, kind: kindOf(label), mine: decision !== 'ask' };
   });
@@ -241,7 +252,11 @@ function convergenceSurface(cwd, { dotpath, asked }) {
   if (asked === undefined && !dueIn(standing)) {
     throw new Error(`${said}: no offer is due on ${title} at ${standing.run} agreement${standing.run === 1 ? '' : 's'} in a row; on the person's word, --asked`);
   }
-  return offerScreen({ title, unit, topic, run: asked === undefined ? standing.run : null, forecast: forecastOf(cwd, unit, topic, standing.open), warnings });
+  const forecast = forecastOf(cwd, unit, topic, standing.open);
+  if (forecast.some(({ mine }) => mine)) return offerScreen({ title, unit, topic, run: asked === undefined ? standing.run : null, forecast, warnings });
+  if (asked !== undefined) return nothingToSettle(title, forecast);
+  restartRun(cwd, unit, topic, new Date().toISOString());
+  return '';
 }
 
 /**
@@ -281,9 +296,7 @@ function accept(cwd, args) {
  */
 function decline(cwd, args) {
   const { unit, topic, answered } = answeredOffer('decline', args, DECLINE_USAGE);
-  const file = declinedFile(cwd, unit, topic);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  writeJsonAtomic(file, { declined: answered });
+  restartRun(cwd, unit, topic, answered);
   return { convergence: 'declined', unit, topic };
 }
 

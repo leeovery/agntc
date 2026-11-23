@@ -16,7 +16,9 @@
 //   may close meanwhile (9.1.11); and a question Claude marks as a design
 //   problem (19.4.22), testing against a live server (19.4.20), or code
 //   built otherwise than a decision from before Ledger (21.6.16), a mark
-//   that can only make it ask.
+//   that can only make it ask; and a question that is a point of the
+//   record the person brought from before, as the question says
+//   (`from_before`, raise.cjs), so it comes to them once.
 // - With no label — the labeller's call failed, or no login serves it —
 //   ask (16.19.8).
 // - Always ask where the label tells: a danger question, read from the
@@ -42,7 +44,10 @@
 //
 // The reason is in the person's words, from numbers and the names of the
 // kind and the project alone, never text from the trust log (16.9.2,
-// 16.1.3); the check's alone is Claude's, saying what to do.
+// 16.1.3); the check's alone is Claude's, saying what to do. A raise's face
+// says why it asks only where a rule always asks it — every reason above
+// the counts — its counts' reason kept behind its toggle: each answer says
+// which of the two gave it, `by`, for the raise's seal to keep.
 // ---------------------------------------------------------------------------
 
 const { kindOf, hardToUndo, checkable, danger } = require('./labeller.cjs');
@@ -57,6 +62,8 @@ const { HARD_TO_UNDO, ASK_AGAIN, buildRaised, midBuild } = require('./trust-sett
 /** @typedef {import('./ledger-events.cjs').DecidedBy} DecidedBy */
 /** @typedef {import('./event-fields.cjs').Always} Always */
 /** What the rule answers: ask the person, Claude's call proceeding, or Claude sent to check. @typedef {'ask'|'proceed'|'check'} Ruling */
+/** Which part of the rule decided: a rule that always asks or sends to check, or the counts. @typedef {'rule'|'counts'} By */
+/** The rule's answer, why, and which part of it decided. @typedef {{decision: Ruling, reason: string, by: By}} Answer */
 /** A care entry (16.5.2): a kind that always asks in one project, known by the project's id. @typedef {{project: string, kind: Kind}} CareEntry */
 /**
  * What the rule decides a call from beside its sort.
@@ -67,6 +74,7 @@ const { HARD_TO_UNDO, ASK_AGAIN, buildRaised, midBuild } = require('./trust-sett
  * @property {DecidedBy|null} replaced_by whose the entry the call would replace is — who decided it, or as the person's keep of it since was given, theirs or their "don't care" — null where it replaces none
  * @property {string|null} measured the experiment still running that measures the question the call answers, null for none
  * @property {Always|null} always the mark it always asks by, null for none
+ * @property {boolean} from_before whether its question is a point of the record the person brought from before
  * @property {boolean} checked sent to check once already
  * @property {{id: string, name: string}} project the project the call is made in
  * @property {Counts} counts the counts on the project, for the session's model, as of now
@@ -82,17 +90,22 @@ const ALWAYS = Object.freeze({
   'built-otherwise': 'The code was built otherwise than a decision from before Ledger, so it always comes to you.',
 });
 
+const FROM_BEFORE = 'It was where you had got to before, so it comes to you once.';
+
 const UNLABELLED = 'I couldn\'t tell what kind of question this is, so it comes to you.';
 const CHECK_IT = 'You can find this out: check it — read the code or the record, or run something — and raise it again only if checking can\'t settle it.';
 const CHECKED = 'Checking couldn\'t settle it, so it comes to you.';
 const DANGER = 'An answer here could lose data or weaken security, so it always comes to you.';
 const YOURS = 'You decided this yourself, so changing it always comes to you.';
 
-/** @param {string} reason @returns {{decision: Ruling, reason: string}} */
-const asks = (reason) => ({ decision: 'ask', reason });
+/** @param {string} reason @returns {Answer} */
+const ruled = (reason) => ({ decision: 'ask', reason, by: 'rule' });
 
-/** @param {string} reason @returns {{decision: Ruling, reason: string}} */
-const proceeds = (reason) => ({ decision: 'proceed', reason });
+/** @param {string} reason @returns {Answer} */
+const asks = (reason) => ({ decision: 'ask', reason, by: 'counts' });
+
+/** @param {string} reason @returns {Answer} */
+const proceeds = (reason) => ({ decision: 'proceed', reason, by: 'counts' });
 
 // The most places a percent is shown to: past them a bound and a line read
 // alike only where the bound is the line, to the bisection's precision.
@@ -131,14 +144,15 @@ function lineOf({ settings, blocks_build: blocks }, hard) {
 
 /**
  * Why the call asks before its label is read — replacing an entry of the
- * person's, on a question an experiment still running measures, under
- * Claude's mark, or with no label — or null.
- * @param {Context} context
+ * person's, on a question an experiment still running measures, on a point
+ * from before, under Claude's mark, or with no label — or null.
+ * @param {Pick<Context, 'replaced_by'|'measured'|'from_before'|'always'|'label'>} context
  * @returns {string|null}
  */
-function asksUnread({ replaced_by: by, measured, always, label }) {
+function asksUnread({ replaced_by: by, measured, from_before: fromBefore, always, label }) {
   if (by === 'person') return YOURS;
   if (measured !== null) return `Experiment ${measured}, still running, measures this question, so it comes to you.`;
+  if (fromBefore) return FROM_BEFORE;
   if (always !== null) return ALWAYS[always];
   return label === null ? UNLABELLED : null;
 }
@@ -146,7 +160,7 @@ function asksUnread({ replaced_by: by, measured, always, label }) {
 /**
  * Why the label makes the question always ask — danger, or a care entry on
  * its kind in this project — or null.
- * @param {Context} context @param {Kind} kind
+ * @param {Pick<Context, 'label'|'care'|'project'>} context @param {Kind} kind
  * @returns {string|null}
  */
 function asksByLabel({ label, care, project }, kind) {
@@ -202,16 +216,16 @@ function byKind({ counts, project }, kind, { limit, said }) {
  * once sent to check; else as the count of one-answer calls stands for a
  * call sorted `one`, and as its kind's count stands for any other.
  * @param {{sort: 'one'|'several'}} call @param {Context} context
- * @returns {{decision: Ruling, reason: string}}
+ * @returns {Answer}
  */
 function rule({ sort }, context) {
   const unread = asksUnread(context);
-  if (unread !== null) return asks(unread);
+  if (unread !== null) return ruled(unread);
   const label = /** @type {Label} */ (context.label);
   const kind = /** @type {Kind} */ (kindOf(label));
   const always = asksByLabel(context, kind);
-  if (always !== null) return asks(always);
-  if (checkable(label)) return context.checked ? asks(CHECKED) : { decision: 'check', reason: CHECK_IT };
+  if (always !== null) return ruled(always);
+  if (checkable(label)) return context.checked ? ruled(CHECKED) : { decision: 'check', reason: CHECK_IT, by: 'rule' };
   const line = lineOf(context, /** @type {boolean} */ (hardToUndo(label)));
   return sort === 'one' ? oneAnswer(context, line) : byKind(context, kind, line);
 }

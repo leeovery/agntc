@@ -1,7 +1,7 @@
 {
-  "leeovery/agentic-workflows": {
-    "ref": "reshape",
-    "commit": "a2c72ef1d3d48391fd3aeeea9a26bbde769a2b30",
+  "leeovery/ledger": {
+    "ref": "v0.9.0",
+    "commit": "b60fa5837dcf55d6b990fb0a1ac378a725f488d7",
     "files": [
       ".claude/skills/ledger/",
       ".claude/skills/ledger-continue-epic/",
@@ -11,9 +11,7 @@
       ".claude/skills/ledger-experiment-process/",
       ".claude/skills/ledger-implementation-process/",
       ".claude/skills/ledger-investigation-process/",
-      ".claude/skills/ledger-log-bug/",
-      ".claude/skills/ledger-log-idea/",
-      ".claude/skills/ledger-log-quickfix/",
+      ".claude/skills/ledger-keep/",
       ".claude/skills/ledger-migrate/",
       ".claude/skills/ledger-quick-fix-process/",
       ".claude/skills/ledger-review-process/",
@@ -44,7 +42,8 @@
       ".claude/agents/ledger-test-surface.md"
     ],
     "type": "pack",
-    "cloneUrl": "https://github.com/leeovery/agentic-workflows.git",
-    "installedAt": "2026-11-19T08:01:41.664Z"
+    "cloneUrl": "https://github.com/leeovery/ledger.git",
+    "installedAt": "2026-11-23T15:05:38.752Z",
+    "constraint": "^0.9.0"
   }
 }

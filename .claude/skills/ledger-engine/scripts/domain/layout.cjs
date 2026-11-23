@@ -21,11 +21,12 @@
 //           migrations record, a topic's brief, the record of the person's
 //           review of the spec, the record of the sweep taken, a
 //           quick-fix's short record after the work, the notes for later, a
-//           task's figures and the settlement of its failed round, a
-//           verification run, a review round's record, its report and its
-//           checks — with what it is and the verb that writes it, where
-//           one does;
-//   log     a log a session writes to, which a state commit takes along
+//           task's figures, the settlement of its failed round and the
+//           choice of its reviewers, a verification run, a review round's
+//           record, its report and its checks — with what it is and the
+//           verb that writes it, where one does;
+//   log     a log a session writes to, or the product's picture, which its
+//           conversation rewrites in place: each a state commit takes along
 //           (6.3.2).
 // A `file` place's `.txt` beside it is its staging (`stagedPlace`): an
 // agent writes the `.txt`, then renames it to the place — the two-step write
@@ -99,6 +100,7 @@ const LAYOUT = Object.freeze([
   place('file', '.inbox/{ideas,bugs,quickfixes}/{YYYY-MM-DD}--{slug}.md', '4.11.16'),
   place('file', '.inbox/.archived/{ideas,bugs,quickfixes}/{YYYY-MM-DD}--{slug}.md', '4.11.16'),
   place('log', '.product/sessions/session-{NNN}.md', '4.11.16'),
+  place('log', '.product/picture.md', '4.11.16'),
   place('file', '.product/notes/{YYYY-MM-DD}--{slug}.md', '4.11.16'),
   place('free', '.product/spikes/{NNN}-{slug}', '4.11.16'),
   place('free', '.product/assets', '4.11.16'),
@@ -108,6 +110,7 @@ const LAYOUT = Object.freeze([
   place('free', '.cache', '4.11.3'),
   engineFile('{unit}/manifest.json', '4.11.5', 'a unit\'s manifest', 'manifest set|push|pull|delete|apply'),
   place('log', '{unit}/discovery/session-{NNN}.md', '4.11.5'),
+  engineFile('{unit}/discovery/from-before.md', '4.11.5', 'an epic\'s points from before', 'start-this-work yes|discovery-log from-before'),
   place('free', '{unit}/seeds', '4.11.16'),
   engineFile('{unit}/topics/{topic}/brief.md', '4.11.5', 'a topic\'s brief', 'topic add|brief'),
   place('log', '{unit}/topics/{topic}/log.md', '4.11.5'),
@@ -130,6 +133,7 @@ const LAYOUT = Object.freeze([
   place('file', '{unit}/build/tasks/{task}/round-{N}-{letter}.md', '4.11.5'),
   engineFile('{unit}/build/tasks/{task}/figures.json', '4.11.5', 'a task\'s figures, as its account was taken', 'task account'),
   engineFile('{unit}/build/tasks/{task}/round-{N}-settled.md', '4.11.5', 'the orchestrator\'s settlement of a task\'s failed round', 'task settle'),
+  engineFile('{unit}/build/tasks/{task}/review.json', '13.3.4', 'the orchestrator\'s choice of a task\'s reviewers, and why', 'task review'),
   place('file', '{unit}/build/phases/phase-{N}/review-{letter}.md', '4.11.5'),
   place('file', '{unit}/build/phases/phase-{N}/consolidation.md', '4.11.5'),
   place('file', '{unit}/build/phases/phase-{N}/{area}-{letter}.md', '4.11.5'),
@@ -143,9 +147,10 @@ const LAYOUT = Object.freeze([
   place('file', '{unit}/review/round-{N}/{area}-{letter}.md', '4.11.5'),
 ]);
 
-/** The product's folder, its conversation's session logs, and the roadmap's notes (4.11.16). */
+/** The product's folder, its conversation's session logs and its picture of where the product stands, and the roadmap's notes (4.11.16). */
 const PRODUCT_DIR = '.product';
 const PRODUCT_SESSIONS = `${PRODUCT_DIR}/sessions`;
+const PRODUCT_PICTURE = `${PRODUCT_DIR}/picture.md`;
 const PRODUCT_NOTES = `${PRODUCT_DIR}/notes`;
 
 /** The places a file informing the work sits below: the assets and the spikes, a unit's and the product's (4.11.5, 4.11.12). */
@@ -276,4 +281,4 @@ function engineRefusal(at, rel) {
   return `${at.what} (${rel}) changes only through the engine's commands${at.verb === undefined ? '' : ` — engine ${at.verb}`}`;
 }
 
-module.exports = { LAYOUT, SPEC_PLACE, PRODUCT_DIR, PRODUCT_SESSIONS, PRODUCT_NOTES, SPIKE_HOMES, IN_LOWER_CASE, folding, layoutPlace, stagedPlace, assetHome, engineRefusal };
+module.exports = { LAYOUT, SPEC_PLACE, PRODUCT_DIR, PRODUCT_SESSIONS, PRODUCT_PICTURE, PRODUCT_NOTES, SPIKE_HOMES, IN_LOWER_CASE, folding, layoutPlace, stagedPlace, assetHome, engineRefusal };
